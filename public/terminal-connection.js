@@ -1,5 +1,8 @@
 import { outputTextForUpdate } from "./ui-model.js?v=1.2.12";
 
+const ATTACH_MESSAGES = new Set(["pty-data", "input-ready", "attach-held", "attach-resumed", "pane-geometry",
+  "attach-unavailable", "attach-error", "pty-exit", "pty-input-dropped"]);
+
 export function terminalConnection({ credentials, onOutput, onDisconnect, onAuthenticationRequired,
   onStatus = () => {}, onStatusesReady = () => {}, onStatusesUnavailable = () => {},
   WebSocketImpl = WebSocket, url = new URL("/api/terminal", location.href.replace(/^http/, "ws")) }) {
@@ -18,8 +21,6 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
   let attached = null;
   const attachListeners = new Set();
   const reconnectListeners = new Set();
-  const ATTACH_MESSAGES = new Set(["pty-data", "input-ready", "attach-held", "attach-resumed", "pane-geometry",
-    "attach-unavailable", "attach-error", "pty-exit", "pty-input-dropped"]);
   // Attach traffic is best effort: a socket that is reconnecting drops it, and
   // the reconnect attaches again from a clean screen.
   function transmitIfReady(message) {
@@ -35,7 +36,7 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
     socket.send(JSON.stringify(message));
   }
   function connect() {
-    if (suspended || socket || !wanted && !attached) return;
+    if (suspended || socket || (!wanted && !attached)) return;
     const current = new WebSocketImpl(url);
     socket = current;
     current.onopen = () => current.send(JSON.stringify({ type: "auth", ...credentials() }));

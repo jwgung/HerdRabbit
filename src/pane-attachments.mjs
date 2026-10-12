@@ -54,8 +54,6 @@ export class PaneAttachments {
     this.log = log;
   }
 
-  has(client, paneId) { return this.#attachments.get(paneId)?.clients.has(client) === true; }
-
   // Joins the pane's attachment, creating it when nobody has it open. An
   // observer, or a client that keeps the pane's size, never resizes the grid.
   async attach(client, paneId, { cols, rows, keepSize = false }) {
@@ -178,8 +176,16 @@ export class PaneAttachments {
       else paused = true;
     }
     if (this.#attachments.get(paneId) !== attachment) return;
-    if (paused) attachment.pty.pause();
-    else attachment.pty.resume();
+    clearTimeout(attachment.stallCheck);
+    if (paused) {
+      attachment.pty.pause();
+      // A paused pty writes nothing, so nothing else would call this again: a
+      // client that never acknowledges (a phone gone to the background) must
+      // still be dropped once its time is up.
+      attachment.stallCheck = setTimeout(() => this.#reconcile(paneId), OUTPUT_STALL_MS);
+    } else {
+      attachment.pty.resume();
+    }
   }
 
   #resize(paneId, cols, rows) {
@@ -197,6 +203,7 @@ export class PaneAttachments {
     this.#attachments.delete(paneId);
     clearTimeout(attachment.retry);
     clearTimeout(attachment.relookup);
+    clearTimeout(attachment.stallCheck);
     attachment.closed = true;
     for (const client of attachment.clients) this.#windowsOf(client).delete(paneId);
     // herdr frees its one attach slot only once the old attach has exited.
@@ -255,12 +262,15 @@ export class PaneAttachments {
       this.#broadcast(paneId, { type: "pty-exit", pane_id: paneId, code: null });
       this.#close(paneId);
     };
+    const restart = () => {
+      try { attachment.pty = start(); } catch (error) { fail(error); }
+    };
     const again = () => {
       if (!current() || trying) return;
       clearTimeout(attachment.retry);
       attachment.retry = undefined;
       if (attachment.clients.size === 0) { this.#close(paneId); return; }
-      try { attachment.pty = start(); } catch (error) { fail(error); }
+      restart();
     };
     const start = () => {
       let takingOver = mayTakeOver(takeover) ? takeover : null;
@@ -384,7 +394,7 @@ export class PaneAttachments {
             terminal = next;
             refusedSince = null;
             retries = 0;
-            try { attachment.pty = start(); } catch (error) { fail(error); }
+            restart();
           }, (error) => {
             if (!current()) return;
             if (PANE_GONE_CODES.has(error?.code)) { finish(); return; }

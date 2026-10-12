@@ -112,12 +112,8 @@ function findUrls(text) {
   return nonOverlapping;
 }
 
-// Viewable paths in one terminal line, as [start, end) string offsets.
+// Viewable paths in terminal text, as [start, end) string offsets.
 export function findTerminalPaths(text, isViewable) {
-  return pathLinks(text, isViewable);
-}
-
-function pathLinks(text, isViewable) {
   const links = [];
   for (const match of text.matchAll(PATH_PATTERN)) {
     const raw = match[1];
@@ -178,7 +174,7 @@ export function linkTerminalSegments(segments, { isViewablePath = () => false } 
 
   // A URL wins where the two overlap: "https://x/a.md" is one address, not an
   // address next to a file.
-  for (const link of pathLinks(text, isViewablePath)) {
+  for (const link of findTerminalPaths(text, isViewablePath)) {
     if (!links.some((found) => link.start < found.end && found.start < link.end)) links.push(link);
   }
   links.sort((first, second) => first.start - second.start);

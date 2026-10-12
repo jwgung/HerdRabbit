@@ -20,3 +20,10 @@ test("joins only right-edge continuations of a narrow prompt", () => {
   expect(secretPrompt("Enter passphrase for key\n'/tmp/key':", 80)).toBeNull();
   expect(secretPrompt("This is prose that ends\nPassword?", 24)).toBeNull();
 });
+
+test("recognizes git's URL password prompt and the plain password and passphrase forms", () => {
+  for (const prompt of ["Password for 'https://alice@github.com':", "Enter password:", "Passphrase:", "Enter passphrase for key '/home/a/.ssh/id':"]) {
+    expect(secretPrompt(`$ git push\n${prompt} `)).toBe(prompt);
+  }
+  expect(secretPrompt("Enter your favourite password:")).toBeNull();
+});

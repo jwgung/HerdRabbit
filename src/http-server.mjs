@@ -106,6 +106,8 @@ const FRAMED_TYPES = new Map([
 ]);
 
 
+// Styles may be inline because xterm's renderer adds <style> elements of its
+// own. Scripts, fonts, images and connections stay with this origin.
 function applySecurityHeaders(response) {
   response.setHeader(
     "Content-Security-Policy",
@@ -542,6 +544,17 @@ export function createHerdrHttpServer({
 } = {}) {
   if (!herdr) {
     throw new TypeError("herdr client is required");
+  }
+
+  // A message sent while the pane asks for a password is that password: the
+  // page keeps it out of its input history, and no request is recorded. A
+  // screen that cannot be read counts as asking for nothing.
+  async function asksForSecret(paneId) {
+    try {
+      return secretPrompt(await herdr.readPane(paneId, { lines: 4, format: "text" })) !== null;
+    } catch {
+      return false;
+    }
   }
 
   // One password check at a time: a burst sent while unlocked would otherwise
@@ -1200,10 +1213,11 @@ export function createHerdrHttpServer({
         requireWriteAuthorization(request, csrfToken);
         const body = await readJsonBody(request, maxBodyBytes);
         const paneId = decodePaneId(textMatch[1]);
+        const secret = body.submit === true && await asksForSecret(paneId);
         await herdr.sendText(paneId, body.text, {
           submit: body.submit === true,
         });
-        if (body.submit === true) {
+        if (body.submit === true && !secret) {
           notificationMonitor?.recordRequest(paneId, body.text);
         }
         sendJson(response, 200, { ok: true });
@@ -1331,17 +1345,12 @@ export function createHerdrHttpServer({
       if (auth.required && (!auth.hasValidSession(request.headers.cookie) ||
           !auth.hasValidLaunchToken(credentials.launchToken))) throw new Error("Authentication required");
     },
-    // A message sent while the pane asks for a password is that password: the
-    // page keeps it out of its input history, and no request is recorded.
     async sendInput(message) {
       let secret = false;
       if (message.keys) await herdr.sendKeys(message.paneId, validation.validateKeys(message.keys));
       else {
         const text = validation.validateText(message.text);
-        if (message.submit === true) {
-          const screen = await herdr.readPane(message.paneId, { lines: 4, format: "text" }).catch(() => "");
-          secret = secretPrompt(screen) !== null;
-        }
+        if (message.submit === true) secret = await asksForSecret(message.paneId);
         await herdr.sendText(message.paneId, text, { submit: message.submit === true });
       }
       outputWatcher.input(message.paneId);

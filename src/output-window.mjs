@@ -82,6 +82,4 @@ export class ReplayBuffer {
     const keys = this.#modifyOtherKeys > 0 ? `\x1b[>4;${this.#modifyOtherKeys}m` : "";
     return [...this.#modes].map(([mode, state]) => `\x1b[?${mode}${state}`).join("") + keys + this.#tail;
   }
-
-  get recent() { return this.#tail; }
 }

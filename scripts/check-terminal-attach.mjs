@@ -1,0 +1,101 @@
+// Browser check of the attached terminal: xterm shows herdr's stream, typing
+// reaches the pty, a held pane offers "Open here", and a pane that cannot
+// attach falls back to the screen-text view. Runs against a fake herdr.
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { once } from "node:events";
+import { createHerdrHttpServer } from "../src/http-server.mjs";
+import { PaneAttachments } from "../src/pane-attachments.mjs";
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
+
+const snapshot = JSON.parse(await readFile(new URL("../test/fixtures/fake-state.template.json", import.meta.url), "utf8")).snapshot;
+const ptys = [];
+let held = false;
+const attachments = new PaneAttachments({
+  log: () => {},
+  options: { holdMs: 5, heldRetryMs: 60_000 },
+  // w2:p1 stands for a pane that cannot attach (another server's, for now).
+  resolveTerminal: async (paneId) => {
+    if (paneId === "w2:p1") throw Object.assign(new Error("Terminal attach is not available for this server yet"), { code: "attach_unsupported" });
+    return { command: "herdr", args: ["terminal", "attach", `term_${paneId}`], env: {}, terminalId: `term_${paneId}` };
+  },
+  spawnPty: (options) => {
+    let exit;
+    const pty = {
+      options, written: "", sizes: [], exited: new Promise((resolve) => { exit = resolve; }),
+      write(data) { this.written += data; options.onData(data === "\r" ? "\r\n$ " : data); },
+      resize(cols, rows) { this.sizes.push([cols, rows]); },
+      pause() {}, resume() {},
+      // herdr frees the pane's attach slot once this attach has exited.
+      kill() { exit(); },
+    };
+    ptys.push(pty);
+    setTimeout(() => {
+      if (held && !options.args.includes("--takeover")) {
+        options.onData("\x1b[?1049l\x1b[?25h\x1b[0 qherdr: terminal attach failed: terminal already has an attached client; retry with --takeover\r\n");
+        options.onExit(1);
+      } else {
+        options.onData("\x1b[?1049hready 한글 /tmp/notes.md\r\n$ ");
+      }
+    }, 10);
+    return pty;
+  },
+});
+const { server } = createHerdrHttpServer({
+  herdr: {
+    async snapshot() { return snapshot; },
+    async readPane() { return "screen text view\n$ "; },
+    async sendText() {},
+    async sendKeys() {},
+  },
+  attachments,
+  logger: { info() {}, error() {} },
+});
+server.listen(0, "127.0.0.1");
+await once(server, "listening");
+const url = `http://127.0.0.1:${server.address().port}`;
+const browser = await chromium.launch({ args: ["--no-sandbox"] });
+try {
+  for (const mobile of [false, true]) {
+    ptys.length = 0;
+    held = false;
+    const page = await browser.newPage({ serviceWorkers: "block", hasTouch: mobile, isMobile: mobile,
+      viewport: { width: mobile ? 390 : 1280, height: 844 } });
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
+    // xterm separates cells with no-break spaces: match the text, not the words.
+    const shows = (text) => page.waitForFunction((wanted) => document.querySelector("#terminal-xterm .xterm-rows")?.textContent.replace(/\u00a0/gu, " ").includes(wanted), text);
+    await shows("ready 한글");
+    assert.equal(await page.locator("#terminal-output").isHidden(), true, "the screen-text view gives way to xterm");
+    await page.locator("#terminal-xterm .xterm").click();
+    await page.keyboard.type("echo hi");
+    await page.keyboard.press("Enter");
+    await shows("echo hi");
+    assert.equal(ptys[0].written, "echo hi\r");
+    assert.ok(ptys[0].sizes.length > 0 || ptys[0].options.cols > 0, "the pty follows the browser's size");
+
+    // A pane another client holds: the banner offers to take it.
+    held = true;
+    await page.evaluate(() => { history.replaceState(null, "", "?pane=w1%3Ap2"); });
+    await page.reload();
+    await page.locator("#terminal-held").waitFor({ state: "visible" });
+    await page.locator("#terminal-take-over").click();
+    await page.waitForFunction(() => document.querySelector("#terminal-held").hidden);
+    assert.ok(ptys.some((pty) => pty.options.args.includes("--takeover")));
+
+    // A pane that cannot attach keeps the screen-text view.
+    held = false;
+    await page.evaluate(() => { history.replaceState(null, "", "?pane=w2%3Ap1"); });
+    await page.reload();
+    await page.locator("#terminal-output").filter({ hasText: "screen text view" }).waitFor();
+    assert.equal(await page.locator("#terminal-xterm").isHidden(), true);
+    assert.deepEqual(errors, []);
+    console.log({ mobile, attached: true, typing: true, heldTakeOver: true, fallback: true });
+    await page.close();
+  }
+} finally {
+  await browser.close();
+  attachments.close();
+  await new Promise((resolve) => server.close(resolve));
+}

@@ -8,7 +8,7 @@ export function secretPrompt(screen, columns = Infinity) {
   for (;;) {
     const candidate = line.trimStart();
     if (!candidate || candidate.length > 120 || /\?|y\s*\/\s*n/iu.test(candidate)) return null;
-    if (/^(?:\[sudo\] password for [^:]+|[^\s@]+@[^\s:]+['’]s password|password(?: for [^:]+)?|enter passphrase(?: for key ['’][^\r\n]+['’])?|enter pin(?: for [^:]+)?|(?:repeat|verify|confirm) password):$/iu.test(candidate)) return candidate;
+    if (/^(?:\[sudo\] password for [^:]+|[^\s@]+@[^\s:]+['’]s password|(?:enter )?password(?: for (?:['’][^'’\r\n]+['’]|[^:]+))?|(?:enter )?passphrase(?: for key ['’][^\r\n]+['’])?|enter pin(?: for [^:]+)?|(?:repeat|verify|confirm) password):$/iu.test(candidate)) return candidate;
     // herdr's screen text loses xterm's soft-wrap flags: only a row that
     // reached the right edge continues onto the next.
     const previous = lines.pop()?.trimEnd();

@@ -21,3 +21,5 @@ cp node_modules/@xterm/xterm/css/xterm.css /path/to/herdrabbit/public/vendor/xte
 ```
 
 Changing the xterm version means checking the patch again against the new source.
+
+The committed `public/vendor/xterm.mjs` has SHA-256 `4835d3e603be3a14140c0ba9a12dd5e1e1d12e0357e7d019e15464f0c96506fe`.

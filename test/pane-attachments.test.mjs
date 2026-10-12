@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
 import { PaneAttachments } from "../src/pane-attachments.mjs";
-import { OUTPUT_HIGH_BYTES } from "../src/output-window.mjs";
+import { OUTPUT_HIGH_BYTES, OUTPUT_STALL_MS } from "../src/output-window.mjs";
 
 const HELD = "\x1b[?1049l\x1b[?25h\x1b[0 qherdr: terminal attach failed: terminal term_1 already has an attached client; retry with --takeover\r\n";
 const RACE = "herdr: terminal attach failed: terminal term_1 has a read in progress; retry\r\n";
@@ -186,5 +186,23 @@ test("attaches that arrive together share one lookup and one pty", async () => {
   await Promise.all([attachments.attach(one, "p", { cols: 80, rows: 24 }), attachments.attach(two, "p", { cols: 80, rows: 24 })]);
   assert.equal(herdr.spawns.length, 1);
   await assert.rejects(attachments.attach(one, "r", { cols: 0, rows: 24 }), RangeError);
+  attachments.close();
+});
+
+test("a client that never acknowledges is dropped even though the paused pty writes nothing more", async () => {
+  const { herdr, attachments } = setup();
+  const phone = client();
+  const desk = client();
+  await attachments.attach(phone, "p", { cols: 80, rows: 24 });
+  await attachments.attach(desk, "p", { cols: 80, rows: 24 });
+  herdr.spawns[0].emit("ready");
+  await sleep(20);
+  herdr.spawns[0].emit("x".repeat(OUTPUT_HIGH_BYTES));
+  const { stream_id: streamId, offset } = desk.messages.at(-1).flow;
+  attachments.acknowledge(desk, "p", streamId, offset);
+  assert.equal(herdr.spawns[0].paused, true, "the phone is behind");
+  await sleep(OUTPUT_STALL_MS + 100);
+  assert.equal(phone.closed, 4002);
+  assert.equal(herdr.spawns[0].paused, false, "the desk gets output again");
   attachments.close();
 });

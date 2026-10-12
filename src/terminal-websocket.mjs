@@ -1,5 +1,7 @@
 import { WebSocketServer } from "ws";
 
+const MAX_PENDING_ATTACHES = 4;
+
 // Authentication stays with the HTTP server. No launch token is put in a URL.
 export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMessage,
   sendInput, watchOutput, watchStatuses, attachments = null, onRequest = () => {}, onSessionsEnded = () => () => {} }) {
@@ -28,6 +30,7 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
     let writing = false;
     let stopped = false;
     let alive = true;
+    let attaching = 0;
     const send = message => {
       if (ws.readyState !== ws.OPEN) return;
       if (ws.bufferedAmount > 2 * 1024 * 1024) { ws.close(1013, "Client too slow"); return; }
@@ -133,11 +136,16 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
           });
           return;
         }
+        // `keepSize` and the observe role keep a viewer from resizing the shared
+        // grid; the chat view uses them for a terminal it only keeps warm.
         if (message.type === "attach") {
           const id = paneId(message.paneId);
           if (message.keepSize !== undefined && typeof message.keepSize !== "boolean") throw new Error("Invalid attach");
-          if (!attachments) { send({ type: "attach-unavailable", pane_id: id }); return; }
+          // Each lookup runs herdr a few times: a page opens one pane at a time.
+          if (!attachments || attaching >= MAX_PENDING_ATTACHES) { send({ type: "attach-unavailable", pane_id: id }); return; }
+          attaching += 1;
           attachments.attach(viewer, id, { cols: message.cols, rows: message.rows, keepSize: message.keepSize === true })
+            .finally(() => { attaching -= 1; })
             .catch(error => {
               if (stopped) return;
               if (error instanceof RangeError) { stopped = true; ws.close(1008, "Invalid terminal request"); return; }

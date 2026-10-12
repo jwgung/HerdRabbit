@@ -97,8 +97,9 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       }
       return true;
     });
-    term.onData((data) => { if (paneId && ready && !held) connection.ptyInput(paneId, data); });
-    term.onBinary((data) => { if (paneId && ready && !held) connection.ptyInput(paneId, data); });
+    const type = (data) => { if (paneId && ready && !held) connection.ptyInput(paneId, data); };
+    term.onData(type);
+    term.onBinary(type);
     term.onResize(({ cols, rows }) => {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => { if (paneId) connection.resize(paneId, cols, rows); }, RESIZE_DEBOUNCE_MS);
@@ -235,14 +236,11 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       attachCurrent();
       return true;
     },
-    hide() { if (paneId) stop(); },
     takeOver() { if (paneId && held) connection.takeOver(paneId); },
-    focus() { term?.focus(); },
     setFontSize(size) {
       if (!term) return;
       term.options.fontSize = size;
       fitNow();
     },
-    get paneId() { return paneId; },
   };
 }
