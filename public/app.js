@@ -3075,8 +3075,10 @@ const attachedTerminal = createAttachedTerminal({
     showAttachedView(false);
     void refreshOutput();
   },
-  onStateChange: ({ paneId, held }) => {
-    if (paneId === state.selectedPaneId) elements.terminalHeld.hidden = !held;
+  onStateChange: ({ paneId, held, dropped }) => {
+    if (paneId !== state.selectedPaneId) return;
+    elements.terminalHeld.hidden = !held;
+    if (dropped) setFeedback("Typing did not reach the terminal while it reconnected. Check the screen before typing again.", true);
   },
   isViewablePath: isViewableTerminalPath,
   onPath: openTerminalPath,

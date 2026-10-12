@@ -230,3 +230,16 @@ test("one screen sets the shared size: the first to open it, then whoever types,
   assert.equal(geometry(desk).owner, true);
   attachments.close();
 });
+
+test("an attach that only sets its modes and then stays quiet is ready once no refusal came", async () => {
+  const { herdr, attachments } = setup();
+  const desk = client();
+  await attachments.attach(desk, "p", { cols: 80, rows: 24 });
+  herdr.spawns[0].emit("\x1b[?1049h\x1b[?1000h");
+  await sleep(20);
+  assert.ok(!desk.types().includes("input-ready"), "too early to tell");
+  await sleep(60);
+  assert.ok(desk.types().includes("input-ready"));
+  assert.equal(desk.output(), "\x1b[?1049h\x1b[?1000h");
+  attachments.close();
+});

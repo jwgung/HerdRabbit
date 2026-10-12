@@ -20,11 +20,13 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@lydell/node-pty": "1.1.0",
     "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/server": "^14.0.1",
     "marked": "^18.0.12",
     "web-push": "^3.6.7",
     "ws": "^8.21.3"
+  },
+  "optionalDependencies": {
+    "@lydell/node-pty": "1.1.0"
   }
 }

@@ -319,6 +319,7 @@ export class PaneAttachments {
       let heldSince = 0;
       let holding = false;
       let holdTimer;
+      let quietTimer;
       const outputTail = new AttachOutputTail();
       let tailTimer;
       const flushTail = (taken = false) => {
@@ -337,6 +338,7 @@ export class PaneAttachments {
       let retired = false;
       const release = () => {
         clearTimeout(holdTimer);
+        clearTimeout(quietTimer);
         if (held === null) return;
         const data = held;
         held = null;
@@ -369,6 +371,7 @@ export class PaneAttachments {
       const ended = (code) => {
         trying = false;
         clearTimeout(holdTimer);
+        clearTimeout(quietTimer);
         clearTimeout(tailTimer);
         if (!current()) return;
         if (attachment.ready) this.#broadcast(paneId, { type: "input-ready", pane_id: paneId, ready: false });
@@ -450,6 +453,14 @@ export class PaneAttachments {
           if (retired || !current()) return;
           output = (output + data).slice(-1024);
           if (held === null) { publish(data); return; }
+          // An attach that set its modes and then stays quiet (an idle pane
+          // with nothing to redraw) took too: with no refusal by then, it is ready.
+          if (held === "") quietTimer = setTimeout(() => {
+            if (holding || held === null) return;
+            holding = true;
+            heldSince = Date.now();
+            took();
+          }, options.refusalExitMs);
           held += data;
           if (!holding && !ATTACH_PREAMBLE_RE.test(held)) {
             holding = true;

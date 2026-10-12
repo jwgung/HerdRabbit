@@ -211,6 +211,10 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       case "attach-error":
         fallBack(message.code === "attach_unsupported" ? Infinity : Date.now() + RETRY_ATTACH_MS);
         break;
+      // Typing that arrived while the attach was not ready never reached the pane.
+      case "pty-input-dropped":
+        setState({ dropped: true });
+        break;
       // herdr ended the attach: the screen text shows the pane meanwhile.
       case "pty-exit":
         fallBack(Date.now() + RETRY_ATTACH_MS);
