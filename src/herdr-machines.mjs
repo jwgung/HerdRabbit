@@ -338,8 +338,9 @@ export class HerdrMachines {
   // The first listing runs in the background: a `herdr machine list` that
   // hangs must not keep the server from opening.
   start() {
-    void this.refresh();
-    this.timer = setInterval(() => { void this.refresh(); }, this.refreshMs);
+    const refresh = () => this.refresh().catch((error) => this.log(`Refreshing Herdr machines failed: ${error.message}`));
+    void refresh();
+    this.timer = setInterval(refresh, this.refreshMs);
     this.timer.unref?.();
   }
 
