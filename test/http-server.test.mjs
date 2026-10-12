@@ -1133,10 +1133,13 @@ test("signing out everywhere ends every session, the caller's too", async (conte
 });
 
 test("a browser that signs in again replaces its own entry; its device cookie outlives sign-out", async (context) => {
-  const auth = new PasswordAuth(await createPasswordConfiguration("secret"));
+  // Each sign-in here comes well after the last, as a person signs in again.
+  let clock = Date.now();
+  const auth = new PasswordAuth(await createPasswordConfiguration("secret"), { now: () => clock });
   const app = await startServer({ async snapshot() { return {}; } }, { auth });
   context.after(() => closeServer(app.server));
   const signIn = async (cookie = "") => {
+    clock += 31_000;
     const response = await fetch(`${app.baseUrl}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Origin: app.baseUrl, "X-Forwarded-Proto": "https", ...(cookie ? { Cookie: cookie } : {}) },
@@ -1189,7 +1192,9 @@ test("a browser that signs in again replaces its own entry; its device cookie ou
 });
 
 test("a passkey sign-in from the same browser replaces its entry too, and leaves other browsers alone", async (context) => {
-  const auth = new PasswordAuth(await createPasswordConfiguration("secret"));
+  // Each sign-in here comes well after the last, as a person signs in again.
+  let clock = Date.now();
+  const auth = new PasswordAuth(await createPasswordConfiguration("secret"), { now: () => clock });
   const passkeys = {
     get hasCredentials() { return true; },
     async beginAuthentication() { return { attemptId: "passkey-attempt", options: { challenge: "c" } }; },
@@ -1211,7 +1216,7 @@ test("a passkey sign-in from the same browser replaces its entry too, and leaves
     headers: { "Content-Type": "application/json", Origin: app.baseUrl, ...(cookie ? { Cookie: cookie } : {}) },
     body: JSON.stringify(body),
   });
-  const withPasskey = async (cookie) => signedIn(await post("/api/auth/passkeys/login/verify", { attemptId: "passkey-attempt", credential: { id: "c" } }, cookie));
+  const withPasskey = async (cookie) => (clock += 31_000, signedIn(await post("/api/auth/passkeys/login/verify", { attemptId: "passkey-attempt", credential: { id: "c" } }, cookie)));
   const listed = async (headers) => (await (await fetch(`${app.baseUrl}/api/auth/sessions`, { headers })).json()).sessions;
 
   const other = await signedIn(await post("/api/auth/login", { password: "secret" }));

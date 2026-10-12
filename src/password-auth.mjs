@@ -18,6 +18,8 @@ const PASSKEY_DEVICE_TYPES = new Set(["singleDevice", "multiDevice"]);
 const PASSKEY_HANDLE_PATTERN = /^[A-Za-z0-9_-]{22}$/u;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/u;
 const MAX_SESSIONS = 64;
+// Sign-ins from one device this close together may still be answering.
+const RECENT_SIGN_IN_SECONDS = 30;
 // A browser keeps one of these across sign-outs so a new sign-in can replace
 // its own earlier ones. It grants nothing; sessions store only its hash.
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
@@ -585,7 +587,12 @@ export class PasswordAuth {
       ...(hash ? { device: hash } : {}),
     };
     const previous = this.#tokenSession(cookieValue(cookieHeader, "herdr_session"));
-    const replaced = (item) => (hash !== null && item.device === hash) || (previous && !previous.unlisted && item.id === previous.id);
+    // A sign-in from the same device made moments ago is left alone: two that
+    // overlap (a double tap, a retry) could answer in either order, and the
+    // browser must not keep the cookie of the one ended. The next sign-in
+    // there tidies it up.
+    const replaced = (item) => (hash !== null && item.device === hash && now - item.createdAt >= RECENT_SIGN_IN_SECONDS) ||
+      (previous && !previous.unlisted && item.id === previous.id);
     // A cookie from before sessions were listed is ended the way sign-out ends
     // it -- unless there is no room left to remember it; a sign-in never ends
     // every other browser for want of room.

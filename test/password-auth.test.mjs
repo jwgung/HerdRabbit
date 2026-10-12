@@ -394,7 +394,9 @@ test("a browser signing in again replaces its own earlier sign-ins, not others'"
   const directory = await mkdtemp(join(tmpdir(), "herdr-auth-"));
   const authFile = join(directory, "auth.json");
   await writePasswordConfiguration(authFile, "secret");
-  const auth = await loadPasswordAuth(authFile);
+  let clock = Date.now();
+  const load = async () => new PasswordAuth(JSON.parse(await readFile(authFile, "utf8")), { authFile, now: () => clock });
+  const auth = await load();
   let ended = 0;
   auth.onSessionsEnded(() => { ended += 1; });
   const phoneDevice = auth.browserDevice("");
@@ -408,10 +410,18 @@ test("a browser signing in again replaces its own earlier sign-ins, not others'"
   assert.equal(ended, 0, "another browser adds a row");
   assert.equal(auth.sessionSummaries().length, 2);
 
+  // Two sign-ins moments apart (a double tap) may answer in either order:
+  // both stay until a later one there.
+  const overlap = auth.createSession({ agent: "Chrome · Android", device: phoneDevice });
+  assert.equal(auth.hasValidSession(`herdr_session=${first}`), true, "not ended moments after it began");
+  assert.equal(auth.hasValidSession(`herdr_session=${overlap}`), true);
+  clock += 31_000;
+
   // Signed out, or the cookie lost: only the device cookie is left.
   const second = auth.createSession({ agent: "Chrome · Android", device: phoneDevice, cookieHeader: `herdr_device=${phoneDevice}` });
   assert.equal(ended, 1, "open connections of the replaced sign-in check again");
   assert.equal(auth.hasValidSession(`herdr_session=${first}`), false);
+  assert.equal(auth.hasValidSession(`herdr_session=${overlap}`), false, "the overlapping one goes with it");
   assert.equal(auth.hasValidSession(`herdr_session=${second}`), true);
   assert.equal(auth.hasValidSession(`herdr_session=${laptop}`), true);
   assert.deepEqual(auth.sessionSummaries().map((item) => item.agent).sort(), ["Chrome · Android", "Firefox · Linux"]);
@@ -422,7 +432,8 @@ test("a browser signing in again replaces its own earlier sign-ins, not others'"
   await auth.writeQueue;
   const source = await readFile(authFile, "utf8");
   assert.equal(source.includes(phoneDevice), false, "the file keeps only a hash of the device");
-  const reloaded = await loadPasswordAuth(authFile);
+  clock += 31_000;
+  const reloaded = await load();
   reloaded.createSession({ device: phoneDevice });
   assert.equal(reloaded.hasValidSession(`herdr_session=${second}`), false, "replaced across a restart too");
   assert.equal(reloaded.sessionSummaries().length, 2);
