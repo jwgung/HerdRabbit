@@ -5,6 +5,9 @@ import { setTimeout as sleep } from "node:timers/promises";
 // Only as much of a browser as the module touches.
 globalThis.getComputedStyle = () => ({ getPropertyValue: () => "" });
 globalThis.ResizeObserver = class { observe() {} };
+// Frames never come: the link underlines are not drawn here.
+globalThis.requestAnimationFrame = () => 0;
+globalThis.cancelAnimationFrame = () => {};
 const { createAttachedTerminal } = await import("../public/xterm-terminal.js");
 
 // xterm stand-ins: writes wait until the test lets them finish, as xterm's do.
@@ -18,6 +21,16 @@ class Terminal {
     this.resets = 0;
     this.unicode = { register() {}, activeVersion: "" };
     this.listeners = { data: [], resize: [] };
+    this.buffer = { active: { viewportY: 0 } };
+    // The private hook the page overrides, as xterm 5.5 has it.
+    this._core = { _selectionService: { shouldForceSelection: (event) => event.shiftKey } };
+    this.element = {
+      querySelector: () => ({
+        offsetHeight: 480, getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 480 }),
+        ownerDocument: { createElement: () => ({ append() {}, replaceChildren() {} }) }, append() {},
+      }),
+      dispatchEvent: () => true,
+    };
   }
   loadAddon(addon) { addon.term = this; }
   open() {}
@@ -72,14 +85,21 @@ function setup() {
     const children = [];
     const listeners = {};
     return {
-      hidden: false, children, style: {}, setAttribute() {},
+      hidden: false, children, listeners, style: {}, setAttribute() {},
       append: (...items) => children.push(...items),
       contains: (item) => children.includes(item),
       addEventListener: (type, listener) => { listeners[type] = listener; },
       click() { listeners.click?.(); },
     };
   };
-  const ownerDocument = { createElement: element };
+  const body = element();
+  const ownerDocument = {
+    createElement: (tag) => Object.assign(element(), tag === "textarea" ? { select() { this.selected = true; }, remove() { this.removed = true; } } : {}),
+    body,
+    execCommand: (command) => { ownerDocument.executed.push(command); return ownerDocument.copyWorks; },
+    executed: [],
+    copyWorks: true,
+  };
   const host = {
     ...element(), ownerDocument,
     hidden: true, clientWidth: 800, clientHeight: 400,
@@ -100,7 +120,7 @@ function setup() {
   });
   const receive = (message) => { for (const listener of listeners.attach) listener(message); };
   const reconnect = () => { for (const listener of listeners.reconnect) listener(); };
-  return { view, sent, host, classes, fallbacks, states, retries, copies, receive, reconnect, connection, term: () => term };
+  return { view, sent, host, body, ownerDocument, classes, fallbacks, states, retries, copies, receive, reconnect, connection, term: () => term };
 }
 
 test("shows a pane at the frame's size, writes only its stream, and acknowledges once xterm has drawn it", () => {
@@ -267,4 +287,87 @@ test("Ctrl+wheel stays on the page to size the font, and a selection offers a Co
   term().select(0, 0, 2);
   bar.children[1].click();
   assert.equal(term().hasSelection(), false, "Cancel lets go of the selection");
+});
+
+test("a plain left drag selects text instead of reaching the program; other buttons keep xterm's own rule", () => {
+  const { view, term } = setup();
+  view.show("a");
+  const forced = term()._core._selectionService.shouldForceSelection;
+  assert.equal(forced({ button: 0, shiftKey: false }), true);
+  assert.equal(forced({ button: 2, shiftKey: false }), false, "a right click still goes to the program");
+  assert.equal(forced({ button: 2, shiftKey: true }), true, "Shift still forces it, as in xterm");
+});
+
+test("the pinned xterm bundle still has the selection hook the page overrides", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const bundle = await readFile(new URL("../public/vendor/xterm.mjs", import.meta.url), "utf8");
+  assert.match(bundle, /shouldForceSelection\(e\)\{return/u);
+  assert.match(bundle, /this\._selectionService\.shouldForceSelection\(/u);
+});
+
+test("over plain HTTP the copy falls back to the copy command and leaves nothing behind", async () => {
+  const { view, host, body, ownerDocument, copies, term } = setup();
+  view.show("a");
+  const bar = host.children.find((child) => child.className === "terminal-copy-bar");
+  term().select(0, 0, 3);
+  const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { clipboard: { writeText: async () => { throw new Error("insecure"); } } } });
+  try {
+    bar.children[0].click();
+    await sleep(0);
+    ownerDocument.copyWorks = false;
+    term().select(0, 0, 3);
+    bar.children[0].click();
+    await sleep(0);
+  } finally {
+    Object.defineProperty(globalThis, "navigator", original);
+  }
+  assert.deepEqual(ownerDocument.executed, ["copy", "copy"]);
+  assert.deepEqual(copies, [true, false], "a copy that did not work says so");
+  assert.ok(body.children.every((scratch) => scratch.selected && scratch.removed), "each scratch field was used and removed");
+});
+
+test("a held finger selects as it moves, a moving one scrolls, two fingers or a pane change cancel the hold", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  globalThis.WheelEvent ??= class { constructor(type, init) { Object.assign(this, init, { type }); } };
+  const { view, host, term } = setup();
+  host.getBoundingClientRect = () => ({ top: 0 });
+  host.dispatchEvent = () => true;
+  view.show("a");
+  const bar = host.children.find((child) => child.className === "terminal-copy-bar");
+  const target = (() => {
+    const listeners = {};
+    return { addEventListener: (type, listener) => { listeners[type] = listener; }, fire: (type, event) => listeners[type]?.(event) };
+  })();
+  const touches = (...points) => points.map(([clientX, clientY]) => ({ clientX, clientY }));
+  const event = (...points) => ({ target, touches: touches(...points), preventDefault() {} });
+  const start = (...points) => host.listeners.touchstart(event(...points));
+
+  // 800x480 screen, 100x30 grid: cells are 8 by 16 pixels.
+  start([20, 40]);
+  context.mock.timers.tick(450);
+  assert.equal(term().hasSelection(), true, "held still: selecting from that cell");
+  target.fire("touchmove", event([100, 40]));
+  assert.equal(term().getSelection().length, 11, "cells 2 to 12 of the row");
+  assert.equal(bar.hidden, true, "no bar while the finger is down");
+  target.fire("touchend", { type: "touchend", touches: [] });
+  assert.equal(bar.hidden, false, "the bar once it lifts");
+
+  start([20, 40]);
+  assert.equal(term().hasSelection(), false, "a new touch lets go of the selection");
+  target.fire("touchmove", event([20, 80]));
+  context.mock.timers.tick(450);
+  assert.equal(term().hasSelection(), false, "a finger that moved scrolls, it does not select");
+  target.fire("touchend", { type: "touchend", touches: [] });
+
+  start([20, 40]);
+  start([20, 40], [200, 200]);
+  context.mock.timers.tick(450);
+  assert.equal(term().hasSelection(), false, "a second finger is a pinch");
+  target.fire("touchend", { type: "touchend", touches: [] });
+
+  start([20, 40]);
+  view.show("b");
+  context.mock.timers.tick(450);
+  assert.equal(term().hasSelection(), false, "the hold ends with the pane");
 });

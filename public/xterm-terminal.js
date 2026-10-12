@@ -144,6 +144,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     if (typeof selectionService?.shouldForceSelection === "function") {
       const forced = selectionService.shouldForceSelection.bind(selectionService);
       selectionService.shouldForceSelection = (event) => event.button === 0 || forced(event);
+    } else {
+      console.warn("xterm's selection hook is missing: a mouse drag goes to the program, and only Shift+drag selects.");
     }
     copyBar = host.ownerDocument.createElement("div");
     copyBar.className = "terminal-copy-bar";
