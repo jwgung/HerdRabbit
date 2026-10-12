@@ -18,6 +18,12 @@ const PASSKEY_DEVICE_TYPES = new Set(["singleDevice", "multiDevice"]);
 const PASSKEY_HANDLE_PATTERN = /^[A-Za-z0-9_-]{22}$/u;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/u;
 const MAX_SESSIONS = 64;
+// Sign-ins from one device this close together may still be answering.
+const RECENT_SIGN_IN_SECONDS = 30;
+// A browser keeps one of these across sign-outs so a new sign-in can replace
+// its own earlier ones. It grants nothing; sessions store only its hash.
+const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+const DEVICE_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
 // Cookies for listed sessions sign under this purpose; plain "cookie" ones were
 // signed before sessions were listed.
 const LISTED_COOKIE = "listed-cookie";
@@ -102,17 +108,26 @@ function validateStoredSession(value) {
     !value ||
     typeof value.id !== "string" || !SESSION_ID_PATTERN.test(value.id) ||
     !isTimestamp(value.createdAt) || !isTimestamp(value.expiresAt) ||
-    !isTimestamp(value.lastUsedAt) || !isSessionAgent(value.agent)
+    !isTimestamp(value.lastUsedAt) || !isSessionAgent(value.agent) ||
+    // Sessions from before devices were told apart carry none.
+    (value.device !== undefined && (typeof value.device !== "string" || !SESSION_ID_PATTERN.test(value.device)))
   ) {
     throw new Error("HerdRabbit session configuration is invalid");
   }
-  return { id: value.id, createdAt: value.createdAt, expiresAt: value.expiresAt, lastUsedAt: value.lastUsedAt, agent: value.agent };
+  return {
+    id: value.id, createdAt: value.createdAt, expiresAt: value.expiresAt, lastUsedAt: value.lastUsedAt, agent: value.agent,
+    ...(value.device === undefined ? {} : { device: value.device }),
+  };
 }
 
 // A session is named by a hash of its nonce, so the list can be shown and
 // matched without keeping anything that would sign a request.
 export function sessionId(nonce) {
   return createHash("sha256").update(nonce).digest().subarray(0, 16).toString("base64url");
+}
+
+function deviceHash(device) {
+  return createHash("sha256").update(`device.${device}`).digest().subarray(0, 16).toString("base64url");
 }
 
 function validateStoredConfiguration(value) {
@@ -225,6 +240,10 @@ export async function writePasswordConfiguration(authFile, password) {
   const configuration = await createPasswordConfiguration(password);
   await writeConfigurationFile(authFile, configuration);
   return { required: true };
+}
+
+function isDeviceId(value) {
+  return typeof value === "string" && DEVICE_ID_PATTERN.test(value);
 }
 
 function cookieValue(cookieHeader, name) {
@@ -440,7 +459,7 @@ export class PasswordAuth {
     const now = Math.floor(this.now() / 1000);
     return this.configuration.sessions
       .filter((session) => session.expiresAt > now)
-      .map((session) => ({ ...session }))
+      .map(({ id, createdAt, expiresAt, lastUsedAt, agent }) => ({ id, createdAt, expiresAt, lastUsedAt, agent }))
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
@@ -553,22 +572,63 @@ export class PasswordAuth {
   }
 
   // The session is listed at once, so the request that follows can rely on
-  // it; writing it down finishes behind.
-  createSession({ agent = "Unknown browser" } = {}) {
+  // it; writing it down finishes behind. A browser signing in again replaces
+  // its own earlier sessions: those from the same device, and the one its
+  // cookie still names. Their open connections end as on sign-out.
+  createSession({ agent = "Unknown browser", device = null, cookieHeader = null } = {}) {
     const token = this.#createToken(LISTED_COOKIE);
     if (!token) return null;
     const [nonce, rawExpiry] = token.split(".");
     const now = Math.floor(this.now() / 1000);
+    const hash = isDeviceId(device) ? deviceHash(device) : null;
     const session = {
       id: sessionId(nonce), createdAt: now, expiresAt: Number(rawExpiry), lastUsedAt: now,
       agent: isSessionAgent(agent) && agent ? agent : "Unknown browser",
+      ...(hash ? { device: hash } : {}),
     };
-    const write = this.#changeSessions((sessions) => [
-      session,
-      ...sessions.filter((item) => item.expiresAt > now),
-    ].slice(0, MAX_SESSIONS));
+    const previous = this.#tokenSession(cookieValue(cookieHeader, "herdr_session"));
+    // A sign-in from the same device made moments ago is left alone: two that
+    // overlap (a double tap, a retry) could answer in either order, and the
+    // browser must not keep the cookie of the one ended. The next sign-in
+    // there tidies it up.
+    const replaced = (item) => (hash !== null && item.device === hash && now - item.createdAt >= RECENT_SIGN_IN_SECONDS) ||
+      (previous && !previous.unlisted && item.id === previous.id);
+    // A cookie from before sessions were listed is ended the way sign-out ends
+    // it -- unless there is no room left to remember it; a sign-in never ends
+    // every other browser for want of room.
+    const endedUnlisted = (this.configuration.endedUnlisted ?? []).filter((item) => item.expiresAt > now);
+    const endsUnlisted = Boolean(previous?.unlisted) && !endedUnlisted.some((item) => item.id === previous.id) &&
+      endedUnlisted.length < MAX_SESSIONS;
+    const replacing = this.configuration.sessions.some(replaced) || endsUnlisted;
+    const write = this.#replaceConfiguration({
+      ...this.configuration,
+      sessions: [
+        session,
+        ...this.configuration.sessions.filter((item) => item.expiresAt > now && !replaced(item)),
+      ].slice(0, MAX_SESSIONS),
+      ...(endsUnlisted ? { endedUnlisted: [{ id: previous.id, expiresAt: previous.expiresAt }, ...endedUnlisted] } : {}),
+    });
     write.catch(() => {});
+    if (replacing) this.#sessionsEnded();
     return token;
+  }
+
+  // The device this browser already has, or a new one to give it.
+  browserDevice(cookieHeader) {
+    const device = cookieValue(cookieHeader, "herdr_device");
+    return isDeviceId(device) ? device : randomBytes(32).toString("base64url");
+  }
+
+  deviceCookie(device, { secure = false } = {}) {
+    const attributes = [
+      `herdr_device=${device}`,
+      "Path=/",
+      "HttpOnly",
+      "SameSite=Strict",
+      `Max-Age=${DEVICE_COOKIE_MAX_AGE_SECONDS}`,
+    ];
+    if (secure) attributes.push("Secure");
+    return attributes.join("; ");
   }
 
   createLaunchToken() {

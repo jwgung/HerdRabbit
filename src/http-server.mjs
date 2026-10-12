@@ -220,9 +220,12 @@ function isSecureRequest(request) {
 
 function sendAuthenticatedSession(response, request, auth, extra = {}) {
   const secure = isSecureRequest(request);
-  const cookieSession = auth.createSession({ agent: browserLabel(request.headers["user-agent"]) });
+  const device = auth.browserDevice(request.headers.cookie);
+  const cookieSession = auth.createSession({
+    agent: browserLabel(request.headers["user-agent"]), device, cookieHeader: request.headers.cookie,
+  });
   const launchToken = auth.createLaunchToken();
-  response.setHeader("Set-Cookie", auth.sessionCookie(cookieSession, { secure }));
+  response.setHeader("Set-Cookie", [auth.sessionCookie(cookieSession, { secure }), auth.deviceCookie(device, { secure })]);
   sendJson(response, 200, {
     ok: true,
     required: true,
