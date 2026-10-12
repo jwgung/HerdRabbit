@@ -110,7 +110,7 @@ const { server } = createHerdrHttpServer({
   },
   announcements: peer ? null : announcements,
   aiAccounts: peer ? null : aiAccounts,
-  link: peer ? leafLinkRoutes({ client: local, files, aiAccounts, version: hubVersion, serverName: hostname() }) : null,
+  link: peer ? leafLinkRoutes({ client: local, files, aiAccounts, version: hubVersion, herdrVersion: () => herdrVersion, serverName: hostname() }) : null,
   maxBodyBytes: config.maxBodyBytes,
   maxTransferBytes: config.maxTransferBytes,
 });

@@ -1,3 +1,5 @@
+import { parseHerdrVersion } from "./herdr-version.mjs";
+
 export const LINK_PROTOCOL = 1;
 
 // The fields MultiServerClient.scope() prefixes with a server id. Only these
@@ -46,7 +48,7 @@ export function checkLeafCompatibility({ hubVersion, hubProtocol = LINK_PROTOCOL
       reason: "That HerdRabbit reports servers other than its own, which a link cannot represent.",
     };
   }
-  return { ok: true, version: hello.version };
+  return { ok: true, version: hello.version, herdrVersion: parseHerdrVersion(hello.herdr_version)?.join(".") ?? null };
 }
 
 function usableRecord(record) {

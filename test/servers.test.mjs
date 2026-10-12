@@ -92,7 +92,7 @@ test("this machine reports its Herdr version and whether it is supported", async
   let { servers: [local, remote] } = await client.snapshot();
   assert.equal(local.herdr_version, null);
   assert.equal(local.herdr_supported, null, "an unread version is unknown, not unsupported");
-  assert.equal(remote.herdr_version, undefined, "a linked machine answers for its own Herdr");
+  assert.equal(remote.herdr_version, null, "a linked machine answers for its own Herdr");
   version = "0.8.2";
   ({ servers: [local] } = await client.snapshot());
   assert.deepEqual([local.herdr_version, local.herdr_supported, local.herdr_min_version], ["0.8.2", false, "0.9.0"]);

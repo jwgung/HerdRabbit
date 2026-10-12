@@ -1480,7 +1480,7 @@ function showServerDetails(server) {
   const rows = [
     ...(server.machine ? [["Machine", server.machine]] : []),
     ["HerdRabbit", server.version || "Unknown"],
-    ...(server.herdr_version === undefined ? [] : [["Herdr", herdrVersionText(server)]]),
+    ["Herdr", herdrVersionText(server)],
     ["Status", server.available ? "Connected" : server.status || "Offline"],
     ["Herdr sessions", String(sessions.length)],
     ["Panes", String(panes.length)],

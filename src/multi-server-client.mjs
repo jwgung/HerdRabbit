@@ -106,14 +106,13 @@ export class MultiServerClient {
         address: profile.address ?? null,
         machine: this.machineName(profile) ?? null,
         version: profile.id === "local" ? this.hubVersion : client?.info?.().version ?? null,
-        // Only this machine's Herdr is known here; a linked one answers for its own.
-        ...(profile.id === "local" ? this.localHerdr() : {}),
+        // A linked machine reports its Herdr in the handshake.
+        ...this.herdrFields(profile.id === "local" ? this.herdrVersion() : client?.info?.().herdrVersion ?? null),
       })),
     };
   }
 
-  localHerdr() {
-    const version = this.herdrVersion();
+  herdrFields(version) {
     // Supported is null while the version is unknown, which is not the same as too old.
     return {
       herdr_version: version, herdr_min_version: MIN_HERDR_VERSION,
