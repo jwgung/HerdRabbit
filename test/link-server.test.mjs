@@ -46,6 +46,7 @@ test("announces what it is and what it will report", async (context) => {
     link_protocol: LINK_PROTOCOL,
     scope: "local",
     server_name: "dev-box",
+    herdr_version: null,
   });
 });
 

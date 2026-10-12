@@ -1,5 +1,6 @@
 import { LeafLinkClient } from "./leaf-link-client.mjs";
 import { InputValidationError } from "./herdr-client.mjs";
+import { MIN_HERDR_VERSION, herdrVersionSupported } from "./herdr-version.mjs";
 
 const collections = ["herdr_sessions", "workspaces", "tabs", "panes", "agents"];
 const idFields = ["session_id", "herdr_session_id", "workspace_id", "active_tab_id", "tab_id", "pane_id"];
@@ -25,11 +26,12 @@ export function serverStatusFor(error) {
 
 export class MultiServerClient {
   constructor({
-    local, profiles, hubVersion, machineName = () => null,
+    local, profiles, hubVersion, machineName = () => null, herdrVersion = () => null,
     remoteFactory = (profile) => new LeafLinkClient({ profile, hubVersion }),
   }) {
     this.local = local;
     this.machineName = machineName;
+    this.herdrVersion = herdrVersion;
     this.hubVersion = hubVersion ?? null;
     this.profiles = profiles;
     this.remoteFactory = remoteFactory;
@@ -104,7 +106,17 @@ export class MultiServerClient {
         address: profile.address ?? null,
         machine: this.machineName(profile) ?? null,
         version: profile.id === "local" ? this.hubVersion : client?.info?.().version ?? null,
+        // A linked machine reports its Herdr in the handshake.
+        ...this.herdrFields(profile.id === "local" ? this.herdrVersion() : client?.info?.().herdrVersion ?? null),
       })),
+    };
+  }
+
+  herdrFields(version) {
+    // Supported is null while the version is unknown, which is not the same as too old.
+    return {
+      herdr_version: version, herdr_min_version: MIN_HERDR_VERSION,
+      herdr_supported: version === null ? null : herdrVersionSupported(version),
     };
   }
 

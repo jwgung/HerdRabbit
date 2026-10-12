@@ -77,7 +77,7 @@ export class LeafLinkClient {
   }
 
   info() {
-    return { transport: "link", version: this.#handshake?.version ?? null };
+    return { transport: "link", version: this.#handshake?.version ?? null, herdrVersion: this.#handshake?.herdrVersion ?? null };
   }
 
   async #request(path, { method = "GET", body, timeoutMs = TIMEOUTS.read, accountErrors = false } = {}) {

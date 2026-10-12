@@ -48,13 +48,13 @@ function leafHerdr(calls, snapshotOverrides = {}) {
   };
 }
 
-async function startLeaf(context, { calls = [], version = HUB_VERSION, herdr } = {}) {
+async function startLeaf(context, { calls = [], version = HUB_VERSION, herdr, herdrVersion } = {}) {
   const created = createHerdrHttpServer({
     herdr: { async snapshot() { return {}; } },
     csrfToken: "fixed-test-token",
     logger: { error() {} },
     peer: new PeerIdentity({ logins: [OWNER] }),
-    link: leafLinkRoutes({ client: herdr ?? leafHerdr(calls), version, serverName: "dev-box" }),
+    link: leafLinkRoutes({ client: herdr ?? leafHerdr(calls), version, herdrVersion, serverName: "dev-box" }),
   });
   created.server.listen(0, "127.0.0.1");
   await once(created.server, "listening");
@@ -100,6 +100,15 @@ test("a linked leaf appears in the merged snapshot under its own prefix", async 
   assert.equal(snapshot.workspaces[0].label, "ship it!", "a label is not an id and keeps its punctuation");
   assert.equal(snapshot.panes[0].server_name, "Dev box");
   assert.ok(calls.some(([name]) => name === "snapshot"));
+});
+
+test("a linked leaf reports its Herdr version, and an older leaf reports none", async (context) => {
+  const current = await startLeaf(context, { herdrVersion: () => "0.8.2" });
+  const { servers: [, leaf] } = await settled(hubFor(current.address).herdr);
+  assert.deepEqual([leaf.herdr_version, leaf.herdr_supported], ["0.8.2", false]);
+  const older = await startLeaf(context);
+  const { servers: [, silent] } = await settled(hubFor(older.address).herdr);
+  assert.deepEqual([silent.herdr_version, silent.herdr_supported], [null, null]);
 });
 
 test("commands reach the leaf with the prefix taken off again", async (context) => {

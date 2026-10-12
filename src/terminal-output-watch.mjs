@@ -1,6 +1,7 @@
 import { OutputRevisions } from "./output-revisions.mjs";
 
-// Herdr 0.8.2 has match notifications, not a general output-change stream.
+// Outside a terminal attach, Herdr has match notifications, not a general
+// output-change stream.
 // Share server-side observation across viewers and send only changed snapshots.
 export function terminalOutputWatcher({ herdr, outputWindow, outputReadLines, activeMs = 50, idleMs = 500 }) {
   const watches = new Map();

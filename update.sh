@@ -41,10 +41,31 @@ main() {
     [ -n "$SERVICE_DIRECTORY" ] || fail "could not determine the service installation directory"
     SERVICE_DIRECTORY="$(cd "$SERVICE_DIRECTORY" && pwd -P)"
     [ "$SERVICE_DIRECTORY" = "$UPDATE_DIRECTORY" ] || fail "service uses a different installation directory: $SERVICE_DIRECTORY"
+    # The service's own Herdr is the one to update and check, not whichever
+    # this shell would find first.
+    SERVICE_HERDR_BIN="$(systemctl --user show "$UPDATE_SERVICE" --property=Environment --value | node scripts/service-environment.mjs HERDR_BIN)"
+    HERDR_BIN="${SERVICE_HERDR_BIN:-${HERDR_BIN:-herdr}}"
+    export HERDR_BIN
+    need "$HERDR_BIN"
 
     log "Fetching main in $UPDATE_DIRECTORY"
     git fetch origin main
     git merge-base --is-ancestor HEAD FETCH_HEAD || fail "local main has unpublished or divergent commits; reconcile it manually"
+    # Herdr comes first, checked against the minimum the incoming code names,
+    # so a Herdr too old for it stops the update before any file changes.
+    # The incoming src is read before Herdr is touched: if it cannot be, nothing
+    # changes at all. It is the whole src, so its version module may import its
+    # neighbours.
+    INCOMING_DIRECTORY="$(mktemp -d)"
+    git archive FETCH_HEAD src | tar -x -C "$INCOMING_DIRECTORY" || { rm -rf "$INCOMING_DIRECTORY"; fail "could not read the new code's src to check Herdr against"; }
+    # --handoff moves running panes onto the new Herdr instead of stopping them.
+    # A failed download leaves the installed Herdr in place; the version check
+    # decides whether that one is still new enough.
+    log "Updating Herdr"
+    "$HERDR_BIN" update --handoff || log "Warning: Herdr could not be updated; keeping the installed version"
+    # Passed to the check alone: exported, it would reach the tests below.
+    HERDR_VERSION_MODULE="$INCOMING_DIRECTORY/src/herdr-version.mjs" node scripts/check-herdr-version.mjs || { rm -rf "$INCOMING_DIRECTORY"; fail "Herdr is missing or too old for the new HerdRabbit; update it and run this script again"; }
+    rm -rf "$INCOMING_DIRECTORY"
     git merge --ff-only FETCH_HEAD
     log "Installing runtime dependencies"
     npm ci --omit=dev

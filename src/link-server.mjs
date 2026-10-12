@@ -55,7 +55,7 @@ async function sendFile(response, file) {
 // `client` is the leaf's own Herdr client, never its MultiServerClient. That is
 // what makes "a leaf reports only its own sessions" structural: it does not
 // hold anyone else's to report.
-export function leafLinkRoutes({ client, files = null, aiAccounts = null, version, serverName = "", maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024 }) {
+export function leafLinkRoutes({ client, files = null, aiAccounts = null, version, herdrVersion = () => null, serverName = "", maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024 }) {
   function hello() {
     return {
       product: "herdrabbit",
@@ -63,6 +63,8 @@ export function leafLinkRoutes({ client, files = null, aiAccounts = null, versio
       link_protocol: LINK_PROTOCOL,
       scope: "local",
       server_name: serverName,
+      // Optional, so a hub reading an older leaf just sees no Herdr version.
+      herdr_version: herdrVersion(),
     };
   }
 
