@@ -467,6 +467,8 @@ export class HerdrMachines {
   }
 
   async #command(args, { timeoutMs = 30_000, fallback }) {
+    // The server is closing: nothing new starts.
+    if (this.stopped) throw new HttpError(503, "server_stopping", "HerdRabbit is shutting down.");
     if (this.changing) throw new HttpError(409, "machine_busy", "Another machine change is still running. Try again when it finishes.");
     const abort = new AbortController();
     this.changing = abort;

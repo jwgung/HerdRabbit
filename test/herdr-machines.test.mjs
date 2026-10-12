@@ -579,3 +579,15 @@ test("a machine client offers every call the local bridge does", async () => {
   const missing = calls(HerdrBridgeClient).filter((name) => typeof MachineClient.prototype[name] !== "function");
   assert.deepEqual(missing, [], "a call added to the bridge needs its machine counterpart");
 });
+
+test("no machine change starts once stopping has begun", async () => {
+  const ran = [];
+  const machines = new HerdrMachines({
+    directory: await mkdtemp(join(tmpdir(), "herdr-stop-")), createBridge: () => ({}), createLink: () => ({}),
+    read: async () => [], run: async (binary, args) => { ran.push(args); return { stdout: "" }; },
+  });
+  await machines.stop();
+  await assert.rejects(machines.add({ target: "me@lab", label: "Lab" }), { status: 503 });
+  await assert.rejects(machines.remove(ID), { status: 503 });
+  assert.deepEqual(ran, []);
+});
