@@ -31,6 +31,9 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
     let stopped = false;
     let alive = true;
     let attaching = 0;
+    // Panes this socket still wants: a detach that arrives while an attach is
+    // still looking up its terminal cancels it once the lookup ends.
+    const wantedPanes = new Set();
     const send = message => {
       if (ws.readyState !== ws.OPEN) return;
       if (ws.bufferedAmount > 2 * 1024 * 1024) { ws.close(1013, "Client too slow"); return; }
@@ -144,8 +147,12 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
           // Each lookup runs herdr a few times: a page opens one pane at a time.
           if (!attachments || attaching >= MAX_PENDING_ATTACHES) { send({ type: "attach-unavailable", pane_id: id }); return; }
           attaching += 1;
+          wantedPanes.add(id);
           attachments.attach(viewer, id, { cols: message.cols, rows: message.rows, keepSize: message.keepSize === true })
-            .finally(() => { attaching -= 1; })
+            .finally(() => {
+              attaching -= 1;
+              if (!wantedPanes.has(id)) attachments.detach(viewer, id);
+            })
             .catch(error => {
               if (stopped) return;
               if (error instanceof RangeError) { stopped = true; ws.close(1008, "Invalid terminal request"); return; }
@@ -153,7 +160,12 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
             });
           return;
         }
-        if (message.type === "detach") { attachments?.detach(viewer, paneId(message.paneId)); return; }
+        if (message.type === "detach") {
+          const id = paneId(message.paneId);
+          wantedPanes.delete(id);
+          attachments?.detach(viewer, id);
+          return;
+        }
         if (message.type === "pty-input") {
           if (typeof message.data !== "string" || !message.data || message.data.length > 16_384) throw new Error("Invalid terminal input");
           if (!attachments?.input(viewer, paneId(message.paneId), message.data)) send({ type: "pty-input-dropped", pane_id: message.paneId });

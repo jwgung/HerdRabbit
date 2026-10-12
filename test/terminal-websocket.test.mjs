@@ -258,3 +258,31 @@ test("a message sent while the pane asks for a password is marked secret and rec
   assert.deepEqual(await client.wait(message => message.type === "ack" && message.id === 2), { type: "ack", id: 2 });
   assert.deepEqual(app.requests, [["w1:p1", "ls"]]);
 });
+
+test("a detach that arrives while the attach is still looking up its terminal leaves nothing attached", async context => {
+  let release;
+  const lookup = new Promise(resolve => { release = resolve; });
+  const ptys = [];
+  const attachments = new PaneAttachments({
+    log: () => {},
+    options: { holdMs: 5 },
+    resolveTerminal: async () => { await lookup; return { command: "herdr", args: ["terminal", "attach", "term_1"], env: {}, terminalId: "term_1" }; },
+    spawnPty: options => {
+      let exit;
+      const pty = { options, exited: new Promise(resolve => { exit = resolve; }), killed: false,
+        write() {}, resize() {}, pause() {}, resume() {}, kill() { this.killed = true; exit(); } };
+      ptys.push(pty);
+      return pty;
+    },
+  });
+  const app = await fixture(context, {}, { attachments });
+  const client = await app.connect();
+  await client.wait(message => message.type === "ready");
+  client.send({ type: "attach", paneId: "w1:p1", cols: 80, rows: 24 });
+  client.send({ type: "detach", paneId: "w1:p1" });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  release();
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(ptys.length, 1);
+  assert.equal(ptys[0].killed, true, "nobody wants the pane any more");
+});

@@ -102,7 +102,9 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     term.onBinary(type);
     term.onResize(({ cols, rows }) => {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => { if (paneId) connection.resize(paneId, cols, rows); }, RESIZE_DEBOUNCE_MS);
+      // The size belongs to the pane shown when it changed, never to the next one.
+      const resized = paneId;
+      resizeTimer = setTimeout(() => { if (resized && resized === paneId) connection.resize(resized, cols, rows); }, RESIZE_DEBOUNCE_MS);
     });
     // A finger drag scrolls herdr's history: it becomes the wheel that herdr reads.
     // Two fingers pinch the font size, kept once they lift.
@@ -210,6 +212,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   }
 
   function stop() {
+    clearTimeout(resizeTimer);
     if (paneId) connection.detach(paneId);
     paneId = null;
     ready = false;
@@ -226,6 +229,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       }
       if (nextPaneId === paneId) return true;
       if (!term) create();
+      clearTimeout(resizeTimer);
       if (paneId) connection.detach(paneId);
       paneId = nextPaneId;
       ready = false;

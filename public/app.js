@@ -2840,8 +2840,9 @@ function renderHistoryStatus() {
 async function refreshOutput({ loadOlder = false, streamPayload = null } = {}) {
   if (!state.authenticated || document.hidden || !state.selectedPaneId) return;
   // A pane that attaches draws itself from herdr's stream; the rest of this is
-  // the screen-text view, for panes that cannot.
-  if (!loadOlder && !streamPayload && attachedTerminal.show(state.selectedPaneId)) {
+  // the screen-text view, for panes that cannot. A screen-text frame that was
+  // already on its way when the pane attached is dropped here.
+  if (!loadOlder && attachedTerminal.show(state.selectedPaneId)) {
     terminalStream.unwatch();
     showAttachedView(true);
     return;
