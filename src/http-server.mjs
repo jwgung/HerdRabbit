@@ -550,12 +550,12 @@ export function createHerdrHttpServer({
 
   // A message sent while the pane asks for a password is that password: the
   // page keeps it out of its input history, and no request is recorded. A
-  // screen that cannot be read counts as asking for nothing.
+  // screen that cannot be read might be asking, so it is treated as asking.
   async function asksForSecret(paneId) {
     try {
       return secretPrompt(await herdr.readPane(paneId, { lines: 4, format: "text" })) !== null;
     } catch {
-      return false;
+      return true;
     }
   }
 

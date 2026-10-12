@@ -9,17 +9,13 @@ The patch comes from herdr-web-ui (MIT). It fixes Korean and Android (Gboard)
 composition in xterm's textarea; the fix is in xterm's source, not its published
 bundle, so the bundle is built here instead of copied.
 
-To rebuild, in an empty directory outside this repository:
+The sources and build tools are pinned in `devDependencies`. After `npm ci`:
 
 ```sh
-npm init -y
-npm install @xterm/xterm@5.5.0 @xterm/addon-fit@0.10.0 @xterm/addon-unicode-graphemes@0.4.0 @xterm/addon-web-links@0.11.0 typescript@5.6.3 esbuild@0.24.0
-(cd node_modules/@xterm/xterm && patch -p1 < /path/to/herdrabbit/vendor/xterm/xterm-5.5.0-ime.patch)
-cp /path/to/herdrabbit/vendor/xterm/build.mjs . && node build.mjs .
-cp out/xterm.mjs /path/to/herdrabbit/public/vendor/xterm.mjs
-cp node_modules/@xterm/xterm/css/xterm.css /path/to/herdrabbit/public/vendor/xterm.css
+npm run build:xterm   # writes public/vendor/xterm.mjs and public/vendor/xterm.css
+npm run check:xterm   # fails when the committed bundle differs from a fresh build (CI runs this)
 ```
 
+The build copies xterm's source to a temporary directory and applies the patch
+there, so `node_modules` stays as npm installed it. It needs the `patch` command.
 Changing the xterm version means checking the patch again against the new source.
-
-The committed `public/vendor/xterm.mjs` has SHA-256 `4835d3e603be3a14140c0ba9a12dd5e1e1d12e0357e7d019e15464f0c96506fe`.

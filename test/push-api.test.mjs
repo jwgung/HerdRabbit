@@ -85,6 +85,7 @@ test("records submitted pane activity so completion notifications are not missed
   const calls = [];
   const app = await startServer({
     herdr: {
+      async readPane() { return "$ "; },
       async sendText(...args) { calls.push(["send", ...args]); },
     },
     push: { publicKey: "public-vapid-key" },
@@ -139,4 +140,24 @@ test("a message sent over HTTP while the pane asks for a password is marked secr
     ["send", "w1:p1", "ls", { submit: true }],
     ["request", "w1:p1", "ls"],
   ]);
+});
+
+test("a message whose screen could not be read is not recorded, in case it answered a password prompt", async (context) => {
+  const calls = [];
+  const app = await startServer({
+    herdr: {
+      async readPane() { throw new Error("herdr did not answer"); },
+      async sendText(...args) { calls.push(["send", ...args]); },
+    },
+    push: { publicKey: "public-vapid-key" },
+    notificationMonitor: { recordRequest(...args) { calls.push(["request", ...args]); } },
+  });
+  context.after(() => closeServer(app.server));
+  const response = await fetch(`${app.baseUrl}/api/panes/w1%3Ap1/text`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl },
+    body: JSON.stringify({ text: "maybe a password", submit: true }),
+  });
+  assert.deepEqual(await response.json(), { ok: true, secret: true });
+  assert.deepEqual(calls, [["send", "w1:p1", "maybe a password", { submit: true }]]);
 });

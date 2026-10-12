@@ -193,7 +193,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     switch (message.type) {
       case "pty-data":
         term.write(message.data, () => {
-          if (message.flow) connection.acknowledge(message.pane_id, message.flow.stream_id, message.flow.offset);
+          // Drawn after the page moved on to another pane: that credit is not owed.
+          if (message.flow && paneId === message.pane_id) connection.acknowledge(message.pane_id, message.flow.stream_id, message.flow.offset);
         });
         break;
       case "input-ready":

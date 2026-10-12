@@ -196,3 +196,12 @@ test("a pane that failed for now asks to be shown again once its wait is over", 
   context.mock.timers.tick(60_000);
   assert.deepEqual(retries, ["a"], "a pane that can never attach is not tried again");
 });
+
+test("a write that finishes after the page moved to another pane acknowledges nothing", () => {
+  const { view, sent, receive, term } = setup();
+  view.show("a");
+  receive({ type: "pty-data", pane_id: "a", data: "screen", flow: { stream_id: "s", offset: 6 } });
+  view.show("b");
+  term().finishWrites();
+  assert.ok(!sent.some(([kind]) => kind === "ack"));
+});
