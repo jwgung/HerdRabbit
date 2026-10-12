@@ -14,11 +14,11 @@ const manifest = await readFile(
   "utf8",
 );
 
-test("uses the 1.2.14 release version for the PWA and all cached assets", () => {
-  assert.equal(packageJson.version, "1.2.14");
-  assert.doesNotMatch(page, /\?v=(?!1\.2\.14)[^"']+/u);
-  assert.doesNotMatch(app, /\?v=(?!1\.2\.14)[^"']+/u);
-  assert.doesNotMatch(worker, /\?v=(?!1\.2\.14)[^"']+/u);
-  assert.doesNotMatch(manifest, /\?v=(?!1\.2\.14)[^"']+/u);
-  assert.match(worker, /const CACHE_NAME = "herd-rabbit-v1\.2\.14"/u);
+test("uses the 1.2.15 release version for the PWA and all cached assets", () => {
+  assert.equal(packageJson.version, "1.2.15");
+  assert.doesNotMatch(page, /\?v=(?!1\.2\.15)[^"']+/u);
+  assert.doesNotMatch(app, /\?v=(?!1\.2\.15)[^"']+/u);
+  assert.doesNotMatch(worker, /\?v=(?!1\.2\.15)[^"']+/u);
+  assert.doesNotMatch(manifest, /\?v=(?!1\.2\.15)[^"']+/u);
+  assert.match(worker, /const CACHE_NAME = "herd-rabbit-v1\.2\.15"/u);
 });

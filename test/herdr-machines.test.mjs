@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -234,14 +235,13 @@ test("a forward that fails keeps its reason when the connection closes, and trie
   const directory = await mkdtemp(join(tmpdir(), "herdr-link-"));
   const { MachineLink } = await import("../src/herdr-machines.mjs");
   const { EventEmitter } = await import("node:events");
-  const { writeFile } = await import("node:fs/promises");
   let child;
   const link = new MachineLink({ id: ID, label: "lab", target: "me@lab", session: "default" }, {
     directory,
     spawnProcess: () => {
       child = Object.assign(new EventEmitter(), { stderr: new EventEmitter(), kill() { setImmediate(() => this.emit("exit", 255)); } });
       // The master's control socket appears once it is connected.
-      void writeFile(join(directory, `${ID.slice(0, 12)}.ctl`), "");
+      writeFileSync(join(directory, `${ID.slice(0, 12)}.ctl`), "");
       return child;
     },
     // `herdr status server` there says nothing about a socket.
@@ -317,14 +317,13 @@ test("a link is ready only once both sockets are forwarded, each to its own pair
   const directory = await mkdtemp(join(tmpdir(), "herdr-link-"));
   const { MachineLink } = await import("../src/herdr-machines.mjs");
   const { EventEmitter } = await import("node:events");
-  const { writeFile } = await import("node:fs/promises");
   const calls = [];
   let forwarded = 0;
   let release;
   const link = new MachineLink({ id: ID, label: "lab", target: "me@lab", session: "default" }, {
     directory,
     spawnProcess: () => {
-      void writeFile(join(directory, `${ID.slice(0, 12)}.ctl`), "");
+      writeFileSync(join(directory, `${ID.slice(0, 12)}.ctl`), "");
       return Object.assign(new EventEmitter(), { stderr: new EventEmitter(), kill() {} });
     },
     run: async (command, args) => {
@@ -339,7 +338,7 @@ test("a link is ready only once both sockets are forwarded, each to its own pair
   });
   context.mock.timers.enable({ apis: ["setTimeout"] });
   link.start();
-  for (let i = 0; i < 50 && forwarded < 2; i++) {
+  for (let i = 0; i < 200 && !release; i++) {
     context.mock.timers.tick(100);
     await new Promise((resolve) => setImmediate(resolve));
   }
