@@ -45,10 +45,15 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   let fit = null;
   let paneId = null;
   let resizeTimer = null;
-  // Panes this page could not attach: they keep the screen-text view.
-  const unavailable = new Set();
+  // Panes this page could not attach, and until when: they keep the
+  // screen-text view. Only a pane that can never attach here stays there.
+  const unavailable = new Map();
+  const RETRY_ATTACH_MS = 5_000;
   let held = false;
   let ready = false;
+  // Whether this page sets the pane's size. Another page that is in use sets
+  // it otherwise, and this one shows that grid as it is.
+  let owner = true;
 
   function create() {
     term = new Terminal({
@@ -101,6 +106,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     term.onData(type);
     term.onBinary(type);
     term.onResize(({ cols, rows }) => {
+      // A grid taken from the page that sets the size is not this page's wish.
+      if (!owner) return;
       clearTimeout(resizeTimer);
       // The size belongs to the pane shown when it changed, never to the next one.
       const resized = paneId;
@@ -151,9 +158,23 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     new ResizeObserver(() => { if (!host.hidden) fitNow(); }).observe(host);
   }
 
+  // The size this page's frame would hold.
+  function wantedSize() {
+    const proposed = fit.proposeDimensions();
+    return proposed && proposed.cols > 0 && proposed.rows > 0
+      ? { cols: proposed.cols, rows: proposed.rows }
+      : { cols: term.cols, rows: term.rows };
+  }
+
   function fitNow() {
     if (!term || host.hidden || host.clientWidth === 0 || host.clientHeight === 0) return;
-    fit.fit();
+    if (owner) { fit.fit(); return; }
+    // Not this page's grid to change: it only says what it would want, for
+    // when it takes the size over by typing.
+    const { cols, rows } = wantedSize();
+    clearTimeout(resizeTimer);
+    const resized = paneId;
+    resizeTimer = setTimeout(() => { if (resized && resized === paneId) connection.resize(resized, cols, rows); }, RESIZE_DEBOUNCE_MS);
   }
 
   function setState(next) {
@@ -181,17 +202,18 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         setState({});
         break;
       case "pane-geometry":
-        if (term.cols !== message.cols || term.rows !== message.rows) term.resize(message.cols, message.rows);
+        owner = message.owner !== false;
+        host.classList.toggle("is-adopted", !owner);
+        if (owner) fitNow();
+        else if (term.cols !== message.cols || term.rows !== message.rows) term.resize(message.cols, message.rows);
         break;
       case "attach-unavailable":
       case "attach-error":
-        unavailable.add(paneId);
-        stop();
-        onFallback(message.pane_id);
+        fallBack(message.code === "attach_unsupported" ? Infinity : Date.now() + RETRY_ATTACH_MS);
         break;
+      // herdr ended the attach: the screen text shows the pane meanwhile.
       case "pty-exit":
-        ready = false;
-        setState({ exited: true });
+        fallBack(Date.now() + RETRY_ATTACH_MS);
         break;
       default:
         break;
@@ -207,8 +229,16 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   });
 
   function attachCurrent() {
-    fitNow();
-    connection.attach(paneId, { cols: term.cols, rows: term.rows });
+    const size = wantedSize();
+    if (owner) fit.fit();
+    connection.attach(paneId, size);
+  }
+
+  function fallBack(until) {
+    const failed = paneId;
+    unavailable.set(failed, until);
+    stop();
+    onFallback(failed);
   }
 
   function stop() {
@@ -223,17 +253,20 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   return {
     // Shows `nextPaneId` here; false when it keeps the screen-text view.
     show(nextPaneId) {
-      if (!nextPaneId || unavailable.has(nextPaneId)) {
+      if (!nextPaneId || (unavailable.get(nextPaneId) ?? 0) > Date.now()) {
         if (paneId) stop();
         return false;
       }
-      if (nextPaneId === paneId) return true;
+      // Back from the background, the socket was closed: connect it again.
+      if (nextPaneId === paneId) { connection.resume(); return true; }
       if (!term) create();
       clearTimeout(resizeTimer);
       if (paneId) connection.detach(paneId);
       paneId = nextPaneId;
       ready = false;
       held = false;
+      owner = true;
+      host.classList.remove("is-adopted");
       host.hidden = false;
       term.reset();
       setState({});

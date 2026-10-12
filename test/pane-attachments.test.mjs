@@ -74,7 +74,7 @@ test("one attach per pane, shared; a joiner gets the screen so far and an observ
   await attachments.attach(phone, "p", { cols: 40, rows: 20 });
   assert.equal(herdr.spawns.length, 1, "the joiner shares the pty");
   assert.equal(phone.output(), "\x1b[?1049hhello");
-  assert.deepEqual(phone.messages.at(-1), { type: "pane-geometry", pane_id: "p", cols: 100, rows: 30 });
+  assert.deepEqual(phone.messages.at(-1), { type: "pane-geometry", pane_id: "p", cols: 100, rows: 30, owner: false });
   assert.equal(attachments.input(phone, "p", "rm\r"), false);
   assert.equal(attachments.resize(phone, "p", 40, 20), false);
   assert.equal(attachments.resize(desk, "p", 90, 25), true);
@@ -204,5 +204,29 @@ test("a client that never acknowledges is dropped even though the paused pty wri
   await sleep(OUTPUT_STALL_MS + 100);
   assert.equal(phone.closed, 4002);
   assert.equal(herdr.spawns[0].paused, false, "the desk gets output again");
+  attachments.close();
+});
+
+test("one screen sets the shared size: the first to open it, then whoever types, then the next when it leaves", async () => {
+  const { herdr, attachments } = setup();
+  const desk = client();
+  const phone = client();
+  await attachments.attach(desk, "p", { cols: 120, rows: 40 });
+  herdr.spawns[0].emit("ready");
+  await sleep(20);
+  await attachments.attach(phone, "p", { cols: 40, rows: 20 });
+  const geometry = (viewer) => viewer.messages.filter((message) => message.type === "pane-geometry").at(-1);
+  assert.deepEqual(geometry(phone), { type: "pane-geometry", pane_id: "p", cols: 120, rows: 40, owner: false }, "the phone shows the desk's grid");
+  assert.equal(attachments.resize(phone, "p", 42, 20), true);
+  assert.deepEqual(herdr.spawns[0].sizes, [], "a screen that does not own the size cannot change it");
+
+  attachments.input(phone, "p", "x");
+  assert.deepEqual(herdr.spawns[0].sizes.at(-1), [42, 20], "typing hands the size to the phone, at its latest size");
+  assert.equal(geometry(phone).owner, true);
+  assert.deepEqual(geometry(desk), { type: "pane-geometry", pane_id: "p", cols: 42, rows: 20, owner: false });
+
+  attachments.detach(phone, "p");
+  assert.deepEqual(herdr.spawns[0].sizes.at(-1), [120, 40], "the desk sets it again once the phone leaves");
+  assert.equal(geometry(desk).owner, true);
   attachments.close();
 });

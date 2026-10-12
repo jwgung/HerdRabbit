@@ -808,6 +808,11 @@ body.sidebar-collapsed .terminal-panel {
   touch-action: none;
 }
 
+/* Another screen sets the size: a grid larger than this frame scrolls in it. */
+.terminal-xterm.is-adopted {
+  overflow: auto;
+}
+
 .terminal-xterm[hidden] {
   display: none;
 }

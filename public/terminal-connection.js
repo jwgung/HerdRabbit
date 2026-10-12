@@ -108,6 +108,11 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
       if (attached === paneId) attached = null;
       transmitIfReady({ type: "detach", paneId });
     },
+    // Connects again after pause(), keeping what was wanted.
+    resume() {
+      suspended = false;
+      connect();
+    },
     ptyInput(paneId, data) { transmitIfReady({ type: "pty-input", paneId, data }); },
     resize(paneId, cols, rows) { transmitIfReady({ type: "resize", paneId, cols, rows }); },
     acknowledge(paneId, streamId, offset) { transmitIfReady({ type: "pty-ack", paneId, streamId, offset }); },

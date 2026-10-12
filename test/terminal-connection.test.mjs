@@ -79,3 +79,33 @@ test("an attached pane is attached again after a reconnect, and its traffic goes
   assert.equal(sockets[1].sent.at(-1).type, "detach");
   connection.pause();
 });
+
+test("a page back from the background connects again for the pane it still shows", async () => {
+  const sockets = [];
+  class Socket {
+    static OPEN = 1;
+    readyState = 0;
+    bufferedAmount = 0;
+    sent = [];
+    constructor() { sockets.push(this); }
+    send(message) { this.sent.push(JSON.parse(message)); }
+    open() { this.readyState = 1; this.onopen(); }
+    receive(message) { this.onmessage({ data: JSON.stringify(message) }); }
+    close() { this.readyState = 3; this.onclose({ code: 1000 }); }
+  }
+  const connection = terminalConnection({ WebSocketImpl: Socket, url: "ws://localhost/api/terminal",
+    credentials: () => ({ csrf: "write", launchToken: "launch" }), onOutput() {}, onDisconnect() {}, onAuthenticationRequired() {} });
+  connection.onReconnect(() => connection.attach("w1:p1", { cols: 80, rows: 24 }));
+  connection.attach("w1:p1", { cols: 80, rows: 24 });
+  sockets[0].open();
+  sockets[0].receive({ type: "ready" });
+  connection.pause();
+  await new Promise(resolve => setTimeout(resolve, 280));
+  assert.equal(sockets.length, 1, "a paused page stays disconnected");
+  connection.resume();
+  assert.equal(sockets.length, 2);
+  sockets[1].open();
+  sockets[1].receive({ type: "ready" });
+  assert.equal(sockets[1].sent.at(-1).type, "attach");
+  connection.pause();
+});

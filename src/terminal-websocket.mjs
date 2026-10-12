@@ -145,7 +145,8 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
           const id = paneId(message.paneId);
           if (message.keepSize !== undefined && typeof message.keepSize !== "boolean") throw new Error("Invalid attach");
           // Each lookup runs herdr a few times: a page opens one pane at a time.
-          if (!attachments || attaching >= MAX_PENDING_ATTACHES) { send({ type: "attach-unavailable", pane_id: id }); return; }
+          if (!attachments) { send({ type: "attach-unavailable", pane_id: id, code: "attach_unsupported" }); return; }
+          if (attaching >= MAX_PENDING_ATTACHES) { send({ type: "attach-unavailable", pane_id: id, code: "busy" }); return; }
           attaching += 1;
           wantedPanes.add(id);
           attachments.attach(viewer, id, { cols: message.cols, rows: message.rows, keepSize: message.keepSize === true })
@@ -156,7 +157,7 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
             .catch(error => {
               if (stopped) return;
               if (error instanceof RangeError) { stopped = true; ws.close(1008, "Invalid terminal request"); return; }
-              send({ type: "attach-unavailable", pane_id: id, message: error.message });
+              send({ type: "attach-unavailable", pane_id: id, code: error.code ?? "attach_failed", message: error.message });
             });
           return;
         }

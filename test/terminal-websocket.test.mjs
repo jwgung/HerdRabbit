@@ -242,7 +242,7 @@ test("a pane that cannot attach says so, and the page keeps the screen-text view
   const client = await app.connect();
   await client.wait(message => message.type === "ready");
   client.send({ type: "attach", paneId: "w1:p1", cols: 80, rows: 24 });
-  assert.deepEqual(await client.wait(message => message.type === "attach-unavailable"), { type: "attach-unavailable", pane_id: "w1:p1" });
+  assert.deepEqual(await client.wait(message => message.type === "attach-unavailable"), { type: "attach-unavailable", pane_id: "w1:p1", code: "attach_unsupported" });
 });
 
 test("a message sent while the pane asks for a password is marked secret and records no request", async context => {

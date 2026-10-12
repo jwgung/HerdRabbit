@@ -54,8 +54,10 @@ export class PaneAttachments {
     this.log = log;
   }
 
-  // Joins the pane's attachment, creating it when nobody has it open. An
-  // observer, or a client that keeps the pane's size, never resizes the grid.
+  // Joins the pane's attachment, creating it when nobody has it open. One
+  // client sets the shared grid's size: the first to open the pane, then
+  // whoever types. The others show that grid as it is. An observer, or a
+  // client that keeps the pane's size, never sets it.
   async attach(client, paneId, { cols, rows, keepSize = false }) {
     if (!validSize(cols) || !validSize(rows)) throw new RangeError("cols and rows must be integers in 1..1000");
     const observing = client.mode === "observe" || keepSize;
@@ -75,8 +77,9 @@ export class PaneAttachments {
     this.#reconcile(paneId);
     if (client.closed) return;
     if (attachment.ready && !attachment.held) client.send({ type: "input-ready", pane_id: paneId });
-    if (observing) client.send({ type: "pane-geometry", pane_id: paneId, cols: attachment.cols, rows: attachment.rows });
-    else this.#resize(paneId, cols, rows);
+    if (!observing) attachment.sizes.set(client, { cols, rows });
+    if (!observing && !attachment.clients.has(attachment.owner)) this.#own(paneId, client);
+    else this.#sendGeometry(client, paneId);
   }
 
   detach(client, paneId) {
@@ -85,8 +88,15 @@ export class PaneAttachments {
     if (!attachment) return;
     attachment.clients.delete(client);
     attachment.stalled.delete(client);
-    if (attachment.clients.size === 0) this.#close(paneId);
-    else this.#reconcile(paneId);
+    attachment.sizes.delete(client);
+    if (attachment.clients.size === 0) { this.#close(paneId); return; }
+    // The size passes to the client that asked for one most recently.
+    if (attachment.owner === client) {
+      attachment.owner = null;
+      const next = [...attachment.sizes.keys()].at(-1);
+      if (next) this.#own(paneId, next);
+    }
+    this.#reconcile(paneId);
   }
 
   detachAll(client) {
@@ -99,14 +109,18 @@ export class PaneAttachments {
   input(client, paneId, data) {
     const attachment = this.#attachments.get(paneId);
     if (client.mode !== "interact" || !attachment?.clients.has(client) || !attachment.ready || attachment.held) return false;
+    // Typing here means this is the screen being used: it sets the size now.
+    if (attachment.owner !== client && attachment.sizes.has(client)) this.#own(paneId, client);
     attachment.pty.write(data);
     return true;
   }
 
   resize(client, paneId, cols, rows) {
     if (client.mode !== "interact" || !validSize(cols) || !validSize(rows)) return false;
-    if (!this.#attachments.get(paneId)?.clients.has(client)) return false;
-    this.#resize(paneId, cols, rows);
+    const attachment = this.#attachments.get(paneId);
+    if (!attachment?.clients.has(client) || !attachment.sizes.has(client)) return false;
+    attachment.sizes.set(client, { cols, rows });
+    if (attachment.owner === client) this.#resize(paneId, cols, rows);
     return true;
   }
 
@@ -188,13 +202,33 @@ export class PaneAttachments {
     }
   }
 
+  // `client` sets the grid from now on, at the size it last asked for.
+  #own(paneId, client) {
+    const attachment = this.#attachments.get(paneId);
+    attachment.owner = client;
+    // Moved to the end: when this one leaves, the next most recent takes over.
+    const size = attachment.sizes.get(client);
+    attachment.sizes.delete(client);
+    attachment.sizes.set(client, size);
+    if (!this.#resize(paneId, size.cols, size.rows)) {
+      for (const member of attachment.clients) this.#sendGeometry(member, paneId);
+    }
+  }
+
+  #sendGeometry(client, paneId) {
+    const attachment = this.#attachments.get(paneId);
+    client.send({ type: "pane-geometry", pane_id: paneId, cols: attachment.cols, rows: attachment.rows, owner: attachment.owner === client });
+  }
+
+  // False when the grid already had that size.
   #resize(paneId, cols, rows) {
     const attachment = this.#attachments.get(paneId);
-    if (!attachment || (attachment.cols === cols && attachment.rows === rows)) return;
+    if (!attachment || (attachment.cols === cols && attachment.rows === rows)) return false;
     attachment.cols = cols;
     attachment.rows = rows;
     attachment.pty.resize(cols, rows);
-    this.#broadcast(paneId, { type: "pane-geometry", pane_id: paneId, cols, rows });
+    for (const client of attachment.clients) this.#sendGeometry(client, paneId);
+    return true;
   }
 
   #close(paneId) {
@@ -234,6 +268,8 @@ export class PaneAttachments {
     const attachment = {
       ready: false, held: false, closed: false, pty: null,
       clients: new Set(), stalled: new Map(),
+      // Who sets the grid, and the size each client that may set it asked for.
+      owner: null, sizes: new Map(),
       cols: observing ? target.cols ?? 80 : cols,
       rows: observing ? target.rows ?? 24 : rows,
       replay: new ReplayBuffer(MAX_REPLAY_BYTES),
