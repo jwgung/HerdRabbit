@@ -102,6 +102,8 @@ export async function ensureHerdrExecutable({
   if (!(await isExecutable(installed))) {
     throw new Error(`Herdr installation finished but ${installed} is not executable`);
   }
+  // A cached or pinned installer could still hand over an older release.
+  await ensureSupportedVersion(installed, { readVersion, update, log });
   log(`Herdr 설치 완료: ${installed}`);
   return installed;
 }
