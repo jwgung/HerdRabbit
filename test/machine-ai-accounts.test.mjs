@@ -165,10 +165,13 @@ test("a switch looks for agents in the machine's panes and goes ahead only when 
 test("a machine without Node.js 22 or newer shows why and refuses every change", async (t) => {
   const bin = await mkdtemp(join(tmpdir(), "herdrabbit-no-node-"));
   t.after(() => rm(bin, { recursive: true, force: true }));
-  // A shell, and no node anywhere on the PATH or in the system folders the
-  // launcher adds (stood in for by an empty one, so a Node installed on this
-  // machine does not count).
-  await symlink("/bin/sh", join(bin, "sh"));
+  // A shell and the tools the launcher locks with, and no node anywhere on the
+  // PATH or in the system folders it adds (stood in for by an empty one, so a
+  // Node installed on this machine does not count).
+  const { execFileSync } = await import("node:child_process");
+  for (const tool of ["sh", "mkdir", "chmod", "flock"]) {
+    await symlink(execFileSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).trim(), join(bin, tool));
+  }
   const missing = await setup(t, { path: bin, systemNodeDirs: [join(bin, "system")] });
   const listing = await missing.accounts.list();
   assert.deepEqual(listing.clis.map((cli) => [cli.id, cli.supported, cli.reason]),
@@ -385,34 +388,7 @@ test("the store on the machine stays private when the folder above it is not", a
   for (const path of [machine.store, join(machine.store, "codex")]) assert.equal((await stat(path)).mode & 0o777, 0o700);
 });
 
-test("changes on a machine take a lock there, and a lock left by a run that died is cleared", async (t) => {
-  const { store, accounts } = await setup(t);
-  const { utimes } = await import("node:fs/promises");
-  await mkdir(join(store, ".change-lock"), { recursive: true });
-  const old = new Date(Date.now() - 120_000);
-  await utimes(join(store, ".change-lock"), old, old);
-  const saved = await accounts.saveCurrent("claude");
-  assert.equal(saved.account.email, "a@example.com");
-  assert.equal(existsSync(join(store, ".change-lock")), false, "released after the change");
-  const listed = await accounts.list();
-  assert.equal(listed.clis.find((cli) => cli.id === "claude").accounts.length, 1, "the lock folder is not an account");
-});
 
-test("a lock whose process is still running is never taken over, however old it looks", async (t) => {
-  const remote = await remoteHome(t);
-  const ssh = fakeSsh(remote.home);
-  const accounts = new MachineAiAccounts({ link: fakeLink, spawnProcess: ssh.spawnProcess, timeoutMs: 1_500 });
-  const { utimes, writeFile: write } = await import("node:fs/promises");
-  const lock = join(remote.store, ".change-lock");
-  await mkdir(lock, { recursive: true });
-  // This test's own process holds it: alive, though not touched for minutes.
-  await write(join(lock, "pid"), String(process.pid));
-  const old = new Date(Date.now() - 600_000);
-  await utimes(lock, old, old);
-  await assert.rejects(accounts.saveCurrent("claude"), { code: "machine_timeout" });
-  assert.equal(existsSync(join(lock, "pid")), true, "still held by its owner");
-  await rm(lock, { recursive: true, force: true });
-});
 
 test("a machine that hangs, floods its answer or cannot be reached fails cleanly", async () => {
   const { EventEmitter } = await import("node:events");
@@ -438,19 +414,50 @@ test("a machine that hangs, floods its answer or cannot be reached fails cleanly
   await assert.rejects(broken.saveCurrent("claude"), (error) => error.code === "machine_accounts_failed" && !error.message.includes("ENOENT"));
 });
 
-test("two processes that find the same abandoned lock both get through, one after the other", async (t) => {
+test("two processes changing the same machine at once both get through, one after the other", async (t) => {
   const remote = await remoteHome(t);
   const ssh = fakeSsh(remote.home);
   // Two HerdRabbits reaching the same machine: nothing shared on this side.
   const one = new MachineAiAccounts({ link: fakeLink, spawnProcess: ssh.spawnProcess });
   const two = new MachineAiAccounts({ link: fakeLink, spawnProcess: ssh.spawnProcess });
-  const { utimes } = await import("node:fs/promises");
-  const lock = join(remote.store, ".change-lock");
-  await mkdir(lock, { recursive: true });
-  const old = new Date(Date.now() - 120_000);
-  await utimes(lock, old, old);
   const [a, b] = await Promise.all([one.saveCurrent("claude"), two.saveCurrent("codex")]);
   assert.equal(a.account.email, "a@example.com");
   assert.equal(b.account.email, "a@example.com");
-  assert.deepEqual((await readdir(remote.store)).filter((name) => name.startsWith(".change-lock")), [], "no lock is left behind");
+});
+
+test("a change waits for one still running there, and a run that died holds nothing", async (t) => {
+  const remote = await remoteHome(t);
+  const ssh = fakeSsh(remote.home);
+  const accounts = new MachineAiAccounts({ link: fakeLink, spawnProcess: ssh.spawnProcess, timeoutMs: 1_500 });
+  await mkdir(remote.store, { recursive: true });
+  const lock = join(remote.store, ".change-lock");
+  // Another run on the machine holds the kernel lock.
+  // Its own process group, so ending it ends the sleep that inherits the lock.
+  const holder = spawn("flock", [lock, "sleep", "30"], { stdio: "ignore", detached: true });
+  const end = () => { try { process.kill(-holder.pid, "SIGKILL"); } catch {} };
+  t.after(end);
+  for (let i = 0; i < 50 && !existsSync(lock); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  await assert.rejects(accounts.saveCurrent("claude"), { code: "machine_timeout" }, "waits rather than going ahead");
+  // It dies without cleaning up; the lock went with it, the file stays.
+  end();
+  await once(holder, "exit");
+  assert.equal(existsSync(lock), true);
+  const saved = await accounts.saveCurrent("claude");
+  assert.equal(saved.account.email, "a@example.com");
+  const listed = await accounts.list();
+  assert.equal(listed.clis.find((cli) => cli.id === "claude").accounts.length, 1, "the lock file is not an account");
+});
+
+test("a machine without flock refuses changes and says why", async (t) => {
+  const bin = await mkdtemp(join(tmpdir(), "herdrabbit-no-flock-"));
+  t.after(() => rm(bin, { recursive: true, force: true }));
+  for (const tool of ["sh", "mkdir", "chmod"]) {
+    const { execFileSync } = await import("node:child_process");
+    await symlink(execFileSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).trim(), join(bin, tool));
+  }
+  await symlink(process.execPath, join(bin, "node"));
+  const machine = await setup(t, { path: bin, systemNodeDirs: [join(bin, "system")] });
+  await assert.rejects(machine.accounts.saveCurrent("claude"), { code: "machine_tools_missing", status: 501 });
+  assert.ok((await machine.accounts.list()).clis.length > 0, "the list needs no lock");
 });

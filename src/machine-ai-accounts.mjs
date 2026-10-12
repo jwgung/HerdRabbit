@@ -23,6 +23,8 @@ const MAX_OUTPUT = 256 * 1024;
 // known to load there.
 const MIN_NODE_MAJOR = 22;
 const EXIT_NO_NODE = 72;
+const EXIT_BUSY = 75;
+const EXIT_NO_FLOCK = 69;
 // As machine-files.mjs: a missing master fails at once instead of opening a login.
 const SSH_OPTIONS = ["-T", "-o", "ControlMaster=no", "-o", "ProxyCommand=false"];
 
@@ -44,6 +46,18 @@ else
 fi
 [ -n "$n" ] || exit ${EXIT_NO_NODE}
 umask 077
+# One change at a time on this machine, across processes: a run cut off by a
+# timeout on the other side may still be going here. The lock is the kernel's
+# (flock), held by the descriptor node inherits, so it ends with that process
+# however it ends -- nothing stale to clear. Reading the list takes none.
+if [ "$1" != list ]; then
+  case "$XDG_CONFIG_HOME" in /*) c=$XDG_CONFIG_HOME ;; *) c=$HOME/.config ;; esac
+  s=$c/herdr-bridge/ai-accounts
+  command -v flock >/dev/null 2>&1 || exit ${EXIT_NO_FLOCK}
+  mkdir -p "$s" && chmod 700 "$s" || exit 1
+  exec 9>"$s/.change-lock" || exit 1
+  flock -w 15 9 || exit ${EXIT_BUSY}
+fi
 exec "$n" --input-type=module - "$@"
 `;
 
@@ -92,50 +106,6 @@ const home = process.env.HOME || homedir();
 const configHome = isAbsolute(process.env.XDG_CONFIG_HOME || "") ? process.env.XDG_CONFIG_HOME : join(home, ".config");
 const directory = join(configHome, "herdr-bridge", "ai-accounts");
 const accounts = new AiAccounts({ directory });
-const { mkdir, readFile, rm, stat, utimes, writeFile } = await import("node:fs/promises");
-// One change at a time on this machine, across processes: a run cut off by a
-// timeout on the other side may still be going here. The lock names its
-// process and is touched while that runs; it is taken over only when it has
-// not been touched for a minute and its process is gone.
-const LOCK = join(directory, ".change-lock");
-const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (error) { return error.code === "EPERM"; } };
-async function abandoned() {
-  const held = await stat(LOCK).catch(() => null);
-  if (!held || Date.now() - held.mtimeMs <= 60000) return false;
-  const pid = Number(await readFile(join(LOCK, "pid"), "utf8").catch(() => ""));
-  return !(Number.isInteger(pid) && pid > 0 && alive(pid));
-}
-// Taking an abandoned lock over is itself done by one process at a time, and
-// looks again once it is that one: two that both saw it abandoned must not
-// remove the lock the first of them has just taken.
-const TAKEOVER = join(directory, ".change-lock-takeover");
-async function takeOver() {
-  try { await mkdir(TAKEOVER, { mode: 0o700 }); } catch (error) {
-    if (error.code !== "EEXIST") throw error;
-    const held = await stat(TAKEOVER).catch(() => null);
-    if (held && Date.now() - held.mtimeMs > 60000) await rm(TAKEOVER, { recursive: true, force: true });
-    return;
-  }
-  try { if (await abandoned()) await rm(LOCK, { recursive: true, force: true }); } finally { await rm(TAKEOVER, { recursive: true, force: true }); }
-}
-async function locked(run) {
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  for (const deadline = Date.now() + 15000; ;) {
-    try { await mkdir(LOCK, { mode: 0o700 }); break; } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      if (await abandoned()) { await takeOver(); continue; }
-      if (Date.now() > deadline) throw new AiAccountError("machine_accounts_busy", "Another account change is still running on that machine. Try again shortly.", { status: 409 });
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
-  }
-  await writeFile(join(LOCK, "pid"), String(process.pid), { mode: 0o600 });
-  const touch = setInterval(() => { const now = new Date(); utimes(LOCK, now, now).catch(() => {}); }, 15000);
-  try { return await run(); } finally {
-    clearInterval(touch);
-    // Only its own lock: one taken over from it (it ran past the lease) is not.
-    if (await readFile(join(LOCK, "pid"), "utf8").catch(() => "") === String(process.pid)) await rm(LOCK, { recursive: true, force: true });
-  }
-}
 const operations = {
   list: () => accounts.list(),
   save: () => accounts.saveCurrent(cli),
@@ -148,7 +118,7 @@ const operations = {
 let reply;
 try {
   if (!Object.hasOwn(operations, operation)) throw new InputValidationError("Unknown operation");
-  reply = { ok: true, result: await (operation === "list" ? operations.list() : locked(operations[operation])) };
+  reply = { ok: true, result: await operations[operation]() };
 } catch (error) {
   if (error instanceof AiAccountError) reply = { ok: false, kind: "account", code: error.code, status: error.status, message: error.message };
   else if (error instanceof InputValidationError) reply = { ok: false, kind: "input", message: error.message };
@@ -304,6 +274,12 @@ export class MachineAiAccounts {
       child.stdin.end(shippedProgram());
     });
     if (code === EXIT_NO_NODE) throw new AiAccountError("machine_node_missing", NO_NODE_REASON, { status: 501 });
+    if (code === EXIT_BUSY) {
+      throw new AiAccountError("machine_accounts_busy", "Another account change is still running on that machine. Try again shortly.", { status: 409 });
+    }
+    if (code === EXIT_NO_FLOCK) {
+      throw new AiAccountError("machine_tools_missing", "Changing accounts on this machine needs flock (util-linux) there.", { status: 501 });
+    }
     if (code === 255) throw new AiAccountError("machine_offline", "The SSH connection to this machine stopped.", { status: 503 });
     let reply;
     try { reply = JSON.parse(stdout); } catch { throw failed(); }
