@@ -1060,6 +1060,19 @@ export function createHerdrHttpServer({
         return;
       }
 
+      // Sent to every subscribed device, the asking one too, so each can see
+      // that alerts arrive. It names no pane, so no open window swallows it.
+      if (method === "POST" && url.pathname === "/api/push/test") {
+        if (!push) {
+          throw new HttpError(503, "push_unavailable", "Push notifications are unavailable");
+        }
+        requireWriteAuthorization(request, csrfToken);
+        await readJsonBody(request, maxBodyBytes);
+        await push.send({ title: "HerdRabbit", body: "Test notification. Alerts reach this device.", tag: "herd-rabbit:test", data: {} });
+        sendJson(response, 200, { ok: true });
+        return;
+      }
+
       if (url.pathname === "/api/push/subscriptions") {
         if (!push) {
           throw new HttpError(503, "push_unavailable", "Push notifications are unavailable");
