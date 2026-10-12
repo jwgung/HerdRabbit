@@ -95,7 +95,7 @@ const machines = !machineDirectory ? null : new HerdrMachines({
   }),
   log: (message) => console.warn(message),
 });
-await machines?.start();
+machines?.start();
 const herdr = new MultiServerClient({ local, profiles, hubVersion, machineName, herdrVersion: () => herdrVersion, machines });
 // Only this machine's panes decide whether a switch here would disturb anything.
 const aiAccounts = new AiAccounts({ directory: config.aiAccountsDir, runningAgents: () => runningAgentsIn(local) });

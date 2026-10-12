@@ -80,7 +80,7 @@ export class MultiServerClient {
       this.entries.set(profile.id, {
         profile, fingerprint,
         client: this.clientFor(profile),
-        snapshot: empty(), available: false, status: "Connecting", lastPoll: 0, pending: null,
+        snapshot: empty(), available: false, status: "Connecting", connecting: true, lastPoll: 0, pending: null,
       });
     }
   }
@@ -93,9 +93,11 @@ export class MultiServerClient {
         entry.snapshot = await entry.client.snapshot();
         entry.available = true;
         entry.status = "Connected";
+        entry.connecting = false;
       } catch (error) {
         entry.available = false;
         entry.status = serverStatusFor(error);
+        entry.connecting = error?.connecting === true;
       } finally {
         entry.lastPoll = Date.now();
         entry.pending = null;
@@ -122,14 +124,17 @@ export class MultiServerClient {
     });
     return {
       ...this.entries.get("local").snapshot,
+      // Machines not listed yet: a page opening on one of their panes waits.
+      servers_pending: Boolean(this.machines && !this.machines.listed),
       ...Object.fromEntries(collections.map((key) => [key, snapshots.flatMap((snapshot) => snapshot[key])])),
       // Address and version travel with the server so the sidebar can say what
       // a machine is without asking again.
       // A machine goes by the name Tailscale knows it by. This one is this
       // HerdRabbit, so it answers for its own version too; a linked one reports
       // what its link says.
-      servers: entries.map(({ profile, available, status, client }) => ({
-        id: profile.id, name: profile.name, available, status,
+      servers: entries.map(({ profile, available, status, connecting, client }) => ({
+        // Connecting: not reached yet, but still trying; a page waits for its panes.
+        id: profile.id, name: profile.name, available, status, connecting: !available && connecting,
         transport: profile.id === "local" ? "local" : profile.transport ?? "link",
         ...(isMachine(profile) ? { enabled: profile.enabled !== false } : {}),
         address: profile.address ?? null,

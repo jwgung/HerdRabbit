@@ -360,3 +360,56 @@ test("a link is ready only once both sockets are forwarded, each to its own pair
   assert.deepEqual(status.slice(status.indexOf("--"), -1), ["--", "me@lab"], "the remote command follows the destination");
   await link.stop();
 });
+
+test("the first machine listing runs in the background, and the snapshot says it is pending until it is in", async () => {
+  let answer;
+  const machines = new HerdrMachines({
+    directory: "/run/x", createBridge: () => ({}),
+    createLink: (machine) => ({ machine, state: "connecting", error: null, start() {}, async stop() {} }),
+    // `herdr machine list` hangs until told otherwise.
+    read: () => new Promise((resolve) => { answer = resolve; }),
+  });
+  const local = { snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) };
+  const herdr = new MultiServerClient({ local, profiles: { list: () => [] }, machines });
+  assert.equal(machines.start(), undefined, "start does not wait for the listing");
+  const before = await herdr.snapshot();
+  assert.equal(before.servers_pending, true);
+  assert.deepEqual(before.servers.map((server) => server.id), ["local"], "local answers while the listing hangs");
+  answer([{ id: ID, label: "lab", target: "me@lab", session: "default", enabled: true }]);
+  await machines.refreshing;
+  const after = await herdr.snapshot();
+  assert.equal(after.servers_pending, false);
+  await machines.stop();
+});
+
+test("only a machine still connecting is reported as connecting", async () => {
+  const OFF = "9".repeat(32);
+  const FAILED = "8".repeat(32);
+  const links = new Map();
+  const machines = new HerdrMachines({
+    directory: "/run/x", createBridge: () => ({ snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) }),
+    createLink: (machine) => {
+      const link = { machine, state: machine.id === FAILED ? "offline" : "connecting", error: machine.id === FAILED ? "Host key changed" : null, start() {}, async stop() {} };
+      links.set(machine.id, link);
+      return link;
+    },
+    read: async () => [
+      { id: ID, label: "lab", target: "me@lab", session: "default", enabled: true },
+      { id: OFF, label: "off", target: "me@off", session: "default", enabled: false },
+      { id: FAILED, label: "failed", target: "me@failed", session: "default", enabled: true },
+    ],
+  });
+  await machines.refresh();
+  const local = { snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) };
+  const herdr = new MultiServerClient({ local, profiles: { list: () => [] }, machines });
+  herdr.syncEntries();
+  const connecting = async () => Object.fromEntries((await herdr.snapshot()).servers.map((server) => [server.id, server.connecting]));
+  assert.equal(herdr.entries.get("machine-999999999999").connecting, true, "not asked yet: every server may still come");
+  await Promise.all([...herdr.entries.values()].map((entry) => herdr.refresh(entry)));
+  assert.deepEqual(await connecting(), {
+    local: false, "machine-4c139ff50dfb": true, "machine-999999999999": false, "machine-888888888888": false,
+  });
+  links.get(ID).state = "ready";
+  await herdr.refresh(herdr.entries.get("machine-4c139ff50dfb"));
+  assert.equal((await connecting())["machine-4c139ff50dfb"], false, "connected");
+});

@@ -33,6 +33,7 @@ import {
   outputTextForUpdate,
   paneShortcutTarget,
   selectedPaneIdForSnapshot,
+  waitsForRemotePane,
   shouldRenderTerminalUpdate,
   sidebarPresentation,
   terminalOutputForEnvironment,
@@ -2771,9 +2772,11 @@ function choosePane() {
   // The page opening on such a pane (from its address or the last visit) waits the same way.
   const awaited = pendingNotificationPaneId ?? (state.selectedPaneId ? null : state.preferredPaneId);
   const awaitedSince = pendingNotificationPaneId ? pendingNotificationSince : pageOpenedAt;
-  if (awaited?.includes("!") && !panes.some((pane) => idOf(pane, "pane_id", "id") === awaited) &&
-      snapshotRecords().servers.some((server) => server.id === awaited.split("!")[0])) {
-    if (Date.now() - awaitedSince < PENDING_REMOTE_PANE_MS) return;
+  if (waitsForRemotePane(
+    awaited, panes, snapshotRecords().servers, Date.now() - awaitedSince, PENDING_REMOTE_PANE_MS,
+    state.snapshot?.servers_pending,
+  )) return;
+  if (awaited?.includes("!") && !panes.some((pane) => idOf(pane, "pane_id", "id") === awaited)) {
     if (awaited === pendingNotificationPaneId) pendingNotificationPaneId = null;
     // Given up on: a reload must not wait for it all over again.
     const currentUrl = new URL(window.location.href);

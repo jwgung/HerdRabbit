@@ -98,8 +98,10 @@ function machineCommandError(error, fallback) {
 }
 
 // What a machine's commands are refused with while it has no connection.
-export function machineOffline(message = "Connecting to this machine…") {
-  return Object.assign(new Error(message), { code: "machine_offline" });
+// `connecting` says the connection is still coming up, so a page opening one
+// of its panes waits for it rather than open another pane.
+export function machineOffline(message = "Connecting to this machine…", connecting = false) {
+  return Object.assign(new Error(message), { code: "machine_offline", connecting });
 }
 
 async function waitFor(check, timeoutMs, cancelled) {
@@ -280,9 +282,10 @@ export class MachineClient {
     const link = this.link;
     if (!link) {
       const machine = this.machines.machines.find((item) => item.id === this.machineId);
-      throw machineOffline(machine && !machine.enabled ? "Turned off" : undefined);
+      // A listed machine that is on gets its link at the next refresh.
+      throw machine && !machine.enabled ? machineOffline("Turned off") : machineOffline(undefined, Boolean(machine));
     }
-    if (link.state !== "ready") throw machineOffline(link.error ?? undefined);
+    if (link.state !== "ready") throw machineOffline(link.error ?? undefined, link.state === "connecting");
     let bridge = this.bridges.get(link);
     if (!bridge) { bridge = this.createBridge(link); this.bridges.set(link, bridge); }
     return bridge;
@@ -322,6 +325,8 @@ export class HerdrMachines {
     // One `herdr machine` change at a time, and the one running can be cut short.
     this.changing = null;
     this.stopped = false;
+    // Whether `herdr machine list` has been asked once, answered or not.
+    this.listed = false;
     // Told the server id of a machine whose connection came up or went down.
     this.linkListeners = new Set();
   }
@@ -330,8 +335,10 @@ export class HerdrMachines {
     this.linkListeners.add(listener);
   }
 
-  async start() {
-    await this.refresh();
+  // The first listing runs in the background: a `herdr machine list` that
+  // hangs must not keep the server from opening.
+  start() {
+    void this.refresh();
     this.timer = setInterval(() => { void this.refresh(); }, this.refreshMs);
     this.timer.unref?.();
   }
@@ -364,6 +371,8 @@ export class HerdrMachines {
     } catch (error) {
       this.log(`herdr machine list failed: ${error.message}`);
       return;
+    } finally {
+      this.listed = true;
     }
     // Stopping while the list was being read: nothing new may start now.
     if (this.stopped) return;
