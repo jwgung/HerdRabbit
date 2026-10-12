@@ -23,7 +23,8 @@ printf '%s %s\\n' "$name" "$*" >> "$UPDATE_TEST_LOG"
 case "$name:$*" in
   'node:scripts/check-herdr-version.mjs') [ "$UPDATE_TEST_MODE" != herdr-too-old ] ;;
   'node:'*) printf '22\\n' ;;
-  'herdr:update --handoff') [ "$UPDATE_TEST_MODE" != herdr-update-failed ] ;;
+  'herdr:update --handoff'|'custom-herdr:update --handoff') [ "$UPDATE_TEST_MODE" != herdr-update-failed ] ;;
+  'systemctl:'*'--property=Environment --value') if [ "$UPDATE_TEST_MODE" = service-herdr ]; then printf 'HERDR_WEB_PORT=38787 HERDR_BIN=%s/custom-herdr\\n' "$UPDATE_TEST_BIN"; fi ;;
   'git:rev-parse --show-toplevel') printf '%s\\n' "$UPDATE_TEST_REPO" ;;
   'git:remote get-url origin') printf 'https://github.com/ultivis-iot/HerdRabbit.git\\n' ;;
   'git:rev-parse --git-path herdrabbit-update.lock') printf '%s/lock\\n' "$UPDATE_TEST_REPO" ;;
@@ -38,7 +39,7 @@ case "$name:$*" in
   'systemctl:'*'--property=WorkingDirectory --value') if [ "$UPDATE_TEST_MODE" = wrong-service ]; then printf '/tmp\\n'; else printf '%s\\n' "$UPDATE_TEST_REPO"; fi ;;
 esac
 `;
-  for (const command of ["node", "git", "npm", "systemctl", "herdr"]) {
+  for (const command of ["node", "git", "npm", "systemctl", "herdr", "custom-herdr"]) {
     await writeFile(join(bin, command), fake, { mode: 0o755 });
   }
   const log = join(directory, "commands");
@@ -46,7 +47,7 @@ esac
   try {
     result = await execute("sh", [join(repo, "update.sh")], { cwd: directory, env: {
       ...process.env, PATH: `${bin}:${process.env.PATH}`, HERD_RABBIT_INSTALL_DIR: "",
-      UPDATE_TEST_MODE: mode, UPDATE_TEST_REPO: repo, UPDATE_TEST_LOG: log,
+      UPDATE_TEST_MODE: mode, UPDATE_TEST_REPO: repo, UPDATE_TEST_LOG: log, UPDATE_TEST_BIN: bin,
     } });
   } catch (error) { result = error; }
   return { result, commands: await readFile(log, "utf8") };
@@ -64,6 +65,13 @@ test("updater locates its installation and verifies before restarting without re
   assert.ok(commands.indexOf("node scripts/check-herdr-version.mjs") < commands.indexOf("systemctl --user restart"));
   assert.match(commands, /git merge --ff-only FETCH_HEAD/);
   assert.doesNotMatch(commands, /install-service|tailscale|reset --hard/);
+});
+
+test("updater updates the Herdr the service runs, not the shell's", async (t) => {
+  const { result, commands } = await runFixture(t, "service-herdr");
+  assert.equal(result.code, undefined, result.stderr);
+  assert.match(commands, /custom-herdr update --handoff/);
+  assert.doesNotMatch(commands, /^herdr update/m);
 });
 
 test("updater keeps the installed Herdr when its update fails but it is new enough", async (t) => {

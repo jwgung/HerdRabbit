@@ -4,9 +4,13 @@ import { execFile } from "node:child_process";
 // builds on; Herdr has all of them from 0.9.0.
 export const MIN_HERDR_VERSION = "0.9.0";
 
+// "0.9.0-beta.1" keeps its prerelease tag: it comes before 0.9.0, so it must
+// not pass as that release.
+const VERSION_PATTERN = /(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?/u;
+
 export function parseHerdrVersion(text) {
-  const match = /(\d+)\.(\d+)\.(\d+)/.exec(String(text ?? ""));
-  return match ? match.slice(1, 4).map(Number) : null;
+  const match = VERSION_PATTERN.exec(String(text ?? ""));
+  return match ? { core: match.slice(1, 4).map(Number), prerelease: match[4] ?? "", text: match[0] } : null;
 }
 
 export function herdrVersionSupported(version, minimum = MIN_HERDR_VERSION) {
@@ -14,9 +18,9 @@ export function herdrVersionSupported(version, minimum = MIN_HERDR_VERSION) {
   const required = parseHerdrVersion(minimum);
   if (!actual) return false;
   for (let index = 0; index < 3; index += 1) {
-    if (actual[index] !== required[index]) return actual[index] > required[index];
+    if (actual.core[index] !== required.core[index]) return actual.core[index] > required.core[index];
   }
-  return true;
+  return actual.prerelease === "" || required.prerelease !== "";
 }
 
 // The installed CLI is what every command runs, so its version is the one that
@@ -24,8 +28,7 @@ export function herdrVersionSupported(version, minimum = MIN_HERDR_VERSION) {
 export function readHerdrVersion(binary = "herdr", { runner = execFile, timeoutMs = 5_000 } = {}) {
   return new Promise((resolve) => {
     runner(binary, ["--version"], { encoding: "utf8", timeout: timeoutMs, windowsHide: true }, (error, stdout) => {
-      const version = error ? null : parseHerdrVersion(stdout);
-      resolve(version ? version.join(".") : null);
+      resolve(error ? null : parseHerdrVersion(stdout)?.text ?? null);
     });
   });
 }
