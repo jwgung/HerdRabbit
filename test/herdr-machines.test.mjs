@@ -249,11 +249,12 @@ test("a forward that fails keeps its reason when the connection closes, and trie
   });
   context.mock.timers.enable({ apis: ["setTimeout"] });
   link.start();
-  for (let i = 0; i < 50 && link.state !== "offline"; i++) {
+  // Real files are checked between steps: wait on the clock, not a number of turns.
+  const deadline = performance.now() + 10_000;
+  while (!(link.state === "offline" && link.retryTimer) && performance.now() < deadline) {
     context.mock.timers.tick(100);
     await new Promise((resolve) => setImmediate(resolve));
   }
-  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(link.state, "offline");
   assert.equal(link.error, "Herdr is not running on this machine.");
   assert.ok(link.retryTimer, "another try is scheduled");
@@ -338,7 +339,10 @@ test("a link is ready only once both sockets are forwarded, each to its own pair
   });
   context.mock.timers.enable({ apis: ["setTimeout"] });
   link.start();
-  for (let i = 0; i < 200 && !release; i++) {
+  // The link checks real files between steps; wait for them on the clock,
+  // not for a number of turns, which a busy machine can outrun.
+  const deadline = performance.now() + 10_000;
+  while (!release && performance.now() < deadline) {
     context.mock.timers.tick(100);
     await new Promise((resolve) => setImmediate(resolve));
   }
