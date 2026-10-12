@@ -28,6 +28,9 @@ import { MAX_TEXT_PREVIEW_BYTES, inlineTypeFor, isMarkdown } from "../public/fil
 import { renderMarkdown } from "./markdown.mjs";
 import { secretPrompt } from "./secret-prompt.mjs";
 import { validMachineLabel, validMachineTarget } from "./herdr-machines.mjs";
+import { ConversationError } from "./conversation/claude.mjs";
+import { ConversationMonitor } from "./conversation/monitor.mjs";
+import { ConversationService } from "./conversation/service.mjs";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
 const SIMPLEWEBAUTHN_BROWSER_BUNDLE = fileURLToPath(new URL(
@@ -301,6 +304,11 @@ function errorResponse(error) {
   if (error instanceof AiAccountError) {
     return { status: error.status, code: error.code, message: error.message, details: error.details };
   }
+  // A conversation that cannot be shown says why (details.reason) for the
+  // page to word it; a stale cursor is a 409 the page reloads on.
+  if (error instanceof ConversationError) {
+    return { status: error.status, code: error.code, message: error.message, details: error.details };
+  }
   if (error instanceof HerdrCommandError) {
     return {
       status: error.code === "herdr_timeout" ? 504 : 502,
@@ -522,6 +530,20 @@ async function serveStatic(response, pathname, method) {
   return true;
 }
 
+// A conversation cursor from the query: absent or empty is none; the page
+// read refuses one that does not name a place in the transcript.
+function conversationCursor(value) {
+  if (value === null || value === "") return undefined;
+  if (value.length > 200) throw new HttpError(400, "invalid_cursor", "That conversation cursor is not valid.");
+  return value;
+}
+
+// The versions an If-None-Match header names, without quotes or W/.
+function requestedVersions(header) {
+  if (typeof header !== "string" || header.length > 1024) return [];
+  return header.split(",").map((tag) => tag.trim().replace(/^W\//u, "").replace(/^"(.*)"$/u, "$1")).filter(Boolean);
+}
+
 export function createHerdrHttpServer({
   herdr,
   files = null,
@@ -533,6 +555,9 @@ export function createHerdrHttpServer({
   aiAccounts = null,
   attachments = null,
   machines = null,
+  // A pane's Claude conversation (src/conversation/): this machine's
+  // transcripts, and a Herdr machine's through its file client.
+  conversations = null,
   // How many links to other HerdRabbits an older version saved. Those are not
   // used any more; the page says once to add those PCs again with herdr machine.
   legacyServers = 0,
@@ -547,6 +572,8 @@ export function createHerdrHttpServer({
   if (!herdr) {
     throw new TypeError("herdr client is required");
   }
+  const conversationService = conversations ?? new ConversationService({ herdr });
+  const conversationMonitor = new ConversationMonitor({ resolve: (paneId) => conversationService.resolve(paneId) });
 
   // A message sent while the pane asks for a password is that password: the
   // page keeps it out of its input history, and no request is recorded. A
@@ -1179,6 +1206,33 @@ export function createHerdrHttpServer({
         return;
       }
 
+      // A Claude pane's conversation, a page of turns at a time. The ETag is
+      // the answer's version: an unchanged poll costs no body.
+      const conversationMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/conversation$/);
+      if (method === "GET" && conversationMatch) {
+        const answer = await conversationService.page(decodePaneId(conversationMatch[1]), {
+          before: conversationCursor(url.searchParams.get("before")),
+          since: conversationCursor(url.searchParams.get("since")),
+          ifNoneMatch: requestedVersions(request.headers["if-none-match"]),
+        });
+        response.setHeader("ETag", `"${answer.version}"`);
+        if (answer.notModified) {
+          sendEmpty(response, 304);
+          return;
+        }
+        sendJson(response, 200, answer);
+        return;
+      }
+
+      // One tool call's whole output (capped), which a page only previews.
+      const toolOutputMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/conversation\/tools\/([^/]+)$/);
+      if (method === "GET" && toolOutputMatch) {
+        sendJson(response, 200, await conversationService.toolOutput(
+          decodePaneId(toolOutputMatch[1]), decodePaneId(toolOutputMatch[2]),
+        ));
+        return;
+      }
+
       const textMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/text$/);
       if (method === "POST" && textMatch) {
         requireWriteAuthorization(request, csrfToken);
@@ -1327,7 +1381,9 @@ export function createHerdrHttpServer({
     watchStatuses: typeof herdr.watchStatuses === "function" ? (...args) => herdr.watchStatuses(...args) : undefined,
     attachments,
     onRequest: (paneId, text) => notificationMonitor?.recordRequest(paneId, text),
+    watchConversation: (paneId, listener) => conversationMonitor.watch(paneId, listener),
   });
+  server.once("close", () => conversationMonitor.stop());
 
-  return Object.freeze({ server, csrfToken });
+  return Object.freeze({ server, csrfToken, conversationMonitor });
 }

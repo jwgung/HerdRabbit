@@ -3,10 +3,13 @@ import { WebSocketServer } from "ws";
 const MAX_PENDING_ATTACHES = 4;
 // A page shows one attached pane at a time; a few more cover switching.
 const MAX_ATTACHED_PANES = 4;
+// Conversations one socket may watch for changes, for the same reason.
+const MAX_WATCHED_CONVERSATIONS = 4;
 
 // Authentication stays with the HTTP server. No launch token is put in a URL.
 export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMessage,
-  sendInput, watchOutput, watchStatuses, attachments = null, onRequest = () => {}, onSessionsEnded = () => () => {} }) {
+  sendInput, watchOutput, watchStatuses, attachments = null, onRequest = () => {}, onSessionsEnded = () => () => {},
+  watchConversation = null }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
   // An ended sign-in closes its sockets now, not at their next heartbeat.
   const rechecks = new Set();
@@ -36,6 +39,8 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
     // Panes this socket still wants: a detach that arrives while an attach is
     // still looking up its terminal cancels it once the lookup ends.
     const wantedPanes = new Set();
+    // Conversations this socket hears changes of, each with the call that stops it.
+    const conversations = new Map();
     const send = message => {
       if (ws.readyState !== ws.OPEN) return;
       if (ws.bufferedAmount > 2 * 1024 * 1024) { ws.close(1013, "Client too slow"); return; }
@@ -106,6 +111,8 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
       clearInterval(heartbeat);
       stopWatch?.();
       stopStatuses?.();
+      for (const stop of conversations.values()) stop();
+      conversations.clear();
       attachments?.detachAll(viewer);
     });
     ws.on("message", (bytes, binary) => {
@@ -164,6 +171,25 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
               if (error instanceof RangeError) { stopped = true; ws.close(1008, "Invalid terminal request"); return; }
               send({ type: "attach-unavailable", pane_id: id, code: error.code ?? "attach_failed", message: error.message });
             });
+          return;
+        }
+        // A changed transcript is only announced; the page reads it over HTTP.
+        if (message.type === "watch-conversation") {
+          const id = paneId(message.paneId);
+          if (conversations.has(id)) return;
+          if (!watchConversation || conversations.size >= MAX_WATCHED_CONVERSATIONS) {
+            send({ type: "conversation-unavailable", pane_id: id, code: watchConversation ? "busy" : "unsupported" });
+            return;
+          }
+          conversations.set(id, watchConversation(id, signature => {
+            if (!stopped && valid()) send({ type: "conversation-changed", pane_id: id, signature });
+          }));
+          return;
+        }
+        if (message.type === "unwatch-conversation") {
+          const id = paneId(message.paneId);
+          conversations.get(id)?.();
+          conversations.delete(id);
           return;
         }
         if (message.type === "detach") {

@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.21";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.21";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.22";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.22";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -45,7 +45,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.21";
+} from "./ui-model.js?v=1.2.22";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -56,43 +56,43 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.21";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.21";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.21";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.21";
+} from "./browse-preference.js?v=1.2.22";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.22";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.22";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.22";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.21";
+} from "./pane-preference.js?v=1.2.22";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.21";
+} from "./workspace-preference.js?v=1.2.22";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.21";
+} from "./terminal-preference.js?v=1.2.22";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.21";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.21";
+} from "./completion-preference.js?v=1.2.22";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.22";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.21";
+} from "./input-history-preference.js?v=1.2.22";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.21";
+} from "./launch-session.js?v=1.2.22";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.21";
+} from "./push-notifications.js?v=1.2.22";
 
 function browserStorage() {
   try {

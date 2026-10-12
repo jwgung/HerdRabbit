@@ -1,4 +1,4 @@
-import { outputTextForUpdate } from "./ui-model.js?v=1.2.21";
+import { outputTextForUpdate } from "./ui-model.js?v=1.2.22";
 
 const ATTACH_MESSAGES = new Set(["pty-data", "input-ready", "attach-held", "attach-resumed", "pane-geometry",
   "attach-unavailable", "attach-error", "pty-exit", "pty-input-dropped"]);

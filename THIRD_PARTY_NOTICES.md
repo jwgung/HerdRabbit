@@ -4,7 +4,8 @@
 
 Parts of the terminal attachment (`src/pane-attachments.mjs`, `src/output-window.mjs`,
 `src/attach-output.mjs`, `src/secret-prompt.mjs`, `public/xterm-terminal.js`,
-`public/terminal-widths.js`) and the xterm composition patch
+`public/terminal-widths.js`), the Claude conversation reader (`src/conversation/claude.mjs`,
+`src/conversation/monitor.mjs`) and the xterm composition patch
 (`vendor/xterm/xterm-5.5.0-ime.patch`, applied by `scripts/build-xterm.mjs`) are adapted from herdr-web-ui,
 https://github.com/devswha/herdr-web-ui
 
