@@ -34,7 +34,7 @@ case "$name:$*" in
   'git:fetch origin main') [ "$UPDATE_TEST_MODE" != fetch-failed ] ;;
   'git:merge-base --is-ancestor HEAD FETCH_HEAD') [ "$UPDATE_TEST_MODE" != diverged ] ;;
   'git:rev-parse --short HEAD') printf '123abcd\\n' ;;
-  'git:archive FETCH_HEAD src') tar -cf - -T /dev/null ;;
+  'git:archive FETCH_HEAD src') if [ "$UPDATE_TEST_MODE" = archive-failed ]; then exit 1; fi; tar -cf - -T /dev/null ;;
   'npm:run verify') [ "$UPDATE_TEST_MODE" != verify-failed ] ;;
   'npm:ci --omit=dev') [ "$UPDATE_TEST_MODE" != install-failed ] ;;
   'systemctl:'*'--property=LoadState --value') printf 'loaded\\n' ;;
@@ -65,6 +65,8 @@ test("updater locates its installation and verifies before restarting without re
   assert.ok(commands.indexOf("herdr update --handoff") < commands.indexOf("git merge --ff-only"), "Herdr before any file changes");
   assert.ok(commands.indexOf("node scripts/check-herdr-version.mjs") > commands.indexOf("herdr update --handoff"));
   assert.ok(commands.indexOf("node scripts/check-herdr-version.mjs") < commands.indexOf("git merge --ff-only"));
+  assert.ok(commands.indexOf("git archive FETCH_HEAD src") < commands.indexOf("herdr update --handoff"),
+    "the incoming code is read before Herdr is touched");
   assert.ok(commands.indexOf("git archive FETCH_HEAD src") < commands.indexOf("node scripts/check-herdr-version.mjs"),
     "Herdr is checked against the incoming code's minimum");
   assert.match(commands, /git merge --ff-only FETCH_HEAD/);
@@ -83,6 +85,12 @@ test("updater keeps the installed Herdr when its update fails but it is new enou
   assert.equal(result.code, undefined, result.stderr);
   assert.match(result.stdout, /Herdr could not be updated/);
   assert.match(commands, /systemctl --user restart/);
+});
+
+test("updater changes nothing, Herdr included, when it cannot read the new code", async (t) => {
+  const { result, commands } = await runFixture(t, "archive-failed");
+  assert.notEqual(result.code, undefined);
+  assert.doesNotMatch(commands, /herdr update|git merge --ff-only|npm ci|systemctl --user restart/);
 });
 
 for (const mode of ["branch", "dirty", "wrong-service", "diverged", "fetch-failed", "install-failed", "verify-failed", "herdr-too-old"]) {
