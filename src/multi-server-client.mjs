@@ -55,13 +55,6 @@ export class MultiServerClient {
     return isMachine(profile) ? this.machines.client(profile) : this.remoteFactory(profile);
   }
 
-  // A linked HerdRabbit server: it answers for its files and accounts itself.
-  linkedEntry(serverId) {
-    this.syncEntries();
-    const entry = this.entries.get(serverId);
-    return entry && serverId !== "local" && !isMachine(entry.profile) ? entry : null;
-  }
-
   syncEntries() {
     const profiles = [
       { id: "local", name: "Local" },
@@ -174,9 +167,13 @@ export class MultiServerClient {
     return isMachine(entry.profile) ? entry.client.files?.() ?? null : entry.client;
   }
 
-  // Account routes address a linked server the same way; local is the caller's.
+  // Account routes address a server the same way: a linked server answers
+  // itself, a Herdr SSH machine by running the account manager there over SSH.
+  // Local is the caller's.
   aiAccountsClient(serverId) {
-    return this.linkedEntry(serverId)?.client.aiAccounts?.() ?? null;
+    this.syncEntries();
+    const entry = serverId === "local" ? null : this.entries.get(serverId);
+    return entry?.client.aiAccounts?.() ?? null;
   }
 
   async testProfile(profile) {

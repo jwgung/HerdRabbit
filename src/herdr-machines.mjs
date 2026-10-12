@@ -8,6 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { HttpError } from "./http-basics.mjs";
+import { runningAgentsIn } from "./ai-accounts.mjs";
+import { MachineAiAccounts } from "./machine-ai-accounts.mjs";
 import { MachineFiles, shellQuote } from "./machine-files.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -302,11 +304,13 @@ export async function machineSocketDirectory(environment = process.env, pid = pr
 // is connected: the local Herdr client, pointed at the machine's forwarded
 // socket, once the connection is up; until then every call is refused alike.
 export class MachineClient {
-  constructor({ machines, machineId, createBridge, createFiles = (options) => new MachineFiles(options) }) {
+  constructor({ machines, machineId, createBridge, createFiles = (options) => new MachineFiles(options),
+    createAccounts = (options) => new MachineAiAccounts(options) }) {
     this.machines = machines;
     this.machineId = machineId;
     this.createBridge = createBridge;
     this.createFiles = createFiles;
+    this.createAccounts = createAccounts;
     this.bridges = new WeakMap();
   }
 
@@ -332,6 +336,13 @@ export class MachineClient {
   files() {
     this.fileClient ??= this.createFiles({ link: () => this.readyLink(), maxBytes: this.machines.maxTransferBytes });
     return this.fileClient;
+  }
+
+  // The machine's AI CLI accounts, managed on the machine by the program in
+  // machine-ai-accounts.mjs; a switch looks for agents in this machine's panes.
+  aiAccounts() {
+    this.accountClient ??= this.createAccounts({ link: () => this.readyLink(), runningAgents: () => runningAgentsIn(this) });
+    return this.accountClient;
   }
 
   #ready() {
@@ -361,9 +372,10 @@ export class MachineClient {
 export class HerdrMachines {
   constructor({ binary = "herdr", directory, createBridge, read = (options) => readMachines(options),
     createLink = (machine, options) => new MachineLink(machine, options), run = execFileAsync, log = () => {}, refreshMs = 30_000,
-    maxTransferBytes = 50 * 1024 * 1024, createFiles = undefined }) {
+    maxTransferBytes = 50 * 1024 * 1024, createFiles = undefined, createAccounts = undefined }) {
     this.binary = binary;
     this.createFiles = createFiles;
+    this.createAccounts = createAccounts;
     this.maxTransferBytes = maxTransferBytes;
     this.directory = directory;
     this.createBridge = createBridge;
@@ -483,7 +495,10 @@ export class HerdrMachines {
   client(profile) {
     let client = this.clients.get(profile.machineId);
     if (!client) {
-      client = new MachineClient({ machines: this, machineId: profile.machineId, createBridge: this.createBridge, createFiles: this.createFiles });
+      client = new MachineClient({
+        machines: this, machineId: profile.machineId, createBridge: this.createBridge,
+        createFiles: this.createFiles, createAccounts: this.createAccounts,
+      });
       this.clients.set(profile.machineId, client);
     }
     return client;

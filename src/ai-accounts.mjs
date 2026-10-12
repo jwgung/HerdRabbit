@@ -11,8 +11,8 @@ import { InputValidationError } from "./herdr-client.mjs";
 // email, organization, plan, when it will need a new sign-in -- and nothing
 // that could be used to act as that account.
 
-const SLOT_ID_PATTERN = /^acct_[a-f0-9-]{36}$/u;
-const LOGIN_ID_PATTERN = /^login_[a-f0-9-]{36}$/u;
+export const SLOT_ID_PATTERN = /^acct_[a-f0-9-]{36}$/u;
+export const LOGIN_ID_PATTERN = /^login_[a-f0-9-]{36}$/u;
 const STAGING_MAX_AGE_MS = 60 * 60 * 1000;
 
 export class AiAccountError extends Error {

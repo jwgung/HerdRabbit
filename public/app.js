@@ -2144,12 +2144,13 @@ function serverActionMenu(server) {
       paths: ["M12 8h.01", "M11 12h1v4h1", "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"],
       onSelect: () => showServerDetails(server),
     },
-    // A Herdr SSH machine has no account switching yet.
-    ...(server.transport === "machine" ? [] : [{
+    // A Herdr SSH machine switches too, when it has Node.js; without it the
+    // dialog says so in place of each CLI's accounts.
+    {
       label: "AI accounts",
       paths: ["M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M4 20a8 8 0 0 1 16 0"],
       onSelect: () => showAiAccounts(server),
-    }]),
+    },
   ];
   // Sign-in belongs to the HerdRabbit the browser is talking to; a linked
   // machine has none.

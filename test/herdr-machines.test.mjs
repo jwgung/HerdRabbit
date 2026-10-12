@@ -171,7 +171,7 @@ test("a machine is a server next to this one, and its panes attach", async () =>
   assert.deepEqual(snapshot.panes.map((pane) => pane.pane_id), ["machine-4c139ff50dfb!hs_x~w1:p1"]);
   assert.deepEqual(await herdr.terminalTarget("machine-4c139ff50dfb!hs_x~w1:p1"), { terminalId: "term for hs_x~w1:p1" });
   assert.equal(typeof herdr.fileClient("machine-4c139ff50dfb")?.listDirectory, "function", "files go over the SSH connection");
-  assert.equal(herdr.aiAccountsClient("machine-4c139ff50dfb"), null, "accounts come in a later step");
+  assert.equal(typeof herdr.aiAccountsClient("machine-4c139ff50dfb")?.switch, "function", "accounts are managed on the machine");
   assert.ok(MachineClient.prototype.snapshot);
 });
 
