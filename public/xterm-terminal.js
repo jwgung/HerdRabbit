@@ -1,10 +1,10 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.20";
-import { findScreenLinks } from "./terminal-links.js?v=1.2.20";
-import { createTouchScroller } from "./touch-scroll.js?v=1.2.20";
-import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.20";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.21";
+import { findScreenLinks } from "./terminal-links.js?v=1.2.21";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.21";
+import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.21";
 
 const RESIZE_DEBOUNCE_MS = 80;
 // herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
@@ -171,6 +171,24 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       selectionService.shouldForceSelection = (event) => event.button === 0 || forced(event);
     } else {
       console.warn("xterm's selection hook is missing: a mouse drag goes to the program, and only Shift+drag selects.");
+    }
+    // xterm sends a mouse report as typing, and typing clears the selection: under
+    // a program that tracks the mouse, as Claude Code does, the first move after
+    // a drag dropped what was just selected. Reports still reach the program;
+    // only real typing clears the selection. (xterm 5.5 private API, pinned.)
+    const mouse = term._core?.coreMouseService;
+    const input = term._core?.coreService;
+    if (typeof mouse?.triggerMouseEvent === "function" && typeof input?.triggerDataEvent === "function") {
+      let reporting = false;
+      const report = mouse.triggerMouseEvent.bind(mouse);
+      mouse.triggerMouseEvent = (event) => {
+        reporting = true;
+        try { return report(event); } finally { reporting = false; }
+      };
+      const send = input.triggerDataEvent.bind(input);
+      input.triggerDataEvent = (data, wasUserInput) => send(data, wasUserInput && !reporting);
+    } else {
+      console.warn("xterm's mouse report hook is missing: moving the mouse over a program that tracks it clears the selection.");
     }
     copyBar = host.ownerDocument.createElement("div");
     copyBar.className = "terminal-copy-bar";
