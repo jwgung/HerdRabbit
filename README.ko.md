@@ -89,7 +89,7 @@ Tailscale이 설치되어 실행 중이면 [한 줄 자동 설치](#한-줄-자�
 
 SSH는 키로 로그인되고 호스트를 이미 신뢰해야 합니다. 비밀번호나 새 호스트 키를 묻는 머신은 상태에 그렇게 표시됩니다. 터미널에서 그 머신에 `herdr machine reconnect`(또는 `herdr machine add`)를 한 번 실행하세요. 이 머신들의 AI 계정 전환은 다음 릴리스에서 지원합니다.
 
-Files 탭과 업로드 대화상자도 이 머신들에서 동작합니다. Files 탭에서 머신을 고르거나, 그 머신의 패인을 연 채로 업로드하면 됩니다. 탐색, 미리보기, 다운로드, 업로드는 같은 SSH 연결로 고정된 셸 명령 몇 개를 실행할 뿐이라, 여기서도 그 머신에는 아무것도 설치하지 않습니다. 업로드는 그 머신 홈의 `~/.local/share/herdrabbit/files`, 이 머신이 쓰는 것과 같은 위치에 저장되고, 첫 업로드 때 비공개(0700)로 만들어집니다. 그 머신의 로그인 셸은 sh 호환(bash, zsh, dash는 되고 fish는 안 됨)이어야 하고, GNU findutils·coreutils(`find -printf`, `tail`, `head`, `ln -T`)가 있어야 하며, 보통의 Linux에는 다 있습니다. 없는 머신(BusyBox, macOS)은 목록 대신 Files 탭에 그렇다고 알려 줍니다.
+Files 탭과 업로드 대화상자도 이 머신들에서 동작합니다. Files 탭에서 머신을 고르거나, 그 머신의 패인을 연 채로 업로드하면 됩니다. 탐색, 미리보기, 다운로드, 업로드는 같은 SSH 연결로 고정된 셸 명령 몇 개를 실행할 뿐이라, 여기서도 그 머신에는 아무것도 설치하지 않습니다. 업로드는 그 머신 홈의 `~/.local/share/herdrabbit/files`, 에 저장되고(여기의 `HERDR_WEB_FILES_DIR`와 상관없이 늘 이 위치), 첫 업로드 때 비공개(0700)로 만들어집니다. 업로드 1건 50MB, 다운로드 1건 1GB 제한은 여기와 같습니다. 그 머신의 로그인 셸은 sh 호환(bash, zsh, dash는 되고 fish는 안 됨)이어야 하고, GNU findutils·coreutils(`find -printf`, `tail`, `head`, `ln -T`)가 있어야 하며, 보통의 Linux에는 다 있습니다. 없는 머신(BusyBox, macOS)은 목록 대신 Files 탭에 그렇다고 알려 줍니다. 경로에 백슬래시가 든 파일은 이 머신들에서 열 수 없습니다.
 
 ### 연결한 HerdRabbit 서버
 

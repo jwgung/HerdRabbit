@@ -18,6 +18,8 @@ import { TEMPORARY_PREFIX, safeTransferName, splitExtension, validateTransferNam
 import { parseByteRange } from "../public/file-preview.js";
 
 // The uploads folder sits where this machine keeps its own, under the remote $HOME.
+// How long a file read may send nothing before it is given up.
+const READ_IDLE_MS = 30_000;
 const UPLOADS_UNDER_HOME = ".local/share/herdrabbit/files";
 const MAX_LISTING_OUTPUT = 16 * 1024 * 1024;
 const MAX_SMALL_OUTPUT = 64 * 1024;
@@ -141,10 +143,16 @@ export function shellQuote(value) {
 
 // ssh joins everything after the destination into one line for the remote
 // shell, so the script and each argument are quoted once, separately.
+// A backslash is refused too: a login shell that is not sh-like (fish) reads
+// it as an escape even inside single quotes, and one at the end of an argument
+// would let the next argument out of its quotes.
 export function remoteCommand(script, args = []) {
   for (const arg of args) {
     if (typeof arg !== "string" || /[\u0000\n\r]/u.test(arg)) {
       throw new FileAccessError(400, "invalid_path", "Enter an absolute path.");
+    }
+    if (arg.includes("\\")) {
+      throw new FileAccessError(400, "invalid_path", "Paths with a backslash cannot be opened on an SSH machine.");
     }
   }
   return ["sh", "-c", shellQuote(script), "herdrabbit", ...args.map(shellQuote)].join(" ");
@@ -224,7 +232,8 @@ function slots(max, busy) {
 export class MachineFiles {
   // `link` returns the machine's connection once it is up, and throws the
   // machine's own "offline" error until then.
-  constructor({ link, spawnProcess = spawn, maxBytes = 50 * 1024 * 1024, timeoutMs = COMMAND_TIMEOUT_MS }) {
+  constructor({ link, spawnProcess = spawn, maxBytes = 50 * 1024 * 1024, timeoutMs = COMMAND_TIMEOUT_MS, readIdleMs = READ_IDLE_MS }) {
+    this.readIdleMs = readIdleMs;
     this.link = link;
     this.spawnProcess = spawnProcess;
     this.maxBytes = maxBytes;
@@ -330,10 +339,6 @@ export class MachineFiles {
     const resolved = posix.resolve(home);
     this.homes.set(link, resolved);
     return resolved;
-  }
-
-  async home() {
-    return this.#home(this.#ready());
   }
 
   async listDirectory(rawPath, { limit = MAX_LISTED_ENTRIES, prefix = "" } = {}) {
@@ -457,9 +462,20 @@ export class MachineFiles {
     let stderr = "";
     child.stderr?.on("data", (chunk) => { stderr = `${stderr}${chunk}`.slice(-2000); });
     child.stdout.pipe(stream, { end: false });
+    // A read that stops sending (a hung network filesystem there) gives its
+    // slot back instead of holding it until the browser gives up.
+    let idle = null;
+    const watch = () => {
+      clearTimeout(idle);
+      idle = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, this.readIdleMs);
+      idle.unref?.();
+    };
+    watch();
+    child.stdout.on("data", watch);
     const finish = (code) => {
       if (ended) return;
       ended = true;
+      clearTimeout(idle);
       release();
       if (stream.destroyed) return;
       if (code === 0) stream.end();

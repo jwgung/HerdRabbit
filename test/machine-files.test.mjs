@@ -98,9 +98,8 @@ test("filters by prefix and cuts a long listing to the first entries by name", a
   assert.deepEqual(matched.entries.map((entry) => entry.name), ["Ab", "a"]);
 });
 
-test("with no path, lists the machine's home; home() names it", async () => {
+test("with no path, lists the machine's home", async () => {
   const { home, files } = await setup();
-  assert.equal(await files.home(), home);
   assert.equal((await files.listDirectory(null)).path, home);
 });
 
@@ -372,4 +371,31 @@ test("a download ticket for a server that went away does not open the same path 
   const response = await fetch(`${baseUrl}/api/browse/download/${ticket.ticket}`);
   assert.equal(response.status, 404);
   assert.equal((await response.json()).error.code, "unknown_server");
+});
+
+test("a value with a backslash never reaches a remote shell", () => {
+  assert.throws(() => remoteCommand("true", ["/a\\"]), { status: 400, code: "invalid_path" });
+  assert.throws(() => remoteCommand("true", ["/a\\b", "/ ;id #"]), { status: 400 });
+  assert.match(remoteCommand("true", ["/a b"]), /'\/a b'$/u);
+});
+
+test("a file read that stops sending is ended, and gives its slot back", async () => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "herdrabbit-machine-home-")));
+  await writeFile(join(home, "slow.txt"), "data");
+  const ssh = fakeSsh(home);
+  let calls = 0;
+  const killed = [];
+  // The size is asked as usual; the read itself hangs there.
+  const spawnProcess = (binary, args, options) => {
+    calls += 1;
+    if (calls === 1) return ssh.spawnProcess(binary, args, options);
+    const child = spawn("sleep", ["30"], options);
+    const kill = child.kill.bind(child);
+    child.kill = (signal) => { killed.push(signal); return kill(signal); };
+    return child;
+  };
+  const files = new MachineFiles({ link: () => fakeLink(), spawnProcess, readIdleMs: 100 });
+  const opened = await files.openFile(join(home, "slow.txt"));
+  await assert.rejects(text(opened.stream));
+  assert.deepEqual(killed, ["SIGKILL"]);
 });
