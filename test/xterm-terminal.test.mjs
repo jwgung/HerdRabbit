@@ -21,7 +21,7 @@ class Terminal {
     this.resets = 0;
     this.unicode = { register() {}, activeVersion: "" };
     this.listeners = { data: [], resize: [] };
-    this.buffer = { active: { viewportY: 0 } };
+    this.buffer = { active: { viewportY: 0, baseY: 0 } };
     // The private hook the page overrides, as xterm 5.5 has it.
     this._core = { _selectionService: { shouldForceSelection: (event) => event.shiftKey } };
     this.element = {
@@ -44,6 +44,11 @@ class Terminal {
   onData(listener) { this.listeners.data.push(listener); }
   onBinary() {}
   onResize(listener) { this.listeners.resize.push(listener); }
+  onScroll(listener) { this.scrollListeners = [...(this.scrollListeners ?? []), listener]; }
+  scrollTo(viewportY, baseY = this.buffer.active.baseY) {
+    this.buffer.active = { ...this.buffer.active, viewportY, baseY };
+    for (const listener of this.scrollListeners ?? []) listener(viewportY);
+  }
   resize(cols, rows) {
     this.cols = cols;
     this.rows = rows;
@@ -373,11 +378,11 @@ test("a held finger selects as it moves, a moving one scrolls, two fingers or a 
 });
 
 test("a mirrored screen is redrawn whole, with every line break returning to the first column", () => {
-  assert.equal(mirrorFrame("one\ntwo\r\nthree\n"), "\x1b[0m\x1b[H\x1b[2Jone\r\ntwo\r\nthree");
-  assert.equal(mirrorFrame(""), "\x1b[0m\x1b[H\x1b[2J");
-  assert.equal(mirrorFrame(null), "\x1b[0m\x1b[H\x1b[2J");
+  assert.equal(mirrorFrame("one\ntwo\r\nthree\n"), "\x1b[0m\x1b[3J\x1b[H\x1b[2Jone\r\ntwo\r\nthree");
+  assert.equal(mirrorFrame(""), "\x1b[0m\x1b[3J\x1b[H\x1b[2J");
+  assert.equal(mirrorFrame(null), "\x1b[0m\x1b[3J\x1b[H\x1b[2J");
   // Colours in the polled text are passed through for xterm to draw.
-  assert.equal(mirrorFrame("\x1b[32mok\x1b[0m\n\n"), "\x1b[0m\x1b[H\x1b[2J\x1b[32mok\x1b[0m\r\n");
+  assert.equal(mirrorFrame("\x1b[32mok\x1b[0m\n\n"), "\x1b[0m\x1b[3J\x1b[H\x1b[2J\x1b[32mok\x1b[0m\r\n");
 });
 
 test("a mirror fits its own frame even after following another page's grid", () => {
@@ -390,6 +395,29 @@ test("a mirror fits its own frame even after following another page's grid", () 
   assert.ok(!classes.has("is-adopted"));
   assert.equal(term().cols, 100);
   assert.equal(term().rows, 30);
+});
+
+test("a mirror keeps a scrollback to read back through, and holds new frames while the reader is scrolled up", () => {
+  const { view, receive, term } = setup();
+  view.show("a");
+  assert.equal(term().options.scrollback, 0, "an attached pane scrolls in herdr");
+  receive({ type: "attach-unavailable", pane_id: "a", code: "attach_unsupported" });
+  view.mirror("a", "one");
+  assert.ok(term().options.scrollback >= 200, "the polled lines above the screen can be scrolled back to");
+
+  term().scrollTo(10, 40);
+  const written = term().written.length;
+  view.mirror("a", "two");
+  view.mirror("a", "three");
+  assert.equal(term().written.length, written, "nothing is redrawn under a reader scrolled up");
+  term().scrollTo(20, 40);
+  assert.equal(term().written.length, written);
+  term().scrollTo(40, 40);
+  assert.equal(term().written.at(-1), mirrorFrame("three"), "back at the bottom, only the newest frame is drawn");
+  assert.equal(term().written.length, written + 1);
+
+  view.show("b");
+  assert.equal(term().options.scrollback, 0);
 });
 
 test("a pane that cannot attach is mirrored read-only, and attaching again takes over the screen", () => {

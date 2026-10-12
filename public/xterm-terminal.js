@@ -43,14 +43,19 @@ function themeFrom(element) {
 }
 
 // A pane that cannot attach is mirrored: the screen the page polls, drawn over
-// the whole terminal each time. Home, clear, and every line break as CRLF,
+// the whole terminal each time. Clear the scrollback and the screen, home,
+// and every line break as CRLF,
 // since the polled text has bare LFs and xterm would otherwise step down
 // without returning to the first column. One trailing line break is dropped so
-// the last line is not scrolled away under a full screen.
+// the last line is not scrolled away under a full screen. Lines above the
+// screen land in xterm's own scrollback, which a mirror turns on.
 export function mirrorFrame(text) {
   const body = String(text ?? "").replace(/\r?\n$/u, "").replace(/\r?\n/gu, "\r\n");
-  return `\x1b[0m\x1b[H\x1b[2J${body}`;
+  return `\x1b[0m\x1b[3J\x1b[H\x1b[2J${body}`;
 }
+
+// Enough for every line the page polls for a mirror.
+const MIRROR_SCROLLBACK = 1000;
 
 // `connection` is the page's terminal socket; `onFallback(paneId)` hears that a
 // pane cannot attach, so the page mirrors its polled screen instead.
@@ -84,6 +89,9 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   // typed into the terminal reaches it: `type` below only writes to an
   // attached pane.
   let mirrored = null;
+  // The newest frame held back while the reader is scrolled up in a mirror,
+  // drawn once they are back at the bottom.
+  let heldFrame = null;
 
   function create() {
     term = new Terminal({
@@ -99,6 +107,12 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     });
     fit = new FitAddon();
     term.loadAddon(fit);
+    term.onScroll(() => {
+      if (heldFrame === null || !atBottom()) return;
+      const frame = heldFrame;
+      heldFrame = null;
+      term.write(frame);
+    });
     matchHerdrWidths(term, UnicodeGraphemesAddon);
     // Web addresses and file paths the page can show are found on the whole
     // screen, so one an agent's output wrapped onto the next row is still one
@@ -464,6 +478,11 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     if (Number.isFinite(until)) retryTimer = setTimeout(() => onRetry(failed), Math.max(0, until - Date.now()) + 50);
   }
 
+  function atBottom() {
+    const buffer = term.buffer.active;
+    return buffer.viewportY >= buffer.baseY;
+  }
+
   function stop() {
     clearTimeout(resizeTimer);
     cancelPress();
@@ -485,9 +504,12 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         return false;
       }
       mirrored = null;
+      heldFrame = null;
       // Back from the background, the socket was closed: connect it again.
       if (nextPaneId === paneId) { connection.resume(); return true; }
       if (!term) create();
+      // herdr owns the scrollback of an attached pane.
+      term.options.scrollback = 0;
       clearTimeout(resizeTimer);
       scroller?.cancel();
       if (paneId) connection.detach(paneId);
@@ -511,7 +533,9 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       if (!term) create();
       if (mirrored !== nextPaneId) {
         mirrored = nextPaneId;
+        heldFrame = null;
         clearScreen();
+        term.options.scrollback = MIRROR_SCROLLBACK;
       }
       // A mirror has no other page sizing it: it fits its own frame, even when
       // the attach before it was following another page's grid.
@@ -519,7 +543,9 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       host.classList.remove("is-adopted");
       host.hidden = false;
       fitNow();
-      term.write(mirrorFrame(text));
+      // A reader scrolled up keeps their place; the newest frame waits.
+      if (atBottom()) term.write(mirrorFrame(text));
+      else heldFrame = mirrorFrame(text);
       return true;
     },
     takeOver() { if (paneId && held) connection.takeOver(paneId); },
