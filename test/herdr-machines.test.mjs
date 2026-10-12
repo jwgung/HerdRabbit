@@ -572,3 +572,10 @@ test("when the second forward fails the connection closes, both sockets go, and 
   assert.equal(existsSync(`${local}.sock`), false, "stopping removes the sockets");
   assert.equal(existsSync(`${local}-client.sock`), false);
 });
+
+test("a machine client offers every call the local bridge does", async () => {
+  const { HerdrBridgeClient } = await import("../src/herdr-bridge-client.mjs");
+  const calls = (type) => Object.getOwnPropertyNames(type.prototype).filter((name) => name !== "constructor");
+  const missing = calls(HerdrBridgeClient).filter((name) => typeof MachineClient.prototype[name] !== "function");
+  assert.deepEqual(missing, [], "a call added to the bridge needs its machine counterpart");
+});
