@@ -70,6 +70,7 @@ export class MultiServerClient {
     if (entry.pending) return entry.pending;
     entry.pending = Promise.resolve().then(async () => {
       try {
+        if (entry.profile.enabled === false) throw Object.assign(new Error("Turned off"), { code: "machine_off" });
         // A machine whose connection has not been made yet has no client.
         entry.client ??= entry.profile.transport === "machine" ? this.machines.client(entry.profile) : entry.client;
         if (!entry.client) throw Object.assign(new Error("Connecting to this machine…"), { code: "machine_offline" });
@@ -114,6 +115,7 @@ export class MultiServerClient {
       servers: entries.map(({ profile, available, status, client }) => ({
         id: profile.id, name: profile.name, available, status,
         transport: profile.id === "local" ? "local" : profile.transport ?? "link",
+        ...(profile.transport === "machine" ? { enabled: profile.enabled !== false } : {}),
         address: profile.address ?? null,
         machine: this.machineName(profile) ?? null,
         version: profile.id === "local" ? this.hubVersion : client?.info?.().version ?? null,

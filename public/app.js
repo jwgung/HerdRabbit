@@ -2208,11 +2208,15 @@ function serverActionMenu(server) {
         paths: ["M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17l-1 3Z", "M14.5 7.5l3 3"],
         onSelect: () => { state.editingServerId = server.id; renderNavigation(); },
       },
-      {
+      server.enabled === false ? {
+        label: "Turn on",
+        paths: ["M12 3v9", "M6.3 7.3a8 8 0 1 0 11.4 0"],
+        onSelect: machineAction("POST", `/api/machines/${server.id}/enable`),
+      } : {
         label: "Turn off",
         paths: ["M12 3v9", "M6.3 7.3a8 8 0 1 0 11.4 0"],
         onSelect: machineAction("POST", `/api/machines/${server.id}/disable`,
-          `Turn off “${server.name}”? It stays in Herdr's list; turn it on again with herdr machine enable.`),
+          `Turn off “${server.name}”? It stays listed here, and Turn on connects it again.`),
       },
       {
         label: "Remove",

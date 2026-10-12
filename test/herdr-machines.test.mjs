@@ -70,7 +70,10 @@ test("keeps a connection for each enabled machine, and drops one that goes away,
   await herdr.refresh();
   assert.equal(links.length, 1);
   assert.equal(links[0].started, 1);
-  assert.deepEqual(herdr.profiles(), [{ id: "machine-4c139ff50dfb", name: "lab", transport: "machine", machineId: ID, address: "me@lab" }]);
+  assert.deepEqual(herdr.profiles(), [
+    { id: "machine-4c139ff50dfb", name: "lab", transport: "machine", machineId: ID, address: "me@lab", enabled: true },
+    { id: "machine-0123456789ab", name: "spare", transport: "machine", machineId: OTHER, address: "spare", enabled: false },
+  ], "a machine that is turned off stays listed, without a connection");
   assert.equal(herdr.machineIdFor("machine-4c139ff50dfb"), ID);
 
   const client = herdr.client(herdr.profiles()[0]);
@@ -101,11 +104,13 @@ test("machine management runs `herdr machine` and reports a refusal in words to 
   await herdr.add({ target: "me@lab", label: "Lab" });
   await herdr.rename(ID, "Desk");
   await herdr.disable(ID);
+  await herdr.enable(ID);
   await herdr.remove(ID);
   assert.deepEqual(calls, [
     ["machine", "add", "me@lab", "--label", "Lab"],
     ["machine", "rename", ID, "--label", "Desk"],
     ["machine", "disable", ID],
+    ["machine", "enable", ID],
     ["machine", "remove", ID],
   ]);
   await assert.rejects(herdr.add({ target: "new@host", label: "" }), (error) => {

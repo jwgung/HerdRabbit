@@ -777,11 +777,11 @@ export function createHerdrHttpServer({
       // Herdr's own SSH machines: added, renamed, turned off and removed with
       // `herdr machine`, so the sidebar and Herdr's TUI list the same ones.
       if (machines && url.pathname.startsWith("/api/machines")) {
-        const match = url.pathname.match(/^\/api\/machines(?:\/(machine-[0-9a-f]{12})(\/disable)?)?$/u);
+        const match = url.pathname.match(/^\/api\/machines(?:\/(machine-[0-9a-f]{12})(\/disable|\/enable)?)?$/u);
         if (!match) throw new HttpError(404, "not_found", "Machine route not found");
         requireWriteAuthorization(request, csrfToken);
         const body = method === "DELETE" ? {} : await readJsonBody(request, maxBodyBytes);
-        const [, serverId, disable] = match;
+        const [, serverId, toggle] = match;
         const machineId = serverId ? machines.machineIdFor(serverId) : null;
         if (serverId && !machineId) throw new HttpError(404, "not_found", "That machine is no longer in Herdr's list.");
         const label = typeof body.label === "string" ? body.label.trim() : "";
@@ -789,12 +789,14 @@ export function createHerdrHttpServer({
           if (!validMachineTarget(body.target)) throw new HttpError(400, "invalid_machine", "Enter an SSH target such as user@host or a host from your SSH config.");
           if (label && !validMachineLabel(label)) throw new HttpError(400, "invalid_machine", "A name is up to 60 characters on one line.");
           await machines.add({ target: body.target, label });
-        } else if (method === "PUT" && serverId && !disable) {
+        } else if (method === "PUT" && serverId && !toggle) {
           if (!validMachineLabel(label)) throw new HttpError(400, "invalid_machine", "A name is 1 to 60 characters on one line.");
           await machines.rename(machineId, label);
-        } else if (method === "POST" && disable) {
+        } else if (method === "POST" && toggle === "/disable") {
           await machines.disable(machineId);
-        } else if (method === "DELETE" && serverId && !disable) {
+        } else if (method === "POST" && toggle === "/enable") {
+          await machines.enable(machineId);
+        } else if (method === "DELETE" && serverId && !toggle) {
           await machines.remove(machineId);
         } else {
           throw new HttpError(405, "method_not_allowed", "Method not allowed");

@@ -1162,6 +1162,7 @@ test("Herdr machines are added, renamed, turned off and removed through write-pr
     async add(value) { calls.push(["add", value]); },
     async rename(id, label) { calls.push(["rename", id, label]); },
     async disable(id) { calls.push(["disable", id]); },
+    async enable(id) { calls.push(["enable", id]); },
     async remove(id) { calls.push(["remove", id]); },
   };
   const app = await startServer({ async snapshot() { return {}; } }, { machines });
@@ -1173,16 +1174,18 @@ test("Herdr machines are added, renamed, turned off and removed through write-pr
   assert.equal((await send("/api/machines", "POST", { target: "me@lab", label: "Lab" })).status, 200);
   assert.equal((await send("/api/machines/machine-4c139ff50dfb", "PUT", { label: "Desk" })).status, 200);
   assert.equal((await send("/api/machines/machine-4c139ff50dfb/disable", "POST", {})).status, 200);
+  assert.equal((await send("/api/machines/machine-4c139ff50dfb/enable", "POST", {})).status, 200);
   assert.equal((await send("/api/machines/machine-4c139ff50dfb", "DELETE")).status, 200);
   assert.deepEqual(calls, [
     ["add", { target: "me@lab", label: "Lab" }],
     ["rename", "4c139ff50dfb4a0dcda27e728dc50ef9", "Desk"],
     ["disable", "4c139ff50dfb4a0dcda27e728dc50ef9"],
+    ["enable", "4c139ff50dfb4a0dcda27e728dc50ef9"],
     ["remove", "4c139ff50dfb4a0dcda27e728dc50ef9"],
   ]);
 
   assert.equal((await send("/api/machines", "POST", { target: "-oProxyCommand=touch /tmp/x" })).status, 400);
   assert.equal((await send("/api/machines/machine-000000000000", "DELETE")).status, 404);
   assert.equal((await send("/api/machines", "POST", { target: "me@lab" }, { Origin: app.baseUrl })).status, 403, "the write token is required");
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 5);
 });

@@ -284,14 +284,16 @@ export class HerdrMachines {
     }
   }
 
-  // Server profiles for the sidebar: enabled machines only.
+  // Server profiles for the sidebar. A machine that is turned off stays
+  // listed, so it can be turned on again from here.
   profiles() {
-    return this.machines.filter((machine) => machine.enabled).map((machine) => ({
+    return this.machines.map((machine) => ({
       id: `${MACHINE_SERVER_PREFIX}${machine.id.slice(0, 12)}`,
       name: machine.label,
       transport: "machine",
       machineId: machine.id,
       address: machine.target,
+      enabled: machine.enabled,
     }));
   }
 
@@ -369,6 +371,10 @@ Object.assign(HerdrMachines.prototype, {
 
   disable(machineId) {
     return this.command(["disable", machineId], { fallback: "Herdr could not turn this machine off." });
+  },
+
+  enable(machineId) {
+    return this.command(["enable", machineId], { fallback: "Herdr could not turn this machine on." });
   },
 
   remove(machineId) {
