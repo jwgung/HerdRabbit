@@ -1188,6 +1188,42 @@ test("a browser that signs in again replaces its own entry; its device cookie ou
   assert.equal((await listed(renewed.headers)).length, 2, "signing in again after sign-out adds no row");
 });
 
+test("a passkey sign-in from the same browser replaces its entry too, and leaves other browsers alone", async (context) => {
+  const auth = new PasswordAuth(await createPasswordConfiguration("secret"));
+  const passkeys = {
+    get hasCredentials() { return true; },
+    async beginAuthentication() { return { attemptId: "passkey-attempt", options: { challenge: "c" } }; },
+    async finishAuthentication() { return true; },
+  };
+  const app = await startServer({ async snapshot() { return {}; } }, { auth, passkeys });
+  context.after(() => closeServer(app.server));
+  const signedIn = async (response) => {
+    assert.equal(response.status, 200);
+    const [session, device] = response.headers.getSetCookie();
+    const { launchToken } = await response.json();
+    return {
+      deviceCookie: device.split(";", 1)[0],
+      headers: { "X-Herdr-CSRF": "fixed-test-token", "X-Herdr-Launch-Token": launchToken, Cookie: session.split(";", 1)[0], Origin: app.baseUrl },
+    };
+  };
+  const post = (path, body, cookie) => fetch(`${app.baseUrl}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: app.baseUrl, ...(cookie ? { Cookie: cookie } : {}) },
+    body: JSON.stringify(body),
+  });
+  const withPasskey = async (cookie) => signedIn(await post("/api/auth/passkeys/login/verify", { attemptId: "passkey-attempt", credential: { id: "c" } }, cookie));
+  const listed = async (headers) => (await (await fetch(`${app.baseUrl}/api/auth/sessions`, { headers })).json()).sessions;
+
+  const other = await signedIn(await post("/api/auth/login", { password: "secret" }));
+  const first = await withPasskey();
+  assert.equal((await listed(first.headers)).length, 2);
+  const again = await withPasskey(first.deviceCookie);
+  assert.equal(again.deviceCookie, first.deviceCookie, "the device cookie is kept");
+  assert.equal((await fetch(`${app.baseUrl}/api/auth/sessions`, { headers: first.headers })).status, 401, "the replaced sign-in is refused");
+  assert.equal((await listed(again.headers)).length, 2, "replaced, not added");
+  assert.equal((await fetch(`${app.baseUrl}/api/auth/sessions`, { headers: other.headers })).status, 200, "the other browser is still signed in");
+});
+
 test("counts wrong passwords by the caller Tailscale names, not for everyone", () => {
   const request = (headers, remoteAddress = "127.0.0.1") => ({ headers, socket: { remoteAddress } });
   assert.equal(attemptKey(request({ "tailscale-user-login": "Owner@Example.com" })), "login:owner@example.com");
