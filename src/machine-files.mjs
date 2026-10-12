@@ -448,7 +448,11 @@ export class MachineFiles {
 
   // The bytes of one file, read as they are sent. The stream ends cleanly only
   // when the read on the machine did; destroying it ends the read there.
-  async #read(link, path, start, length, follow) {
+  // `exact`: the length is the size the caller announced. The shell only
+  // reports how head ended, not tail, so a read that failed there (the file
+  // changed, an I/O error) shows up as missing bytes and is an error, never a
+  // short download sent as complete.
+  async #read(link, path, start, length, follow, exact = false) {
     const release = await this.streams();
     let child;
     try {
@@ -471,14 +475,16 @@ export class MachineFiles {
       idle.unref?.();
     };
     watch();
-    child.stdout.on("data", watch);
+    let received = 0;
+    child.stdout.on("data", (chunk) => { received += chunk.length; watch(); });
     const finish = (code) => {
       if (ended) return;
       ended = true;
       clearTimeout(idle);
       release();
       if (stream.destroyed) return;
-      if (code === 0) stream.end();
+      if (code === 0 && exact && received !== length) stream.destroy(failed());
+      else if (code === 0) stream.end();
       else stream.destroy(code === null ? failed() : this.#exitError({ code, stderr }));
     };
     child.once("error", () => finish(null));
@@ -508,7 +514,9 @@ export class MachineFiles {
     const slice = range
       ? { start: range.start, end: range.end }
       : size === null ? { start: 0, end: maxBytes - 1 } : { start: 0, end: size - 1 };
-    const stream = await this.#read(link, path, slice.start, slice.end - slice.start + 1, true);
+    // A file of unknown size (0) may end before the cap; any other read must
+    // bring every byte it promised.
+    const stream = await this.#read(link, path, slice.start, slice.end - slice.start + 1, true, size !== null);
     return {
       name: posix.basename(path),
       path,
@@ -574,7 +582,7 @@ export class MachineFiles {
       }
       throw error;
     }
-    const stream = await this.#read(link, path, 0, size, false);
+    const stream = await this.#read(link, path, 0, size, false, true);
     return { name: posix.basename(path), path, size, range: null, length: size, stream };
   }
 

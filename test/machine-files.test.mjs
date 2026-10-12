@@ -399,3 +399,22 @@ test("a file read that stops sending is ended, and gives its slot back", async (
   await assert.rejects(text(opened.stream));
   assert.deepEqual(killed, ["SIGKILL"]);
 });
+
+test("a read that brings fewer bytes than it promised fails instead of ending short", async () => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "herdrabbit-machine-home-")));
+  const path = join(home, "shrinks.txt");
+  await writeFile(path, "0123456789");
+  const ssh = fakeSsh(home);
+  let calls = 0;
+  // The file is cut short between taking its size and reading it; the shell
+  // still exits 0, as only head's status counts.
+  const spawnProcess = (binary, args, options) => {
+    calls += 1;
+    if (calls === 2) writeFileSync(path, "0123");
+    return ssh.spawnProcess(binary, args, options);
+  };
+  const files = new MachineFiles({ link: () => fakeLink(), spawnProcess });
+  const opened = await files.openFile(path);
+  assert.equal(opened.size, 10);
+  await assert.rejects(text(opened.stream));
+});
