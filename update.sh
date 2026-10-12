@@ -43,7 +43,7 @@ main() {
     [ "$SERVICE_DIRECTORY" = "$UPDATE_DIRECTORY" ] || fail "service uses a different installation directory: $SERVICE_DIRECTORY"
     # The service's own Herdr is the one to update and check, not whichever
     # this shell would find first.
-    SERVICE_HERDR_BIN="$(systemctl --user show "$UPDATE_SERVICE" --property=Environment --value | tr ' ' '\n' | sed -n 's/^HERDR_BIN=//p')"
+    SERVICE_HERDR_BIN="$(systemctl --user show "$UPDATE_SERVICE" --property=Environment --value | node scripts/service-environment.mjs HERDR_BIN)"
     HERDR_BIN="${SERVICE_HERDR_BIN:-${HERDR_BIN:-herdr}}"
     export HERDR_BIN
     need "$HERDR_BIN"

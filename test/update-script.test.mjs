@@ -22,6 +22,7 @@ name=\${0##*/}
 printf '%s %s\\n' "$name" "$*" >> "$UPDATE_TEST_LOG"
 case "$name:$*" in
   'node:scripts/check-herdr-version.mjs') [ "$UPDATE_TEST_MODE" != herdr-too-old ] ;;
+  'node:scripts/service-environment.mjs HERDR_BIN') if [ "$UPDATE_TEST_MODE" = service-herdr ]; then printf '%s/custom-herdr\\n' "$UPDATE_TEST_BIN"; fi ;;
   'node:'*) printf '22\\n' ;;
   'herdr:update --handoff'|'custom-herdr:update --handoff') [ "$UPDATE_TEST_MODE" != herdr-update-failed ] ;;
   'systemctl:'*'--property=Environment --value') if [ "$UPDATE_TEST_MODE" = service-herdr ]; then printf 'HERDR_WEB_PORT=38787 HERDR_BIN=%s/custom-herdr\\n' "$UPDATE_TEST_BIN"; fi ;;
