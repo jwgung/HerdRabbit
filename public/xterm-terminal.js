@@ -1,9 +1,9 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.13";
-import { findTerminalPaths } from "./terminal-links.js?v=1.2.13";
-import { createTouchScroller } from "./touch-scroll.js?v=1.2.13";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.14";
+import { findScreenLinks } from "./terminal-links.js?v=1.2.14";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.14";
 
 const RESIZE_DEBOUNCE_MS = 80;
 // herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
@@ -43,7 +43,7 @@ function themeFrom(element) {
 export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
   onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer"),
   isViewablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {} }) {
-  const { Terminal, FitAddon, WebLinksAddon, UnicodeGraphemesAddon } = xterm;
+  const { Terminal, FitAddon, UnicodeGraphemesAddon } = xterm;
   let term = null;
   // The finger scroll; a glide stops when the pane changes or goes away.
   let scroller = null;
@@ -75,23 +75,40 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     fit = new FitAddon();
     term.loadAddon(fit);
     matchHerdrWidths(term, UnicodeGraphemesAddon);
-    term.loadAddon(new WebLinksAddon((event, uri) => { if (/^https?:\/\//iu.test(uri)) onWebLink(uri); }));
-    // A file path the page can show opens in its viewer, as in the screen-text view.
+    // Web addresses and file paths the page can show are found on the whole
+    // screen, so one an agent's output wrapped onto the next row is still one
+    // link. They are underlined all the time, not only under a mouse: on a
+    // phone nothing hovers, and a link has to be seen to be tapped.
     term.registerLinkProvider({
       provideLinks(y, callback) {
-        const line = term.buffer.active.getLine(y - 1);
-        if (!line) { callback(undefined); return; }
-        const { text, cells } = rowText(line, term.cols);
-        const links = findTerminalPaths(text, isViewablePath).map(({ start, end, path }) => ({
-          range: { start: { x: cells[start] + 1, y }, end: { x: cells[end - 1] + 1, y } },
-          text: path,
-          // A drag that selects part of a path is not a click on it.
-          activate: (event) => { if (event.button === 0 && !term.hasSelection()) onPath(path); },
-        }));
+        const row = y - 1 - term.buffer.active.viewportY;
+        const links = screenLinks.filter((link) => link.segments.some((segment) => segment.row === row)).map((link) => {
+          const first = link.segments[0];
+          const last = link.segments.at(-1);
+          const top = term.buffer.active.viewportY + 1;
+          return {
+            range: { start: { x: first.start + 1, y: top + first.row }, end: { x: last.end, y: top + last.row } },
+            text: link.target,
+            // A drag that selects part of a link is not a click on it.
+            activate: (event) => {
+              if (event.button !== 0 || term.hasSelection()) return;
+              if (link.kind === "url") onWebLink(link.target);
+              else onPath(link.target);
+            },
+          };
+        });
         callback(links.length ? links : undefined);
       },
     });
     term.open(host);
+    const screen = term.element?.querySelector(".xterm-screen");
+    if (screen) {
+      marks = screen.ownerDocument.createElement("div");
+      marks.className = "terminal-link-marks";
+      screen.append(marks);
+    }
+    term.onRender(scheduleLinks);
+    term.onResize(scheduleLinks);
     // Ctrl+V pastes through the browser (xterm brackets it); Ctrl+C copies a selection.
     term.attachCustomKeyEventHandler((event) => {
       if (!event.ctrlKey || event.altKey || event.metaKey) return true;
@@ -191,6 +208,39 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       }
     }
     new ResizeObserver(() => { if (!host.hidden) fitNow(); }).observe(host);
+  }
+
+  // The links on screen now, and their underlines, redrawn once per frame at most.
+  let screenLinks = [];
+  let marks = null;
+  let linksFrame = null;
+  function scheduleLinks() {
+    if (!marks || linksFrame !== null) return;
+    linksFrame = requestAnimationFrame(() => {
+      linksFrame = null;
+      refreshLinks();
+    });
+  }
+
+  function refreshLinks() {
+    if (!term || !marks) return;
+    const buffer = term.buffer.active;
+    const rows = [];
+    for (let y = 0; y < term.rows; y += 1) {
+      const line = buffer.getLine(buffer.viewportY + y);
+      rows.push(line ? rowText(line, term.cols) : { text: "", cells: [term.cols] });
+    }
+    screenLinks = findScreenLinks(rows, { isViewablePath });
+    const screen = marks.parentElement;
+    const cellWidth = screen ? screen.offsetWidth / term.cols : 0;
+    const cellHeight = screen ? screen.offsetHeight / term.rows : 0;
+    marks.replaceChildren(...screenLinks.flatMap((link) => link.segments.map((segment) => {
+      const mark = marks.ownerDocument.createElement("span");
+      mark.style.left = `${segment.start * cellWidth}px`;
+      mark.style.top = `${(segment.row + 1) * cellHeight - 2}px`;
+      mark.style.width = `${(segment.end - segment.start) * cellWidth}px`;
+      return mark;
+    })));
   }
 
   // The size this page's frame would hold.

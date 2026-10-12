@@ -102,3 +102,24 @@ test("links file paths that wrap across terminal lines when the joined name is v
   assert.deepEqual(paths("cd /usr/bin/\nls -la"), []);
 });
 
+
+test("finds the links on a terminal screen, an address wrapped onto the next row included", async () => {
+  const { findScreenLinks } = await import("../public/terminal-links.js");
+  // A row as rowText gives it: the cell each character starts in, Hangul two cells wide.
+  const row = (text) => {
+    const cells = [];
+    let cell = 0;
+    for (const char of text) { cells.push(cell); cell += /[ㄱ-힝]/u.test(char) ? 2 : 1; }
+    cells.push(cell);
+    return { text, cells };
+  };
+  const links = findScreenLinks([
+    row("열기 https://example.com/a/very/long/"),
+    row("path/to/page 그리고 ./docs/plan.md"),
+    row("/usr/bin is not linked"),
+  ], { isViewablePath: (path) => path.endsWith(".md") });
+  assert.deepEqual(links, [
+    { kind: "url", target: "https://example.com/a/very/long/path/to/page", segments: [{ row: 0, start: 5, end: 37 }, { row: 1, start: 0, end: 12 }] },
+    { kind: "path", target: "./docs/plan.md", segments: [{ row: 1, start: 20, end: 34 }] },
+  ]);
+});

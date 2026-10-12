@@ -31,6 +31,7 @@ class Terminal {
     this.rows = rows;
     for (const listener of this.listeners.resize) listener({ cols, rows });
   }
+  onRender() {}
   reset() { this.resets += 1; }
   write(data, done = () => {}) { if (data === "\x1bc") this.resets += 1; this.written.push(data); this.pending.push(done); }
   finishWrites() { for (const done of this.pending.splice(0)) done(); }
