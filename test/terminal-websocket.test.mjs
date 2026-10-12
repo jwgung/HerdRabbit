@@ -234,6 +234,7 @@ test("an attached pane streams herdr's own terminal: typing and size go to its p
   await phone.wait(message => message.type === "pty-input-dropped");
   assert.deepEqual(ptys[0].written, ["ls\r"]);
   assert.deepEqual(ptys[0].sizes.at(-1), [90, 25]);
+  assert.deepEqual(app.requests, [["w1:p1", "Enter in the terminal"]], "Enter typed in the terminal is noted, never what was typed");
   assert.equal(ptys.length, 1);
 });
 

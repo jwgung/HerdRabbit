@@ -32,7 +32,7 @@ class Terminal {
     for (const listener of this.listeners.resize) listener({ cols, rows });
   }
   reset() { this.resets += 1; }
-  write(data, done) { this.written.push(data); this.pending.push(done); }
+  write(data, done = () => {}) { if (data === "\x1bc") this.resets += 1; this.written.push(data); this.pending.push(done); }
   finishWrites() { for (const done of this.pending.splice(0)) done(); }
   type(data) { for (const listener of this.listeners.data) listener(data); }
   hasSelection() { return false; }
@@ -89,7 +89,7 @@ test("shows a pane at the frame's size, writes only its stream, and acknowledges
   assert.deepEqual(sent.at(-1), ["attach", "a", { cols: 100, rows: 30 }]);
   receive({ type: "pty-data", pane_id: "a", data: "screen", flow: { stream_id: "s", offset: 6 } });
   receive({ type: "pty-data", pane_id: "b", data: "another pane" });
-  assert.deepEqual(term().written, ["screen"]);
+  assert.deepEqual(term().written, ["\x1bc", "screen"], "a clean screen, then the pane's stream only");
   assert.ok(!sent.some(([kind]) => kind === "ack"), "not before it is drawn");
   term().finishWrites();
   assert.deepEqual(sent.at(-1), ["ack", "a", "s", 6]);
@@ -204,4 +204,17 @@ test("a write that finishes after the page moved to another pane acknowledges no
   view.show("b");
   term().finishWrites();
   assert.ok(!sent.some(([kind]) => kind === "ack"));
+});
+
+test("output still being drawn when the socket reconnects is cleared and acknowledges nothing", () => {
+  const { view, sent, receive, reconnect, term } = setup();
+  view.show("a");
+  receive({ type: "pty-data", pane_id: "a", data: "old", flow: { stream_id: "s1", offset: 3 } });
+  reconnect();
+  receive({ type: "pty-data", pane_id: "a", data: "new", flow: { stream_id: "s2", offset: 3 } });
+  term().finishWrites();
+  const written = term().written;
+  assert.ok(written.indexOf("\x1bc", written.indexOf("old")) > written.indexOf("old"), "the reset comes after the old output, in the same queue");
+  assert.ok(written.indexOf("new") > written.lastIndexOf("\x1bc"));
+  assert.deepEqual(sent.filter(([kind]) => kind === "ack"), [["ack", "a", "s2", 3]]);
 });

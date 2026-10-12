@@ -174,7 +174,11 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
         }
         if (message.type === "pty-input") {
           if (typeof message.data !== "string" || !message.data || message.data.length > 16_384) throw new Error("Invalid terminal input");
-          if (!attachments?.input(viewer, paneId(message.paneId), message.data)) send({ type: "pty-input-dropped", pane_id: message.paneId });
+          const id = paneId(message.paneId);
+          if (!attachments?.input(viewer, id, message.data)) { send({ type: "pty-input-dropped", pane_id: id }); return; }
+          // Enter typed in the terminal is a request too, so its completion is not
+          // missed. Only the pane is noted: what was typed (maybe a password) is not.
+          if (message.data.includes("\r")) onRequest(id, "Enter in the terminal");
           return;
         }
         if (message.type === "resize") { attachments?.resize(viewer, paneId(message.paneId), message.cols, message.rows); return; }

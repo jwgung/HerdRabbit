@@ -191,12 +191,14 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   connection.onAttach((message) => {
     if (message.pane_id !== paneId) return;
     switch (message.type) {
-      case "pty-data":
+      case "pty-data": {
+        const stream = generation;
         term.write(message.data, () => {
-          // Drawn after the page moved on to another pane: that credit is not owed.
-          if (message.flow && paneId === message.pane_id) connection.acknowledge(message.pane_id, message.flow.stream_id, message.flow.offset);
+          // Drawn after the page moved on to another pane or socket: that credit is not owed.
+          if (message.flow && stream === generation) connection.acknowledge(message.pane_id, message.flow.stream_id, message.flow.offset);
         });
         break;
+      }
       case "input-ready":
         ready = message.ready !== false;
         setState({});
@@ -236,9 +238,18 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     if (!paneId) return;
     ready = false;
     held = false;
-    term?.reset();
+    clearScreen();
     attachCurrent();
   });
+
+  // Each pane shown, and each socket, is a new stream. xterm writes in order,
+  // so a full reset (RIS) queued behind writes still in flight clears what
+  // they draw too, and the new stream starts on a clean screen.
+  let generation = 0;
+  function clearScreen() {
+    generation += 1;
+    term?.write("\x1bc");
+  }
 
   function attachCurrent() {
     const size = wantedSize();
@@ -285,7 +296,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       owner = true;
       host.classList.remove("is-adopted");
       host.hidden = false;
-      term.reset();
+      clearScreen();
       setState({});
       attachCurrent();
       return true;
