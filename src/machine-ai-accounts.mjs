@@ -92,23 +92,32 @@ const home = process.env.HOME || homedir();
 const configHome = isAbsolute(process.env.XDG_CONFIG_HOME || "") ? process.env.XDG_CONFIG_HOME : join(home, ".config");
 const directory = join(configHome, "herdr-bridge", "ai-accounts");
 const accounts = new AiAccounts({ directory });
-const { mkdir, rmdir, stat } = await import("node:fs/promises");
+const { mkdir, readFile, rm, stat, utimes, writeFile } = await import("node:fs/promises");
 // One change at a time on this machine, across processes: a run cut off by a
-// timeout on the other side may still be going here. A lock older than a
-// minute was left by a run that died.
+// timeout on the other side may still be going here. The lock names its
+// process and is touched while that runs; it is taken over only when it has
+// not been touched for a minute and its process is gone.
 const LOCK = join(directory, ".change-lock");
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (error) { return error.code === "EPERM"; } };
+async function abandoned() {
+  const held = await stat(LOCK).catch(() => null);
+  if (!held || Date.now() - held.mtimeMs <= 60000) return false;
+  const pid = Number(await readFile(join(LOCK, "pid"), "utf8").catch(() => ""));
+  return !(Number.isInteger(pid) && pid > 0 && alive(pid));
+}
 async function locked(run) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   for (const deadline = Date.now() + 15000; ;) {
     try { await mkdir(LOCK, { mode: 0o700 }); break; } catch (error) {
       if (error.code !== "EEXIST") throw error;
-      const held = await stat(LOCK).catch(() => null);
-      if (held && Date.now() - held.mtimeMs > 60000) { await rmdir(LOCK).catch(() => {}); continue; }
+      if (await abandoned()) { await rm(LOCK, { recursive: true, force: true }); continue; }
       if (Date.now() > deadline) throw new AiAccountError("machine_accounts_busy", "Another account change is still running on that machine. Try again shortly.", { status: 409 });
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
-  try { return await run(); } finally { await rmdir(LOCK).catch(() => {}); }
+  await writeFile(join(LOCK, "pid"), String(process.pid), { mode: 0o600 });
+  const touch = setInterval(() => { const now = new Date(); utimes(LOCK, now, now).catch(() => {}); }, 15000);
+  try { return await run(); } finally { clearInterval(touch); await rm(LOCK, { recursive: true, force: true }); }
 }
 const operations = {
   list: () => accounts.list(),

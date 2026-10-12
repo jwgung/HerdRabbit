@@ -397,3 +397,41 @@ test("changes on a machine take a lock there, and a lock left by a run that died
   const listed = await accounts.list();
   assert.equal(listed.clis.find((cli) => cli.id === "claude").accounts.length, 1, "the lock folder is not an account");
 });
+
+test("a lock whose process is still running is never taken over, however old it looks", async (t) => {
+  const remote = await remoteHome(t);
+  const ssh = fakeSsh(remote.home);
+  const accounts = new MachineAiAccounts({ link: fakeLink, spawnProcess: ssh.spawnProcess, timeoutMs: 1_500 });
+  const { utimes, writeFile: write } = await import("node:fs/promises");
+  const lock = join(remote.store, ".change-lock");
+  await mkdir(lock, { recursive: true });
+  // This test's own process holds it: alive, though not touched for minutes.
+  await write(join(lock, "pid"), String(process.pid));
+  const old = new Date(Date.now() - 600_000);
+  await utimes(lock, old, old);
+  await assert.rejects(accounts.saveCurrent("claude"), { code: "machine_timeout" });
+  assert.equal(existsSync(join(lock, "pid")), true, "still held by its owner");
+  await rm(lock, { recursive: true, force: true });
+});
+
+test("a machine that hangs, floods its answer or cannot be reached fails cleanly", async () => {
+  const { EventEmitter } = await import("node:events");
+  const { PassThrough } = await import("node:stream");
+  const fake = (behave) => () => {
+    const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), killed: [] });
+    child.kill = (signal) => { child.killed.push(signal); setImmediate(() => child.emit("close", null)); return true; };
+    setImmediate(() => behave(child));
+    fake.last = child;
+    return child;
+  };
+  const hangs = new MachineAiAccounts({ link: fakeLink, spawnProcess: fake(() => {}), timeoutMs: 50 });
+  await assert.rejects(hangs.saveCurrent("claude"), { code: "machine_timeout", status: 504 });
+  assert.deepEqual(fake.last.killed, ["SIGKILL"]);
+
+  const floods = new MachineAiAccounts({ link: fakeLink, spawnProcess: fake((child) => child.stdout.write(Buffer.alloc(300 * 1024, 120))) });
+  await assert.rejects(floods.list(), { code: "machine_accounts_failed" });
+  assert.deepEqual(fake.last.killed, ["SIGKILL"], "a flood is cut off");
+
+  const broken = new MachineAiAccounts({ link: fakeLink, spawnProcess: fake((child) => child.emit("error", new Error("spawn ssh ENOENT"))) });
+  await assert.rejects(broken.saveCurrent("claude"), (error) => error.code === "machine_accounts_failed" && !error.message.includes("ENOENT"));
+});
