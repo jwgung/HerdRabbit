@@ -456,3 +456,19 @@ test("sessions saved without a device stay valid; a malformed device is refused"
     assert.throws(() => new PasswordAuth({ ...configuration, sessions: [{ ...legacy, device }] }), /session configuration is invalid/u);
   }
 });
+
+test("signing in again over a cookie from before sessions were listed ends that older sign-in alone", async () => {
+  const now = 1_000_000_000;
+  const configuration = await createPasswordConfiguration("secret");
+  const auth = new PasswordAuth(configuration, { now: () => now });
+  const mine = unlistedCookie(configuration, now / 1000 + SESSION_DURATION_SECONDS);
+  const theirs = unlistedCookie(configuration, now / 1000 + SESSION_DURATION_SECONDS);
+  let ended = 0;
+  auth.onSessionsEnded(() => { ended += 1; });
+  const renewed = auth.createSession({ cookieHeader: `herdr_session=${mine}` });
+  assert.equal(auth.hasValidSession(`herdr_session=${mine}`), false, "the older cookie no longer signs in");
+  assert.equal(auth.hasValidSession(`herdr_session=${theirs}`), true, "another browser's older sign-in stays");
+  assert.equal(auth.hasValidSession(`herdr_session=${renewed}`), true);
+  assert.equal(ended, 1, "its open connections check again");
+  assert.equal(auth.sessionSummaries().length, 1);
+});

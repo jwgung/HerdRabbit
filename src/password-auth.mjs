@@ -586,11 +586,21 @@ export class PasswordAuth {
     };
     const previous = this.#tokenSession(cookieValue(cookieHeader, "herdr_session"));
     const replaced = (item) => (hash !== null && item.device === hash) || (previous && !previous.unlisted && item.id === previous.id);
-    const replacing = this.configuration.sessions.some(replaced);
-    const write = this.#changeSessions((sessions) => [
-      session,
-      ...sessions.filter((item) => item.expiresAt > now && !replaced(item)),
-    ].slice(0, MAX_SESSIONS));
+    // A cookie from before sessions were listed is ended the way sign-out ends
+    // it -- unless there is no room left to remember it; a sign-in never ends
+    // every other browser for want of room.
+    const endedUnlisted = (this.configuration.endedUnlisted ?? []).filter((item) => item.expiresAt > now);
+    const endsUnlisted = Boolean(previous?.unlisted) && !endedUnlisted.some((item) => item.id === previous.id) &&
+      endedUnlisted.length < MAX_SESSIONS;
+    const replacing = this.configuration.sessions.some(replaced) || endsUnlisted;
+    const write = this.#replaceConfiguration({
+      ...this.configuration,
+      sessions: [
+        session,
+        ...this.configuration.sessions.filter((item) => item.expiresAt > now && !replaced(item)),
+      ].slice(0, MAX_SESSIONS),
+      ...(endsUnlisted ? { endedUnlisted: [{ id: previous.id, expiresAt: previous.expiresAt }, ...endedUnlisted] } : {}),
+    });
     write.catch(() => {});
     if (replacing) this.#sessionsEnded();
     return token;
