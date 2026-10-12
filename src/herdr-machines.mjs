@@ -104,6 +104,19 @@ export function machineOffline(message = "Connecting to this machine…", connec
   return Object.assign(new Error(message), { code: "machine_offline", connecting });
 }
 
+// Ends an SSH process and waits until it is gone, so a connection started
+// after it under the same socket names never meets it. One that ignores the
+// polite signal is killed outright.
+export function endProcess(child, graceMs = 3_000) {
+  if (child.exitCode != null || child.signalCode != null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { child.kill("SIGKILL"); resolve(); }, graceMs);
+    timer.unref?.();
+    child.once("exit", () => { clearTimeout(timer); resolve(); });
+    child.kill();
+  });
+}
+
 async function waitFor(check, timeoutMs, cancelled) {
   const deadline = Date.now() + timeoutMs;
   while (!(await check())) {
@@ -218,7 +231,7 @@ export class MachineLink {
     clearTimeout(this.retryTimer);
     const master = this.master;
     this.master = null;
-    master?.kill();
+    if (master) await endProcess(master);
     await this.#removeSockets();
   }
 }

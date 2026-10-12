@@ -1167,6 +1167,7 @@ test("Herdr machines are added, renamed, turned off and removed through write-pr
   };
   const app = await startServer({ async snapshot() { return {}; } }, { machines });
   context.after(() => closeServer(app.server));
+  assert.equal((await (await fetch(`${app.baseUrl}/api/bootstrap`)).json()).machines, true, "the page offers to add one");
   const send = (path, method, body, headers = { "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl }) => fetch(`${app.baseUrl}${path}`, {
     method, headers: { "Content-Type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -1190,4 +1191,14 @@ test("Herdr machines are added, renamed, turned off and removed through write-pr
   assert.equal((await send("/api/machines", "POST", { target: "me@lab" }, { Origin: app.baseUrl })).status, 403, "the write token is required");
   assert.equal((await send("/api/machines/machine-4c139ff50dfb", "PUT", { label: "x".repeat(60) })).status, 200);
   assert.equal(calls.length, 6);
+});
+
+test("a server without Herdr machines does not offer to add one, and has no machine routes", async (context) => {
+  const app = await startServer({ async snapshot() { return {}; } });
+  context.after(() => closeServer(app.server));
+  assert.equal((await (await fetch(`${app.baseUrl}/api/bootstrap`)).json()).machines, false);
+  const response = await fetch(`${app.baseUrl}/api/machines`, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl }, body: "{}",
+  });
+  assert.equal(response.status, 404);
 });

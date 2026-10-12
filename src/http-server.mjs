@@ -1111,6 +1111,8 @@ export function createHerdrHttpServer({
           allowedKeys: ALLOWED_KEYS,
           pollIntervalMs: 1_000,
           pushPublicKey: push?.publicKey || null,
+          // Whether SSH machines can be added here: not on a leaf, nor without a socket directory.
+          machines: Boolean(machines),
         });
         return;
       }

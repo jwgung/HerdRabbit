@@ -5141,6 +5141,7 @@ async function initializeApplication() {
   state.pushPublicKey = typeof bootstrap.pushPublicKey === "string"
     ? bootstrap.pushPublicKey
     : null;
+  document.querySelector("#add-machine").hidden = bootstrap.machines !== true;
   showApplication();
   browseState.pinnedServer = readFileServer(browsePathStorage);
   showNavigatorTab(readNavigatorTab(browsePathStorage));

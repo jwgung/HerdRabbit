@@ -325,7 +325,7 @@ test("a link is ready only once both sockets are forwarded, each to its own pair
     directory,
     spawnProcess: () => {
       writeFileSync(join(directory, `${ID.slice(0, 12)}.ctl`), "");
-      return Object.assign(new EventEmitter(), { stderr: new EventEmitter(), kill() {} });
+      return Object.assign(new EventEmitter(), { stderr: new EventEmitter(), kill() { setImmediate(() => this.emit("exit", null, "SIGTERM")); } });
     },
     run: async (command, args) => {
       calls.push(args);
@@ -446,4 +446,26 @@ test("a connection change while the machine is being asked is followed by one mo
   await entry.pending;
   assert.equal(calls, 2, "asked once more after it");
   assert.equal(entry.available, true);
+});
+
+test("a stopped connection waits for its SSH process to end, and kills one that will not", async (context) => {
+  const { endProcess } = await import("../src/herdr-machines.mjs");
+  const { EventEmitter } = await import("node:events");
+  const signals = [];
+  const slow = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null, kill(signal = "SIGTERM") { signals.push(signal); } });
+  let ended = false;
+  const ending = endProcess(slow, 3_000).then(() => { ended = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(ended, false, "still running");
+  slow.emit("exit", null, "SIGTERM");
+  await ending;
+  assert.deepEqual(signals, ["SIGTERM"]);
+
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const stuck = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null, kill(signal = "SIGTERM") { signals.push(signal); } });
+  const waiting = endProcess(stuck, 3_000);
+  context.mock.timers.tick(3_000);
+  await waiting;
+  assert.deepEqual(signals, ["SIGTERM", "SIGTERM", "SIGKILL"]);
+  await endProcess(Object.assign(new EventEmitter(), { exitCode: 0, signalCode: null, kill() { throw new Error("already gone"); } }));
 });
