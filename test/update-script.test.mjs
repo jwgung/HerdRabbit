@@ -34,6 +34,7 @@ case "$name:$*" in
   'git:fetch origin main') [ "$UPDATE_TEST_MODE" != fetch-failed ] ;;
   'git:merge-base --is-ancestor HEAD FETCH_HEAD') [ "$UPDATE_TEST_MODE" != diverged ] ;;
   'git:rev-parse --short HEAD') printf '123abcd\\n' ;;
+  'git:show FETCH_HEAD:src/herdr-version.mjs') printf 'export const MIN_HERDR_VERSION = "0.9.0";\\n' ;;
   'npm:run verify') [ "$UPDATE_TEST_MODE" != verify-failed ] ;;
   'npm:ci --omit=dev') [ "$UPDATE_TEST_MODE" != install-failed ] ;;
   'systemctl:'*'--property=LoadState --value') printf 'loaded\\n' ;;
@@ -64,6 +65,8 @@ test("updater locates its installation and verifies before restarting without re
   assert.ok(commands.indexOf("herdr update --handoff") < commands.indexOf("git merge --ff-only"), "Herdr before any file changes");
   assert.ok(commands.indexOf("node scripts/check-herdr-version.mjs") > commands.indexOf("herdr update --handoff"));
   assert.ok(commands.indexOf("node scripts/check-herdr-version.mjs") < commands.indexOf("git merge --ff-only"));
+  assert.ok(commands.indexOf("git show FETCH_HEAD:src/herdr-version.mjs") < commands.indexOf("node scripts/check-herdr-version.mjs"),
+    "Herdr is checked against the incoming code's minimum");
   assert.match(commands, /git merge --ff-only FETCH_HEAD/);
   assert.doesNotMatch(commands, /install-service|tailscale|reset --hard/);
 });

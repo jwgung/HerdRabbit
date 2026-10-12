@@ -58,9 +58,12 @@ main() {
     # decides whether that one is still new enough.
     log "Updating Herdr"
     "$HERDR_BIN" update --handoff || log "Warning: Herdr could not be updated; keeping the installed version"
-    HERDR_MIN_VERSION="$(git show FETCH_HEAD:src/herdr-version.mjs 2>/dev/null | sed -n 's/^export const MIN_HERDR_VERSION = "\(.*\)";$/\1/p')"
-    export HERDR_MIN_VERSION
-    node scripts/check-herdr-version.mjs || fail "Herdr is missing or too old for the new HerdRabbit; update it and run this script again"
+    INCOMING_VERSION_DIRECTORY="$(mktemp -d)"
+    HERDR_VERSION_MODULE="$INCOMING_VERSION_DIRECTORY/herdr-version.mjs"
+    export HERDR_VERSION_MODULE
+    git show FETCH_HEAD:src/herdr-version.mjs > "$HERDR_VERSION_MODULE" || { rm -rf "$INCOMING_VERSION_DIRECTORY"; fail "the new code has no src/herdr-version.mjs to check Herdr against"; }
+    node scripts/check-herdr-version.mjs || { rm -rf "$INCOMING_VERSION_DIRECTORY"; fail "Herdr is missing or too old for the new HerdRabbit; update it and run this script again"; }
+    rm -rf "$INCOMING_VERSION_DIRECTORY"
     git merge --ff-only FETCH_HEAD
     log "Installing runtime dependencies"
     npm ci --omit=dev
