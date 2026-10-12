@@ -133,7 +133,8 @@ export class MultiServerClient {
     });
     return {
       ...this.entries.get("local").snapshot,
-      // Machines not listed yet: a page opening on one of their panes waits.
+      // Machines not listed yet: a page opening on one of their panes waits
+      // (up to its own limit).
       servers_pending: Boolean(this.machines && !this.machines.listed),
       ...Object.fromEntries(collections.map((key) => [key, snapshots.flatMap((snapshot) => snapshot[key])])),
       // Address and version travel with the server so the sidebar can say what

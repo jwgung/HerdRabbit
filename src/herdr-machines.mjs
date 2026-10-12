@@ -364,7 +364,7 @@ export class HerdrMachines {
     // One `herdr machine` change at a time, and the one running can be cut short.
     this.changing = null;
     this.stopped = false;
-    // Whether `herdr machine list` has been asked once, answered or not.
+    // Whether `herdr machine list` has answered once.
     this.listed = false;
     // Told the server id of a machine whose connection came up or went down.
     this.linkListeners = new Set();
@@ -409,11 +409,12 @@ export class HerdrMachines {
     try {
       machines = await this.read({ binary: this.binary });
     } catch (error) {
+      // Still pending: a page waiting for a machine's pane keeps waiting (for
+      // its own limited time) until a listing comes through.
       this.log(`herdr machine list failed: ${error.message}`);
       return;
-    } finally {
-      this.listed = true;
     }
+    this.listed = true;
     // Stopping while the list was being read: nothing new may start now.
     if (this.stopped) return;
     // Server ids use the first 12 hex digits; two machines sharing them could

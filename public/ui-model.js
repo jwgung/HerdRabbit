@@ -531,6 +531,15 @@ export function waitsForRemotePane(paneId, panes, servers, waitedMs, limitMs, se
   return server ? server.connecting === true : serversPending === true;
 }
 
+// The pane on screen whose server dropped stays on screen while that server
+// comes back; one whose machine was turned off gives way to another pane.
+export function keepsVanishedRemotePane(paneId, panes, servers) {
+  if (!paneId?.includes("!")) return false;
+  if (array(panes).some((pane) => idOf(pane, "pane_id", "id") === paneId)) return false;
+  const serverId = paneId.split("!")[0];
+  return array(servers).some((server) => server?.id === serverId && !server.available && server.enabled !== false);
+}
+
 export function selectedPaneIdForSnapshot(
   panes,
   currentPaneId,

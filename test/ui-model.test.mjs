@@ -37,6 +37,7 @@ import {
   terminalOutputForEnvironment,
   uploadSummary,
   waitsForRemotePane,
+  keepsVanishedRemotePane,
 } from "../public/ui-model.js";
 
 test("cycles through panes with Ctrl+Tab and Ctrl+Shift+Tab", () => {
@@ -861,4 +862,15 @@ test("a page waits for another server's pane only while that server is still con
   assert.equal(waitsForRemotePane(pane, [], [{ id: "local" }], 1_000, LIMIT, true), true, "not listed yet while the list is pending");
   assert.equal(waitsForRemotePane(pane, [], [{ id: "local" }], 1_000, LIMIT, false), false, "not listed once the list is in");
   assert.equal(waitsForRemotePane("hs_x~w1:p1", [], [{ id: "local" }], 1_000, LIMIT, true), false, "a local pane is never waited for");
+});
+
+test("the pane on screen stays while its server comes back, and gives way once its machine is turned off", () => {
+  const pane = "machine-4c139ff50dfb!hs_x~w1:p1";
+  const with_ = (fields) => [{ id: "machine-4c139ff50dfb", ...fields }];
+  assert.equal(keepsVanishedRemotePane(pane, [], with_({ available: false, enabled: true })), true, "reconnecting");
+  assert.equal(keepsVanishedRemotePane(pane, [], with_({ available: false })), true, "a linked server reconnecting");
+  assert.equal(keepsVanishedRemotePane(pane, [], with_({ available: false, enabled: false })), false, "turned off");
+  assert.equal(keepsVanishedRemotePane(pane, [], with_({ available: true, enabled: true })), false, "connected, and the pane is gone");
+  assert.equal(keepsVanishedRemotePane(pane, [{ pane_id: pane }], with_({ available: false })), false, "still listed");
+  assert.equal(keepsVanishedRemotePane("hs_x~w1:p1", [], []), false, "a local pane");
 });

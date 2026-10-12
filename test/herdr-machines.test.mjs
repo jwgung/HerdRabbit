@@ -632,3 +632,17 @@ test("a link stopped between its two forwards makes no second one and leaves no 
   assert.equal(existsSync(`${local}-client.sock`), false);
   assert.notEqual(link.state, "ready");
 });
+
+test("a machine listing that fails leaves the list pending until one comes through", async () => {
+  let fail = true;
+  const machines = new HerdrMachines({
+    directory: "/run/x", createBridge: () => ({}), log: () => {},
+    createLink: (machine) => ({ machine, state: "connecting", error: null, start() {}, async stop() {} }),
+    read: async () => { if (fail) throw new Error("herdr is restarting"); return []; },
+  });
+  await machines.refresh();
+  assert.equal(machines.listed, false, "a failed listing is not a listing");
+  fail = false;
+  await machines.refresh();
+  assert.equal(machines.listed, true);
+});

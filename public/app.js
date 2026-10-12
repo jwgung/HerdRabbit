@@ -34,6 +34,7 @@ import {
   paneShortcutTarget,
   selectedPaneIdForSnapshot,
   waitsForRemotePane,
+  keepsVanishedRemotePane,
   shouldRenderTerminalUpdate,
   sidebarPresentation,
   terminalOutputForEnvironment,
@@ -2785,10 +2786,7 @@ function choosePane() {
       window.history.replaceState(null, "", currentUrl);
     }
   }
-  const preferredServerId = state.selectedPaneId?.split("!")[0];
-  if (state.selectedPaneId?.includes("!") &&
-      !panes.some((pane) => idOf(pane, "pane_id", "id") === state.selectedPaneId) &&
-      snapshotRecords().servers.some((server) => server.id === preferredServerId && !server.available)) return;
+  if (keepsVanishedRemotePane(state.selectedPaneId, panes, snapshotRecords().servers)) return;
   const defaultHerdrSessionId = idOf(
     herdrSessions.find((session) => session.default === true),
     "session_id",
