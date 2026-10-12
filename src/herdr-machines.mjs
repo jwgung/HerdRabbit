@@ -3,7 +3,7 @@
 // that machine's Herdr sockets to this one, and the usual Herdr commands,
 // status events and terminal attaches run against the forwarded sockets.
 import { execFile, spawn } from "node:child_process";
-import { chmod, lstat, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -14,6 +14,8 @@ const MACHINE_ID_PATTERN = /^[0-9a-f]{32}$/u;
 // Herdr is often installed per user, out of a non-login shell's PATH.
 const REMOTE_PATH = 'PATH="$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"';
 const RECONNECT_MS = [2_000, 5_000, 15_000, 30_000, 60_000];
+// How long stopping waits for a machine listing already under way.
+const STOP_WAIT_MS = 3_000;
 // A user, then a host; neither may start with "-", where SSH would read an option.
 const TARGET_PATTERN = /^(?!-)[A-Za-z0-9._+-]+(?:@(?!-)[A-Za-z0-9._-]+)?$/u;
 const LABEL_PATTERN = /^[^\u0000-\u001f\u007f]{1,60}$/u;
@@ -110,7 +112,12 @@ export function machineOffline(message = "Connecting to this machine…", connec
 export function endProcess(child, graceMs = 3_000) {
   if (child.exitCode != null || child.signalCode != null) return Promise.resolve();
   return new Promise((resolve) => {
-    const timer = setTimeout(() => { child.kill("SIGKILL"); resolve(); }, graceMs);
+    let timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      // Gone at once, as a rule; a process that cannot even be killed is not waited on for ever.
+      timer = setTimeout(resolve, graceMs);
+      timer.unref?.();
+    }, graceMs);
     timer.unref?.();
     child.once("exit", () => { clearTimeout(timer); resolve(); });
     child.kill();
@@ -259,9 +266,13 @@ async function ownPrivateDirectory(path) {
 // running side by side (a service and a test copy) never take over each
 // other's. Without a runtime directory, a fresh one is made in the temp
 // directory, under a name nobody can have prepared.
-export async function machineSocketDirectory(environment = process.env, pid = process.pid) {
-  if (!environment.XDG_RUNTIME_DIR) return mkdtemp(join(tmpdir(), "herdrabbit-machines-"));
-  const base = join(environment.XDG_RUNTIME_DIR, `herdrabbit-${process.getuid?.() ?? "user"}`);
+export async function machineSocketDirectory(environment = process.env, pid = process.pid, temporary = tmpdir()) {
+  // Without a runtime directory the temporary one holds the same private,
+  // per-user directory, cleared the same way.
+  const user = process.getuid?.() ?? "user";
+  const base = environment.XDG_RUNTIME_DIR
+    ? join(environment.XDG_RUNTIME_DIR, `herdrabbit-${user}`)
+    : join(temporary, `herdrabbit-machines-${user}`);
   await mkdir(base, { mode: 0o700 }).catch((error) => { if (error.code !== "EEXIST") throw error; });
   await ownPrivateDirectory(base);
   // A process that stopped without cleaning up left its sockets behind.
@@ -411,6 +422,7 @@ export class HerdrMachines {
       await link.stop();
     }
     for (const machine of this.machines) {
+      if (this.stopped) return;
       if (!wanted.has(machine.id) || this.links.has(machine.id)) continue;
       const link = this.createLink(machine, {
         directory: this.directory, log: this.log,
@@ -490,9 +502,9 @@ export class HerdrMachines {
     this.stopped = true;
     clearInterval(this.timer);
     this.changing?.abort();
-    // A refresh still reading the list finishes first, so it cannot start a
-    // connection after the ones here are closed.
-    await this.refreshing?.catch(() => {});
+    // A refresh still reading the list is given a moment to finish; it starts
+    // no connection once this has begun, so one that hangs is not waited on.
+    await Promise.race([this.refreshing?.catch(() => {}), new Promise((resolve) => setTimeout(resolve, STOP_WAIT_MS).unref?.())]);
     await Promise.all([...this.links.values()].map((link) => link.stop()));
     this.links.clear();
     await rm(this.directory, { recursive: true, force: true }).catch(() => {});

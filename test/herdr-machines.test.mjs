@@ -42,11 +42,14 @@ test("accepts SSH targets and names only in the plain forms Herdr takes", () => 
   for (const label of ["", " padded", "a\nb", "x".repeat(61)]) assert.equal(validMachineLabel(label), false);
 });
 
-test("without a runtime directory each process gets a fresh private one nobody could have prepared", async () => {
-  const first = await machineSocketDirectory({});
-  const second = await machineSocketDirectory({});
-  assert.notEqual(first, second);
-  assert.equal((await stat(first)).mode & 0o777, 0o700);
+test("without a runtime directory the temporary one holds the same private per-user directory, cleared the same way", async () => {
+  const temporary = await mkdtemp(join(tmpdir(), "herdr-tmp-"));
+  const stale = await machineSocketDirectory({}, 999_999_999, temporary);
+  const mine = await machineSocketDirectory({}, process.pid, temporary);
+  assert.equal(join(mine, ".."), join(temporary, `herdrabbit-machines-${process.getuid()}`));
+  assert.equal((await stat(mine)).mode & 0o777, 0o700);
+  assert.equal((await stat(join(mine, ".."))).mode & 0o777, 0o700);
+  assert.deepEqual(await readdir(join(mine, "..")), [String(process.pid)], `${stale} belonged to a process that is gone`);
 });
 
 test("refuses a runtime directory entry that is a link to somewhere else", async () => {
@@ -463,9 +466,108 @@ test("a stopped connection waits for its SSH process to end, and kills one that 
 
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const stuck = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null, kill(signal = "SIGTERM") { signals.push(signal); } });
-  const waiting = endProcess(stuck, 3_000);
+  let killed = false;
+  const waiting = endProcess(stuck, 3_000).then(() => { killed = true; });
   context.mock.timers.tick(3_000);
-  await waiting;
   assert.deepEqual(signals, ["SIGTERM", "SIGTERM", "SIGKILL"]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(killed, false, "waits for the killed process to be gone");
+  stuck.emit("exit", null, "SIGKILL");
+  await waiting;
   await endProcess(Object.assign(new EventEmitter(), { exitCode: 0, signalCode: null, kill() { throw new Error("already gone"); } }));
+});
+
+test("stopping does not wait for ever on a machine listing that hangs, and starts no connection after", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  let answer;
+  const created = [];
+  const machines = new HerdrMachines({
+    directory: await mkdtemp(join(tmpdir(), "herdr-stop-")), createBridge: () => ({}),
+    createLink: (machine) => { created.push(machine.id); return { machine, state: "connecting", error: null, start() {}, async stop() {} }; },
+    read: () => new Promise((resolve) => { answer = resolve; }),
+  });
+  machines.start();
+  const stopping = machines.stop();
+  await new Promise((resolve) => setImmediate(resolve));
+  context.mock.timers.tick(3_000);
+  await stopping;
+  answer([{ id: ID, label: "lab", target: "me@lab", session: "default", enabled: true }]);
+  await machines.refreshing;
+  assert.deepEqual(created, [], "nothing starts once stopping has begun");
+});
+
+test("a link stopped while it waits for its SSH connection gives up at once", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-link-"));
+  const { MachineLink } = await import("../src/herdr-machines.mjs");
+  const { EventEmitter } = await import("node:events");
+  const calls = [];
+  const link = new MachineLink({ id: ID, label: "lab", target: "me@lab", session: "default" }, {
+    directory,
+    // The control socket never appears.
+    spawnProcess: () => Object.assign(new EventEmitter(), { stderr: new EventEmitter(), kill() { setImmediate(() => this.emit("exit", null, "SIGTERM")); } }),
+    run: async (command, args) => { calls.push(args); return { stdout: "" }; },
+  });
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  link.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  context.mock.timers.tick(100);
+  await link.stop();
+  const deadline = performance.now() + 2_000;
+  while (performance.now() < deadline) {
+    context.mock.timers.tick(100);
+    await new Promise((resolve) => setImmediate(resolve));
+    if (calls.length) break;
+  }
+  assert.deepEqual(calls, [], "no remote command after stopping");
+  assert.notEqual(link.state, "ready");
+});
+
+test("when the second forward fails the connection closes, both sockets go, and the next try forwards both again", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-link-"));
+  const { MachineLink } = await import("../src/herdr-machines.mjs");
+  const { EventEmitter } = await import("node:events");
+  const { existsSync } = await import("node:fs");
+  const local = join(directory, ID.slice(0, 12));
+  const forwards = [];
+  let masters = 0;
+  let failSecond = true;
+  const link = new MachineLink({ id: ID, label: "lab", target: "me@lab", session: "default" }, {
+    directory,
+    spawnProcess: () => {
+      masters += 1;
+      writeFileSync(`${local}.ctl`, "");
+      return Object.assign(new EventEmitter(), { stderr: new EventEmitter(), kill() { setImmediate(() => this.emit("exit", 255)); } });
+    },
+    run: async (command, args) => {
+      if (!args.includes("forward")) return { stdout: "socket: /home/me/.config/herdr/herdr.sock\n" };
+      const target = args[args.indexOf("-L") + 1].split(":")[0];
+      forwards.push(target);
+      if (target.endsWith("-client.sock") && failSecond) {
+        failSecond = false;
+        throw Object.assign(new Error("forward failed"), { stderr: "mux_client_forward: forwarding request failed" });
+      }
+      writeFileSync(target, "");
+      return { stdout: "" };
+    },
+  });
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  link.start();
+  const settle = async (done) => {
+    const deadline = performance.now() + 10_000;
+    while (!done() && performance.now() < deadline) {
+      context.mock.timers.tick(100);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  };
+  await settle(() => link.state === "offline" && link.retryTimer);
+  assert.equal(link.state, "offline");
+  assert.equal(existsSync(`${local}.sock`), true, "the first forward was made");
+  // The retry clears what the failed try left, then forwards both again.
+  await settle(() => link.state === "ready");
+  assert.equal(link.state, "ready");
+  assert.equal(masters, 2, "a new connection for the retry");
+  assert.deepEqual(forwards, [`${local}.sock`, `${local}-client.sock`, `${local}.sock`, `${local}-client.sock`]);
+  await link.stop();
+  assert.equal(existsSync(`${local}.sock`), false, "stopping removes the sockets");
+  assert.equal(existsSync(`${local}-client.sock`), false);
 });
