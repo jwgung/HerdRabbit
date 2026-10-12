@@ -200,14 +200,14 @@ export class HerdrClient {
       : validateHerdrSessionName(sessionName);
   }
 
-  async #run(args, { json = true } = {}) {
+  async #run(args, { json = true, timeoutMs = this.timeoutMs } = {}) {
     try {
       const commandArgs = this.sessionName === null
         ? args
         : [`--session=${this.sessionName}`, ...args];
       const { stdout } = await this.runner(this.binary, commandArgs, {
         encoding: "utf8",
-        timeout: this.timeoutMs,
+        timeout: timeoutMs,
         maxBuffer: 2 * 1024 * 1024,
         env: { ...process.env, NO_COLOR: "1" },
         windowsHide: true,
@@ -306,6 +306,34 @@ export class HerdrClient {
     if (!session?.socket_path) throw new HerdrCommandError("Herdr status socket is unavailable");
     return subscribeHerdrStatuses({ socketPath: session.socket_path, paneIds: ids,
       openSocket: this.runner.openSocket, onStatus, onError });
+  }
+
+  // What `terminal attach` needs for a pane: its terminal, the socket of this
+  // session (the attach must reach the server the other commands talk to), and
+  // the pane's own size for a viewer that does not set one.
+  // `timeoutMs` bounds each lookup when an attach is looked up again after
+  // herdr ended it, so a herdr that does not answer cannot hold it past its time.
+  async terminalTarget(paneId, timeoutMs = this.timeoutMs) {
+    const safePaneId = validatePaneId(paneId);
+    const run = (args) => this.#run(args, { timeoutMs: Math.min(timeoutMs, this.timeoutMs) });
+    const [{ pane }, sessions, layout] = await Promise.all([
+      run(["pane", "get", safePaneId]),
+      run(["session", "list", "--json"]).then((result) => result?.sessions ?? result),
+      run(["pane", "layout", "--pane", safePaneId]).catch(() => null),
+    ]);
+    const session = sessions.find(item => item.name === (this.sessionName || "default") && item.running);
+    if (!session?.socket_path) throw new HerdrCommandError("Herdr socket is unavailable", { code: "server_unavailable" });
+    if (typeof pane?.terminal_id !== "string" || !pane.terminal_id) throw new HerdrCommandError("The pane has no terminal", { code: "no_terminal" });
+    const rect = layout?.layout?.panes?.find(item => item.pane_id === safePaneId)?.rect;
+    return {
+      command: this.binary,
+      args: ["terminal", "attach", pane.terminal_id],
+      // herdr's CLI reads HERDR_SOCKET_PATH, not HERDR_SOCKET.
+      env: { HERDR_SOCKET_PATH: session.socket_path },
+      terminalId: pane.terminal_id,
+      cols: rect?.width,
+      rows: rect?.height,
+    };
   }
 
   async sendText(paneId, text, { submit = false } = {}) {

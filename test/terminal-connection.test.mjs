@@ -36,3 +36,76 @@ test("reconnection restores the screen subscription but never replays unacknowle
   assert.equal(frames.at(-1).output, "current");
   connection.pause();
 });
+
+test("an attached pane is attached again after a reconnect, and its traffic goes to the attach listeners", async () => {
+  const sockets = [];
+  class Socket {
+    static OPEN = 1;
+    readyState = 0;
+    bufferedAmount = 0;
+    sent = [];
+    constructor() { sockets.push(this); }
+    send(message) { this.sent.push(JSON.parse(message)); }
+    open() { this.readyState = 1; this.onopen(); }
+    receive(message) { this.onmessage({ data: JSON.stringify(message) }); }
+    close() { this.readyState = 3; this.onclose({ code: 1006 }); }
+  }
+  const connection = terminalConnection({ WebSocketImpl: Socket, url: "ws://localhost/api/terminal",
+    credentials: () => ({ csrf: "write", launchToken: "launch" }), onOutput() {}, onDisconnect() {}, onAuthenticationRequired() {} });
+  const received = [];
+  let reconnects = 0;
+  connection.onAttach(message => received.push(message.type));
+  connection.onReconnect(() => { reconnects += 1; connection.attach("w1:p1", { cols: 80, rows: 24 }); });
+  connection.attach("w1:p1", { cols: 80, rows: 24 });
+  connection.ptyInput("w1:p1", "dropped before the socket is ready");
+  sockets[0].open();
+  sockets[0].receive({ type: "ready" });
+  assert.equal(reconnects, 1);
+  connection.ptyInput("w1:p1", "ls\r");
+  connection.acknowledge("w1:p1", "stream", 10);
+  sockets[0].receive({ type: "pty-data", pane_id: "w1:p1", data: "x" });
+  sockets[0].receive({ type: "attach-held", pane_id: "w1:p1" });
+  assert.deepEqual(received, ["pty-data", "attach-held"]);
+  assert.deepEqual(sockets[0].sent.map(message => message.type), ["auth", "watch-statuses", "attach", "pty-input", "pty-ack"]);
+  assert.equal(sockets[0].sent.find(message => message.type === "pty-input").data, "ls\r", "nothing typed before the socket was ready is sent late");
+
+  sockets[0].close();
+  await new Promise(resolve => setTimeout(resolve, 280));
+  sockets[1].open();
+  sockets[1].receive({ type: "ready" });
+  assert.equal(reconnects, 2);
+  assert.deepEqual(sockets[1].sent.map(message => message.type), ["auth", "watch-statuses", "attach"]);
+  connection.detach("w1:p1");
+  assert.equal(sockets[1].sent.at(-1).type, "detach");
+  connection.pause();
+});
+
+test("a page back from the background connects again for the pane it still shows", async () => {
+  const sockets = [];
+  class Socket {
+    static OPEN = 1;
+    readyState = 0;
+    bufferedAmount = 0;
+    sent = [];
+    constructor() { sockets.push(this); }
+    send(message) { this.sent.push(JSON.parse(message)); }
+    open() { this.readyState = 1; this.onopen(); }
+    receive(message) { this.onmessage({ data: JSON.stringify(message) }); }
+    close() { this.readyState = 3; this.onclose({ code: 1000 }); }
+  }
+  const connection = terminalConnection({ WebSocketImpl: Socket, url: "ws://localhost/api/terminal",
+    credentials: () => ({ csrf: "write", launchToken: "launch" }), onOutput() {}, onDisconnect() {}, onAuthenticationRequired() {} });
+  connection.onReconnect(() => connection.attach("w1:p1", { cols: 80, rows: 24 }));
+  connection.attach("w1:p1", { cols: 80, rows: 24 });
+  sockets[0].open();
+  sockets[0].receive({ type: "ready" });
+  connection.pause();
+  await new Promise(resolve => setTimeout(resolve, 280));
+  assert.equal(sockets.length, 1, "a paused page stays disconnected");
+  connection.resume();
+  assert.equal(sockets.length, 2);
+  sockets[1].open();
+  sockets[1].receive({ type: "ready" });
+  assert.equal(sockets[1].sent.at(-1).type, "attach");
+  connection.pause();
+});

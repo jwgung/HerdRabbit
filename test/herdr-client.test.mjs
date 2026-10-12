@@ -216,3 +216,41 @@ test("does not reflect arbitrary stderr into browser-facing errors", async () =>
     },
   );
 });
+
+test("terminalTarget names the attach command, the session's socket and the pane's size", async () => {
+  const json = (result) => ({ stdout: JSON.stringify({ result }), stderr: "" });
+  const pane = json({ pane: { pane_id: "w1:p2", terminal_id: "term_9" } });
+  const sessions = json({ sessions: [{ name: "default", running: true, socket_path: "/run/herdr.sock" }] });
+  const layout = json({ layout: { panes: [{ pane_id: "w1:p2", rect: { width: 120, height: 40 } }] } });
+  const fake = recordingRunner([pane, sessions, layout]);
+  const client = new HerdrClient({ binary: "/opt/herdr", runner: fake.runner });
+  assert.deepEqual(await client.terminalTarget("w1:p2"), {
+    command: "/opt/herdr", args: ["terminal", "attach", "term_9"], env: { HERDR_SOCKET_PATH: "/run/herdr.sock" },
+    terminalId: "term_9", cols: 120, rows: 40,
+  });
+  assert.deepEqual(fake.calls.map((call) => call.args.slice(0, 2)), [["pane", "get"], ["session", "list"], ["pane", "layout"]]);
+
+  const noLayout = recordingRunner([pane, sessions, new Error("layout failed")]);
+  const sized = await new HerdrClient({ runner: noLayout.runner }).terminalTarget("w1:p2");
+  assert.equal(sized.cols, undefined, "a pane whose layout cannot be read has no size of its own");
+
+  const stopped = recordingRunner([pane, json({ sessions: [{ name: "default", running: false }] }), layout]);
+  await assert.rejects(new HerdrClient({ runner: stopped.runner }).terminalTarget("w1:p2"), { code: "server_unavailable" });
+  const other = recordingRunner([pane, sessions, layout]);
+  await assert.rejects(new HerdrClient({ runner: other.runner, sessionName: "review" }).terminalTarget("w1:p2"), { code: "server_unavailable" });
+
+  const noTerminal = recordingRunner([json({ pane: { pane_id: "w1:p2" } }), sessions, layout]);
+  await assert.rejects(new HerdrClient({ runner: noTerminal.runner }).terminalTarget("w1:p2"), { code: "no_terminal" });
+  await assert.rejects(new HerdrClient({ runner: recordingRunner([]).runner }).terminalTarget("--help"), InputValidationError);
+});
+
+test("terminalTarget bounds each herdr call by the time it is given", async () => {
+  const json = (result) => ({ stdout: JSON.stringify({ result }), stderr: "" });
+  const fake = recordingRunner([
+    json({ pane: { pane_id: "w1:p2", terminal_id: "term_9" } }),
+    json({ sessions: [{ name: "default", running: true, socket_path: "/run/herdr.sock" }] }),
+    json({ layout: { panes: [] } }),
+  ]);
+  await new HerdrClient({ runner: fake.runner, timeoutMs: 5_000 }).terminalTarget("w1:p2", 300);
+  assert.deepEqual(fake.calls.map((call) => call.options.timeout), [300, 300, 300]);
+});

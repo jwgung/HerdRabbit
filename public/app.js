@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.11";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.11";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.12";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.12";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -48,8 +48,8 @@ import {
   aiRestartHint,
   isAiLoginWorkspace,
   paneKeepsInputHistory,
-} from "./ui-model.js?v=1.2.11";
-import { ansiToSegments } from "./ansi.js?v=1.2.11";
+} from "./ui-model.js?v=1.2.12";
+import { ansiToSegments } from "./ansi.js?v=1.2.12";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -60,43 +60,45 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.11";
-import { linkTerminalSegments } from "./terminal-links.js?v=1.2.11";
-import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.11";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.11";
+} from "./browse-preference.js?v=1.2.12";
+import { linkTerminalSegments } from "./terminal-links.js?v=1.2.12";
+import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.12";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.12";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.12";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.12";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.11";
+} from "./pane-preference.js?v=1.2.12";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.11";
+} from "./workspace-preference.js?v=1.2.12";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.11";
+} from "./terminal-preference.js?v=1.2.12";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.11";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.11";
+} from "./completion-preference.js?v=1.2.12";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.12";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.11";
+} from "./input-history-preference.js?v=1.2.12";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.11";
+} from "./launch-session.js?v=1.2.12";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.11";
+} from "./push-notifications.js?v=1.2.12";
 
 function browserStorage() {
   try {
@@ -305,6 +307,8 @@ const elements = {
   terminalPanel: document.querySelector(".terminal-panel"),
   terminalOutput: document.querySelector("#terminal-output"),
   terminalLive: document.querySelector("#terminal-live"),
+  terminalXterm: document.querySelector("#terminal-xterm"),
+  terminalHeld: document.querySelector("#terminal-held"),
   quickKeys: document.querySelector(".quick-keys"),
   inputForm: document.querySelector("#input-form"),
   terminalInput: document.querySelector("#terminal-input"),
@@ -788,7 +792,10 @@ async function togglePushNotifications() {
 }
 
 function adjustTerminalFont(direction) {
-  const nextSize = adjustedTerminalFontSize(state.terminalFontSize, direction);
+  applyTerminalFontSize(adjustedTerminalFontSize(state.terminalFontSize, direction));
+}
+
+function applyTerminalFontSize(nextSize) {
   state.terminalFontSize = nextSize;
   document.documentElement.style.setProperty(
     "--terminal-font-size",
@@ -796,6 +803,7 @@ function adjustTerminalFont(direction) {
   );
   writeTerminalFontSize(panePreferenceStorage, nextSize);
   resizeTerminalInput();
+  attachedTerminal.setFontSize(nextSize);
 }
 
 function supportsNativeTerminalInputSizing() {
@@ -2568,16 +2576,20 @@ function isViewableTerminalPath(raw) {
   return previewFor(raw.split("/").pop()) !== null && resolveTerminalPath(raw) !== null;
 }
 
+function openTerminalPath(raw) {
+  const resolved = resolveTerminalPath(raw);
+  if (!resolved) return;
+  const name = resolved.split("/").pop();
+  void viewFile(resolved, name, paneServerId(state.selectedPaneId) || "local");
+}
+
 function terminalPathLink(raw) {
   const link = createElement("a", { className: "terminal-link terminal-path" });
   link.href = "#";
   link.title = `View ${raw}`;
   link.addEventListener("click", (event) => {
     event.preventDefault();
-    const resolved = resolveTerminalPath(raw);
-    if (!resolved) return;
-    const name = resolved.split("/").pop();
-    void viewFile(resolved, name, paneServerId(state.selectedPaneId) || "local");
+    openTerminalPath(raw);
   });
   return link;
 }
@@ -2827,6 +2839,15 @@ function renderHistoryStatus() {
 
 async function refreshOutput({ loadOlder = false, streamPayload = null } = {}) {
   if (!state.authenticated || document.hidden || !state.selectedPaneId) return;
+  // A pane that attaches draws itself from herdr's stream; the rest of this is
+  // the screen-text view, for panes that cannot. A screen-text frame that was
+  // already on its way when the pane attached is dropped here.
+  if (!loadOlder && attachedTerminal.show(state.selectedPaneId)) {
+    terminalStream.unwatch();
+    showAttachedView(true);
+    return;
+  }
+  showAttachedView(false);
   if (!loadOlder && !streamPayload) {
     const lines = state.outputLineLimits.get(state.selectedPaneId) || HISTORY_PAGE_LINES;
     terminalStream.select(state.selectedPaneId, lines);
@@ -3044,6 +3065,37 @@ const terminalStream = terminalConnection({
   onStatusesUnavailable: () => liveStatusUpdates.clear(),
 });
 
+const attachedTerminal = createAttachedTerminal({
+  host: elements.terminalXterm,
+  connection: terminalStream,
+  xterm,
+  fontSize: state.terminalFontSize,
+  onFallback: (paneId) => {
+    if (paneId !== state.selectedPaneId) return;
+    showAttachedView(false);
+    void refreshOutput();
+  },
+  onStateChange: ({ paneId, held, dropped }) => {
+    if (paneId !== state.selectedPaneId) return;
+    elements.terminalHeld.hidden = !held;
+    if (dropped) setFeedback("Typing did not reach the terminal while it reconnected. Check the screen before typing again.", true);
+  },
+  isViewablePath: isViewableTerminalPath,
+  onPath: openTerminalPath,
+  onFontSizeChange: applyTerminalFontSize,
+  onRetry: (paneId) => { if (paneId === state.selectedPaneId) void refreshOutput(); },
+});
+
+function showAttachedView(attached) {
+  elements.terminalOutput.hidden = attached;
+  elements.terminalXterm.hidden = !attached;
+  if (!attached) elements.terminalHeld.hidden = true;
+  elements.historyStatus.hidden = attached;
+  renderTerminalLive();
+}
+
+document.querySelector("#terminal-take-over").addEventListener("click", () => attachedTerminal.takeOver());
+
 const directTerminalInput = attachDirectTerminalInput({
   output: elements.terminalOutput,
   input: document.querySelector("#terminal-direct-input"),
@@ -3071,8 +3123,9 @@ elements.inputForm.addEventListener("submit", async (event) => {
   try {
     await directTerminalInput.idle();
     if (text) {
-      await sendText(text, paneId);
-      if (paneKeepsInputHistory(paneId, snapshotRecords())) rememberSentInput(paneId, text);
+      const sent = await sendText(text, paneId);
+      // An answer to a password prompt is never kept.
+      if (!sent?.secret && paneKeepsInputHistory(paneId, snapshotRecords())) rememberSentInput(paneId, text);
     } else {
       await sendKeys(["enter"], paneId);
     }
@@ -4767,7 +4820,7 @@ desktopMedia.addEventListener("change", () => {
 });
 
 function renderTerminalLive() {
-  elements.terminalLive.hidden = !state.selectedPaneId ||
+  elements.terminalLive.hidden = !state.selectedPaneId || !elements.terminalXterm.hidden ||
     (state.terminalFollow && !state.remoteHistoryPanes.has(state.selectedPaneId));
   elements.terminalLive.disabled = state.remoteLiveRequests.has(state.selectedPaneId);
 }

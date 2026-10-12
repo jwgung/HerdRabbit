@@ -1,8 +1,12 @@
 import { WebSocketServer } from "ws";
 
+const MAX_PENDING_ATTACHES = 4;
+// A page shows one attached pane at a time; a few more cover switching.
+const MAX_ATTACHED_PANES = 4;
+
 // Authentication stays with the HTTP server. No launch token is put in a URL.
 export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMessage,
-  sendInput, watchOutput, watchStatuses, onRequest = () => {}, onSessionsEnded = () => () => {} }) {
+  sendInput, watchOutput, watchStatuses, attachments = null, onRequest = () => {}, onSessionsEnded = () => () => {} }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
   // An ended sign-in closes its sockets now, not at their next heartbeat.
   const rechecks = new Set();
@@ -28,10 +32,27 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
     let writing = false;
     let stopped = false;
     let alive = true;
+    let attaching = 0;
+    // Panes this socket still wants: a detach that arrives while an attach is
+    // still looking up its terminal cancels it once the lookup ends.
+    const wantedPanes = new Set();
     const send = message => {
       if (ws.readyState !== ws.OPEN) return;
       if (ws.bufferedAmount > 2 * 1024 * 1024) { ws.close(1013, "Client too slow"); return; }
       ws.send(JSON.stringify(message));
+    };
+    // This socket as one viewer of attached panes. It may type and resize until
+    // it says it only watches.
+    const viewer = {
+      mode: "interact",
+      get closed() { return stopped; },
+      send: message => { if (!stopped && valid()) send(message); },
+      bufferedAmount: () => ws.bufferedAmount,
+      close: (code, reason) => { stopped = true; ws.close(code, reason); },
+    };
+    const paneId = value => {
+      if (typeof value !== "string" || !value || value.length > 512) throw new Error("Invalid pane id");
+      return value;
     };
     const valid = () => {
       try { authorizeMessage(request, credentials); return true; }
@@ -49,9 +70,10 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
         while (writes.length && !stopped && valid()) {
           const item = writes.shift();
           try {
-            await sendInput(item.message);
-            if (item.message.submit === true) onRequest(item.message.paneId, item.message.text);
-            for (const id of item.ids) send({ type: "ack", id });
+            const result = await sendInput(item.message);
+            const secret = result?.secret === true;
+            if (item.message.submit === true && !secret) onRequest(item.message.paneId, item.message.text);
+            for (const id of item.ids) send({ type: "ack", id, ...(secret ? { secret } : {}) });
           } catch (error) {
             stopped = true;
             send({ type: "error", id: item.ids[0], message: error.message });
@@ -84,6 +106,7 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
       clearInterval(heartbeat);
       stopWatch?.();
       stopStatuses?.();
+      attachments?.detachAll(viewer);
     });
     ws.on("message", (bytes, binary) => {
       try {
@@ -116,6 +139,66 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
           }).catch(() => {
             if (current === statusGeneration && !stopped) send({ type: "statuses-unavailable" });
           });
+          return;
+        }
+        // `keepSize` and the observe role keep a viewer from resizing the shared
+        // grid; the chat view uses them for a terminal it only keeps warm.
+        if (message.type === "attach") {
+          const id = paneId(message.paneId);
+          if (message.keepSize !== undefined && typeof message.keepSize !== "boolean") throw new Error("Invalid attach");
+          // Each lookup runs herdr a few times: a page opens one pane at a time.
+          if (!attachments) { send({ type: "attach-unavailable", pane_id: id, code: "attach_unsupported" }); return; }
+          if (attaching >= MAX_PENDING_ATTACHES || (!wantedPanes.has(id) && wantedPanes.size >= MAX_ATTACHED_PANES)) {
+            send({ type: "attach-unavailable", pane_id: id, code: "busy" });
+            return;
+          }
+          attaching += 1;
+          wantedPanes.add(id);
+          attachments.attach(viewer, id, { cols: message.cols, rows: message.rows, keepSize: message.keepSize === true })
+            .finally(() => {
+              attaching -= 1;
+              if (!wantedPanes.has(id)) attachments.detach(viewer, id);
+            })
+            .catch(error => {
+              if (stopped) return;
+              if (error instanceof RangeError) { stopped = true; ws.close(1008, "Invalid terminal request"); return; }
+              send({ type: "attach-unavailable", pane_id: id, code: error.code ?? "attach_failed", message: error.message });
+            });
+          return;
+        }
+        if (message.type === "detach") {
+          const id = paneId(message.paneId);
+          wantedPanes.delete(id);
+          attachments?.detach(viewer, id);
+          return;
+        }
+        if (message.type === "pty-input") {
+          if (typeof message.data !== "string" || !message.data || message.data.length > 16_384) throw new Error("Invalid terminal input");
+          const id = paneId(message.paneId);
+          if (!attachments?.input(viewer, id, message.data)) { send({ type: "pty-input-dropped", pane_id: id }); return; }
+          // Enter typed in the terminal is a request too, so its completion is not
+          // missed. Only the pane is noted: what was typed (maybe a password) is not.
+          if (message.data.includes("\r")) onRequest(id, "Enter in the terminal");
+          return;
+        }
+        if (message.type === "resize") { attachments?.resize(viewer, paneId(message.paneId), message.cols, message.rows); return; }
+        if (message.type === "pty-ack") {
+          if (typeof message.streamId !== "string" || !attachments?.acknowledge(viewer, paneId(message.paneId), message.streamId, message.offset)) {
+            throw new Error("Invalid acknowledgement");
+          }
+          return;
+        }
+        if (message.type === "take-over") { attachments?.takeOver(viewer, paneId(message.paneId)); return; }
+        if (message.type === "role") {
+          if (message.mode !== "interact" && message.mode !== "observe") throw new Error("Invalid role");
+          if (attachments) attachments.setMode(viewer, message.mode);
+          else viewer.mode = message.mode;
+          return;
+        }
+        if (message.type === "unwatch") {
+          generation++;
+          stopWatch?.();
+          stopWatch = null;
           return;
         }
         if (message.type === "watch") {

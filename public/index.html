@@ -10,14 +10,15 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>HerdRabbit</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <script src="/theme.js?v=1.2.11"></script>
+    <script src="/theme.js?v=1.2.12"></script>
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/rabbit-outline-32-v33.png" />
     <link rel="icon" type="image/svg+xml" href="/icons/rabbit-outline-v33.svg" />
     <link rel="apple-touch-icon" href="/icons/rabbit-outline-app-180-v35.png" />
     <link rel="stylesheet" href="/ui/ui.css" />
-    <link rel="stylesheet" href="/styles.css?v=1.2.11" />
-    <script src="/vendor/simplewebauthn-browser.js?v=1.2.11"></script>
-    <script type="module" src="/app.js?v=1.2.11"></script>
+    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.12" />
+    <link rel="stylesheet" href="/styles.css?v=1.2.12" />
+    <script src="/vendor/simplewebauthn-browser.js?v=1.2.12"></script>
+    <script type="module" src="/app.js?v=1.2.12"></script>
   </head>
   <body class="auth-pending">
     <main class="shell">
@@ -174,6 +175,11 @@
         <div class="terminal-stage">
           <div id="history-status" class="history-status" role="status" aria-live="polite"></div>
           <pre id="terminal-output" tabindex="0" aria-label="Terminal output">Loading projects…</pre>
+          <div id="terminal-xterm" class="terminal-xterm" hidden></div>
+          <div id="terminal-held" class="terminal-held" role="status" hidden>
+            <span>Another client has this terminal open.</span>
+            <button id="terminal-take-over" type="button">Open here</button>
+          </div>
           <textarea id="terminal-direct-input" class="terminal-direct-input" tabindex="-1"
             aria-label="Type directly in terminal" autocomplete="off" autocapitalize="off"
             autocorrect="off" spellcheck="false" rows="1"></textarea>

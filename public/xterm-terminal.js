@@ -1,0 +1,311 @@
+// The selected pane's terminal, as herdr draws it: the server's `herdr terminal
+// attach` stream written into xterm.js, with typing and size going back to it.
+// Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.12";
+import { findTerminalPaths } from "./terminal-links.js?v=1.2.12";
+
+const RESIZE_DEBOUNCE_MS = 80;
+const MIN_FONT_SIZE = 10;
+const MAX_FONT_SIZE = 18;
+
+// One terminal row as text, with the cell each character starts in: a wide
+// character (Hangul, CJK, emoji) takes two cells but one place in the text.
+function rowText(line, cols) {
+  let text = "";
+  const cells = [];
+  for (let x = 0; x < cols; x += 1) {
+    const cell = line.getCell(x);
+    if (!cell || cell.getWidth() === 0) continue;
+    const chars = cell.getChars() || " ";
+    for (let index = 0; index < chars.length; index += 1) cells.push(x);
+    text += chars;
+  }
+  cells.push(cols);
+  return { text, cells };
+}
+
+// Colors come from the page's own terminal palette, so both views look alike.
+function themeFrom(element) {
+  const style = getComputedStyle(element);
+  const color = (name, fallback) => style.getPropertyValue(name).trim() || fallback;
+  return {
+    background: color("--terminal-bg", "#111"),
+    foreground: color("--terminal-text", "#ddd"),
+    cursor: color("--terminal-text", "#ddd"),
+  };
+}
+
+// `connection` is the page's terminal socket; `onFallback(paneId)` hears that a
+// pane cannot attach, so the page shows its screen text instead.
+export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
+  onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer"),
+  isViewablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {} }) {
+  const { Terminal, FitAddon, WebLinksAddon, UnicodeGraphemesAddon } = xterm;
+  let term = null;
+  let fit = null;
+  let paneId = null;
+  let resizeTimer = null;
+  // Panes this page could not attach, and until when: they keep the
+  // screen-text view. Only a pane that can never attach here stays there.
+  const unavailable = new Map();
+  const RETRY_ATTACH_MS = 5_000;
+  let held = false;
+  let ready = false;
+  // Whether this page sets the pane's size. Another page that is in use sets
+  // it otherwise, and this one shows that grid as it is.
+  let owner = true;
+
+  function create() {
+    term = new Terminal({
+      // herdr owns the scrollback: the stream lives in the alternate screen and
+      // the wheel goes to herdr as mouse reports.
+      scrollback: 0,
+      allowProposedApi: true,
+      convertEol: false,
+      fontSize,
+      fontFamily: getComputedStyle(host).getPropertyValue("--mono").trim() || "monospace",
+      theme: themeFrom(host),
+      macOptionClickForcesSelection: true,
+    });
+    fit = new FitAddon();
+    term.loadAddon(fit);
+    matchHerdrWidths(term, UnicodeGraphemesAddon);
+    term.loadAddon(new WebLinksAddon((event, uri) => { if (/^https?:\/\//iu.test(uri)) onWebLink(uri); }));
+    // A file path the page can show opens in its viewer, as in the screen-text view.
+    term.registerLinkProvider({
+      provideLinks(y, callback) {
+        const line = term.buffer.active.getLine(y - 1);
+        if (!line) { callback(undefined); return; }
+        const { text, cells } = rowText(line, term.cols);
+        const links = findTerminalPaths(text, isViewablePath).map(({ start, end, path }) => ({
+          range: { start: { x: cells[start] + 1, y }, end: { x: cells[end - 1] + 1, y } },
+          text: path,
+          // A drag that selects part of a path is not a click on it.
+          activate: (event) => { if (event.button === 0 && !term.hasSelection()) onPath(path); },
+        }));
+        callback(links.length ? links : undefined);
+      },
+    });
+    term.open(host);
+    // Ctrl+V pastes through the browser (xterm brackets it); Ctrl+C copies a selection.
+    term.attachCustomKeyEventHandler((event) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey) return true;
+      const key = event.key.toLowerCase();
+      if (key === "v") return false;
+      if (key === "c" && term.hasSelection()) {
+        if (event.type === "keydown") {
+          event.preventDefault();
+          void navigator.clipboard?.writeText(term.getSelection()).catch(() => {});
+          term.clearSelection();
+        }
+        return false;
+      }
+      return true;
+    });
+    const type = (data) => {
+      if (!paneId || !ready || held) return;
+      // A socket that dropped has not told this pane yet: say the typing was lost.
+      if (!connection.ptyInput(paneId, data)) {
+        ready = false;
+        setState({ dropped: true });
+      }
+    };
+    term.onData(type);
+    term.onBinary(type);
+    term.onResize(({ cols, rows }) => {
+      // A grid taken from the page that sets the size is not this page's wish.
+      if (!owner) return;
+      clearTimeout(resizeTimer);
+      // The size belongs to the pane shown when it changed, never to the next one.
+      const resized = paneId;
+      resizeTimer = setTimeout(() => { if (resized && resized === paneId) connection.resize(resized, cols, rows); }, RESIZE_DEBOUNCE_MS);
+    });
+    // A finger drag scrolls herdr's history: it becomes the wheel that herdr reads.
+    // Two fingers pinch the font size, kept once they lift.
+    let touchY = null;
+    let pinch = null;
+    const spread = (touches) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+    host.addEventListener("touchstart", (event) => {
+      touchY = event.touches.length === 1 ? event.touches[0].clientY : null;
+      if (event.touches.length === 2 && spread(event.touches) > 0) {
+        pinch = { distance: spread(event.touches), start: term.options.fontSize, size: term.options.fontSize };
+      }
+    }, { capture: true, passive: true });
+    host.addEventListener("touchmove", (event) => {
+      if (pinch && event.touches.length === 2) {
+        event.preventDefault();
+        const size = Math.round(Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, pinch.start * spread(event.touches) / pinch.distance)));
+        if (size !== pinch.size) {
+          pinch.size = size;
+          term.options.fontSize = size;
+          fitNow();
+        }
+        return;
+      }
+      if (touchY === null || event.touches.length !== 1) return;
+      event.preventDefault();
+      const touch = event.touches[0];
+      const delta = touchY - touch.clientY;
+      touchY = touch.clientY;
+      if (delta !== 0) {
+        (term.element ?? host).dispatchEvent(new WheelEvent("wheel", {
+          bubbles: true, cancelable: true, deltaY: delta, clientX: touch.clientX, clientY: touch.clientY,
+        }));
+      }
+    }, { capture: true, passive: false });
+    const endTouch = (event) => {
+      touchY = null;
+      if (pinch && event.touches.length < 2) {
+        if (pinch.size !== pinch.start) onFontSizeChange(pinch.size);
+        pinch = null;
+      }
+    };
+    host.addEventListener("touchend", endTouch, { capture: true, passive: true });
+    host.addEventListener("touchcancel", endTouch, { capture: true, passive: true });
+    new ResizeObserver(() => { if (!host.hidden) fitNow(); }).observe(host);
+  }
+
+  // The size this page's frame would hold.
+  function wantedSize() {
+    const proposed = fit.proposeDimensions();
+    return proposed && proposed.cols > 0 && proposed.rows > 0
+      ? { cols: proposed.cols, rows: proposed.rows }
+      : { cols: term.cols, rows: term.rows };
+  }
+
+  function fitNow() {
+    if (!term || host.hidden || host.clientWidth === 0 || host.clientHeight === 0) return;
+    if (owner) { fit.fit(); return; }
+    // Not this page's grid to change: it only says what it would want, for
+    // when it takes the size over by typing.
+    const { cols, rows } = wantedSize();
+    clearTimeout(resizeTimer);
+    const resized = paneId;
+    resizeTimer = setTimeout(() => { if (resized && resized === paneId) connection.resize(resized, cols, rows); }, RESIZE_DEBOUNCE_MS);
+  }
+
+  function setState(next) {
+    onStateChange({ paneId, held, ready, ...next });
+  }
+
+  connection.onAttach((message) => {
+    if (message.pane_id !== paneId) return;
+    switch (message.type) {
+      case "pty-data": {
+        const stream = generation;
+        term.write(message.data, () => {
+          // Drawn after the page moved on to another pane or socket: that credit is not owed.
+          if (message.flow && stream === generation) connection.acknowledge(message.pane_id, message.flow.stream_id, message.flow.offset);
+        });
+        break;
+      }
+      case "input-ready":
+        ready = message.ready !== false;
+        setState({});
+        break;
+      case "attach-held":
+        held = true;
+        setState({});
+        break;
+      case "attach-resumed":
+        held = false;
+        setState({});
+        break;
+      case "pane-geometry":
+        owner = message.owner !== false;
+        host.classList.toggle("is-adopted", !owner);
+        if (owner) fitNow();
+        else if (term.cols !== message.cols || term.rows !== message.rows) term.resize(message.cols, message.rows);
+        break;
+      case "attach-unavailable":
+      case "attach-error":
+        fallBack(message.code === "attach_unsupported" ? Infinity : Date.now() + RETRY_ATTACH_MS);
+        break;
+      // Typing that arrived while the attach was not ready never reached the pane.
+      case "pty-input-dropped":
+        setState({ dropped: true });
+        break;
+      // herdr ended the attach: the screen text shows the pane meanwhile.
+      case "pty-exit":
+        fallBack(Date.now() + RETRY_ATTACH_MS);
+        break;
+      default:
+        break;
+    }
+  });
+  // A new socket has none of this page's attachments: ask again with a clean screen.
+  connection.onReconnect(() => {
+    if (!paneId) return;
+    ready = false;
+    held = false;
+    clearScreen();
+    attachCurrent();
+  });
+
+  // Each pane shown, and each socket, is a new stream. xterm writes in order,
+  // so a full reset (RIS) queued behind writes still in flight clears what
+  // they draw too, and the new stream starts on a clean screen.
+  let generation = 0;
+  function clearScreen() {
+    generation += 1;
+    term?.write("\x1bc");
+  }
+
+  function attachCurrent() {
+    const size = wantedSize();
+    if (owner) fit.fit();
+    connection.attach(paneId, size);
+  }
+
+  // A pane that failed for now is tried again once its wait is over, even if
+  // nothing else on the page asks for it.
+  let retryTimer = null;
+  function fallBack(until) {
+    const failed = paneId;
+    unavailable.set(failed, until);
+    stop();
+    onFallback(failed);
+    clearTimeout(retryTimer);
+    if (Number.isFinite(until)) retryTimer = setTimeout(() => onRetry(failed), Math.max(0, until - Date.now()) + 50);
+  }
+
+  function stop() {
+    clearTimeout(resizeTimer);
+    if (paneId) connection.detach(paneId);
+    paneId = null;
+    ready = false;
+    held = false;
+    host.hidden = true;
+  }
+
+  return {
+    // Shows `nextPaneId` here; false when it keeps the screen-text view.
+    show(nextPaneId) {
+      if (!nextPaneId || (unavailable.get(nextPaneId) ?? 0) > Date.now()) {
+        if (paneId) stop();
+        return false;
+      }
+      // Back from the background, the socket was closed: connect it again.
+      if (nextPaneId === paneId) { connection.resume(); return true; }
+      if (!term) create();
+      clearTimeout(resizeTimer);
+      if (paneId) connection.detach(paneId);
+      paneId = nextPaneId;
+      ready = false;
+      held = false;
+      owner = true;
+      host.classList.remove("is-adopted");
+      host.hidden = false;
+      clearScreen();
+      setState({});
+      attachCurrent();
+      return true;
+    },
+    takeOver() { if (paneId && held) connection.takeOver(paneId); },
+    setFontSize(size) {
+      if (!term) return;
+      term.options.fontSize = size;
+      fitNow();
+    },
+  };
+}

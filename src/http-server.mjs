@@ -26,6 +26,7 @@ import { validateTransferName } from "./file-store.mjs";
 import { FileAccessError, fileAccessError, listDirectory, openFile, validateBrowsePath, directoryFingerprint } from "./file-browser.mjs";
 import { MAX_TEXT_PREVIEW_BYTES, inlineTypeFor, isMarkdown } from "../public/file-preview.js";
 import { renderMarkdown } from "./markdown.mjs";
+import { secretPrompt } from "./secret-prompt.mjs";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
 const SIMPLEWEBAUTHN_BROWSER_BUNDLE = fileURLToPath(new URL(
@@ -46,6 +47,10 @@ const STATIC_FILES = new Map([
   ["/terminal-links.js", { path: `${PUBLIC_DIR}/terminal-links.js`, type: "text/javascript; charset=utf-8" }],
   ["/direct-terminal-input.js", { path: `${PUBLIC_DIR}/direct-terminal-input.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-connection.js", { path: `${PUBLIC_DIR}/terminal-connection.js`, type: "text/javascript; charset=utf-8" }],
+  ["/xterm-terminal.js", { path: `${PUBLIC_DIR}/xterm-terminal.js`, type: "text/javascript; charset=utf-8" }],
+  ["/terminal-widths.js", { path: `${PUBLIC_DIR}/terminal-widths.js`, type: "text/javascript; charset=utf-8" }],
+  ["/vendor/xterm.mjs", { path: `${PUBLIC_DIR}/vendor/xterm.mjs`, type: "text/javascript; charset=utf-8" }],
+  ["/vendor/xterm.css", { path: `${PUBLIC_DIR}/vendor/xterm.css`, type: "text/css; charset=utf-8" }],
   ["/key-combinations.js", { path: `${PUBLIC_DIR}/key-combinations.js`, type: "text/javascript; charset=utf-8" }],
   ["/file-preview.js", { path: `${PUBLIC_DIR}/file-preview.js`, type: "text/javascript; charset=utf-8" }],
   ["/ui-model.js", { path: `${PUBLIC_DIR}/ui-model.js`, type: "text/javascript; charset=utf-8" }],
@@ -101,11 +106,14 @@ const FRAMED_TYPES = new Map([
 ]);
 
 
+const CONTENT_SECURITY_POLICY = "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'";
+// The app page alone may add inline styles: xterm's renderer creates <style>
+// elements of its own, with no way to give them a nonce. Scripts, fonts,
+// images and connections stay with this origin there too.
+const APP_PAGE_CONTENT_SECURITY_POLICY = CONTENT_SECURITY_POLICY.replace("style-src 'self'", "style-src 'self' 'unsafe-inline'");
+
 function applySecurityHeaders(response) {
-  response.setHeader(
-    "Content-Security-Policy",
-    "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'",
-  );
+  response.setHeader("Content-Security-Policy", CONTENT_SECURITY_POLICY);
   response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   response.setHeader("Referrer-Policy", "no-referrer");
@@ -505,6 +513,7 @@ async function serveStatic(response, pathname, method) {
 
   const body = await readFile(entry.path);
   response.statusCode = 200;
+  if (pathname === "/") response.setHeader("Content-Security-Policy", APP_PAGE_CONTENT_SECURITY_POLICY);
   response.setHeader("Content-Type", entry.type);
   response.setHeader("Cache-Control", pathname === "/sw.js" ? "no-cache" : "no-cache, private");
   response.setHeader("Content-Length", body.length);
@@ -526,6 +535,7 @@ export function createHerdrHttpServer({
   discover = null,
   announcements = null,
   aiAccounts = null,
+  attachments = null,
   csrfToken = randomBytes(32).toString("base64url"),
   maxBodyBytes = 16 * 1024,
   maxTransferBytes = 50 * 1024 * 1024,
@@ -536,6 +546,17 @@ export function createHerdrHttpServer({
 } = {}) {
   if (!herdr) {
     throw new TypeError("herdr client is required");
+  }
+
+  // A message sent while the pane asks for a password is that password: the
+  // page keeps it out of its input history, and no request is recorded. A
+  // screen that cannot be read might be asking, so it is treated as asking.
+  async function asksForSecret(paneId) {
+    try {
+      return secretPrompt(await herdr.readPane(paneId, { lines: 4, format: "text" })) !== null;
+    } catch {
+      return true;
+    }
   }
 
   // One password check at a time: a burst sent while unlocked would otherwise
@@ -1194,13 +1215,14 @@ export function createHerdrHttpServer({
         requireWriteAuthorization(request, csrfToken);
         const body = await readJsonBody(request, maxBodyBytes);
         const paneId = decodePaneId(textMatch[1]);
+        const secret = body.submit === true && await asksForSecret(paneId);
         await herdr.sendText(paneId, body.text, {
           submit: body.submit === true,
         });
-        if (body.submit === true) {
+        if (body.submit === true && !secret) {
           notificationMonitor?.recordRequest(paneId, body.text);
         }
-        sendJson(response, 200, { ok: true });
+        sendJson(response, 200, { ok: true, ...(secret ? { secret } : {}) });
         return;
       }
 
@@ -1326,12 +1348,19 @@ export function createHerdrHttpServer({
           !auth.hasValidLaunchToken(credentials.launchToken))) throw new Error("Authentication required");
     },
     async sendInput(message) {
+      let secret = false;
       if (message.keys) await herdr.sendKeys(message.paneId, validation.validateKeys(message.keys));
-      else await herdr.sendText(message.paneId, validation.validateText(message.text), { submit: message.submit === true });
+      else {
+        const text = validation.validateText(message.text);
+        if (message.submit === true) secret = await asksForSecret(message.paneId);
+        await herdr.sendText(message.paneId, text, { submit: message.submit === true });
+      }
       outputWatcher.input(message.paneId);
+      return { secret };
     },
     watchOutput: (...args) => outputWatcher.watch(...args),
     watchStatuses: typeof herdr.watchStatuses === "function" ? (...args) => herdr.watchStatuses(...args) : undefined,
+    attachments,
     onRequest: (paneId, text) => notificationMonitor?.recordRequest(paneId, text),
   });
 
