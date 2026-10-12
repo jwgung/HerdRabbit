@@ -34,6 +34,12 @@ export class MultiServerClient {
     machines = null,
   }) {
     this.machines = machines;
+    // A machine whose connection just came up or went down is asked again at
+    // once, not at its next poll.
+    machines?.onLinkChange?.((serverId) => {
+      const entry = this.entries.get(serverId);
+      if (entry && !this.stopped) void this.refresh(entry);
+    });
     this.local = local;
     this.machineName = machineName;
     this.herdrVersion = herdrVersion;

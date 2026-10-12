@@ -18,6 +18,7 @@ const RECONNECT_MS = [2_000, 5_000, 15_000, 30_000, 60_000];
 const TARGET_PATTERN = /^(?!-)[A-Za-z0-9._+-]+(?:@(?!-)[A-Za-z0-9._-]+)?$/u;
 const LABEL_PATTERN = /^[^\u0000-\u001f\u007f]{1,60}$/u;
 export const MACHINE_SERVER_PREFIX = "machine-";
+const serverIdOf = (machine) => `${MACHINE_SERVER_PREFIX}${machine.id.slice(0, 12)}`;
 
 export function validMachineTarget(value) {
   return typeof value === "string" && value.length <= 200 && TARGET_PATTERN.test(value);
@@ -320,6 +321,13 @@ export class HerdrMachines {
     this.clients = new Map();
     // One `herdr machine` change at a time, and the one running can be cut short.
     this.changing = null;
+    this.stopped = false;
+    // Told the server id of a machine whose connection came up or went down.
+    this.linkListeners = new Set();
+  }
+
+  onLinkChange(listener) {
+    this.linkListeners.add(listener);
   }
 
   async start() {
@@ -350,12 +358,24 @@ export class HerdrMachines {
   }
 
   async #refreshOnce() {
+    let machines;
     try {
-      this.machines = await this.read({ binary: this.binary });
+      machines = await this.read({ binary: this.binary });
     } catch (error) {
       this.log(`herdr machine list failed: ${error.message}`);
       return;
     }
+    // Stopping while the list was being read: nothing new may start now.
+    if (this.stopped) return;
+    // Server ids use the first 12 hex digits; two machines sharing them could
+    // not be told apart, so neither is offered.
+    const prefixes = new Map();
+    for (const machine of machines) prefixes.set(serverIdOf(machine), (prefixes.get(serverIdOf(machine)) ?? 0) + 1);
+    this.machines = machines.filter((machine) => {
+      if (prefixes.get(serverIdOf(machine)) === 1) return true;
+      this.log(`herdr machines ${machine.id} and another share the id prefix ${serverIdOf(machine)}; neither is shown`);
+      return false;
+    });
     const wanted = new Set(this.machines.filter((machine) => machine.enabled).map((machine) => machine.id));
     for (const [id, link] of this.links) {
       const machine = this.machines.find((item) => item.id === id);
@@ -369,7 +389,10 @@ export class HerdrMachines {
     }
     for (const machine of this.machines) {
       if (!wanted.has(machine.id) || this.links.has(machine.id)) continue;
-      const link = this.createLink(machine, { directory: this.directory, log: this.log });
+      const link = this.createLink(machine, {
+        directory: this.directory, log: this.log,
+        onChange: () => { for (const listener of this.linkListeners) listener(serverIdOf(machine)); },
+      });
       this.links.set(machine.id, link);
       link.start();
     }
@@ -379,7 +402,7 @@ export class HerdrMachines {
   // listed, so it can be turned on again from here.
   profiles() {
     return this.machines.map((machine) => ({
-      id: `${MACHINE_SERVER_PREFIX}${machine.id.slice(0, 12)}`,
+      id: serverIdOf(machine),
       name: machine.label,
       transport: "machine",
       machineId: machine.id,
@@ -441,8 +464,12 @@ export class HerdrMachines {
   }
 
   async stop() {
+    this.stopped = true;
     clearInterval(this.timer);
     this.changing?.abort();
+    // A refresh still reading the list finishes first, so it cannot start a
+    // connection after the ones here are closed.
+    await this.refreshing?.catch(() => {});
     await Promise.all([...this.links.values()].map((link) => link.stop()));
     this.links.clear();
     await rm(this.directory, { recursive: true, force: true }).catch(() => {});

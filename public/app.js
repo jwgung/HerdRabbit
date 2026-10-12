@@ -2774,6 +2774,12 @@ function choosePane() {
       snapshotRecords().servers.some((server) => server.id === awaited.split("!")[0])) {
     if (Date.now() - awaitedSince < PENDING_REMOTE_PANE_MS) return;
     if (awaited === pendingNotificationPaneId) pendingNotificationPaneId = null;
+    // Given up on: a reload must not wait for it all over again.
+    const currentUrl = new URL(window.location.href);
+    if (currentUrl.searchParams.get("pane") === awaited) {
+      currentUrl.searchParams.delete("pane");
+      window.history.replaceState(null, "", currentUrl);
+    }
   }
   const preferredServerId = state.selectedPaneId?.split("!")[0];
   if (state.selectedPaneId?.includes("!") &&

@@ -173,11 +173,12 @@ server.listen(config.port, config.host, () => {
   );
 });
 
-function shutdown() {
+async function shutdown() {
   herdr.stopped = true;
   notificationMonitor.stop();
   attachments?.close();
-  void machines?.stop();
+  // The machines' SSH connections close before the server stops listening.
+  await machines?.stop().catch((error) => console.error("Closing Herdr machines failed:", error.message));
   server.close((error) => {
     if (error) {
       console.error("Shutdown failed:", error.message);

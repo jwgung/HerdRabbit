@@ -259,3 +259,56 @@ test("a forward that fails keeps its reason when the connection closes, and trie
   assert.ok(link.retryTimer, "another try is scheduled");
   await link.stop();
 });
+
+test("stopping while the list is being read starts no connection afterwards", async () => {
+  let answer;
+  const created = [];
+  const machines = new HerdrMachines({
+    directory: "/run/x", createBridge: () => ({}),
+    createLink: (machine) => { created.push(machine.id); return { machine, start() {}, async stop() {} }; },
+    read: () => new Promise((resolve) => { answer = resolve; }),
+  });
+  const refreshing = machines.refresh();
+  const stopping = machines.stop();
+  answer([{ id: ID, label: "lab", target: "me@lab", session: "default", enabled: true }]);
+  await Promise.all([refreshing, stopping]);
+  assert.deepEqual(created, []);
+});
+
+test("two machines that share an id prefix are not offered", async () => {
+  const logs = [];
+  const machines = new HerdrMachines({
+    directory: "/run/x", createBridge: () => ({}), log: (message) => logs.push(message),
+    createLink: (machine) => ({ machine, start() {}, async stop() {} }),
+    read: async () => [
+      { id: `${ID.slice(0, 12)}${"0".repeat(20)}`, label: "a", target: "a", session: "default", enabled: true },
+      { id: `${ID.slice(0, 12)}${"1".repeat(20)}`, label: "b", target: "b", session: "default", enabled: true },
+      { id: OTHER, label: "c", target: "c", session: "default", enabled: true },
+    ],
+  });
+  await machines.refresh();
+  assert.deepEqual(machines.profiles().map((profile) => profile.name), ["c"]);
+  assert.equal(machines.links.size, 1);
+  assert.equal(logs.length, 2);
+});
+
+test("a machine whose connection comes up is asked again at once", async () => {
+  let onChange;
+  const machines = new HerdrMachines({
+    directory: "/run/x",
+    createLink: (machine, options) => { onChange = options.onChange; return { machine, state: "connecting", error: null, start() {}, async stop() {} }; },
+    read: async () => [{ id: ID, label: "lab", target: "me@lab", session: "default", enabled: true }],
+    createBridge: () => ({ snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], agents: [], panes: [{ pane_id: "hs_x~w1:p1" }] }) }),
+  });
+  await machines.refresh();
+  const local = { snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) };
+  const herdr = new MultiServerClient({ local, profiles: { list: () => [] }, machines });
+  herdr.syncEntries();
+  const entry = herdr.entries.get("machine-4c139ff50dfb");
+  await herdr.refresh(entry);
+  assert.equal(entry.available, false, "still connecting");
+  machines.links.get(ID).state = "ready";
+  onChange();
+  await entry.pending;
+  assert.equal(entry.available, true, "available without waiting for the next poll");
+});
