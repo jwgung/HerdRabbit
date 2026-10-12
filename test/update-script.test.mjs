@@ -61,9 +61,9 @@ test("updater locates its installation and verifies before restarting without re
   assert.ok(commands.indexOf("npm run verify") < commands.indexOf("systemctl --user restart"));
   assert.ok(commands.indexOf("node scripts/configure-claude.mjs") > commands.indexOf("npm run verify"));
   assert.ok(commands.indexOf("node scripts/configure-claude.mjs") < commands.indexOf("systemctl --user restart"));
-  assert.ok(commands.indexOf("herdr update --handoff") > commands.indexOf("npm run verify"));
+  assert.ok(commands.indexOf("herdr update --handoff") < commands.indexOf("git merge --ff-only"), "Herdr before any file changes");
   assert.ok(commands.indexOf("node scripts/check-herdr-version.mjs") > commands.indexOf("herdr update --handoff"));
-  assert.ok(commands.indexOf("node scripts/check-herdr-version.mjs") < commands.indexOf("systemctl --user restart"));
+  assert.ok(commands.indexOf("node scripts/check-herdr-version.mjs") < commands.indexOf("git merge --ff-only"));
   assert.match(commands, /git merge --ff-only FETCH_HEAD/);
   assert.doesNotMatch(commands, /install-service|tailscale|reset --hard/);
 });
@@ -88,5 +88,6 @@ for (const mode of ["branch", "dirty", "wrong-service", "diverged", "fetch-faile
     assert.notEqual(result.code, undefined);
     assert.doesNotMatch(commands, /systemctl --user restart/);
     if (["branch", "dirty", "wrong-service"].includes(mode)) assert.doesNotMatch(commands, /git fetch/);
+    if (mode === "herdr-too-old") assert.doesNotMatch(commands, /git merge --ff-only|npm ci/, "a Herdr too old changes no file");
   });
 }

@@ -51,17 +51,21 @@ main() {
     log "Fetching main in $UPDATE_DIRECTORY"
     git fetch origin main
     git merge-base --is-ancestor HEAD FETCH_HEAD || fail "local main has unpublished or divergent commits; reconcile it manually"
+    # Herdr comes first, checked against the minimum the incoming code names,
+    # so a Herdr too old for it stops the update before any file changes.
+    # --handoff moves running panes onto the new Herdr instead of stopping them.
+    # A failed download leaves the installed Herdr in place; the version check
+    # decides whether that one is still new enough.
+    log "Updating Herdr"
+    "$HERDR_BIN" update --handoff || log "Warning: Herdr could not be updated; keeping the installed version"
+    HERDR_MIN_VERSION="$(git show FETCH_HEAD:src/herdr-version.mjs 2>/dev/null | sed -n 's/^export const MIN_HERDR_VERSION = "\(.*\)";$/\1/p')"
+    export HERDR_MIN_VERSION
+    node scripts/check-herdr-version.mjs || fail "Herdr is missing or too old for the new HerdRabbit; update it and run this script again"
     git merge --ff-only FETCH_HEAD
     log "Installing runtime dependencies"
     npm ci --omit=dev
     log "Verifying the updated code"
     npm run verify
-    # --handoff moves running panes onto the new Herdr instead of stopping them.
-    # A failed download leaves the installed Herdr in place; the version check
-    # below decides whether that one is still new enough.
-    log "Updating Herdr"
-    "$HERDR_BIN" update --handoff || log "Warning: Herdr could not be updated; keeping the installed version"
-    node scripts/check-herdr-version.mjs || fail "Herdr is too old for this HerdRabbit; update it and run this script again"
     log "Configuring Claude to use native terminal scrollback"
     node scripts/configure-claude.mjs
     log "Restarting $UPDATE_SERVICE"
