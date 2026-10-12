@@ -185,6 +185,18 @@ test("a machine without Node.js 22 or newer shows why and refuses every change",
   await assert.rejects(missing.accounts.saveCurrent("claude"), { code: "machine_node_missing" });
   assert.equal(existsSync(missing.store), false, "nothing was written there");
 
+  // An old one first on the PATH does not hide a newer one after it.
+  const later = join(bin, "later");
+  await mkdir(later);
+  await symlink(process.execPath, join(later, "node"));
+  const shadowed = new MachineAiAccounts({
+    link: fakeLink, systemNodeDirs: [join(bin, "system")],
+    spawnProcess: fakeSsh(missing.home, { path: `${bin}:${later}` }).spawnProcess,
+  });
+  assert.equal((await shadowed.saveCurrent("claude")).account.email, "a@example.com");
+  await rm(later, { recursive: true });
+  await rm(missing.store, { recursive: true, force: true });
+
   // A Node that nvm keeps under the home folder is found without the PATH.
   const nvm = join(missing.home, ".nvm", "versions", "node", "v99.0.0", "bin");
   await mkdir(nvm, { recursive: true });

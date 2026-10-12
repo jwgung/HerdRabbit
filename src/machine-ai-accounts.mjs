@@ -38,8 +38,14 @@ const SYSTEM_NODE_DIRS = ["/usr/local/bin", "/opt/homebrew/bin"];
 const launchScript = (systemDirs) => `PATH="$HOME/.local/bin:$HOME/.volta/bin:${systemDirs.map((dir) => `${dir}:`).join("")}$PATH"; export PATH
 fits() { m=$("$1" -p 'process.versions.node.split(".")[0]' </dev/null 2>/dev/null) && [ "$m" -ge ${MIN_NODE_MAJOR} ] 2>/dev/null; }
 n=
-if command -v node >/dev/null 2>&1 && fits node; then n=node
-else
+# Every node on the PATH in order, not just the first: an old one early on
+# must not hide a newer one further along.
+o=$IFS; IFS=:
+for d in $PATH; do
+  if [ -n "$d" ] && [ -x "$d/node" ] && fits "$d/node"; then n=$d/node; break; fi
+done
+IFS=$o
+if [ -z "$n" ]; then
   for c in "$HOME"/.nvm/versions/node/*/bin/node "$HOME"/.local/share/fnm/node-versions/*/installation/bin/node; do
     if [ -x "$c" ] && fits "$c"; then n=$c; break; fi
   done
