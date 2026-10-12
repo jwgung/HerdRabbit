@@ -1,7 +1,7 @@
 // Ported from herdr-web-ui (MIT).
 import test from "node:test";
 import { expect } from "./fixtures/expect.mjs";
-import { secretPrompt, validSecret } from "../src/secret-prompt.mjs";
+import { secretPrompt } from "../src/secret-prompt.mjs";
 
 test("recognizes only a short secret request on the last nonempty line", () => {
   for (const prompt of ["[sudo] password for alice:", "alice@server's password:", "Password:", "Password for alice:", "Enter passphrase:", "Enter passphrase for key '/tmp/key':", "Enter PIN:", "Enter PIN for token:", "Repeat password:", "Verify password:", "Confirm password:"]) {
@@ -12,10 +12,6 @@ test("recognizes only a short secret request on the last nonempty line", () => {
   }
 });
 
-test("rejects multiline and terminal-control secrets while preserving spaces and Unicode", () => {
-  expect(validSecret("  한글🔒  ")).toBe(true);
-  for (const value of [null, "", "x".repeat(4097), "one\ntwo", "one\rtwo", "\u001b[200~", "\u0003", "\u007f", "\u009b"]) expect(validSecret(value)).toBe(false);
-});
 
 test("joins only right-edge continuations of a narrow prompt", () => {
   expect(secretPrompt("Enter passphrase for key '/tmp/my private key for testing\n':\n", 57)).toBe("Enter passphrase for key '/tmp/my private key for testing':");

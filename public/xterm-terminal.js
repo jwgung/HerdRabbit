@@ -2,8 +2,27 @@
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
 import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.12";
+import { findTerminalPaths } from "./terminal-links.js?v=1.2.12";
 
 const RESIZE_DEBOUNCE_MS = 80;
+const MIN_FONT_SIZE = 10;
+const MAX_FONT_SIZE = 18;
+
+// One terminal row as text, with the cell each character starts in: a wide
+// character (Hangul, CJK, emoji) takes two cells but one place in the text.
+function rowText(line, cols) {
+  let text = "";
+  const cells = [];
+  for (let x = 0; x < cols; x += 1) {
+    const cell = line.getCell(x);
+    if (!cell || cell.getWidth() === 0) continue;
+    const chars = cell.getChars() || " ";
+    for (let index = 0; index < chars.length; index += 1) cells.push(x);
+    text += chars;
+  }
+  cells.push(cols);
+  return { text, cells };
+}
 
 // Colors come from the page's own terminal palette, so both views look alike.
 function themeFrom(element) {
@@ -18,7 +37,9 @@ function themeFrom(element) {
 
 // `connection` is the page's terminal socket; `onFallback(paneId)` hears that a
 // pane cannot attach, so the page shows its screen text instead.
-export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {}, onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer") }) {
+export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
+  onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer"),
+  isViewablePath = () => false, onPath = () => {}, onFontSizeChange = () => {} }) {
   const { Terminal, FitAddon, WebLinksAddon, UnicodeGraphemesAddon } = xterm;
   let term = null;
   let fit = null;
@@ -45,6 +66,21 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     term.loadAddon(fit);
     matchHerdrWidths(term, UnicodeGraphemesAddon);
     term.loadAddon(new WebLinksAddon((event, uri) => { if (/^https?:\/\//iu.test(uri)) onWebLink(uri); }));
+    // A file path the page can show opens in its viewer, as in the screen-text view.
+    term.registerLinkProvider({
+      provideLinks(y, callback) {
+        const line = term.buffer.active.getLine(y - 1);
+        if (!line) { callback(undefined); return; }
+        const { text, cells } = rowText(line, term.cols);
+        const links = findTerminalPaths(text, isViewablePath).map(({ start, end, path }) => ({
+          range: { start: { x: cells[start] + 1, y }, end: { x: cells[end - 1] + 1, y } },
+          text: path,
+          // A drag that selects part of a path is not a click on it.
+          activate: (event) => { if (event.button === 0 && !term.hasSelection()) onPath(path); },
+        }));
+        callback(links.length ? links : undefined);
+      },
+    });
     term.open(host);
     // Ctrl+V pastes through the browser (xterm brackets it); Ctrl+C copies a selection.
     term.attachCustomKeyEventHandler((event) => {
@@ -68,11 +104,27 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       resizeTimer = setTimeout(() => { if (paneId) connection.resize(paneId, cols, rows); }, RESIZE_DEBOUNCE_MS);
     });
     // A finger drag scrolls herdr's history: it becomes the wheel that herdr reads.
+    // Two fingers pinch the font size, kept once they lift.
     let touchY = null;
+    let pinch = null;
+    const spread = (touches) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
     host.addEventListener("touchstart", (event) => {
       touchY = event.touches.length === 1 ? event.touches[0].clientY : null;
+      if (event.touches.length === 2 && spread(event.touches) > 0) {
+        pinch = { distance: spread(event.touches), start: term.options.fontSize, size: term.options.fontSize };
+      }
     }, { capture: true, passive: true });
     host.addEventListener("touchmove", (event) => {
+      if (pinch && event.touches.length === 2) {
+        event.preventDefault();
+        const size = Math.round(Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, pinch.start * spread(event.touches) / pinch.distance)));
+        if (size !== pinch.size) {
+          pinch.size = size;
+          term.options.fontSize = size;
+          fitNow();
+        }
+        return;
+      }
       if (touchY === null || event.touches.length !== 1) return;
       event.preventDefault();
       const touch = event.touches[0];
@@ -84,7 +136,15 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         }));
       }
     }, { capture: true, passive: false });
-    host.addEventListener("touchend", () => { touchY = null; }, { capture: true, passive: true });
+    const endTouch = (event) => {
+      touchY = null;
+      if (pinch && event.touches.length < 2) {
+        if (pinch.size !== pinch.start) onFontSizeChange(pinch.size);
+        pinch = null;
+      }
+    };
+    host.addEventListener("touchend", endTouch, { capture: true, passive: true });
+    host.addEventListener("touchcancel", endTouch, { capture: true, passive: true });
     new ResizeObserver(() => { if (!host.hidden) fitNow(); }).observe(host);
   }
 

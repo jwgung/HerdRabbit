@@ -112,6 +112,11 @@ function findUrls(text) {
   return nonOverlapping;
 }
 
+// Viewable paths in one terminal line, as [start, end) string offsets.
+export function findTerminalPaths(text, isViewable) {
+  return pathLinks(text, isViewable);
+}
+
 function pathLinks(text, isViewable) {
   const links = [];
   for (const match of text.matchAll(PATH_PATTERN)) {

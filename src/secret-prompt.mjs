@@ -16,8 +16,3 @@ export function secretPrompt(screen, columns = Infinity) {
     line = (previous.padEnd(columns) + line).trimStart();
   }
 }
-
-// A secret is one line of literal keystrokes; never terminal controls.
-export function validSecret(value) {
-  return typeof value === "string" && value.length > 0 && value.length <= 4096 && !/[\x00-\x1f\x7f-\x9f]/u.test(value);
-}

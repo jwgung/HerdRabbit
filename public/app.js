@@ -792,7 +792,10 @@ async function togglePushNotifications() {
 }
 
 function adjustTerminalFont(direction) {
-  const nextSize = adjustedTerminalFontSize(state.terminalFontSize, direction);
+  applyTerminalFontSize(adjustedTerminalFontSize(state.terminalFontSize, direction));
+}
+
+function applyTerminalFontSize(nextSize) {
   state.terminalFontSize = nextSize;
   document.documentElement.style.setProperty(
     "--terminal-font-size",
@@ -2573,16 +2576,20 @@ function isViewableTerminalPath(raw) {
   return previewFor(raw.split("/").pop()) !== null && resolveTerminalPath(raw) !== null;
 }
 
+function openTerminalPath(raw) {
+  const resolved = resolveTerminalPath(raw);
+  if (!resolved) return;
+  const name = resolved.split("/").pop();
+  void viewFile(resolved, name, paneServerId(state.selectedPaneId) || "local");
+}
+
 function terminalPathLink(raw) {
   const link = createElement("a", { className: "terminal-link terminal-path" });
   link.href = "#";
   link.title = `View ${raw}`;
   link.addEventListener("click", (event) => {
     event.preventDefault();
-    const resolved = resolveTerminalPath(raw);
-    if (!resolved) return;
-    const name = resolved.split("/").pop();
-    void viewFile(resolved, name, paneServerId(state.selectedPaneId) || "local");
+    openTerminalPath(raw);
   });
   return link;
 }
@@ -3070,6 +3077,9 @@ const attachedTerminal = createAttachedTerminal({
   onStateChange: ({ paneId, held }) => {
     if (paneId === state.selectedPaneId) elements.terminalHeld.hidden = !held;
   },
+  isViewablePath: isViewableTerminalPath,
+  onPath: openTerminalPath,
+  onFontSizeChange: applyTerminalFontSize,
 });
 
 function showAttachedView(attached) {
