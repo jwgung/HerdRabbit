@@ -38,7 +38,7 @@ export class MultiServerClient {
     // once, not at its next poll.
     machines?.onLinkChange?.((serverId) => {
       const entry = this.entries.get(serverId);
-      if (entry && !this.stopped) void this.refresh(entry);
+      if (entry && !this.stopped) void this.refresh(entry, { again: true });
     });
     this.local = local;
     this.machineName = machineName;
@@ -85,8 +85,13 @@ export class MultiServerClient {
     }
   }
 
-  async refresh(entry) {
-    if (entry.pending) return entry.pending;
+  // `again`: what changed may come after the answer a running request will
+  // give, so that request is followed by one more.
+  async refresh(entry, { again = false } = {}) {
+    if (entry.pending) {
+      if (again) entry.again = true;
+      return entry.pending;
+    }
     entry.pending = Promise.resolve().then(async () => {
       try {
         if (entry.profile.enabled === false) throw Object.assign(new Error("Turned off"), { code: "machine_off" });
@@ -101,6 +106,10 @@ export class MultiServerClient {
       } finally {
         entry.lastPoll = Date.now();
         entry.pending = null;
+        if (entry.again && !this.stopped) {
+          entry.again = false;
+          void this.refresh(entry);
+        }
       }
     });
     return entry.pending;

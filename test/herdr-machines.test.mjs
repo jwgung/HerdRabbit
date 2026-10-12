@@ -413,3 +413,33 @@ test("only a machine still connecting is reported as connecting", async () => {
   await herdr.refresh(herdr.entries.get("machine-4c139ff50dfb"));
   assert.equal((await connecting())["machine-4c139ff50dfb"], false, "connected");
 });
+
+test("a connection change while the machine is being asked is followed by one more request", async () => {
+  let onChange;
+  let failFirst;
+  let calls = 0;
+  const empty = { herdr_sessions: [], workspaces: [], tabs: [], panes: [{ pane_id: "hs_x~w1:p1" }], agents: [] };
+  const machines = new HerdrMachines({
+    directory: "/run/x",
+    createLink: (machine, options) => { onChange = options.onChange; return { machine, state: "ready", error: null, start() {}, async stop() {} }; },
+    read: async () => [{ id: ID, label: "lab", target: "me@lab", session: "default", enabled: true }],
+    // The first request is still out when the connection changes, and then fails.
+    createBridge: () => ({
+      snapshot: () => (++calls === 1 ? new Promise((resolve, reject) => { failFirst = reject; }) : Promise.resolve(empty)),
+    }),
+  });
+  await machines.refresh();
+  const local = { snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) };
+  const herdr = new MultiServerClient({ local, profiles: { list: () => [] }, machines });
+  herdr.syncEntries();
+  const entry = herdr.entries.get("machine-4c139ff50dfb");
+  const first = herdr.refresh(entry);
+  while (!failFirst) await new Promise((resolve) => setImmediate(resolve));
+  onChange();
+  failFirst(new Error("the old connection dropped"));
+  await first;
+  assert.equal(entry.available, false, "the request that was out failed");
+  await entry.pending;
+  assert.equal(calls, 2, "asked once more after it");
+  assert.equal(entry.available, true);
+});
