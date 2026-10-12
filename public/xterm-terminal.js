@@ -1,8 +1,8 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.12";
-import { findTerminalPaths } from "./terminal-links.js?v=1.2.12";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.13";
+import { findTerminalPaths } from "./terminal-links.js?v=1.2.13";
 
 const RESIZE_DEBOUNCE_MS = 80;
 const MIN_FONT_SIZE = 10;
