@@ -23,7 +23,12 @@ class Terminal {
     this.listeners = { data: [], resize: [] };
     this.buffer = { active: { viewportY: 0, baseY: 0 } };
     // The private hook the page overrides, as xterm 5.5 has it.
-    this._core = { _selectionService: { shouldForceSelection: (event) => event.shiftKey } };
+    const coreService = { inputs: [], triggerDataEvent(data, wasUserInput) { this.inputs.push([data, wasUserInput]); } };
+    this._core = {
+      _selectionService: { shouldForceSelection: (event) => event.shiftKey },
+      coreService,
+      coreMouseService: { triggerMouseEvent: () => { coreService.triggerDataEvent("\x1b[<35;1;1M", true); return true; } },
+    };
     this.element = {
       querySelector: () => ({
         offsetHeight: 480, getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 480 }),
@@ -325,11 +330,24 @@ test("a plain left drag selects text instead of reaching the program; other butt
   assert.equal(forced({ button: 2, shiftKey: true }), true, "Shift still forces it, as in xterm");
 });
 
+test("a mouse report reaches the program without counting as typing, so a selection survives the mouse moving", () => {
+  const { view, term } = setup();
+  view.show("a");
+  const { coreService, coreMouseService } = term()._core;
+  assert.equal(coreMouseService.triggerMouseEvent({}), true);
+  coreService.triggerDataEvent("x", true);
+  assert.deepEqual(coreService.inputs, [["\x1b[<35;1;1M", false], ["x", true]]);
+});
+
 test("the pinned xterm bundle still has the selection hook the page overrides", async () => {
   const { readFile } = await import("node:fs/promises");
   const bundle = await readFile(new URL("../public/vendor/xterm.mjs", import.meta.url), "utf8");
   assert.match(bundle, /shouldForceSelection\(e\)\{return/u);
   assert.match(bundle, /this\._selectionService\.shouldForceSelection\(/u);
+  // Mouse reports go out as typing, which clears the selection; the page marks them otherwise.
+  assert.match(bundle, /triggerMouseEvent\(e\)\{/u);
+  assert.match(bundle, /this\._coreService\.triggerDataEvent\(t,!0\)/u);
+  assert.match(bundle, /this\._coreService\.onUserInput\(\(\)=>\{this\.hasSelection&&this\.clearSelection\(\)\}\)/u);
 });
 
 test("over plain HTTP the copy falls back to the copy command and leaves nothing behind", async () => {
