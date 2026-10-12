@@ -1,10 +1,13 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.12";
-import { findTerminalPaths } from "./terminal-links.js?v=1.2.12";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.13";
+import { findTerminalPaths } from "./terminal-links.js?v=1.2.13";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.13";
 
 const RESIZE_DEBOUNCE_MS = 80;
+// herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
+const LINES_PER_NOTCH = 3;
 const MIN_FONT_SIZE = 10;
 const MAX_FONT_SIZE = 18;
 
@@ -42,6 +45,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   isViewablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {} }) {
   const { Terminal, FitAddon, WebLinksAddon, UnicodeGraphemesAddon } = xterm;
   let term = null;
+  // The finger scroll; a glide stops when the pane changes or goes away.
+  let scroller = null;
   let fit = null;
   let paneId = null;
   let resizeTimer = null;
@@ -120,18 +125,48 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       const resized = paneId;
       resizeTimer = setTimeout(() => { if (resized && resized === paneId) connection.resize(resized, cols, rows); }, RESIZE_DEBOUNCE_MS);
     });
-    // A finger drag scrolls herdr's history: it becomes the wheel that herdr reads.
-    // Two fingers pinch the font size, kept once they lift.
-    let touchY = null;
+    // A finger drag scrolls herdr's history: it becomes the wheel that herdr
+    // reads, one notch per three lines the finger travels, gliding on after a
+    // flick. Two fingers pinch the font size, kept once they lift.
+    let touchX = 0;
+    scroller = createTouchScroller({
+      step: () => {
+        const screen = term.element?.querySelector(".xterm-screen");
+        const lineHeight = screen && term.rows ? screen.offsetHeight / term.rows : 16;
+        return lineHeight * LINES_PER_NOTCH;
+      },
+      emit: (direction) => {
+        (term.element ?? host).dispatchEvent(new WheelEvent("wheel", {
+          bubbles: true, cancelable: true, deltaY: direction * 100, clientX: touchX, clientY: host.getBoundingClientRect().top + 20,
+        }));
+      },
+    });
     let pinch = null;
     const spread = (touches) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+    // A touch's later events go to the element it began on. Scrolling redraws
+    // the rows, so that row leaves the page; events aimed at it then reach
+    // nothing above it, not even the window. They are followed on it instead.
+    const followed = new WeakSet();
+    const follow = (target) => {
+      if (!target || followed.has(target)) return;
+      followed.add(target);
+      target.addEventListener("touchmove", onMove, { passive: false });
+      target.addEventListener("touchend", endTouch, { passive: true });
+      target.addEventListener("touchcancel", endTouch, { passive: true });
+    };
     host.addEventListener("touchstart", (event) => {
-      touchY = event.touches.length === 1 ? event.touches[0].clientY : null;
+      follow(event.target);
+      if (event.touches.length === 1) {
+        touchX = event.touches[0].clientX;
+        scroller.start(event.touches[0].clientY);
+      } else {
+        scroller.cancel();
+      }
       if (event.touches.length === 2 && spread(event.touches) > 0) {
         pinch = { distance: spread(event.touches), start: term.options.fontSize, size: term.options.fontSize };
       }
     }, { capture: true, passive: true });
-    host.addEventListener("touchmove", (event) => {
+    function onMove(event) {
       if (pinch && event.touches.length === 2) {
         event.preventDefault();
         const size = Math.round(Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, pinch.start * spread(event.touches) / pinch.distance)));
@@ -142,26 +177,19 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         }
         return;
       }
-      if (touchY === null || event.touches.length !== 1) return;
+      if (event.touches.length !== 1) return;
       event.preventDefault();
-      const touch = event.touches[0];
-      const delta = touchY - touch.clientY;
-      touchY = touch.clientY;
-      if (delta !== 0) {
-        (term.element ?? host).dispatchEvent(new WheelEvent("wheel", {
-          bubbles: true, cancelable: true, deltaY: delta, clientX: touch.clientX, clientY: touch.clientY,
-        }));
-      }
-    }, { capture: true, passive: false });
-    const endTouch = (event) => {
-      touchY = null;
+      touchX = event.touches[0].clientX;
+      scroller.move(event.touches[0].clientY);
+    }
+    function endTouch(event) {
+      if (event.type === "touchcancel") scroller.cancel();
+      else if (event.touches.length === 0) scroller.end();
       if (pinch && event.touches.length < 2) {
         if (pinch.size !== pinch.start) onFontSizeChange(pinch.size);
         pinch = null;
       }
-    };
-    host.addEventListener("touchend", endTouch, { capture: true, passive: true });
-    host.addEventListener("touchcancel", endTouch, { capture: true, passive: true });
+    }
     new ResizeObserver(() => { if (!host.hidden) fitNow(); }).observe(host);
   }
 
@@ -271,6 +299,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
 
   function stop() {
     clearTimeout(resizeTimer);
+    scroller?.cancel();
     if (paneId) connection.detach(paneId);
     paneId = null;
     ready = false;
@@ -289,6 +318,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       if (nextPaneId === paneId) { connection.resume(); return true; }
       if (!term) create();
       clearTimeout(resizeTimer);
+      scroller?.cancel();
       if (paneId) connection.detach(paneId);
       paneId = nextPaneId;
       ready = false;
