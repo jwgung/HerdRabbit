@@ -1154,3 +1154,35 @@ test("sends a test notification to every subscribed device, write-protected", as
   assert.equal(sent.length, 1);
   assert.equal(sent[0].data.paneId, undefined, "a test names no pane, so an open window does not swallow it");
 });
+
+test("Herdr machines are added, renamed, turned off and removed through write-protected routes", async (context) => {
+  const calls = [];
+  const machines = {
+    machineIdFor: (serverId) => serverId === "machine-4c139ff50dfb" ? "4c139ff50dfb4a0dcda27e728dc50ef9" : null,
+    async add(value) { calls.push(["add", value]); },
+    async rename(id, label) { calls.push(["rename", id, label]); },
+    async disable(id) { calls.push(["disable", id]); },
+    async remove(id) { calls.push(["remove", id]); },
+  };
+  const app = await startServer({ async snapshot() { return {}; } }, { machines });
+  context.after(() => closeServer(app.server));
+  const send = (path, method, body, headers = { "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl }) => fetch(`${app.baseUrl}${path}`, {
+    method, headers: { "Content-Type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+  assert.equal((await send("/api/machines", "POST", { target: "me@lab", label: "Lab" })).status, 200);
+  assert.equal((await send("/api/machines/machine-4c139ff50dfb", "PUT", { label: "Desk" })).status, 200);
+  assert.equal((await send("/api/machines/machine-4c139ff50dfb/disable", "POST", {})).status, 200);
+  assert.equal((await send("/api/machines/machine-4c139ff50dfb", "DELETE")).status, 200);
+  assert.deepEqual(calls, [
+    ["add", { target: "me@lab", label: "Lab" }],
+    ["rename", "4c139ff50dfb4a0dcda27e728dc50ef9", "Desk"],
+    ["disable", "4c139ff50dfb4a0dcda27e728dc50ef9"],
+    ["remove", "4c139ff50dfb4a0dcda27e728dc50ef9"],
+  ]);
+
+  assert.equal((await send("/api/machines", "POST", { target: "-oProxyCommand=touch /tmp/x" })).status, 400);
+  assert.equal((await send("/api/machines/machine-000000000000", "DELETE")).status, 404);
+  assert.equal((await send("/api/machines", "POST", { target: "me@lab" }, { Origin: app.baseUrl })).status, 403, "the write token is required");
+  assert.equal(calls.length, 4);
+});

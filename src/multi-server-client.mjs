@@ -19,7 +19,7 @@ function scope(snapshot, server) {
 // Only messages we wrote ourselves are safe to show; anything else could be a
 // remote command's output arriving through an error.
 export function serverStatusFor(error) {
-  return error?.code?.startsWith("leaf_")
+  return error?.code?.startsWith("leaf_") || error?.code?.startsWith("machine_")
     ? error.message
     : "Could not reach HerdRabbit on this server. Check the address and that it is running there.";
 }
@@ -28,7 +28,10 @@ export class MultiServerClient {
   constructor({
     local, profiles, hubVersion, machineName = () => null, herdrVersion = () => null,
     remoteFactory = (profile) => new LeafLinkClient({ profile, hubVersion }),
+    // Herdr's own SSH machines (src/herdr-machines.mjs), next to linked servers.
+    machines = null,
   }) {
+    this.machines = machines;
     this.local = local;
     this.machineName = machineName;
     this.herdrVersion = herdrVersion;
@@ -40,7 +43,11 @@ export class MultiServerClient {
   }
 
   syncEntries() {
-    const profiles = [{ id: "local", name: "Local" }, ...(this.profiles.connectionProfiles?.() ?? this.profiles.list())];
+    const profiles = [
+      { id: "local", name: "Local" },
+      ...(this.profiles.connectionProfiles?.() ?? this.profiles.list()),
+      ...(this.machines?.profiles() ?? []),
+    ];
     for (const id of this.entries.keys()) {
       if (profiles.some((profile) => profile.id === id)) continue;
       this.entries.get(id)?.client?.close?.();
@@ -52,7 +59,8 @@ export class MultiServerClient {
       this.entries.get(profile.id)?.client?.close?.();
       this.entries.set(profile.id, {
         profile, fingerprint,
-        client: profile.id === "local" ? this.local : this.remoteFactory(profile),
+        client: profile.id === "local" ? this.local
+          : profile.transport === "machine" ? this.machines.client(profile) : this.remoteFactory(profile),
         snapshot: empty(), available: false, status: "Connecting", lastPoll: 0, pending: null,
       });
     }
@@ -62,6 +70,9 @@ export class MultiServerClient {
     if (entry.pending) return entry.pending;
     entry.pending = Promise.resolve().then(async () => {
       try {
+        // A machine whose connection has not been made yet has no client.
+        entry.client ??= entry.profile.transport === "machine" ? this.machines.client(entry.profile) : entry.client;
+        if (!entry.client) throw Object.assign(new Error("Connecting to this machine…"), { code: "machine_offline" });
         entry.snapshot = await entry.client.snapshot();
         entry.available = true;
         entry.status = "Connected";
@@ -102,7 +113,7 @@ export class MultiServerClient {
       // what its link says.
       servers: entries.map(({ profile, available, status, client }) => ({
         id: profile.id, name: profile.name, available, status,
-        transport: profile.id === "local" ? "local" : "link",
+        transport: profile.id === "local" ? "local" : profile.transport ?? "link",
         address: profile.address ?? null,
         machine: this.machineName(profile) ?? null,
         version: profile.id === "local" ? this.hubVersion : client?.info?.().version ?? null,
@@ -125,14 +136,14 @@ export class MultiServerClient {
   fileClient(serverId) {
     this.syncEntries();
     const entry = this.entries.get(serverId);
-    return entry && serverId !== "local" ? entry.client : null;
+    return entry && serverId !== "local" && entry.profile.transport !== "machine" ? entry.client : null;
   }
 
   // Account routes address a linked server the same way; local is the caller's.
   aiAccountsClient(serverId) {
     this.syncEntries();
     const entry = this.entries.get(serverId);
-    return entry && serverId !== "local" ? entry.client.aiAccounts?.() ?? null : null;
+    return entry && serverId !== "local" && entry.profile.transport !== "machine" ? entry.client.aiAccounts?.() ?? null : null;
   }
 
   async testProfile(profile) {
@@ -162,6 +173,7 @@ export class MultiServerClient {
 
   async invoke(method, targetId, args, mutation = false) {
     const { entry, id } = this.target(targetId);
+    if (!entry.client) throw new HerdrCommandError("Connecting to this machine…", { code: "machine_offline" });
     const result = await entry.client[method](id, ...args);
     if (mutation && entry.profile.id !== "local") {
       if (entry.pending) await entry.pending;
@@ -171,10 +183,13 @@ export class MultiServerClient {
   }
 
   readPane(id, options) { return this.invoke("readPane", id, [options]); }
-  // Only this machine's panes attach for now; another server's keep the screen-text view.
+  // This machine's panes and Herdr machines' attach; a linked server's keep the screen-text view.
   terminalTarget(id, timeoutMs) {
     const { entry, id: localId } = this.target(id);
-    if (entry.profile.id !== "local") throw new HerdrCommandError("Terminal attach is not available for this server yet", { code: "attach_unsupported" });
+    if (entry.profile.id !== "local" && entry.profile.transport !== "machine") {
+      throw new HerdrCommandError("Terminal attach is not available for this server yet", { code: "attach_unsupported" });
+    }
+    if (!entry.client) throw new HerdrCommandError("Connecting to this machine…", { code: "machine_offline" });
     return entry.client.terminalTarget(localId, timeoutMs);
   }
   sendText(id, text, options) { return this.invoke("sendText", id, [text, options]); }
@@ -186,7 +201,8 @@ export class MultiServerClient {
       if (!groups.has(entry)) groups.set(entry, []);
       groups.get(entry).push(id);
     }
-    const results = await Promise.allSettled([...groups].map(([entry, ids]) =>
+    // A machine still connecting has nothing to watch yet; the next list refresh asks again.
+    const results = await Promise.allSettled([...groups].filter(([entry]) => entry.client).map(([entry, ids]) =>
       entry.client.watchStatuses(ids, event => onStatus({ ...event,
         pane_id: entry.profile.id === "local" ? event.pane_id : `${entry.profile.id}!${event.pane_id}` }), onError)));
     const stops = results.filter(result => result.status === "fulfilled").map(result => result.value);

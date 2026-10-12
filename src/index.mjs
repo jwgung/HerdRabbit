@@ -17,6 +17,7 @@ import { announcementWriter, readAnnouncements } from "./announcement-store.mjs"
 import { announceToHub } from "./leaf-announce.mjs";
 import { FileStore } from "./file-store.mjs";
 import { MultiServerClient } from "./multi-server-client.mjs";
+import { HerdrMachines, machineSocketDirectory } from "./herdr-machines.mjs";
 import { PaneAttachments, loadNodePty, nodePtySpawner } from "./pane-attachments.mjs";
 import { AiAccounts, runningAgentsIn } from "./ai-accounts.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported, readHerdrVersion } from "./herdr-version.mjs";
@@ -79,7 +80,18 @@ void readHerdrVersion(config.herdrBin).then((version) => {
     console.warn(`Herdr ${version || "(unknown version)"} is older than ${MIN_HERDR_VERSION}. Run: ${config.herdrBin} update --handoff`);
   }
 });
-const herdr = new MultiServerClient({ local, profiles, hubVersion, machineName, herdrVersion: () => herdrVersion });
+// A hub reaches Herdr's own SSH machines (`herdr machine add`) without
+// anything installed on them; a leaf answers only for itself.
+const machines = peer ? null : new HerdrMachines({
+  binary: config.herdrBin,
+  directory: await machineSocketDirectory(),
+  createBridge: (link) => new HerdrBridgeClient({
+    binary: config.herdrBin, timeoutMs: config.commandTimeoutMs, socketPath: link.socketPath, sessionName: link.machine.session,
+  }),
+  log: (message) => console.warn(message),
+});
+await machines?.start();
+const herdr = new MultiServerClient({ local, profiles, hubVersion, machineName, herdrVersion: () => herdrVersion, machines });
 // Only this machine's panes decide whether a switch here would disturb anything.
 const aiAccounts = new AiAccounts({ directory: config.aiAccountsDir, runningAgents: () => runningAgentsIn(local) });
 const notificationMonitor = new AgentNotificationMonitor({ herdr, push });
@@ -92,6 +104,7 @@ const attachments = nodePty
 const { server } = createHerdrHttpServer({
   herdr,
   attachments,
+  machines,
   profiles,
   files,
   auth,
@@ -159,6 +172,7 @@ function shutdown() {
   herdr.stopped = true;
   notificationMonitor.stop();
   attachments?.close();
+  void machines?.stop();
   server.close((error) => {
     if (error) {
       console.error("Shutdown failed:", error.message);

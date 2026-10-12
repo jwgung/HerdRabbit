@@ -50,6 +50,7 @@
             </summary>
             <div class="sidebar-action-popover" role="menu">
               <button id="create-project" class="sidebar-action-item" type="button" role="menuitem">New project</button>
+              <button id="add-machine" class="sidebar-action-item" type="button" role="menuitem">Add SSH machine</button>
               <button id="manage-servers" class="sidebar-action-item" type="button" role="menuitem">Connect Server</button>
             </div>
             </details>
@@ -289,6 +290,25 @@
       </form>
     </dialog>
 
+    <dialog id="machine-dialog" class="app-dialog" aria-labelledby="machine-dialog-title">
+      <form id="machine-form" class="dialog-form">
+        <div class="dialog-heading">
+          <h2 id="machine-dialog-title">Add SSH machine</h2>
+          <p>Herdr connects over SSH and sets itself up there. Nothing else is installed on that machine.</p>
+        </div>
+        <label for="machine-target">SSH target</label>
+        <input id="machine-target" name="target" type="text" maxlength="200" required autocomplete="off"
+          autocapitalize="off" spellcheck="false" placeholder="user@host" />
+        <label for="machine-label">Name (optional)</label>
+        <input id="machine-label" name="label" type="text" maxlength="60" autocomplete="off" />
+        <p class="dialog-feedback">SSH has to sign in with a key and already trust the host. If it asks for a password or a new host key, run <code>herdr machine add</code> for it once in a terminal.</p>
+        <p id="machine-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="machine-cancel" class="secondary-button" type="button">Cancel</button>
+          <button class="primary-button" type="submit">Add</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="servers-dialog" class="app-dialog" aria-labelledby="servers-title">
       <div class="dialog-form">
         <div class="dialog-heading"><h2 id="servers-title">Connect Server</h2><p>Another machine running HerdRabbit.</p></div>
