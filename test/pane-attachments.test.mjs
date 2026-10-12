@@ -308,3 +308,23 @@ test("an ended attach is looked up again less and less often, each lookup bounde
   assert.ok(again.length >= 3 && again.length <= 8, `${again.length} lookups in 200 ms`);
   assert.ok(again.every((timeoutMs) => timeoutMs >= 1 && timeoutMs <= 200));
 });
+
+test("a client that leaves while two wait for the same pane does not close it on the other", async () => {
+  let release;
+  const lookup = new Promise((resolve) => { release = resolve; });
+  const { herdr, attachments } = setup({ resolve: async () => {
+    await lookup;
+    return { command: "herdr", args: ["terminal", "attach", "term_1"], env: {}, terminalId: "term_1" };
+  } });
+  const gone = client();
+  const staying = client();
+  const first = attachments.attach(gone, "p", { cols: 80, rows: 24 });
+  const second = attachments.attach(staying, "p", { cols: 80, rows: 24 });
+  gone.closed = true;
+  release();
+  await Promise.all([first, second]);
+  assert.equal(herdr.spawns.length, 1);
+  assert.equal(herdr.spawns[0].killed, false, "the waiting client still has it");
+  assert.ok(!staying.types().includes("pty-exit"));
+  attachments.close();
+});

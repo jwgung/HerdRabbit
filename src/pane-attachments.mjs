@@ -33,6 +33,9 @@ const validSize = (value) => Number.isInteger(value) && value >= 1 && value <= 1
 export class PaneAttachments {
   #attachments = new Map();
   #pending = new Map();
+  // Clients still waiting for a pane's attachment: one that leaves early must
+  // not close the attachment another is about to join.
+  #waiting = new Map();
   #retiring = new Map();
   #windows = new WeakMap();
   #stopped = false;
@@ -53,9 +56,17 @@ export class PaneAttachments {
   async attach(client, paneId, { cols, rows, keepSize = false }) {
     if (!validSize(cols) || !validSize(rows)) throw new RangeError("cols and rows must be integers in 1..1000");
     const observing = client.mode === "observe" || keepSize;
-    const attachment = await this.#ensure(paneId, cols, rows, observing);
+    this.#waiting.set(paneId, (this.#waiting.get(paneId) ?? 0) + 1);
+    let attachment;
+    try {
+      attachment = await this.#ensure(paneId, cols, rows, observing);
+    } finally {
+      const left = this.#waiting.get(paneId) - 1;
+      if (left > 0) this.#waiting.set(paneId, left);
+      else this.#waiting.delete(paneId);
+    }
     if (this.#stopped || client.closed || this.#attachments.get(paneId) !== attachment) {
-      if (attachment.clients.size === 0) this.#close(paneId);
+      if (attachment.clients.size === 0 && !this.#waiting.has(paneId)) this.#close(paneId);
       if (this.#attachments.get(paneId) !== attachment) client.send({ type: "pty-exit", pane_id: paneId, code: null });
       return;
     }
@@ -513,11 +524,14 @@ export class PaneAttachments {
 
 // node-pty, loaded only when a terminal is first attached: without its native
 // module the server still runs, and panes fall back to the screen-text view.
-export async function loadNodePty() {
+export async function loadNodePty({ log = (message) => console.error(message), load = () => import("@lydell/node-pty") } = {}) {
   try {
-    const pty = await import("@lydell/node-pty");
+    const pty = await load();
     return pty.default ?? pty;
-  } catch {
+  } catch (error) {
+    // Not installed is the expected case; anything else (a native module built
+    // for another Node, a broken install) is worth knowing about.
+    if (error?.code !== "ERR_MODULE_NOT_FOUND") log(`node-pty could not load: ${error?.message ?? error}`);
     return null;
   }
 }

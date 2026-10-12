@@ -67,3 +67,16 @@ test("an attach that ignores the hangup is killed outright", async (context) => 
   assert.deepEqual(made[0].kills, ["SIGHUP", "SIGKILL"]);
   await session.exited;
 });
+
+test("node-pty that cannot load is reported unless it is simply not installed", async () => {
+  const { loadNodePty } = await import("../src/pane-attachments.mjs");
+  const logged = [];
+  const log = (message) => logged.push(message);
+  assert.notEqual(await loadNodePty({ log }), null, "installed here, it loads");
+  const missing = Object.assign(new Error("Cannot find package '@lydell/node-pty'"), { code: "ERR_MODULE_NOT_FOUND" });
+  assert.equal(await loadNodePty({ log, load: async () => { throw missing; } }), null);
+  assert.deepEqual(logged, [], "an optional package that is not installed is not an error");
+  const wrongBuild = Object.assign(new Error("The module was compiled against a different Node.js version"), { code: "ERR_DLOPEN_FAILED" });
+  assert.equal(await loadNodePty({ log, load: async () => { throw wrongBuild; } }), null);
+  assert.deepEqual(logged, ["node-pty could not load: The module was compiled against a different Node.js version"]);
+});
