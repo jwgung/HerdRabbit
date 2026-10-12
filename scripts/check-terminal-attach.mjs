@@ -13,7 +13,7 @@ const ptys = [];
 let held = false;
 const attachments = new PaneAttachments({
   log: () => {},
-  options: { holdMs: 5, heldRetryMs: 60_000 },
+  options: { holdMs: 5, heldRetryMs: 60_000, relookupForMs: 200 },
   // w2:p1 stands for a pane that cannot attach (another server's, for now).
   resolveTerminal: async (paneId) => {
     if (paneId === "w2:p1") throw Object.assign(new Error("Terminal attach is not available for this server yet"), { code: "attach_unsupported" });
@@ -23,7 +23,12 @@ const attachments = new PaneAttachments({
     let exit;
     const pty = {
       options, written: "", sizes: [], exited: new Promise((resolve) => { exit = resolve; }),
-      write(data) { this.written += data; options.onData(data === "\r" ? "\r\n$ " : data); },
+      // Typing `exit` ends the attach, as a pane whose program quit does.
+      write(data) {
+        this.written += data;
+        if (this.written.endsWith("exit\r")) { exit(); options.onExit(0); return; }
+        options.onData(data === "\r" ? "\r\n$ " : data);
+      },
       resize(cols, rows) { this.sizes.push([cols, rows]); },
       pause() {}, resume() {},
       // herdr frees the pane's attach slot once this attach has exited.
@@ -75,6 +80,21 @@ try {
     assert.equal(ptys[0].written, "echo hi\r");
     assert.ok(ptys[0].sizes.length > 0 || ptys[0].options.cols > 0, "the pty follows the browser's size");
 
+    // Another pane from the sidebar: the first is left, the second attached.
+    if (mobile) await page.locator("#mobile-sidebar-toggle, .mobile-sidebar-toggle, [aria-label='Open sidebar']").first().click().catch(() => {});
+    await page.locator('[data-pane-id="w1:p2"]').first().click();
+    await page.waitForFunction(() => document.querySelector("#terminal-xterm .xterm-rows")?.textContent.includes("ready"));
+    await page.waitForTimeout(100);
+    assert.equal(ptys.length, 2);
+    assert.deepEqual(ptys[1].options.args, ["terminal", "attach", "term_w1:p2"]);
+
+    // The attach ends: the pane shows its screen text again.
+    await page.locator("#terminal-xterm .xterm").click();
+    await page.keyboard.type("exit");
+    await page.keyboard.press("Enter");
+    await page.locator("#terminal-output").filter({ hasText: "screen text view" }).waitFor();
+    assert.equal(await page.locator("#terminal-xterm").isHidden(), true);
+
     // A pane another client holds: the banner offers to take it.
     held = true;
     await page.evaluate(() => { history.replaceState(null, "", "?pane=w1%3Ap2"); });
@@ -91,7 +111,7 @@ try {
     await page.locator("#terminal-output").filter({ hasText: "screen text view" }).waitFor();
     assert.equal(await page.locator("#terminal-xterm").isHidden(), true);
     assert.deepEqual(errors, []);
-    console.log({ mobile, attached: true, typing: true, heldTakeOver: true, fallback: true });
+    console.log({ mobile, attached: true, typing: true, paneSwitch: true, endedFallback: true, heldTakeOver: true, fallback: true });
     await page.close();
   }
 } finally {
