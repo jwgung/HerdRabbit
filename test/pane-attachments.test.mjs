@@ -343,3 +343,21 @@ test("a pty that never reports its exit does not keep the pane from attaching ag
   assert.equal(herdr.spawns.length, 2);
   attachments.close();
 });
+
+test("the server keeps no more attached terminals than its limit", async () => {
+  const herdr = fakeHerdr();
+  const attachments = new PaneAttachments({
+    log: () => {}, spawnPty: herdr.spawnPty, options: { holdMs: 5, maxAttachments: 2 },
+    resolveTerminal: async (paneId) => ({ command: "herdr", args: ["terminal", "attach", paneId], env: {}, terminalId: paneId }),
+  });
+  const viewer = client();
+  await attachments.attach(viewer, "a", { cols: 80, rows: 24 });
+  await attachments.attach(viewer, "b", { cols: 80, rows: 24 });
+  await assert.rejects(attachments.attach(viewer, "c", { cols: 80, rows: 24 }), { code: "too_many_attachments" });
+  await attachments.attach(client(), "a", { cols: 80, rows: 24 });
+  assert.equal(herdr.spawns.length, 2, "joining an open pane is not another terminal");
+  attachments.detach(viewer, "b");
+  await attachments.attach(viewer, "c", { cols: 80, rows: 24 });
+  assert.equal(herdr.spawns.length, 3);
+  attachments.close();
+});

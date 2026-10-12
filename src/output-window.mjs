@@ -37,6 +37,29 @@ const PRIVATE_MODES = /\x1b\[\?([\d;]+)([hl])/gu;
 const MODIFY_OTHER_KEYS = /\x1b\[>(4(?:;(\d*))?)?([mn])/gu;
 // An ESC, or a CSI still missing its final byte.
 const INCOMPLETE_CSI = /^\x1b(\[[\x30-\x3f]*[\x20-\x2f]*)?$/u;
+// Control strings (OSC, DCS, SOS, PM, APC) run until BEL or ESC \, and a title
+// or a hyperlink can be long: a cut inside one must not leave its tail behind.
+const STRING_OPENERS = new Set([0x5d, 0x50, 0x58, 0x5e, 0x5f]);
+// How far back a cut looks for one: titles and hyperlinks are short, and the
+// look runs on every output chunk once the replay is full.
+const CONTROL_STRING_REACH = 4096;
+
+// Where a cut at `start` should really begin: past the end of a control string
+// it would land inside, so the replay never starts with half of one.
+function afterControlString(bytes, start) {
+  for (let index = start - 1; index >= Math.max(0, start - CONTROL_STRING_REACH); index -= 1) {
+    const byte = bytes[index];
+    if (byte === 0x07 || (byte === 0x5c && bytes[index - 1] === 0x1b)) return start;
+    if (byte === 0x1b && STRING_OPENERS.has(bytes[index + 1])) {
+      for (let end = start; end < bytes.length; end += 1) {
+        if (bytes[end] === 0x07) return end + 1;
+        if (bytes[end] === 0x1b && bytes[end + 1] === 0x5c) return end + 2;
+      }
+      return bytes.length;
+    }
+  }
+  return start;
+}
 
 // What a client joining a live attachment is sent: the bounded tail of the
 // stream, led by the private modes set by output that has already fallen out of
@@ -59,6 +82,7 @@ export class ReplayBuffer {
     while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start++;
     const escape = start > 0 ? bytes.lastIndexOf(0x1b, start - 1) : -1;
     if (escape >= 0 && INCOMPLETE_CSI.test(bytes.subarray(escape, start).toString("latin1"))) start = escape;
+    else start = afterControlString(bytes, start);
     if (start === 0) {
       this.#tail += data;
       return;

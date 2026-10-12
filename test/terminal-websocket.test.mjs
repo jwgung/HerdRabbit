@@ -299,3 +299,20 @@ test("the password check reads the pane's unwrapped lines, so a prompt the termi
   assert.deepEqual(app.requests, []);
   assert.deepEqual(reads[0], { lines: 4, format: "text" });
 });
+
+test("one socket keeps only a few panes attached at once", async context => {
+  const attachments = new PaneAttachments({
+    log: () => {},
+    options: { holdMs: 5 },
+    resolveTerminal: async (paneId) => ({ command: "herdr", args: ["terminal", "attach", paneId], env: {}, terminalId: paneId }),
+    spawnPty: options => ({ options, exited: new Promise(() => {}), write() {}, resize() {}, pause() {}, resume() {}, kill() {} }),
+  });
+  const app = await fixture(context, {}, { attachments });
+  const client = await app.connect();
+  await client.wait(message => message.type === "ready");
+  for (const pane of ["w1:p1", "w1:p2", "w1:p3", "w1:p4", "w1:p5"]) client.send({ type: "attach", paneId: pane, cols: 80, rows: 24 });
+  assert.deepEqual(await client.wait(message => message.type === "attach-unavailable"), { type: "attach-unavailable", pane_id: "w1:p5", code: "busy" });
+  client.send({ type: "detach", paneId: "w1:p1" });
+  client.send({ type: "attach", paneId: "w1:p5", cols: 80, rows: 24 });
+  await client.wait(message => message.type === "pane-geometry" && message.pane_id === "w1:p5");
+});

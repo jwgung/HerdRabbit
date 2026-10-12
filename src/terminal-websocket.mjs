@@ -1,6 +1,8 @@
 import { WebSocketServer } from "ws";
 
 const MAX_PENDING_ATTACHES = 4;
+// A page shows one attached pane at a time; a few more cover switching.
+const MAX_ATTACHED_PANES = 4;
 
 // Authentication stays with the HTTP server. No launch token is put in a URL.
 export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMessage,
@@ -146,7 +148,10 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
           if (message.keepSize !== undefined && typeof message.keepSize !== "boolean") throw new Error("Invalid attach");
           // Each lookup runs herdr a few times: a page opens one pane at a time.
           if (!attachments) { send({ type: "attach-unavailable", pane_id: id, code: "attach_unsupported" }); return; }
-          if (attaching >= MAX_PENDING_ATTACHES) { send({ type: "attach-unavailable", pane_id: id, code: "busy" }); return; }
+          if (attaching >= MAX_PENDING_ATTACHES || (!wantedPanes.has(id) && wantedPanes.size >= MAX_ATTACHED_PANES)) {
+            send({ type: "attach-unavailable", pane_id: id, code: "busy" });
+            return;
+          }
           attaching += 1;
           wantedPanes.add(id);
           attachments.attach(viewer, id, { cols: message.cols, rows: message.rows, keepSize: message.keepSize === true })

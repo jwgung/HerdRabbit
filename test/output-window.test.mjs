@@ -78,3 +78,18 @@ import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_LOW_BYTES, ReplayBuffer } from 
     replay.append("\x1b[?1049h\x1b[?1000hhello");
     expect(replay.text()).toBe("\x1b[?1049h\x1b[?1000hhello");
   });
+
+test("never starts a replay inside a title or a hyperlink, whichever way it ends", () => {
+  for (const end of ["\x07", "\x1b\\"]) {
+    const replay = new ReplayBuffer(24);
+    replay.append("before");
+    replay.append(`\x1b]0;${"a long window title ".repeat(4)}${end}after`);
+    expect(replay.text()).toBe("after");
+    replay.append(`\x1b]8;;https://example.com/${"x".repeat(40)}${end}link`);
+    expect(replay.text()).toBe("link");
+  }
+  // A cut after a finished one keeps the text that follows it as usual.
+  const replay = new ReplayBuffer(8);
+  replay.append("\x1b]0;title\x07abcdefghijkl");
+  expect(replay.text()).toBe("efghijkl");
+});

@@ -26,6 +26,9 @@ export const ATTACH_DEFAULTS = Object.freeze({
   // each lookup runs herdr a few times.
   relookupMs: 100,
   relookupMaxMs: 1_000,
+  // Each attachment is a process and a pty: a page shows one pane at a time,
+  // so this is many browsers' worth.
+  maxAttachments: 32,
 });
 
 const RETIRE_WAIT_MS = 3_000;
@@ -287,6 +290,9 @@ export class PaneAttachments {
     if (existing) return Promise.resolve(existing);
     const pending = this.#pending.get(paneId);
     if (pending) return pending;
+    if (this.#attachments.size + this.#pending.size >= this.options.maxAttachments) {
+      return Promise.reject(Object.assign(new Error("Too many terminals are open"), { code: "too_many_attachments" }));
+    }
     const created = this.#spawn(paneId, cols, rows, observing).finally(() => this.#pending.delete(paneId));
     this.#pending.set(paneId, created);
     return created;
