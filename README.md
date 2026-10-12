@@ -98,7 +98,7 @@ Remote snapshots refresh independently, with slower retries after a failure, so 
 
 A linked machine is a full participant: its sessions appear in the project/session picker, and projects and tabs can be created, renamed and closed there. The machine that owns a session is the one that validates the change, so its rules cannot drift from what a person sitting at it would get.
 
-A server is managed where it is seen, and every machine has a row -- this one too, even when it is the only one. Its `⋯` menu opens **Details** -- the name Tailscale knows the machine by, the HerdRabbit version answering there, and how many Herdr sessions and panes it contributes -- and **AI accounts**. When a password is set, this machine's menu also opens **Passkeys** (see Password and Passkey authentication). A connected machine's menu also renames and disconnects it. Details are the first thing worth reading when a machine will not connect. This machine goes by its host name when Tailscale does not name it, and a connected machine Tailscale does not name shows no name. The dialog that adds machines is for adding them.
+A server is managed where it is seen, and every machine has a row -- this one too, even when it is the only one. Its `⋯` menu opens **Details** -- the name Tailscale knows the machine by, the HerdRabbit version answering there, this machine's Herdr version (marked when it is older than 0.9.0, which the server also logs at startup), and how many Herdr sessions and panes it contributes -- and **AI accounts**. When a password is set, this machine's menu also opens **Passkeys** (see Password and Passkey authentication). A connected machine's menu also renames and disconnects it. Details are the first thing worth reading when a machine will not connect. This machine goes by its host name when Tailscale does not name it, and a connected machine Tailscale does not name shows no name. The dialog that adds machines is for adding them.
 
 Servers are stored on this machine in `~/.config/herdr-bridge/servers.json` with mode `0600`; override with `HERDR_WEB_SERVERS_FILE`. They are shared by every device using this HerdRabbit instance.
 
@@ -215,6 +215,7 @@ HerdRabbit 비밀번호 (비워 두면 사용 안 함):
 비밀번호 확인:
 ```
 
+- `herdr` is installed to `~/.local/bin/herdr` from `https://herdr.dev/install.sh` when missing, and updated with `herdr update --handoff` when older than 0.9.0. Installation stops if it is still older afterwards.
 - Enter a password to require login in the web app.
 - Press `Enter` with an empty password to disable authentication.
 - Tailscale setup may request your sudo password for `sudo tailscale serve`.
