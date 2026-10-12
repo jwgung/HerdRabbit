@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { obsoleteSettingsWarning, parseAllowedHosts, parseHost, parsePort, readConfig } from "../src/config.mjs";
+import { formerLeafRefusal, obsoleteSettingsWarning, parseAllowedHosts, parseHost, parsePort, readConfig } from "../src/config.mjs";
 
 test("uses safe loopback defaults", () => {
   const config = readConfig({});
@@ -98,4 +98,14 @@ test("stray leaf settings on a normal server are ignored, not fatal", () => {
   assert.equal(config.wasLeaf, false);
   assert.deepEqual(config.obsoleteSettings, ["HERDR_WEB_ROLE", "HERDR_WEB_PEER_LOGINS"]);
   assert.doesNotMatch(obsoleteSettingsWarning(config), /127\.0\.0\.1/u);
+});
+
+test("a former leaf without a password refuses to start", () => {
+  // Behind Tailscale Serve a loopback bind still reaches the tailnet, and the
+  // peer gate that guarded it is gone; only a password closes it now.
+  const leaf = readConfig({ HERDR_WEB_ROLE: "leaf", HERDR_WEB_HOST: "127.0.0.1", HERDR_WEB_PEER_LOGINS: "owner@example.com" });
+  assert.match(formerLeafRefusal(leaf, false), /no password.*npm run install-service/u);
+  assert.equal(formerLeafRefusal(leaf, true), null);
+  assert.equal(formerLeafRefusal(readConfig({}), false), null);
+  assert.equal(formerLeafRefusal(readConfig({ HERDR_WEB_ROLE: "hub" }), false), null);
 });

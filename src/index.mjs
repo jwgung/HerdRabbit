@@ -1,4 +1,4 @@
-import { obsoleteSettingsWarning, readConfig } from "./config.mjs";
+import { formerLeafRefusal, obsoleteSettingsWarning, readConfig } from "./config.mjs";
 import { allowedRequestHosts } from "./allowed-hosts.mjs";
 import { AgentNotificationMonitor } from "./agent-notifications.mjs";
 import { HerdrBridgeClient } from "./herdr-bridge-client.mjs";
@@ -20,6 +20,11 @@ const config = readConfig();
 const obsoleteWarning = obsoleteSettingsWarning(config);
 if (obsoleteWarning) console.warn(obsoleteWarning);
 const auth = await loadPasswordAuth(config.authFile);
+const leafRefusal = formerLeafRefusal(config, auth.required);
+if (leafRefusal) {
+  console.error(leafRefusal);
+  process.exit(1);
+}
 // This machine goes by its host name; a Herdr machine by its own label.
 function machineName(profile) {
   return profile.id === "local" ? hostname() : null;

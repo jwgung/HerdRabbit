@@ -94,7 +94,7 @@ A machine is managed where it is seen, and every machine has a row -- this one t
 
 Earlier versions linked another PC by installing a second HerdRabbit on it in "leaf" mode and adding it with **+ → Connect Server**. That mode is gone: remote PCs are Herdr SSH machines now, with nothing of HerdRabbit installed on them. Links saved by an older version in `~/.config/herdr-bridge/servers.json` (or `HERDR_WEB_SERVERS_FILE`) are no longer shown. The file is left as it is, and the page says once, in each browser, how many there were: re-add each of those PCs with **+ → Add SSH machine** (or `herdr machine add`).
 
-A PC that was installed as a leaf still starts after updating, but it ignores its leaf settings (`HERDR_WEB_ROLE`, `HERDR_WEB_PEER_LOGINS`, `HERDR_WEB_PEER_ADDRESSES`, `HERDR_WEB_HUB`), logs one warning, and listens on `127.0.0.1` only, since it has no password. Run `npm run install-service` there to set it up again as an ordinary HerdRabbit with a password, or stop its service if it is only reached as a Herdr SSH machine.
+A PC that was installed as a leaf ignores its leaf settings (`HERDR_WEB_ROLE`, `HERDR_WEB_PEER_LOGINS`, `HERDR_WEB_PEER_ADDRESSES`, `HERDR_WEB_HUB`) with one warning and listens on `127.0.0.1` only. A leaf never had a password and its peer gate is gone, so without a password it refuses to start rather than stay open behind Tailscale Serve. Run `npm run install-service` there to set it up again as an ordinary HerdRabbit with a password, or stop its service if it is only reached as a Herdr SSH machine.
 
 ## Architecture
 

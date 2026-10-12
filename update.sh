@@ -102,6 +102,8 @@ main() {
     # installer binds loopback and lets Tailscale terminate HTTPS in front.
     BOUND_HOST="$(systemctl --user show "$UPDATE_SERVICE" --property=Environment --value | tr ' ' '\n' | sed -n 's/^HERDR_WEB_HOST=//p')"
     SERVER_ROLE="$(systemctl --user show "$UPDATE_SERVICE" --property=Environment --value | tr ' ' '\n' | sed -n 's/^HERDR_WEB_ROLE=//p')"
+    # A former leaf without a password refuses to start, so it never gets here:
+    # the restart above rolls it back to the version it ran before.
     if [ "$SERVER_ROLE" = leaf ]; then
         log "This machine was installed as a leaf, which is no longer supported. It now listens on 127.0.0.1 only."
         log "         Run 'npm run install-service' here to set it up again, and add it to your other HerdRabbit with herdr machine."
