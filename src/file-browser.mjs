@@ -4,10 +4,10 @@ import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { parseByteRange } from "../public/file-preview.js";
 
 const MAX_PATH_LENGTH = 4096;
-const MAX_LISTED_ENTRIES = 2000;
+export const MAX_LISTED_ENTRIES = 2000;
 // A file that misreports its size (procfs, /proc/kcore) would otherwise stream
 // without end. Downloads past this are refused with the path shown instead.
-const MAX_STREAM_BYTES = 1024 * 1024 * 1024;
+export const MAX_STREAM_BYTES = 1024 * 1024 * 1024;
 
 export class FileAccessError extends Error {
   constructor(status, code, message) {

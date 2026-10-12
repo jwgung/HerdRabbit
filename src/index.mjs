@@ -94,6 +94,7 @@ const machines = !machineDirectory ? null : new HerdrMachines({
     binary: config.herdrBin, timeoutMs: config.commandTimeoutMs, socketPath: link.socketPath, sessionName: link.machine.session,
   }),
   log: (message) => console.warn(message),
+  maxTransferBytes: config.maxTransferBytes,
 });
 machines?.start();
 const herdr = new MultiServerClient({ local, profiles, hubVersion, machineName, herdrVersion: () => herdrVersion, machines });

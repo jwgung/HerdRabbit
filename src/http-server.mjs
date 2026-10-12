@@ -750,6 +750,11 @@ export function createHerdrHttpServer({
       if (method === "GET" && ticketMatch) {
         const claim = tickets.redeem(ticketMatch[1]);
         const from = claim.serverId === LOCAL_SERVER ? null : herdr.fileClient?.(claim.serverId);
+        // A server removed since the ticket was issued must not fall back to
+        // opening the same path on this machine.
+        if (claim.serverId !== LOCAL_SERVER && !from) {
+          throw new HttpError(404, "unknown_server", "That server is no longer configured.");
+        }
         if (!claim.inlineType) {
           await sendDownload(response, await openBrowsedFile(claim.path, from));
           return;
@@ -967,6 +972,16 @@ export function createHerdrHttpServer({
             throw new HttpError(400, "invalid_input", "Too many targets.");
           }
           const changed = [];
+          // A Herdr SSH machine answers every folder in one round trip.
+          if (typeof source?.directoryFingerprints === "function") {
+            const current = await source.directoryFingerprints(targetPaths).catch(() => new Map());
+            for (const path of targetPaths) {
+              const fingerprint = current.get(path);
+              if (fingerprint === null || fingerprint === undefined || fingerprint !== targets[path]) changed.push(path);
+            }
+            sendJson(response, 200, { changed, server: serverId });
+            return;
+          }
           for (const path of targetPaths) {
             const knownEtag = targets[path];
             try {

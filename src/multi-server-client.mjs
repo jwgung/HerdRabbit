@@ -164,10 +164,14 @@ export class MultiServerClient {
     };
   }
 
-  // File routes address a server by id and need the client that speaks for it.
-  // Only a linked server has files to offer; local is handled by the caller.
+  // File routes address a server by id and need the client that speaks for it:
+  // a linked server answers itself, a Herdr SSH machine through its SSH
+  // connection. Local is handled by the caller.
   fileClient(serverId) {
-    return this.linkedEntry(serverId)?.client ?? null;
+    this.syncEntries();
+    const entry = serverId === "local" ? null : this.entries.get(serverId);
+    if (!entry) return null;
+    return isMachine(entry.profile) ? entry.client.files?.() ?? null : entry.client;
   }
 
   // Account routes address a linked server the same way; local is the caller's.
