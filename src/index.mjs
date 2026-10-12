@@ -82,9 +82,14 @@ void readHerdrVersion(config.herdrBin).then((version) => {
 });
 // A hub reaches Herdr's own SSH machines (`herdr machine add`) without
 // anything installed on them; a leaf answers only for itself.
-const machines = peer ? null : new HerdrMachines({
+const machineDirectory = peer ? null : await machineSocketDirectory().catch((error) => {
+  // Without a private directory the machines stay unconnected; everything else runs.
+  console.warn(`Herdr machines are unavailable: ${error.message}`);
+  return null;
+});
+const machines = !machineDirectory ? null : new HerdrMachines({
   binary: config.herdrBin,
-  directory: await machineSocketDirectory(),
+  directory: machineDirectory,
   createBridge: (link) => new HerdrBridgeClient({
     binary: config.herdrBin, timeoutMs: config.commandTimeoutMs, socketPath: link.socketPath, sessionName: link.machine.session,
   }),

@@ -1,6 +1,9 @@
 import { LeafLinkClient } from "./leaf-link-client.mjs";
 import { HerdrCommandError, InputValidationError } from "./herdr-client.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported } from "./herdr-version.mjs";
+import { machineOffline } from "./herdr-machines.mjs";
+
+const isMachine = (profile) => profile?.transport === "machine";
 
 const collections = ["herdr_sessions", "workspaces", "tabs", "panes", "agents"];
 const idFields = ["session_id", "herdr_session_id", "workspace_id", "active_tab_id", "tab_id", "pane_id"];
@@ -42,6 +45,18 @@ export class MultiServerClient {
     this.stopped = false;
   }
 
+  clientFor(profile) {
+    if (profile.id === "local") return this.local;
+    return isMachine(profile) ? this.machines.client(profile) : this.remoteFactory(profile);
+  }
+
+  // A linked HerdRabbit server: it answers for its files and accounts itself.
+  linkedEntry(serverId) {
+    this.syncEntries();
+    const entry = this.entries.get(serverId);
+    return entry && serverId !== "local" && !isMachine(entry.profile) ? entry : null;
+  }
+
   syncEntries() {
     const profiles = [
       { id: "local", name: "Local" },
@@ -59,8 +74,7 @@ export class MultiServerClient {
       this.entries.get(profile.id)?.client?.close?.();
       this.entries.set(profile.id, {
         profile, fingerprint,
-        client: profile.id === "local" ? this.local
-          : profile.transport === "machine" ? this.machines.client(profile) : this.remoteFactory(profile),
+        client: this.clientFor(profile),
         snapshot: empty(), available: false, status: "Connecting", lastPoll: 0, pending: null,
       });
     }
@@ -71,9 +85,9 @@ export class MultiServerClient {
     entry.pending = Promise.resolve().then(async () => {
       try {
         if (entry.profile.enabled === false) throw Object.assign(new Error("Turned off"), { code: "machine_off" });
-        // A machine whose connection has not been made yet has no client.
-        entry.client ??= entry.profile.transport === "machine" ? this.machines.client(entry.profile) : entry.client;
-        if (!entry.client) throw Object.assign(new Error("Connecting to this machine…"), { code: "machine_offline" });
+        // A machine gets its client once its connection has been made.
+        entry.client ??= this.clientFor(entry.profile);
+        if (!entry.client) throw machineOffline();
         entry.snapshot = await entry.client.snapshot();
         entry.available = true;
         entry.status = "Connected";
@@ -115,7 +129,7 @@ export class MultiServerClient {
       servers: entries.map(({ profile, available, status, client }) => ({
         id: profile.id, name: profile.name, available, status,
         transport: profile.id === "local" ? "local" : profile.transport ?? "link",
-        ...(profile.transport === "machine" ? { enabled: profile.enabled !== false } : {}),
+        ...(isMachine(profile) ? { enabled: profile.enabled !== false } : {}),
         address: profile.address ?? null,
         machine: this.machineName(profile) ?? null,
         version: profile.id === "local" ? this.hubVersion : client?.info?.().version ?? null,
@@ -136,16 +150,12 @@ export class MultiServerClient {
   // File routes address a server by id and need the client that speaks for it.
   // Only a linked server has files to offer; local is handled by the caller.
   fileClient(serverId) {
-    this.syncEntries();
-    const entry = this.entries.get(serverId);
-    return entry && serverId !== "local" && entry.profile.transport !== "machine" ? entry.client : null;
+    return this.linkedEntry(serverId)?.client ?? null;
   }
 
   // Account routes address a linked server the same way; local is the caller's.
   aiAccountsClient(serverId) {
-    this.syncEntries();
-    const entry = this.entries.get(serverId);
-    return entry && serverId !== "local" && entry.profile.transport !== "machine" ? entry.client.aiAccounts?.() ?? null : null;
+    return this.linkedEntry(serverId)?.client.aiAccounts?.() ?? null;
   }
 
   async testProfile(profile) {
@@ -175,7 +185,7 @@ export class MultiServerClient {
 
   async invoke(method, targetId, args, mutation = false) {
     const { entry, id } = this.target(targetId);
-    if (!entry.client) throw new HerdrCommandError("Connecting to this machine…", { code: "machine_offline" });
+    if (!entry.client) throw machineOffline();
     const result = await entry.client[method](id, ...args);
     if (mutation && entry.profile.id !== "local") {
       if (entry.pending) await entry.pending;
@@ -188,10 +198,10 @@ export class MultiServerClient {
   // This machine's panes and Herdr machines' attach; a linked server's keep the screen-text view.
   terminalTarget(id, timeoutMs) {
     const { entry, id: localId } = this.target(id);
-    if (entry.profile.id !== "local" && entry.profile.transport !== "machine") {
+    if (entry.profile.id !== "local" && !isMachine(entry.profile)) {
       throw new HerdrCommandError("Terminal attach is not available for this server yet", { code: "attach_unsupported" });
     }
-    if (!entry.client) throw new HerdrCommandError("Connecting to this machine…", { code: "machine_offline" });
+    if (!entry.client) throw machineOffline();
     return entry.client.terminalTarget(localId, timeoutMs);
   }
   sendText(id, text, options) { return this.invoke("sendText", id, [text, options]); }

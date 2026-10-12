@@ -254,3 +254,27 @@ test("terminalTarget bounds each herdr call by the time it is given", async () =
   await new HerdrClient({ runner: fake.runner, timeoutMs: 5_000 }).terminalTarget("w1:p2", 300);
   assert.deepEqual(fake.calls.map((call) => call.options.timeout), [300, 300, 300]);
 });
+
+test("a client for a forwarded socket sends every command there, as its only session", async () => {
+  const json = (result) => ({ stdout: JSON.stringify({ result }), stderr: "" });
+  const fake = recordingRunner([
+    json({ snapshot: { panes: [] } }),
+    json({ pane: { pane_id: "w1:p2", terminal_id: "term_9" } }),
+    json({ layout: { panes: [] } }),
+  ]);
+  const client = new HerdrClient({ binary: "herdr", runner: fake.runner, sessionName: "work", socketPath: "/run/m/4c139ff50dfb.sock" });
+  await client.snapshot();
+  assert.deepEqual(fake.calls[0].args, ["api", "snapshot"], "no --session: the socket names the server");
+  assert.equal(fake.calls[0].options.env.HERDR_SOCKET_PATH, "/run/m/4c139ff50dfb.sock");
+  assert.deepEqual(await client.listSessions(), [{ name: "work", default: true, running: true, socket_path: "/run/m/4c139ff50dfb.sock" }]);
+  assert.equal(fake.calls.length, 1, "this machine's session list is not asked");
+  const target = await client.terminalTarget("w1:p2");
+  assert.equal(target.env.HERDR_SOCKET_PATH, "/run/m/4c139ff50dfb.sock");
+});
+
+test("a terminal id that could read as an option is refused", async () => {
+  const json = (result) => ({ stdout: JSON.stringify({ result }), stderr: "" });
+  const fake = recordingRunner([json({ pane: { pane_id: "w1:p2", terminal_id: "--takeover" } }), json({ layout: { panes: [] } })]);
+  const client = new HerdrClient({ runner: fake.runner, socketPath: "/run/m/x.sock" });
+  await assert.rejects(client.terminalTarget("w1:p2"), { code: "no_terminal" });
+});

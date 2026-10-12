@@ -329,7 +329,11 @@ export class HerdrClient {
     ]);
     const session = sessions.find(item => item.name === (this.sessionName || "default") && item.running);
     if (!session?.socket_path) throw new HerdrCommandError("Herdr socket is unavailable", { code: "server_unavailable" });
-    if (typeof pane?.terminal_id !== "string" || !pane.terminal_id) throw new HerdrCommandError("The pane has no terminal", { code: "no_terminal" });
+    // On a Herdr machine this id comes from the other side: it may only ever be
+    // an id, never something `terminal attach` would read as an option.
+    if (typeof pane?.terminal_id !== "string" || !/^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$/u.test(pane.terminal_id)) {
+      throw new HerdrCommandError("The pane has no terminal", { code: "no_terminal" });
+    }
     const rect = layout?.layout?.panes?.find(item => item.pane_id === safePaneId)?.rect;
     return {
       command: this.binary,

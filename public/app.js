@@ -4499,10 +4499,10 @@ async function ensureUploadsPath() {
 function refreshServerChoices() {
   const options = [
     { id: "local", name: "This machine" },
-    // Every registered server answers for its own files now, so all of them
-    // belong here.
+    // Every linked server answers for its own files. A Herdr SSH machine has
+    // no file access yet.
     ...array(state.snapshot?.servers)
-      .filter((server) => server.id !== "local")
+      .filter((server) => server.id !== "local" && server.transport !== "machine")
       .map((server) => ({ id: server.id, name: server.name || server.id })),
   ];
   elements.fileServer.replaceChildren();
