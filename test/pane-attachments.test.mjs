@@ -243,3 +243,36 @@ test("an attach that only sets its modes and then stays quiet is ready once no r
   assert.equal(desk.output(), "\x1b[?1049h\x1b[?1000h");
   attachments.close();
 });
+
+test("a screen that switches to watching gives up the size, and may take it again once it types", async () => {
+  const { herdr, attachments } = setup();
+  const desk = client();
+  const phone = client();
+  await attachments.attach(desk, "p", { cols: 120, rows: 40 });
+  herdr.spawns[0].emit("ready");
+  await sleep(20);
+  await attachments.attach(phone, "p", { cols: 40, rows: 20 });
+  attachments.input(phone, "p", "x");
+  assert.deepEqual(herdr.spawns[0].sizes.at(-1), [40, 20]);
+  attachments.setMode(phone, "observe");
+  assert.deepEqual(herdr.spawns[0].sizes.at(-1), [120, 40], "the desk sets it again");
+  assert.equal(attachments.input(phone, "p", "y"), false);
+  attachments.setMode(phone, "interact");
+  attachments.resize(phone, "p", 44, 20);
+  attachments.input(phone, "p", "z");
+  assert.deepEqual(herdr.spawns[0].sizes.at(-1), [44, 20]);
+  attachments.close();
+});
+
+test("a late acknowledgement for a pane the client left is ignored, not refused", async () => {
+  const { herdr, attachments } = setup();
+  const desk = client();
+  await attachments.attach(desk, "p", { cols: 80, rows: 24 });
+  herdr.spawns[0].emit("ready");
+  await sleep(20);
+  const { stream_id: streamId, offset } = desk.messages.at(-1).flow;
+  attachments.detach(desk, "p");
+  assert.equal(attachments.acknowledge(desk, "p", streamId, offset), true);
+  assert.equal(attachments.acknowledge(desk, "never-attached", "x", 5), true);
+  assert.equal(desk.closed, false);
+});

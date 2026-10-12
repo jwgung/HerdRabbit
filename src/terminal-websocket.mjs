@@ -182,7 +182,8 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
         if (message.type === "take-over") { attachments?.takeOver(viewer, paneId(message.paneId)); return; }
         if (message.type === "role") {
           if (message.mode !== "interact" && message.mode !== "observe") throw new Error("Invalid role");
-          viewer.mode = message.mode;
+          if (attachments) attachments.setMode(viewer, message.mode);
+          else viewer.mode = message.mode;
           return;
         }
         if (message.type === "unwatch") {

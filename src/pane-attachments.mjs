@@ -90,12 +90,7 @@ export class PaneAttachments {
     attachment.stalled.delete(client);
     attachment.sizes.delete(client);
     if (attachment.clients.size === 0) { this.#close(paneId); return; }
-    // The size passes to the client that asked for one most recently.
-    if (attachment.owner === client) {
-      attachment.owner = null;
-      const next = [...attachment.sizes.keys()].at(-1);
-      if (next) this.#own(paneId, next);
-    }
+    if (attachment.owner === client) this.#handOff(paneId);
     this.#reconcile(paneId);
   }
 
@@ -124,6 +119,23 @@ export class PaneAttachments {
     return true;
   }
 
+  // Watching only, a client stops being one that may set a pane's size; back
+  // to typing, it may again.
+  setMode(client, mode) {
+    client.mode = mode;
+    for (const [paneId, attachment] of this.#attachments) {
+      if (!attachment.clients.has(client)) continue;
+      if (mode === "interact") {
+        if (!attachment.sizes.has(client)) attachment.sizes.set(client, { cols: attachment.cols, rows: attachment.rows });
+        continue;
+      }
+      attachment.sizes.delete(client);
+      if (attachment.owner === client) this.#handOff(paneId);
+    }
+  }
+
+  // An acknowledgement for a pane this client has left is not an error: a page
+  // that just switched panes finishes drawing the old one and acknowledges it late.
   acknowledge(client, paneId, streamId, offset) {
     const window = this.#windowsOf(client).get(paneId);
     if (window && window.id === streamId && !window.acknowledge(streamId, offset)) return false;
@@ -213,6 +225,16 @@ export class PaneAttachments {
     if (!this.#resize(paneId, size.cols, size.rows)) {
       for (const member of attachment.clients) this.#sendGeometry(member, paneId);
     }
+  }
+
+  // The size passes to the client that asked for one most recently; with none
+  // left, the grid stays as it is and nobody sets it.
+  #handOff(paneId) {
+    const attachment = this.#attachments.get(paneId);
+    attachment.owner = null;
+    const next = [...attachment.sizes.keys()].at(-1);
+    if (next) this.#own(paneId, next);
+    else for (const member of attachment.clients) this.#sendGeometry(member, paneId);
   }
 
   #sendGeometry(client, paneId) {
