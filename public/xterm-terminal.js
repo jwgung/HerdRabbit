@@ -1,15 +1,19 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.15";
-import { findScreenLinks } from "./terminal-links.js?v=1.2.15";
-import { createTouchScroller } from "./touch-scroll.js?v=1.2.15";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.16";
+import { findScreenLinks } from "./terminal-links.js?v=1.2.16";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.16";
+import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.16";
 
 const RESIZE_DEBOUNCE_MS = 80;
 // herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
 const LINES_PER_NOTCH = 3;
 const MIN_FONT_SIZE = 10;
 const MAX_FONT_SIZE = 18;
+// A finger held this long without moving starts selecting text.
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_SLOP_PX = 10;
 
 // One terminal row as text, with the cell each character starts in: a wide
 // character (Hangul, CJK, emoji) takes two cells but one place in the text.
@@ -42,11 +46,18 @@ function themeFrom(element) {
 // pane cannot attach, so the page shows its screen text instead.
 export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
   onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer"),
-  isViewablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {} }) {
+  isViewablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {},
+  onCopy = () => {} }) {
   const { Terminal, FitAddon, UnicodeGraphemesAddon } = xterm;
   let term = null;
   // The finger scroll; a glide stops when the pane changes or goes away.
   let scroller = null;
+  // The Copy bar over a selection, and the finger selecting, if one is.
+  let copyBar = null;
+  let selecting = null;
+  // A finger held still, before it starts selecting.
+  let pressTimer = null;
+  const cancelPress = () => { clearTimeout(pressTimer); pressTimer = null; };
   let fit = null;
   let paneId = null;
   let resizeTimer = null;
@@ -117,13 +128,41 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       if (key === "c" && term.hasSelection()) {
         if (event.type === "keydown") {
           event.preventDefault();
-          void navigator.clipboard?.writeText(term.getSelection()).catch(() => {});
-          term.clearSelection();
+          void copySelection();
         }
         return false;
       }
       return true;
     });
+    // Ctrl+wheel, and a trackpad pinch, size the font on the page; xterm would
+    // pass them on to herdr as a scroll.
+    term.attachCustomWheelEventHandler((event) => !(event.ctrlKey || event.metaKey));
+    // herdr's attach selects nothing itself, so a plain left drag selects text
+    // here, as on any page, instead of going to the program as mouse reports.
+    // The wheel still scrolls herdr. (xterm 5.5 private API; the bundle is pinned.)
+    const selectionService = term._core?._selectionService;
+    if (typeof selectionService?.shouldForceSelection === "function") {
+      const forced = selectionService.shouldForceSelection.bind(selectionService);
+      selectionService.shouldForceSelection = (event) => event.button === 0 || forced(event);
+    } else {
+      console.warn("xterm's selection hook is missing: a mouse drag goes to the program, and only Shift+drag selects.");
+    }
+    copyBar = host.ownerDocument.createElement("div");
+    copyBar.className = "terminal-copy-bar";
+    copyBar.hidden = true;
+    const copyButton = host.ownerDocument.createElement("button");
+    copyButton.type = "button";
+    copyButton.textContent = "Copy";
+    copyButton.addEventListener("click", () => void copySelection());
+    const dismissButton = host.ownerDocument.createElement("button");
+    dismissButton.type = "button";
+    dismissButton.textContent = "Cancel";
+    dismissButton.addEventListener("click", () => term.clearSelection());
+    copyBar.append(copyButton, dismissButton);
+    host.append(copyBar);
+    // The bar offers to copy whatever is selected, by mouse or by finger.
+    term.onSelectionChange(() => { copyBar.hidden = !term.hasSelection() || Boolean(selecting); });
+    host.addEventListener("contextmenu", (event) => { if (selecting || term.hasSelection()) event.preventDefault(); });
     const type = (data) => {
       if (!paneId || !ready || held) return;
       // A socket that dropped has not told this pane yet: say the typing was lost.
@@ -159,6 +198,18 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       },
     });
     let pinch = null;
+    // A held finger selects: from the cell it was held on to the one under it.
+    let pressAt = null;
+    const cellUnder = (x, y) => {
+      const screen = term.element?.querySelector(".xterm-screen");
+      if (!screen) return { col: 0, row: term.buffer.active.viewportY };
+      const cell = cellAt(screen.getBoundingClientRect(), term.cols, term.rows, x, y);
+      return { col: cell.col, row: cell.row + term.buffer.active.viewportY };
+    };
+    const selectTo = (point) => {
+      const run = selectionRun(selecting.anchor, point, term.cols);
+      term.select(run.col, run.row, run.length);
+    };
     const spread = (touches) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
     // A touch's later events go to the element it began on. Scrolling redraws
     // the rows, so that row leaves the page; events aimed at it then reach
@@ -172,12 +223,26 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       target.addEventListener("touchcancel", endTouch, { passive: true });
     };
     host.addEventListener("touchstart", (event) => {
+      // The copy bar's buttons take their own taps.
+      if (copyBar.contains(event.target)) return;
       follow(event.target);
+      cancelPress();
       if (event.touches.length === 1) {
+        // A tap elsewhere lets go of what was selected.
+        if (term.hasSelection()) term.clearSelection();
         touchX = event.touches[0].clientX;
         scroller.start(event.touches[0].clientY);
+        pressAt = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+        pressTimer = setTimeout(() => {
+          pressTimer = null;
+          scroller.cancel();
+          selecting = { anchor: cellUnder(pressAt.x, pressAt.y) };
+          selectTo(selecting.anchor);
+          navigator.vibrate?.(10);
+        }, LONG_PRESS_MS);
       } else {
         scroller.cancel();
+        selecting = null;
       }
       if (event.touches.length === 2 && spread(event.touches) > 0) {
         pinch = { distance: spread(event.touches), start: term.options.fontSize, size: term.options.fontSize };
@@ -196,10 +261,22 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       }
       if (event.touches.length !== 1) return;
       event.preventDefault();
-      touchX = event.touches[0].clientX;
-      scroller.move(event.touches[0].clientY);
+      const touch = event.touches[0];
+      if (selecting) {
+        selectTo(cellUnder(touch.clientX, touch.clientY));
+        return;
+      }
+      if (pressTimer && Math.hypot(touch.clientX - pressAt.x, touch.clientY - pressAt.y) > LONG_PRESS_SLOP_PX) cancelPress();
+      touchX = touch.clientX;
+      scroller.move(touch.clientY);
     }
     function endTouch(event) {
+      cancelPress();
+      if (selecting && event.touches.length === 0) {
+        selecting = null;
+        copyBar.hidden = !term.hasSelection();
+        return;
+      }
       if (event.type === "touchcancel") scroller.cancel();
       else if (event.touches.length === 0) scroller.end();
       if (pinch && event.touches.length < 2) {
@@ -326,7 +403,33 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   let generation = 0;
   function clearScreen() {
     generation += 1;
+    cancelPress();
+    selecting = null;
+    term?.clearSelection();
     term?.write("\x1bc");
+  }
+
+  // The clipboard API needs a secure page; over plain HTTP the older copy
+  // command still works from a tap. `onCopy(ok)` hears how it went.
+  async function copySelection() {
+    const text = term.getSelection();
+    term.clearSelection();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      onCopy(true);
+      return;
+    } catch {}
+    const scratch = host.ownerDocument.createElement("textarea");
+    scratch.value = text;
+    scratch.setAttribute("readonly", "");
+    scratch.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
+    host.ownerDocument.body.append(scratch);
+    scratch.select();
+    let ok = false;
+    try { ok = host.ownerDocument.execCommand("copy"); } catch {}
+    scratch.remove();
+    onCopy(ok);
   }
 
   function attachCurrent() {
@@ -349,6 +452,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
 
   function stop() {
     clearTimeout(resizeTimer);
+    cancelPress();
     scroller?.cancel();
     if (paneId) connection.detach(paneId);
     paneId = null;
