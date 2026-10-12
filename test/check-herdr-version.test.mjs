@@ -12,9 +12,11 @@ async function fixture(t, version) {
   t.after(() => rm(directory, { recursive: true, force: true }));
   const herdr = join(directory, "herdr");
   await writeFile(herdr, `#!/bin/sh\nprintf 'herdr ${version}\\n'\n`, { mode: 0o755 });
+  // Whatever the surrounding shell set must not decide which module is read.
+  const { HERDR_VERSION_MODULE: _inherited, ...environment } = process.env;
   const check = (module) => spawnSync(process.execPath, [script], {
     encoding: "utf8",
-    env: { ...process.env, HERDR_BIN: herdr, ...(module ? { HERDR_VERSION_MODULE: module } : {}) },
+    env: { ...environment, HERDR_BIN: herdr, ...(module ? { HERDR_VERSION_MODULE: module } : {}) },
   });
   const module = async (source) => {
     const path = join(directory, `version-${Math.random().toString(16).slice(2)}.mjs`);

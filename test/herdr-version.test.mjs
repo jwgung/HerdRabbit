@@ -4,6 +4,7 @@ import { herdrVersionSupported, parseHerdrVersion, readHerdrVersion } from "../s
 
 test("parses the version Herdr prints", () => {
   assert.deepEqual(parseHerdrVersion("herdr 0.9.3\n"), { core: [0, 9, 3], prerelease: "", text: "0.9.3" });
+  assert.deepEqual(parseHerdrVersion("herdr 0.9.0-beta.1"), { core: [0, 9, 0], prerelease: "beta.1", text: "0.9.0-beta.1" });
   assert.equal(parseHerdrVersion("herdr"), null);
 });
 
@@ -15,6 +16,11 @@ test("accepts 0.9.0 and newer only", () => {
   assert.equal(herdrVersionSupported(null), false);
   assert.equal(herdrVersionSupported("herdr 0.9.0-beta.1"), false, "a prerelease comes before its release");
   assert.equal(herdrVersionSupported("0.9.1-rc.1"), true);
+  assert.equal(herdrVersionSupported("0.10.0-alpha.1", "0.10.0-rc.1"), false, "alpha comes before rc");
+  assert.equal(herdrVersionSupported("0.10.0-rc.2", "0.10.0-rc.1"), true);
+  assert.equal(herdrVersionSupported("0.10.0-rc.10", "0.10.0-rc.9"), true, "numbers compare as numbers");
+  assert.equal(herdrVersionSupported("0.10.0-rc", "0.10.0-rc.1"), false, "a shorter list comes first");
+  assert.equal(herdrVersionSupported("0.10.0", "0.10.0-rc.1"), true);
 });
 
 test("reads the installed version and reports a failing binary as unknown", async () => {

@@ -58,12 +58,12 @@ main() {
     # decides whether that one is still new enough.
     log "Updating Herdr"
     "$HERDR_BIN" update --handoff || log "Warning: Herdr could not be updated; keeping the installed version"
-    INCOMING_VERSION_DIRECTORY="$(mktemp -d)"
-    HERDR_VERSION_MODULE="$INCOMING_VERSION_DIRECTORY/herdr-version.mjs"
-    export HERDR_VERSION_MODULE
-    git show FETCH_HEAD:src/herdr-version.mjs > "$HERDR_VERSION_MODULE" || { rm -rf "$INCOMING_VERSION_DIRECTORY"; fail "the new code has no src/herdr-version.mjs to check Herdr against"; }
-    node scripts/check-herdr-version.mjs || { rm -rf "$INCOMING_VERSION_DIRECTORY"; fail "Herdr is missing or too old for the new HerdRabbit; update it and run this script again"; }
-    rm -rf "$INCOMING_VERSION_DIRECTORY"
+    # The whole incoming src, so its version module may import its neighbours.
+    # Passed to the check alone: exported, it would reach the tests below.
+    INCOMING_DIRECTORY="$(mktemp -d)"
+    git archive FETCH_HEAD src | tar -x -C "$INCOMING_DIRECTORY" || { rm -rf "$INCOMING_DIRECTORY"; fail "could not read the new code's src to check Herdr against"; }
+    HERDR_VERSION_MODULE="$INCOMING_DIRECTORY/src/herdr-version.mjs" node scripts/check-herdr-version.mjs || { rm -rf "$INCOMING_DIRECTORY"; fail "Herdr is missing or too old for the new HerdRabbit; update it and run this script again"; }
+    rm -rf "$INCOMING_DIRECTORY"
     git merge --ff-only FETCH_HEAD
     log "Installing runtime dependencies"
     npm ci --omit=dev
