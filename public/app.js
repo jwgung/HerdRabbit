@@ -1468,7 +1468,7 @@ document.querySelector("#server-details-close")
 function herdrVersionText(server) {
   if (!server.herdr_version) return "Unknown";
   return server.herdr_supported === false
-    ? `${server.herdr_version} (update to 0.9.0 or newer)`
+    ? `${server.herdr_version} (update to ${server.herdr_min_version} or newer)`
     : server.herdr_version;
 }
 

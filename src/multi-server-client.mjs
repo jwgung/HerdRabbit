@@ -1,6 +1,6 @@
 import { LeafLinkClient } from "./leaf-link-client.mjs";
 import { InputValidationError } from "./herdr-client.mjs";
-import { herdrVersionSupported } from "./herdr-version.mjs";
+import { MIN_HERDR_VERSION, herdrVersionSupported } from "./herdr-version.mjs";
 
 const collections = ["herdr_sessions", "workspaces", "tabs", "panes", "agents"];
 const idFields = ["session_id", "herdr_session_id", "workspace_id", "active_tab_id", "tab_id", "pane_id"];
@@ -114,7 +114,11 @@ export class MultiServerClient {
 
   localHerdr() {
     const version = this.herdrVersion();
-    return { herdr_version: version, herdr_supported: version === null ? null : herdrVersionSupported(version) };
+    // Supported is null while the version is unknown, which is not the same as too old.
+    return {
+      herdr_version: version, herdr_min_version: MIN_HERDR_VERSION,
+      herdr_supported: version === null ? null : herdrVersionSupported(version),
+    };
   }
 
   // File routes address a server by id and need the client that speaks for it.

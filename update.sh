@@ -8,7 +8,7 @@ need() { command -v "$1" >/dev/null 2>&1 || fail "requires '$1'"; }
 # Parse the entire function before updating this script on disk.
 main() {
     [ "$#" -eq 0 ] || fail "Usage: sh update.sh (optional: HERD_RABBIT_INSTALL_DIR=/path)"
-    for dependency in git node npm systemctl flock herdr; do need "$dependency"; done
+    for dependency in git node npm systemctl flock "${HERDR_BIN:-herdr}"; do need "$dependency"; done
     [ "$(uname -s)" = Linux ] || fail "the service updater supports Linux only"
     [ "$(node -p 'Number(process.versions.node.split(".")[0])')" -ge 22 ] || fail "requires Node.js 22 or newer"
 
@@ -54,7 +54,7 @@ main() {
     # A failed download leaves the installed Herdr in place; the version check
     # below decides whether that one is still new enough.
     log "Updating Herdr"
-    herdr update --handoff || log "Warning: Herdr could not be updated; keeping the installed version"
+    "${HERDR_BIN:-herdr}" update --handoff || log "Warning: Herdr could not be updated; keeping the installed version"
     node scripts/check-herdr-version.mjs || fail "Herdr is too old for this HerdRabbit; update it and run this script again"
     log "Configuring Claude to use native terminal scrollback"
     node scripts/configure-claude.mjs
