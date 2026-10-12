@@ -105,19 +105,36 @@ async function abandoned() {
   const pid = Number(await readFile(join(LOCK, "pid"), "utf8").catch(() => ""));
   return !(Number.isInteger(pid) && pid > 0 && alive(pid));
 }
+// Taking an abandoned lock over is itself done by one process at a time, and
+// looks again once it is that one: two that both saw it abandoned must not
+// remove the lock the first of them has just taken.
+const TAKEOVER = join(directory, ".change-lock-takeover");
+async function takeOver() {
+  try { await mkdir(TAKEOVER, { mode: 0o700 }); } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    const held = await stat(TAKEOVER).catch(() => null);
+    if (held && Date.now() - held.mtimeMs > 60000) await rm(TAKEOVER, { recursive: true, force: true });
+    return;
+  }
+  try { if (await abandoned()) await rm(LOCK, { recursive: true, force: true }); } finally { await rm(TAKEOVER, { recursive: true, force: true }); }
+}
 async function locked(run) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   for (const deadline = Date.now() + 15000; ;) {
     try { await mkdir(LOCK, { mode: 0o700 }); break; } catch (error) {
       if (error.code !== "EEXIST") throw error;
-      if (await abandoned()) { await rm(LOCK, { recursive: true, force: true }); continue; }
+      if (await abandoned()) { await takeOver(); continue; }
       if (Date.now() > deadline) throw new AiAccountError("machine_accounts_busy", "Another account change is still running on that machine. Try again shortly.", { status: 409 });
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
   await writeFile(join(LOCK, "pid"), String(process.pid), { mode: 0o600 });
   const touch = setInterval(() => { const now = new Date(); utimes(LOCK, now, now).catch(() => {}); }, 15000);
-  try { return await run(); } finally { clearInterval(touch); await rm(LOCK, { recursive: true, force: true }); }
+  try { return await run(); } finally {
+    clearInterval(touch);
+    // Only its own lock: one taken over from it (it ran past the lease) is not.
+    if (await readFile(join(LOCK, "pid"), "utf8").catch(() => "") === String(process.pid)) await rm(LOCK, { recursive: true, force: true });
+  }
 }
 const operations = {
   list: () => accounts.list(),

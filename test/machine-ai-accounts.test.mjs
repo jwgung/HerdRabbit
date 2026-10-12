@@ -424,8 +424,10 @@ test("a machine that hangs, floods its answer or cannot be reached fails cleanly
     fake.last = child;
     return child;
   };
+  // The timeout's timer does not hold the process open; this does, meanwhile.
+  const awake = setInterval(() => {}, 1_000);
   const hangs = new MachineAiAccounts({ link: fakeLink, spawnProcess: fake(() => {}), timeoutMs: 50 });
-  await assert.rejects(hangs.saveCurrent("claude"), { code: "machine_timeout", status: 504 });
+  await assert.rejects(hangs.saveCurrent("claude"), { code: "machine_timeout", status: 504 }).finally(() => clearInterval(awake));
   assert.deepEqual(fake.last.killed, ["SIGKILL"]);
 
   const floods = new MachineAiAccounts({ link: fakeLink, spawnProcess: fake((child) => child.stdout.write(Buffer.alloc(300 * 1024, 120))) });
@@ -434,4 +436,21 @@ test("a machine that hangs, floods its answer or cannot be reached fails cleanly
 
   const broken = new MachineAiAccounts({ link: fakeLink, spawnProcess: fake((child) => child.emit("error", new Error("spawn ssh ENOENT"))) });
   await assert.rejects(broken.saveCurrent("claude"), (error) => error.code === "machine_accounts_failed" && !error.message.includes("ENOENT"));
+});
+
+test("two processes that find the same abandoned lock both get through, one after the other", async (t) => {
+  const remote = await remoteHome(t);
+  const ssh = fakeSsh(remote.home);
+  // Two HerdRabbits reaching the same machine: nothing shared on this side.
+  const one = new MachineAiAccounts({ link: fakeLink, spawnProcess: ssh.spawnProcess });
+  const two = new MachineAiAccounts({ link: fakeLink, spawnProcess: ssh.spawnProcess });
+  const { utimes } = await import("node:fs/promises");
+  const lock = join(remote.store, ".change-lock");
+  await mkdir(lock, { recursive: true });
+  const old = new Date(Date.now() - 120_000);
+  await utimes(lock, old, old);
+  const [a, b] = await Promise.all([one.saveCurrent("claude"), two.saveCurrent("codex")]);
+  assert.equal(a.account.email, "a@example.com");
+  assert.equal(b.account.email, "a@example.com");
+  assert.deepEqual((await readdir(remote.store)).filter((name) => name.startsWith(".change-lock")), [], "no lock is left behind");
 });
