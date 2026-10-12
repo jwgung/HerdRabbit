@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.17";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.17";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.18";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.18";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -50,8 +50,8 @@ import {
   aiRestartHint,
   isAiLoginWorkspace,
   paneKeepsInputHistory,
-} from "./ui-model.js?v=1.2.17";
-import { ansiToSegments } from "./ansi.js?v=1.2.17";
+} from "./ui-model.js?v=1.2.18";
+import { ansiToSegments } from "./ansi.js?v=1.2.18";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -62,45 +62,45 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.17";
-import { linkTerminalSegments } from "./terminal-links.js?v=1.2.17";
-import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.17";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.17";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.17";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.17";
+} from "./browse-preference.js?v=1.2.18";
+import { linkTerminalSegments } from "./terminal-links.js?v=1.2.18";
+import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.18";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.18";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.18";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.18";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.17";
+} from "./pane-preference.js?v=1.2.18";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.17";
+} from "./workspace-preference.js?v=1.2.18";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.17";
+} from "./terminal-preference.js?v=1.2.18";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.17";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.17";
+} from "./completion-preference.js?v=1.2.18";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.18";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.17";
+} from "./input-history-preference.js?v=1.2.18";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.17";
+} from "./launch-session.js?v=1.2.18";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.17";
+} from "./push-notifications.js?v=1.2.18";
 
 function browserStorage() {
   try {

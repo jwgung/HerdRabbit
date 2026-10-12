@@ -389,3 +389,70 @@ test("without a password there is no current session to name", () => {
   assert.equal(auth.currentSessionId(undefined), null);
   assert.equal(auth.currentSessionId("herdr_session=anything"), null);
 });
+
+test("a browser signing in again replaces its own earlier sign-ins, not others'", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-auth-"));
+  const authFile = join(directory, "auth.json");
+  await writePasswordConfiguration(authFile, "secret");
+  const auth = await loadPasswordAuth(authFile);
+  let ended = 0;
+  auth.onSessionsEnded(() => { ended += 1; });
+  const phoneDevice = auth.browserDevice("");
+  const laptopDevice = auth.browserDevice(undefined);
+  assert.notEqual(phoneDevice, laptopDevice);
+  assert.equal(auth.browserDevice(`herdr_device=${phoneDevice}`), phoneDevice, "a browser keeps its device");
+  assert.notEqual(auth.browserDevice("herdr_device=short"), "short", "a malformed device is replaced");
+
+  const first = auth.createSession({ agent: "Chrome · Android", device: phoneDevice });
+  const laptop = auth.createSession({ agent: "Firefox · Linux", device: laptopDevice });
+  assert.equal(ended, 0, "another browser adds a row");
+  assert.equal(auth.sessionSummaries().length, 2);
+
+  // Signed out, or the cookie lost: only the device cookie is left.
+  const second = auth.createSession({ agent: "Chrome · Android", device: phoneDevice, cookieHeader: `herdr_device=${phoneDevice}` });
+  assert.equal(ended, 1, "open connections of the replaced sign-in check again");
+  assert.equal(auth.hasValidSession(`herdr_session=${first}`), false);
+  assert.equal(auth.hasValidSession(`herdr_session=${second}`), true);
+  assert.equal(auth.hasValidSession(`herdr_session=${laptop}`), true);
+  assert.deepEqual(auth.sessionSummaries().map((item) => item.agent).sort(), ["Chrome · Android", "Firefox · Linux"]);
+  for (const summary of auth.sessionSummaries()) {
+    assert.deepEqual(Object.keys(summary).sort(), ["agent", "createdAt", "expiresAt", "id", "lastUsedAt"], "the device is never listed");
+  }
+
+  await auth.writeQueue;
+  const source = await readFile(authFile, "utf8");
+  assert.equal(source.includes(phoneDevice), false, "the file keeps only a hash of the device");
+  const reloaded = await loadPasswordAuth(authFile);
+  reloaded.createSession({ device: phoneDevice });
+  assert.equal(reloaded.hasValidSession(`herdr_session=${second}`), false, "replaced across a restart too");
+  assert.equal(reloaded.sessionSummaries().length, 2);
+});
+
+test("a sign-in that still carries a valid session replaces it", async () => {
+  const auth = new PasswordAuth(await createPasswordConfiguration("secret"));
+  const other = auth.createSession({ agent: "Other" });
+  const before = auth.createSession({ agent: "Old" });
+  let ended = 0;
+  auth.onSessionsEnded(() => { ended += 1; });
+  const after = auth.createSession({ agent: "New", cookieHeader: `herdr_session=${before}` });
+  assert.equal(ended, 1);
+  assert.equal(auth.hasValidSession(`herdr_session=${before}`), false);
+  assert.equal(auth.hasValidSession(`herdr_session=${after}`), true);
+  assert.equal(auth.hasValidSession(`herdr_session=${other}`), true);
+  assert.deepEqual(auth.sessionSummaries().map((item) => item.agent).sort(), ["New", "Other"]);
+  auth.createSession({ agent: "Third" });
+  assert.equal(ended, 1, "a sign-in that replaces nothing ends nothing");
+});
+
+test("sessions saved without a device stay valid; a malformed device is refused", async () => {
+  const configuration = await createPasswordConfiguration("secret");
+  const now = Math.floor(Date.now() / 1000);
+  const legacy = { id: "A".repeat(22), createdAt: now, expiresAt: now + 60, lastUsedAt: now, agent: "Old browser" };
+  const auth = new PasswordAuth({ ...configuration, sessions: [legacy] });
+  auth.createSession({ device: auth.browserDevice("") });
+  assert.deepEqual(auth.sessionSummaries().map((item) => item.agent).sort(), ["Old browser", "Unknown browser"]);
+  assert.equal(new PasswordAuth({ ...configuration, sessions: [{ ...legacy, device: "B".repeat(22) }] }).sessionSummaries().length, 1);
+  for (const device of ["", "short", "x".repeat(23), "A".repeat(21) + "!", 7, null]) {
+    assert.throws(() => new PasswordAuth({ ...configuration, sessions: [{ ...legacy, device }] }), /session configuration is invalid/u);
+  }
+});
