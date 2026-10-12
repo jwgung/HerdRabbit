@@ -18,6 +18,7 @@ import { announceToHub } from "./leaf-announce.mjs";
 import { FileStore } from "./file-store.mjs";
 import { MultiServerClient } from "./multi-server-client.mjs";
 import { AiAccounts, runningAgentsIn } from "./ai-accounts.mjs";
+import { MIN_HERDR_VERSION, herdrVersionSupported, readHerdrVersion } from "./herdr-version.mjs";
 
 const config = readConfig();
 const auth = await loadPasswordAuth(config.authFile);
@@ -69,7 +70,15 @@ const push = await loadWebPushService(config.pushFile);
 const profiles = await ServerProfiles.load(config.serversFile);
 const files = await FileStore.load(config.filesDir, { maxBytes: config.maxTransferBytes });
 const hubVersion = readAppVersion();
-const herdr = new MultiServerClient({ local, profiles, hubVersion, machineName });
+// Read once: the updater restarts this service after it updates Herdr.
+let herdrVersion = null;
+void readHerdrVersion(config.herdrBin).then((version) => {
+  herdrVersion = version;
+  if (!herdrVersionSupported(version)) {
+    console.warn(`Herdr ${version || "(unknown version)"} is older than ${MIN_HERDR_VERSION}. Run: ${config.herdrBin} update --handoff`);
+  }
+});
+const herdr = new MultiServerClient({ local, profiles, hubVersion, machineName, herdrVersion: () => herdrVersion });
 // Only this machine's panes decide whether a switch here would disturb anything.
 const aiAccounts = new AiAccounts({ directory: config.aiAccountsDir, runningAgents: () => runningAgentsIn(local) });
 const notificationMonitor = new AgentNotificationMonitor({ herdr, push });

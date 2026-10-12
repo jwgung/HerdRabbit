@@ -84,6 +84,23 @@ test("every machine goes by its tailnet name, and this one reports its version",
   assert.deepEqual(servers.map((server) => server.machine), ["gungbuntu", "devbox"]);
 });
 
+test("this machine reports its Herdr version and whether it is supported", async () => {
+  let version = null;
+  const client = new MultiServerClient({ local: bridge("Local", []),
+    profiles: { list: () => [{ ...sample, transport: "link", id: REMOTE }] },
+    remoteFactory: () => bridge("Remote", []), herdrVersion: () => version });
+  let { servers: [local, remote] } = await client.snapshot();
+  assert.equal(local.herdr_version, null);
+  assert.equal(local.herdr_supported, null, "an unread version is unknown, not unsupported");
+  assert.equal(remote.herdr_version, undefined, "a linked machine answers for its own Herdr");
+  version = "0.8.2";
+  ({ servers: [local] } = await client.snapshot());
+  assert.deepEqual([local.herdr_version, local.herdr_supported], ["0.8.2", false]);
+  version = "0.9.3";
+  ({ servers: [local] } = await client.snapshot());
+  assert.equal(local.herdr_supported, true);
+});
+
 test("server HTTP API protects writes and supports test, add, edit, delete", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "herdr-profile-api-"));
   t.after(() => rm(dir, { recursive: true, force: true }));

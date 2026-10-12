@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
+import { MIN_HERDR_VERSION, herdrVersionSupported, readHerdrVersion } from "../src/herdr-version.mjs";
 
 export const HERDR_INSTALL_URL = "https://herdr.dev/install.sh";
 
@@ -61,15 +62,37 @@ export async function installHerdrFromOfficialScript({
   }
 }
 
+// --handoff keeps the panes of a running Herdr alive across the upgrade.
+export function updateHerdr(executable) {
+  return runInteractive(executable, ["update", "--handoff"]);
+}
+
+async function ensureSupportedVersion(executable, { readVersion, update, log }) {
+  const version = await readVersion(executable);
+  if (herdrVersionSupported(version)) return;
+  log(`Herdr ${version || "(버전 알 수 없음)"}이 ${MIN_HERDR_VERSION}보다 낮아 업데이트합니다…`);
+  await update(executable);
+  const updated = await readVersion(executable);
+  if (!herdrVersionSupported(updated)) {
+    throw new Error(`Herdr ${updated || "(unknown version)"} at ${executable} is older than ${MIN_HERDR_VERSION}; update it and run the installer again`);
+  }
+  log(`Herdr 업데이트 완료: ${updated}`);
+}
+
 export async function ensureHerdrExecutable({
   path = process.env.PATH || "",
   installDir = process.env.HERDR_INSTALL_DIR || join(homedir(), ".local", "bin"),
   isExecutable = canExecute,
   install = installHerdrFromOfficialScript,
+  readVersion = readHerdrVersion,
+  update = updateHerdr,
   log = console.log,
 } = {}) {
   const existing = await executableOnPath("herdr", { path, isExecutable });
-  if (existing) return existing;
+  if (existing) {
+    await ensureSupportedVersion(existing, { readVersion, update, log });
+    return existing;
+  }
 
   const absoluteInstallDir = resolve(installDir);
   log("Herdr를 찾을 수 없어 공식 설치 스크립트로 설치합니다…");

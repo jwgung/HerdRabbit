@@ -1,5 +1,6 @@
 import { LeafLinkClient } from "./leaf-link-client.mjs";
 import { InputValidationError } from "./herdr-client.mjs";
+import { herdrVersionSupported } from "./herdr-version.mjs";
 
 const collections = ["herdr_sessions", "workspaces", "tabs", "panes", "agents"];
 const idFields = ["session_id", "herdr_session_id", "workspace_id", "active_tab_id", "tab_id", "pane_id"];
@@ -25,11 +26,12 @@ export function serverStatusFor(error) {
 
 export class MultiServerClient {
   constructor({
-    local, profiles, hubVersion, machineName = () => null,
+    local, profiles, hubVersion, machineName = () => null, herdrVersion = () => null,
     remoteFactory = (profile) => new LeafLinkClient({ profile, hubVersion }),
   }) {
     this.local = local;
     this.machineName = machineName;
+    this.herdrVersion = herdrVersion;
     this.hubVersion = hubVersion ?? null;
     this.profiles = profiles;
     this.remoteFactory = remoteFactory;
@@ -104,8 +106,15 @@ export class MultiServerClient {
         address: profile.address ?? null,
         machine: this.machineName(profile) ?? null,
         version: profile.id === "local" ? this.hubVersion : client?.info?.().version ?? null,
+        // Only this machine's Herdr is known here; a linked one answers for its own.
+        ...(profile.id === "local" ? this.localHerdr() : {}),
       })),
     };
+  }
+
+  localHerdr() {
+    const version = this.herdrVersion();
+    return { herdr_version: version, herdr_supported: version === null ? null : herdrVersionSupported(version) };
   }
 
   // File routes address a server by id and need the client that speaks for it.

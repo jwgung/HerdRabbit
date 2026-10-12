@@ -21,7 +21,9 @@ async function runFixture(t, mode = "success") {
 name=\${0##*/}
 printf '%s %s\\n' "$name" "$*" >> "$UPDATE_TEST_LOG"
 case "$name:$*" in
+  'node:scripts/check-herdr-version.mjs') [ "$UPDATE_TEST_MODE" != herdr-too-old ] ;;
   'node:'*) printf '22\\n' ;;
+  'herdr:update --handoff') [ "$UPDATE_TEST_MODE" != herdr-update-failed ] ;;
   'git:rev-parse --show-toplevel') printf '%s\\n' "$UPDATE_TEST_REPO" ;;
   'git:remote get-url origin') printf 'https://github.com/ultivis-iot/HerdRabbit.git\\n' ;;
   'git:rev-parse --git-path herdrabbit-update.lock') printf '%s/lock\\n' "$UPDATE_TEST_REPO" ;;
@@ -36,7 +38,7 @@ case "$name:$*" in
   'systemctl:'*'--property=WorkingDirectory --value') if [ "$UPDATE_TEST_MODE" = wrong-service ]; then printf '/tmp\\n'; else printf '%s\\n' "$UPDATE_TEST_REPO"; fi ;;
 esac
 `;
-  for (const command of ["node", "git", "npm", "systemctl"]) {
+  for (const command of ["node", "git", "npm", "systemctl", "herdr"]) {
     await writeFile(join(bin, command), fake, { mode: 0o755 });
   }
   const log = join(directory, "commands");
@@ -57,11 +59,21 @@ test("updater locates its installation and verifies before restarting without re
   assert.ok(commands.indexOf("npm run verify") < commands.indexOf("systemctl --user restart"));
   assert.ok(commands.indexOf("node scripts/configure-claude.mjs") > commands.indexOf("npm run verify"));
   assert.ok(commands.indexOf("node scripts/configure-claude.mjs") < commands.indexOf("systemctl --user restart"));
+  assert.ok(commands.indexOf("herdr update --handoff") > commands.indexOf("npm run verify"));
+  assert.ok(commands.indexOf("node scripts/check-herdr-version.mjs") > commands.indexOf("herdr update --handoff"));
+  assert.ok(commands.indexOf("node scripts/check-herdr-version.mjs") < commands.indexOf("systemctl --user restart"));
   assert.match(commands, /git merge --ff-only FETCH_HEAD/);
   assert.doesNotMatch(commands, /install-service|tailscale|reset --hard/);
 });
 
-for (const mode of ["branch", "dirty", "wrong-service", "diverged", "fetch-failed", "install-failed", "verify-failed"]) {
+test("updater keeps the installed Herdr when its update fails but it is new enough", async (t) => {
+  const { result, commands } = await runFixture(t, "herdr-update-failed");
+  assert.equal(result.code, undefined, result.stderr);
+  assert.match(result.stdout, /Herdr could not be updated/);
+  assert.match(commands, /systemctl --user restart/);
+});
+
+for (const mode of ["branch", "dirty", "wrong-service", "diverged", "fetch-failed", "install-failed", "verify-failed", "herdr-too-old"]) {
   test(`updater aborts without restarting on ${mode}`, async (t) => {
     const { result, commands } = await runFixture(t, mode);
     assert.notEqual(result.code, undefined);

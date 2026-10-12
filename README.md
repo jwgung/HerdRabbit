@@ -70,7 +70,7 @@ Pane splitting, Herdr persistent-session renaming, and multi-user accounts are n
 - **Authentication:** WebAuthn Passkeys through SimpleWebAuthn, `scrypt` password hashes, HMAC-signed sessions, `HttpOnly` cookies, per-window signed launch tokens, CSRF tokens, and same-origin checks
 - **Testing:** Node's built-in `node:test`, integration tests, and a fake Herdr executable
 
-Live terminal input (including composer submissions and extra keys) and output use `/api/terminal` WebSocket. After the initial snapshot, only changes are sent. Herdr 0.8.2 has no general screen-change subscription, so the server observes output: 50 ms after each read during activity, 500 ms when quiet, shared by viewers of the same pane and line range. Background pages disconnect and receive a fresh snapshot on return. Session status uses Herdr `pane.agent_status_changed` events over WebSocket, including unselected sessions. Project/session lists still refresh over HTTP every two seconds and resynchronize after the status subscription starts. HTTP list refreshes also cover subscription failures while retrying. Older history, authentication, and project/session management remain HTTP. Push notifications are unchanged.
+Live terminal input (including composer submissions and extra keys) and output use `/api/terminal` WebSocket. After the initial snapshot, only changes are sent. Herdr reports no general screen change outside a terminal attach, so the server observes output: 50 ms after each read during activity, 500 ms when quiet, shared by viewers of the same pane and line range. Background pages disconnect and receive a fresh snapshot on return. Session status uses Herdr `pane.agent_status_changed` events over WebSocket, including unselected sessions. Project/session lists still refresh over HTTP every two seconds and resynchronize after the status subscription starts. HTTP list refreshes also cover subscription failures while retrying. Older history, authentication, and project/session management remain HTTP. Push notifications are unchanged.
 
 ## Additional machines
 
@@ -149,7 +149,7 @@ Each instance is still personal: it exposes only the Herdr sessions and configur
 - Linux for automatic systemd service installation; macOS may use direct execution
 - Node.js 22 or newer
 - Git and curl for the one-line installer
-- A running Herdr persistent session
+- Herdr 0.9.0 or newer with a running persistent session. The installer and `update.sh` update an older Herdr with `herdr update --handoff`, which keeps running panes alive
 - Tailscale when remote HTTPS access is required
 - Outbound internet access to browser push services when background notifications are enabled
 
@@ -185,7 +185,7 @@ The bootstrap script:
 
 1. Checks Linux, Git, and Node.js 22+
 2. Clones or updates HerdRabbit in `~/.local/share/herd-rabbit`
-3. Installs Herdr from `https://herdr.dev/install.sh` when `herdr` is missing
+3. Installs Herdr from `https://herdr.dev/install.sh` when `herdr` is missing, or updates it with `herdr update --handoff` when it is older than 0.9.0
 4. Prompts for an optional HerdRabbit password through the terminal
 5. Selects an unused port, preferring `38787` and then `30000–39999`
 6. Installs and starts `herdrabbit.service` for the current OS user
@@ -369,7 +369,7 @@ Output and history come only from Herdr's ANSI screen and scrollback. Claude's J
 
 During install and update, the current user's global Claude settings (`~/.claude/settings.json`, or the path in `CLAUDE_CONFIG_DIR`) get `tui: "default"` and `env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1"`, so ordinary terminal scrolling is used instead of Claude's own. Existing settings are backed up beside the file as `settings.json.herdrabbit-*.bak` and other keys are preserved. A running Claude picks this up after a restart. Every machine applies it during its own install or update, since each one runs its own HerdRabbit. The settings survive Claude's own updates. To apply it by hand: `node scripts/configure-claude.mjs`.
 
-Live terminal input (including composer submissions and extra keys) and output use `/api/terminal` WebSocket. After the initial snapshot, only changes are sent. Herdr 0.8.2 has no general screen-change subscription, so the server observes output: 50 ms after each read during activity, 500 ms when quiet, shared by viewers of the same pane and line range. Background pages disconnect and receive a fresh snapshot on return. Session status uses Herdr `pane.agent_status_changed` events over WebSocket, including unselected sessions. Project/session lists still refresh over HTTP every two seconds and resynchronize after the status subscription starts. HTTP list refreshes also cover subscription failures while retrying. Older history, authentication, and project/session management remain HTTP. Push notifications are unchanged.
+Live terminal input (including composer submissions and extra keys) and output use `/api/terminal` WebSocket. After the initial snapshot, only changes are sent. Herdr reports no general screen change outside a terminal attach, so the server observes output: 50 ms after each read during activity, 500 ms when quiet, shared by viewers of the same pane and line range. Background pages disconnect and receive a fresh snapshot on return. Session status uses Herdr `pane.agent_status_changed` events over WebSocket, including unselected sessions. Project/session lists still refresh over HTTP every two seconds and resynchronize after the status subscription starts. HTTP list refreshes also cover subscription failures while retrying. Older history, authentication, and project/session management remain HTTP. Push notifications are unchanged.
 
 ### Display settings
 
@@ -479,7 +479,7 @@ cd ~/.local/share/herd-rabbit
 sh ./update.sh
 ```
 
-Run as the Linux account that installed the service. The updater uses its own directory, or `HERD_RABBIT_INSTALL_DIR`. It requires a clean `main` branch and the official origin, fetches and fast-forwards `main`, installs dependencies, verifies, and restarts the matching user service. A lock prevents concurrent updates. Local changes, divergent commits, or failed dependency installation/verification stop the process before restart. This is an in-place update: code or dependencies may already have changed on failure; there is no automatic rollback. Ports, authentication, Tailscale settings, and saved servers are preserved. If an older installation lacks `update.sh`, run `git pull --ff-only` once first.
+Run as the Linux account that installed the service. The updater uses its own directory, or `HERD_RABBIT_INSTALL_DIR`. It requires a clean `main` branch and the official origin, fetches and fast-forwards `main`, installs dependencies, verifies, updates Herdr with `herdr update --handoff` (running panes stay alive), and restarts the matching user service. A failed Herdr update continues when the installed Herdr is 0.9.0 or newer and stops before restart otherwise. A lock prevents concurrent updates. Local changes, divergent commits, or failed dependency installation/verification stop the process before restart. This is an in-place update: code or dependencies may already have changed on failure; there is no automatic rollback. Ports, authentication, Tailscale settings, and saved servers are preserved. If an older installation lacks `update.sh`, run `git pull --ff-only` once first.
 
 The Service Worker reloads the page once when it activates a new app shell. Manually refresh a tab that has remained open for a long time.
 

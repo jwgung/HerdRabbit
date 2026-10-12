@@ -323,7 +323,7 @@ export class HerdrClient {
   async sendKeys(paneId, keys) {
     const safePaneId = validatePaneId(paneId);
     const safeKeys = validateKeys(keys);
-    // Herdr 0.8.2's named-key parser omits these navigation keys. Its
+    // Herdr's named-key parser (0.8.2 through 0.9.3) omits these navigation keys. Its
     // send-text API writes bytes directly to the PTY, without paste wrapping.
     const groups = [];
     for (const key of safeKeys) {

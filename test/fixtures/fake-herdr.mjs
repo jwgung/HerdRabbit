@@ -44,6 +44,11 @@ for (const [paneId, output] of Object.entries(state.outputs || {})) {
   }
 }
 
+if (args[0] === "--version") {
+  process.stdout.write("herdr 0.9.3\n");
+  process.exit(0);
+}
+
 if (args[0] === "api" && args[1] === "snapshot") {
   success({ snapshot: state.snapshot });
   process.exit(0);

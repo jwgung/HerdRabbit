@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.9";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.9";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.10";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.10";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -48,8 +48,8 @@ import {
   aiRestartHint,
   isAiLoginWorkspace,
   paneKeepsInputHistory,
-} from "./ui-model.js?v=1.2.9";
-import { ansiToSegments } from "./ansi.js?v=1.2.9";
+} from "./ui-model.js?v=1.2.10";
+import { ansiToSegments } from "./ansi.js?v=1.2.10";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -60,42 +60,42 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.9";
-import { linkTerminalSegments } from "./terminal-links.js?v=1.2.9";
-import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.9";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.9";
+} from "./browse-preference.js?v=1.2.10";
+import { linkTerminalSegments } from "./terminal-links.js?v=1.2.10";
+import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.10";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.10";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.9";
+} from "./pane-preference.js?v=1.2.10";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.9";
+} from "./workspace-preference.js?v=1.2.10";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.9";
+} from "./terminal-preference.js?v=1.2.10";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.9";
+} from "./completion-preference.js?v=1.2.10";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.9";
+} from "./input-history-preference.js?v=1.2.10";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.9";
+} from "./launch-session.js?v=1.2.10";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.9";
+} from "./push-notifications.js?v=1.2.10";
 
 function browserStorage() {
   try {
@@ -1465,6 +1465,13 @@ const serverDetailsDialog = document.querySelector("#server-details-dialog");
 document.querySelector("#server-details-close")
   .addEventListener("click", () => serverDetailsDialog.close());
 
+function herdrVersionText(server) {
+  if (!server.herdr_version) return "Unknown";
+  return server.herdr_supported === false
+    ? `${server.herdr_version} (update to 0.9.0 or newer)`
+    : server.herdr_version;
+}
+
 function showServerDetails(server) {
   const sessions = snapshotRecords().herdrSessions.filter((item) => item.server_id === server.id);
   // A pane record carries no server of its own; its id is where the server is.
@@ -1473,6 +1480,7 @@ function showServerDetails(server) {
   const rows = [
     ...(server.machine ? [["Machine", server.machine]] : []),
     ["HerdRabbit", server.version || "Unknown"],
+    ...(server.herdr_version === undefined ? [] : [["Herdr", herdrVersionText(server)]]),
     ["Status", server.available ? "Connected" : server.status || "Offline"],
     ["Herdr sessions", String(sessions.length)],
     ["Panes", String(panes.length)],
