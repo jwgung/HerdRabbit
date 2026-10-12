@@ -45,6 +45,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   isViewablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {} }) {
   const { Terminal, FitAddon, WebLinksAddon, UnicodeGraphemesAddon } = xterm;
   let term = null;
+  // The finger scroll; a glide stops when the pane changes or goes away.
+  let scroller = null;
   let fit = null;
   let paneId = null;
   let resizeTimer = null;
@@ -127,7 +129,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     // reads, one notch per three lines the finger travels, gliding on after a
     // flick. Two fingers pinch the font size, kept once they lift.
     let touchX = 0;
-    const scroller = createTouchScroller({
+    scroller = createTouchScroller({
       step: () => {
         const screen = term.element?.querySelector(".xterm-screen");
         const lineHeight = screen && term.rows ? screen.offsetHeight / term.rows : 16;
@@ -297,6 +299,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
 
   function stop() {
     clearTimeout(resizeTimer);
+    scroller?.cancel();
     if (paneId) connection.detach(paneId);
     paneId = null;
     ready = false;
@@ -315,6 +318,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       if (nextPaneId === paneId) { connection.resume(); return true; }
       if (!term) create();
       clearTimeout(resizeTimer);
+      scroller?.cancel();
       if (paneId) connection.detach(paneId);
       paneId = nextPaneId;
       ready = false;
