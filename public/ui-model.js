@@ -519,6 +519,27 @@ export function openRenames(editing, records) {
   return { ...open, any: Boolean(open.workspaceId || open.tabId || open.serverId) };
 }
 
+// A pane on another server that is not in the snapshot yet is waited for, not
+// replaced by some other pane, while that server is still connecting -- and
+// only for so long. A server that is off or failed to answer has nothing coming;
+// one not listed yet may still be, while the server list is pending.
+export function waitsForRemotePane(paneId, panes, servers, waitedMs, limitMs, serversPending = false) {
+  if (!paneId?.includes("!") || waitedMs >= limitMs) return false;
+  if (array(panes).some((pane) => idOf(pane, "pane_id", "id") === paneId)) return false;
+  const serverId = paneId.split("!")[0];
+  const server = array(servers).find((item) => item?.id === serverId);
+  return server ? server.connecting === true : serversPending === true;
+}
+
+// The pane on screen whose server dropped stays on screen while that server
+// comes back; one whose machine was turned off gives way to another pane.
+export function keepsVanishedRemotePane(paneId, panes, servers) {
+  if (!paneId?.includes("!")) return false;
+  if (array(panes).some((pane) => idOf(pane, "pane_id", "id") === paneId)) return false;
+  const serverId = paneId.split("!")[0];
+  return array(servers).some((server) => server?.id === serverId && !server.available && server.enabled !== false);
+}
+
 export function selectedPaneIdForSnapshot(
   panes,
   currentPaneId,

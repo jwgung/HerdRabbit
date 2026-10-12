@@ -36,6 +36,8 @@ import {
   sidebarPresentation,
   terminalOutputForEnvironment,
   uploadSummary,
+  waitsForRemotePane,
+  keepsVanishedRemotePane,
 } from "../public/ui-model.js";
 
 test("cycles through panes with Ctrl+Tab and Ctrl+Shift+Tab", () => {
@@ -845,4 +847,30 @@ test("diffs browse folder listings to track added and removed entries", () => {
   const restored = thirdDiff.listing.entries.find((e) => e.name === "build.log");
   assert.equal(restored?.removed, undefined);
   assert.equal(restored?.size, 200);
+});
+
+test("a page waits for another server's pane only while that server is still connecting", () => {
+  const pane = "machine-4c139ff50dfb!hs_x~w1:p1";
+  const server = (fields) => [{ id: "local", available: true, connecting: false }, { id: "machine-4c139ff50dfb", ...fields }];
+  const LIMIT = 20_000;
+  assert.equal(waitsForRemotePane(pane, [], server({ available: false, connecting: true }), 1_000, LIMIT), true, "connecting");
+  assert.equal(waitsForRemotePane(pane, [], server({ available: false, connecting: true }), LIMIT, LIMIT), false, "waited long enough");
+  assert.equal(waitsForRemotePane(pane, [], server({ available: false, connecting: false, enabled: false }), 1_000, LIMIT), false, "turned off");
+  assert.equal(waitsForRemotePane(pane, [], server({ available: false, connecting: false }), 1_000, LIMIT), false, "failed to answer");
+  assert.equal(waitsForRemotePane(pane, [], server({ available: true, connecting: false }), 1_000, LIMIT), false, "connected, and the pane is gone");
+  assert.equal(waitsForRemotePane(pane, [{ pane_id: pane }], server({ available: true, connecting: false }), 1_000, LIMIT), false, "already here");
+  assert.equal(waitsForRemotePane(pane, [], [{ id: "local" }], 1_000, LIMIT, true), true, "not listed yet while the list is pending");
+  assert.equal(waitsForRemotePane(pane, [], [{ id: "local" }], 1_000, LIMIT, false), false, "not listed once the list is in");
+  assert.equal(waitsForRemotePane("hs_x~w1:p1", [], [{ id: "local" }], 1_000, LIMIT, true), false, "a local pane is never waited for");
+});
+
+test("the pane on screen stays while its server comes back, and gives way once its machine is turned off", () => {
+  const pane = "machine-4c139ff50dfb!hs_x~w1:p1";
+  const with_ = (fields) => [{ id: "machine-4c139ff50dfb", ...fields }];
+  assert.equal(keepsVanishedRemotePane(pane, [], with_({ available: false, enabled: true })), true, "reconnecting");
+  assert.equal(keepsVanishedRemotePane(pane, [], with_({ available: false })), true, "a linked server reconnecting");
+  assert.equal(keepsVanishedRemotePane(pane, [], with_({ available: false, enabled: false })), false, "turned off");
+  assert.equal(keepsVanishedRemotePane(pane, [], with_({ available: true, enabled: true })), false, "connected, and the pane is gone");
+  assert.equal(keepsVanishedRemotePane(pane, [{ pane_id: pane }], with_({ available: false })), false, "still listed");
+  assert.equal(keepsVanishedRemotePane("hs_x~w1:p1", [], []), false, "a local pane");
 });

@@ -74,6 +74,14 @@ Live terminal input (including composer submissions and extra keys) and output u
 
 ## Additional machines
 
+### Herdr SSH machines
+
+Machines added with `herdr machine add` appear in the sidebar next to this one, and **+ → Add SSH machine** adds one from here: give an SSH target (`user@host`, or a host from your SSH config) and optionally a name. Nothing is installed on that machine besides the Herdr it already runs. HerdRabbit keeps one SSH connection per enabled machine and forwards that machine's Herdr sockets to a private directory of its own, so its panes list, take input, report status and open as a real terminal the same way this machine's do. The machine's `⋯` menu renames it, turns it off or removes it, through `herdr machine`, so Herdr's own list stays the same.
+
+SSH has to sign in with a key and already trust the host. A machine that asks for a password or a new host key shows that in its status; run `herdr machine reconnect` (or `herdr machine add`) for it once in a terminal. Files and AI account switching for these machines come in a later release.
+
+### Linked HerdRabbit servers
+
 Local Herdr remains the default. Use **+ → Connect Server** at the top of the sidebar to add another machine. All registered servers appear together as **server → Herdr session → project → tab/pane**; selecting a pane sends input and reads output on that machine.
 
 Every server is another HerdRabbit. The dialog lists the machines on your tailnet and says what each one is: ready to add, already added, running HerdRabbit but not accepting this machine, or on a different version. Pick a ready one and its name and address fill in. Machines with nothing to act on -- no HerdRabbit, or offline -- fold away behind a count, so a large tailnet stays readable while a machine you expected to see is still findable with the reason it cannot be added. A machine is picked, never typed: the address comes from the tailnet, and the only thing left to choose is what to call it here.

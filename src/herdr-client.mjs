@@ -191,6 +191,7 @@ export class HerdrClient {
     timeoutMs = 5_000,
     runner = execFileAsync,
     sessionName = null,
+    socketPath = null,
   } = {}) {
     this.binary = binary;
     this.timeoutMs = timeoutMs;
@@ -198,18 +199,21 @@ export class HerdrClient {
     this.sessionName = sessionName === null
       ? null
       : validateHerdrSessionName(sessionName);
+    // Another machine's Herdr, reached through a socket forwarded here: every
+    // command goes to that socket, and it is the one session there is.
+    this.socketPath = socketPath;
   }
 
   async #run(args, { json = true, timeoutMs = this.timeoutMs } = {}) {
     try {
-      const commandArgs = this.sessionName === null
+      const commandArgs = this.sessionName === null || this.socketPath
         ? args
         : [`--session=${this.sessionName}`, ...args];
       const { stdout } = await this.runner(this.binary, commandArgs, {
         encoding: "utf8",
         timeout: timeoutMs,
         maxBuffer: 2 * 1024 * 1024,
-        env: { ...process.env, NO_COLOR: "1" },
+        env: { ...process.env, NO_COLOR: "1", ...(this.socketPath ? { HERDR_SOCKET_PATH: this.socketPath } : {}) },
         windowsHide: true,
       });
 
@@ -227,8 +231,10 @@ export class HerdrClient {
     return result?.snapshot ?? result;
   }
 
-  async listSessions() {
-    const result = await this.#run(["session", "list", "--json"]);
+  async listSessions({ timeoutMs = this.timeoutMs } = {}) {
+    // `session list` reads this machine's sessions, never the socket's.
+    if (this.socketPath) return [{ name: this.sessionName || "default", default: true, running: true, socket_path: this.socketPath }];
+    const result = await this.#run(["session", "list", "--json"], { timeoutMs });
     return result?.sessions ?? result;
   }
 
@@ -318,12 +324,19 @@ export class HerdrClient {
     const run = (args) => this.#run(args, { timeoutMs: Math.min(timeoutMs, this.timeoutMs) });
     const [{ pane }, sessions, layout] = await Promise.all([
       run(["pane", "get", safePaneId]),
-      run(["session", "list", "--json"]).then((result) => result?.sessions ?? result),
+      this.listSessions({ timeoutMs: Math.min(timeoutMs, this.timeoutMs) }),
       run(["pane", "layout", "--pane", safePaneId]).catch(() => null),
     ]);
     const session = sessions.find(item => item.name === (this.sessionName || "default") && item.running);
     if (!session?.socket_path) throw new HerdrCommandError("Herdr socket is unavailable", { code: "server_unavailable" });
-    if (typeof pane?.terminal_id !== "string" || !pane.terminal_id) throw new HerdrCommandError("The pane has no terminal", { code: "no_terminal" });
+    // `terminal attach` takes the API socket in HERDR_SOCKET_PATH and finds the
+    // client socket beside it as `<name>-client.sock`; on a Herdr machine that
+    // is the second socket the SSH link forwards (clientSocketFor).
+    // On a Herdr machine this id comes from the other side: it may only ever be
+    // an id, never something `terminal attach` would read as an option.
+    if (typeof pane?.terminal_id !== "string" || !/^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$/u.test(pane.terminal_id)) {
+      throw new HerdrCommandError("The pane has no terminal", { code: "no_terminal" });
+    }
     const rect = layout?.layout?.panes?.find(item => item.pane_id === safePaneId)?.rect;
     return {
       command: this.binary,

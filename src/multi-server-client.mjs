@@ -2,6 +2,8 @@ import { LeafLinkClient } from "./leaf-link-client.mjs";
 import { HerdrCommandError, InputValidationError } from "./herdr-client.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported } from "./herdr-version.mjs";
 
+const isMachine = (profile) => profile?.transport === "machine";
+
 const collections = ["herdr_sessions", "workspaces", "tabs", "panes", "agents"];
 const idFields = ["session_id", "herdr_session_id", "workspace_id", "active_tab_id", "tab_id", "pane_id"];
 const empty = () => Object.fromEntries(collections.map((key) => [key, []]));
@@ -19,7 +21,7 @@ function scope(snapshot, server) {
 // Only messages we wrote ourselves are safe to show; anything else could be a
 // remote command's output arriving through an error.
 export function serverStatusFor(error) {
-  return error?.code?.startsWith("leaf_")
+  return error?.code?.startsWith("leaf_") || error?.code?.startsWith("machine_")
     ? error.message
     : "Could not reach HerdRabbit on this server. Check the address and that it is running there.";
 }
@@ -28,7 +30,16 @@ export class MultiServerClient {
   constructor({
     local, profiles, hubVersion, machineName = () => null, herdrVersion = () => null,
     remoteFactory = (profile) => new LeafLinkClient({ profile, hubVersion }),
+    // Herdr's own SSH machines (src/herdr-machines.mjs), next to linked servers.
+    machines = null,
   }) {
+    this.machines = machines;
+    // A machine whose connection just came up or went down is asked again at
+    // once, not at its next poll.
+    machines?.onLinkChange?.((serverId) => {
+      const entry = this.entries.get(serverId);
+      if (entry && !this.stopped) void this.refresh(entry, { again: true });
+    });
     this.local = local;
     this.machineName = machineName;
     this.herdrVersion = herdrVersion;
@@ -39,8 +50,24 @@ export class MultiServerClient {
     this.stopped = false;
   }
 
+  clientFor(profile) {
+    if (profile.id === "local") return this.local;
+    return isMachine(profile) ? this.machines.client(profile) : this.remoteFactory(profile);
+  }
+
+  // A linked HerdRabbit server: it answers for its files and accounts itself.
+  linkedEntry(serverId) {
+    this.syncEntries();
+    const entry = this.entries.get(serverId);
+    return entry && serverId !== "local" && !isMachine(entry.profile) ? entry : null;
+  }
+
   syncEntries() {
-    const profiles = [{ id: "local", name: "Local" }, ...(this.profiles.connectionProfiles?.() ?? this.profiles.list())];
+    const profiles = [
+      { id: "local", name: "Local" },
+      ...(this.profiles.connectionProfiles?.() ?? this.profiles.list()),
+      ...(this.machines?.profiles() ?? []),
+    ];
     for (const id of this.entries.keys()) {
       if (profiles.some((profile) => profile.id === id)) continue;
       this.entries.get(id)?.client?.close?.();
@@ -52,25 +79,37 @@ export class MultiServerClient {
       this.entries.get(profile.id)?.client?.close?.();
       this.entries.set(profile.id, {
         profile, fingerprint,
-        client: profile.id === "local" ? this.local : this.remoteFactory(profile),
-        snapshot: empty(), available: false, status: "Connecting", lastPoll: 0, pending: null,
+        client: this.clientFor(profile),
+        snapshot: empty(), available: false, status: "Connecting", connecting: true, lastPoll: 0, pending: null,
       });
     }
   }
 
-  async refresh(entry) {
-    if (entry.pending) return entry.pending;
+  // `again`: what changed may come after the answer a running request will
+  // give, so that request is followed by one more.
+  async refresh(entry, { again = false } = {}) {
+    if (entry.pending) {
+      if (again) entry.again = true;
+      return entry.pending;
+    }
     entry.pending = Promise.resolve().then(async () => {
       try {
+        if (entry.profile.enabled === false) throw Object.assign(new Error("Turned off"), { code: "machine_off" });
         entry.snapshot = await entry.client.snapshot();
         entry.available = true;
         entry.status = "Connected";
+        entry.connecting = false;
       } catch (error) {
         entry.available = false;
         entry.status = serverStatusFor(error);
+        entry.connecting = error?.connecting === true;
       } finally {
         entry.lastPoll = Date.now();
         entry.pending = null;
+        if (entry.again && !this.stopped) {
+          entry.again = false;
+          void this.refresh(entry);
+        }
       }
     });
     return entry.pending;
@@ -94,15 +133,20 @@ export class MultiServerClient {
     });
     return {
       ...this.entries.get("local").snapshot,
+      // Machines not listed yet: a page opening on one of their panes waits
+      // (up to its own limit).
+      servers_pending: Boolean(this.machines && !this.machines.listed),
       ...Object.fromEntries(collections.map((key) => [key, snapshots.flatMap((snapshot) => snapshot[key])])),
       // Address and version travel with the server so the sidebar can say what
       // a machine is without asking again.
       // A machine goes by the name Tailscale knows it by. This one is this
       // HerdRabbit, so it answers for its own version too; a linked one reports
       // what its link says.
-      servers: entries.map(({ profile, available, status, client }) => ({
-        id: profile.id, name: profile.name, available, status,
-        transport: profile.id === "local" ? "local" : "link",
+      servers: entries.map(({ profile, available, status, connecting, client }) => ({
+        // Connecting: not reached yet, but still trying; a page waits for its panes.
+        id: profile.id, name: profile.name, available, status, connecting: !available && connecting,
+        transport: profile.id === "local" ? "local" : profile.transport ?? "link",
+        ...(isMachine(profile) ? { enabled: profile.enabled !== false } : {}),
         address: profile.address ?? null,
         machine: this.machineName(profile) ?? null,
         version: profile.id === "local" ? this.hubVersion : client?.info?.().version ?? null,
@@ -123,16 +167,12 @@ export class MultiServerClient {
   // File routes address a server by id and need the client that speaks for it.
   // Only a linked server has files to offer; local is handled by the caller.
   fileClient(serverId) {
-    this.syncEntries();
-    const entry = this.entries.get(serverId);
-    return entry && serverId !== "local" ? entry.client : null;
+    return this.linkedEntry(serverId)?.client ?? null;
   }
 
   // Account routes address a linked server the same way; local is the caller's.
   aiAccountsClient(serverId) {
-    this.syncEntries();
-    const entry = this.entries.get(serverId);
-    return entry && serverId !== "local" ? entry.client.aiAccounts?.() ?? null : null;
+    return this.linkedEntry(serverId)?.client.aiAccounts?.() ?? null;
   }
 
   async testProfile(profile) {
@@ -171,10 +211,12 @@ export class MultiServerClient {
   }
 
   readPane(id, options) { return this.invoke("readPane", id, [options]); }
-  // Only this machine's panes attach for now; another server's keep the screen-text view.
+  // This machine's panes and Herdr machines' attach; a linked server's keep the screen-text view.
   terminalTarget(id, timeoutMs) {
     const { entry, id: localId } = this.target(id);
-    if (entry.profile.id !== "local") throw new HerdrCommandError("Terminal attach is not available for this server yet", { code: "attach_unsupported" });
+    if (entry.profile.id !== "local" && !isMachine(entry.profile)) {
+      throw new HerdrCommandError("Terminal attach is not available for this server yet", { code: "attach_unsupported" });
+    }
     return entry.client.terminalTarget(localId, timeoutMs);
   }
   sendText(id, text, options) { return this.invoke("sendText", id, [text, options]); }
@@ -186,7 +228,9 @@ export class MultiServerClient {
       if (!groups.has(entry)) groups.set(entry, []);
       groups.get(entry).push(id);
     }
-    const results = await Promise.allSettled([...groups].map(([entry, ids]) =>
+    // A machine that is not connected has nothing to watch yet, and must not
+    // stop every other server's statuses; the next list refresh asks again.
+    const results = await Promise.allSettled([...groups].filter(([entry]) => entry.client.ready !== false).map(([entry, ids]) =>
       entry.client.watchStatuses(ids, event => onStatus({ ...event,
         pane_id: entry.profile.id === "local" ? event.pane_id : `${entry.profile.id}!${event.pane_id}` }), onError)));
     const stops = results.filter(result => result.status === "fulfilled").map(result => result.value);

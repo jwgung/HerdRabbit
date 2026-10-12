@@ -17,6 +17,7 @@ import { announcementWriter, readAnnouncements } from "./announcement-store.mjs"
 import { announceToHub } from "./leaf-announce.mjs";
 import { FileStore } from "./file-store.mjs";
 import { MultiServerClient } from "./multi-server-client.mjs";
+import { HerdrMachines, machineSocketDirectory } from "./herdr-machines.mjs";
 import { PaneAttachments, loadNodePty, nodePtySpawner } from "./pane-attachments.mjs";
 import { AiAccounts, runningAgentsIn } from "./ai-accounts.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported, readHerdrVersion } from "./herdr-version.mjs";
@@ -79,7 +80,23 @@ void readHerdrVersion(config.herdrBin).then((version) => {
     console.warn(`Herdr ${version || "(unknown version)"} is older than ${MIN_HERDR_VERSION}. Run: ${config.herdrBin} update --handoff`);
   }
 });
-const herdr = new MultiServerClient({ local, profiles, hubVersion, machineName, herdrVersion: () => herdrVersion });
+// A hub reaches Herdr's own SSH machines (`herdr machine add`) without
+// anything installed on them; a leaf answers only for itself.
+const machineDirectory = peer ? null : await machineSocketDirectory().catch((error) => {
+  // Without a private directory the machines stay unconnected; everything else runs.
+  console.warn(`Herdr machines are unavailable: ${error.message}`);
+  return null;
+});
+const machines = !machineDirectory ? null : new HerdrMachines({
+  binary: config.herdrBin,
+  directory: machineDirectory,
+  createBridge: (link) => new HerdrBridgeClient({
+    binary: config.herdrBin, timeoutMs: config.commandTimeoutMs, socketPath: link.socketPath, sessionName: link.machine.session,
+  }),
+  log: (message) => console.warn(message),
+});
+machines?.start();
+const herdr = new MultiServerClient({ local, profiles, hubVersion, machineName, herdrVersion: () => herdrVersion, machines });
 // Only this machine's panes decide whether a switch here would disturb anything.
 const aiAccounts = new AiAccounts({ directory: config.aiAccountsDir, runningAgents: () => runningAgentsIn(local) });
 const notificationMonitor = new AgentNotificationMonitor({ herdr, push });
@@ -92,6 +109,7 @@ const attachments = nodePty
 const { server } = createHerdrHttpServer({
   herdr,
   attachments,
+  machines,
   profiles,
   files,
   auth,
@@ -155,10 +173,12 @@ server.listen(config.port, config.host, () => {
   );
 });
 
-function shutdown() {
+async function shutdown() {
   herdr.stopped = true;
   notificationMonitor.stop();
   attachments?.close();
+  // The machines' SSH connections close before the server stops listening.
+  await machines?.stop().catch((error) => console.error("Closing Herdr machines failed:", error.message));
   server.close((error) => {
     if (error) {
       console.error("Shutdown failed:", error.message);

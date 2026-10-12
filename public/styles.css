@@ -490,6 +490,10 @@ body.sidebar-collapsed .terminal-panel {
   display: block;
 }
 
+#add-menu .sidebar-action-item[hidden] {
+  display: none;
+}
+
 .workspace-collapse svg {
   transition: transform 180ms ease;
 }

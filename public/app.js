@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.14";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.14";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.15";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.15";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -33,6 +33,8 @@ import {
   outputTextForUpdate,
   paneShortcutTarget,
   selectedPaneIdForSnapshot,
+  waitsForRemotePane,
+  keepsVanishedRemotePane,
   shouldRenderTerminalUpdate,
   sidebarPresentation,
   terminalOutputForEnvironment,
@@ -48,8 +50,8 @@ import {
   aiRestartHint,
   isAiLoginWorkspace,
   paneKeepsInputHistory,
-} from "./ui-model.js?v=1.2.14";
-import { ansiToSegments } from "./ansi.js?v=1.2.14";
+} from "./ui-model.js?v=1.2.15";
+import { ansiToSegments } from "./ansi.js?v=1.2.15";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -60,45 +62,45 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.14";
-import { linkTerminalSegments } from "./terminal-links.js?v=1.2.14";
-import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.14";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.14";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.14";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.14";
+} from "./browse-preference.js?v=1.2.15";
+import { linkTerminalSegments } from "./terminal-links.js?v=1.2.15";
+import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.15";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.15";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.15";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.15";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.14";
+} from "./pane-preference.js?v=1.2.15";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.14";
+} from "./workspace-preference.js?v=1.2.15";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.14";
+} from "./terminal-preference.js?v=1.2.15";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.14";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.14";
+} from "./completion-preference.js?v=1.2.15";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.15";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.14";
+} from "./input-history-preference.js?v=1.2.15";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.14";
+} from "./launch-session.js?v=1.2.15";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.14";
+} from "./push-notifications.js?v=1.2.15";
 
 function browserStorage() {
   try {
@@ -134,6 +136,10 @@ function currentLoginMethod() {
 const launchSessionStorage = browserSessionStorage();
 const notificationPanePreference = new URL(window.location.href).searchParams.get("pane");
 let pendingNotificationPaneId = null;
+let pendingNotificationSince = 0;
+// How long a link to another server's pane waits for that server's panes to load.
+const PENDING_REMOTE_PANE_MS = 20_000;
+const pageOpenedAt = Date.now();
 const notificationNavigationCache = "herdr-notification-navigation-v1";
 let notificationRelayTarget = null;
 let notificationRelayCompletedId = null;
@@ -202,6 +208,7 @@ function acceptNotificationTarget(value) {
   currentUrl.searchParams.set("pane", paneId);
   window.history.replaceState(null, "", currentUrl);
   pendingNotificationPaneId = paneId;
+  pendingNotificationSince = Date.now();
   void refreshSnapshot();
   return true;
 }
@@ -1501,10 +1508,17 @@ function serverRenameForm(server) {
   return renameForm({
     value: server.name,
     label: `${server.name} machine name`,
-    maxLength: 80,
+    // Herdr's machine names are held to 60 characters by the server.
+    maxLength: server.transport === "machine" ? 60 : 80,
     invalidMessage: "Enter a name.",
     onCancel: () => { state.editingServerId = null; renderNavigation(); },
     onSubmit: async (name) => {
+      if (server.transport === "machine") {
+        await api(`/api/machines/${server.id}`, { method: "PUT", body: { label: name } });
+        state.editingServerId = null;
+        await refreshSnapshot();
+        return;
+      }
       // The address is not edited here, so it has to be carried over unchanged.
       const profile = savedServers.find((item) => item.id === server.id);
       await api(`/api/servers/${server.id}`, {
@@ -2130,11 +2144,12 @@ function serverActionMenu(server) {
       paths: ["M12 8h.01", "M11 12h1v4h1", "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"],
       onSelect: () => showServerDetails(server),
     },
-    {
+    // A Herdr SSH machine has no account switching yet.
+    ...(server.transport === "machine" ? [] : [{
       label: "AI accounts",
       paths: ["M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M4 20a8 8 0 0 1 16 0"],
       onSelect: () => showAiAccounts(server),
-    },
+    }]),
   ];
   // Sign-in belongs to the HerdRabbit the browser is talking to; a linked
   // machine has none.
@@ -2174,6 +2189,46 @@ function serverActionMenu(server) {
   }
   // This machine is not a connection: there is nothing to rename or drop.
   if (server.id === "local") {
+    return sidebarActionMenu({
+      id: `server-${server.id}`,
+      label: `More actions for ${server.name}`,
+      className: "server-action-menu",
+      actions,
+    });
+  }
+  // Herdr's own SSH machines are managed with `herdr machine`, so Herdr's TUI
+  // shows the same list.
+  if (server.transport === "machine") {
+    const machineAction = (method, path, prompt) => () => {
+      if (prompt && !window.confirm(prompt)) return;
+      void api(path, { method, body: method === "DELETE" ? undefined : {} })
+        .then(() => refreshSnapshot())
+        .catch((error) => setFeedback(error.message, true));
+    };
+    actions.push(
+      {
+        label: "Rename",
+        paths: ["M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17l-1 3Z", "M14.5 7.5l3 3"],
+        onSelect: () => { state.editingServerId = server.id; renderNavigation(); },
+      },
+      server.enabled === false ? {
+        label: "Turn on",
+        paths: ["M12 3v9", "M6.3 7.3a8 8 0 1 0 11.4 0"],
+        onSelect: machineAction("POST", `/api/machines/${server.id}/enable`),
+      } : {
+        label: "Turn off",
+        paths: ["M12 3v9", "M6.3 7.3a8 8 0 1 0 11.4 0"],
+        onSelect: machineAction("POST", `/api/machines/${server.id}/disable`,
+          `Turn off “${server.name}”? It stays listed here, and Turn on connects it again.`),
+      },
+      {
+        label: "Remove",
+        paths: ["M6 6l12 12M18 6 6 18"],
+        danger: true,
+        onSelect: machineAction("DELETE", `/api/machines/${server.id}`,
+          `Remove “${server.name}” from Herdr's machines? Its sessions keep running there.`),
+      },
+    );
     return sidebarActionMenu({
       id: `server-${server.id}`,
       label: `More actions for ${server.name}`,
@@ -2713,10 +2768,25 @@ function choosePane() {
     window.history.replaceState(null, "", currentUrl);
     closeMobileSidebar();
   }
-  const preferredServerId = state.selectedPaneId?.split("!")[0];
-  if (state.selectedPaneId?.includes("!") &&
-      !panes.some((pane) => idOf(pane, "pane_id", "id") === state.selectedPaneId) &&
-      snapshotRecords().servers.some((server) => server.id === preferredServerId && !server.available)) return;
+  // A link to another server's pane arrives before that server's panes have
+  // loaded: wait for them rather than open some other pane in its place.
+  // The page opening on such a pane (from its address or the last visit) waits the same way.
+  const awaited = pendingNotificationPaneId ?? (state.selectedPaneId ? null : state.preferredPaneId);
+  const awaitedSince = pendingNotificationPaneId ? pendingNotificationSince : pageOpenedAt;
+  if (waitsForRemotePane(
+    awaited, panes, snapshotRecords().servers, Date.now() - awaitedSince, PENDING_REMOTE_PANE_MS,
+    state.snapshot?.servers_pending,
+  )) return;
+  if (awaited?.includes("!") && !panes.some((pane) => idOf(pane, "pane_id", "id") === awaited)) {
+    if (awaited === pendingNotificationPaneId) pendingNotificationPaneId = null;
+    // Given up on: a reload must not wait for it all over again.
+    const currentUrl = new URL(window.location.href);
+    if (currentUrl.searchParams.get("pane") === awaited) {
+      currentUrl.searchParams.delete("pane");
+      window.history.replaceState(null, "", currentUrl);
+    }
+  }
+  if (keepsVanishedRemotePane(state.selectedPaneId, panes, snapshotRecords().servers)) return;
   const defaultHerdrSessionId = idOf(
     herdrSessions.find((session) => session.default === true),
     "session_id",
@@ -4437,10 +4507,10 @@ async function ensureUploadsPath() {
 function refreshServerChoices() {
   const options = [
     { id: "local", name: "This machine" },
-    // Every registered server answers for its own files now, so all of them
-    // belong here.
+    // Every linked server answers for its own files. A Herdr SSH machine has
+    // no file access yet.
     ...array(state.snapshot?.servers)
-      .filter((server) => server.id !== "local")
+      .filter((server) => server.id !== "local" && server.transport !== "machine")
       .map((server) => ({ id: server.id, name: server.name || server.id })),
   ];
   elements.fileServer.replaceChildren();
@@ -5069,6 +5139,7 @@ async function initializeApplication() {
   state.pushPublicKey = typeof bootstrap.pushPublicKey === "string"
     ? bootstrap.pushPublicKey
     : null;
+  document.querySelector("#add-machine").hidden = bootstrap.machines !== true;
   showApplication();
   browseState.pinnedServer = readFileServer(browsePathStorage);
   showNavigatorTab(readNavigatorTab(browsePathStorage));
@@ -5156,6 +5227,38 @@ let savedServers = [];
 async function loadServers() {
   savedServers = (await api("/api/servers")).profiles;
 }
+
+const machineDialog = document.querySelector("#machine-dialog");
+const machineFeedback = document.querySelector("#machine-feedback");
+document.querySelector("#add-machine").addEventListener("click", () => {
+  document.querySelector("#add-menu").open = false;
+  document.querySelector("#machine-form").reset();
+  machineFeedback.textContent = "";
+  machineFeedback.dataset.error = "false";
+  machineDialog.showModal();
+});
+document.querySelector("#machine-cancel").addEventListener("click", () => machineDialog.close());
+document.querySelector("#machine-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const controls = form.querySelectorAll("button, input");
+  controls.forEach((control) => { control.disabled = true; });
+  machineFeedback.dataset.error = "false";
+  // Setting Herdr up there can take a while on a first connection.
+  machineFeedback.textContent = "Connecting and setting up Herdr there…";
+  try {
+    await api("/api/machines", { method: "POST", body: {
+      target: form.elements.target.value.trim(), label: form.elements.label.value.trim(),
+    } });
+    machineDialog.close();
+    await refreshSnapshot();
+  } catch (error) {
+    machineFeedback.textContent = error.message;
+    machineFeedback.dataset.error = "true";
+  } finally {
+    controls.forEach((control) => { control.disabled = false; });
+  }
+});
 
 document.querySelector("#manage-servers").addEventListener("click", () => {
   document.querySelector("#add-menu").open = false;

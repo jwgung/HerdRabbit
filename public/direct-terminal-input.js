@@ -1,4 +1,4 @@
-import { keyboardTerminalKey } from "./key-combinations.js?v=1.2.14";
+import { keyboardTerminalKey } from "./key-combinations.js?v=1.2.15";
 
 const segmenter = typeof Intl.Segmenter === "function"
   ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
