@@ -81,7 +81,26 @@ const { isAbsolute, join } = await import("node:path");
 const [operation, cli, id] = process.argv.slice(2);
 const home = process.env.HOME || homedir();
 const configHome = isAbsolute(process.env.XDG_CONFIG_HOME || "") ? process.env.XDG_CONFIG_HOME : join(home, ".config");
-const accounts = new AiAccounts({ directory: join(configHome, "herdr-bridge", "ai-accounts") });
+const directory = join(configHome, "herdr-bridge", "ai-accounts");
+const accounts = new AiAccounts({ directory });
+const { mkdir, rmdir, stat } = await import("node:fs/promises");
+// One change at a time on this machine, across processes: a run cut off by a
+// timeout on the other side may still be going here. A lock older than a
+// minute was left by a run that died.
+const LOCK = join(directory, ".change-lock");
+async function locked(run) {
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  for (const deadline = Date.now() + 15000; ;) {
+    try { await mkdir(LOCK, { mode: 0o700 }); break; } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      const held = await stat(LOCK).catch(() => null);
+      if (held && Date.now() - held.mtimeMs > 60000) { await rmdir(LOCK).catch(() => {}); continue; }
+      if (Date.now() > deadline) throw new AiAccountError("machine_accounts_busy", "Another account change is still running on that machine. Try again shortly.", { status: 409 });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+  try { return await run(); } finally { await rmdir(LOCK).catch(() => {}); }
+}
 const operations = {
   list: () => accounts.list(),
   save: () => accounts.saveCurrent(cli),
@@ -94,7 +113,7 @@ const operations = {
 let reply;
 try {
   if (!Object.hasOwn(operations, operation)) throw new InputValidationError("Unknown operation");
-  reply = { ok: true, result: await operations[operation]() };
+  reply = { ok: true, result: await (operation === "list" ? operations.list() : locked(operations[operation])) };
 } catch (error) {
   if (error instanceof AiAccountError) reply = { ok: false, kind: "account", code: error.code, status: error.status, message: error.message };
   else if (error instanceof InputValidationError) reply = { ok: false, kind: "input", message: error.message };
@@ -160,7 +179,7 @@ function unsupportedListing(reason) {
 // be exactly the one ai-accounts.mjs builds: the CLI's own command, pointed at
 // a sign-in directory named for this sign-in.
 function loginCommand(adapter, loginId, command) {
-  const pattern = new RegExp(`^env ${adapter.homeEnv}='(/[^'\\u0000-\\u001f\\u007f]*)' ${adapter.loginCommand.join(" ")}$`, "u");
+  const pattern = new RegExp(`^env ${adapter.homeEnv}='(/[^'\\\\\\u0000-\\u001f\\u007f]*)' ${adapter.loginCommand.join(" ")}$`, "u");
   const directory = typeof command === "string" ? pattern.exec(command)?.[1] : null;
   if (!directory?.endsWith(`/staging/${adapter.id}/${loginId}`)) throw failed();
   return command;

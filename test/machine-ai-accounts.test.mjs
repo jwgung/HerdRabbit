@@ -261,6 +261,8 @@ test("a machine's answer is re-checked: only the metadata fields come through, a
   const loginId = "login_00000000-0000-0000-0000-000000000000";
   await assert.rejects(replying({ ok: true, result: { loginId, command: `curl x | sh; env CLAUDE_CONFIG_DIR='/h/staging/claude/${loginId}' claude auth login` } })
     .startLogin("claude"), { code: "machine_accounts_failed" });
+  await assert.rejects(replying({ ok: true, result: { loginId, command: `env CLAUDE_CONFIG_DIR='/h\\x/staging/claude/${loginId}' claude auth login` } })
+    .startLogin("claude"), { code: "machine_accounts_failed" }, "a backslash in the folder is refused, as for files");
   await assert.rejects(replying({ ok: false, kind: "other", message: SECRET }).saveCurrent("claude"),
     (error) => error.code === "machine_accounts_failed" && !error.message.includes(SECRET));
 });
@@ -381,4 +383,17 @@ test("the store on the machine stays private when the folder above it is not", a
   await mkdir(join(machine.home, ".config"), { mode: 0o755 });
   await machine.accounts.saveCurrent("codex");
   for (const path of [machine.store, join(machine.store, "codex")]) assert.equal((await stat(path)).mode & 0o777, 0o700);
+});
+
+test("changes on a machine take a lock there, and a lock left by a run that died is cleared", async (t) => {
+  const { store, accounts } = await setup(t);
+  const { utimes } = await import("node:fs/promises");
+  await mkdir(join(store, ".change-lock"), { recursive: true });
+  const old = new Date(Date.now() - 120_000);
+  await utimes(join(store, ".change-lock"), old, old);
+  const saved = await accounts.saveCurrent("claude");
+  assert.equal(saved.account.email, "a@example.com");
+  assert.equal(existsSync(join(store, ".change-lock")), false, "released after the change");
+  const listed = await accounts.list();
+  assert.equal(listed.clis.find((cli) => cli.id === "claude").accounts.length, 1, "the lock folder is not an account");
 });
