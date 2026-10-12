@@ -87,7 +87,7 @@ const notificationMonitor = new AgentNotificationMonitor({ herdr, push });
 const nodePty = await loadNodePty();
 if (!nodePty) console.warn("node-pty is unavailable; terminals show screen text instead of attaching.");
 const attachments = nodePty
-  ? new PaneAttachments({ resolveTerminal: (paneId) => herdr.terminalTarget(paneId), spawnPty: nodePtySpawner(nodePty) })
+  ? new PaneAttachments({ resolveTerminal: (paneId, timeoutMs) => herdr.terminalTarget(paneId, timeoutMs), spawnPty: nodePtySpawner(nodePty) })
   : null;
 const { server } = createHerdrHttpServer({
   herdr,

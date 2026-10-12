@@ -290,3 +290,21 @@ test("a joiner gets the grid before the screen drawn on it", async () => {
   assert.deepEqual([order[0].cols, order[0].rows], [120, 40]);
   attachments.close();
 });
+
+test("an ended attach is looked up again less and less often, each lookup bounded by the time left", async () => {
+  const lookups = [];
+  const { herdr, attachments } = setup({ resolve: async (paneId, timeoutMs) => {
+    lookups.push(timeoutMs);
+    return { command: "herdr", args: ["terminal", "attach", "term_1"], env: {}, terminalId: "term_1" };
+  } });
+  const desk = client();
+  await attachments.attach(desk, "p", { cols: 80, rows: 24 });
+  herdr.spawns[0].emit("screen");
+  await sleep(20);
+  herdr.spawns[0].exit(1);
+  await sleep(260);
+  assert.deepEqual(desk.messages.at(-1), { type: "pty-exit", pane_id: "p", code: 1 }, "the same terminal after the deadline: the pane ended");
+  const again = lookups.slice(1);
+  assert.ok(again.length >= 3 && again.length <= 8, `${again.length} lookups in 200 ms`);
+  assert.ok(again.every((timeoutMs) => timeoutMs >= 1 && timeoutMs <= 200));
+});

@@ -243,3 +243,14 @@ test("terminalTarget names the attach command, the session's socket and the pane
   await assert.rejects(new HerdrClient({ runner: noTerminal.runner }).terminalTarget("w1:p2"), { code: "no_terminal" });
   await assert.rejects(new HerdrClient({ runner: recordingRunner([]).runner }).terminalTarget("--help"), InputValidationError);
 });
+
+test("terminalTarget bounds each herdr call by the time it is given", async () => {
+  const json = (result) => ({ stdout: JSON.stringify({ result }), stderr: "" });
+  const fake = recordingRunner([
+    json({ pane: { pane_id: "w1:p2", terminal_id: "term_9" } }),
+    json({ sessions: [{ name: "default", running: true, socket_path: "/run/herdr.sock" }] }),
+    json({ layout: { panes: [] } }),
+  ]);
+  await new HerdrClient({ runner: fake.runner, timeoutMs: 5_000 }).terminalTarget("w1:p2", 300);
+  assert.deepEqual(fake.calls.map((call) => call.options.timeout), [300, 300, 300]);
+});

@@ -22,7 +22,10 @@ export const ATTACH_DEFAULTS = Object.freeze({
   // A live handoff moves every pane to a new terminal id and ends each attach
   // the way an exited pane's ends: the pane is looked up again for this long.
   relookupForMs: 5_000,
+  // Looked up again at 100 ms, then twice as long each time up to a second:
+  // each lookup runs herdr a few times.
   relookupMs: 100,
+  relookupMaxMs: 1_000,
 });
 
 const validSize = (value) => Number.isInteger(value) && value >= 1 && value <= 1000;
@@ -436,9 +439,12 @@ export class PaneAttachments {
         // herdr ended the attach, maybe not the pane: after a live handoff the
         // pane lives on under a new terminal, and the same clients attach to it.
         const deadline = Date.now() + options.relookupForMs;
+        let lookups = 0;
         const retryLookup = () => {
           if (Date.now() >= deadline) { finish(); return; }
-          attachment.relookup = setTimeout(relookup, options.relookupMs);
+          lookups += 1;
+          const wait = Math.min(options.relookupMs * 2 ** (lookups - 1), options.relookupMaxMs, Math.max(0, deadline - Date.now()));
+          attachment.relookup = setTimeout(relookup, wait);
         };
         const relookup = () => {
           Promise.resolve(this.resolveTerminal(paneId, Math.max(1, deadline - Date.now()))).then((next) => {

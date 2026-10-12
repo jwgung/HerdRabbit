@@ -200,14 +200,14 @@ export class HerdrClient {
       : validateHerdrSessionName(sessionName);
   }
 
-  async #run(args, { json = true } = {}) {
+  async #run(args, { json = true, timeoutMs = this.timeoutMs } = {}) {
     try {
       const commandArgs = this.sessionName === null
         ? args
         : [`--session=${this.sessionName}`, ...args];
       const { stdout } = await this.runner(this.binary, commandArgs, {
         encoding: "utf8",
-        timeout: this.timeoutMs,
+        timeout: timeoutMs,
         maxBuffer: 2 * 1024 * 1024,
         env: { ...process.env, NO_COLOR: "1" },
         windowsHide: true,
@@ -311,12 +311,15 @@ export class HerdrClient {
   // What `terminal attach` needs for a pane: its terminal, the socket of this
   // session (the attach must reach the server the other commands talk to), and
   // the pane's own size for a viewer that does not set one.
-  async terminalTarget(paneId) {
+  // `timeoutMs` bounds each lookup when an attach is looked up again after
+  // herdr ended it, so a herdr that does not answer cannot hold it past its time.
+  async terminalTarget(paneId, timeoutMs = this.timeoutMs) {
     const safePaneId = validatePaneId(paneId);
+    const run = (args) => this.#run(args, { timeoutMs: Math.min(timeoutMs, this.timeoutMs) });
     const [{ pane }, sessions, layout] = await Promise.all([
-      this.#run(["pane", "get", safePaneId]),
-      this.listSessions(),
-      this.#run(["pane", "layout", "--pane", safePaneId]).catch(() => null),
+      run(["pane", "get", safePaneId]),
+      run(["session", "list", "--json"]).then((result) => result?.sessions ?? result),
+      run(["pane", "layout", "--pane", safePaneId]).catch(() => null),
     ]);
     const session = sessions.find(item => item.name === (this.sessionName || "default") && item.running);
     if (!session?.socket_path) throw new HerdrCommandError("Herdr socket is unavailable", { code: "server_unavailable" });

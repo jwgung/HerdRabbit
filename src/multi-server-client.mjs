@@ -172,10 +172,10 @@ export class MultiServerClient {
 
   readPane(id, options) { return this.invoke("readPane", id, [options]); }
   // Only this machine's panes attach for now; another server's keep the screen-text view.
-  terminalTarget(id) {
+  terminalTarget(id, timeoutMs) {
     const { entry, id: localId } = this.target(id);
     if (entry.profile.id !== "local") throw new HerdrCommandError("Terminal attach is not available for this server yet", { code: "attach_unsupported" });
-    return entry.client.terminalTarget(localId);
+    return entry.client.terminalTarget(localId, timeoutMs);
   }
   sendText(id, text, options) { return this.invoke("sendText", id, [text, options]); }
   sendKeys(id, keys) { return this.invoke("sendKeys", id, [keys]); }
