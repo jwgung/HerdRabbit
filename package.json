@@ -1,6 +1,6 @@
 {
   "name": "herd-rabbit",
-  "version": "1.2.15",
+  "version": "1.2.16",
   "private": true,
   "type": "module",
   "description": "A personal PWA for controlling local and SSH-connected Herdr sessions",

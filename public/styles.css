@@ -839,7 +839,43 @@ body.sidebar-collapsed .terminal-panel {
   opacity: 0.85;
 }
 
+/* Copy for a selection, over the terminal's top right corner. */
+.terminal-copy-bar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.3);
+}
+
+.terminal-copy-bar[hidden] {
+  display: none;
+}
+
+.terminal-copy-bar button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+  color: var(--text);
+  background: transparent;
+}
+
+.terminal-copy-bar button:first-child {
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
 .terminal-xterm .xterm {
+  -webkit-touch-callout: none;
   box-sizing: border-box;
   height: 100%;
   padding: 8px;

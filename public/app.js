@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.15";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.15";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.16";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.16";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -50,8 +50,8 @@ import {
   aiRestartHint,
   isAiLoginWorkspace,
   paneKeepsInputHistory,
-} from "./ui-model.js?v=1.2.15";
-import { ansiToSegments } from "./ansi.js?v=1.2.15";
+} from "./ui-model.js?v=1.2.16";
+import { ansiToSegments } from "./ansi.js?v=1.2.16";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -62,45 +62,45 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.15";
-import { linkTerminalSegments } from "./terminal-links.js?v=1.2.15";
-import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.15";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.15";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.15";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.15";
+} from "./browse-preference.js?v=1.2.16";
+import { linkTerminalSegments } from "./terminal-links.js?v=1.2.16";
+import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.16";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.16";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.16";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.16";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.15";
+} from "./pane-preference.js?v=1.2.16";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.15";
+} from "./workspace-preference.js?v=1.2.16";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.15";
+} from "./terminal-preference.js?v=1.2.16";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.15";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.15";
+} from "./completion-preference.js?v=1.2.16";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.16";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.15";
+} from "./input-history-preference.js?v=1.2.16";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.15";
+} from "./launch-session.js?v=1.2.16";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.15";
+} from "./push-notifications.js?v=1.2.16";
 
 function browserStorage() {
   try {
@@ -3154,6 +3154,7 @@ const attachedTerminal = createAttachedTerminal({
   onPath: openTerminalPath,
   onFontSizeChange: applyTerminalFontSize,
   onRetry: (paneId) => { if (paneId === state.selectedPaneId) void refreshOutput(); },
+  onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
 });
 
 function showAttachedView(attached) {
@@ -4806,7 +4807,9 @@ elements.terminalPanel.addEventListener("wheel", (event) => {
   if (Math.abs(terminalFontWheelDelta) < 40) return;
   adjustTerminalFont(terminalFontWheelDelta < 0 ? "larger" : "smaller");
   terminalFontWheelDelta = 0;
-}, { passive: false });
+// Caught on the way down: the attached terminal stops a wheel once a program
+// there turns on mouse reports.
+}, { passive: false, capture: true });
 
 elements.terminalOutput.addEventListener("touchstart", (event) => {
   const distance = touchDistance(event.touches);

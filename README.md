@@ -324,7 +324,7 @@ While the pane shows a password prompt (`[sudo] password for …:`, `Password:`,
 
 ### Input
 
-Click or tap the terminal output for direct input, indicated by `Direct input`. Text, Tab, arrows, Enter, and Ctrl combinations go to the current pane immediately, including shell and agent completion menus. IME composition updates are sent immediately as edits to the changed suffix. Selecting terminal text preserves native copy; clicking the composer returns to the draft-and-submit behavior below. Composer history does not intercept direct input.
+Click or tap the terminal output for direct input, indicated by `Direct input`. Text, Tab, arrows, Enter, and Ctrl combinations go to the current pane immediately, including shell and agent completion menus. IME composition updates are sent immediately as edits to the changed suffix. Dragging over the terminal selects text instead of sending mouse clicks to the program; a **Copy** button appears over the selection, and `Ctrl`+`C` copies it too. On a phone, hold a finger still for half a second, then drag to select; a short drag still scrolls. Clicking the composer returns to the draft-and-submit behavior below. Composer history does not intercept direct input.
 
 Direct writes are ordered. A failed write stops pending input without automatic retries; check the terminal before clicking it to resume. This applies to the screen-text view, which uses server-observed ANSI snapshots rather than a terminal emulator, so cursor and full-screen TUI fidelity are not guaranteed there.
 

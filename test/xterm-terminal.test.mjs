@@ -23,6 +23,11 @@ class Terminal {
   open() {}
   registerLinkProvider() {}
   attachCustomKeyEventHandler() {}
+  attachCustomWheelEventHandler(handler) { this.wheelHandler = handler; }
+  onSelectionChange(listener) { this.selectionListeners = [...(this.selectionListeners ?? []), listener]; }
+  select(col, row, length) { this.selection = "x".repeat(length); for (const listener of this.selectionListeners ?? []) listener(); }
+  getSelection() { return this.selection ?? ""; }
+  clearSelection() { this.selection = ""; for (const listener of this.selectionListeners ?? []) listener(); }
   onData(listener) { this.listeners.data.push(listener); }
   onBinary() {}
   onResize(listener) { this.listeners.resize.push(listener); }
@@ -36,7 +41,7 @@ class Terminal {
   write(data, done = () => {}) { if (data === "\x1bc") this.resets += 1; this.written.push(data); this.pending.push(done); }
   finishWrites() { for (const done of this.pending.splice(0)) done(); }
   type(data) { for (const listener of this.listeners.data) listener(data); }
-  hasSelection() { return false; }
+  hasSelection() { return Boolean(this.selection); }
 }
 class FitAddon {
   proposeDimensions() { return { cols: 100, rows: 30 }; }
@@ -63,13 +68,27 @@ function setup() {
     resume: () => sent.push(["resume"]),
   };
   const classes = new Set();
+  const element = () => {
+    const children = [];
+    const listeners = {};
+    return {
+      hidden: false, children, style: {}, setAttribute() {},
+      append: (...items) => children.push(...items),
+      contains: (item) => children.includes(item),
+      addEventListener: (type, listener) => { listeners[type] = listener; },
+      click() { listeners.click?.(); },
+    };
+  };
+  const ownerDocument = { createElement: element };
   const host = {
-    hidden: true, clientWidth: 800, clientHeight: 400, addEventListener() {},
+    ...element(), ownerDocument,
+    hidden: true, clientWidth: 800, clientHeight: 400,
     classList: { toggle: (name, on) => (on ? classes.add(name) : classes.delete(name)), remove: (name) => classes.delete(name) },
   };
   const fallbacks = [];
   const states = [];
   const retries = [];
+  const copies = [];
   let term;
   const view = createAttachedTerminal({
     host, connection, fontSize: 12,
@@ -77,10 +96,11 @@ function setup() {
     onFallback: (paneId) => fallbacks.push(paneId),
     onStateChange: (state) => states.push(state),
     onRetry: (paneId) => retries.push(paneId),
+    onCopy: (ok) => copies.push(ok),
   });
   const receive = (message) => { for (const listener of listeners.attach) listener(message); };
   const reconnect = () => { for (const listener of listeners.reconnect) listener(); };
-  return { view, sent, host, classes, fallbacks, states, retries, receive, reconnect, connection, term: () => term };
+  return { view, sent, host, classes, fallbacks, states, retries, copies, receive, reconnect, connection, term: () => term };
 }
 
 test("shows a pane at the frame's size, writes only its stream, and acknowledges once xterm has drawn it", () => {
@@ -218,4 +238,33 @@ test("output still being drawn when the socket reconnects is cleared and acknowl
   assert.ok(written.indexOf("\x1bc", written.indexOf("old")) > written.indexOf("old"), "the reset comes after the old output, in the same queue");
   assert.ok(written.indexOf("new") > written.lastIndexOf("\x1bc"));
   assert.deepEqual(sent.filter(([kind]) => kind === "ack"), [["ack", "a", "s2", 3]]);
+});
+
+test("Ctrl+wheel stays on the page to size the font, and a selection offers a Copy button", async () => {
+  const { view, host, copies, term } = setup();
+  view.show("a");
+  const wheel = term().wheelHandler;
+  assert.equal(wheel({ ctrlKey: true, metaKey: false }), false, "xterm leaves Ctrl+wheel to the page");
+  assert.equal(wheel({ ctrlKey: false, metaKey: true }), false);
+  assert.equal(wheel({ ctrlKey: false, metaKey: false }), true, "a plain wheel still scrolls herdr");
+  const bar = host.children.find((child) => child.className === "terminal-copy-bar");
+  assert.equal(bar.hidden, true);
+  term().select(0, 0, 5);
+  assert.equal(bar.hidden, false, "shown over a selection");
+  const written = [];
+  const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { clipboard: { writeText: async (text) => { written.push(text); } } } });
+  try {
+    const [copy] = bar.children;
+    copy.click();
+    await sleep(0);
+  } finally {
+    Object.defineProperty(globalThis, "navigator", original);
+  }
+  assert.deepEqual(written, ["xxxxx"]);
+  assert.deepEqual(copies, [true]);
+  assert.equal(bar.hidden, true, "gone once copied");
+  term().select(0, 0, 2);
+  bar.children[1].click();
+  assert.equal(term().hasSelection(), false, "Cancel lets go of the selection");
 });
