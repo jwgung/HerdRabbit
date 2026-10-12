@@ -19,7 +19,9 @@ import { remoteCommand } from "./machine-files.mjs";
 
 const COMMAND_TIMEOUT_MS = 20_000;
 const MAX_OUTPUT = 256 * 1024;
-const MIN_NODE_MAJOR = 18;
+// The same Node this project runs on and is tested with, so what is shipped is
+// known to load there.
+const MIN_NODE_MAJOR = 22;
 const EXIT_NO_NODE = 72;
 // As machine-files.mjs: a missing master fails at once instead of opening a login.
 const SSH_OPTIONS = ["-T", "-o", "ControlMaster=no", "-o", "ProxyCommand=false"];

@@ -162,7 +162,7 @@ test("a switch looks for agents in the machine's panes and goes ahead only when 
   assert.match(await readFile(machine.claude.credentials, "utf8"), /refresh-b1/u);
 });
 
-test("a machine without Node.js 18 or newer shows why and refuses every change", async (t) => {
+test("a machine without Node.js 22 or newer shows why and refuses every change", async (t) => {
   const bin = await mkdtemp(join(tmpdir(), "herdrabbit-no-node-"));
   t.after(() => rm(bin, { recursive: true, force: true }));
   // A shell, and no node anywhere on the PATH or in the system folders the
@@ -177,7 +177,7 @@ test("a machine without Node.js 18 or newer shows why and refuses every change",
   await assert.rejects(missing.accounts.startLogin("codex"), { code: "machine_node_missing" });
 
   // One that is there but too old counts the same.
-  await writeFile(join(bin, "node"), "#!/bin/sh\necho 16\n");
+  await writeFile(join(bin, "node"), "#!/bin/sh\necho 20\n");
   await chmod(join(bin, "node"), 0o755);
   await assert.rejects(missing.accounts.saveCurrent("claude"), { code: "machine_node_missing" });
   assert.equal(existsSync(missing.store), false, "nothing was written there");
