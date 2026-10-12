@@ -55,15 +55,14 @@ umask 077
 # One change at a time on this machine, across processes: a run cut off by a
 # timeout on the other side may still be going here. The lock is the kernel's
 # (flock), held by the descriptor node inherits, so it ends with that process
-# however it ends -- nothing stale to clear. Reading the list takes none.
-if [ "$1" != list ]; then
-  case "$XDG_CONFIG_HOME" in /*) c=$XDG_CONFIG_HOME ;; *) c=$HOME/.config ;; esac
-  s=$c/herdr-bridge/ai-accounts
-  command -v flock >/dev/null 2>&1 || exit ${EXIT_NO_FLOCK}
-  mkdir -p "$s" && chmod 700 "$s" || exit 1
-  exec 9>"$s/.change-lock" || exit 1
-  flock -w 15 9 || exit ${EXIT_BUSY}
-fi
+# however it ends -- nothing stale to clear. Listing takes it too: it clears
+# sign-ins left half done, which a sign-in being finished must not lose.
+case "$XDG_CONFIG_HOME" in /*) c=$XDG_CONFIG_HOME ;; *) c=$HOME/.config ;; esac
+s=$c/herdr-bridge/ai-accounts
+command -v flock >/dev/null 2>&1 || exit ${EXIT_NO_FLOCK}
+mkdir -p "$s" && chmod 700 "$s" || exit 1
+exec 9>"$s/.change-lock" || exit 1
+flock -w 15 9 || exit ${EXIT_BUSY}
 exec "$n" --input-type=module - "$@"
 `;
 
@@ -307,6 +306,7 @@ export class MachineAiAccounts {
         // Shown in place of each CLI's accounts, so the reason is read where
         // the switching would have been.
         if (error?.code === "machine_node_missing") return unsupportedListing(NO_NODE_REASON);
+        if (error?.code === "machine_tools_missing") return unsupportedListing(error.message);
         throw error;
       }
     });

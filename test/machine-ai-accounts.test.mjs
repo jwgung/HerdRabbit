@@ -471,5 +471,25 @@ test("a machine without flock refuses changes and says why", async (t) => {
   await symlink(process.execPath, join(bin, "node"));
   const machine = await setup(t, { path: bin, systemNodeDirs: [join(bin, "system")] });
   await assert.rejects(machine.accounts.saveCurrent("claude"), { code: "machine_tools_missing", status: 501 });
-  assert.ok((await machine.accounts.list()).clis.length > 0, "the list needs no lock");
+  const listing = await machine.accounts.list();
+  assert.deepEqual(listing.clis.map((cli) => [cli.supported, cli.reason]),
+    [[false, "Changing accounts on this machine needs flock (util-linux) there."], [false, "Changing accounts on this machine needs flock (util-linux) there."]],
+    "the list says why instead of failing");
+});
+
+test("listing waits for a change in progress there, since it tidies half-done sign-ins", async (t) => {
+  const remote = await remoteHome(t);
+  const ssh = fakeSsh(remote.home);
+  const accounts = new MachineAiAccounts({ link: fakeLink, spawnProcess: ssh.spawnProcess, timeoutMs: 1_500 });
+  await mkdir(remote.store, { recursive: true });
+  const lock = join(remote.store, ".change-lock");
+  const holder = spawn("flock", [lock, "sleep", "30"], { stdio: "ignore", detached: true });
+  const end = () => { try { process.kill(-holder.pid, "SIGKILL"); } catch {} };
+  t.after(end);
+  for (let i = 0; i < 50 && !existsSync(lock); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  await assert.rejects(accounts.list(), { code: "machine_timeout" });
+  end();
+  await once(holder, "exit");
+  assert.equal((await accounts.list()).clis.length, 2);
 });
