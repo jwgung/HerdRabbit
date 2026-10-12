@@ -24,7 +24,9 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
   // Attach traffic is best effort: a socket that is reconnecting drops it, and
   // the reconnect attaches again from a clean screen.
   function transmitIfReady(message) {
-    if (ready && socket?.readyState === WebSocketImpl.OPEN) socket.send(JSON.stringify(message));
+    if (!ready || socket?.readyState !== WebSocketImpl.OPEN) return false;
+    socket.send(JSON.stringify(message));
+    return true;
   }
   function rejectPending(error) {
     for (const item of pending.values()) { clearTimeout(item.timer); item.reject(error); }
@@ -113,7 +115,8 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
       suspended = false;
       connect();
     },
-    ptyInput(paneId, data) { transmitIfReady({ type: "pty-input", paneId, data }); },
+    // False when the socket is reconnecting and the typing went nowhere.
+    ptyInput(paneId, data) { return transmitIfReady({ type: "pty-input", paneId, data }); },
     resize(paneId, cols, rows) { transmitIfReady({ type: "resize", paneId, cols, rows }); },
     acknowledge(paneId, streamId, offset) { transmitIfReady({ type: "pty-ack", paneId, streamId, offset }); },
     takeOver(paneId) { transmitIfReady({ type: "take-over", paneId }); },

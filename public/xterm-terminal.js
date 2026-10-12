@@ -102,7 +102,14 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       }
       return true;
     });
-    const type = (data) => { if (paneId && ready && !held) connection.ptyInput(paneId, data); };
+    const type = (data) => {
+      if (!paneId || !ready || held) return;
+      // A socket that dropped has not told this pane yet: say the typing was lost.
+      if (!connection.ptyInput(paneId, data)) {
+        ready = false;
+        setState({ dropped: true });
+      }
+    };
     term.onData(type);
     term.onBinary(type);
     term.onResize(({ cols, rows }) => {

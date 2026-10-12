@@ -54,7 +54,8 @@ function setup() {
     onReconnect: (listener) => listeners.reconnect.push(listener),
     attach: (paneId, size) => sent.push(["attach", paneId, size]),
     detach: (paneId) => sent.push(["detach", paneId]),
-    ptyInput: (paneId, data) => sent.push(["input", paneId, data]),
+    online: true,
+    ptyInput(paneId, data) { if (!this.online) return false; sent.push(["input", paneId, data]); return true; },
     resize: (paneId, cols, rows) => sent.push(["resize", paneId, cols, rows]),
     acknowledge: (paneId, streamId, offset) => sent.push(["ack", paneId, streamId, offset]),
     takeOver: (paneId) => sent.push(["take-over", paneId]),
@@ -76,7 +77,7 @@ function setup() {
   });
   const receive = (message) => { for (const listener of listeners.attach) listener(message); };
   const reconnect = () => { for (const listener of listeners.reconnect) listener(); };
-  return { view, sent, host, classes, fallbacks, states, receive, reconnect, term: () => term };
+  return { view, sent, host, classes, fallbacks, states, receive, reconnect, connection, term: () => term };
 }
 
 test("shows a pane at the frame's size, writes only its stream, and acknowledges once xterm has drawn it", () => {
@@ -161,4 +162,20 @@ test("a page that does not set the size shows the other page's grid and never as
   receive({ type: "pane-geometry", pane_id: "a", cols: 100, rows: 30, owner: true });
   assert.ok(!classes.has("is-adopted"));
   assert.equal(term().cols, 100, "once it sets the size, it fits its own frame");
+});
+
+test("typing while the socket reconnects is reported, and waits for the pane to attach again", () => {
+  const { view, sent, receive, reconnect, states, connection, term } = setup();
+  view.show("a");
+  receive({ type: "input-ready", pane_id: "a" });
+  connection.online = false;
+  term().type("lost");
+  assert.equal(states.at(-1).dropped, true);
+  connection.online = true;
+  term().type("still waiting");
+  assert.ok(!sent.some(([kind]) => kind === "input"), "nothing until the pane is ready again");
+  reconnect();
+  receive({ type: "input-ready", pane_id: "a" });
+  term().type("ok");
+  assert.deepEqual(sent.filter(([kind]) => kind === "input"), [["input", "a", "ok"]]);
 });

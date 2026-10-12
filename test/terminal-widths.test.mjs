@@ -4,7 +4,15 @@ import { herdrWidthProvider } from "../public/terminal-widths.js";
 
 // The bundle reads `self` as it loads; the width tables need nothing else of a browser.
 globalThis.self ??= globalThis;
+// The addon reads its Unicode tables with Buffer when there is one, and with
+// atob in a browser; under some Node versions the Buffer path reads them wrong
+// (every emoji one cell wide). Load and build it the way a browser does.
+const { Buffer: nodeBuffer } = globalThis;
+globalThis.Buffer = undefined;
 const { UnicodeGraphemesAddon } = await import("../public/vendor/xterm.mjs");
+const provider = herdrWidthProvider(UnicodeGraphemesAddon);
+provider.charProperties(0x1f600, 0);
+globalThis.Buffer = nodeBuffer;
 
 // How many cells herdr 0.9 gives each text (the cursor read back after printing it in a pane).
 const HERDR_COLUMNS = [
@@ -35,6 +43,5 @@ function columns(provider, text) {
 }
 
 test("xterm counts cells as herdr does", () => {
-  const provider = herdrWidthProvider(UnicodeGraphemesAddon);
   for (const [name, text, expected] of HERDR_COLUMNS) assert.equal(columns(provider, text), expected, name);
 });
