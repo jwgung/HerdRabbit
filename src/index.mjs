@@ -1,4 +1,4 @@
-import { readConfig } from "./config.mjs";
+import { formerLeafRefusal, obsoleteSettingsWarning, readConfig } from "./config.mjs";
 import { allowedRequestHosts } from "./allowed-hosts.mjs";
 import { AgentNotificationMonitor } from "./agent-notifications.mjs";
 import { HerdrBridgeClient } from "./herdr-bridge-client.mjs";
@@ -7,14 +7,9 @@ import { loadPasswordAuth } from "./password-auth.mjs";
 import { PasskeyAuth } from "./passkey-auth.mjs";
 import { loadWebPushService } from "./web-push-service.mjs";
 import { hostname } from "node:os";
-import { ServerProfiles } from "./server-profiles.mjs";
-import { PeerIdentity } from "./peer-identity.mjs";
-import { leafLinkRoutes } from "./link-server.mjs";
 import { readAppVersion } from "./app-version.mjs";
-import { discoverLeaves, readTailnetPeers } from "./tailnet-peers.mjs";
-import { announcementRegistry } from "./announcements.mjs";
-import { announcementWriter, readAnnouncements } from "./announcement-store.mjs";
-import { announceToHub } from "./leaf-announce.mjs";
+import { countLegacyServers } from "./legacy-servers.mjs";
+import { serveLocked } from "./locked-server.mjs";
 import { FileStore } from "./file-store.mjs";
 import { MultiServerClient } from "./multi-server-client.mjs";
 import { HerdrMachines, machineSocketDirectory } from "./herdr-machines.mjs";
@@ -23,53 +18,34 @@ import { AiAccounts, runningAgentsIn } from "./ai-accounts.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported, readHerdrVersion } from "./herdr-version.mjs";
 
 const config = readConfig();
+const obsoleteWarning = obsoleteSettingsWarning(config);
+if (obsoleteWarning) console.warn(obsoleteWarning);
 const auth = await loadPasswordAuth(config.authFile);
-// One look at Tailscale serves both things taken from it: the owner login that
-// makes an announcement believable, and the names machines are known by there.
-// Until it answers, or if there is no Tailscale, this machine goes by its own
-// host name and a linked one by nothing.
-const tailnet = readTailnetPeers();
-let tailnetNames = { self: null, peers: new Map() };
-void tailnet.then((status) => {
-  tailnetNames = { self: status.self?.name || null, peers: new Map(status.peers.map((peer) => [peer.address, peer.name])) };
-});
-function machineName(profile) {
-  if (profile.id === "local") return tailnetNames.self || hostname();
-  try {
-    return tailnetNames.peers.get(new URL(profile.address).hostname) || null;
-  } catch {
-    return null;
-  }
-}
-// A leaf that also had a password would look protected while its real boundary
-// is the peer gate, and a session it handed out could not be revoked for seven
-// days. Refusing here beats discovering the mismatch later.
-if (config.role === "leaf" && auth.required) {
-  console.error("A leaf must not have password authentication. Clear it with: npm run password");
-  process.exit(1);
-}
-// A hub keeps what leaves say about themselves; the owner login is what makes
-// an announcement believable, and Tailscale is the only thing that can say it.
-const announcements = config.role === "leaf" ? null : await (async () => {
-  const registry = announcementRegistry({
-    initial: await readAnnouncements(config.announcementsFile),
-    save: announcementWriter(config.announcementsFile),
+const leafRefusal = formerLeafRefusal(config, auth.required);
+if (leafRefusal) {
+  console.error(leafRefusal);
+  // Nothing below runs: the port only says how to set a password.
+  await serveLocked(config, leafRefusal, {
+    onListening: () => console.log(`HerdRabbit locked: http://${config.host}:${config.port}`),
   });
-  let owner = null;
-  void tailnet.then((status) => { owner = status.self?.login || null; });
-  return Object.assign(registry, { ownerLogin: () => owner });
-})();
-
-const peer = config.role === "leaf"
-  ? new PeerIdentity({ logins: config.peerLogins, addresses: config.peerAddresses })
-  : null;
+  process.exit();
+}
+// This machine goes by its host name; a Herdr machine by its own label.
+function machineName(profile) {
+  return profile.id === "local" ? hostname() : null;
+}
 const passkeys = new PasskeyAuth({ auth });
 const local = new HerdrBridgeClient({
   binary: config.herdrBin,
   timeoutMs: config.commandTimeoutMs,
 });
 const push = await loadWebPushService(config.pushFile);
-const profiles = await ServerProfiles.load(config.serversFile);
+// Saved links to leaves are not used any more; the page asks once for those
+// PCs to be added again with herdr machine.
+const legacyServers = await countLegacyServers(config.serversFile).catch((error) => {
+  console.warn(`Could not read ${config.serversFile}: ${error.message}`);
+  return 0;
+});
 const files = await FileStore.load(config.filesDir, { maxBytes: config.maxTransferBytes });
 const hubVersion = readAppVersion();
 // Read once: the updater restarts this service after it updates Herdr.
@@ -80,9 +56,9 @@ void readHerdrVersion(config.herdrBin).then((version) => {
     console.warn(`Herdr ${version || "(unknown version)"} is older than ${MIN_HERDR_VERSION}. Run: ${config.herdrBin} update --handoff`);
   }
 });
-// A hub reaches Herdr's own SSH machines (`herdr machine add`) without
-// anything installed on them; a leaf answers only for itself.
-const machineDirectory = peer ? null : await machineSocketDirectory().catch((error) => {
+// Herdr's own SSH machines (`herdr machine add`) are reached without anything
+// installed on them.
+const machineDirectory = await machineSocketDirectory().catch((error) => {
   // Without a private directory the machines stay unconnected; everything else runs.
   console.warn(`Herdr machines are unavailable: ${error.message}`);
   return null;
@@ -97,13 +73,13 @@ const machines = !machineDirectory ? null : new HerdrMachines({
   maxTransferBytes: config.maxTransferBytes,
 });
 machines?.start();
-const herdr = new MultiServerClient({ local, profiles, hubVersion, machineName, herdrVersion: () => herdrVersion, machines });
+const herdr = new MultiServerClient({ local, hubVersion, machineName, herdrVersion: () => herdrVersion, machines });
 // Only this machine's panes decide whether a switch here would disturb anything.
 const aiAccounts = new AiAccounts({ directory: config.aiAccountsDir, runningAgents: () => runningAgentsIn(local) });
 const notificationMonitor = new AgentNotificationMonitor({ herdr, push });
-// Without node-pty's native module every pane keeps the screen-text view.
+// Without node-pty's native module every pane is a read-only mirror of its screen.
 const nodePty = await loadNodePty();
-if (!nodePty) console.warn("node-pty is unavailable; terminals show screen text instead of attaching.");
+if (!nodePty) console.warn("node-pty is unavailable; terminals mirror the screen instead of attaching.");
 const attachments = nodePty
   ? new PaneAttachments({ resolveTerminal: (paneId, timeoutMs) => herdr.terminalTarget(paneId, timeoutMs), spawnPty: nodePtySpawner(nodePty) })
   : null;
@@ -111,7 +87,7 @@ const { server } = createHerdrHttpServer({
   herdr,
   attachments,
   machines,
-  profiles,
+  legacyServers,
   files,
   auth,
   passkeys,
@@ -120,24 +96,7 @@ const { server } = createHerdrHttpServer({
   allowedHosts: allowedRequestHosts(config.host, {
     extraHosts: config.extraAllowedHosts,
   }),
-  peer,
-  // A leaf answers its hub with its own sessions only, so the link routes get
-  // the local Herdr client rather than the aggregating one.
-  // Only a hub goes looking: a leaf has no dialog and no one to show it to.
-  discover: peer ? null : async (known) => {
-    const announced = announcements.list();
-    const found = await discoverLeaves({ hubVersion, known, announced });
-    // Drop what a look just proved is not there. "offline" is not that: the
-    // machine is merely asleep and will announce itself again when it wakes.
-    const claimed = new Set(announced.map((entry) => entry.address));
-    announcements.forget(found.candidates
-      .filter((candidate) => candidate.state === "absent" && claimed.has(candidate.address))
-      .map((candidate) => candidate.address));
-    return found;
-  },
-  announcements: peer ? null : announcements,
-  aiAccounts: peer ? null : aiAccounts,
-  link: peer ? leafLinkRoutes({ client: local, files, aiAccounts, version: hubVersion, herdrVersion: () => herdrVersion, serverName: hostname() }) : null,
+  aiAccounts,
   maxBodyBytes: config.maxBodyBytes,
   maxTransferBytes: config.maxTransferBytes,
 });
@@ -151,22 +110,10 @@ server.on("error", (error) => {
   process.exitCode = 1;
 });
 
-// A leaf says where it is, because a hub scanning the default port cannot find
-// a machine that runs more than one of these.
-const announcer = peer
-  ? announceToHub({
-    hub: config.hub,
-    address: `http://${config.host}:${config.port}`,
-    name: hostname(),
-    version: hubVersion,
-  })
-  : { stop() {} };
-
 server.listen(config.port, config.host, () => {
   notificationMonitor.start();
   console.log(`HerdRabbit: http://${config.host}:${config.port}`);
   console.log(`Password authentication: ${auth.required ? "enabled" : "disabled"}`);
-  if (peer) console.log(`Leaf mode: only ${config.peerLogins.join(", ") || "the configured device"} may call this server`);
   console.log(
     config.host === "0.0.0.0"
       ? "Listening on all IPv4 interfaces. Press Ctrl+C to stop."

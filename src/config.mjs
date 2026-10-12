@@ -55,109 +55,30 @@ function defaultFilesDirectory(environment) {
   return join(dataHome, "herdrabbit", "files");
 }
 
-function parseRole(value) {
-  const role = value || "hub";
-  if (!["hub", "leaf"].includes(role)) {
-    throw new Error("HERDR_WEB_ROLE must be hub or leaf");
-  }
-  return role;
-}
+// Settings that only ever applied to a leaf (a second HerdRabbit linked over
+// Tailscale), which is gone: remote PCs are Herdr's own SSH machines now. An old
+// leaf's unit still carries them, and it must keep starting rather than crash.
+const OBSOLETE_LEAF_SETTINGS = ["HERDR_WEB_ROLE", "HERDR_WEB_PEER_LOGINS", "HERDR_WEB_PEER_ADDRESSES", "HERDR_WEB_HUB"];
 
-function parsePeerLogins(value) {
-  if (value === undefined || value.trim() === "") return [];
-  const logins = value.split(",").map((login) => login.trim().toLowerCase()).filter(Boolean);
-  for (const login of logins) {
-    if (login.length > 320 || !/^[^\s,@]+@[^\s,@]+$/u.test(login)) {
-      throw new Error("HERDR_WEB_PEER_LOGINS must contain comma-separated tailnet logins");
-    }
-  }
-  return [...new Set(logins)];
-}
-
-function parsePeerAddresses(value) {
-  if (value === undefined || value.trim() === "") return [];
-  const addresses = value.split(",").map((address) => address.trim().toLowerCase()).filter(Boolean);
-  for (const address of addresses) {
-    if (isIP(address) === 0) {
-      throw new Error("HERDR_WEB_PEER_ADDRESSES must contain comma-separated IP addresses");
-    }
-  }
-  return [...new Set(addresses)];
-}
-
-// Where a leaf reports itself. The same install answer that says which hub may
-// call it also says which hub to call -- as a name, because the hub sits behind
-// Tailscale Serve and its certificate is for the tailnet name, not the address.
-function parseHubUrl(value) {
-  if (value === undefined || value.trim() === "") return null;
-  let url;
-  try {
-    url = new URL(value.trim());
-  } catch {
-    throw new Error("HERDR_WEB_HUB must be a full URL, such as https://hub.tailnet.ts.net:38787");
-  }
-  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password ||
-      url.search || url.hash || (url.pathname !== "" && url.pathname !== "/")) {
-    throw new Error("HERDR_WEB_HUB must be a full URL, such as https://hub.tailnet.ts.net:38787");
-  }
-  return url.origin;
-}
-
-function isLoopbackHost(host) {
-  return host === "::1" || host.startsWith("127.");
-}
-
-function isEveryInterface(host) {
-  return host === "0.0.0.0" || host === "::";
-}
-
-// A leaf proves its caller from headers Tailscale Serve stamps on, which are
-// only trustworthy while Serve is the one thing that can reach the socket. Every
-// rule here exists because the alternative fails open and stays quiet about it.
-function checkPeerConfiguration({ role, peerLogins, peerAddresses, host }) {
-  const configured = peerLogins.length > 0 || peerAddresses.length > 0;
-  if (role === "leaf" && !configured) {
-    throw new Error("HERDR_WEB_ROLE=leaf requires HERDR_WEB_PEER_LOGINS or HERDR_WEB_PEER_ADDRESSES");
-  }
-  // Two shapes are safe, and they differ in where the proof comes from.
-  //
-  //   loopback  Tailscale Serve sits in front and stamps the caller's identity
-  //             on; that is only trustworthy because nothing else can reach
-  //             the socket.
-  //   one address  the leaf listens on its own tailnet address and reads the
-  //             caller straight off the socket, which the kernel sets from a
-  //             WireGuard-authenticated peer. No Serve, no HTTPS needed.
-  //
-  // Every interface is neither: it would put the leaf on the LAN and on every
-  // container bridge, where a source address proves nothing.
-  if (role === "leaf" && isEveryInterface(host)) {
-    throw new Error("HERDR_WEB_ROLE=leaf cannot bind every interface; use 127.0.0.1 behind Tailscale Serve, or this machine's tailnet address");
-  }
-  if (role === "leaf" && !isLoopbackHost(host) && peerAddresses.length === 0) {
-    throw new Error("A leaf bound to its tailnet address identifies its hub by that hub's address, so HERDR_WEB_PEER_ADDRESSES is required");
-  }
-  // Peers configured without the role would leave the API open to the whole
-  // tailnet while the hub keeps working and nothing looks wrong.
-  if (role !== "leaf" && configured) {
-    throw new Error("HERDR_WEB_PEER_LOGINS and HERDR_WEB_PEER_ADDRESSES only apply with HERDR_WEB_ROLE=leaf");
-  }
+// A leaf listened on its tailnet address with no password, trusting a peer
+// gate that no longer exists. Kept there it would hand every device on the
+// tailnet an open terminal, so a former leaf answers on loopback only.
+export function obsoleteLeafSettings(environment) {
+  const names = OBSOLETE_LEAF_SETTINGS.filter((name) => (environment[name] ?? "").trim() !== "");
+  return { names, wasLeaf: (environment.HERDR_WEB_ROLE ?? "").trim() === "leaf" };
 }
 
 export function readConfig(environment = process.env) {
-  const peer = {
-    role: parseRole(environment.HERDR_WEB_ROLE),
-    peerLogins: parsePeerLogins(environment.HERDR_WEB_PEER_LOGINS),
-    peerAddresses: parsePeerAddresses(environment.HERDR_WEB_PEER_ADDRESSES),
-    hub: parseHubUrl(environment.HERDR_WEB_HUB),
-  };
-  checkPeerConfiguration({ ...peer, host: parseHost(environment.HERDR_WEB_HOST) });
+  const obsolete = obsoleteLeafSettings(environment);
+  const host = parseHost(environment.HERDR_WEB_HOST);
   return Object.freeze({
-    host: parseHost(environment.HERDR_WEB_HOST),
+    host: obsolete.wasLeaf ? "127.0.0.1" : host,
     port: parsePort(environment.HERDR_WEB_PORT),
     herdrBin: environment.HERDR_BIN || "herdr",
     authFile: defaultAuthFilePath(environment),
+    // Links to leaves saved by an older version. Only read, to tell the owner
+    // to add those PCs again with herdr machine; never written or removed.
     serversFile: environment.HERDR_WEB_SERVERS_FILE || join(dirname(defaultAuthFilePath(environment)), "servers.json"),
-    announcementsFile: join(dirname(defaultAuthFilePath(environment)), "announced.json"),
     // Saved AI CLI sign-ins sit with the other credentials, not with uploads.
     aiAccountsDir: environment.HERDR_WEB_AI_ACCOUNTS_DIR
       ? resolve(environment.HERDR_WEB_AI_ACCOUNTS_DIR)
@@ -168,8 +89,28 @@ export function readConfig(environment = process.env) {
     commandTimeoutMs: 5_000,
     maxBodyBytes: 16 * 1024,
     maxTransferBytes: 50 * 1024 * 1024,
-    ...peer,
+    // Named by the startup warning, then ignored.
+    obsoleteSettings: Object.freeze(obsolete.names),
+    wasLeaf: obsolete.wasLeaf,
   });
 }
 
-export { parseAllowedHosts, parseHost, parseHubUrl, parsePeerAddresses, parsePeerLogins, parsePort, parseRole };
+// One line at startup, or null when nothing obsolete is set.
+export function obsoleteSettingsWarning({ obsoleteSettings = [], wasLeaf = false } = {}) {
+  if (obsoleteSettings.length === 0) return null;
+  const ignored = `Ignoring ${obsoleteSettings.join(", ")}: leaf mode was removed, and remote PCs are added with herdr machine.`;
+  return wasLeaf
+    ? `${ignored} This former leaf listens on 127.0.0.1 only; run npm run install-service to set it up again.`
+    : ignored;
+}
+
+// A leaf never had a password: the old server refused one and relied on the
+// peer gate instead. Some sat on loopback behind Tailscale Serve, which still
+// forwards the tailnet to them, so loopback alone does not close them. Without
+// a password a former leaf serves only this message.
+export function formerLeafRefusal({ wasLeaf = false } = {}, passwordRequired) {
+  if (!wasLeaf || passwordRequired) return null;
+  return "HerdRabbit is locked: this former leaf has no password, and leaf mode with its peer gate was removed. Run npm run install-service here to set it up again (it asks for a password), or npm run password and restart the service.";
+}
+
+export { parseAllowedHosts, parseHost, parsePort };

@@ -1,6 +1,6 @@
 // Browser check of the attached terminal: xterm shows herdr's stream, typing
 // reaches the pty, a held pane offers "Open here", and a pane that cannot
-// attach falls back to the screen-text view. Runs against a fake herdr.
+// attach is mirrored from its polled screen. Runs against a fake herdr.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { once } from "node:events";
@@ -73,7 +73,7 @@ try {
     // xterm separates cells with no-break spaces: match the text, not the words.
     const shows = (text) => page.waitForFunction((wanted) => document.querySelector("#terminal-xterm .xterm-rows")?.textContent.replace(/\u00a0/gu, " ").includes(wanted), text);
     await shows("ready 한글");
-    assert.equal(await page.locator("#terminal-output").isHidden(), true, "the screen-text view gives way to xterm");
+    assert.equal(await page.locator("#terminal-message").isHidden(), true, "the message gives way to xterm");
     await page.locator("#terminal-xterm .xterm").click();
     await page.keyboard.type("echo hi");
     await page.keyboard.press("Enter");
@@ -114,12 +114,11 @@ try {
     await page.waitForTimeout(100);
     assert.equal(ptys.at(-1).options.args.at(-1), "term_w1:p2");
 
-    // The attach ends: the pane shows its screen text again.
+    // The attach ends: the pane is mirrored from its polled screen meanwhile.
     await page.locator("#terminal-xterm .xterm").click();
     await page.keyboard.type("exit");
     await page.keyboard.press("Enter");
-    await page.locator("#terminal-output").filter({ hasText: "screen text view" }).waitFor();
-    assert.equal(await page.locator("#terminal-xterm").isHidden(), true);
+    await shows("screen text view");
 
     // A pane another client holds: the banner offers to take it.
     held = true;
@@ -130,12 +129,17 @@ try {
     await page.waitForFunction(() => document.querySelector("#terminal-held").hidden);
     assert.ok(ptys.some((pty) => pty.options.args.includes("--takeover")));
 
-    // A pane that cannot attach keeps the screen-text view.
+    // A pane that cannot attach is mirrored read-only in xterm.
     held = false;
     await page.evaluate(() => { history.replaceState(null, "", "?pane=w2%3Ap1"); });
     await page.reload();
-    await page.locator("#terminal-output").filter({ hasText: "screen text view" }).waitFor();
-    assert.equal(await page.locator("#terminal-xterm").isHidden(), true);
+    await shows("screen text view");
+    assert.equal(await page.locator("#terminal-message").isHidden(), true);
+    const before = ptys.length;
+    await page.locator("#terminal-xterm .xterm").click();
+    await page.keyboard.type("ignored");
+    await page.waitForTimeout(200);
+    assert.equal(ptys.length, before, "typing in a mirror attaches nothing");
     assert.deepEqual(errors, []);
     console.log({ mobile, attached: true, typing: true, backgroundReturn: true, secretNotKept: true, paneSwitch: true, endedFallback: true, heldTakeOver: true, fallback: true });
     await page.close();

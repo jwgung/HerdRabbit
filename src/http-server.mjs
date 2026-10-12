@@ -17,7 +17,7 @@ import { attachTerminalWebSocket } from "./terminal-websocket.mjs";
 import { HttpError, acceptUpload, aiAccountRoute, decodePaneId, readJsonBody, sendJson } from "./http-basics.mjs";
 import { AiAccountError } from "./ai-accounts.mjs";
 import {
-  PEER_ADDRESS_HEADER, PEER_LOGIN_HEADER, PeerRejected,
+  PEER_ADDRESS_HEADER, PEER_LOGIN_HEADER,
   isLoopbackSocket, nearestForwardedAddress, normalizeLogin, socketAddress,
 } from "./peer-identity.mjs";
 import { terminalOutputWatcher } from "./terminal-output-watch.mjs";
@@ -44,9 +44,7 @@ const STATIC_FILES = new Map([
   ["/ui/examples.js", { path: `${PUBLIC_DIR}/ui/examples.js`, type: "text/javascript; charset=utf-8" }],
   ["/", { path: `${PUBLIC_DIR}/index.html`, type: "text/html; charset=utf-8" }],
   ["/app.js", { path: `${PUBLIC_DIR}/app.js`, type: "text/javascript; charset=utf-8" }],
-  ["/ansi.js", { path: `${PUBLIC_DIR}/ansi.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-links.js", { path: `${PUBLIC_DIR}/terminal-links.js`, type: "text/javascript; charset=utf-8" }],
-  ["/direct-terminal-input.js", { path: `${PUBLIC_DIR}/direct-terminal-input.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-connection.js", { path: `${PUBLIC_DIR}/terminal-connection.js`, type: "text/javascript; charset=utf-8" }],
   ["/xterm-terminal.js", { path: `${PUBLIC_DIR}/xterm-terminal.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-widths.js", { path: `${PUBLIC_DIR}/terminal-widths.js`, type: "text/javascript; charset=utf-8" }],
@@ -298,9 +296,6 @@ function errorResponse(error) {
   if (error instanceof PasskeyError) {
     return { status: error.status, code: error.code, message: error.message };
   }
-  if (error instanceof PeerRejected) {
-    return { status: error.status, code: error.code, message: error.message };
-  }
   // Messages and details are written by the account manager itself and name
   // no credential; details only ever lists the panes a switch would affect.
   if (error instanceof AiAccountError) {
@@ -529,20 +524,18 @@ async function serveStatic(response, pathname, method) {
 
 export function createHerdrHttpServer({
   herdr,
-  profiles = null,
   files = null,
   auth = new PasswordAuth(),
   passkeys = null,
   push = null,
   notificationMonitor = null,
   allowedHosts = LOOPBACK_HOSTS,
-  peer = null,
-  link = null,
-  discover = null,
-  announcements = null,
   aiAccounts = null,
   attachments = null,
   machines = null,
+  // How many links to other HerdRabbits an older version saved. Those are not
+  // used any more; the page says once to add those PCs again with herdr machine.
+  legacyServers = 0,
   csrfToken = randomBytes(32).toString("base64url"),
   maxBodyBytes = 16 * 1024,
   maxTransferBytes = 50 * 1024 * 1024,
@@ -636,53 +629,6 @@ export function createHerdrHttpServer({
 
       const url = new URL(request.url || "/", `http://${request.headers.host}`);
       const method = request.method || "GET";
-
-      // A leaf serves one thing: the API its hub calls. Nothing else is worth
-      // answering -- there is no person at this address, and handing out the UI
-      // would only produce a dead end that advertises the version. Narrowing the
-      // surface before asking who is calling keeps the refusal the same for
-      // everyone and keeps the log free of paths that were never going to be
-      // served.
-      if (peer?.required) {
-        if (!url.pathname.startsWith("/api/link/")) {
-          throw new HttpError(404, "not_found", "Not found");
-        }
-        peer.authorize(request);
-      }
-
-      // A leaf has no session here, so this sits ahead of the gate like the
-      // download ticket does. What it can do is bounded on purpose: it adds a
-      // row to a list a person still has to choose from, and choosing probes
-      // the address itself.
-      if (method === "POST" && url.pathname === "/api/announce") {
-        if (!announcements) throw new HttpError(404, "not_found", "Not found");
-        const from = nearestForwardedAddress(request.headers[PEER_ADDRESS_HEADER]);
-        const login = normalizeLogin(request.headers[PEER_LOGIN_HEADER]);
-        // Both come from Tailscale Serve, which is the only thing that can
-        // reach this socket. Without them the caller is not on the tailnet.
-        if (!isLoopbackSocket(request) || from === null || login === null ||
-            login !== announcements.ownerLogin()) {
-          throw new HttpError(403, "announce_rejected", "Announcements are only accepted from your tailnet.");
-        }
-        const body = await readJsonBody(request, maxBodyBytes);
-        const recorded = announcements.record({
-          from,
-          name: body.name,
-          address: body.address,
-          version: body.version,
-          protocol: body.link_protocol,
-        });
-        if (!recorded.ok) throw new HttpError(400, "invalid_input", "That announcement was not usable.");
-        sendJson(response, 202, { ok: true });
-        return;
-      }
-
-      // Ahead of the /api/ gate on purpose: a hub carries no cookie, no launch
-      // token and no CSRF token, and it does not need them -- the peer gate
-      // above already decided whether this caller may be here at all.
-      if (link && await link(request, response, url, method)) {
-        return;
-      }
 
       if ((method === "GET" || method === "HEAD") && (await serveStatic(response, url.pathname, method))) {
         return;
@@ -814,44 +760,11 @@ export function createHerdrHttpServer({
         return;
       }
 
-      if (profiles && url.pathname.startsWith("/api/servers")) {
-        const match = url.pathname.match(/^\/api\/servers(?:\/(link_[a-f0-9-]{36}|test|discover))?$/u);
-        if (!match) throw new HttpError(404, "not_found", "Server route not found");
-        const id = match[1];
-        if (method === "GET" && !id) {
-          sendJson(response, 200, { profiles: profiles.list() });
-          return;
-        }
-        requireWriteAuthorization(request, csrfToken);
-        if (method === "POST" && id === "discover") {
-          if (!discover) {
-            throw new HttpError(501, "discovery_unavailable", "This machine cannot list its tailnet.");
-          }
-          sendJson(response, 200, await discover(profiles.list().map((item) => item.address)));
-          return;
-        }
-        if (method === "POST" && id === "test") {
-          const { validateServerProfile } = await import("./server-profiles.mjs");
-          const profile = validateServerProfile(await readJsonBody(request, maxBodyBytes));
-          sendJson(response, 200, await herdr.testProfile(profile));
-          return;
-        }
-        if ((method === "POST" && !id) || (method === "PUT" && id && id !== "test")) {
-          sendJson(response, 200, { profiles: await profiles.save(await readJsonBody(request, maxBodyBytes), id) });
-          return;
-        }
-        if (method === "DELETE" && id && id !== "test") {
-          sendJson(response, 200, { profiles: await profiles.remove(id) });
-          return;
-        }
-        throw new HttpError(405, "method_not_allowed", "Method not allowed");
-      }
-
       if (files && url.pathname.startsWith("/api/files")) {
         const match = url.pathname.match(/^\/api\/files(?:\/([^/]+))?$/u);
         if (!match) throw new HttpError(404, "not_found", "File route not found");
         const name = match[1] === undefined ? null : validateTransferName(match[1]);
-        // Writing to a linked server goes to that machine's own uploads folder,
+        // Writing to a Herdr machine goes to that machine's own uploads folder,
         // never to a path the request chooses.
         const { serverId: filesServer, source: remote } = fileSource(url.searchParams.get("server"));
         if (method === "GET" && !name) {
@@ -899,7 +812,7 @@ export function createHerdrHttpServer({
         if (!aiAccounts || !match) throw new HttpError(404, "not_found", "Not found");
         const [, action, loginId, step] = match;
         if (method === "GET" && !action && !loginId) {
-          // Same-origin like browsing: a listing may wait on a linked machine.
+          // Same-origin like browsing: a listing may wait on a Herdr machine.
           requireSameOrigin(request);
           const { serverId, source } = accountsSource(url.searchParams.get("server"));
           sendJson(response, 200, { ...(await source.list()), server: serverId });
@@ -947,7 +860,7 @@ export function createHerdrHttpServer({
           }
           const { serverId, source } = fileSource(url.searchParams.get("server"));
           const target = url.searchParams.get("path");
-          // A linked server does its own reading, so it needs none of the local
+          // A Herdr machine does its own reading, so it needs none of the local
           // thread budget -- and one that stops answering cannot exhaust it.
           const listing = source
             ? await browseDirectory(target, { prefix }, source)
@@ -1130,8 +1043,9 @@ export function createHerdrHttpServer({
           allowedKeys: ALLOWED_KEYS,
           pollIntervalMs: 1_000,
           pushPublicKey: push?.publicKey || null,
-          // Whether SSH machines can be added here: not on a leaf, nor without a socket directory.
+          // Whether SSH machines can be added here: not without a socket directory.
           machines: Boolean(machines),
+          legacyServers,
         });
         return;
       }
@@ -1331,7 +1245,7 @@ export function createHerdrHttpServer({
   server.headersTimeout = 5_000;
   server.keepAliveTimeout = 5_000;
 
-  // A linked server answers for its own files, so the id resolves to that
+  // A Herdr machine answers for its own files, so the id resolves to that
   // machine's client; local keeps the filesystem path.
   function fileSource(value) {
     if (value === undefined || value === null || value === "" || value === LOCAL_SERVER) {
@@ -1389,15 +1303,11 @@ export function createHerdrHttpServer({
     server,
     onSessionsEnded: (listener) => auth.onSessionsEnded?.(listener) ?? (() => {}),
     authorizeUpgrade(request) {
-      // The upgrade path never reaches the request handler, so the peer gate
-      // has to be repeated here or it is simply absent for sockets.
-      if (peer?.required) peer.authorize(request);
       if (!hasValidHost(request, normalizedAllowedHosts) || !request.headers.origin) throw new Error("Origin required");
       requireSameOrigin(request);
       if (auth.required && !auth.hasValidSession(request.headers.cookie)) throw new Error("Authentication required");
     },
     authorizeMessage(request, credentials) {
-      if (peer?.required) peer.authorize(request);
       if (!credentials || !safeTokenEquals(csrfToken, credentials.csrf)) throw new Error("Write token rejected");
       if (auth.required && (!auth.hasValidSession(request.headers.cookie) ||
           !auth.hasValidLaunchToken(credentials.launchToken))) throw new Error("Authentication required");

@@ -23,6 +23,7 @@ printf '%s %s\\n' "$name" "$*" >> "$UPDATE_TEST_LOG"
 case "$name:$*" in
   'node:scripts/check-herdr-version.mjs') [ "$UPDATE_TEST_MODE" != herdr-too-old ] ;;
   'node:scripts/service-environment.mjs HERDR_BIN') if [ "$UPDATE_TEST_MODE" = service-herdr ]; then printf '%s/custom-herdr\\n' "$UPDATE_TEST_BIN"; fi ;;
+  'node:scripts/service-environment.mjs HERDR_WEB_ROLE') if [ "$UPDATE_TEST_MODE" = leaf ]; then printf 'leaf\\n'; fi ;;
   'node:'*) printf '22\\n' ;;
   'herdr:update --handoff'|'custom-herdr:update --handoff') [ "$UPDATE_TEST_MODE" != herdr-update-failed ] ;;
   'systemctl:'*'--property=Environment --value') if [ "$UPDATE_TEST_MODE" = service-herdr ]; then printf 'HERDR_WEB_PORT=38787 HERDR_BIN=%s/custom-herdr\\n' "$UPDATE_TEST_BIN"; fi ;;
@@ -91,6 +92,15 @@ test("updater keeps the installed Herdr when its update fails but it is new enou
   assert.equal(result.code, undefined, result.stderr);
   assert.match(result.stdout, /Herdr could not be updated/);
   assert.match(commands, /systemctl --user restart/);
+});
+
+test("updater stops a former leaf before changing anything and says how to move it over", async (t) => {
+  const { result, commands } = await runFixture(t, "leaf");
+  assert.notEqual(result.code, undefined);
+  assert.match(result.stdout, /installed as a leaf/u);
+  assert.match(result.stdout, /npm run install-service/u);
+  assert.match(result.stderr, /nothing was changed/u);
+  assert.doesNotMatch(commands, /git fetch|herdr update|git merge --ff-only|npm ci|systemctl --user restart/);
 });
 
 test("updater changes nothing, Herdr included, when it cannot read the new code", async (t) => {

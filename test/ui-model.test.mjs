@@ -1,11 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  MAX_HISTORY_LINES,
-  terminalShowsOlderScreen,
   agentStatus,
   agentStatusIcon,
-  compactTerminalSeparators,
   detectTouchInput,
   displayRecordLabel,
   displayTabLabel,
@@ -27,17 +24,15 @@ import {
   insertNewlineAtSelection,
   loginMethodPresentation,
   nextInputHistory,
-  nextHistoryLineLimit,
   outputPollingDecision,
   outputTextForUpdate,
   paneShortcutTarget,
   selectedPaneIdForSnapshot,
-  shouldRenderTerminalUpdate,
   sidebarPresentation,
-  terminalOutputForEnvironment,
   uploadSummary,
   waitsForRemotePane,
   keepsVanishedRemotePane,
+  legacyServersNotice,
 } from "../public/ui-model.js";
 
 test("cycles through panes with Ctrl+Tab and Ctrl+Shift+Tab", () => {
@@ -272,29 +267,6 @@ test("detects phones when the primary pointer media query is unreliable", () => 
   assert.equal(detectTouchInput({ primaryTouch: true }), true);
 });
 
-test("compacts terminal box-drawing separators that would wrap on mobile", () => {
-  const divider = "─".repeat(212);
-  assert.equal(
-    compactTerminalSeparators(`위\n${divider}\n아래`),
-    `위\n${"─".repeat(24)}\n아래`,
-  );
-  assert.equal(compactTerminalSeparators("일반 - 텍스트와 짧은 ─── 선"), "일반 - 텍스트와 짧은 ─── 선");
-});
-
-test("preserves full terminal separators on desktop and compacts them on touch screens", () => {
-  const divider = "─".repeat(212);
-  const output = `위\n${divider}\n아래`;
-
-  assert.equal(
-    terminalOutputForEnvironment(output, { touchInput: false }),
-    output,
-  );
-  assert.equal(
-    terminalOutputForEnvironment(output, { touchInput: true }),
-    `위\n${"─".repeat(24)}\n아래`,
-  );
-});
-
 test("moves through sent input history and restores the current draft", () => {
   const history = ["첫 번째", "두 번째"];
   const previous = nextInputHistory({
@@ -362,48 +334,6 @@ test("does not consume arrow keys when no input history is available", () => {
       value: "작성 중",
     },
   );
-});
-
-test("preserves terminal DOM while selecting or when output is unchanged", () => {
-  const base = {
-    renderedPaneId: "pane-a",
-    nextPaneId: "pane-a",
-    renderedOutput: "same output",
-    nextOutput: "same output",
-    hasSelection: false,
-    pointerActive: false,
-  };
-  assert.equal(shouldRenderTerminalUpdate(base), false);
-  assert.equal(
-    shouldRenderTerminalUpdate({ ...base, nextOutput: "new output", hasSelection: true }),
-    false,
-  );
-  assert.equal(
-    shouldRenderTerminalUpdate({ ...base, nextOutput: "new output", pointerActive: true }),
-    false,
-  );
-  assert.equal(
-    shouldRenderTerminalUpdate({ ...base, nextOutput: "new output", composerActive: true }),
-    true,
-    "typing in the composer must not stop new output from rendering",
-  );
-  assert.equal(
-    shouldRenderTerminalUpdate({ ...base, nextOutput: "new output", scrolling: true }),
-    false,
-    "re-rendering mid-scroll stops momentum scrolling dead",
-  );
-  assert.equal(shouldRenderTerminalUpdate({ ...base, nextOutput: "new output" }), true);
-  assert.equal(
-    shouldRenderTerminalUpdate({ ...base, nextOutput: "new output", readingHistory: true }),
-    false,
-    "new output must not slide the rolling window underneath the reader",
-  );
-  assert.equal(
-    shouldRenderTerminalUpdate({ ...base, nextPaneId: "pane-b", readingHistory: true }),
-    true,
-    "switching panes must not retain the old conversation",
-  );
-  assert.equal(shouldRenderTerminalUpdate({ ...base, nextPaneId: "pane-b" }), true);
 });
 
 test("selects the first pane on initial load and preserves a current selection", () => {
@@ -508,23 +438,6 @@ test("derives accessible desktop and mobile sidebar states", () => {
       toggleLabel: "Close sidebar",
     },
   );
-});
-
-test("grows the requested history window one page at a time", () => {
-  assert.equal(nextHistoryLineLimit(200), 400);
-  assert.equal(nextHistoryLineLimit(99_900), MAX_HISTORY_LINES);
-  assert.equal(nextHistoryLineLimit(MAX_HISTORY_LINES), MAX_HISTORY_LINES);
-});
-
-
-test("recognizes Claude's scrolled viewport without confusing normal output", () => {
-  assert.equal(terminalShowsOlderScreen("\x1b[32m2 new messages (ctrl+End) ↓\x1b[0m"), true);
-  assert.equal(terminalShowsOlderScreen("prompt text   1 new message (ctrl+End) ↓"), true);
-  assert.equal(terminalShowsOlderScreen("Working on 2 new messages"), false);
-  assert.equal(terminalShowsOlderScreen("latest terminal output"), false);
-  assert.equal(terminalShowsOlderScreen("  Jump to bottom"), true);
-  assert.equal(terminalShowsOlderScreen("\x1b[32m↓ jump to bottom (ctrl+End)\x1b[0m"), true);
-  assert.equal(terminalShowsOlderScreen("Use jump to bottom to see the latest output."), false);
 });
 
 test("inserts text at the caret and keeps the caret after it", () => {
@@ -738,32 +651,6 @@ test("refuses to clear a session that cannot say its number", () => {
   assert.equal(clearedTabLabel(null), null);
 });
 
-test("renders the older history the reader scrolled up to ask for", () => {
-  // Scrolling to the top is both the request and the thing that raises the
-  // guards: `scrolling` and `pointerActive` are set by that very gesture, and
-  // on a touch screen the finger is still down when the answer lands. Without
-  // the exception the request goes out and its answer is discarded every time,
-  // which reads as the history feature quietly not existing.
-  const base = {
-    renderedPaneId: "pane-a",
-    nextPaneId: "pane-a",
-    renderedOutput: "160 lines",
-    nextOutput: "400 lines",
-    readerRequested: true,
-  };
-  assert.equal(shouldRenderTerminalUpdate({ ...base, scrolling: true }), true);
-  assert.equal(shouldRenderTerminalUpdate({ ...base, pointerActive: true }), true);
-  assert.equal(shouldRenderTerminalUpdate({ ...base, readingHistory: true }), true);
-  assert.equal(shouldRenderTerminalUpdate({ ...base, hasSelection: true }), true);
-  // It is still an answer about the same content: identical output changes nothing.
-  assert.equal(shouldRenderTerminalUpdate({ ...base, nextOutput: "160 lines" }), false);
-  // And a background poll is still held back by every one of those guards.
-  assert.equal(
-    shouldRenderTerminalUpdate({ ...base, readerRequested: false, scrolling: true }),
-    false,
-  );
-});
-
 test("formats browse diff summary messages concisely", () => {
   assert.equal(browseDiffSummary(0, 0), "");
   assert.equal(browseDiffSummary(1, 0), "1 added");
@@ -873,4 +760,15 @@ test("the pane on screen stays while its server comes back, and gives way once i
   assert.equal(keepsVanishedRemotePane(pane, [], with_({ available: true, enabled: true })), false, "connected, and the pane is gone");
   assert.equal(keepsVanishedRemotePane(pane, [{ pane_id: pane }], with_({ available: false })), false, "still listed");
   assert.equal(keepsVanishedRemotePane("hs_x~w1:p1", [], []), false, "a local pane");
+});
+
+test("tells once that old leaf links have to be added again with herdr machine", () => {
+  assert.equal(legacyServersNotice({ count: 0 }), null);
+  assert.equal(legacyServersNotice({}), null);
+  assert.equal(legacyServersNotice({ count: 2, seen: true }), null, "shown once per browser");
+  assert.equal(legacyServersNotice({ count: "2" }), null);
+  const one = legacyServersNotice({ count: 1 });
+  assert.match(one, /^1 computer was connected/u);
+  assert.match(one, /Re-add each PC with Add SSH machine \(herdr machine\)/u);
+  assert.match(legacyServersNotice({ count: 3 }), /^3 computers were connected/u);
 });

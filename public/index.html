@@ -10,15 +10,15 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>HerdRabbit</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <script src="/theme.js?v=1.2.19"></script>
+    <script src="/theme.js?v=1.2.20"></script>
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/rabbit-outline-32-v33.png" />
     <link rel="icon" type="image/svg+xml" href="/icons/rabbit-outline-v33.svg" />
     <link rel="apple-touch-icon" href="/icons/rabbit-outline-app-180-v35.png" />
     <link rel="stylesheet" href="/ui/ui.css" />
-    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.19" />
-    <link rel="stylesheet" href="/styles.css?v=1.2.19" />
-    <script src="/vendor/simplewebauthn-browser.js?v=1.2.19"></script>
-    <script type="module" src="/app.js?v=1.2.19"></script>
+    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.20" />
+    <link rel="stylesheet" href="/styles.css?v=1.2.20" />
+    <script src="/vendor/simplewebauthn-browser.js?v=1.2.20"></script>
+    <script type="module" src="/app.js?v=1.2.20"></script>
   </head>
   <body class="auth-pending">
     <main class="shell">
@@ -51,7 +51,6 @@
             <div class="sidebar-action-popover" role="menu">
               <button id="create-project" class="sidebar-action-item" type="button" role="menuitem">New project</button>
               <button id="add-machine" class="sidebar-action-item" type="button" role="menuitem" hidden>Add SSH machine</button>
-              <button id="manage-servers" class="sidebar-action-item" type="button" role="menuitem">Connect Server</button>
             </div>
             </details>
           </div>
@@ -174,22 +173,12 @@
         </div>
 
         <div class="terminal-stage">
-          <div id="history-status" class="history-status" role="status" aria-live="polite"></div>
-          <pre id="terminal-output" tabindex="0" aria-label="Terminal output">Loading projects…</pre>
+          <p id="terminal-message" class="terminal-message" role="status" aria-live="polite">Loading projects…</p>
           <div id="terminal-xterm" class="terminal-xterm" hidden></div>
           <div id="terminal-held" class="terminal-held" role="status" hidden>
             <span>Another client has this terminal open.</span>
             <button id="terminal-take-over" type="button">Open here</button>
           </div>
-          <textarea id="terminal-direct-input" class="terminal-direct-input" tabindex="-1"
-            aria-label="Type directly in terminal" autocomplete="off" autocapitalize="off"
-            autocorrect="off" spellcheck="false" rows="1"></textarea>
-          <span id="terminal-input-indicator" class="terminal-input-indicator" hidden>Direct input</span>
-          <button id="terminal-live" type="button" hidden aria-label="Jump to latest screen" title="Jump to latest screen">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M12 4v12m-5-5 5 5 5-5M6 20h12" />
-            </svg>
-          </button>
         </div>
 
         <div class="quick-keys" aria-label="Special keys">
@@ -309,34 +298,12 @@
         </div>
       </form>
     </dialog>
-    <dialog id="servers-dialog" class="app-dialog" aria-labelledby="servers-title">
+    <dialog id="legacy-servers-dialog" class="app-dialog" aria-labelledby="legacy-servers-title">
       <div class="dialog-form">
-        <div class="dialog-heading"><h2 id="servers-title">Connect Server</h2><p>Another machine running HerdRabbit.</p></div>
+        <div class="dialog-heading"><h2 id="legacy-servers-title">Re-add your other PCs</h2></div>
+        <p id="legacy-servers-message" class="dialog-feedback"></p>
+        <div class="dialog-actions"><button id="legacy-servers-close" type="button" class="primary-button">OK</button></div>
       </div>
-      <form id="server-form" class="dialog-form">
-        <div id="server-discovery" class="server-discovery">
-          <div class="server-discovery-heading">
-            <span>Your tailnet</span>
-            <button id="server-refresh" type="button" class="secondary-button server-refresh"
-              aria-label="Look again" title="Look again">
-              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-                <path d="M20 12a8 8 0 1 1-2.3-5.6" />
-                <path d="M20 4v5h-5" />
-              </svg>
-            </button>
-          </div>
-          <div id="server-candidates" class="server-candidates"></div>
-          <p id="server-rest" class="dialog-feedback"></p>
-          <p id="server-setup-hint" class="dialog-feedback"></p>
-        </div>
-        <div id="server-chosen" class="server-chosen" hidden>
-          <div class="server-field"><label for="server-name">Name</label><input id="server-name" name="name" maxlength="80" required /></div>
-          <input id="server-address" name="address" type="hidden" />
-          <p id="server-chosen-address" class="dialog-feedback"></p>
-        </div>
-        <p id="server-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
-        <div class="dialog-actions"><button id="server-test" type="button" class="secondary-button">Test connection</button><button type="submit" class="primary-button">Save</button><button id="server-close" type="button" class="secondary-button">Close</button></div>
-      </form>
     </dialog>
 
     <dialog id="server-details-dialog" class="app-dialog" aria-labelledby="server-details-title">

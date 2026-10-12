@@ -77,7 +77,6 @@ body {
 }
 
 .navigator-content,
-#terminal-output,
 .input-form textarea {
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
@@ -91,14 +90,12 @@ body {
 }
 
 .navigator-content::-webkit-scrollbar,
-#terminal-output::-webkit-scrollbar,
 .input-form textarea::-webkit-scrollbar {
   width: 12px;
   height: 12px;
 }
 
 .navigator-content::-webkit-scrollbar-track,
-#terminal-output::-webkit-scrollbar-track,
 .input-form textarea::-webkit-scrollbar-track {
   margin: 4px;
   border-radius: 999px;
@@ -106,7 +103,6 @@ body {
 }
 
 .navigator-content::-webkit-scrollbar-thumb,
-#terminal-output::-webkit-scrollbar-thumb,
 .input-form textarea::-webkit-scrollbar-thumb {
   min-height: 36px;
   border: 2px solid transparent;
@@ -117,19 +113,16 @@ body {
 }
 
 .navigator-content::-webkit-scrollbar-thumb:hover,
-#terminal-output::-webkit-scrollbar-thumb:hover,
 .input-form textarea::-webkit-scrollbar-thumb:hover {
   background-color: var(--scrollbar-thumb-hover);
 }
 
 .navigator-content::-webkit-scrollbar-thumb:active,
-#terminal-output::-webkit-scrollbar-thumb:active,
 .input-form textarea::-webkit-scrollbar-thumb:active {
   background-color: var(--scrollbar-thumb-active);
 }
 
 .navigator-content::-webkit-scrollbar-button,
-#terminal-output::-webkit-scrollbar-button,
 .input-form textarea::-webkit-scrollbar-button {
   display: none;
   width: 0;
@@ -137,7 +130,6 @@ body {
 }
 
 .navigator-content::-webkit-scrollbar-corner,
-#terminal-output::-webkit-scrollbar-corner,
 .input-form textarea::-webkit-scrollbar-corner {
   background: transparent;
 }
@@ -626,51 +618,6 @@ body.sidebar-collapsed .terminal-panel {
   transition: transform var(--sidebar-motion) var(--sidebar-ease);
 }
 
-.terminal-stage.is-direct-input #terminal-output {
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
-}
-
-.terminal-direct-input {
-  position: absolute;
-  left: 12px;
-  bottom: 12px;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  border: 0;
-  opacity: 0;
-  font-size: 16px;
-  pointer-events: none;
-}
-
-.terminal-input-indicator {
-  position: absolute;
-  right: 10px;
-  top: 8px;
-  max-width: calc(100% - 20px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  pointer-events: none;
-  border-radius: 5px;
-  padding: 3px 7px;
-  color: var(--accent);
-  background: var(--surface);
-  font-size: 10px;
-}
-
-.history-status {
-  flex: 0 0 auto;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.history-status:not(:empty) {
-  min-height: 16px;
-  margin-bottom: 8px;
-}
-
 .terminal-heading {
   min-width: 0;
   min-height: 34px;
@@ -778,12 +725,12 @@ body.sidebar-collapsed .terminal-panel {
   flex-direction: column;
 }
 
-#terminal-output {
+/* Loading and error messages, in the terminal's place until a pane is drawn. */
+.terminal-message {
   min-height: 0;
   flex: 1 1 auto;
   margin: 0;
   padding: 18px;
-  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--terminal-bg);
@@ -793,13 +740,14 @@ body.sidebar-collapsed .terminal-panel {
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  cursor: text;
-  touch-action: pan-x pan-y;
-  -webkit-user-select: text;
-  user-select: text;
 }
 
-/* herdr's own terminal, attached. The palette and frame match the screen-text view. */
+.terminal-message[hidden] {
+  display: none;
+}
+
+/* Every pane's terminal: herdr's own stream when attached, or the polled
+   screen mirrored read-only when it cannot attach. */
 .terminal-xterm {
   position: relative;
   min-height: 0;
@@ -906,63 +854,6 @@ body.sidebar-collapsed .terminal-panel {
 
 .terminal-held[hidden] {
   display: none;
-}
-
-.ansi-bold {
-  font-weight: 750;
-}
-
-#terminal-output .terminal-link {
-  color: inherit;
-  text-decoration: underline;
-  text-decoration-color: var(--accent);
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-
-#terminal-output .terminal-link:hover {
-  text-decoration-thickness: 2px;
-}
-
-/* A path is a link to something this app shows rather than somewhere to go, so
-   it is marked as a link but with the dotted underline of a thing to open. */
-#terminal-output .terminal-path {
-  text-decoration-style: dotted;
-  text-underline-offset: 2px;
-}
-
-#terminal-output .terminal-link:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 3px;
-}
-
-.ansi-dim {
-  opacity: 0.62;
-}
-
-.ansi-italic {
-  font-style: italic;
-}
-
-.ansi-underline {
-  text-decoration: underline;
-}
-
-.ansi-foreground {
-  color: color-mix(
-    in srgb,
-    var(--ansi-foreground) var(--ansi-foreground-weight, 100%),
-    var(--terminal-text)
-  );
-}
-
-.ansi-background {
-  background-color: color-mix(
-    in srgb,
-    var(--ansi-background) var(--ansi-background-weight, 100%),
-    var(--terminal-bg)
-  );
 }
 
 .quick-keys {
@@ -1073,133 +964,14 @@ body.sidebar-collapsed .terminal-panel {
   stroke-width: 1.8;
 }
 
-.server-field,
-#ssh-key-fields:not([hidden]),
-#ssh-password-fields:not([hidden]) {
+.server-field {
   display: grid;
   gap: 6px;
-}
-
-#server-form details > .server-field {
-  margin-top: 14px;
 }
 
 /* No right padding, like a project heading, so the server's menu lines up with
    the menus of the projects under it instead of sitting 6px inside them. */
 .server-heading { display: flex; align-items: center; gap: 8px; padding: 10px 0; }
-
-.server-discovery { display: grid; gap: 6px; }
-
-.server-discovery-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-/* Long tailnets scroll here instead of pushing Save off the dialog. */
-/* Four rows before it scrolls: enough that a short list never scrolls at all,
-   and a long one still leaves the form visible. */
-.server-candidates { display: grid; gap: 4px; max-height: 232px; overflow-y: auto; }
-
-/* One bordered list rather than a stack of boxes: at four or five machines the
-   separate outlines were most of what the eye had to get through. */
-.server-candidates {
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  overflow: hidden;
-  gap: 0;
-}
-
-.server-candidate {
-  display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 9px 11px;
-  border: 0;
-  border-top: 1px solid var(--line);
-  background: transparent;
-  color: inherit;
-  text-align: left;
-}
-
-.server-candidate:first-child { border-top: 0; }
-
-/* A list with no rows still says why -- "Looking…", "Nothing ready to add
-   yet." -- and that line sits inside the same border, so it takes a row's
-   padding instead of touching the edge. */
-.server-candidates > .dialog-feedback { margin: 0; padding: 9px 11px; }
-
-.server-candidate-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--muted);
-}
-
-.server-candidate.is-ready .server-candidate-dot { background: var(--accent); }
-
-.server-candidate-identity { min-width: 0; display: grid; gap: 1px; }
-
-.server-candidate-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.server-candidate-identity small,
-.server-candidate-state {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.server-candidate-identity small { font-family: var(--mono); }
-
-.server-candidate-state { white-space: nowrap; }
-
-/* A machine that cannot be added is still listed, so the reason is visible
-   rather than the machine simply being absent. */
-.server-candidate:disabled { opacity: 0.55; }
-
-.server-candidate:not(:disabled):hover { background: var(--hover-surface); }
-
-.server-candidate.is-ready .server-candidate-state { color: var(--accent); }
-
-/* The picked machine stays visible while the name is decided below. */
-.server-candidate.is-chosen { background: var(--hover-surface); box-shadow: inset 3px 0 0 var(--accent); }
-
-.server-refresh {
-  width: 30px;
-  height: 30px;
-  min-height: 0;
-  padding: 0;
-  display: inline-grid;
-  place-items: center;
-  flex: 0 0 30px;
-}
-
-.server-refresh svg {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
-}
-
-/* A class with display beats the attribute rule, so hidden has to be said
-   again here -- the same reason .file-panel[hidden] exists. */
-/* The dialog is one thing split into two .dialog-form blocks so the saved
-   servers can sit above the form. Each carries 20px of padding, which meets in
-   the middle as 40px of nothing. */
-#servers-dialog > .dialog-form:first-child { padding-bottom: 0; }
-
-#servers-dialog > #server-form { padding-top: 12px; }
-
-.server-chosen[hidden] { display: none; }
-
-.server-chosen { display: grid; gap: 6px; }
 
 .server-heading { font-size: 12px; }
 
@@ -1409,12 +1181,6 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   color: var(--danger);
 }
 
-#servers-dialog { max-height: 90dvh; overflow-y: auto; }
-
-#servers-dialog .dialog-actions { flex-wrap: wrap; }
-
-#servers-dialog details input { margin-top: 8px; margin-bottom: 12px; }
-
 @media (max-width: 760px) {
   .shell {
     height: 100vh;
@@ -1528,39 +1294,6 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 }
 
 .terminal-stage { position: relative; }
-
-#terminal-live {
-  position: absolute;
-  left: 50%;
-  bottom: 12px;
-  transform: translateX(-50%);
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border: 1px solid rgb(255 255 255 / 20%);
-  border-radius: 999px;
-  background: rgb(32 40 39 / 88%);
-  color: #d9fff2;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 30%), inset 0 1px 0 rgb(255 255 255 / 8%);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
-}
-
-#terminal-live svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-
-#terminal-live:hover { background: rgb(46 62 57 / 96%); border-color: rgb(173 247 205 / 55%); box-shadow: 0 5px 20px rgb(0 0 0 / 40%); }
-
-#terminal-live:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-
-#terminal-live:active { background: rgb(57 79 69 / 98%); }
-
-#terminal-live:disabled { opacity: 0.55; cursor: wait; }
-
-#terminal-live[hidden] { display: none; }
 
 /* Wider than the shared dialog so a file name and its four actions fit on
    one line instead of breaking mid-word. */

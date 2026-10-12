@@ -1,5 +1,4 @@
 export const HISTORY_PAGE_LINES = 200;
-export const MAX_HISTORY_LINES = 100_000;
 const KNOWN_AGENT_STATES = new Set(["idle", "working", "blocked", "done", "unknown"]);
 const AGENT_STATUS_ICONS = Object.freeze({
   blocked: "×",
@@ -8,8 +7,6 @@ const AGENT_STATUS_ICONS = Object.freeze({
   idle: "○",
   unknown: "·",
 });
-const TERMINAL_DIVIDER_PATTERN = /[─━═╌╍┄┅┈┉⎯]{48,}/gu;
-const COMPACT_TERMINAL_DIVIDER = "─".repeat(24);
 
 export function outputTextForUpdate(currentText, payload) {
   if (payload?.update === "replace") {
@@ -73,38 +70,6 @@ export function outputPollingDecision({
       previousStatus === "working" &&
       ["done", "blocked", "idle"].includes(currentStatus),
   };
-}
-
-export function compactTerminalSeparators(value) {
-  return String(value).replace(
-    TERMINAL_DIVIDER_PATTERN,
-    COMPACT_TERMINAL_DIVIDER,
-  );
-}
-
-export function terminalOutputForEnvironment(value, { touchInput = false } = {}) {
-  const output = String(value);
-  return touchInput ? compactTerminalSeparators(output) : output;
-}
-
-export function terminalPinchDirection(
-  previousDistance,
-  currentDistance,
-  threshold = 8,
-) {
-  if (
-    !Number.isFinite(previousDistance) ||
-    !Number.isFinite(currentDistance) ||
-    previousDistance <= 0 ||
-    currentDistance <= 0 ||
-    !Number.isFinite(threshold) ||
-    threshold <= 0
-  ) {
-    return null;
-  }
-  const delta = currentDistance - previousDistance;
-  if (Math.abs(delta) < threshold) return null;
-  return delta > 0 ? "larger" : "smaller";
 }
 
 export function sidebarPresentation({ isDesktop, desktopCollapsed, mobileOpen }) {
@@ -435,50 +400,6 @@ export function preferredLoginMethod({ lastMethod, touchInput = false, passkeyAv
   return preferred === "passkey" && passkeyAvailable ? "passkey" : "password";
 }
 
-// Re-rendering replaces the whole terminal, which drops a text selection,
-// interrupts a drag, and stops momentum scrolling dead. Typing in the composer
-// touches none of that, so it must not stop new output from appearing.
-export function shouldRenderTerminalUpdate({
-  renderedPaneId,
-  nextPaneId,
-  renderedOutput,
-  nextOutput,
-  hasSelection = false,
-  pointerActive = false,
-  scrolling = false,
-  readingHistory = false,
-  readerRequested = false,
-}) {
-  if (renderedPaneId !== nextPaneId) return true;
-  // The guards below keep a background poll from moving the view out from
-  // under someone reading it. Older history is not that: it is the content the
-  // reader just asked for, and the very scroll that asks for it is what raises
-  // `scrolling` and `pointerActive`. Without this exception the request goes
-  // out, the answer comes back, and it is thrown away every time.
-  if (!readerRequested && (pointerActive || hasSelection || scrolling || readingHistory)) return false;
-  return renderedOutput !== nextOutput;
-}
-
-// One line of a zoomed terminal can be taller than a fixed pixel threshold,
-// which would silently turn following the bottom off.
-export function nearTerminalBottom({
-  scrollTop = 0,
-  scrollHeight = 0,
-  clientHeight = 0,
-  lineHeight = 0,
-} = {}) {
-  const line = Number(lineHeight);
-  const threshold = Math.max(40, Number.isFinite(line) ? line * 1.5 : 0);
-  return scrollHeight - scrollTop - clientHeight <= threshold;
-}
-
-export function terminalShowsOlderScreen(output) {
-  // Claude renders this counter when its own viewport is away from live output.
-  const text = String(output).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
-  return /\b[1-9]\d* new messages? \(ctrl\+End\)(?:\s*↓)?\s*$/im.test(text) ||
-    /^\s*(?:[↓⌄∨]\s*)?jump to bottom(?:\s*\([^\r\n)]*\))?(?:\s*[↓⌄∨])?\s*$/im.test(text);
-}
-
 function array(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -582,13 +503,6 @@ export function displayTabLabel(tab) {
 export function clearedTabLabel(tab) {
   const number = tab?.number;
   return Number.isInteger(number) && number > 0 ? String(number) : null;
-}
-
-export function nextHistoryLineLimit(currentLines) {
-  const current = Number.isInteger(currentLines) && currentLines > 0
-    ? currentLines
-    : HISTORY_PAGE_LINES;
-  return Math.min(current + HISTORY_PAGE_LINES, MAX_HISTORY_LINES);
 }
 
 export function agentStatus(agent, pane) {
@@ -717,4 +631,14 @@ export function loginMethodPresentation({
         instruction: "Enter your password.",
         passwordLabel: "Password",
       };
+}
+
+// Links to other PCs saved by an older version (a second HerdRabbit on each,
+// a "leaf") are not used any more. The page says so once, and says how to get
+// those PCs back.
+export function legacyServersNotice({ count = 0, seen = false } = {}) {
+  if (seen || !Number.isInteger(count) || count < 1) return null;
+  const links = count === 1 ? "1 computer was" : `${count} computers were`;
+  return `${links} connected with the old Connect Server setup, which has been removed. ` +
+    "Re-add each PC with Add SSH machine (herdr machine); its sessions keep running there.";
 }

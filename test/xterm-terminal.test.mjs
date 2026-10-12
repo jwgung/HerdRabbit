@@ -8,7 +8,7 @@ globalThis.ResizeObserver = class { observe() {} };
 // Frames never come: the link underlines are not drawn here.
 globalThis.requestAnimationFrame = () => 0;
 globalThis.cancelAnimationFrame = () => {};
-const { createAttachedTerminal } = await import("../public/xterm-terminal.js");
+const { createAttachedTerminal, mirrorFrame } = await import("../public/xterm-terminal.js");
 
 // xterm stand-ins: writes wait until the test lets them finish, as xterm's do.
 class Terminal {
@@ -21,7 +21,7 @@ class Terminal {
     this.resets = 0;
     this.unicode = { register() {}, activeVersion: "" };
     this.listeners = { data: [], resize: [] };
-    this.buffer = { active: { viewportY: 0 } };
+    this.buffer = { active: { viewportY: 0, baseY: 0 } };
     // The private hook the page overrides, as xterm 5.5 has it.
     this._core = { _selectionService: { shouldForceSelection: (event) => event.shiftKey } };
     this.element = {
@@ -44,6 +44,11 @@ class Terminal {
   onData(listener) { this.listeners.data.push(listener); }
   onBinary() {}
   onResize(listener) { this.listeners.resize.push(listener); }
+  onScroll(listener) { this.scrollListeners = [...(this.scrollListeners ?? []), listener]; }
+  scrollTo(viewportY, baseY = this.buffer.active.baseY) {
+    this.buffer.active = { ...this.buffer.active, viewportY, baseY };
+    for (const listener of this.scrollListeners ?? []) listener(viewportY);
+  }
   resize(cols, rows) {
     this.cols = cols;
     this.rows = rows;
@@ -238,6 +243,28 @@ test("a pane that failed for now asks to be shown again once its wait is over", 
   assert.deepEqual(retries, ["a"], "a pane that can never attach is not tried again");
 });
 
+test("a pane mirrored after a passing attach error attaches again once its wait is over, and the mirror ends", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { view, sent, host, receive, fallbacks, retries, term } = setup();
+  view.show("a");
+  receive({ type: "attach-error", pane_id: "a", code: "attach_failed" });
+  assert.deepEqual(fallbacks, ["a"]);
+  assert.equal(view.show("a"), false, "while the wait lasts the page mirrors it");
+  assert.equal(view.mirror("a", "$ polled"), true);
+  term().finishWrites();
+  assert.ok(term().options.scrollback > 0);
+
+  context.mock.timers.tick(5_100);
+  assert.deepEqual(retries, ["a"]);
+  const before = sent.length;
+  assert.equal(view.show("a"), true, "the retry attaches the same pane");
+  assert.deepEqual(sent.slice(before), [["attach", "a", { cols: 100, rows: 30 }]]);
+  assert.equal(host.hidden, false);
+  assert.equal(term().options.scrollback, 0, "herdr owns the scrollback again");
+  assert.equal(view.mirror("a", "$ late poll"), false, "a poll that lands after the attach draws nothing");
+  assert.notEqual(term().written.at(-1), mirrorFrame("$ late poll"));
+});
+
 test("a write that finishes after the page moved to another pane acknowledges nothing", () => {
   const { view, sent, receive, term } = setup();
   view.show("a");
@@ -371,3 +398,100 @@ test("a held finger selects as it moves, a moving one scrolls, two fingers or a 
   context.mock.timers.tick(450);
   assert.equal(term().hasSelection(), false, "the hold ends with the pane");
 });
+
+test("a mirrored screen is redrawn whole, with every line break returning to the first column", () => {
+  assert.equal(mirrorFrame("one\ntwo\r\nthree\n"), "\x1b[0m\x1b[3J\x1b[H\x1b[2Jone\r\ntwo\r\nthree");
+  assert.equal(mirrorFrame(""), "\x1b[0m\x1b[3J\x1b[H\x1b[2J");
+  assert.equal(mirrorFrame(null), "\x1b[0m\x1b[3J\x1b[H\x1b[2J");
+  // Colours in the polled text are passed through for xterm to draw.
+  assert.equal(mirrorFrame("\x1b[32mok\x1b[0m\n\n"), "\x1b[0m\x1b[3J\x1b[H\x1b[2J\x1b[32mok\x1b[0m\r\n");
+});
+
+test("a mirror fits its own frame even after following another page's grid", () => {
+  const { view, receive, classes, term } = setup();
+  view.show("a");
+  receive({ type: "pane-geometry", pane_id: "a", cols: 160, rows: 50, owner: false });
+  assert.equal(term().cols, 160);
+  receive({ type: "attach-unavailable", pane_id: "a", code: "attach_unsupported" });
+  assert.equal(view.mirror("a", "text"), true);
+  assert.ok(!classes.has("is-adopted"));
+  assert.equal(term().cols, 100);
+  assert.equal(term().rows, 30);
+});
+
+test("a mirror keeps a scrollback to read back through, and holds new frames while the reader is scrolled up", () => {
+  const { view, receive, term } = setup();
+  view.show("a");
+  assert.equal(term().options.scrollback, 0, "an attached pane scrolls in herdr");
+  receive({ type: "attach-unavailable", pane_id: "a", code: "attach_unsupported" });
+  view.mirror("a", "one");
+  term().finishWrites();
+  assert.ok(term().options.scrollback >= 200, "the polled lines above the screen can be scrolled back to");
+
+  term().scrollTo(10, 40);
+  const written = term().written.length;
+  view.mirror("a", "two");
+  view.mirror("a", "three");
+  assert.equal(term().written.length, written, "nothing is redrawn under a reader scrolled up");
+  term().scrollTo(20, 40);
+  assert.equal(term().written.length, written);
+  term().scrollTo(40, 40);
+  assert.equal(term().written.at(-1), mirrorFrame("three"), "back at the bottom, only the newest frame is drawn");
+  assert.equal(term().written.length, written + 1);
+
+  view.show("b");
+  assert.equal(term().options.scrollback, 0);
+});
+
+test("frames that come faster than xterm draws them collapse to the newest", () => {
+  const { view, receive, term } = setup();
+  view.show("a");
+  receive({ type: "attach-unavailable", pane_id: "a", code: "attach_unsupported" });
+  term().finishWrites();
+  view.mirror("a", "one");
+  const written = term().written.length;
+  for (const text of ["two", "three", "four"]) view.mirror("a", text);
+  assert.equal(term().written.length, written, "nothing more is queued while a frame is drawing");
+  term().finishWrites();
+  assert.deepEqual(term().written.slice(written - 1), [mirrorFrame("one"), mirrorFrame("four")]);
+  term().finishWrites();
+  assert.equal(term().written.length, written + 1);
+});
+
+test("a pane that cannot attach is mirrored read-only, and attaching again takes over the screen", () => {
+  const { view, sent, host, receive, fallbacks, term } = setup();
+  view.show("a");
+  receive({ type: "attach-unavailable", pane_id: "a", code: "attach_unsupported" });
+  assert.deepEqual(fallbacks, ["a"]);
+  assert.equal(host.hidden, true, "nothing is on screen until the mirror draws");
+  assert.equal(view.show("a"), false);
+
+  assert.equal(view.mirror("a", "$ ls\nfile"), true);
+  assert.equal(host.hidden, false);
+  assert.equal(term().written.at(-1), mirrorFrame("$ ls\nfile"));
+  assert.equal(term().written.at(-2), "\x1bc", "the attach's modes are reset before the first frame");
+  const resets = term().resets;
+  term().finishWrites();
+  view.mirror("a", "$ ls\nfile\n$");
+  assert.equal(term().resets, resets, "later frames redraw without a reset");
+  assert.equal(term().written.at(-1), mirrorFrame("$ ls\nfile\n$"));
+
+  // Keystrokes in the mirror reach nothing; the page's composer sends instead.
+  const before = sent.length;
+  term().type("x");
+  receive({ type: "input-ready", pane_id: "a" });
+  term().type("y");
+  assert.deepEqual(sent.slice(before).filter(([kind]) => kind === "input"), []);
+
+  // Another pane that can attach replaces the mirror.
+  assert.equal(view.show("b"), true);
+  assert.deepEqual(sent.at(-1), ["attach", "b", { cols: 100, rows: 30 }]);
+  assert.equal(view.mirror("b", "text"), false, "an attached pane is never overdrawn by polled text");
+  // No pane at all hides the terminal.
+  view.show(null);
+  assert.equal(host.hidden, true);
+  view.mirror("a", "again");
+  view.show(null);
+  assert.equal(host.hidden, true);
+});
+

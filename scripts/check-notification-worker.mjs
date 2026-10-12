@@ -49,7 +49,7 @@ try{
   await page.waitForFunction(()=>navigator.serviceWorker.controller?.scriptURL.endsWith('?revision=notification-routing-4'));
   assert.equal(await page.evaluate(()=>window.sameDocument),true,'upgrading a worker must not reload the app');
   assert.equal(await page.evaluate(async()=>(await navigator.serviceWorker.getRegistrations()).length),1,'the existing registration is updated');
-  await page.waitForFunction(()=>document.querySelector('#terminal-output').textContent.includes('w1:p1'));
+  await page.waitForFunction(()=>document.querySelector('#terminal-xterm').textContent.includes('w1:p1'));
   const worker=context.serviceWorkers().find(w=>w.url().endsWith('?revision=notification-routing-4'));
   assert(worker,'new worker must be running');
   await worker.evaluate(async()=>{
@@ -65,7 +65,7 @@ try{
     });
     await lifetime;
   });
-  await page.waitForFunction(()=>document.querySelector('#terminal-output').textContent.includes('w2:p1'));
+  await page.waitForFunction(()=>document.querySelector('#terminal-xterm').textContent.includes('w2:p1'));
   await page.waitForTimeout(1800);
   assert.equal(context.pages().length,1,'zero-window enumeration must not duplicate a responding app');
   assert.equal(await page.evaluate(()=>window.sameDocument),true);
@@ -78,7 +78,7 @@ try{
     caches.open=(name)=>name==='herdr-notification-navigation-v1' ? Promise.reject(new Error('page cache unavailable')) : open(name);
   });
   await page.goto(origin+'/');
-  await page.waitForFunction(()=>document.querySelector('#terminal-output').textContent.includes('w1:p1'));
+  await page.waitForFunction(()=>document.querySelector('#terminal-xterm').textContent.includes('w1:p1'));
   await page.waitForFunction(async()=>{
     const channel=new MessageChannel();
     return new Promise(resolve=>{

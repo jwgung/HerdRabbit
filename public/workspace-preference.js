@@ -1,7 +1,7 @@
 export const COLLAPSED_WORKSPACES_STORAGE_KEY =
   "herdrbridge-collapsed-workspaces";
 
-const WORKSPACE_ID_PATTERN = /^(?:link_[a-f0-9-]{36}!)?(?:hs_[A-Za-z0-9_-]+~)?w[A-Za-z0-9]+$/;
+const WORKSPACE_ID_PATTERN = /^(?:machine-[0-9a-f]{12}!)?(?:hs_[A-Za-z0-9_-]+~)?w[A-Za-z0-9]+$/;
 const MAX_STORED_WORKSPACES = 500;
 
 function normalizedWorkspaceIds(values) {

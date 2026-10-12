@@ -264,7 +264,7 @@ test("a machine that is off or not connected refuses file calls the way it refus
     read: async () => [{ id: ID, label: "lab", target: "me@lab", session: "default", enabled: false }],
   });
   await machines.refresh();
-  const herdr = new MultiServerClient({ local: {}, profiles: { list: () => [] }, machines });
+  const herdr = new MultiServerClient({ local: {}, machines });
   const client = herdr.fileClient(SERVER);
   assert.ok(client, "a machine has a file client, on or off");
   await assert.rejects(client.listDirectory("/tmp"), { status: 503, code: "machine_offline", message: "Turned off" });
@@ -301,7 +301,7 @@ async function machineServer(home) {
   });
   await machines.refresh();
   const local = { snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) };
-  const herdr = new MultiServerClient({ local, profiles: { list: () => [] }, machines });
+  const herdr = new MultiServerClient({ local, machines });
   const files = { directory: "/nowhere", list: async () => assert.fail("not this machine's uploads") };
   const created = createHerdrHttpServer({ herdr, files, csrfToken: "fixed-test-token", logger: { error() {} } });
   created.server.listen(0, "127.0.0.1");
@@ -353,10 +353,11 @@ test("the browse and uploads routes reach a machine with ?server=", async (conte
 });
 
 test("a download ticket for a server that went away does not open the same path here", async (context) => {
-  let servers = [{ id: "link_1", name: "old", address: "http://x" }];
+  const GONE = "machine-0123456789ab";
+  let servers = [{ id: GONE, name: "old", transport: "machine", address: "me@old" }];
   const herdr = new MultiServerClient({
-    local: {}, profiles: { list: () => servers },
-    remoteFactory: () => ({ openFile: async () => assert.fail("not reached"), close() {} }),
+    local: {},
+    machines: { profiles: () => servers, client: () => ({ files: () => ({ openFile: async () => assert.fail("not reached") }), close() {} }) },
   });
   const created = createHerdrHttpServer({ herdr, csrfToken: "fixed-test-token", logger: { error() {} } });
   created.server.listen(0, "127.0.0.1");
@@ -365,7 +366,7 @@ test("a download ticket for a server that went away does not open the same path 
   const baseUrl = `http://127.0.0.1:${created.server.address().port}`;
   const ticket = await (await fetch(`${baseUrl}/api/browse/tickets`, {
     method: "POST", headers: { Origin: baseUrl, "X-Herdr-CSRF": "fixed-test-token", "Content-Type": "application/json" },
-    body: JSON.stringify({ server: "link_1", path: "/etc/hostname" }),
+    body: JSON.stringify({ server: GONE, path: "/etc/hostname" }),
   })).json();
   servers = [];
   const response = await fetch(`${baseUrl}/api/browse/download/${ticket.ticket}`);

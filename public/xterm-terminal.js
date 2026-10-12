@@ -1,10 +1,10 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.19";
-import { findScreenLinks } from "./terminal-links.js?v=1.2.19";
-import { createTouchScroller } from "./touch-scroll.js?v=1.2.19";
-import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.19";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.20";
+import { findScreenLinks } from "./terminal-links.js?v=1.2.20";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.20";
+import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.20";
 
 const RESIZE_DEBOUNCE_MS = 80;
 // herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
@@ -42,8 +42,23 @@ function themeFrom(element) {
   };
 }
 
+// A pane that cannot attach is mirrored: the screen the page polls, drawn over
+// the whole terminal each time. Clear the scrollback and the screen, home,
+// and every line break as CRLF,
+// since the polled text has bare LFs and xterm would otherwise step down
+// without returning to the first column. One trailing line break is dropped so
+// the last line is not scrolled away under a full screen. Lines above the
+// screen land in xterm's own scrollback, which a mirror turns on.
+export function mirrorFrame(text) {
+  const body = String(text ?? "").replace(/\r?\n$/u, "").replace(/\r?\n/gu, "\r\n");
+  return `\x1b[0m\x1b[3J\x1b[H\x1b[2J${body}`;
+}
+
+// Enough for every line the page polls for a mirror.
+const MIRROR_SCROLLBACK = 1000;
+
 // `connection` is the page's terminal socket; `onFallback(paneId)` hears that a
-// pane cannot attach, so the page shows its screen text instead.
+// pane cannot attach, so the page mirrors its polled screen instead.
 export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
   onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer"),
   isViewablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {},
@@ -61,8 +76,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   let fit = null;
   let paneId = null;
   let resizeTimer = null;
-  // Panes this page could not attach, and until when: they keep the
-  // screen-text view. Only a pane that can never attach here stays there.
+  // Panes this page could not attach, and until when: they are mirrored
+  // meanwhile. Only a pane that can never attach here stays mirrored.
   const unavailable = new Map();
   const RETRY_ATTACH_MS = 5_000;
   let held = false;
@@ -70,6 +85,15 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   // Whether this page sets the pane's size. Another page that is in use sets
   // it otherwise, and this one shows that grid as it is.
   let owner = true;
+  // The pane drawn from polled text rather than attached, if one is. Nothing
+  // typed into the terminal reaches it: `type` below only writes to an
+  // attached pane.
+  let mirrored = null;
+  // The newest frame held back while the reader is scrolled up in a mirror,
+  // or while xterm is still drawing the one before: drawn once they are back
+  // at the bottom and xterm is done, so frames never pile up in its queue.
+  let heldFrame = null;
+  let drawingFrame = false;
 
   function create() {
     term = new Terminal({
@@ -85,6 +109,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     });
     fit = new FitAddon();
     term.loadAddon(fit);
+    term.onScroll(drawHeldFrame);
     matchHerdrWidths(term, UnicodeGraphemesAddon);
     // Web addresses and file paths the page can show are found on the whole
     // screen, so one an agent's output wrapped onto the next row is still one
@@ -380,7 +405,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       case "pty-input-dropped":
         setState({ dropped: true });
         break;
-      // herdr ended the attach: the screen text shows the pane meanwhile.
+      // herdr ended the attach: the pane is mirrored meanwhile.
       case "pty-exit":
         fallBack(Date.now() + RETRY_ATTACH_MS);
         break;
@@ -450,6 +475,27 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     if (Number.isFinite(until)) retryTimer = setTimeout(() => onRetry(failed), Math.max(0, until - Date.now()) + 50);
   }
 
+  function drawFrame(frame) {
+    heldFrame = frame;
+    drawHeldFrame();
+  }
+
+  function drawHeldFrame() {
+    if (heldFrame === null || drawingFrame || !atBottom()) return;
+    const frame = heldFrame;
+    heldFrame = null;
+    drawingFrame = true;
+    term.write(frame, () => {
+      drawingFrame = false;
+      if (mirrored) drawHeldFrame();
+    });
+  }
+
+  function atBottom() {
+    const buffer = term.buffer.active;
+    return buffer.viewportY >= buffer.baseY;
+  }
+
   function stop() {
     clearTimeout(resizeTimer);
     cancelPress();
@@ -462,15 +508,21 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   }
 
   return {
-    // Shows `nextPaneId` here; false when it keeps the screen-text view.
+    // Attaches `nextPaneId` here; false when it cannot now, and the page
+    // mirrors it instead.
     show(nextPaneId) {
       if (!nextPaneId || (unavailable.get(nextPaneId) ?? 0) > Date.now()) {
         if (paneId) stop();
+        if (!nextPaneId && mirrored) { mirrored = null; host.hidden = true; }
         return false;
       }
+      mirrored = null;
+      heldFrame = null;
       // Back from the background, the socket was closed: connect it again.
       if (nextPaneId === paneId) { connection.resume(); return true; }
       if (!term) create();
+      // herdr owns the scrollback of an attached pane.
+      term.options.scrollback = 0;
       clearTimeout(resizeTimer);
       scroller?.cancel();
       if (paneId) connection.detach(paneId);
@@ -483,6 +535,29 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       clearScreen();
       setState({});
       attachCurrent();
+      return true;
+    },
+    // Draws `text` as the whole screen of a pane that is not attached.
+    // Read-only: keystrokes in the terminal go nowhere, and the page's
+    // composer sends text to the pane instead.
+    mirror(nextPaneId, text) {
+      if (!nextPaneId || nextPaneId === paneId) return false;
+      if (paneId) stop();
+      if (!term) create();
+      if (mirrored !== nextPaneId) {
+        mirrored = nextPaneId;
+        heldFrame = null;
+        clearScreen();
+        term.options.scrollback = MIRROR_SCROLLBACK;
+      }
+      // A mirror has no other page sizing it: it fits its own frame, even when
+      // the attach before it was following another page's grid.
+      owner = true;
+      host.classList.remove("is-adopted");
+      host.hidden = false;
+      fitNow();
+      // A reader scrolled up keeps their place; the newest frame waits.
+      drawFrame(mirrorFrame(text));
       return true;
     },
     takeOver() { if (paneId && held) connection.takeOver(paneId); },

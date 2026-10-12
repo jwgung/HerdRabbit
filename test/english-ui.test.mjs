@@ -31,9 +31,8 @@ test("uses concise, natural status copy", async () => {
   );
 
   assert.doesNotMatch(app, /earlier history/iu);
-  assert.match(app, /Loading history…/u);
-  assert.match(app, /Could not load history:/u);
-  assert.match(app, /Beginning of history\./u);
+  assert.match(app, /Loading output…/u);
+  assert.match(app, /No open sessions\./u);
   assert.match(app, /Creating project…/u);
   assert.match(app, /Signing in…/u);
   assert.match(notifications, /Waiting for your input\./u);

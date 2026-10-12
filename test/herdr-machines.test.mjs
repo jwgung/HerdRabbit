@@ -163,7 +163,7 @@ test("a machine is a server next to this one, and its panes attach", async () =>
   await machines.refresh();
   links[0].state = "ready";
   const local = { snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) };
-  const herdr = new MultiServerClient({ local, profiles: { list: () => [] }, machines });
+  const herdr = new MultiServerClient({ local, machines });
   herdr.syncEntries();
   await herdr.refresh(herdr.entries.get("machine-4c139ff50dfb"));
   const snapshot = await herdr.snapshot();
@@ -182,7 +182,7 @@ test("a machine that is turned off stays listed as off, with nothing to reach", 
   });
   await machines.refresh();
   const local = { snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) };
-  const herdr = new MultiServerClient({ local, profiles: { list: () => [] }, machines });
+  const herdr = new MultiServerClient({ local, machines });
   herdr.syncEntries();
   await herdr.refresh(herdr.entries.get("machine-4c139ff50dfb"));
   const [, machine] = (await herdr.snapshot()).servers;
@@ -190,11 +190,13 @@ test("a machine that is turned off stays listed as off, with nothing to reach", 
   await assert.rejects(herdr.readPane("machine-4c139ff50dfb!hs_x~w1:p1", {}), { code: "machine_offline" });
 });
 
-test("a linked HerdRabbit server's panes still keep the screen-text view", async () => {
+test("an id saved for a removed leaf link is no longer a server", async () => {
+  // servers.json is not read as servers any more, so such a pane is simply gone.
   const local = { snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) };
-  const herdr = new MultiServerClient({ local, profiles: { list: () => [{ id: "link_00000000-0000-0000-0000-000000000000", name: "old", address: "http://x" }] },
-    remoteFactory: () => ({ snapshot: async () => ({}), terminalTarget: async () => ({}) }) });
-  assert.throws(() => herdr.terminalTarget("link_00000000-0000-0000-0000-000000000000!hs_x~w1:p1"), { code: "attach_unsupported" });
+  const herdr = new MultiServerClient({ local, profiles: { list: () => [{ id: "link_00000000-0000-0000-0000-000000000000", name: "old", address: "http://x" }] } });
+  const { servers } = await herdr.snapshot();
+  assert.deepEqual(servers.map((server) => server.id), ["local"]);
+  assert.throws(() => herdr.terminalTarget("link_00000000-0000-0000-0000-000000000000!hs_x~w1:p1"), /no longer configured/u);
 });
 
 test("a machine without a connection refuses every call the same way, and does not stop other servers' statuses", async () => {
@@ -208,7 +210,7 @@ test("a machine without a connection refuses every call the same way, and does n
     snapshot: async () => ({ herdr_sessions: [{ session_id: "hs_x", name: "default", running: true }], workspaces: [], tabs: [], panes: [], agents: [] }),
     watchStatuses: async (ids, onStatus) => { statuses.push(ids); return () => {}; },
   };
-  const herdr = new MultiServerClient({ local, profiles: { list: () => [] }, machines });
+  const herdr = new MultiServerClient({ local, machines });
   await assert.rejects(herdr.createWorkspace("new", "machine-4c139ff50dfb!hs_x"), { code: "machine_offline" });
   await assert.rejects(herdr.terminalTarget("machine-4c139ff50dfb!hs_x~w1:p1"), { code: "machine_offline" });
   const errors = [];
@@ -306,7 +308,7 @@ test("a machine whose connection comes up is asked again at once", async () => {
   });
   await machines.refresh();
   const local = { snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) };
-  const herdr = new MultiServerClient({ local, profiles: { list: () => [] }, machines });
+  const herdr = new MultiServerClient({ local, machines });
   herdr.syncEntries();
   const entry = herdr.entries.get("machine-4c139ff50dfb");
   await herdr.refresh(entry);
@@ -377,7 +379,7 @@ test("the first machine listing runs in the background, and the snapshot says it
     read: () => new Promise((resolve) => { answer = resolve; }),
   });
   const local = { snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) };
-  const herdr = new MultiServerClient({ local, profiles: { list: () => [] }, machines });
+  const herdr = new MultiServerClient({ local, machines });
   assert.equal(machines.start(), undefined, "start does not wait for the listing");
   const before = await herdr.snapshot();
   assert.equal(before.servers_pending, true);
@@ -408,7 +410,7 @@ test("only a machine still connecting is reported as connecting", async () => {
   });
   await machines.refresh();
   const local = { snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) };
-  const herdr = new MultiServerClient({ local, profiles: { list: () => [] }, machines });
+  const herdr = new MultiServerClient({ local, machines });
   herdr.syncEntries();
   const connecting = async () => Object.fromEntries((await herdr.snapshot()).servers.map((server) => [server.id, server.connecting]));
   assert.equal(herdr.entries.get("machine-999999999999").connecting, true, "not asked yet: every server may still come");
@@ -437,7 +439,7 @@ test("a connection change while the machine is being asked is followed by one mo
   });
   await machines.refresh();
   const local = { snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) };
-  const herdr = new MultiServerClient({ local, profiles: { list: () => [] }, machines });
+  const herdr = new MultiServerClient({ local, machines });
   herdr.syncEntries();
   const entry = herdr.entries.get("machine-4c139ff50dfb");
   const first = herdr.refresh(entry);

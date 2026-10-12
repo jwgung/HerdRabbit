@@ -323,7 +323,7 @@ test("the account routes reach a machine with server=, sign in on the machine an
     createWorkspace: async (...args) => { localCalls.push(args); },
     sendText: async (...args) => { localCalls.push(args); },
   };
-  const herdr = new MultiServerClient({ local, profiles: { list: () => [] }, machines });
+  const herdr = new MultiServerClient({ local, machines });
   await herdr.snapshot();
   const localAccounts = new Proxy({}, { get: () => () => assert.fail("not this machine's accounts") });
   const created = createHerdrHttpServer({ herdr, aiAccounts: localAccounts, csrfToken: "fixed-test-token", logger: { error() {} } });
@@ -388,7 +388,7 @@ test("the account routes reach a machine with server=, sign in on the machine an
 test("an unknown machine id is not a server here", async () => {
   const machines = new HerdrMachines({ directory: "/run/x", createBridge: () => ({}), createLink: () => ({}), read: async () => [] });
   await machines.refresh();
-  const herdr = new MultiServerClient({ local: {}, profiles: { list: () => [] }, machines });
+  const herdr = new MultiServerClient({ local: {}, machines });
   assert.equal(herdr.aiAccountsClient("machine-000000000000"), null);
   assert.equal(herdr.aiAccountsClient("local"), null);
 });

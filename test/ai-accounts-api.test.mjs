@@ -3,14 +3,8 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
-import { leafLinkRoutes } from "../src/link-server.mjs";
-import { LeafLinkClient } from "../src/leaf-link-client.mjs";
-import { MultiServerClient } from "../src/multi-server-client.mjs";
-import { PEER_LOGIN_HEADER, PeerIdentity } from "../src/peer-identity.mjs";
 import { SECRET, machine, stagedLocation, stagingDirectoryOf, writeClaude } from "./fixtures/ai-accounts.mjs";
 
-const OWNER = "owner@example.com";
-const VERSION = "1.2.0";
 const LINK_ID = "link_22222222-2222-2222-2222-222222222222";
 const SESSION = "hs_ZGVmYXVsdA";
 
@@ -75,7 +69,7 @@ test("account changes need the write token", async (t) => {
   const listed = await request("/api/ai-accounts", { method: "GET", headers: {} });
   assert.equal(listed.status, 200);
   assert.equal(listed.body.server, "local");
-  // A listing can wait on a linked machine, so another site may not start one.
+  // A listing can wait on a Herdr machine, so another site may not start one.
   const fromElsewhere = await request("/api/ai-accounts", { method: "GET", headers: { origin: "https://example.com" } });
   assert.equal(fromElsewhere.status, 403);
   const crossSite = await request("/api/ai-accounts", { method: "GET", headers: { "sec-fetch-site": "cross-site" } });
@@ -151,66 +145,3 @@ test("a switch with agents running answers with the panes and waits for confirma
   assert.ok(!seen.join("\n").includes(SECRET));
 });
 
-test("a hub manages a leaf's accounts on the leaf, and hears its refusals as they were", async (t) => {
-  const leafMachine = await machine(t, { email: "leaf@example.com" });
-  const hubMachine = await machine(t, { email: "hub@example.com" });
-  const leafHerdr = fakeHerdr({ prefix: `${SESSION}~` });
-  const leafAddress = await listen(t, {
-    herdr: { async snapshot() { return {}; } },
-    peer: new PeerIdentity({ logins: [OWNER] }),
-    link: leafLinkRoutes({ client: leafHerdr, aiAccounts: leafMachine.accounts, version: VERSION }),
-  });
-  const profile = { id: LINK_ID, name: "Dev box", transport: "link", address: leafAddress };
-  const herdr = new MultiServerClient({
-    local: fakeHerdr(),
-    profiles: { list: () => [profile], connectionProfiles: () => [profile] },
-    remoteFactory: (item) => new LeafLinkClient({
-      profile: item, hubVersion: VERSION,
-      fetchImpl: (url, options = {}) => fetch(url, { ...options, headers: { ...options.headers, [PEER_LOGIN_HEADER]: OWNER } }),
-    }),
-  });
-  for (let attempt = 0; attempt < 40 && !(await herdr.snapshot()).servers[1].available; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  const base = await listen(t, { herdr, aiAccounts: hubMachine.accounts });
-  const { request, seen } = client(base);
-
-  const listed = await request(`/api/ai-accounts?server=${LINK_ID}`, { method: "GET", headers: {} });
-  assert.equal(listed.status, 200);
-  assert.equal(listed.body.server, LINK_ID);
-  assert.equal(listed.body.clis[0].current.email, "leaf@example.com");
-
-  const saved = await request("/api/ai-accounts/current", { body: { server: LINK_ID, cli: "claude" } });
-  assert.equal(saved.status, 200);
-  assert.equal((await leafMachine.accounts.list()).clis[0].accounts.length, 1, "saved on the leaf");
-  assert.equal((await hubMachine.accounts.list()).clis[0].accounts.length, 0, "nothing saved on the hub");
-
-  const refused = await request("/api/ai-accounts/remove", { body: { server: LINK_ID, cli: "claude", account: saved.body.account.id } });
-  assert.equal(refused.status, 409);
-  assert.equal(refused.body.error.code, "account_active");
-  const missing = await request("/api/ai-accounts/switch", {
-    body: { server: LINK_ID, cli: "claude", account: "acct_00000000-0000-0000-0000-000000000000" },
-  });
-  assert.equal(missing.status, 404);
-  assert.equal(missing.body.error.code, "account_not_found");
-
-  const started = await request("/api/ai-accounts/logins", {
-    body: { server: LINK_ID, cli: "claude", herdrSessionId: `${LINK_ID}!${SESSION}` },
-  });
-  assert.equal(started.status, 201);
-  assert.equal(started.body.paneId, `${LINK_ID}!${SESSION}~w2:p1`);
-  const [, , command] = leafHerdr.calls.find(([name]) => name === "sendText");
-  assert.ok(stagingDirectoryOf(command).startsWith(leafMachine.directory), "the leaf signs in to its own directory");
-  await writeClaude(stagedLocation("claude", stagingDirectoryOf(command)), { uuid: "uuid-b", email: "b@example.com", token: "b1" });
-  const finished = await request(`/api/ai-accounts/logins/${started.body.loginId}/finish`, {
-    body: { server: LINK_ID, cli: "claude", workspaceId: started.body.workspaceId },
-  });
-  assert.equal(finished.status, 200);
-  assert.deepEqual(leafHerdr.calls.filter(([name]) => name === "closeWorkspace"), [["closeWorkspace", `${SESSION}~w2`]]);
-
-  const switched = await request("/api/ai-accounts/switch", { body: { server: LINK_ID, cli: "claude", account: finished.body.account.id } });
-  assert.equal(switched.status, 200);
-  assert.match(await readFile(leafMachine.claude.credentials, "utf8"), /refresh-b1/u);
-  assert.doesNotMatch(await readFile(hubMachine.claude.credentials, "utf8"), /refresh-b1/u);
-  assert.ok(!seen.join("\n").includes(SECRET));
-});

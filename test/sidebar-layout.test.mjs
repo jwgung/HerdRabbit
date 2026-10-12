@@ -211,13 +211,6 @@ test("the sidebar steps in one even level at a time, like the file tree", () => 
   assert.equal(project + 1 + 10 + 18 / 2, 28 / 2 + step);
 });
 
-test("a machine list with nothing in it keeps its message off the border", () => {
-  // "Looking…" and "Nothing ready to add yet." sit inside the bordered list,
-  // where only rows carried padding.
-  assert.match(app, /candidateList\.append\(createElement\("p", \{\s*className: "dialog-feedback"/u);
-  assert.match(styles, /\.server-candidates > \.dialog-feedback \{ margin: 0; padding: 9px 11px; \}/u);
-});
-
 test("removes the empty heading action slot when the sidebar is collapsed", () => {
   assert.match(
     styles,
