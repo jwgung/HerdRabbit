@@ -37,7 +37,7 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 
 - Browse the current OS user's Herdr persistent sessions, workspaces, tabs, panes, and agent states
 - Aggregate multiple Herdr persistent sessions without local ID collisions
-- Render ANSI terminal output and load 200 older lines of Herdr scrollback when scrolling to the top
+- Show this machine's panes as Herdr itself draws them (a real `herdr terminal attach` in xterm.js), so full-screen TUIs, the cursor and colors match; other servers' panes show their ANSI screen text, loading 200 older lines of Herdr scrollback when scrolling to the top
 - Send text and shell commands, or use a two-row extra-key bar with Ctrl/Alt/Shift, Esc, Tab, Home/End, PgUp/PgDn, arrows, slash, minus, and Enter. Select modifiers, then tap a key or type it on your keyboard (for example Ctrl → End or Ctrl → C). Modifiers clear after one send or when switching panes. Ordinary composer shortcuts remain local unless a screen modifier is selected.
 - Create shell workspaces and tabs, rename workspaces and sessions, and close tabs or workspaces after confirmation
 - View images, video, audio, Markdown and text in the browser instead of downloading them first
@@ -308,11 +308,17 @@ The status word (`idle`, `working`) is not spelled out beside a session. The mar
 
 Run commands such as `cd`, `codex`, or `claude` inside a created shell. Creation uses Herdr's `--no-focus` option so it does not steal focus from the desktop Herdr client.
 
+### Terminal
+
+A pane on this machine is attached: the server runs one `herdr terminal attach` per pane on a pseudo-terminal (node-pty) and every open browser shares it. Typing goes straight to it, the terminal follows the browser's size, and the wheel or a finger drag scrolls Herdr's own history. A browser that opens the pane later gets the recent screen. When another client already holds the pane's attach slot (another web bridge), the pane says so and **Open here** takes it over; otherwise it attaches as soon as that client lets go. If node-pty cannot load, or a pane cannot attach (another server's pane, for now), the pane falls back to the screen-text view described below.
+
+While the pane shows a password prompt (`[sudo] password for …:`, `Password:`, a passphrase or PIN), a message sent from the composer is not kept in its input history or in notification requests.
+
 ### Input
 
 Click or tap the terminal output for direct input, indicated by `Direct input`. Text, Tab, arrows, Enter, and Ctrl combinations go to the current pane immediately, including shell and agent completion menus. IME composition updates are sent immediately as edits to the changed suffix. Selecting terminal text preserves native copy; clicking the composer returns to the draft-and-submit behavior below. Composer history does not intercept direct input.
 
-Direct writes are ordered. A failed write stops pending input without automatic retries; check the terminal before clicking it to resume. Output still uses server-observed ANSI snapshots rather than a full terminal emulator, so cursor and full-screen TUI fidelity are not guaranteed.
+Direct writes are ordered. A failed write stops pending input without automatic retries; check the terminal before clicking it to resume. This applies to the screen-text view, which uses server-observed ANSI snapshots rather than a terminal emulator, so cursor and full-screen TUI fidelity are not guaranteed there.
 
 | Action | Key or control |
 | --- | --- |
@@ -594,3 +600,5 @@ Close every tab or installed PWA window and reopen it. If necessary, clear site 
 ## License
 
 [MIT](LICENSE)
+
+Third-party code and its notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

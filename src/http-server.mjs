@@ -26,6 +26,7 @@ import { validateTransferName } from "./file-store.mjs";
 import { FileAccessError, fileAccessError, listDirectory, openFile, validateBrowsePath, directoryFingerprint } from "./file-browser.mjs";
 import { MAX_TEXT_PREVIEW_BYTES, inlineTypeFor, isMarkdown } from "../public/file-preview.js";
 import { renderMarkdown } from "./markdown.mjs";
+import { secretPrompt } from "./secret-prompt.mjs";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
 const SIMPLEWEBAUTHN_BROWSER_BUNDLE = fileURLToPath(new URL(
@@ -46,6 +47,10 @@ const STATIC_FILES = new Map([
   ["/terminal-links.js", { path: `${PUBLIC_DIR}/terminal-links.js`, type: "text/javascript; charset=utf-8" }],
   ["/direct-terminal-input.js", { path: `${PUBLIC_DIR}/direct-terminal-input.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-connection.js", { path: `${PUBLIC_DIR}/terminal-connection.js`, type: "text/javascript; charset=utf-8" }],
+  ["/xterm-terminal.js", { path: `${PUBLIC_DIR}/xterm-terminal.js`, type: "text/javascript; charset=utf-8" }],
+  ["/terminal-widths.js", { path: `${PUBLIC_DIR}/terminal-widths.js`, type: "text/javascript; charset=utf-8" }],
+  ["/vendor/xterm.mjs", { path: `${PUBLIC_DIR}/vendor/xterm.mjs`, type: "text/javascript; charset=utf-8" }],
+  ["/vendor/xterm.css", { path: `${PUBLIC_DIR}/vendor/xterm.css`, type: "text/css; charset=utf-8" }],
   ["/key-combinations.js", { path: `${PUBLIC_DIR}/key-combinations.js`, type: "text/javascript; charset=utf-8" }],
   ["/file-preview.js", { path: `${PUBLIC_DIR}/file-preview.js`, type: "text/javascript; charset=utf-8" }],
   ["/ui-model.js", { path: `${PUBLIC_DIR}/ui-model.js`, type: "text/javascript; charset=utf-8" }],
@@ -104,7 +109,7 @@ const FRAMED_TYPES = new Map([
 function applySecurityHeaders(response) {
   response.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'",
+    "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'",
   );
   response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
@@ -1326,10 +1331,21 @@ export function createHerdrHttpServer({
       if (auth.required && (!auth.hasValidSession(request.headers.cookie) ||
           !auth.hasValidLaunchToken(credentials.launchToken))) throw new Error("Authentication required");
     },
+    // A message sent while the pane asks for a password is that password: the
+    // page keeps it out of its input history, and no request is recorded.
     async sendInput(message) {
+      let secret = false;
       if (message.keys) await herdr.sendKeys(message.paneId, validation.validateKeys(message.keys));
-      else await herdr.sendText(message.paneId, validation.validateText(message.text), { submit: message.submit === true });
+      else {
+        const text = validation.validateText(message.text);
+        if (message.submit === true) {
+          const screen = await herdr.readPane(message.paneId, { lines: 4, format: "text" }).catch(() => "");
+          secret = secretPrompt(screen) !== null;
+        }
+        await herdr.sendText(message.paneId, text, { submit: message.submit === true });
+      }
       outputWatcher.input(message.paneId);
+      return { secret };
     },
     watchOutput: (...args) => outputWatcher.watch(...args),
     watchStatuses: typeof herdr.watchStatuses === "function" ? (...args) => herdr.watchStatuses(...args) : undefined,

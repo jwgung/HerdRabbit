@@ -62,9 +62,10 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
         while (writes.length && !stopped && valid()) {
           const item = writes.shift();
           try {
-            await sendInput(item.message);
-            if (item.message.submit === true) onRequest(item.message.paneId, item.message.text);
-            for (const id of item.ids) send({ type: "ack", id });
+            const result = await sendInput(item.message);
+            const secret = result?.secret === true;
+            if (item.message.submit === true && !secret) onRequest(item.message.paneId, item.message.text);
+            for (const id of item.ids) send({ type: "ack", id, ...(secret ? { secret } : {}) });
           } catch (error) {
             stopped = true;
             send({ type: "error", id: item.ids[0], message: error.message });
@@ -161,6 +162,12 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
         if (message.type === "role") {
           if (message.mode !== "interact" && message.mode !== "observe") throw new Error("Invalid role");
           viewer.mode = message.mode;
+          return;
+        }
+        if (message.type === "unwatch") {
+          generation++;
+          stopWatch?.();
+          stopWatch = null;
           return;
         }
         if (message.type === "watch") {

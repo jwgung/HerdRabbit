@@ -1,4 +1,4 @@
-import { outputTextForUpdate } from "./ui-model.js?v=1.2.11";
+import { outputTextForUpdate } from "./ui-model.js?v=1.2.12";
 
 export function terminalConnection({ credentials, onOutput, onDisconnect, onAuthenticationRequired,
   onStatus = () => {}, onStatusesReady = () => {}, onStatusesUnavailable = () => {},
@@ -14,6 +14,17 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
   let statusIds = [];
   let statusKey = null;
   const pending = new Map();
+  // The pane whose attached terminal this page shows, attached again after a reconnect.
+  let attached = null;
+  const attachListeners = new Set();
+  const reconnectListeners = new Set();
+  const ATTACH_MESSAGES = new Set(["pty-data", "input-ready", "attach-held", "attach-resumed", "pane-geometry",
+    "attach-unavailable", "attach-error", "pty-exit", "pty-input-dropped"]);
+  // Attach traffic is best effort: a socket that is reconnecting drops it, and
+  // the reconnect attaches again from a clean screen.
+  function transmitIfReady(message) {
+    if (ready && socket?.readyState === WebSocketImpl.OPEN) socket.send(JSON.stringify(message));
+  }
   function rejectPending(error) {
     for (const item of pending.values()) { clearTimeout(item.timer); item.reject(error); }
     pending.clear();
@@ -24,7 +35,7 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
     socket.send(JSON.stringify(message));
   }
   function connect() {
-    if (suspended || socket || !wanted) return;
+    if (suspended || socket || !wanted && !attached) return;
     const current = new WebSocketImpl(url);
     socket = current;
     current.onopen = () => current.send(JSON.stringify({ type: "auth", ...credentials() }));
@@ -36,9 +47,12 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
           ready = true;
           retryDelay = 250;
           snapshot = null;
-          transmit({ type: "watch", ...wanted });
+          if (wanted) transmit({ type: "watch", ...wanted });
           statusKey = JSON.stringify(statusIds);
           transmit({ type: "watch-statuses", paneIds: statusIds });
+          for (const listener of reconnectListeners) listener();
+        } else if (ATTACH_MESSAGES.has(message.type)) {
+          for (const listener of attachListeners) listener(message);
         } else if (message.type === "status" && statusIds.includes(message.pane_id)) {
           onStatus(message);
         } else if (message.type === "statuses-ready") {
@@ -53,7 +67,7 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
           onOutput(snapshot);
         } else if (message.type === "ack") {
           const item = pending.get(message.id);
-          if (item) { clearTimeout(item.timer); pending.delete(message.id); item.resolve(); }
+          if (item) { clearTimeout(item.timer); pending.delete(message.id); item.resolve(message); }
         } else if (message.type === "error") {
           throw new Error(message.message || "Terminal connection failed");
         }
@@ -81,6 +95,29 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
     };
   }
   return {
+    onAttach(listener) { attachListeners.add(listener); },
+    onReconnect(listener) { reconnectListeners.add(listener); },
+    attach(paneId, { cols, rows }) {
+      attached = paneId;
+      suspended = false;
+      transmitIfReady({ type: "attach", paneId, cols, rows });
+      connect();
+    },
+    detach(paneId) {
+      if (attached === paneId) attached = null;
+      transmitIfReady({ type: "detach", paneId });
+    },
+    ptyInput(paneId, data) { transmitIfReady({ type: "pty-input", paneId, data }); },
+    resize(paneId, cols, rows) { transmitIfReady({ type: "resize", paneId, cols, rows }); },
+    acknowledge(paneId, streamId, offset) { transmitIfReady({ type: "pty-ack", paneId, streamId, offset }); },
+    takeOver(paneId) { transmitIfReady({ type: "take-over", paneId }); },
+    // The screen-text stream stops while the pane shows its attached terminal.
+    unwatch() {
+      if (!wanted) return;
+      wanted = null;
+      snapshot = null;
+      transmitIfReady({ type: "unwatch" });
+    },
     watchStatuses(paneIds) {
       statusIds = [...new Set(paneIds)].sort();
       const key = JSON.stringify(statusIds);

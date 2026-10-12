@@ -244,3 +244,17 @@ test("a pane that cannot attach says so, and the page keeps the screen-text view
   client.send({ type: "attach", paneId: "w1:p1", cols: 80, rows: 24 });
   assert.deepEqual(await client.wait(message => message.type === "attach-unavailable"), { type: "attach-unavailable", pane_id: "w1:p1" });
 });
+
+test("a message sent while the pane asks for a password is marked secret and records no request", async context => {
+  let screen = "$ sudo apt update\n[sudo] password for alice: ";
+  const app = await fixture(context, { async readPane() { return screen; } });
+  const client = await app.connect();
+  await client.wait(message => message.type === "ready");
+  client.send({ type: "input", id: 1, paneId: "w1:p1", text: "hunter2", submit: true });
+  assert.deepEqual(await client.wait(message => message.type === "ack" && message.id === 1), { type: "ack", id: 1, secret: true });
+  assert.deepEqual(app.requests, []);
+  screen = "$ ";
+  client.send({ type: "input", id: 2, paneId: "w1:p1", text: "ls", submit: true });
+  assert.deepEqual(await client.wait(message => message.type === "ack" && message.id === 2), { type: "ack", id: 2 });
+  assert.deepEqual(app.requests, [["w1:p1", "ls"]]);
+});
