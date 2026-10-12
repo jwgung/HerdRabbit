@@ -819,6 +819,22 @@ body.sidebar-collapsed .terminal-panel {
 /* The inset sits on xterm's own element, where its fit counts it; on the
    frame, the fit would size the grid as if it were not there and the last
    columns would be cut off. */
+/* Links on the terminal screen, underlined where they are: drawn over the rows,
+   never in the way of a tap or a selection. */
+.terminal-link-marks {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.terminal-link-marks span {
+  position: absolute;
+  height: 1px;
+  background: var(--accent);
+  opacity: 0.85;
+}
+
 .terminal-xterm .xterm {
   box-sizing: border-box;
   height: 100%;

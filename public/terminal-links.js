@@ -203,3 +203,31 @@ export function linkTerminalSegments(segments, { isViewablePath = () => false } 
   }
   return result;
 }
+
+// The links on a terminal screen, for drawing and tapping them in place.
+// `rows` are the visible rows as text, each with the cell every character
+// starts in (and one past the end). They are read as one text, a row per
+// line, so an address an agent's output wrapped onto the next row is one
+// link. Each link comes back as the cells it covers on each row it touches.
+export function findScreenLinks(rows, { isViewablePath = () => false } = {}) {
+  const starts = [];
+  let text = "";
+  for (const row of rows) {
+    starts.push(text.length);
+    text += `${row.text}\n`;
+  }
+  const urls = findUrls(text).map((link) => ({ ...link, kind: "url", target: link.href }));
+  const paths = findTerminalPaths(text, isViewablePath)
+    .filter((link) => !urls.some((url) => link.start < url.end && url.start < link.end))
+    .map((link) => ({ ...link, kind: "path", target: link.path }));
+  return [...urls, ...paths].map((link) => {
+    const segments = [];
+    rows.forEach((row, index) => {
+      const from = Math.max(link.start, starts[index]) - starts[index];
+      const to = Math.min(link.end, starts[index] + row.text.length) - starts[index];
+      if (to <= from) return;
+      segments.push({ row: index, start: row.cells[from], end: row.cells[to - 1] + 1 });
+    });
+    return { kind: link.kind, target: link.target, segments };
+  }).filter((link) => link.segments.length > 0);
+}
