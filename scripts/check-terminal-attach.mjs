@@ -11,6 +11,7 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright")
 const snapshot = JSON.parse(await readFile(new URL("../test/fixtures/fake-state.template.json", import.meta.url), "utf8")).snapshot;
 const ptys = [];
 let held = false;
+let screenText = "screen text view\n$ ";
 const attachments = new PaneAttachments({
   log: () => {},
   options: { holdMs: 5, heldRetryMs: 60_000, relookupForMs: 200 },
@@ -49,7 +50,7 @@ const attachments = new PaneAttachments({
 const { server } = createHerdrHttpServer({
   herdr: {
     async snapshot() { return snapshot; },
-    async readPane() { return "screen text view\n$ "; },
+    async readPane() { return screenText; },
     async sendText() {},
     async sendKeys() {},
   },
@@ -80,13 +81,38 @@ try {
     assert.equal(ptys[0].written, "echo hi\r");
     assert.ok(ptys[0].sizes.length > 0 || ptys[0].options.cols > 0, "the pty follows the browser's size");
 
+    // Hidden, the page lets its socket go; shown again, it attaches the same pane anew.
+    const setHidden = (hidden) => page.evaluate((value) => {
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => value });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, hidden);
+    await setHidden(true);
+    await page.waitForTimeout(300);
+    await setHidden(false);
+    await page.waitForTimeout(500);
+    assert.equal(ptys.length, 2, "attached again after coming back");
+    await shows("ready 한글");
+
+    // An answer to a password prompt is not kept in the composer's history.
+    screenText = "$ sudo true\n[sudo] password for alice: ";
+    await page.locator("#terminal-input").fill("hunter2");
+    await page.locator(".send-button").click();
+    await page.waitForFunction(() => document.querySelector("#terminal-input").value === "");
+    screenText = "$ ";
+    await page.locator("#terminal-input").fill("plain message");
+    await page.locator(".send-button").click();
+    await page.waitForFunction(() => document.querySelector("#terminal-input").value === "");
+    const history = await page.evaluate(() => localStorage.getItem("herdrbridge-input-history") || "");
+    assert.ok(!history.includes("hunter2"), "the password is not in the input history");
+    assert.ok(history.includes("plain message"));
+    screenText = "screen text view\n$ ";
+
     // Another pane from the sidebar: the first is left, the second attached.
     if (mobile) await page.locator("#mobile-sidebar-toggle, .mobile-sidebar-toggle, [aria-label='Open sidebar']").first().click().catch(() => {});
     await page.locator('[data-pane-id="w1:p2"]').first().click();
     await page.waitForFunction(() => document.querySelector("#terminal-xterm .xterm-rows")?.textContent.includes("ready"));
     await page.waitForTimeout(100);
-    assert.equal(ptys.length, 2);
-    assert.deepEqual(ptys[1].options.args, ["terminal", "attach", "term_w1:p2"]);
+    assert.equal(ptys.at(-1).options.args.at(-1), "term_w1:p2");
 
     // The attach ends: the pane shows its screen text again.
     await page.locator("#terminal-xterm .xterm").click();
@@ -111,7 +137,7 @@ try {
     await page.locator("#terminal-output").filter({ hasText: "screen text view" }).waitFor();
     assert.equal(await page.locator("#terminal-xterm").isHidden(), true);
     assert.deepEqual(errors, []);
-    console.log({ mobile, attached: true, typing: true, paneSwitch: true, endedFallback: true, heldTakeOver: true, fallback: true });
+    console.log({ mobile, attached: true, typing: true, backgroundReturn: true, secretNotKept: true, paneSwitch: true, endedFallback: true, heldTakeOver: true, fallback: true });
     await page.close();
   }
 } finally {

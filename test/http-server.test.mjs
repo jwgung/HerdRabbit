@@ -66,13 +66,17 @@ test("serves the UI and read-only API with hardened headers", async (context) =>
   assert.equal(page.status, 200);
   assert.match(page.headers.get("content-security-policy"), /frame-ancestors 'none'/);
   assert.equal(page.headers.get("x-frame-options"), "DENY");
-  // xterm adds <style> elements of its own; scripts stay with this origin only.
-  const policy = Object.fromEntries(page.headers.get("content-security-policy").split("; ").map((rule) => {
+  // xterm adds <style> elements of its own, so the app page alone allows
+  // inline styles; scripts stay with this origin everywhere.
+  const policyOf = (response) => Object.fromEntries(response.headers.get("content-security-policy").split("; ").map((rule) => {
     const [name, ...sources] = rule.split(" ");
     return [name, sources];
   }));
-  assert.deepEqual(policy["script-src"], ["'self'"]);
-  assert.deepEqual(policy["style-src"], ["'self'", "'unsafe-inline'"]);
+  assert.deepEqual(policyOf(page)["script-src"], ["'self'"]);
+  assert.deepEqual(policyOf(page)["style-src"], ["'self'", "'unsafe-inline'"]);
+  const library = await fetch(`${app.baseUrl}/ui/index.html`);
+  assert.deepEqual(policyOf(library)["style-src"], ["'self'"]);
+  assert.deepEqual(policyOf(library)["script-src"], ["'self'"]);
   const pageSource = await page.text();
   assert.doesNotMatch(pageSource, /<h2>Sessions<\/h2>/);
   assert.doesNotMatch(pageSource, /id="pane-state"/);

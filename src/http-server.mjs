@@ -106,13 +106,14 @@ const FRAMED_TYPES = new Map([
 ]);
 
 
-// Styles may be inline because xterm's renderer adds <style> elements of its
-// own. Scripts, fonts, images and connections stay with this origin.
+const CONTENT_SECURITY_POLICY = "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'";
+// The app page alone may add inline styles: xterm's renderer creates <style>
+// elements of its own, with no way to give them a nonce. Scripts, fonts,
+// images and connections stay with this origin there too.
+const APP_PAGE_CONTENT_SECURITY_POLICY = CONTENT_SECURITY_POLICY.replace("style-src 'self'", "style-src 'self' 'unsafe-inline'");
+
 function applySecurityHeaders(response) {
-  response.setHeader(
-    "Content-Security-Policy",
-    "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'",
-  );
+  response.setHeader("Content-Security-Policy", CONTENT_SECURITY_POLICY);
   response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   response.setHeader("Referrer-Policy", "no-referrer");
@@ -512,6 +513,7 @@ async function serveStatic(response, pathname, method) {
 
   const body = await readFile(entry.path);
   response.statusCode = 200;
+  if (pathname === "/") response.setHeader("Content-Security-Policy", APP_PAGE_CONTENT_SECURITY_POLICY);
   response.setHeader("Content-Type", entry.type);
   response.setHeader("Cache-Control", pathname === "/sw.js" ? "no-cache" : "no-cache, private");
   response.setHeader("Content-Length", body.length);
