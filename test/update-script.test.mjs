@@ -50,8 +50,11 @@ esac
   const log = join(directory, "commands");
   let result;
   try {
+    // The updater reads HERDR_BIN; one inherited from the shell (update.sh
+    // exports the service's own) would run the real Herdr instead of the fake.
+    const { HERDR_BIN: _inherited, ...environment } = process.env;
     result = await execute("sh", [join(repo, "update.sh")], { cwd: directory, env: {
-      ...process.env, PATH: `${bin}:${process.env.PATH}`, HERD_RABBIT_INSTALL_DIR: "",
+      ...environment, PATH: `${bin}:${process.env.PATH}`, HERD_RABBIT_INSTALL_DIR: "",
       UPDATE_TEST_MODE: mode, UPDATE_TEST_REPO: repo, UPDATE_TEST_LOG: log, UPDATE_TEST_BIN: bin,
     } });
   } catch (error) { result = error; }
