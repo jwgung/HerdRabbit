@@ -28,11 +28,18 @@ export class ConversationService {
     // A Herdr machine's store, from the file client its SSH connection gives.
     remoteStore = (serverId) => {
       const files = herdr.fileClient?.(serverId);
-      return files?.locateClaudeTranscript ? machineTranscriptStore(serverId, files) : null;
+      if (!files?.locateClaudeTranscript) return null;
+      // one store per file client: a new one every call would never compare equal
+      const known = this.machineStores.get(serverId);
+      if (known?.files === files) return known.store;
+      const store = machineTranscriptStore(serverId, files);
+      this.machineStores.set(serverId, { files, store });
+      return store;
     },
     now = () => Date.now(),
   }) {
     this.herdr = herdr;
+    this.machineStores = new Map();
     this.localStore = localStore;
     this.remoteStore = remoteStore;
     this.now = now;
@@ -46,7 +53,7 @@ export class ConversationService {
     if (!store) return null;
     // One store per machine, so its identity (and cached reads) carry over.
     const known = this.remoteStores.get(serverId);
-    if (known && known.locate === store.locate) return known;
+    if (known && (known === store || known.locate === store.locate)) return known;
     this.remoteStores.set(serverId, store);
     return store;
   }

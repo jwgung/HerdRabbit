@@ -164,6 +164,36 @@ test("locates a transcript by cwd, then by scanning every project, and follows c
   assert.equal(await locateClaudeTranscript(store, SESSION, []), moved);
 });
 
+test("the scan fallback looks into a few projects at once and stops after a hit", async (context) => {
+  const configDir = join(await temp(context), "claude-config");
+  const projects = join(configDir, "projects");
+  for (let n = 0; n < 40; n += 1) await mkdir(join(projects, `-p${String(n).padStart(2, "0")}`), { recursive: true });
+  const holder = join(projects, "-p03", `${SESSION}.jsonl`);
+  await writeFile(holder, jsonl([user("hi")]));
+  let running = 0;
+  let peak = 0;
+  const looked = [];
+  const statFile = async (path) => {
+    looked.push(path);
+    running += 1;
+    peak = Math.max(peak, running);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    running -= 1;
+    return (await import("node:fs/promises")).stat(path);
+  };
+  const store = localTranscriptStore({ configDir, statFile });
+  assert.equal(await locateClaudeTranscript(store, SESSION, []), holder);
+  assert.ok(peak > 1 && peak <= 8, `${peak} stats at once`);
+  // the later projects were not all looked into
+  assert.ok(looked.length < 40, `${looked.length} stats`);
+  // none holds another id: every project is looked into, still a few at a time
+  looked.length = 0;
+  peak = 0;
+  assert.equal(await locateClaudeTranscript(store, "11111111-1111-4111-8111-111111111111", []), null);
+  assert.equal(looked.length, 40);
+  assert.ok(peak <= 8);
+});
+
 test("reports a projects folder it cannot read instead of calling the transcript missing", { skip: process.getuid?.() === 0 }, async (context) => {
   const configDir = join(await temp(context), "claude-config");
   const projects = join(configDir, "projects");
@@ -230,6 +260,29 @@ test("a file rewritten in place, or a new session file, refuses old cursors", as
   const other = join(directory, "other.jsonl");
   await writeFile(other, jsonl(Array.from({ length: 60 }, (_, n) => turn(n)).flat()));
   await assert.rejects(transcriptPage(store, other, { before: before.cursor }), HistoryChanged);
+});
+
+test("a file rewritten in place with longer content refuses old cursors; a real append keeps them", async (context) => {
+  forgetConversationState();
+  const directory = await temp(context);
+  const path = join(directory, `${SESSION}.jsonl`);
+  const store = localTranscriptStore({ configDir: "/nonexistent" });
+  const history = Array.from({ length: 60 }, (_, n) => turn(n)).flat();
+  await writeFile(path, jsonl(history));
+  const first = await transcriptPage(store, path);
+  const older = await transcriptPage(store, path, { before: first.cursor });
+  // an append leaves the old bytes: the cursor still names them
+  await appendFile(path, jsonl(turn(60)));
+  const appended = await transcriptPage(store, path);
+  assert.equal(appended.history_id, first.history_id);
+  assert.equal((await transcriptPage(store, path, { before: first.cursor })).version, older.version);
+  // a longer, different conversation written over the same file (same inode)
+  await writeFile(path, jsonl(Array.from({ length: 90 }, (_, n) => [user(`other ${n}`), answer(`reply ${n}`)]).flat()));
+  await assert.rejects(transcriptPage(store, path, { before: first.cursor }), HistoryChanged);
+  const rewritten = await transcriptPage(store, path, { ifNoneMatch: [appended.version] });
+  assert.notEqual(rewritten.notModified, true);
+  assert.notEqual(rewritten.history_id, first.history_id);
+  assert.equal(rewritten.turns.at(-1).parts[0].text, "reply 89");
 });
 
 test("answers notModified for an unchanged page, and a new version after an append", async (context) => {

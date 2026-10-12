@@ -549,22 +549,45 @@ async function pageBefore(store, path, to, { floor, widen, windowBytes, maxPageB
   }
 }
 
-// In-place rewrites keep the inode: a file that shrank, or kept its size but
-// changed, gets a new generation, so cursors into its old bytes are refused.
+// In-place rewrites keep the inode: a file that shrank, kept its size but
+// changed, or grew with its old tail altered gets a new generation, so cursors
+// into its old bytes are refused. Each file's last bytes are remembered as a
+// short fingerprint; a file that grew is trusted as an append only while the
+// bytes just before its old end still hash the same.
 const revisions = new Map();
+const TAIL_BYTES = 256;
 function remember(map, key, value, limit) {
   map.delete(key);
   map.set(key, value);
   if (map.size > limit) map.delete(map.keys().next().value);
 }
 
-export function transcriptId(storeKey, path, stat) {
-  const key = `${storeKey}\0${path}`;
+function fingerprint(bytes) {
+  return createHash("sha256").update(bytes).digest("base64url").slice(0, 22);
+}
+
+export async function transcriptId(store, path, stat) {
+  const key = `${store.key}\0${path}`;
   const previous = revisions.get(key);
-  const rewritten = previous && previous.identity === stat.identity &&
-    (stat.size < previous.size || (stat.size === previous.size && stat.mtimeMs !== previous.mtimeMs));
-  const generation = rewritten ? randomUUID().slice(0, 8) : previous?.identity === stat.identity ? previous.generation : "";
-  remember(revisions, key, { identity: stat.identity, size: stat.size, mtimeMs: stat.mtimeMs, generation }, 128);
+  const sameFile = previous && previous.identity === stat.identity;
+  const unchanged = sameFile && stat.size === previous.size && stat.mtimeMs === previous.mtimeMs;
+  let rewritten = sameFile && (stat.size < previous.size || (stat.size === previous.size && stat.mtimeMs !== previous.mtimeMs));
+  let tail = unchanged ? previous.tail : null;
+  if (!unchanged) {
+    // one small read: the old end's bytes to verify, and (when close enough) the new end's with them
+    const verify = sameFile && !rewritten && previous.tail !== null && previous.size > 0;
+    const oldStart = verify ? Math.max(0, previous.size - TAIL_BYTES) : 0;
+    const newStart = Math.max(0, stat.size - TAIL_BYTES);
+    const from = verify && newStart - oldStart <= 4096 ? oldStart : newStart;
+    const bytes = stat.size > from ? await store.read(path, from, stat.size - from) : Buffer.alloc(0);
+    if (verify) {
+      const old = from === oldStart ? bytes : await store.read(path, oldStart, previous.size - oldStart);
+      rewritten = fingerprint(old.subarray(0, previous.size - oldStart)) !== previous.tail;
+    }
+    tail = fingerprint(bytes.subarray(newStart - from));
+  }
+  const generation = rewritten ? randomUUID().slice(0, 8) : sameFile ? previous.generation : "";
+  remember(revisions, key, { identity: stat.identity, size: stat.size, mtimeMs: stat.mtimeMs, tail, generation }, 128);
   return `${stat.identity}${generation ? `-${generation}` : ""}`;
 }
 
@@ -587,7 +610,8 @@ export function answerVersion(key, signature) {
 
 // `ifNoneMatch`: one version, or the list an If-None-Match header named.
 export function versionMatches(ifNoneMatch, version) {
-  return Array.isArray(ifNoneMatch) ? ifNoneMatch.includes(version) : ifNoneMatch === version;
+  if (ifNoneMatch === "*") return true;
+  return Array.isArray(ifNoneMatch) ? ifNoneMatch.includes("*") || ifNoneMatch.includes(version) : ifNoneMatch === version;
 }
 
 const answers = new Map();
@@ -602,7 +626,7 @@ const answers = new Map();
 export async function transcriptPage(store, path, { before, since, ifNoneMatch } = {}) {
   const stat = await store.stat(path);
   if (!stat) throw new ConversationUnavailable("transcript_missing");
-  const id = transcriptId(store.key, path, stat);
+  const id = await transcriptId(store, path, stat);
   const key = `${store.key}\0${path}\0${before ?? ""}\0${since ?? ""}`;
   // an older page never changes while its file stays the same; the newest changes with every append
   const signature = before !== undefined ? id : `${id}:${stat.size}:${stat.mtimeMs}`;

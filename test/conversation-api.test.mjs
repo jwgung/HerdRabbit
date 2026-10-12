@@ -96,6 +96,14 @@ test("answers a page of turns with an ETag, 304 when unchanged, and a new page a
   assert.deepEqual(gap.turns.map((item) => item.parts[0].text), ["prompt 10", "answer 10"]);
 });
 
+test("If-None-Match: * is 304 for a conversation that exists, and not for one that does not", async (context) => {
+  const { get } = await fixture(context);
+  assert.equal((await get("/api/panes/w1%3Ap1/conversation", { "If-None-Match": "*" })).status, 304);
+  assert.equal((await get("/api/panes/w1%3Ap4/conversation", { "If-None-Match": "*" })).status, 304);
+  // no Claude conversation there: * has nothing to match
+  assert.equal((await get("/api/panes/w1%3Ap2/conversation", { "If-None-Match": "*" })).status, 404);
+});
+
 test("409 history_changed for a cursor that no longer names this transcript", async (context) => {
   const { get } = await fixture(context);
   for (const cursor of ["somewhere-else:10", "nonsense"]) {

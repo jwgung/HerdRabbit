@@ -11,6 +11,8 @@ import { isAbsolute, join } from "node:path";
 import { SESSION_ID } from "./claude.mjs";
 
 const MiB = 1024 * 1024;
+// How many project folders a scan looks into at once.
+const SCAN_CONCURRENCY = 8;
 
 // This machine: the newest page reads up to 4 MiB, an older page widens to
 // 16 MiB for one long turn, a tool's output is looked for in the last 64 MiB.
@@ -29,11 +31,12 @@ function absent(error) {
   return error?.code === "ENOENT" || error?.code === "ENOTDIR";
 }
 
-async function isFile(path) {
-  try { return (await stat(path)).isFile(); } catch (error) { if (absent(error)) return false; throw error; }
+async function isFile(path, statFile = stat) {
+  try { return (await statFile(path)).isFile(); } catch (error) { if (absent(error)) return false; throw error; }
 }
 
-export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), limits = LOCAL_LIMITS } = {}) {
+// `statFile`: how a candidate file is looked at (a test counts the calls).
+export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), limits = LOCAL_LIMITS, statFile = stat } = {}) {
   const projects = join(configDir, "projects");
   // session id -> the file a project scan found it in; checked again on every use
   const found = new Map();
@@ -47,27 +50,35 @@ export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), lim
       const file = `${session}.jsonl`;
       for (const dir of projectDirs) {
         const path = join(projects, dir, file);
-        if (await isFile(path)) return path;
+        if (await isFile(path, statFile)) return path;
       }
       const known = found.get(session);
-      if (known !== undefined && await isFile(known)) return known;
+      if (known !== undefined && await isFile(known, statFile)) return known;
       found.delete(session);
       // the pane's cwd need not be the one Claude started in: any project may hold the id
       let entries;
       try { entries = await readdir(projects); } catch (error) { if (absent(error)) return null; throw error; }
-      const checks = await Promise.allSettled(entries.map(async (entry) => {
-        const path = join(projects, entry, file);
-        return await isFile(path) ? path : null;
-      }));
-      for (const check of checks) {
-        if (check.status === "fulfilled" && check.value !== null) {
-          found.set(session, check.value);
-          if (found.size > 256) found.delete(found.keys().next().value);
-          return check.value;
+      // a few projects at a time, and no more once one holds it
+      let next = 0;
+      let hit = null;
+      let failure = null;
+      const worker = async () => {
+        while (hit === null && next < entries.length) {
+          const path = join(projects, entries[next++], file);
+          try {
+            if (await isFile(path, statFile) && hit === null) hit = path;
+          } catch (error) {
+            failure ??= error;
+          }
         }
+      };
+      await Promise.all(Array.from({ length: Math.min(SCAN_CONCURRENCY, entries.length) }, worker));
+      if (hit !== null) {
+        found.set(session, hit);
+        if (found.size > 256) found.delete(found.keys().next().value);
+        return hit;
       }
-      const failed = checks.find((check) => check.status === "rejected");
-      if (failed) throw failed.reason;
+      if (failure) throw failure;
       return null;
     },
     async stat(path) {

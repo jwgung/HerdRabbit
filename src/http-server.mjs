@@ -538,9 +538,12 @@ function conversationCursor(value) {
   return value;
 }
 
-// The versions an If-None-Match header names, without quotes or W/.
+// The versions an If-None-Match header names, without quotes or W/. `*`
+// (RFC 9110) matches any current representation: the page read answers 304
+// for it once the conversation exists.
 function requestedVersions(header) {
   if (typeof header !== "string" || header.length > 1024) return [];
+  if (header.trim() === "*") return ["*"];
   return header.split(",").map((tag) => tag.trim().replace(/^W\//u, "").replace(/^"(.*)"$/u, "$1")).filter(Boolean);
 }
 

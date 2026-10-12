@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MachineFiles, shellQuote } from "../src/machine-files.mjs";
 import { claudeProjectDir, forgetConversationState } from "../src/conversation/claude.mjs";
+import { ConversationMonitor } from "../src/conversation/monitor.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { REMOTE_LIMITS, machineTranscriptStore } from "../src/conversation/stores.mjs";
 
@@ -118,6 +119,39 @@ test("pages a herdr machine pane's conversation over SSH, a window at a time", a
   // reads never ask for more than a remote window
   const lengths = commands.filter((command) => command.includes("tail -c")).map((command) => Number(command.match(/'(\d+)' 'follow'$/u)[1]));
   assert.ok(lengths.length > 0 && lengths.every((length) => length <= REMOTE_LIMITS.windowBytes));
+});
+
+test("the same herdr machine pane resolves to one store, so the monitor does not re-stat after a re-resolve", async (context) => {
+  forgetConversationState();
+  const { home, files } = await machine(context);
+  await transcriptIn(join(home, ".claude"), claudeProjectDir("/srv/app"));
+  let stats = 0;
+  const counted = {
+    locateClaudeTranscript: (...args) => files.locateClaudeTranscript(...args),
+    transcriptStat: (path) => { stats += 1; return files.transcriptStat(path); },
+    readTranscriptRange: (...args) => files.readTranscriptRange(...args),
+  };
+  const herdr = {
+    async snapshot() {
+      return { panes: [{ pane_id: `${SERVER}!w1:p1`, server_id: SERVER, agent: "claude", agent_session: { kind: "id", value: SESSION }, cwd: "/srv/app" }] };
+    },
+    fileClient: (serverId) => (serverId === SERVER ? counted : null),
+  };
+  const service = new ConversationService({ herdr, localStore: { key: "local" } });
+  const paneId = `${SERVER}!w1:p1`;
+  assert.equal((await service.resolve(paneId)).store, (await service.resolve(paneId)).store);
+  // finding the file stats it once; the counts below are the monitor's own
+  const located = stats;
+  let now = 0;
+  const monitor = new ConversationMonitor({ resolve: (id) => service.resolve(id), statIntervalMs: 5, resolveIntervalMs: 20, now: () => now });
+  context.after(() => monitor.stop());
+  monitor.watch(paneId, () => {});
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(stats - located, 1);
+  // the pane is looked up again (20 ms on) well before the next remote stat (1.5 s): the target is the same one
+  now += 30;
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(stats - located, 1);
 });
 
 test("a machine store's limits are the slower link's", () => {
