@@ -28,8 +28,10 @@ export const NO_NODE_REASON =
   `Switching accounts on this machine needs Node.js ${MIN_NODE_MAJOR} or newer there, on the PATH an SSH command gets.`;
 
 // Node is often installed per user, out of a non-login shell's PATH; nvm and
-// fnm keep it under the home folder. The first one new enough is used.
-const LAUNCH_SCRIPT = `PATH="$HOME/.local/bin:$HOME/.volta/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"; export PATH
+// fnm keep it under the home folder. The first one new enough is used. The
+// system folders are this code's own constants (a test swaps them).
+const SYSTEM_NODE_DIRS = ["/usr/local/bin", "/opt/homebrew/bin"];
+const launchScript = (systemDirs) => `PATH="$HOME/.local/bin:$HOME/.volta/bin:${systemDirs.map((dir) => `${dir}:`).join("")}$PATH"; export PATH
 fits() { m=$("$1" -p 'process.versions.node.split(".")[0]' </dev/null 2>/dev/null) && [ "$m" -ge ${MIN_NODE_MAJOR} ] 2>/dev/null; }
 n=
 if command -v node >/dev/null 2>&1 && fits node; then n=node
@@ -63,18 +65,23 @@ function shipped(file, replacements) {
   return text;
 }
 
-const ADAPTERS_URL = dataUrl(shipped("./ai-account-adapters.mjs", []));
-const ERRORS_URL = dataUrl(ERRORS_MODULE);
-const ACCOUNTS_URL = dataUrl(shipped("./ai-accounts.mjs", [
-  ["./ai-account-adapters.mjs", ADAPTERS_URL],
-  ["./herdr-client.mjs", ERRORS_URL],
-]));
+// Built on first use, so a source the shipper cannot handle fails that call,
+// not the server's start.
+let remoteProgram = null;
+export function shippedProgram() {
+  if (remoteProgram) return remoteProgram;
+  const ADAPTERS_URL = dataUrl(shipped("./ai-account-adapters.mjs", []));
+  const ERRORS_URL = dataUrl(ERRORS_MODULE);
+  const ACCOUNTS_URL = dataUrl(shipped("./ai-accounts.mjs", [
+    ["./ai-account-adapters.mjs", ADAPTERS_URL],
+    ["./herdr-client.mjs", ERRORS_URL],
+  ]));
 
-// What runs on the machine. The saved accounts sit where HerdRabbit would keep
-// them there (config.mjs), so a HerdRabbit installed there later finds them.
-// Running agents are checked here, against the machine's panes, before a switch
-// is sent. Only refusals the account manager words itself come back as words.
-export const REMOTE_PROGRAM = `const { AiAccounts, AiAccountError } = await import(${JSON.stringify(ACCOUNTS_URL)});
+  // What runs on the machine. The saved accounts sit where HerdRabbit would keep
+  // them there (config.mjs), so a HerdRabbit installed there later finds them.
+  // Running agents are checked here, against the machine's panes, before a switch
+  // is sent. Only refusals the account manager words itself come back as words.
+  remoteProgram = `const { AiAccounts, AiAccountError } = await import(${JSON.stringify(ACCOUNTS_URL)});
 const { InputValidationError } = await import(${JSON.stringify(ERRORS_URL)});
 const { homedir } = await import("node:os");
 const { isAbsolute, join } = await import("node:path");
@@ -121,6 +128,8 @@ try {
 }
 process.stdout.write(JSON.stringify(reply) + "\\n");
 `;
+  return remoteProgram;
+}
 
 const ADAPTERS = new Map(DEFAULT_ADAPTERS.map((adapter) => [adapter.id, adapter]));
 const OPERATIONS = new Set(["list", "save", "start", "finish", "cancel", "switch", "remove"]);
@@ -134,6 +143,13 @@ function line(value, max = 320) {
 
 function slotId(value) {
   return typeof value === "string" && SLOT_ID_PATTERN.test(value) ? value : null;
+}
+
+// A saved account names its slot; an answer without one is not a save.
+function savedAccount(value) {
+  const result = account(value);
+  if (!result.id) throw failed();
+  return result;
 }
 
 function account(value) {
@@ -189,7 +205,8 @@ export class MachineAiAccounts {
   // `link` returns the machine's connection once it is up, and throws the
   // machine's own "offline" error until then. `runningAgents` reads the
   // machine's panes, as Herdr there sees them.
-  constructor({ link, runningAgents = async () => [], spawnProcess = spawn, timeoutMs = COMMAND_TIMEOUT_MS }) {
+  constructor({ link, runningAgents = async () => [], spawnProcess = spawn, timeoutMs = COMMAND_TIMEOUT_MS, systemNodeDirs = SYSTEM_NODE_DIRS }) {
+    this.launchScript = launchScript(systemNodeDirs);
     this.link = link;
     this.runningAgents = runningAgents;
     this.spawnProcess = spawnProcess;
@@ -225,7 +242,7 @@ export class MachineAiAccounts {
   async #run(operation, args = []) {
     if (!OPERATIONS.has(operation)) throw new InputValidationError("Unknown operation");
     const link = this.#ready();
-    const child = this.spawnProcess(link.ssh, link.sshArgs(SSH_OPTIONS, remoteCommand(LAUNCH_SCRIPT, [operation, ...args])), {
+    const child = this.spawnProcess(link.ssh, link.sshArgs(SSH_OPTIONS, remoteCommand(this.launchScript, [operation, ...args])), {
       stdio: ["pipe", "pipe", "ignore"],
     });
     const { code, stdout } = await new Promise((resolve, reject) => {
@@ -256,7 +273,7 @@ export class MachineAiAccounts {
       child.once("close", (exitCode) => settle(exitCode));
       // A launcher that exits before reading the program closes stdin early.
       child.stdin.on("error", () => {});
-      child.stdin.end(REMOTE_PROGRAM);
+      child.stdin.end(shippedProgram());
     });
     if (code === EXIT_NO_NODE) throw new AiAccountError("machine_node_missing", NO_NODE_REASON, { status: 501 });
     if (code === 255) throw new AiAccountError("machine_offline", "The SSH connection to this machine stopped.", { status: 503 });
@@ -289,7 +306,7 @@ export class MachineAiAccounts {
     const adapter = this.#adapter(cli);
     return this.#serial(async () => {
       const result = await this.#run("save", [adapter.id]);
-      return { cli: adapter.id, account: account(result?.account) };
+      return { cli: adapter.id, account: savedAccount(result?.account) };
     });
   }
 
@@ -308,7 +325,7 @@ export class MachineAiAccounts {
     if (typeof loginId !== "string" || !LOGIN_ID_PATTERN.test(loginId)) throw new InputValidationError("Invalid sign-in id");
     return this.#serial(async () => {
       const result = await this.#run("finish", [adapter.id, loginId]);
-      return { cli: adapter.id, account: account(result?.account) };
+      return { cli: adapter.id, account: savedAccount(result?.account) };
     });
   }
 
@@ -341,7 +358,7 @@ export class MachineAiAccounts {
         }
       }
       const result = await this.#run("switch", [adapter.id, accountId]);
-      return { cli: adapter.id, account: account(result?.account), changed: result?.changed === true };
+      return { cli: adapter.id, account: savedAccount(result?.account), changed: result?.changed === true };
     });
   }
 

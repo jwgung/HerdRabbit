@@ -7,7 +7,7 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeAdapter, codexAdapter } from "../src/ai-account-adapters.mjs";
-import { MachineAiAccounts, NO_NODE_REASON, REMOTE_PROGRAM } from "../src/machine-ai-accounts.mjs";
+import { MachineAiAccounts, NO_NODE_REASON, shippedProgram } from "../src/machine-ai-accounts.mjs";
 import { HerdrMachines, machineOffline } from "../src/herdr-machines.mjs";
 import { MultiServerClient } from "../src/multi-server-client.mjs";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
@@ -53,11 +53,11 @@ async function remoteHome(t) {
   return { home, claude, codex, store: join(home, ".config", "herdr-bridge", "ai-accounts") };
 }
 
-async function setup(t, { running = [], path } = {}) {
+async function setup(t, { running = [], path, systemNodeDirs } = {}) {
   const remote = await remoteHome(t);
   const ssh = fakeSsh(remote.home, { path });
   const link = fakeLink();
-  const accounts = new MachineAiAccounts({ link: () => link, spawnProcess: ssh.spawnProcess, runningAgents: async () => running });
+  const accounts = new MachineAiAccounts({ link: () => link, spawnProcess: ssh.spawnProcess, runningAgents: async () => running, systemNodeDirs });
   return { ...remote, ...ssh, accounts };
 }
 
@@ -67,13 +67,13 @@ function seenBy(values) {
 }
 
 test("the program shipped to a machine is constant text built from the account manager itself", async () => {
-  assert.ok(REMOTE_PROGRAM.includes("new AiAccounts("));
-  assert.ok(!REMOTE_PROGRAM.includes(SECRET));
+  assert.ok(shippedProgram().includes("new AiAccounts("));
+  assert.ok(!shippedProgram().includes(SECRET));
   // The shipped modules are this machine's own files, base64 in data: URLs,
   // with only their two relative imports pointed at each other.
   const decode = (text) => [...text.matchAll(/data:text\/javascript;base64,([A-Za-z0-9+/=]+)/gu)]
     .map((match) => Buffer.from(match[1], "base64").toString("utf8"));
-  const [accounts] = decode(REMOTE_PROGRAM);
+  const [accounts] = decode(shippedProgram());
   const [adapters] = decode(accounts);
   assert.equal(adapters, await readFile(new URL("../src/ai-account-adapters.mjs", import.meta.url), "utf8"));
   const original = await readFile(new URL("../src/ai-accounts.mjs", import.meta.url), "utf8");
@@ -135,7 +135,7 @@ test("lists, saves, signs in, switches and removes accounts on the machine, with
   // Nothing on any command line but fixed words and checked ids, and the
   // same constant program each time.
   assert.ok(!seenBy(machine.commands).includes(SECRET));
-  assert.ok(machine.inputs.every((input) => input === REMOTE_PROGRAM));
+  assert.ok(machine.inputs.every((input) => input === shippedProgram()));
   for (const args of machine.commands) {
     assert.deepEqual(args.slice(0, 9), ["-S", "/run/x.ctl", "-T", "-o", "ControlMaster=no", "-o", "ProxyCommand=false", "--", "me@lab"]);
   }
@@ -163,17 +163,13 @@ test("a switch looks for agents in the machine's panes and goes ahead only when 
 });
 
 test("a machine without Node.js 18 or newer shows why and refuses every change", async (t) => {
-  // The launcher also looks in the usual system folders; where one of them has
-  // a Node of its own, this machine cannot play one without it.
-  if (["/usr/local/bin/node", "/opt/homebrew/bin/node"].some((path) => existsSync(path))) {
-    t.skip("a system-wide node is installed here");
-    return;
-  }
   const bin = await mkdtemp(join(tmpdir(), "herdrabbit-no-node-"));
   t.after(() => rm(bin, { recursive: true, force: true }));
-  // A shell, and no node anywhere on the PATH.
+  // A shell, and no node anywhere on the PATH or in the system folders the
+  // launcher adds (stood in for by an empty one, so a Node installed on this
+  // machine does not count).
   await symlink("/bin/sh", join(bin, "sh"));
-  const missing = await setup(t, { path: bin });
+  const missing = await setup(t, { path: bin, systemNodeDirs: [join(bin, "system")] });
   const listing = await missing.accounts.list();
   assert.deepEqual(listing.clis.map((cli) => [cli.id, cli.supported, cli.reason]),
     [["claude", false, NO_NODE_REASON], ["codex", false, NO_NODE_REASON]]);
@@ -229,7 +225,7 @@ test("ids and CLI names are checked here, before anything runs, and again on the
     const child = spawn(process.execPath, ["--input-type=module", "-", ...args], {
       cwd: machine.home, env: { HOME: machine.home }, stdio: ["pipe", "pipe", "ignore"],
     });
-    child.stdin.end(REMOTE_PROGRAM);
+    child.stdin.end(shippedProgram());
     let out = "";
     child.stdout.on("data", (chunk) => { out += chunk; });
     await once(child, "close");
@@ -263,6 +259,10 @@ test("a machine's answer is re-checked: only the metadata fields come through, a
     .startLogin("claude"), { code: "machine_accounts_failed" });
   await assert.rejects(replying({ ok: true, result: { loginId, command: `env CLAUDE_CONFIG_DIR='/h\\x/staging/claude/${loginId}' claude auth login` } })
     .startLogin("claude"), { code: "machine_accounts_failed" }, "a backslash in the folder is refused, as for files");
+  await assert.rejects(replying({ ok: true, result: { account: {} } }).saveCurrent("claude"), { code: "machine_accounts_failed" },
+    "a save that names no account is not a save");
+  await assert.rejects(replying({ ok: true, result: { account: { id: "../x", email: "a@example.com" } } }).finishLogin("claude", loginId),
+    { code: "machine_accounts_failed" });
   await assert.rejects(replying({ ok: false, kind: "other", message: SECRET }).saveCurrent("claude"),
     (error) => error.code === "machine_accounts_failed" && !error.message.includes(SECRET));
 });
