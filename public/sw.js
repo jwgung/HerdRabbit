@@ -1,4 +1,4 @@
-const CACHE_NAME = "herd-rabbit-v1.2.10";
+const CACHE_NAME = "herd-rabbit-v1.2.11";
 const NAVIGATION_CACHE = "herdr-notification-navigation-v1";
 
 async function saveNotificationTarget(target) {
@@ -50,24 +50,25 @@ const APP_SHELL = [
   "/ui/base.css",
   "/ui/components.css",
   "/",
-  "/styles.css?v=1.2.10",
-  "/theme.js?v=1.2.10",
-  "/app.js?v=1.2.10",
-  "/vendor/simplewebauthn-browser.js?v=1.2.10",
-  "/ansi.js?v=1.2.10",
-  "/terminal-links.js?v=1.2.10",
-  "/direct-terminal-input.js?v=1.2.10",
-  "/terminal-connection.js?v=1.2.10",
-  "/ui-model.js?v=1.2.10",
-  "/key-combinations.js?v=1.2.10",
-  "/pane-preference.js?v=1.2.10",
-  "/browse-preference.js?v=1.2.10",
-  "/workspace-preference.js?v=1.2.10",
-  "/terminal-preference.js?v=1.2.10",
-  "/completion-preference.js?v=1.2.10",
-  "/input-history-preference.js?v=1.2.10",
-  "/launch-session.js?v=1.2.10",
-  "/push-notifications.js?v=1.2.10",
+  "/styles.css?v=1.2.11",
+  "/theme.js?v=1.2.11",
+  "/app.js?v=1.2.11",
+  "/vendor/simplewebauthn-browser.js?v=1.2.11",
+  "/ansi.js?v=1.2.11",
+  "/terminal-links.js?v=1.2.11",
+  "/direct-terminal-input.js?v=1.2.11",
+  "/terminal-connection.js?v=1.2.11",
+  "/ui-model.js?v=1.2.11",
+  "/key-combinations.js?v=1.2.11",
+  "/pane-preference.js?v=1.2.11",
+  "/browse-preference.js?v=1.2.11",
+  "/workspace-preference.js?v=1.2.11",
+  "/terminal-preference.js?v=1.2.11",
+  "/completion-preference.js?v=1.2.11",
+  "/alert-preference.js?v=1.2.11",
+  "/input-history-preference.js?v=1.2.11",
+  "/launch-session.js?v=1.2.11",
+  "/push-notifications.js?v=1.2.11",
   "/manifest.webmanifest",
   "/icons/rabbit-outline-v33.svg",
   "/icons/app-icon.svg",
@@ -141,7 +142,7 @@ self.addEventListener("push", (event) => {
   const tag = typeof message.tag === "string" ? message.tag : undefined;
   const data = message.data && typeof message.data === "object" ? message.data : {};
   event.waitUntil((async () => {
-    if (await isPaneBeingViewed(data.paneId)) return;
+    if (await appIsInFront({ paneId: data.paneId, url: data.url, title, body })) return;
     await self.registration.showNotification(title, {
       body,
       tag,
@@ -153,13 +154,16 @@ self.addEventListener("push", (event) => {
   })());
 });
 
-async function isPaneBeingViewed(paneId) {
+// A window in front takes the notification itself: silently for the pane it
+// shows, as an alert inside the app for any other. Only when none answers does
+// the system notification appear.
+async function appIsInFront({ paneId, url, title, body }) {
   if (typeof paneId !== "string" || !paneId) return false;
   try {
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     const responses = await Promise.all(windows.filter((client) =>
       client.visibilityState === "visible" && new URL(client.url).origin === self.location.origin,
-    ).map((client) => requestClient(client, { type: "query-viewing-pane", paneId }, 500)));
+    ).map((client) => requestClient(client, { type: "query-viewing-pane", paneId, url, title, body }, 500)));
     return responses.some((response) => response?.viewing === true);
   } catch {
     return false;

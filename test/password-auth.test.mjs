@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { createHmac } from "node:crypto";
+import { mkdtemp, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,6 +9,7 @@ import {
   loadPasswordAuth,
   passkeyHandle,
   PasswordAttempts,
+  PasswordAttemptsByKey,
   PasswordAuth,
   SESSION_DURATION_SECONDS,
   writePasswordConfiguration,
@@ -114,6 +116,7 @@ test("keeps passkey names and dates, removes by handle, and loads older entries"
     deviceType: "singleDevice",
     backedUp: false,
   }];
+  await writeFile(authFile, JSON.stringify(configuration));
   const auth = new PasswordAuth(configuration, { authFile, now: () => now });
   await auth.addPasskey({
     id: "newer",
@@ -173,6 +176,7 @@ test("removing a passkey signs out every session made before it", async () => {
     deviceType: "multiDevice",
     backedUp: true,
   }];
+  await writeFile(authFile, JSON.stringify(configuration));
   const auth = new PasswordAuth(configuration, { authFile });
   const before = auth.createSession();
   const beforeLaunch = auth.createLaunchToken();
@@ -184,6 +188,7 @@ test("removing a passkey signs out every session made before it", async () => {
   const after = auth.createSession();
   assert.equal(auth.hasValidSession(`herdr_session=${after}`), true);
   // The ending survives a restart.
+  await auth.writeQueue;
   const reloaded = await loadPasswordAuth(authFile);
   assert.equal(reloaded.hasValidSession(`herdr_session=${before}`), false);
   assert.equal(reloaded.hasValidSession(`herdr_session=${after}`), true);
@@ -207,4 +212,180 @@ test("a few wrong passwords are free, then each locks for twice as long", () => 
   attempts.succeeded();
   attempts.failed();
   assert.equal(attempts.retryAfterMs(), 0);
+});
+
+test("lists sign-ins, ends one, and keeps that across a restart", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-auth-"));
+  const authFile = join(directory, "auth.json");
+  await writePasswordConfiguration(authFile, "secret");
+  const auth = await loadPasswordAuth(authFile);
+  let ended = 0;
+  auth.onSessionsEnded(() => { ended += 1; });
+  const phone = auth.createSession({ agent: "Chrome · Android" });
+  const laptop = auth.createSession({ agent: "Firefox · Linux" });
+  assert.equal(auth.hasValidSession(`herdr_session=${phone}`), true, "listed at once");
+  assert.deepEqual(auth.sessionSummaries().map((item) => item.agent).sort(), ["Chrome · Android", "Firefox · Linux"]);
+  const phoneId = auth.currentSessionId(`herdr_session=${phone}`);
+  assert.equal(auth.sessionSummaries().some((item) => item.id === phoneId), true);
+
+  assert.equal(await auth.endSession(phoneId), true);
+  assert.equal(ended, 1);
+  assert.equal(auth.hasValidSession(`herdr_session=${phone}`), false);
+  assert.equal(auth.hasValidSession(`herdr_session=${laptop}`), true);
+  assert.equal(await auth.endSession(phoneId), false, "an ended session is gone");
+  await auth.writeQueue;
+  const reloaded = await loadPasswordAuth(authFile);
+  assert.equal(reloaded.hasValidSession(`herdr_session=${phone}`), false);
+  assert.equal(reloaded.hasValidSession(`herdr_session=${laptop}`), true);
+  assert.doesNotMatch(await readFile(authFile, "utf8"), new RegExp(laptop.split(".")[0]), "the file keeps no token");
+});
+
+// A cookie as HerdRabbit signed it before sessions were listed.
+function unlistedCookie(configuration, expiresAt) {
+  const payload = `nonce-${Math.random().toString(16).slice(2)}.${expiresAt}`;
+  return `${payload}.${createHmac("sha256", configuration.sessionSecret).update(`cookie.${payload}`).digest("base64url")}`;
+}
+
+test("a sign-in made before sessions were listed lasts until it expires; ending all ends it too", async () => {
+  const now = 1_000_000_000;
+  const configuration = await createPasswordConfiguration("secret");
+  const before = unlistedCookie(configuration, now / 1000 + SESSION_DURATION_SECONDS);
+  const auth = new PasswordAuth(configuration, { now: () => now });
+  assert.equal(auth.hasValidSession(`herdr_session=${before}`), true);
+  const listed = auth.createSession();
+  assert.equal(auth.hasValidSession(`herdr_session=${before}`), true, "the upgrade signs no one out");
+  await auth.endAllSessions();
+  assert.equal(auth.hasValidSession(`herdr_session=${before}`), false);
+  assert.equal(auth.hasValidSession(`herdr_session=${listed}`), false);
+  assert.deepEqual(auth.sessionSummaries(), []);
+});
+
+test("the signature, not the second it was made, tells an older sign-in from an ended one", async () => {
+  const now = 1_000_000_000;
+  const configuration = await createPasswordConfiguration("secret");
+  const auth = new PasswordAuth(configuration, { now: () => now });
+  const ended = auth.createSession();
+  const before = unlistedCookie(configuration, now / 1000 + SESSION_DURATION_SECONDS);
+  await auth.endSession(auth.currentSessionId(`herdr_session=${ended}`));
+  assert.equal(auth.hasValidSession(`herdr_session=${before}`), true, "made in the same second, still an older sign-in");
+  assert.equal(auth.hasValidSession(`herdr_session=${ended}`), false);
+});
+
+test("signing out of an older sign-in ends it alone, across a restart", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-auth-"));
+  const authFile = join(directory, "auth.json");
+  await writePasswordConfiguration(authFile, "secret");
+  const auth = await loadPasswordAuth(authFile);
+  const expiresAt = Math.floor(Date.now() / 1000) + SESSION_DURATION_SECONDS;
+  const phone = unlistedCookie(auth.configuration, expiresAt);
+  const laptop = unlistedCookie(auth.configuration, expiresAt);
+  let ended = 0;
+  auth.onSessionsEnded(() => { ended += 1; });
+  assert.equal(await auth.endCurrentSession(`herdr_session=${phone}`), true);
+  assert.equal(ended, 1, "open connections check again");
+  assert.equal(auth.hasValidSession(`herdr_session=${phone}`), false);
+  assert.equal(auth.hasValidSession(`herdr_session=${laptop}`), true);
+  const reloaded = await loadPasswordAuth(authFile);
+  assert.equal(reloaded.hasValidSession(`herdr_session=${phone}`), false);
+  assert.equal(reloaded.hasValidSession(`herdr_session=${laptop}`), true);
+  assert.doesNotMatch(await readFile(authFile, "utf8"), new RegExp(phone.split(".")[0]), "the file keeps no token");
+});
+
+test("an unlisted token signed after sessions were listed is refused", async () => {
+  const auth = new PasswordAuth(await createPasswordConfiguration("secret"));
+  const kept = auth.createSession();
+  assert.equal(await auth.endCurrentSession(`herdr_session=${kept}`), true);
+  assert.equal(auth.hasValidSession(`herdr_session=${kept}`), false);
+});
+
+test("a passkey change that could not be written is not kept in memory either", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-auth-"));
+  const authFile = join(directory, "auth.json");
+  await writePasswordConfiguration(authFile, "secret");
+  const auth = await loadPasswordAuth(authFile);
+  const passkey = { id: "credential-id", publicKey: Uint8Array.from([1, 2, 3]), counter: 0, transports: [], deviceType: "singleDevice", backedUp: false };
+  auth.authFile = join(authFile, "not-a-directory", "auth.json");
+  await assert.rejects(auth.addPasskey(passkey));
+  assert.equal(auth.hasPasskeys, false);
+  auth.authFile = authFile;
+  await auth.addPasskey(passkey);
+  assert.equal((await loadPasswordAuth(authFile)).hasPasskeys, true, "a retry is not mistaken for a duplicate");
+});
+
+test("a sign-in that happens while a passkey is being written is kept", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-auth-"));
+  const authFile = join(directory, "auth.json");
+  await writePasswordConfiguration(authFile, "secret");
+  const auth = await loadPasswordAuth(authFile);
+  const adding = auth.addPasskey({ id: "credential-id", publicKey: Uint8Array.from([1]), counter: 0, transports: [], deviceType: "singleDevice", backedUp: false });
+  await Promise.resolve();
+  const phone = auth.createSession();
+  await adding;
+  await auth.writeQueue;
+  assert.equal(auth.hasPasskeys, true);
+  assert.equal(auth.hasValidSession(`herdr_session=${phone}`), true);
+  const reloaded = await loadPasswordAuth(authFile);
+  assert.equal(reloaded.hasPasskeys, true);
+  assert.equal(reloaded.hasValidSession(`herdr_session=${phone}`), true);
+});
+
+test("wrong passwords lock only the caller that made them", () => {
+  let clock = 0;
+  const attempts = new PasswordAttemptsByKey({ now: () => clock, free: 1, maxLockMs: 4_000, overallFree: 3 });
+  attempts.failed("phone");
+  attempts.failed("phone");
+  assert.equal(attempts.retryAfterMs("phone"), 1_000);
+  assert.equal(attempts.retryAfterMs("laptop"), 0, "another device can still sign in");
+  attempts.succeeded("laptop");
+  assert.equal(attempts.retryAfterMs("phone"), 1_000, "someone else's success does not clear the phone");
+  for (const key of ["a", "b", "c", "d"]) attempts.failed(key);
+  assert.ok(attempts.retryAfterMs("laptop") > 0, "many keys together still hit the instance-wide limit");
+});
+
+test("ending a session while another write is in flight stays ended, on disk too", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-auth-"));
+  const authFile = join(directory, "auth.json");
+  await writePasswordConfiguration(authFile, "secret");
+  const auth = await loadPasswordAuth(authFile);
+  const kept = auth.createSession();
+  const ended = auth.createSession();
+  const id = auth.currentSessionId(`herdr_session=${ended}`);
+  assert.equal(await auth.endSession(id), true);
+  const everywhere = auth.createSession();
+  await auth.writeQueue;
+  assert.equal(auth.hasValidSession(`herdr_session=${ended}`), false);
+  assert.equal(auth.hasValidSession(`herdr_session=${kept}`), true);
+  const reloaded = await loadPasswordAuth(authFile);
+  assert.equal(reloaded.hasValidSession(`herdr_session=${ended}`), false);
+  assert.equal(reloaded.hasValidSession(`herdr_session=${everywhere}`), true);
+
+  void auth.createSession();
+  await auth.endAllSessions();
+  await auth.writeQueue;
+  assert.equal(auth.hasValidSession(`herdr_session=${kept}`), false, "a write in flight does not undo the epoch");
+  assert.equal((await loadPasswordAuth(authFile)).hasValidSession(`herdr_session=${kept}`), false);
+});
+
+test("a running server never writes its old password over one changed from the command line", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-auth-"));
+  const authFile = join(directory, "auth.json");
+  await writePasswordConfiguration(authFile, "old");
+  const auth = await loadPasswordAuth(authFile);
+  await writePasswordConfiguration(authFile, "new");
+  await assert.rejects(auth.endAllSessions(), /changed outside this server/);
+  const session = auth.createSession();
+  await auth.writeQueue;
+  assert.equal(await (await loadPasswordAuth(authFile)).verifyPassword("new"), true);
+  assert.equal(auth.hasValidSession(`herdr_session=${session}`), true, "this server keeps working until it restarts");
+
+  await unlink(authFile);
+  auth.createSession();
+  await auth.writeQueue;
+  assert.equal((await loadPasswordAuth(authFile)).required, false, "a password turned off stays off");
+});
+
+test("without a password there is no current session to name", () => {
+  const auth = new PasswordAuth(null);
+  assert.equal(auth.currentSessionId(undefined), null);
+  assert.equal(auth.currentSessionId("herdr_session=anything"), null);
 });

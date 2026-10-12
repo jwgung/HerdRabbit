@@ -72,7 +72,7 @@ test("sends project, tab, and status-only completion notifications", async () =>
   assert.equal(sent.length, 1);
 });
 
-test("uses different copy when an agent needs input or returns to idle", async () => {
+test("says when an agent needs input, and stays quiet when it only goes idle", async () => {
   const sent = [];
   const monitor = new AgentNotificationMonitor({
     push: {
@@ -91,7 +91,6 @@ test("uses different copy when an agent needs input or returns to idle", async (
 
   assert.deepEqual(sent.map(({ body }) => body), [
     "Waiting for your input.",
-    "Ready for your next request.",
   ]);
 });
 

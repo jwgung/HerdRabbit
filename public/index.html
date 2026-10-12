@@ -10,14 +10,14 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>HerdRabbit</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <script src="/theme.js?v=1.2.10"></script>
+    <script src="/theme.js?v=1.2.11"></script>
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/rabbit-outline-32-v33.png" />
     <link rel="icon" type="image/svg+xml" href="/icons/rabbit-outline-v33.svg" />
     <link rel="apple-touch-icon" href="/icons/rabbit-outline-app-180-v35.png" />
     <link rel="stylesheet" href="/ui/ui.css" />
-    <link rel="stylesheet" href="/styles.css?v=1.2.10" />
-    <script src="/vendor/simplewebauthn-browser.js?v=1.2.10"></script>
-    <script type="module" src="/app.js?v=1.2.10"></script>
+    <link rel="stylesheet" href="/styles.css?v=1.2.11" />
+    <script src="/vendor/simplewebauthn-browser.js?v=1.2.11"></script>
+    <script type="module" src="/app.js?v=1.2.11"></script>
   </head>
   <body class="auth-pending">
     <main class="shell">
@@ -234,6 +234,11 @@
       </section>
     </main>
 
+    <button id="app-alert" class="app-alert" type="button" hidden>
+      <strong id="app-alert-title"></strong>
+      <span id="app-alert-body"></span>
+    </button>
+
     <section id="login-screen" class="login-screen" aria-labelledby="login-title" hidden>
       <form id="login-form" class="login-card">
         <svg class="login-mark" aria-hidden="true" viewBox="0 0 64 64" focusable="false">
@@ -364,6 +369,21 @@
         <div class="dialog-actions">
           <button id="passkeys-close" class="secondary-button" type="button">Close</button>
           <button id="passkeys-add" class="primary-button" type="button">Add passkey</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="sessions-dialog" class="app-dialog passkeys-dialog" aria-labelledby="sessions-title">
+      <div class="dialog-form">
+        <div class="dialog-heading">
+          <h2 id="sessions-title">Signed-in devices</h2>
+          <p>Browsers signed in to this HerdRabbit. Signing one out closes its open terminals at once. Sign-ins from before this list existed are not shown; Sign out everywhere ends them too.</p>
+        </div>
+        <ul id="sessions-list" class="passkey-rows"></ul>
+        <p id="sessions-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="sessions-close" class="secondary-button" type="button">Close</button>
+          <button id="sessions-end-all" class="secondary-button" type="button">Sign out everywhere</button>
         </div>
       </div>
     </dialog>

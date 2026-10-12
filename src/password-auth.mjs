@@ -16,6 +16,14 @@ const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const AUTH_VERSION = 1;
 const PASSKEY_DEVICE_TYPES = new Set(["singleDevice", "multiDevice"]);
 const PASSKEY_HANDLE_PATTERN = /^[A-Za-z0-9_-]{22}$/u;
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/u;
+const MAX_SESSIONS = 64;
+// Cookies for listed sessions sign under this purpose; plain "cookie" ones were
+// signed before sessions were listed.
+const LISTED_COOKIE = "listed-cookie";
+// A sign-in is used constantly; writing that down every time would rewrite the
+// auth file on each request. Within this long it is still "just now".
+const LAST_USED_RESOLUTION_MS = 10 * 60_000;
 const SCRYPT_OPTIONS = Object.freeze({
   N: 16_384,
   r: 8,
@@ -85,6 +93,28 @@ export function passkeyHandle(id) {
   return createHash("sha256").update(id).digest().subarray(0, 16).toString("base64url");
 }
 
+function isSessionAgent(value) {
+  return typeof value === "string" && value.length <= 80 && !/[\p{Cc}\p{Cf}]/u.test(value);
+}
+
+function validateStoredSession(value) {
+  if (
+    !value ||
+    typeof value.id !== "string" || !SESSION_ID_PATTERN.test(value.id) ||
+    !isTimestamp(value.createdAt) || !isTimestamp(value.expiresAt) ||
+    !isTimestamp(value.lastUsedAt) || !isSessionAgent(value.agent)
+  ) {
+    throw new Error("HerdRabbit session configuration is invalid");
+  }
+  return { id: value.id, createdAt: value.createdAt, expiresAt: value.expiresAt, lastUsedAt: value.lastUsedAt, agent: value.agent };
+}
+
+// A session is named by a hash of its nonce, so the list can be shown and
+// matched without keeping anything that would sign a request.
+export function sessionId(nonce) {
+  return createHash("sha256").update(nonce).digest().subarray(0, 16).toString("base64url");
+}
+
 function validateStoredConfiguration(value) {
   if (
     !value ||
@@ -96,6 +126,15 @@ function validateStoredConfiguration(value) {
     (value.sessionEpoch !== undefined && !isTimestamp(value.sessionEpoch))
   ) {
     throw new Error("HerdRabbit authentication configuration is invalid");
+  }
+  const sessions = value.sessions === undefined ? [] : value.sessions;
+  const endedUnlisted = value.endedUnlisted === undefined ? [] : value.endedUnlisted;
+  if (
+    !Array.isArray(sessions) || sessions.length > MAX_SESSIONS ||
+    !Array.isArray(endedUnlisted) || endedUnlisted.length > MAX_SESSIONS ||
+    !endedUnlisted.every((item) => typeof item?.id === "string" && SESSION_ID_PATTERN.test(item.id) && isTimestamp(item.expiresAt))
+  ) {
+    throw new Error("HerdRabbit session configuration is invalid");
   }
   const passkeys = value.passkeys === undefined ? [] : value.passkeys;
   if (!Array.isArray(passkeys) || passkeys.length > 32) {
@@ -111,7 +150,15 @@ function validateStoredConfiguration(value) {
     sessionSecret: value.sessionSecret,
     ...(value.sessionEpoch ? { sessionEpoch: value.sessionEpoch } : {}),
     passkeys: normalizedPasskeys,
+    sessions: sessions.map(validateStoredSession),
+    ...(endedUnlisted.length ? { endedUnlisted: endedUnlisted.map(({ id, expiresAt }) => ({ id, expiresAt })) } : {}),
   };
+}
+
+// A new epoch unsigns every cookie and launch token made under the old one, so
+// nothing about the sessions it ended needs keeping.
+function allSessionsEnded(configuration) {
+  return { ...configuration, sessionEpoch: (configuration.sessionEpoch ?? 0) + 1, sessions: [], endedUnlisted: [] };
 }
 
 async function derivePassword(password, salt) {
@@ -192,10 +239,9 @@ function cookieValue(cookieHeader, name) {
   return null;
 }
 
-// Wrong passwords, counted for the whole instance: there is one password, and
-// behind Tailscale Serve every caller has the same address. A few mistakes are
-// free; after that each one locks password checks for twice as long as the
-// last, up to fifteen minutes. A locked check is refused before scrypt runs.
+// Wrong passwords, counted for one caller, or by PasswordAttemptsByKey for the
+// whole instance as well. A few mistakes are free; after that each one locks
+// password checks for twice as long as the last, up to fifteen minutes. A locked check is refused before scrypt runs.
 // Passkey sign-in is not counted, so it still works while this is locked.
 export class PasswordAttempts {
   constructor({ now = () => Date.now(), free = 5, maxLockMs = 15 * 60_000 } = {}) {
@@ -222,6 +268,47 @@ export class PasswordAttempts {
   }
 }
 
+// Wrong passwords counted per caller, so guesses from one device cannot lock the
+// owner out on another. The key is whatever the caller cannot choose: the
+// Tailscale login or nearest forwarded address Serve stamps on, or the socket
+// address. A loose instance-wide count still bounds guessing from many keys.
+export class PasswordAttemptsByKey {
+  constructor({ now = () => Date.now(), free = 5, maxLockMs = 15 * 60_000, overallFree = 50, maxKeys = 256 } = {}) {
+    this.options = { now, free, maxLockMs };
+    this.maxKeys = maxKeys;
+    this.byKey = new Map();
+    this.overall = new PasswordAttempts({ now, free: overallFree, maxLockMs });
+  }
+
+  #attempts(key) {
+    let attempts = this.byKey.get(key);
+    if (!attempts) {
+      if (this.byKey.size >= this.maxKeys) {
+        // Forget whichever key is no longer locked, else the oldest.
+        const idle = [...this.byKey].find(([, value]) => value.retryAfterMs() === 0)?.[0];
+        this.byKey.delete(idle ?? this.byKey.keys().next().value);
+      }
+      attempts = new PasswordAttempts(this.options);
+      this.byKey.set(key, attempts);
+    }
+    return attempts;
+  }
+
+  retryAfterMs(key) {
+    return Math.max(this.overall.retryAfterMs(), this.byKey.get(key)?.retryAfterMs() ?? 0);
+  }
+
+  failed(key) {
+    this.#attempts(key).failed();
+    this.overall.failed();
+  }
+
+  succeeded(key) {
+    this.byKey.delete(key);
+    this.overall.succeeded();
+  }
+}
+
 export class PasswordAuth {
   constructor(configuration = null, {
     now = () => Date.now(),
@@ -233,6 +320,18 @@ export class PasswordAuth {
     this.now = now;
     this.authFile = authFile;
     this.writeQueue = Promise.resolve();
+    this.sessionListeners = new Set();
+  }
+
+  // Called with nothing whenever sessions end, so open connections can check
+  // their own again instead of waiting for their next message.
+  onSessionsEnded(listener) {
+    this.sessionListeners.add(listener);
+    return () => this.sessionListeners.delete(listener);
+  }
+
+  #sessionsEnded() {
+    for (const listener of this.sessionListeners) listener();
   }
 
   get required() {
@@ -308,8 +407,9 @@ export class PasswordAuth {
       const passkeys = configuration.passkeys.filter(({ id }) => passkeyHandle(id) !== handle);
       removed = passkeys.length < configuration.passkeys.length;
       if (!removed) return configuration;
-      return { ...configuration, passkeys, sessionEpoch: (configuration.sessionEpoch ?? 0) + 1 };
+      return { ...allSessionsEnded(configuration), passkeys };
     });
+    if (removed) this.#sessionsEnded();
     return removed;
   }
 
@@ -334,15 +434,108 @@ export class PasswordAuth {
     return found;
   }
 
+  // Newest first; the caller marks which one it is itself.
+  sessionSummaries() {
+    if (!this.required) return [];
+    const now = Math.floor(this.now() / 1000);
+    return this.configuration.sessions
+      .filter((session) => session.expiresAt > now)
+      .map((session) => ({ ...session }))
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  currentSessionId(cookieHeader) {
+    const token = cookieValue(cookieHeader, "herdr_session");
+    return this.#tokenSession(token)?.id ?? null;
+  }
+
+  // Signing out: a sign-in from before sessions were listed is not on the list,
+  // so it is remembered as ended until its token would have expired anyway.
+  async endCurrentSession(cookieHeader) {
+    if (!this.required) return false;
+    const session = this.#tokenSession(cookieValue(cookieHeader, "herdr_session"));
+    if (!session) return false;
+    if (!session.unlisted) return this.endSession(session.id);
+    const now = Math.floor(this.now() / 1000);
+    const endedUnlisted = [
+      { id: session.id, expiresAt: session.expiresAt },
+      ...(this.configuration.endedUnlisted ?? []).filter((item) => item.expiresAt > now && item.id !== session.id),
+    ];
+    // Past the limit there is no room to remember this one, so every session
+    // ends instead: signing out must never be what gets dropped.
+    const ending = this.#replaceConfiguration(endedUnlisted.length > MAX_SESSIONS
+      ? allSessionsEnded(this.configuration)
+      : { ...this.configuration, endedUnlisted });
+    this.#sessionsEnded();
+    await ending;
+    return true;
+  }
+
+  // False when no session has that id, including one ended a moment ago.
+  async endSession(id) {
+    if (!this.required || typeof id !== "string" || !SESSION_ID_PATTERN.test(id)) return false;
+    if (!this.configuration.sessions.some((session) => session.id === id)) return false;
+    const ending = this.#changeSessions((sessions) => sessions.filter((session) => session.id !== id));
+    this.#sessionsEnded();
+    await ending;
+    return true;
+  }
+
+  // Every session, including ones signed before sessions were listed.
+  async endAllSessions() {
+    if (!this.required) return;
+    const ending = this.#replaceConfiguration(allSessionsEnded(this.configuration));
+    this.#sessionsEnded();
+    await ending;
+  }
+
+  #changeSessions(change) {
+    return this.#replaceConfiguration({ ...this.configuration, sessions: change(this.configuration.sessions) });
+  }
+
+  // Sessions change in memory at once, so the very next request sees them;
+  // the file catches up behind. A failed write rejects the caller's promise,
+  // and an ending still holds until restart. Without an auth file (tests, a
+  // password passed in memory) they are just not kept across a restart.
+  #replaceConfiguration(next) {
+    this.configuration = validateStoredConfiguration(next);
+    return this.authFile ? this.#persist() : Promise.resolve();
+  }
+
+  // Passkey changes count only once written: a failed write leaves memory as
+  // the file has it. They run in the write queue, after any session write. A
+  // session that changed in memory while this one was being written is kept
+  // by applying the update again to what memory holds now, which the session's
+  // own queued write then saves.
   async #updateConfiguration(update) {
     if (!this.required || !this.authFile) {
       throw new Error("Passkeys require a persistent password configuration");
     }
     const operation = this.writeQueue.then(async () => {
-      const next = validateStoredConfiguration(update(this.configuration));
-      await writeConfigurationFile(this.authFile, next);
-      this.configuration = next;
+      const before = this.configuration;
+      const next = validateStoredConfiguration(update(before));
+      if (next === before) return;
+      await this.#write(next);
+      if (this.configuration === before) this.configuration = next;
+      else this.configuration = validateStoredConfiguration(update(this.configuration));
     });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
+  }
+
+  // The password CLI writes the file while the service runs and restarts it
+  // after. Until then this server holds the old password, so it must not write
+  // that back over a new one, or recreate a file that turned the password off.
+  async #write(configuration) {
+    const onDisk = await readFile(this.authFile, "utf8").then(JSON.parse).catch(() => null);
+    if (onDisk?.password?.hash !== configuration.password.hash || onDisk?.sessionSecret !== configuration.sessionSecret) {
+      throw new Error("The password was changed outside this server; restart it to use the new one");
+    }
+    await writeConfigurationFile(this.authFile, configuration);
+  }
+
+  #persist() {
+    const operation = this.writeQueue.then(() => this.#write(this.configuration));
     this.writeQueue = operation.catch(() => {});
     return operation;
   }
@@ -359,8 +552,23 @@ export class PasswordAuth {
     return safeEquals(expected, candidate);
   }
 
-  createSession() {
-    return this.#createToken("cookie");
+  // The session is listed at once, so the request that follows can rely on
+  // it; writing it down finishes behind.
+  createSession({ agent = "Unknown browser" } = {}) {
+    const token = this.#createToken(LISTED_COOKIE);
+    if (!token) return null;
+    const [nonce, rawExpiry] = token.split(".");
+    const now = Math.floor(this.now() / 1000);
+    const session = {
+      id: sessionId(nonce), createdAt: now, expiresAt: Number(rawExpiry), lastUsedAt: now,
+      agent: isSessionAgent(agent) && agent ? agent : "Unknown browser",
+    };
+    const write = this.#changeSessions((sessions) => [
+      session,
+      ...sessions.filter((item) => item.expiresAt > now),
+    ].slice(0, MAX_SESSIONS));
+    write.catch(() => {});
+    return token;
   }
 
   createLaunchToken() {
@@ -378,7 +586,34 @@ export class PasswordAuth {
   hasValidSession(cookieHeader) {
     if (!this.required) return true;
     const token = cookieValue(cookieHeader, "herdr_session");
-    return this.#hasValidToken(token, "cookie");
+    const session = this.#tokenSession(token);
+    if (!session) return false;
+    if (session.unlisted) return !(this.configuration.endedUnlisted ?? []).some((item) => item.id === session.id);
+    const listed = this.configuration.sessions.find((item) => item.id === session.id);
+    if (!listed) return false;
+    this.#touch(listed);
+    return true;
+  }
+
+  #touch(session) {
+    const now = Math.floor(this.now() / 1000);
+    if ((now - session.lastUsedAt) * 1000 < LAST_USED_RESOLUTION_MS) return;
+    session.lastUsedAt = now;
+    this.#changeSessions((sessions) => sessions.map((item) => (
+      item.id === session.id ? { ...item, lastUsedAt: Math.max(item.lastUsedAt, now) } : item
+    ))).catch(() => {});
+  }
+
+  // A signed, unexpired cookie, and the session it names. Listed sessions sign
+  // under their own purpose, so the signature alone tells them from tokens made
+  // before sessions were listed. Those stay valid until they expire, so an
+  // upgrade signs no one out; a listed one must still be on the list.
+  #tokenSession(token) {
+    if (!this.required || !token) return null;
+    const unlisted = !this.#hasValidToken(token, LISTED_COOKIE);
+    if (unlisted && !this.#hasValidToken(token, "cookie")) return null;
+    const [nonce, rawExpiry] = token.split(".");
+    return { id: sessionId(nonce), expiresAt: Number(rawExpiry), unlisted };
   }
 
   hasValidLaunchToken(token) {
@@ -407,16 +642,20 @@ export class PasswordAuth {
       .digest("base64url");
   }
 
-  sessionCookie(token, { secure = false } = {}) {
+  sessionCookie(token, { secure = false, maxAge = SESSION_TTL_SECONDS } = {}) {
     const attributes = [
       `herdr_session=${token}`,
       "Path=/",
       "HttpOnly",
       "SameSite=Strict",
-      `Max-Age=${SESSION_TTL_SECONDS}`,
+      `Max-Age=${maxAge}`,
     ];
     if (secure) attributes.push("Secure");
     return attributes.join("; ");
+  }
+
+  clearSessionCookie({ secure = false } = {}) {
+    return this.sessionCookie("", { secure, maxAge: 0 });
   }
 }
 

@@ -45,11 +45,16 @@ const SYSTEMS = [
 
 // A name for the list, worked out from the browser that registered the
 // passkey. Only fixed words come out, never text copied from the header.
-export function passkeyLabel(userAgent) {
+// Empty when nothing is recognised; callers pick their own fallback.
+export function browserLabel(userAgent) {
   const source = typeof userAgent === "string" ? userAgent.slice(0, 1024) : "";
   const browser = BROWSERS.find(([pattern]) => pattern.test(source))?.[1];
   const system = SYSTEMS.find(([pattern]) => pattern.test(source))?.[1];
-  return [browser, system].filter(Boolean).join(" · ") || "Passkey";
+  return [browser, system].filter(Boolean).join(" · ");
+}
+
+export function passkeyLabel(userAgent) {
+  return browserLabel(userAgent) || "Passkey";
 }
 
 function ceremonyContext(origin) {

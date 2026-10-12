@@ -1,4 +1,6 @@
-const NOTIFIABLE_STATES = new Set(["blocked", "done", "idle", "unknown"]);
+// Only what needs the person: an agent asking, or one that finished. Idle and
+// unknown say nothing they have to act on.
+const NOTIFIABLE_STATES = new Set(["blocked", "done"]);
 
 function array(value) {
   return Array.isArray(value) ? value : [];
@@ -40,9 +42,7 @@ function sequenceOf(agent, pane) {
 
 function bodyFor(status) {
   if (status === "done") return "Task completed.";
-  if (status === "blocked") return "Waiting for your input.";
-  if (status === "idle") return "Ready for your next request.";
-  return "Status unavailable.";
+  return "Waiting for your input.";
 }
 
 function shouldNotify(previous, current, hasPendingRequest) {
@@ -51,10 +51,7 @@ function shouldNotify(previous, current, hasPendingRequest) {
   }
   const requestFinishedBetweenPolls = hasPendingRequest &&
     previous.sequence !== current.sequence;
-  if (current.status === "done" || current.status === "blocked") {
-    return previous.status !== current.status || requestFinishedBetweenPolls;
-  }
-  return previous.status === "working" || requestFinishedBetweenPolls;
+  return previous.status !== current.status || requestFinishedBetweenPolls;
 }
 
 function recordsForSnapshot(snapshot) {

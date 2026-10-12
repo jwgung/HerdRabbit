@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.10";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.10";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.11";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.11";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -48,8 +48,8 @@ import {
   aiRestartHint,
   isAiLoginWorkspace,
   paneKeepsInputHistory,
-} from "./ui-model.js?v=1.2.10";
-import { ansiToSegments } from "./ansi.js?v=1.2.10";
+} from "./ui-model.js?v=1.2.11";
+import { ansiToSegments } from "./ansi.js?v=1.2.11";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -60,42 +60,43 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.10";
-import { linkTerminalSegments } from "./terminal-links.js?v=1.2.10";
-import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.10";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.10";
+} from "./browse-preference.js?v=1.2.11";
+import { linkTerminalSegments } from "./terminal-links.js?v=1.2.11";
+import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.11";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.11";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.10";
+} from "./pane-preference.js?v=1.2.11";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.10";
+} from "./workspace-preference.js?v=1.2.11";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.10";
+} from "./terminal-preference.js?v=1.2.11";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.10";
+} from "./completion-preference.js?v=1.2.11";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.11";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.10";
+} from "./input-history-preference.js?v=1.2.11";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.10";
+} from "./launch-session.js?v=1.2.11";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.10";
+} from "./push-notifications.js?v=1.2.11";
 
 function browserStorage() {
   try {
@@ -203,13 +204,60 @@ function acceptNotificationTarget(value) {
   return true;
 }
 
+const appAlert = document.querySelector("#app-alert");
+let appAlertTimer = null;
+let appAlertUrl = null;
+appAlert.addEventListener("click", () => {
+  hideAppAlert();
+  if (appAlertUrl) acceptNotificationTarget(appAlertUrl);
+});
+
+function showAppAlert({ title, body, url }) {
+  document.querySelector("#app-alert-title").textContent = typeof title === "string" ? title : "HerdRabbit";
+  document.querySelector("#app-alert-body").textContent = typeof body === "string" ? body : "";
+  appAlertUrl = typeof url === "string" ? url : null;
+  appAlert.hidden = false;
+  clearTimeout(appAlertTimer);
+  appAlertTimer = setTimeout(hideAppAlert, 8_000);
+  if (readAlertSound(panePreferenceStorage)) playAlertSound();
+}
+
+function hideAppAlert() {
+  clearTimeout(appAlertTimer);
+  appAlert.hidden = true;
+}
+
+// Two short tones. A page the person has not touched yet may not play sound;
+// then the alert is only seen.
+let alertAudio = null;
+function playAlertSound() {
+  try {
+    alertAudio ??= new AudioContext();
+    if (alertAudio.state === "suspended") void alertAudio.resume().catch(() => {});
+    const start = alertAudio.currentTime;
+    // A5 then D6, each about a seventh of a second.
+    for (const [offset, frequency] of [[0, 880], [0.16, 1175]]) {
+      const tone = alertAudio.createOscillator();
+      const gain = alertAudio.createGain();
+      tone.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, start + offset);
+      gain.gain.exponentialRampToValueAtTime(0.15, start + offset + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.14);
+      tone.connect(gain).connect(alertAudio.destination);
+      tone.start(start + offset);
+      tone.stop(start + offset + 0.15);
+    }
+  } catch {
+    // No audio is not worth interrupting anything for.
+  }
+}
+
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (event) => {
     if (event.data?.type === "query-viewing-pane") {
-      event.ports?.[0]?.postMessage({
-        viewing: state.authenticated && !document.hidden &&
-          state.selectedPaneId === event.data.paneId,
-      });
+      const inFront = state.authenticated && !document.hidden;
+      if (inFront && state.selectedPaneId !== event.data.paneId) showAppAlert(event.data);
+      event.ports?.[0]?.postMessage({ viewing: inFront });
       return;
     }
     if (event.data?.type !== "open-notification-pane") return;
@@ -356,6 +404,7 @@ const state = {
   authRequired: false,
   passkeyAvailable: false,
   passkeyBusy: false,
+  sessionsBusy: false,
   passkeyAutoStarted: false,
 };
 
@@ -1494,6 +1543,92 @@ function showServerDetails(server) {
   serverDetailsDialog.showModal();
 }
 
+// Signed-in devices. Each is named by its browser and dates; the list never
+// carries a token. Signing out needs no password: it only takes access away.
+const sessionsDialog = document.querySelector("#sessions-dialog");
+const sessionsList = document.querySelector("#sessions-list");
+const sessionsFeedback = document.querySelector("#sessions-feedback");
+document.querySelector("#sessions-close").addEventListener("click", () => sessionsDialog.close());
+document.querySelector("#sessions-end-all").addEventListener("click", () => {
+  if (!window.confirm("Sign out every browser, this one included?")) return;
+  void sessionsAction(async () => {
+    await api("/api/auth/sessions/end-all", { method: "POST", body: {} });
+    sessionsDialog.close();
+    signedOut();
+  });
+});
+
+function setSessionsFeedback(text, isError = false) {
+  sessionsFeedback.textContent = text;
+  sessionsFeedback.dataset.error = String(isError);
+}
+
+async function sessionsAction(work) {
+  if (state.sessionsBusy) return;
+  state.sessionsBusy = true;
+  const controls = sessionsDialog.querySelectorAll("button");
+  controls.forEach((control) => { control.disabled = true; });
+  try {
+    await work();
+  } catch (error) {
+    if (error.code !== "authentication_required") setSessionsFeedback(error.message, true);
+  } finally {
+    state.sessionsBusy = false;
+    controls.forEach((control) => { control.disabled = false; });
+  }
+}
+
+function sessionRow(session) {
+  const row = createElement("li", { className: "passkey-row" });
+  const identity = createElement("div", { className: "passkey-identity" });
+  identity.append(createElement("strong", { text: session.current ? `${session.agent} (this device)` : session.agent }));
+  identity.append(createElement("small", {
+    text: `Signed in ${passkeyDate(session.createdAt * 1000)} · last used ${passkeyDate(session.lastUsedAt * 1000)}`,
+  }));
+  const end = createElement("button", { className: "secondary-button passkey-remove", text: "Sign out" });
+  end.type = "button";
+  end.addEventListener("click", () => void sessionsAction(async () => {
+    if (session.current) {
+      await api("/api/auth/logout", { method: "POST", body: {} });
+      sessionsDialog.close();
+      signedOut();
+      return;
+    }
+    await api("/api/auth/sessions/end", { method: "POST", body: { id: session.id } });
+    setSessionsFeedback(`Signed out ${session.agent}.`);
+    await loadSessions();
+  }));
+  row.append(identity, end);
+  return row;
+}
+
+async function loadSessions() {
+  const { sessions } = await api("/api/auth/sessions");
+  const items = array(sessions);
+  sessionsList.replaceChildren(...(items.length > 0
+    ? items.map(sessionRow)
+    : [createElement("li", { className: "passkey-empty", text: "Only sign-ins made since this list started are shown." })]));
+}
+
+async function showSessions() {
+  setSessionsFeedback("");
+  sessionsList.replaceChildren();
+  sessionsDialog.showModal();
+  await sessionsAction(loadSessions);
+}
+
+// Even when the server cannot be told, this window forgets its launch token,
+// so it is signed out here either way.
+async function signOut() {
+  await api("/api/auth/logout", { method: "POST", body: {} }).catch(() => {});
+  signedOut();
+}
+
+function signedOut() {
+  state.launchToken = clearLaunchToken(launchSessionStorage);
+  showLogin();
+}
+
 // Passkeys. The server lists each one by name, dates and a handle; credential
 // IDs and public keys never leave it.
 const passkeysDialog = document.querySelector("#passkeys-dialog");
@@ -2002,6 +2137,31 @@ function serverActionMenu(server) {
       label: "Passkeys",
       paths: ["M8 15a4 4 0 1 1 3.9-5H21v3h-2v2h-3v-2h-4.1A4 4 0 0 1 8 15Z", "M8 11h.01"],
       onSelect: () => void showPasskeys(),
+    }, {
+      label: "Signed-in devices",
+      paths: ["M4 5h16v10H4z", "M8 19h8", "M12 15v4"],
+      onSelect: () => void showSessions(),
+    }, {
+      label: "Sign out",
+      paths: ["M15 12H4", "M8 8l-4 4 4 4", "M12 4h7v16h-7"],
+      onSelect: () => void signOut(),
+    });
+  }
+  if (server.id === "local" && state.pushSubscription !== null) {
+    actions.push({
+      label: "Send test notification",
+      paths: ["M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9", "M10 21h4"],
+      onSelect: () => void api("/api/push/test", { method: "POST", body: {} })
+        .then(() => setFeedback("Test notification sent."))
+        .catch((error) => setFeedback(`Could not send a test notification: ${error.message}`, true)),
+    });
+  }
+  if (server.id === "local") {
+    const on = readAlertSound(panePreferenceStorage);
+    actions.push({
+      label: on ? "Turn alert sound off" : "Turn alert sound on",
+      paths: on ? ["M11 5 6 9H2v6h4l5 4V5Z", "M15.5 8.5a5 5 0 0 1 0 7"] : ["M11 5 6 9H2v6h4l5 4V5Z", "M22 9l-6 6", "M16 9l6 6"],
+      onSelect: () => { writeAlertSound(panePreferenceStorage, !on); renderNavigation(); },
     });
   }
   // This machine is not a connection: there is nothing to rename or drop.

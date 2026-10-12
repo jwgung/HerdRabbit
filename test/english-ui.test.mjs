@@ -36,5 +36,5 @@ test("uses concise, natural status copy", async () => {
   assert.match(app, /Beginning of history\./u);
   assert.match(app, /Creating project…/u);
   assert.match(app, /Signing in…/u);
-  assert.match(notifications, /Ready for your next request\./u);
+  assert.match(notifications, /Waiting for your input\./u);
 });

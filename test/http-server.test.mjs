@@ -1,15 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { get } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHerdrHttpServer, outputReadLines } from "../src/http-server.mjs";
+import { attemptKey, createHerdrHttpServer, outputReadLines } from "../src/http-server.mjs";
 import {
   createPasswordConfiguration,
   passkeyHandle,
-  PasswordAttempts,
+  PasswordAttemptsByKey,
   PasswordAuth,
 } from "../src/password-auth.mjs";
 import { scrollbackThatTrims } from "./fixtures/short-scrollback.mjs";
@@ -834,6 +834,7 @@ test("lists passkeys by name only and removes one after the password", async (co
     stored("phone-credential", { label: "Safari · iOS", createdAt: 1_700_000_000_000, lastUsedAt: 1_700_000_500_000 }),
     stored("old-credential"),
   ];
+  await writeFile(join(directory, "auth.json"), JSON.stringify(configuration));
   const auth = new PasswordAuth(configuration, { authFile: join(directory, "auth.json") });
   const app = await startServer({ async snapshot() { return {}; } }, {
     auth,
@@ -924,7 +925,7 @@ test("locks password checks after repeated wrong passwords, sign-in and recheck 
   const auth = new PasswordAuth(await createPasswordConfiguration("secret"));
   const app = await startServer({ async snapshot() { return {}; } }, {
     auth,
-    passwordAttempts: new PasswordAttempts({ now: () => clock }),
+    passwordAttempts: new PasswordAttemptsByKey({ now: () => clock }),
     now: () => clock,
   });
   context.after(() => closeServer(app.server));
@@ -1052,4 +1053,93 @@ test("uses ANSI scrollback even for legacy hybrid requests without consulting se
     assert.equal(payload.hasMore, true);
   }
   assert.deepEqual(reads, Array(2).fill({ paneId: "w1:p1", lines: outputReadLines(2), format: "ansi" }));
+});
+
+test("lists sign-ins, ends another one, and signs this one out", async (context) => {
+  const auth = new PasswordAuth(await createPasswordConfiguration("secret"));
+  const app = await startServer({ async snapshot() { return {}; } }, { auth });
+  context.after(() => closeServer(app.server));
+  const signIn = async (userAgent) => {
+    const response = await fetch(`${app.baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: app.baseUrl, "User-Agent": userAgent },
+      body: JSON.stringify({ password: "secret" }),
+    });
+    const cookie = response.headers.get("set-cookie").split(";", 1)[0];
+    const { launchToken } = await response.json();
+    return {
+      "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token",
+      "X-Herdr-Launch-Token": launchToken, Cookie: cookie, Origin: app.baseUrl,
+    };
+  };
+  const phone = await signIn("Mozilla/5.0 (Linux; Android 14) Chrome/130.0 Mobile Safari/537.36");
+  const laptop = await signIn("Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0");
+
+  const listed = await (await fetch(`${app.baseUrl}/api/auth/sessions`, { headers: laptop })).json();
+  assert.equal(listed.sessions.length, 2);
+  const current = listed.sessions.find((session) => session.current);
+  const other = listed.sessions.find((session) => !session.current);
+  assert.match(current.agent, /Firefox/);
+  assert.match(other.agent, /Chrome/);
+  assert.equal(JSON.stringify(listed).includes(phone.Cookie.split("=")[1]), false, "no token is listed");
+
+  const end = await fetch(`${app.baseUrl}/api/auth/sessions/end`, {
+    method: "POST", headers: laptop, body: JSON.stringify({ id: other.id }),
+  });
+  assert.equal(end.status, 200);
+  assert.equal((await fetch(`${app.baseUrl}/api/auth/sessions`, { headers: phone })).status, 401);
+  const again = await fetch(`${app.baseUrl}/api/auth/sessions/end`, {
+    method: "POST", headers: laptop, body: JSON.stringify({ id: other.id }),
+  });
+  assert.equal(again.status, 404);
+
+  const unauthorizedWrite = await fetch(`${app.baseUrl}/api/auth/logout`, {
+    method: "POST", headers: { ...laptop, "X-Herdr-CSRF": "wrong" }, body: "{}",
+  });
+  assert.equal(unauthorizedWrite.status, 403);
+  const logout = await fetch(`${app.baseUrl}/api/auth/logout`, { method: "POST", headers: laptop, body: "{}" });
+  assert.equal(logout.status, 200);
+  assert.match(logout.headers.get("set-cookie"), /herdr_session=;.*Max-Age=0/);
+  assert.equal((await fetch(`${app.baseUrl}/api/auth/sessions`, { headers: laptop })).status, 401);
+});
+
+test("signing out everywhere ends every session, the caller's too", async (context) => {
+  const auth = new PasswordAuth(await createPasswordConfiguration("secret"));
+  const app = await startServer({ async snapshot() { return {}; } }, { auth });
+  context.after(() => closeServer(app.server));
+  const response = await fetch(`${app.baseUrl}/api/auth/login`, {
+    method: "POST", headers: { "Content-Type": "application/json", Origin: app.baseUrl },
+    body: JSON.stringify({ password: "secret" }),
+  });
+  const headers = {
+    "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token",
+    "X-Herdr-Launch-Token": (await response.json()).launchToken,
+    Cookie: response.headers.get("set-cookie").split(";", 1)[0], Origin: app.baseUrl,
+  };
+  const all = await fetch(`${app.baseUrl}/api/auth/sessions/end-all`, { method: "POST", headers, body: "{}" });
+  assert.equal(all.status, 200);
+  assert.equal((await fetch(`${app.baseUrl}/api/auth/sessions`, { headers })).status, 401);
+});
+
+test("counts wrong passwords by the caller Tailscale names, not for everyone", () => {
+  const request = (headers, remoteAddress = "127.0.0.1") => ({ headers, socket: { remoteAddress } });
+  assert.equal(attemptKey(request({ "tailscale-user-login": "Owner@Example.com" })), "login:owner@example.com");
+  assert.equal(attemptKey(request({ "x-forwarded-for": "1.2.3.4, 100.64.0.7" })), "address:100.64.0.7");
+  assert.equal(attemptKey(request({})), "loopback");
+  // Off loopback the headers are client input and are ignored.
+  assert.equal(attemptKey(request({ "tailscale-user-login": "owner@example.com" }, "192.168.0.9")), "address:192.168.0.9");
+});
+
+test("sends a test notification to every subscribed device, write-protected", async (context) => {
+  const sent = [];
+  const app = await startServer({ async snapshot() { return {}; } }, {
+    push: { publicKey: "key", async send(notification) { sent.push(notification); } },
+  });
+  context.after(() => closeServer(app.server));
+  const send = (headers) => fetch(`${app.baseUrl}/api/push/test`, { method: "POST", headers, body: "{}" });
+  assert.equal((await send({ "Content-Type": "application/json", Origin: app.baseUrl })).status, 403);
+  const response = await send({ "Content-Type": "application/json", Origin: app.baseUrl, "X-Herdr-CSRF": "fixed-test-token" });
+  assert.equal(response.status, 200);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].data.paneId, undefined, "a test names no pane, so an open window does not swallow it");
 });

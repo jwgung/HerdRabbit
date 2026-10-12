@@ -5,6 +5,19 @@ log() { printf '  > %s\n' "$1"; }
 fail() { printf '  x %s\n' "$1" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "requires '$1'"; }
 
+# Once main has moved forward, a failure puts the previous commit and its
+# dependencies back, so the service is never left on code that did not pass.
+# Herdr is not rolled back: an older HerdRabbit runs on a newer Herdr.
+roll_back() {
+    log "Rolling back to $(git rev-parse --short "$PREVIOUS_HEAD")"
+    git reset --hard "$PREVIOUS_HEAD"
+    npm ci --omit=dev || log "Warning: restoring the previous dependencies failed; run npm ci --omit=dev here"
+    if [ "${RESTARTED:-0}" = 1 ]; then
+        systemctl --user restart "$UPDATE_SERVICE" || log "Warning: the previous version did not restart either"
+    fi
+    fail "$1; rolled back to $(git rev-parse --short HEAD)"
+}
+
 # Parse the entire function before updating this script on disk.
 main() {
     [ "$#" -eq 0 ] || fail "Usage: sh update.sh (optional: HERD_RABBIT_INSTALL_DIR=/path)"
@@ -66,16 +79,20 @@ main() {
     # Passed to the check alone: exported, it would reach the tests below.
     HERDR_VERSION_MODULE="$INCOMING_DIRECTORY/src/herdr-version.mjs" node scripts/check-herdr-version.mjs || { rm -rf "$INCOMING_DIRECTORY"; fail "Herdr is missing or too old for the new HerdRabbit; update it and run this script again"; }
     rm -rf "$INCOMING_DIRECTORY"
+    PREVIOUS_HEAD="$(git rev-parse HEAD)"
     git merge --ff-only FETCH_HEAD
     log "Installing runtime dependencies"
-    npm ci --omit=dev
+    npm ci --omit=dev || roll_back "dependency installation failed"
     log "Verifying the updated code"
-    npm run verify
+    npm run verify || roll_back "verification failed"
     log "Configuring Claude to use native terminal scrollback"
+    # Not rolled back: it only edits Claude's settings, and the new code has
+    # already passed verification.
     node scripts/configure-claude.mjs
     log "Restarting $UPDATE_SERVICE"
-    systemctl --user restart "$UPDATE_SERVICE"
-    systemctl --user is-active --quiet "$UPDATE_SERVICE" || fail "service is not active; check journalctl --user -u $UPDATE_SERVICE"
+    RESTARTED=1
+    systemctl --user restart "$UPDATE_SERVICE" || roll_back "the service did not restart; check journalctl --user -u $UPDATE_SERVICE"
+    systemctl --user is-active --quiet "$UPDATE_SERVICE" || roll_back "service is not active; check journalctl --user -u $UPDATE_SERVICE"
     log "Updated to $(git rev-parse --short HEAD). Refresh the web app or PWA."
     log "Existing service settings and saved SSH connections are preserved."
 

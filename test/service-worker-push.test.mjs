@@ -49,3 +49,16 @@ test("notifies for a different pane, a background app, or a closed app", async (
 test("keeps notifications when an older app cannot report its visible pane", async () => {
   assert.equal((await pushFor([windowClient({ responds: false })])).length, 1);
 });
+test("hands an app in front what it needs to show the alert itself", async () => {
+  const received = [];
+  const client = {
+    url: "https://rabbit.example/",
+    visibilityState: "visible",
+    postMessage(message, ports) { received.push(message); ports[0].postMessage({ viewing: true }); },
+  };
+  assert.equal((await pushFor([client])).length, 0);
+  assert.deepEqual([received[0].title, received[0].paneId], ["Finished", "w1:p1"]);
+});
+test("shows a test push that names no pane even with the app in front", async () => {
+  assert.equal((await pushFor([windowClient()], null)).length, 1);
+});
