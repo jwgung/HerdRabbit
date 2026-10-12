@@ -800,7 +800,6 @@ body.sidebar-collapsed .terminal-panel {
   position: relative;
   min-height: 0;
   flex: 1 1 auto;
-  padding: 8px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -817,8 +816,13 @@ body.sidebar-collapsed .terminal-panel {
   display: none;
 }
 
+/* The inset sits on xterm's own element, where its fit counts it; on the
+   frame, the fit would size the grid as if it were not there and the last
+   columns would be cut off. */
 .terminal-xterm .xterm {
+  box-sizing: border-box;
   height: 100%;
+  padding: 8px;
 }
 
 /* Herdr keeps the history; xterm's own scrollbar has nothing to scroll and

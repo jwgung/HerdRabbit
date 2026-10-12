@@ -60,6 +60,7 @@ const APP_SHELL = [
   "/terminal-connection.js?v=1.2.13",
   "/xterm-terminal.js?v=1.2.13",
   "/terminal-widths.js?v=1.2.13",
+  "/touch-scroll.js?v=1.2.13",
   "/vendor/xterm.mjs?v=1.2.13",
   "/vendor/xterm.css?v=1.2.13",
   "/ui-model.js?v=1.2.13",

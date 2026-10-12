@@ -55,8 +55,8 @@ export class PaneAttachments {
   }
 
   // Joins the pane's attachment, creating it when nobody has it open. One
-  // client sets the shared grid's size: the first to open the pane, then
-  // whoever types. The others show that grid as it is. An observer, or a
+  // client sets the shared grid's size: the one that opened the pane last, or
+  // typed into it last. The others show that grid as it is. An observer, or a
   // client that keeps the pane's size, never sets it.
   async attach(client, paneId, { cols, rows, keepSize = false }) {
     if (!validSize(cols) || !validSize(rows)) throw new RangeError("cols and rows must be integers in 1..1000");
@@ -89,8 +89,10 @@ export class PaneAttachments {
     if (client.closed) return;
     if (attachment.ready && !attachment.held) client.send({ type: "input-ready", pane_id: paneId });
     if (observing) return;
+    // The screen just opened is the one being looked at: it sets the size,
+    // until another screen opens the pane or types into it.
     attachment.sizes.set(client, { cols, rows });
-    if (!attachment.clients.has(attachment.owner)) this.#own(paneId, client);
+    this.#own(paneId, client);
   }
 
   detach(client, paneId) {
