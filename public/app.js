@@ -1506,7 +1506,8 @@ function serverRenameForm(server) {
   return renameForm({
     value: server.name,
     label: `${server.name} machine name`,
-    maxLength: 80,
+    // Herdr's machine names are held to 60 characters by the server.
+    maxLength: server.transport === "machine" ? 60 : 80,
     invalidMessage: "Enter a name.",
     onCancel: () => { state.editingServerId = null; renderNavigation(); },
     onSubmit: async (name) => {

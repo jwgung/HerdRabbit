@@ -1185,7 +1185,9 @@ test("Herdr machines are added, renamed, turned off and removed through write-pr
   ]);
 
   assert.equal((await send("/api/machines", "POST", { target: "-oProxyCommand=touch /tmp/x" })).status, 400);
+  assert.equal((await send("/api/machines/machine-4c139ff50dfb", "PUT", { label: "x".repeat(61) })).status, 400, "names stop at 60 characters");
   assert.equal((await send("/api/machines/machine-000000000000", "DELETE")).status, 404);
   assert.equal((await send("/api/machines", "POST", { target: "me@lab" }, { Origin: app.baseUrl })).status, 403, "the write token is required");
-  assert.equal(calls.length, 5);
+  assert.equal((await send("/api/machines/machine-4c139ff50dfb", "PUT", { label: "x".repeat(60) })).status, 200);
+  assert.equal(calls.length, 6);
 });

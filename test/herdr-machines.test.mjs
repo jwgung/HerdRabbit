@@ -312,3 +312,52 @@ test("a machine whose connection comes up is asked again at once", async () => {
   await entry.pending;
   assert.equal(entry.available, true, "available without waiting for the next poll");
 });
+
+test("a link is ready only once both sockets are forwarded, each to its own pair", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-link-"));
+  const { MachineLink } = await import("../src/herdr-machines.mjs");
+  const { EventEmitter } = await import("node:events");
+  const { writeFile } = await import("node:fs/promises");
+  const calls = [];
+  let forwarded = 0;
+  let release;
+  const link = new MachineLink({ id: ID, label: "lab", target: "me@lab", session: "default" }, {
+    directory,
+    spawnProcess: () => {
+      void writeFile(join(directory, `${ID.slice(0, 12)}.ctl`), "");
+      return Object.assign(new EventEmitter(), { stderr: new EventEmitter(), kill() {} });
+    },
+    run: async (command, args) => {
+      calls.push(args);
+      if (args.includes("forward")) {
+        forwarded += 1;
+        if (forwarded === 2) await new Promise((resolve) => { release = resolve; });
+        return { stdout: "" };
+      }
+      return { stdout: "status: running\nsocket: /home/me/.config/herdr/herdr.sock\n" };
+    },
+  });
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  link.start();
+  for (let i = 0; i < 50 && forwarded < 2; i++) {
+    context.mock.timers.tick(100);
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(link.state, "connecting", "not ready while the attach socket is still being forwarded");
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(link.state, "ready");
+  const forwards = calls.filter((args) => args.includes("forward")).map((args) => {
+    const at = args.indexOf("-L");
+    return [args[at + 1], args.slice(args.indexOf("--"))];
+  });
+  const local = join(directory, `${ID.slice(0, 12)}`);
+  assert.deepEqual(forwards, [
+    [`${local}.sock:/home/me/.config/herdr/herdr.sock`, ["--", "me@lab"]],
+    [`${local}-client.sock:/home/me/.config/herdr/herdr-client.sock`, ["--", "me@lab"]],
+  ]);
+  const status = calls.find((args) => args.at(-1).includes("status server"));
+  assert.deepEqual(status.slice(status.indexOf("--"), -1), ["--", "me@lab"], "the remote command follows the destination");
+  await link.stop();
+});
