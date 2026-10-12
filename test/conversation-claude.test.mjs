@@ -146,12 +146,33 @@ test("two stores keep their own revisions, even for the same path", async (conte
   assert.notEqual((await transcriptPage(first, path)).history_id, page.history_id);
 });
 
+test("a subagent's model and effort do not stand for the conversation's", () => {
+  const main = { type: "assistant", effort: "high", message: { role: "assistant", model: "claude-opus-4", content: [{ type: "text", text: "main" }] } };
+  const side = { type: "assistant", isSidechain: true, effort: "low", message: { role: "assistant", model: "claude-haiku-4", content: [{ type: "text", text: "side" }] } };
+  const metadata = parseClaudeMetadata(jsonl([user("q"), main, side]));
+  assert.equal(metadata.model, "claude-opus-4");
+  assert.equal(metadata.reasoning_effort, "high");
+});
+
+test("overlapping requests after a rewrite agree on one history id", async (context) => {
+  forgetConversationState();
+  const directory = await temp(context);
+  const path = join(directory, `${SESSION}.jsonl`);
+  const store = localTranscriptStore({ configDir: "/nonexistent" });
+  await writeFile(path, jsonl(Array.from({ length: 60 }, (_, n) => turn(n)).flat()));
+  await transcriptPage(store, path);
+  await writeFile(path, jsonl(Array.from({ length: 70 }, (_, n) => [user(`other ${n}`), answer(`reply ${n}`)]).flat()));
+  const pages = await Promise.all([transcriptPage(store, path), transcriptPage(store, path), transcriptPage(store, path)]);
+  assert.equal(new Set(pages.map((page) => page.history_id)).size, 1);
+  await transcriptPage(store, path, { before: pages[0].cursor });
+});
+
 test("reads the model and the context the last request filled", () => {
   const metadata = parseClaudeMetadata(jsonl([
     { type: "assistant", effort: "high", message: { role: "assistant", model: "claude-opus-5-5", usage: { input_tokens: 10, cache_read_input_tokens: 250_000 }, content: [] } },
     { type: "assistant", isSidechain: true, message: { role: "assistant", model: "claude-haiku", usage: { input_tokens: 5 }, content: [] } },
   ]));
-  assert.equal(metadata.model, "claude-haiku");
+  assert.equal(metadata.model, "claude-opus-5-5", "a subagent's model is its own");
   assert.equal(metadata.reasoning_effort, "high");
   assert.deepEqual(metadata.context, { used: 250_010, window: 1_000_000 });
 });

@@ -462,7 +462,8 @@ export function parseClaudeMetadata(text) {
     if (!line.includes('"assistant"') && !line.includes("/clear")) continue;
     let entry;
     try { entry = record(JSON.parse(line)); } catch { continue; }
-    if (entry.isSidechain === true && entry.type !== "assistant") continue;
+    // a subagent's model, effort, context and /clear are its own
+    if (entry.isSidechain === true) continue;
     if (isContextClear(entry)) {
       metadata.model = null;
       metadata.reasoning_effort = null;
@@ -473,8 +474,7 @@ export function parseClaudeMetadata(text) {
     const message = record(entry.message);
     const model = label(message.model);
     if (model) metadata.model = model;
-    // a subagent's request fills its own context, not this one's
-    if (entry.isSidechain !== true && model) {
+    if (model) {
       const usage = record(message.usage);
       const used = count(usage.input_tokens) + count(usage.cache_creation_input_tokens) + count(usage.cache_read_input_tokens);
       if (used > 0) {
@@ -561,7 +561,7 @@ let states = new WeakMap();
 function stateOf(store) {
   let state = states.get(store);
   if (!state) {
-    state = { revisions: new Map(), answers: new Map() };
+    state = { revisions: new Map(), answers: new Map(), reckoning: new Map() };
     states.set(store, state);
   }
   return state;
@@ -577,7 +577,19 @@ function fingerprint(bytes) {
   return createHash("sha256").update(bytes).digest("base64url").slice(0, 22);
 }
 
-export async function transcriptId(store, path, stat) {
+// One reckoning per file at a time: two requests that overlap would otherwise
+// both start from the same remembered revision and each mint a generation,
+// refusing the other's cursors although the file did not change again.
+export function transcriptId(store, path, stat) {
+  const { reckoning } = stateOf(store);
+  const run = (reckoning.get(path) ?? Promise.resolve()).catch(() => {}).then(() => reckonTranscriptId(store, path, stat));
+  reckoning.set(path, run);
+  const settle = () => { if (reckoning.get(path) === run) reckoning.delete(path); };
+  run.then(settle, settle);
+  return run;
+}
+
+async function reckonTranscriptId(store, path, stat) {
   const { revisions } = stateOf(store);
   const key = path;
   const previous = revisions.get(key);
