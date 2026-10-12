@@ -470,18 +470,23 @@ export class PasswordAuth {
   // in memory) they are just not kept across a restart.
   #replaceConfiguration(next) {
     this.configuration = validateStoredConfiguration(next);
-    return this.authFile ? this.#updateConfiguration((configuration) => configuration) : Promise.resolve();
+    return this.authFile ? this.#persist() : Promise.resolve();
   }
 
+  // Every change lands in memory first, in call order, and each queued write
+  // saves whatever is current when it runs. A write never puts back the state
+  // it started from, so a session ended while another write was in flight
+  // stays ended.
   async #updateConfiguration(update) {
     if (!this.required || !this.authFile) {
       throw new Error("Passkeys require a persistent password configuration");
     }
-    const operation = this.writeQueue.then(async () => {
-      const next = validateStoredConfiguration(update(this.configuration));
-      await writeConfigurationFile(this.authFile, next);
-      this.configuration = next;
-    });
+    this.configuration = validateStoredConfiguration(update(this.configuration));
+    return this.#persist();
+  }
+
+  #persist() {
+    const operation = this.writeQueue.then(() => writeConfigurationFile(this.authFile, this.configuration));
     this.writeQueue = operation.catch(() => {});
     return operation;
   }
@@ -587,20 +592,20 @@ export class PasswordAuth {
       .digest("base64url");
   }
 
-  clearSessionCookie({ secure = false } = {}) {
-    return ["herdr_session=", "Path=/", "HttpOnly", "SameSite=Strict", "Max-Age=0", ...(secure ? ["Secure"] : [])].join("; ");
-  }
-
-  sessionCookie(token, { secure = false } = {}) {
+  sessionCookie(token, { secure = false, maxAge = SESSION_TTL_SECONDS } = {}) {
     const attributes = [
       `herdr_session=${token}`,
       "Path=/",
       "HttpOnly",
       "SameSite=Strict",
-      `Max-Age=${SESSION_TTL_SECONDS}`,
+      `Max-Age=${maxAge}`,
     ];
     if (secure) attributes.push("Secure");
     return attributes.join("; ");
+  }
+
+  clearSessionCookie({ secure = false } = {}) {
+    return this.sessionCookie("", { secure, maxAge: 0 });
   }
 }
 

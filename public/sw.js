@@ -65,6 +65,7 @@ const APP_SHELL = [
   "/workspace-preference.js?v=1.2.11",
   "/terminal-preference.js?v=1.2.11",
   "/completion-preference.js?v=1.2.11",
+  "/alert-preference.js?v=1.2.11",
   "/input-history-preference.js?v=1.2.11",
   "/launch-session.js?v=1.2.11",
   "/push-notifications.js?v=1.2.11",

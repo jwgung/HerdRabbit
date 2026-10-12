@@ -272,3 +272,27 @@ test("wrong passwords lock only the caller that made them", () => {
   for (const key of ["a", "b", "c", "d"]) attempts.failed(key);
   assert.ok(attempts.retryAfterMs("laptop") > 0, "many keys together still hit the instance-wide limit");
 });
+
+test("ending a session while another write is in flight stays ended, on disk too", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-auth-"));
+  const authFile = join(directory, "auth.json");
+  await writePasswordConfiguration(authFile, "secret");
+  const auth = await loadPasswordAuth(authFile);
+  const kept = auth.createSession();
+  const ended = auth.createSession();
+  const id = auth.currentSessionId(`herdr_session=${ended}`);
+  assert.equal(await auth.endSession(id), true);
+  const everywhere = auth.createSession();
+  await auth.writeQueue;
+  assert.equal(auth.hasValidSession(`herdr_session=${ended}`), false);
+  assert.equal(auth.hasValidSession(`herdr_session=${kept}`), true);
+  const reloaded = await loadPasswordAuth(authFile);
+  assert.equal(reloaded.hasValidSession(`herdr_session=${ended}`), false);
+  assert.equal(reloaded.hasValidSession(`herdr_session=${everywhere}`), true);
+
+  void auth.createSession();
+  await auth.endAllSessions();
+  await auth.writeQueue;
+  assert.equal(auth.hasValidSession(`herdr_session=${kept}`), false, "a write in flight does not undo the epoch");
+  assert.equal((await loadPasswordAuth(authFile)).hasValidSession(`herdr_session=${kept}`), false);
+});

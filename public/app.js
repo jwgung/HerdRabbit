@@ -83,6 +83,7 @@ import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
 } from "./completion-preference.js?v=1.2.11";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.11";
 import {
   readInputHistories,
   writeInputHistories,
@@ -218,7 +219,7 @@ function showAppAlert({ title, body, url }) {
   appAlert.hidden = false;
   clearTimeout(appAlertTimer);
   appAlertTimer = setTimeout(hideAppAlert, 8_000);
-  if (alertSoundEnabled()) playAlertSound();
+  if (readAlertSound(panePreferenceStorage)) playAlertSound();
 }
 
 function hideAppAlert() {
@@ -226,14 +227,6 @@ function hideAppAlert() {
   appAlert.hidden = true;
 }
 
-const ALERT_SOUND_KEY = "herd-rabbit:alert-sound";
-function alertSoundEnabled() {
-  try { return localStorage.getItem(ALERT_SOUND_KEY) !== "off"; } catch { return true; }
-}
-
-function setAlertSound(enabled) {
-  try { localStorage.setItem(ALERT_SOUND_KEY, enabled ? "on" : "off"); } catch {}
-}
 
 // Two short tones. A page the person has not touched yet may not play sound;
 // then the alert is only seen.
@@ -243,6 +236,7 @@ function playAlertSound() {
     alertAudio ??= new AudioContext();
     if (alertAudio.state === "suspended") void alertAudio.resume().catch(() => {});
     const start = alertAudio.currentTime;
+    // A5 then D6, each about a seventh of a second.
     for (const [offset, frequency] of [[0, 880], [0.16, 1175]]) {
       const tone = alertAudio.createOscillator();
       const gain = alertAudio.createGain();
@@ -2158,15 +2152,17 @@ function serverActionMenu(server) {
     actions.push({
       label: "Send test notification",
       paths: ["M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9", "M10 21h4"],
-      onSelect: () => void api("/api/push/test", { method: "POST", body: {} }).catch(() => {}),
+      onSelect: () => void api("/api/push/test", { method: "POST", body: {} })
+        .then(() => setFeedback("Test notification sent."))
+        .catch((error) => setFeedback(`Could not send a test notification: ${error.message}`, true)),
     });
   }
   if (server.id === "local") {
-    const on = alertSoundEnabled();
+    const on = readAlertSound(panePreferenceStorage);
     actions.push({
       label: on ? "Turn alert sound off" : "Turn alert sound on",
       paths: on ? ["M11 5 6 9H2v6h4l5 4V5Z", "M15.5 8.5a5 5 0 0 1 0 7"] : ["M11 5 6 9H2v6h4l5 4V5Z", "M22 9l-6 6", "M16 9l6 6"],
-      onSelect: () => { setAlertSound(!on); renderNavigation(); },
+      onSelect: () => { writeAlertSound(panePreferenceStorage, !on); renderNavigation(); },
     });
   }
   // This machine is not a connection: there is nothing to rename or drop.
