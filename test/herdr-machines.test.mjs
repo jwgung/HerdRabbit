@@ -591,3 +591,44 @@ test("no machine change starts once stopping has begun", async () => {
   await assert.rejects(machines.remove(ID), { status: 503 });
   assert.deepEqual(ran, []);
 });
+
+test("a link stopped between its two forwards makes no second one and leaves no socket", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-link-"));
+  const { MachineLink } = await import("../src/herdr-machines.mjs");
+  const { EventEmitter } = await import("node:events");
+  const { existsSync } = await import("node:fs");
+  const local = join(directory, ID.slice(0, 12));
+  const forwards = [];
+  let firstDone;
+  const link = new MachineLink({ id: ID, label: "lab", target: "me@lab", session: "default" }, {
+    directory,
+    spawnProcess: () => {
+      writeFileSync(`${local}.ctl`, "");
+      return Object.assign(new EventEmitter(), { stderr: new EventEmitter(), kill() { setImmediate(() => this.emit("exit", null, "SIGTERM")); } });
+    },
+    run: async (command, args) => {
+      if (!args.includes("forward")) return { stdout: "socket: /home/me/.config/herdr/herdr.sock\n" };
+      const target = args[args.indexOf("-L") + 1].split(":")[0];
+      forwards.push(target);
+      writeFileSync(target, "");
+      // The first forward is still finishing when the link is stopped.
+      await new Promise((resolve) => { firstDone = resolve; });
+      return { stdout: "" };
+    },
+  });
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  link.start();
+  const deadline = performance.now() + 10_000;
+  while (!firstDone && performance.now() < deadline) {
+    context.mock.timers.tick(100);
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const stopping = link.stop();
+  firstDone();
+  await stopping;
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(forwards, [`${local}.sock`], "no second forward");
+  assert.equal(existsSync(`${local}.sock`), false);
+  assert.equal(existsSync(`${local}-client.sock`), false);
+  assert.notEqual(link.state, "ready");
+});

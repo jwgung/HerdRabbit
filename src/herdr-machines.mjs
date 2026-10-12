@@ -201,11 +201,19 @@ export class MachineLink {
       const session = this.machine.session === "default" ? "" : ` --session=${shellQuote(this.machine.session)}`;
       const remoteSocket = socketFromStatus(await this.remote(`${REMOTE_PATH}; herdr${session} status server`));
       if (!remoteSocket) throw Object.assign(new Error("Herdr is not running there"), { stderr: "" });
+      // Stopped on the way: forward nothing more, and take back what was made.
+      const stopped = async () => {
+        if (this.master === master) return false;
+        await this.#removeSockets();
+        return true;
+      };
+      if (await stopped()) return;
       await this.#removeSockets();
       for (const [local, remote] of [[this.socketPath, remoteSocket], [clientSocketFor(this.socketPath), clientSocketFor(remoteSocket)]]) {
+        if (await stopped()) return;
         await this.run(this.ssh, this.sshArgs(["-O", "forward", "-L", `${local}:${remote}`]), { timeout: 10_000 });
       }
-      if (this.master !== master) return;
+      if (await stopped()) return;
       this.attempt = 0;
       this.#set("ready", null);
     } catch (error) {
