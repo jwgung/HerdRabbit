@@ -8,7 +8,7 @@ globalThis.ResizeObserver = class { observe() {} };
 // Frames never come: the link underlines are not drawn here.
 globalThis.requestAnimationFrame = () => 0;
 globalThis.cancelAnimationFrame = () => {};
-const { createAttachedTerminal } = await import("../public/xterm-terminal.js");
+const { createAttachedTerminal, mirrorFrame } = await import("../public/xterm-terminal.js");
 
 // xterm stand-ins: writes wait until the test lets them finish, as xterm's do.
 class Terminal {
@@ -371,3 +371,48 @@ test("a held finger selects as it moves, a moving one scrolls, two fingers or a 
   context.mock.timers.tick(450);
   assert.equal(term().hasSelection(), false, "the hold ends with the pane");
 });
+
+test("a mirrored screen is redrawn whole, with every line break returning to the first column", () => {
+  assert.equal(mirrorFrame("one\ntwo\r\nthree\n"), "\x1b[0m\x1b[H\x1b[2Jone\r\ntwo\r\nthree");
+  assert.equal(mirrorFrame(""), "\x1b[0m\x1b[H\x1b[2J");
+  assert.equal(mirrorFrame(null), "\x1b[0m\x1b[H\x1b[2J");
+  // Colours in the polled text are passed through for xterm to draw.
+  assert.equal(mirrorFrame("\x1b[32mok\x1b[0m\n\n"), "\x1b[0m\x1b[H\x1b[2J\x1b[32mok\x1b[0m\r\n");
+});
+
+test("a pane that cannot attach is mirrored read-only, and attaching again takes over the screen", () => {
+  const { view, sent, host, receive, fallbacks, term } = setup();
+  view.show("a");
+  receive({ type: "attach-unavailable", pane_id: "a", code: "attach_unsupported" });
+  assert.deepEqual(fallbacks, ["a"]);
+  assert.equal(host.hidden, true, "nothing is on screen until the mirror draws");
+  assert.equal(view.show("a"), false);
+
+  assert.equal(view.mirror("a", "$ ls\nfile"), true);
+  assert.equal(host.hidden, false);
+  assert.equal(term().written.at(-1), mirrorFrame("$ ls\nfile"));
+  assert.equal(term().written.at(-2), "\x1bc", "the attach's modes are reset before the first frame");
+  const resets = term().resets;
+  view.mirror("a", "$ ls\nfile\n$");
+  assert.equal(term().resets, resets, "later frames redraw without a reset");
+  assert.equal(term().written.at(-1), mirrorFrame("$ ls\nfile\n$"));
+
+  // Keystrokes in the mirror reach nothing; the page's composer sends instead.
+  const before = sent.length;
+  term().type("x");
+  receive({ type: "input-ready", pane_id: "a" });
+  term().type("y");
+  assert.deepEqual(sent.slice(before).filter(([kind]) => kind === "input"), []);
+
+  // Another pane that can attach replaces the mirror.
+  assert.equal(view.show("b"), true);
+  assert.deepEqual(sent.at(-1), ["attach", "b", { cols: 100, rows: 30 }]);
+  assert.equal(view.mirror("b", "text"), false, "an attached pane is never overdrawn by polled text");
+  // No pane at all hides the terminal.
+  view.show(null);
+  assert.equal(host.hidden, true);
+  view.mirror("a", "again");
+  view.show(null);
+  assert.equal(host.hidden, true);
+});
+

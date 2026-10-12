@@ -46,6 +46,38 @@ function requestWithHost(url, host) {
   });
 }
 
+test("the leaf link routes are gone", async (context) => {
+  const herdr = { async snapshot() { return { workspaces: [], tabs: [], panes: [], agents: [] }; } };
+  const app = await startServer(herdr);
+  context.after(() => closeServer(app.server));
+  const write = { "Content-Type": "application/json", Origin: app.baseUrl, "X-Herdr-CSRF": "fixed-test-token" };
+  for (const [method, path] of [
+    ["GET", "/api/servers"],
+    ["POST", "/api/servers"],
+    ["POST", "/api/servers/test"],
+    ["POST", "/api/servers/discover"],
+    ["DELETE", "/api/servers/link_11111111-1111-1111-1111-111111111111"],
+    ["POST", "/api/announce"],
+    ["GET", "/api/link/snapshot"],
+    ["POST", "/api/link/hello"],
+  ]) {
+    const response = await fetch(`${app.baseUrl}${path}`, {
+      method, headers: method === "GET" ? {} : write, body: method === "GET" ? undefined : "{}",
+    });
+    assert.equal(response.status, 404, `${method} ${path}`);
+  }
+});
+
+test("the page hears once how many old leaf links were saved", async (context) => {
+  const herdr = { async snapshot() { return { workspaces: [], tabs: [], panes: [], agents: [] }; } };
+  const without = await startServer(herdr);
+  context.after(() => closeServer(without.server));
+  assert.equal((await (await fetch(`${without.baseUrl}/api/bootstrap`)).json()).legacyServers, 0);
+  const saved = await startServer(herdr, { legacyServers: 2 });
+  context.after(() => closeServer(saved.server));
+  assert.equal((await (await fetch(`${saved.baseUrl}/api/bootstrap`)).json()).legacyServers, 2);
+});
+
 test("serves the UI and read-only API with hardened headers", async (context) => {
   const readCalls = [];
   const herdr = {
@@ -83,7 +115,9 @@ test("serves the UI and read-only API with hardened headers", async (context) =>
   assert.match(pageSource, /id="login-form"/);
   assert.match(pageSource, /id="sidebar-toggle"/);
   assert.equal((await fetch(`${app.baseUrl}/ui-model.js`)).status, 200);
-  assert.equal((await fetch(`${app.baseUrl}/ansi.js`)).status, 200);
+  // The screen-text renderer is gone: every pane is drawn by xterm.
+  assert.equal((await fetch(`${app.baseUrl}/ansi.js`)).status, 404);
+  assert.equal((await fetch(`${app.baseUrl}/direct-terminal-input.js`)).status, 404);
   assert.equal((await fetch(`${app.baseUrl}/theme.js`)).status, 200);
   assert.equal((await fetch(`${app.baseUrl}/workspace-preference.js`)).status, 200);
   assert.equal((await fetch(`${app.baseUrl}/terminal-preference.js`)).status, 200);

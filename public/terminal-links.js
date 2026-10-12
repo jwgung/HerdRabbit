@@ -167,43 +167,6 @@ export function findTerminalPaths(text, isViewable) {
   return nonOverlapping;
 }
 
-// Detect URLs across ANSI style boundaries without interpreting terminal text as HTML.
-export function linkTerminalSegments(segments, { isViewablePath = () => false } = {}) {
-  const text = segments.map((segment) => segment.text).join("");
-  const links = findUrls(text);
-
-  // A URL wins where the two overlap: "https://x/a.md" is one address, not an
-  // address next to a file.
-  for (const link of findTerminalPaths(text, isViewablePath)) {
-    if (!links.some((found) => link.start < found.end && found.start < link.end)) links.push(link);
-  }
-  links.sort((first, second) => first.start - second.start);
-
-  const result = [];
-  let offset = 0;
-  let linkIndex = 0;
-  for (const segment of segments) {
-    const end = offset + segment.text.length;
-    let position = offset;
-    while (position < end) {
-      while (links[linkIndex]?.end <= position) linkIndex += 1;
-      const link = links[linkIndex];
-      const linked = link && position >= link.start;
-      const boundary = Math.min(end, link ? linked ? link.end : link.start : end);
-      const part = { ...segment, text: segment.text.slice(position - offset, boundary - offset) };
-      if (linked) {
-        if (link.href) part.href = link.href;
-        else part.path = link.path;
-        part.linkStart = link.start;
-      }
-      result.push(part);
-      position = boundary;
-    }
-    offset = end;
-  }
-  return result;
-}
-
 // The links on a terminal screen, for drawing and tapping them in place.
 // `rows` are the visible rows as text, each with the cell every character
 // starts in (and one past the end). They are read as one text, a row per

@@ -15,11 +15,9 @@ import {
   isPortInServiceRange,
   PREFERRED_SERVICE_PORT,
 } from "../src/port-selection.mjs";
-import { promptForNewPassword, readVisibleLine } from "./password-prompt.mjs";
+import { promptForNewPassword } from "./password-prompt.mjs";
 import { ensureHerdrExecutable } from "./herdr-install.mjs";
 import { configureClaude } from "./configure-claude.mjs";
-import { readTailnetPeers } from "../src/tailnet-peers.mjs";
-import { isPortInServiceRange as inServiceRange } from "../src/port-selection.mjs";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -39,11 +37,12 @@ export async function readExistingUnit(serviceFile) {
     const port = Number(source.match(/HERDR_WEB_PORT=(\d+)/)?.[1]);
     return {
       port: isPortInServiceRange(port) ? port : null,
-      role: /HERDR_WEB_ROLE=(?:")?leaf/u.test(source) ? "leaf" : "hub",
-      hubAddress: source.match(/HERDR_WEB_PEER_ADDRESSES=(?:")?([^"\s]+)/u)?.[1] || "",
+      // Leaf mode is gone; a rerun on a former leaf writes a normal unit and
+      // says what changed.
+      wasLeaf: /HERDR_WEB_ROLE=(?:")?leaf/u.test(source),
     };
   } catch (error) {
-    if (error.code === "ENOENT") return { port: null, role: "hub", hubAddress: "" };
+    if (error.code === "ENOENT") return { port: null, wasLeaf: false };
     throw error;
   }
 }
@@ -64,7 +63,6 @@ async function tailscaleDetails() {
       serve = JSON.parse(serveSource);
     } catch {}
     const hostname = String(status.Self?.DNSName || "").replace(/\.$/, "");
-    const addresses = Array.isArray(status.Self?.TailscaleIPs) ? status.Self.TailscaleIPs : [];
     const usedHttpsPorts = new Set(
       Object.entries(serve.TCP || {})
         .filter(([, value]) => value?.HTTPS === true)
@@ -74,15 +72,14 @@ async function tailscaleDetails() {
     return {
       available: status.BackendState === "Running" && hostname !== "",
       hostname,
-      addresses,
       usedHttpsPorts,
     };
   } catch {
-    return { available: false, hostname: "", addresses: [], usedHttpsPorts: new Set() };
+    return { available: false, hostname: "", usedHttpsPorts: new Set() };
   }
 }
 
-export function serviceUnit({ nodeBin, herdrBin, authFile, port, hostname, leaf = null, bindHost = "127.0.0.1" }) {
+export function serviceUnit({ nodeBin, herdrBin, authFile, port, hostname }) {
   const lines = [
     "[Unit]",
     "Description=HerdRabbit",
@@ -92,24 +89,11 @@ export function serviceUnit({ nodeBin, herdrBin, authFile, port, hostname, leaf 
     "Type=simple",
     `WorkingDirectory=${repositoryRoot}`,
     `Environment=${quoteSystemd(`HERDR_WEB_PORT=${port}`)}`,
-    `Environment=${quoteSystemd(`HERDR_WEB_HOST=${bindHost}`)}`,
+    `Environment=${quoteSystemd("HERDR_WEB_HOST=127.0.0.1")}`,
     `Environment=${quoteSystemd(`HERDR_WEB_AUTH_FILE=${authFile}`)}`,
   ];
   if (hostname) {
     lines.push(`Environment=${quoteSystemd(`HERDR_WEB_ALLOWED_HOSTS=${hostname}`)}`);
-  }
-  if (leaf) {
-    // Baked in at install time so src/ never has to shell out to tailscale, and
-    // so the trust set cannot change without the unit changing.
-    // Bound to its own tailnet address, a leaf reads the caller off the socket,
-    // so the hub is named by address and there is no login to configure.
-    // HERDR_WEB_PEER_LOGINS still exists for a leaf placed behind Tailscale
-    // Serve by hand; the installer does not build that shape.
-    lines.push(
-      `Environment=${quoteSystemd("HERDR_WEB_ROLE=leaf")}`,
-      `Environment=${quoteSystemd(`HERDR_WEB_PEER_ADDRESSES=${leaf.addresses.join(",")}`)}`,
-      `Environment=${quoteSystemd(`HERDR_WEB_HUB=${leaf.hubUrl}`)}`,
-    );
   }
   lines.push(
     `Environment=${quoteSystemd(`HERDR_BIN=${herdrBin}`)}`,
@@ -175,59 +159,6 @@ function runInteractive(command, args) {
 }
 
 
-// The hub is the machine a person opens; a leaf only ever answers that hub.
-// Which one this is decides whether a password makes sense at all.
-async function chooseLeafMode(tailscale, existing) {
-  if (!tailscale.available) return null;
-  const wasLeaf = existing.role === "leaf";
-  const answer = await readVisibleLine(
-    `이 머신을 다른 HerdRabbit(허브)에 연결되는 leaf로 설치할까요? [${wasLeaf ? "Y/n" : "y/N"}]: `,
-  );
-  const wantsLeaf = answer === "" ? wasLeaf : /^y(es)?$/iu.test(answer);
-  if (!wantsLeaf) return null;
-
-  // The hub is picked by name, not typed as an address, because two different
-  // values are needed from one answer: the address to accept requests from, and
-  // the name to call -- a hub sits behind Tailscale Serve and its certificate is
-  // for the tailnet name.
-  const hub = await chooseHub(tailscale, existing);
-  // Listening on this node's own tailnet address means the caller's address is
-  // set by the kernel from a WireGuard-authenticated peer, so there is nothing
-  // to put in front and no certificate to obtain. A process on this machine
-  // cannot claim the hub's address the way it could write a header.
-  const bindHost = tailscale.addresses.find((address) => !address.includes(":"));
-  if (!bindHost) {
-    throw new Error("이 노드의 tailnet IPv4 주소를 읽지 못했습니다.");
-  }
-  return { addresses: [hub.address], hubUrl: hub.url, bindHost };
-}
-
-async function chooseHub(tailscale, existing) {
-  const { peers } = await readTailnetPeers();
-  if (peers.length === 0) {
-    throw new Error("tailnet에 다른 머신이 없습니다. 허브를 먼저 설치하세요.");
-  }
-  console.log("이 leaf가 답할 허브를 고르세요:");
-  peers.forEach((peer, index) => {
-    const mark = peer.address === existing.hubAddress ? " (현재)" : "";
-    console.log(`  ${index + 1}. ${peer.name}  ${peer.address}${mark}`);
-  });
-  const current = peers.findIndex((peer) => peer.address === existing.hubAddress);
-  const fallback = current >= 0 ? String(current + 1) : "";
-  const answer = await readVisibleLine(`번호${fallback ? ` [${fallback}]` : ""}: `) || fallback;
-  const chosen = peers[Number(answer) - 1];
-  if (!chosen) throw new Error("목록에 없는 번호입니다.");
-
-  const port = await readVisibleLine(`${chosen.name}의 HerdRabbit 포트 [${PREFERRED_SERVICE_PORT}]: `);
-  const hubPort = Number(port || PREFERRED_SERVICE_PORT);
-  if (!inServiceRange(hubPort)) throw new Error("포트가 올바르지 않습니다.");
-  return {
-    address: chosen.address,
-    // Serve terminates TLS for the tailnet name, so that is what gets called.
-    url: `https://${chosen.fullName || chosen.name}:${hubPort}`,
-  };
-}
-
 async function main() {
   const userConfigHome = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
   const unitDirectory = join(userConfigHome, "systemd", "user");
@@ -239,24 +170,19 @@ async function main() {
     tailscaleDetails(),
     ensureHerdrExecutable(),
   ]);
-  const leaf = await chooseLeafMode(tailscale, existing);
-  // A leaf listens on its tailnet address, so a port free on loopback tells us
-  // nothing: another account's leaf on this machine holds the same address.
   const port = existing.port || legacy.port || await findAvailableServicePort({
     preferred: PREFERRED_SERVICE_PORT,
     unavailablePorts: tailscale.usedHttpsPorts,
-    isAvailable: (candidate) => isLocalPortAvailable(candidate, leaf ? leaf.bindHost : "127.0.0.1"),
+    isAvailable: (candidate) => isLocalPortAvailable(candidate, "127.0.0.1"),
   });
 
-  const becomingLeaf = leaf !== null && existing.role !== "leaf";
-  if (becomingLeaf) {
-    // The auth file holds the password hash and the registered passkeys, and a
-    // leaf refuses to start while it exists. Say what is about to go.
-    console.log("허브에서 leaf로 바꿉니다. 이 머신의 비밀번호와 등록된 passkey가 삭제됩니다.");
+  if (existing.wasLeaf) {
+    // A leaf listened on its tailnet address with no password. Leaf mode is
+    // gone: this becomes a normal HerdRabbit on loopback, with a password.
+    console.log("이 PC는 예전 leaf 설치입니다. 일반 HerdRabbit으로 다시 설치합니다.");
+    console.log("다른 PC의 HerdRabbit에서 이 PC를 보려면 그쪽에서 herdr machine으로 다시 추가하세요.");
   }
-  // A leaf has no login page, so asking for a password would set one that its
-  // own gate then refuses to start with.
-  const password = leaf ? "" : await promptForNewPassword();
+  const password = await promptForNewPassword();
   const claude = await configureClaude();
   console.log(`Claude 일반 터미널 모드 설정: ${claude.path}`);
   const auth = await writePasswordConfiguration(authFile, password);
@@ -268,8 +194,6 @@ async function main() {
     authFile,
     port,
     hostname: tailscale.hostname,
-    leaf,
-    bindHost: leaf ? leaf.bindHost : "127.0.0.1",
   }), { mode: 0o600 });
 
   await execFileAsync("systemctl", ["--user", "daemon-reload"]);
@@ -279,36 +203,16 @@ async function main() {
   if (migrated) {
     console.log(`이전 ${legacyServiceName}을 제거하고 ${serviceName}으로 옮겼습니다.`);
   }
-  console.log(`HerdRabbit 서비스를 ${leaf ? leaf.bindHost : "127.0.0.1"}:${port}에 설치했습니다.`);
+  console.log(`HerdRabbit 서비스를 127.0.0.1:${port}에 설치했습니다.`);
   console.log(
     auth.required
       ? "비밀번호 인증을 활성화했습니다."
       : "비밀번호 인증을 비활성화했습니다.",
   );
-  if (leaf) {
-    // A hub published itself over Tailscale Serve. A leaf listens on its own
-    // tailnet address, so that registration would point at a port nothing
-    // answers on any more.
-    if (tailscale.usedHttpsPorts.has(port)) {
-      console.log(`Tailscale HTTPS 등록(${port})을 해제합니다…`);
-      await runInteractive("sudo", ["tailscale", "serve", `--https=${port}`, "off"]).catch(() => {
-        console.warn(`경고: Tailscale HTTPS 등록을 해제하지 못했습니다. 직접 실행하세요: sudo tailscale serve --https=${port} off`);
-      });
-    }
-    console.log(`이 머신은 leaf입니다. ${leaf.addresses.join(", ")}에서 온 요청만 받습니다.`);
-    console.log(`허브에서 이 주소를 서버로 추가하세요: http://${leaf.bindHost}:${port}`);
-    // Nothing here is browser-facing, so there is no secure context to provide
-    // and no reason to publish it.
-    console.log("leaf는 tailnet 안에서만 보이며 HTTPS 등록이 필요하지 않습니다.");
-    return;
-  }
-  if (existing.role === "leaf") {
-    console.log("leaf에서 허브로 바꿨습니다. 허브 쪽에 이 머신이 서버로 등록돼 있다면 지우세요.");
-  }
   if (!auth.required) {
-    // Neither a password nor a peer gate leaves the API open to the tailnet
-    // while everything still looks like it is working.
-    console.warn("경고: 비밀번호도 leaf 모드도 없습니다. 이 API는 tailnet의 모든 기기에 열려 있습니다.");
+    // Without a password the API is open to the tailnet while everything
+    // still looks like it is working.
+    console.warn("경고: 비밀번호가 없습니다. 이 API는 tailnet의 모든 기기에 열려 있습니다.");
   }
 
   if (!tailscale.available) {

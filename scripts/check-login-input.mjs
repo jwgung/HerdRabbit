@@ -38,21 +38,7 @@ for(const mobile of [false,true]){
  await page.waitForFunction(()=>passkeyCalls===1&&document.activeElement.id==='passkey-login');
  console.log({mobile,initialFocusCorrect:true,lastMethodRestored:true});
  await page.unroute('**/api/auth/status');await page.reload();
- await page.locator('#terminal-output').filter({hasText:'terminal'}).waitFor();
- const copyBehavior = await page.evaluate(()=>{
-   const output=document.querySelector('#terminal-output');
-   output.focus();
-   const selection=window.getSelection();
-   selection.selectAllChildren(output);
-   const copy=new KeyboardEvent('keydown',{key:'c',ctrlKey:true,bubbles:true,cancelable:true});
-   output.dispatchEvent(copy);
-   const copyAllowed=!copy.defaultPrevented;
-   selection.removeAllRanges();
-   const interrupt=new KeyboardEvent('keydown',{key:'c',ctrlKey:true,bubbles:true,cancelable:true});
-   output.dispatchEvent(interrupt);
-   return {copyAllowed,interruptForwarded:interrupt.defaultPrevented};
- });
- assert.deepEqual(copyBehavior,{copyAllowed:true,interruptForwarded:true});
+ await page.locator('#terminal-xterm').filter({hasText:'terminal'}).waitFor();
  const input=page.locator('#terminal-input');
  await input.fill('history message');await page.locator('.send-button').click();
  await page.waitForFunction(()=>document.querySelector('#terminal-input').value==='');

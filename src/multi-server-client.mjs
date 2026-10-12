@@ -1,5 +1,4 @@
-import { LeafLinkClient } from "./leaf-link-client.mjs";
-import { HerdrCommandError, InputValidationError } from "./herdr-client.mjs";
+import { InputValidationError } from "./herdr-client.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported } from "./herdr-version.mjs";
 
 const isMachine = (profile) => profile?.transport === "machine";
@@ -21,16 +20,15 @@ function scope(snapshot, server) {
 // Only messages we wrote ourselves are safe to show; anything else could be a
 // remote command's output arriving through an error.
 export function serverStatusFor(error) {
-  return error?.code?.startsWith("leaf_") || error?.code?.startsWith("machine_")
+  return error?.code?.startsWith("machine_")
     ? error.message
-    : "Could not reach HerdRabbit on this server. Check the address and that it is running there.";
+    : "Could not reach Herdr on this PC. Check that it is running there.";
 }
 
 export class MultiServerClient {
   constructor({
-    local, profiles, hubVersion, machineName = () => null, herdrVersion = () => null,
-    remoteFactory = (profile) => new LeafLinkClient({ profile, hubVersion }),
-    // Herdr's own SSH machines (src/herdr-machines.mjs), next to linked servers.
+    local, hubVersion, machineName = () => null, herdrVersion = () => null,
+    // Herdr's own SSH machines (src/herdr-machines.mjs): every other PC.
     machines = null,
   }) {
     this.machines = machines;
@@ -44,21 +42,18 @@ export class MultiServerClient {
     this.machineName = machineName;
     this.herdrVersion = herdrVersion;
     this.hubVersion = hubVersion ?? null;
-    this.profiles = profiles;
-    this.remoteFactory = remoteFactory;
     this.entries = new Map();
     this.stopped = false;
   }
 
   clientFor(profile) {
     if (profile.id === "local") return this.local;
-    return isMachine(profile) ? this.machines.client(profile) : this.remoteFactory(profile);
+    return this.machines.client(profile);
   }
 
   syncEntries() {
     const profiles = [
       { id: "local", name: "Local" },
-      ...(this.profiles.connectionProfiles?.() ?? this.profiles.list()),
       ...(this.machines?.profiles() ?? []),
     ];
     for (const id of this.entries.keys()) {
@@ -132,18 +127,15 @@ export class MultiServerClient {
       ...Object.fromEntries(collections.map((key) => [key, snapshots.flatMap((snapshot) => snapshot[key])])),
       // Address and version travel with the server so the sidebar can say what
       // a machine is without asking again.
-      // A machine goes by the name Tailscale knows it by. This one is this
-      // HerdRabbit, so it answers for its own version too; a linked one reports
-      // what its link says.
+      // This PC is this HerdRabbit, so it answers for its own version too.
       servers: entries.map(({ profile, available, status, connecting, client }) => ({
         // Connecting: not reached yet, but still trying; a page waits for its panes.
         id: profile.id, name: profile.name, available, status, connecting: !available && connecting,
-        transport: profile.id === "local" ? "local" : profile.transport ?? "link",
+        transport: profile.id === "local" ? "local" : profile.transport,
         ...(isMachine(profile) ? { enabled: profile.enabled !== false } : {}),
         address: profile.address ?? null,
         machine: this.machineName(profile) ?? null,
         version: profile.id === "local" ? this.hubVersion : client?.info?.().version ?? null,
-        // A linked machine reports its Herdr in the handshake.
         ...this.herdrFields(profile.id === "local" ? this.herdrVersion() : client?.info?.().herdrVersion ?? null),
       })),
     };
@@ -158,37 +150,21 @@ export class MultiServerClient {
   }
 
   // File routes address a server by id and need the client that speaks for it:
-  // a linked server answers itself, a Herdr SSH machine through its SSH
-  // connection. Local is handled by the caller.
+  // a Herdr SSH machine answers through its SSH connection. Local is handled
+  // by the caller.
   fileClient(serverId) {
     this.syncEntries();
     const entry = serverId === "local" ? null : this.entries.get(serverId);
     if (!entry) return null;
-    return isMachine(entry.profile) ? entry.client.files?.() ?? null : entry.client;
+    return entry.client.files?.() ?? null;
   }
 
-  // Account routes address a server the same way: a linked server answers
-  // itself, a Herdr SSH machine by running the account manager there over SSH.
-  // Local is the caller's.
+  // Account routes address a server the same way: a Herdr SSH machine runs
+  // the account manager there over SSH. Local is the caller's.
   aiAccountsClient(serverId) {
     this.syncEntries();
     const entry = serverId === "local" ? null : this.entries.get(serverId);
     return entry?.client.aiAccounts?.() ?? null;
-  }
-
-  async testProfile(profile) {
-    const client = this.remoteFactory(profile);
-    const snapshot = await client.snapshot().finally(() => client.close?.());
-    if (snapshot.herdr_sessions.some((session) => session.running && !session.available)) {
-      throw new InputValidationError("Connected to HerdRabbit, but a running Herdr session could not be read.");
-    }
-    return {
-      ok: true,
-      transport: "link",
-      version: client.info?.().version ?? null,
-      sessions: snapshot.herdr_sessions.length,
-      panes: snapshot.panes.length,
-    };
   }
 
   target(id) {
@@ -212,12 +188,9 @@ export class MultiServerClient {
   }
 
   readPane(id, options) { return this.invoke("readPane", id, [options]); }
-  // This machine's panes and Herdr machines' attach; a linked server's keep the screen-text view.
+  // This machine's panes and Herdr machines' all attach.
   terminalTarget(id, timeoutMs) {
     const { entry, id: localId } = this.target(id);
-    if (entry.profile.id !== "local" && !isMachine(entry.profile)) {
-      throw new HerdrCommandError("Terminal attach is not available for this server yet", { code: "attach_unsupported" });
-    }
     return entry.client.terminalTarget(localId, timeoutMs);
   }
   sendText(id, text, options) { return this.invoke("sendText", id, [text, options]); }

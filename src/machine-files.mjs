@@ -343,7 +343,7 @@ export class MachineFiles {
 
   async listDirectory(rawPath, { limit = MAX_LISTED_ENTRIES, prefix = "" } = {}) {
     const link = this.#ready();
-    // No path is the machine's home, as a linked server answers it.
+    // No path is the machine's home.
     const requested = rawPath ? validateBrowsePath(rawPath) : await this.#home(link);
     const output = await this.#command(link, LIST_SCRIPT, [requested], {
       maxBytes: MAX_LISTING_OUTPUT,
@@ -647,7 +647,7 @@ export class MachineFiles {
     }
   }
 
-  // Kept so callers can treat every file client alike (see leaf-link-client.mjs).
+  // Kept so callers can treat every file client alike.
   hold() {}
   release() {}
 }

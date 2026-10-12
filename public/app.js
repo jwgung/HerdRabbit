@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.19";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.19";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.20";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.20";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -23,22 +23,16 @@ import {
   paneServerId,
   parentDirectory,
   loginMethodPresentation,
-  nearTerminalBottom,
-  terminalShowsOlderScreen,
   nextInputHistory,
   shouldBrowseInputHistory,
   preferredLoginMethod,
-  nextHistoryLineLimit,
   outputPollingDecision,
   outputTextForUpdate,
   paneShortcutTarget,
   selectedPaneIdForSnapshot,
   waitsForRemotePane,
   keepsVanishedRemotePane,
-  shouldRenderTerminalUpdate,
   sidebarPresentation,
-  terminalOutputForEnvironment,
-  terminalPinchDirection,
   visibleAgentStatus,
   openRenames,
   clearedTabLabel,
@@ -50,8 +44,8 @@ import {
   aiRestartHint,
   isAiLoginWorkspace,
   paneKeepsInputHistory,
-} from "./ui-model.js?v=1.2.19";
-import { ansiToSegments } from "./ansi.js?v=1.2.19";
+  legacyServersNotice,
+} from "./ui-model.js?v=1.2.20";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -62,45 +56,43 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.19";
-import { linkTerminalSegments } from "./terminal-links.js?v=1.2.19";
-import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.19";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.19";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.19";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.19";
+} from "./browse-preference.js?v=1.2.20";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.20";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.20";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.20";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.19";
+} from "./pane-preference.js?v=1.2.20";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.19";
+} from "./workspace-preference.js?v=1.2.20";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.19";
+} from "./terminal-preference.js?v=1.2.20";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.19";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.19";
+} from "./completion-preference.js?v=1.2.20";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.20";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.19";
+} from "./input-history-preference.js?v=1.2.20";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.19";
+} from "./launch-session.js?v=1.2.20";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.19";
+} from "./push-notifications.js?v=1.2.20";
 
 function browserStorage() {
   try {
@@ -310,10 +302,8 @@ const elements = {
   paneTitle: document.querySelector("#pane-title"),
   notificationToggle: document.querySelector("#notification-toggle"),
   themeToggle: document.querySelector("#theme-toggle"),
-  historyStatus: document.querySelector("#history-status"),
   terminalPanel: document.querySelector(".terminal-panel"),
-  terminalOutput: document.querySelector("#terminal-output"),
-  terminalLive: document.querySelector("#terminal-live"),
+  terminalMessage: document.querySelector("#terminal-message"),
   terminalXterm: document.querySelector("#terminal-xterm"),
   terminalHeld: document.querySelector("#terminal-held"),
   quickKeys: document.querySelector(".quick-keys"),
@@ -372,26 +362,13 @@ const state = {
   selectedPaneId: initialPanePreference,
   preferredPaneId: initialPanePreference,
   snapshotBusy: false,
-  outputRequests: new Set(),
   lastOutputRequestAt: 0,
-  outputLineLimits: new Map(),
-  outputRevisions: new Map(),
-  outputHasMore: new Map(),
-  historyRequested: new Set(),
-  historyErrors: new Map(),
-  historyLoadingPaneId: null,
   desktopSidebarCollapsed: false,
   mobileSidebarOpen: false,
+  // The pane on screen, attached or mirrored, and a mirrored pane's text.
   renderedPaneId: null,
-  renderedOutput: null,
-  terminalPointerActive: false,
-  terminalFollow: true,
-  remoteHistoryPanes: new Set(),
-  remoteLiveRequests: new Set(),
-  terminalScrollSettlesAt: 0,
-  terminalUserScrollAt: 0,
+  mirrored: null,
   outputBurstUntil: 0,
-  outputRefreshQueued: false,
   inputHistoryByPane: initialInputHistories,
   inputHistoryCursor: null,
   inputHistoryDraft: "",
@@ -426,19 +403,9 @@ const anyHoverMedia = window.matchMedia("(any-hover: hover)");
 const compactInputMedia = window.matchMedia("(max-width: 1024px)");
 let sidebarAnimationTimer;
 let terminalFontWheelDelta = 0;
-let terminalPinchDistance = null;
 let terminalInputResizeTimer = null;
 
 const COMPOSER_RESIZE_DELAY_MS = 300;
-// Matches the #terminal-output line-height in styles.css.
-const TERMINAL_LINE_HEIGHT_RATIO = 1.55;
-// How long after the last scroll event the view is left alone. Momentum
-// scrolling keeps firing scroll events after the finger is already gone.
-const TERMINAL_SCROLL_SETTLE_MS = 350;
-// A scroll event counts as the reader's only if a gesture just produced it.
-// Momentum keeps scrolling after the finger lifts, and an on-screen keyboard
-// resizes the viewport, which scrolls the terminal without anyone asking.
-const TERMINAL_USER_SCROLL_WINDOW_MS = 1_000;
 const OUTPUT_SUBMISSION_BURST_MS = 3_000;
 const OUTPUT_SUBMISSION_RETRY_MS = 250;
 // Check deadlines often enough to honor the 300ms post-submission cadence.
@@ -844,14 +811,6 @@ function scheduleTerminalInputResize() {
   }, COMPOSER_RESIZE_DELAY_MS);
 }
 
-function touchDistance(touches) {
-  if (touches.length !== 2) return null;
-  return Math.hypot(
-    touches[0].clientX - touches[1].clientX,
-    touches[0].clientY - touches[1].clientY,
-  );
-}
-
 function resetInputHistoryNavigation() {
   state.inputHistoryCursor = null;
   state.inputHistoryDraft = "";
@@ -1141,7 +1100,6 @@ function adoptMutationSnapshot(snapshot, preferredPaneId = null) {
   const previousPaneId = state.selectedPaneId;
   state.snapshot = snapshot || {};
   if (preferredPaneId) {
-    if (previousPaneId !== preferredPaneId) collapseTerminalHistory(previousPaneId);
     state.selectedPaneId = preferredPaneId;
     state.preferredPaneId = preferredPaneId;
   }
@@ -1150,13 +1108,12 @@ function adoptMutationSnapshot(snapshot, preferredPaneId = null) {
   renderNavigation();
   const selected = selectedRecords();
   renderPaneHeading(selected.pane, selected.tab, selected.workspace);
-  renderHistoryStatus();
   if (previousPaneId !== state.selectedPaneId) {
     showTerminalMessage(
       state.selectedPaneId ? "Loading output…" : "No open sessions.",
     );
   }
-  void refreshOutput();
+  void refreshTerminal();
 }
 
 async function createShellSession(workspaceId, button) {
@@ -1451,11 +1408,7 @@ function paneButton(pane, tab, workspace, { namesSession = false } = {}) {
   button.append(copy);
 
   button.addEventListener("click", () => {
-    if (state.selectedPaneId !== paneId) {
-      resetInputHistoryNavigation();
-      collapseTerminalHistory(state.selectedPaneId);
-      state.terminalFollow = true;
-    }
+    if (state.selectedPaneId !== paneId) resetInputHistoryNavigation();
     state.selectedPaneId = paneId;
     state.preferredPaneId = paneId;
     writePanePreference(panePreferenceStorage, paneId);
@@ -1463,9 +1416,8 @@ function paneButton(pane, tab, workspace, { namesSession = false } = {}) {
     setFeedback("");
     renderNavigation();
     renderPaneHeading(pane, tab, workspace);
-    renderHistoryStatus();
     showTerminalMessage("Loading output…");
-    void refreshOutput();
+    void refreshTerminal();
     closeMobileSidebar();
     focusComposer();
   });
@@ -1509,24 +1461,12 @@ function serverRenameForm(server) {
     value: server.name,
     label: `${server.name} machine name`,
     // Herdr's machine names are held to 60 characters by the server.
-    maxLength: server.transport === "machine" ? 60 : 80,
+    maxLength: 60,
     invalidMessage: "Enter a name.",
     onCancel: () => { state.editingServerId = null; renderNavigation(); },
     onSubmit: async (name) => {
-      if (server.transport === "machine") {
-        await api(`/api/machines/${server.id}`, { method: "PUT", body: { label: name } });
-        state.editingServerId = null;
-        await refreshSnapshot();
-        return;
-      }
-      // The address is not edited here, so it has to be carried over unchanged.
-      const profile = savedServers.find((item) => item.id === server.id);
-      await api(`/api/servers/${server.id}`, {
-        method: "PUT",
-        body: { name, address: profile?.address ?? "" },
-      });
+      await api(`/api/machines/${server.id}`, { method: "PUT", body: { label: name } });
       state.editingServerId = null;
-      await loadServers();
       await refreshSnapshot();
     },
   });
@@ -2197,99 +2137,36 @@ function serverActionMenu(server) {
       actions,
     });
   }
-  // Herdr's own SSH machines are managed with `herdr machine`, so Herdr's TUI
-  // shows the same list.
-  if (server.transport === "machine") {
-    const machineAction = (method, path, prompt) => () => {
-      if (prompt && !window.confirm(prompt)) return;
-      void api(path, { method, body: method === "DELETE" ? undefined : {} })
-        .then(() => refreshSnapshot())
-        .catch((error) => setFeedback(error.message, true));
-    };
-    actions.push(
-      {
-        label: "Rename",
-        paths: ["M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17l-1 3Z", "M14.5 7.5l3 3"],
-        onSelect: () => { state.editingServerId = server.id; renderNavigation(); },
-      },
-      server.enabled === false ? {
-        label: "Turn on",
-        paths: ["M12 3v9", "M6.3 7.3a8 8 0 1 0 11.4 0"],
-        onSelect: machineAction("POST", `/api/machines/${server.id}/enable`),
-      } : {
-        label: "Turn off",
-        paths: ["M12 3v9", "M6.3 7.3a8 8 0 1 0 11.4 0"],
-        onSelect: machineAction("POST", `/api/machines/${server.id}/disable`,
-          `Turn off “${server.name}”? It stays listed here, and Turn on connects it again.`),
-      },
-      {
-        label: "Remove",
-        paths: ["M6 6l12 12M18 6 6 18"],
-        danger: true,
-        onSelect: machineAction("DELETE", `/api/machines/${server.id}`,
-          `Remove “${server.name}” from Herdr's machines? Its sessions keep running there.`),
-      },
-    );
-    return sidebarActionMenu({
-      id: `server-${server.id}`,
-      label: `More actions for ${server.name}`,
-      className: "server-action-menu",
-      actions,
-    });
-  }
-  // A machine that moved to another port leaves its entry pointing at the old
-  // one, offline for good. The tailnet address says they are the same machine,
-  // so looking again can answer an entry that cannot connect.
-  if (!server.available) {
-    actions.push({
-      label: "Find new address",
-      paths: ["M20 12a8 8 0 1 1-2.3-5.6", "M20 4v5h-5"],
-      onSelect: () => void (async () => {
-        try {
-          setFeedback(`Looking for ${server.name}…`);
-          const found = await api("/api/servers/discover", { method: "POST", body: {} });
-          const host = new URL(server.address).hostname;
-          const moved = array(found.candidates).find((candidate) =>
-            candidate.state === "ready" && candidate.address !== server.address &&
-            new URL(candidate.address).hostname === host);
-          if (!moved) {
-            setFeedback(`${server.name} is not answering anywhere on ${host}.`, true);
-            return;
-          }
-          await api(`/api/servers/${server.id}`, {
-            method: "PUT", body: { name: server.name, address: moved.address },
-          });
-          await loadServers();
-          await refreshSnapshot();
-          setFeedback(`${server.name} now points at ${moved.address}.`);
-        } catch (error) {
-          setFeedback(error.message, true);
-        }
-      })(),
-    });
-  }
+  // Every other PC is one of Herdr's own SSH machines, managed with
+  // `herdr machine` so Herdr's TUI shows the same list.
+  const machineAction = (method, path, prompt) => () => {
+    if (prompt && !window.confirm(prompt)) return;
+    void api(path, { method, body: method === "DELETE" ? undefined : {} })
+      .then(() => refreshSnapshot())
+      .catch((error) => setFeedback(error.message, true));
+  };
   actions.push(
     {
       label: "Rename",
       paths: ["M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17l-1 3Z", "M14.5 7.5l3 3"],
       onSelect: () => { state.editingServerId = server.id; renderNavigation(); },
     },
+    server.enabled === false ? {
+      label: "Turn on",
+      paths: ["M12 3v9", "M6.3 7.3a8 8 0 1 0 11.4 0"],
+      onSelect: machineAction("POST", `/api/machines/${server.id}/enable`),
+    } : {
+      label: "Turn off",
+      paths: ["M12 3v9", "M6.3 7.3a8 8 0 1 0 11.4 0"],
+      onSelect: machineAction("POST", `/api/machines/${server.id}/disable`,
+        `Turn off “${server.name}”? It stays listed here, and Turn on connects it again.`),
+    },
     {
-      label: "Disconnect",
+      label: "Remove",
       paths: ["M6 6l12 12M18 6 6 18"],
       danger: true,
-      onSelect: () => {
-        if (!window.confirm(`Disconnect “${server.name}”? Its sessions keep running.`)) return;
-        void (async () => {
-          try {
-            await api(`/api/servers/${server.id}`, { method: "DELETE" });
-            await loadServers();
-            await refreshSnapshot();
-          } catch (error) {
-            setFeedback(error.message, true);
-          }
-        })();
-      },
+      onSelect: machineAction("DELETE", `/api/machines/${server.id}`,
+        `Remove “${server.name}” from Herdr's machines? Its sessions keep running there.`),
     },
   );
   return sidebarActionMenu({
@@ -2577,7 +2454,6 @@ function renderNavigation() {
 }
 
 function renderPaneHeading(pane, tab, workspace) {
-  renderTerminalLive();
   syncAttachAvailability();
   if (modifierPaneId !== state.selectedPaneId) clearKeyModifiers();
   if (!pane) {
@@ -2639,99 +2515,10 @@ function openTerminalPath(raw) {
   void viewFile(resolved, name, paneServerId(state.selectedPaneId) || "local");
 }
 
-function terminalPathLink(raw) {
-  const link = createElement("a", { className: "terminal-link terminal-path" });
-  link.href = "#";
-  link.title = `View ${raw}`;
-  link.addEventListener("click", (event) => {
-    event.preventDefault();
-    openTerminalPath(raw);
-  });
-  return link;
-}
-
-function renderAnsiOutput(value) {
-  const fragment = document.createDocumentFragment();
-  const visibleOutput = terminalOutputForEnvironment(value, {
-    touchInput: usesTouchInputEnvironment(),
-  });
-  let linkElement = null;
-  let linkStart = null;
-  const segments = linkTerminalSegments(ansiToSegments(visibleOutput), {
-    isViewablePath: isViewableTerminalPath,
-  });
-  for (const segment of segments) {
-    const linked = segment.href || segment.path;
-    if (linked && segment.linkStart !== linkStart) {
-      if (segment.href) {
-        linkElement = document.createElement("a");
-        linkElement.href = segment.href;
-        linkElement.target = "_blank";
-        linkElement.rel = "noopener noreferrer";
-        linkElement.className = "terminal-link";
-        linkElement.title = segment.href;
-      } else {
-        linkElement = terminalPathLink(segment.path);
-      }
-      linkStart = segment.linkStart;
-      fragment.append(linkElement);
-    } else if (!linked) {
-      linkElement = null;
-      linkStart = null;
-    }
-    const parent = linkElement || fragment;
-    const hasStyle =
-      segment.bold ||
-      segment.dim ||
-      segment.italic ||
-      segment.underline ||
-      segment.inverse ||
-      segment.foreground ||
-      segment.background;
-    if (!hasStyle) {
-      parent.append(document.createTextNode(segment.text));
-      continue;
-    }
-    const span = document.createElement("span");
-    span.textContent = segment.text;
-    span.classList.toggle("ansi-bold", segment.bold);
-    span.classList.toggle("ansi-dim", segment.dim);
-    span.classList.toggle("ansi-italic", segment.italic);
-    span.classList.toggle("ansi-underline", segment.underline);
-    let foreground = segment.foreground;
-    let background = segment.background;
-    if (segment.inverse) {
-      [foreground, background] = [
-        background || "var(--terminal-bg)",
-        foreground || "var(--terminal-text)",
-      ];
-    }
-    if (foreground) {
-      span.classList.add("ansi-foreground");
-      span.style.setProperty("--ansi-foreground", foreground);
-    }
-    if (background) {
-      span.classList.add("ansi-background");
-      span.style.setProperty("--ansi-background", background);
-    }
-    parent.append(span);
-  }
-  elements.terminalOutput.replaceChildren(fragment);
-}
-
 function showTerminalMessage(message) {
-  elements.terminalOutput.textContent = message;
+  elements.terminalMessage.textContent = message;
+  showTerminalView(false);
   state.renderedPaneId = null;
-  state.renderedOutput = null;
-}
-
-function terminalHasSelection() {
-  const selection = document.getSelection();
-  if (!selection || selection.isCollapsed) return false;
-  return (
-    elements.terminalOutput.contains(selection.anchorNode) ||
-    elements.terminalOutput.contains(selection.focusNode)
-  );
 }
 
 function selectedRecords() {
@@ -2756,11 +2543,7 @@ function choosePane() {
   if (pendingNotificationPaneId && panes.some(
     (pane) => idOf(pane, "pane_id", "id") === pendingNotificationPaneId,
   )) {
-    if (state.selectedPaneId !== pendingNotificationPaneId) {
-      resetInputHistoryNavigation();
-      collapseTerminalHistory(state.selectedPaneId);
-      state.terminalFollow = true;
-    }
+    if (state.selectedPaneId !== pendingNotificationPaneId) resetInputHistoryNavigation();
     state.selectedPaneId = pendingNotificationPaneId;
     pendingNotificationPaneId = null;
     writePanePreference(panePreferenceStorage, state.selectedPaneId);
@@ -2798,11 +2581,7 @@ function choosePane() {
     state.selectedPaneId || state.preferredPaneId,
     defaultHerdrSessionId,
   );
-  if (state.selectedPaneId !== nextPaneId) {
-    resetInputHistoryNavigation();
-    collapseTerminalHistory(state.selectedPaneId);
-    state.terminalFollow = true;
-  }
+  if (state.selectedPaneId !== nextPaneId) resetInputHistoryNavigation();
   state.selectedPaneId = nextPaneId;
   if (nextPaneId) {
     state.preferredPaneId = nextPaneId;
@@ -2875,7 +2654,7 @@ async function refreshSnapshot() {
       currentStatus: selectedAgentStatus(),
     });
     if (previousPaneId !== state.selectedPaneId || polling.refreshNow || notificationRelayTarget) {
-      void refreshOutput();
+      void refreshTerminal();
     }
   } catch (error) {
     setConnection("error", error.message);
@@ -2884,182 +2663,44 @@ async function refreshSnapshot() {
   }
 }
 
-function renderHistoryStatus() {
+// Every pane is drawn by xterm. One that attaches gets herdr's own stream; one
+// that cannot (no node-pty on this server, or herdr refused the attach)
+// mirrors the screen the terminal socket polls instead: redrawn whole on each
+// update and read-only to keystrokes, while the composer and quick keys still
+// send to it.
+function refreshTerminal({ streamPayload = null } = {}) {
   const paneId = state.selectedPaneId;
+  if (!state.authenticated || document.hidden) return;
   if (!paneId) {
-    elements.historyStatus.textContent = "";
+    // The pane on screen went away and nothing took its place.
+    if (state.renderedPaneId) {
+      attachedTerminal.show(null);
+      showTerminalMessage("No open sessions.");
+    }
     return;
   }
-  if (state.historyLoadingPaneId === paneId) {
-    elements.historyStatus.textContent = "Loading history…";
+  state.lastOutputRequestAt = Date.now();
+  if (attachedTerminal.show(paneId)) {
+    terminalStream.unwatch();
+    state.mirrored = null;
+    showTerminal(paneId);
     return;
   }
-  const error = state.historyErrors.get(paneId);
-  if (error) {
-    elements.historyStatus.textContent = `Could not load history: ${error}`;
-    return;
-  }
-  if (state.outputHasMore.get(paneId) === true) {
-    elements.historyStatus.textContent = "";
-    return;
-  }
-  elements.historyStatus.textContent = state.historyRequested.has(paneId)
-    ? "Beginning of history."
-    : "";
+  terminalStream.select(paneId, HISTORY_PAGE_LINES);
+  const payload = streamPayload ?? terminalStream.latest(paneId, HISTORY_PAGE_LINES);
+  if (!payload || (!payload.update && payload.output === undefined)) return;
+  const previous = state.mirrored?.paneId === paneId ? state.mirrored.output : null;
+  const output = outputTextForUpdate(previous, payload.update ? payload : { ...payload, update: "replace" });
+  if (output === null) return;
+  state.mirrored = { paneId, output };
+  attachedTerminal.mirror(paneId, output);
+  showTerminal(paneId);
 }
 
-async function refreshOutput({ loadOlder = false, streamPayload = null } = {}) {
-  if (!state.authenticated || document.hidden || !state.selectedPaneId) return;
-  // A pane that attaches draws itself from herdr's stream; the rest of this is
-  // the screen-text view, for panes that cannot. A screen-text frame that was
-  // already on its way when the pane attached is dropped here.
-  if (!loadOlder && attachedTerminal.show(state.selectedPaneId)) {
-    terminalStream.unwatch();
-    showAttachedView(true);
-    return;
-  }
-  showAttachedView(false);
-  if (!loadOlder && !streamPayload) {
-    const lines = state.outputLineLimits.get(state.selectedPaneId) || HISTORY_PAGE_LINES;
-    terminalStream.select(state.selectedPaneId, lines);
-    streamPayload = terminalStream.latest(state.selectedPaneId, lines);
-    if (!streamPayload) return;
-  }
-  if (state.outputRequests.has(state.selectedPaneId)) {
-    // Run once the in-flight request finishes instead of dropping this one.
-    // Otherwise the immediate refresh after sending input is simply lost and
-    // the echo waits for the next scheduled poll.
-    if (!loadOlder) state.outputRefreshQueued = true;
-    return;
-  }
-  state.outputRequests.add(state.selectedPaneId);
-  state.lastOutputRequestAt = Date.now();
-  const requestedPaneId = state.selectedPaneId;
-  const currentLineLimit =
-    state.outputLineLimits.get(requestedPaneId) || HISTORY_PAGE_LINES;
-  const requestedLineLimit = loadOlder
-    ? nextHistoryLineLimit(currentLineLimit)
-    : currentLineLimit;
-  if (loadOlder && requestedLineLimit === currentLineLimit) {
-    state.outputHasMore.set(requestedPaneId, false);
-    state.historyRequested.add(requestedPaneId);
-    state.outputRequests.delete(requestedPaneId);
-    renderHistoryStatus();
-    return;
-  }
-  if (loadOlder) {
-    state.historyLoadingPaneId = requestedPaneId;
-    state.historyErrors.delete(requestedPaneId);
-    renderHistoryStatus();
-  }
-  try {
-    const previousRevision =
-      state.renderedPaneId === requestedPaneId &&
-      typeof state.renderedOutput === "string"
-        ? state.outputRevisions.get(requestedPaneId)
-        : null;
-    const query = new URLSearchParams({ lines: String(requestedLineLimit) });
-    const selectedAgent = agentForPane(requestedPaneId);
-    const selectedPane = selectedRecords().pane;
-    if (previousRevision) query.set("since", previousRevision);
-    const payload = streamPayload || await api(
-      `/api/panes/${encodeURIComponent(requestedPaneId)}/output?${query}`,
-    );
-    if (requestedPaneId === state.selectedPaneId) {
-      if (!payload.update && payload.output === undefined) return;
-      const update = payload.update
-        ? payload
-        : { ...payload, update: "replace" };
-      const nextRawOutput = outputTextForUpdate(state.renderedOutput, update);
-      if (nextRawOutput === null) {
-        state.outputRevisions.delete(requestedPaneId);
-        return;
-      }
-      if (String(selectedAgent?.agent || selectedPane?.agent || "").toLowerCase() === "claude" &&
-          terminalShowsOlderScreen(nextRawOutput)) {
-        state.remoteHistoryPanes.add(requestedPaneId);
-      } else {
-        state.remoteHistoryPanes.delete(requestedPaneId);
-      }
-      renderTerminalLive();
-      state.outputLineLimits.set(
-        requestedPaneId,
-        Number(payload.requestedLines) || requestedLineLimit,
-      );
-      state.outputHasMore.set(requestedPaneId, payload.hasMore === true);
-      state.historyErrors.delete(requestedPaneId);
-      if (loadOlder) state.historyRequested.add(requestedPaneId);
-      const shouldRender = shouldRenderTerminalUpdate({
-        renderedPaneId: state.renderedPaneId,
-        nextPaneId: requestedPaneId,
-        renderedOutput: state.renderedOutput,
-        nextOutput: nextRawOutput,
-        hasSelection: terminalHasSelection(),
-        pointerActive: state.terminalPointerActive,
-        scrolling: Date.now() < state.terminalScrollSettlesAt,
-        // A rolling output window drops old rows as new ones arrive. Keep the
-        // displayed conversation still until the reader returns to the bottom.
-        readingHistory: !state.terminalFollow,
-        // Except when the reader asked for those older rows themselves.
-        readerRequested: loadOlder,
-      });
-      if (shouldRender) {
-        // Read the position immediately before replacing the DOM. Reading it
-        // before the request would restore wherever the view was a network
-        // round trip ago, undoing any scrolling done while it was in flight.
-        const previousScrollHeight = elements.terminalOutput.scrollHeight;
-        const previousScrollTop = elements.terminalOutput.scrollTop;
-        renderAnsiOutput(nextRawOutput || "(No output)");
-        state.renderedPaneId = requestedPaneId;
-        state.renderedOutput = nextRawOutput;
-        if (typeof payload.revision === "string") {
-          state.outputRevisions.set(requestedPaneId, payload.revision);
-        }
-        if (loadOlder) {
-          const addedHeight = elements.terminalOutput.scrollHeight - previousScrollHeight;
-          elements.terminalOutput.scrollTop = previousScrollTop + Math.max(0, addedHeight);
-        } else if (state.terminalFollow) {
-          elements.terminalOutput.scrollTop = elements.terminalOutput.scrollHeight;
-        } else {
-          // replaceChildren empties the node list, which clamps scrollTop to 0.
-          // Without this the view jumps to the top on every poll.
-          elements.terminalOutput.scrollTop = previousScrollTop;
-        }
-      } else if (
-        state.renderedPaneId === requestedPaneId &&
-        state.renderedOutput === nextRawOutput &&
-        typeof payload.revision === "string"
-      ) {
-        state.outputRevisions.set(requestedPaneId, payload.revision);
-      }
-    }
-  } catch (error) {
-    if (requestedPaneId === state.selectedPaneId) {
-      if (loadOlder) {
-        state.historyErrors.set(requestedPaneId, error.message);
-      } else if (
-        state.renderedPaneId === requestedPaneId &&
-        typeof state.renderedOutput === "string"
-      ) {
-        // A single failed poll must not blank a terminal that is already on
-        // screen; the next poll recovers it.
-        setConnection("error", error.message);
-      } else if (!state.terminalPointerActive && !terminalHasSelection()) {
-        showTerminalMessage(`Could not read output: ${error.message}`);
-      }
-    }
-  } finally {
-    void completeNotificationRelay();
-    state.outputRequests.delete(requestedPaneId);
-    if (state.historyLoadingPaneId === requestedPaneId) {
-      state.historyLoadingPaneId = null;
-    }
-    if (requestedPaneId === state.selectedPaneId) renderHistoryStatus();
-    if (state.outputRefreshQueued) {
-      state.outputRefreshQueued = false;
-      void refreshOutput();
-    }
-  }
+function showTerminal(paneId) {
+  showTerminalView(true);
+  state.renderedPaneId = paneId;
+  void completeNotificationRelay();
 }
 
 function refreshOutputOnSchedule() {
@@ -3070,7 +2711,7 @@ function refreshOutputOnSchedule() {
     connection: navigator.connection || navigator.mozConnection || navigator.webkitConnection,
   });
   if (Date.now() - state.lastOutputRequestAt < polling.intervalMs) return;
-  void refreshOutput();
+  void refreshTerminal();
 }
 
 async function sendText(text, paneId = state.selectedPaneId) {
@@ -3085,20 +2726,15 @@ async function sendKeys(keys, paneId = state.selectedPaneId) {
 
 function refreshAfterSubmission() {
   state.outputBurstUntil = Date.now() + OUTPUT_SUBMISSION_BURST_MS;
-  state.terminalFollow = true;
-  state.terminalScrollSettlesAt = 0;
-  elements.terminalOutput.scrollTop = elements.terminalOutput.scrollHeight;
-  renderTerminalLive();
-  void refreshOutput();
-  window.setTimeout(() => void refreshOutput(), OUTPUT_SUBMISSION_RETRY_MS);
+  void refreshTerminal();
+  window.setTimeout(() => void refreshTerminal(), OUTPUT_SUBMISSION_RETRY_MS);
   if (elements.filePanel && !elements.filePanel.hidden && browseState.root && !browseState.busy) {
     window.setTimeout(() => void refreshBrowseFolder({ silent: true }), OUTPUT_SUBMISSION_RETRY_MS);
   }
 }
 
 function streamPayloadIsCurrent(payload) {
-  return payload.paneId === state.selectedPaneId && payload.requestedLines ===
-    (state.outputLineLimits.get(state.selectedPaneId) || HISTORY_PAGE_LINES);
+  return payload.paneId === state.selectedPaneId && payload.requestedLines === HISTORY_PAGE_LINES;
 }
 
 // Stream updates can arrive faster than a large terminal renders. Draw only the
@@ -3111,7 +2747,7 @@ function scheduleStreamRender(payload) {
   window.requestAnimationFrame(() => {
     const next = pendingStreamPayload;
     pendingStreamPayload = null;
-    if (streamPayloadIsCurrent(next)) void refreshOutput({ streamPayload: next });
+    if (streamPayloadIsCurrent(next)) void refreshTerminal({ streamPayload: next });
   });
 }
 
@@ -3125,10 +2761,7 @@ const terminalStream = terminalConnection({
   },
   onDisconnect: error => {
     liveStatusUpdates.clear();
-    if (state.authenticated && !document.hidden) {
-      directTerminalInput.stop(error);
-      setConnection("error", error.message);
-    }
+    if (state.authenticated && !document.hidden) setConnection("error", error.message);
   },
   onAuthenticationRequired: () => showLogin(),
   onStatus: receiveLiveStatus,
@@ -3141,10 +2774,11 @@ const attachedTerminal = createAttachedTerminal({
   connection: terminalStream,
   xterm,
   fontSize: state.terminalFontSize,
+  // A pane that cannot attach is mirrored from the polled screen instead.
   onFallback: (paneId) => {
     if (paneId !== state.selectedPaneId) return;
-    showAttachedView(false);
-    void refreshOutput();
+    showTerminalMessage("Loading output…");
+    void refreshTerminal();
   },
   onStateChange: ({ paneId, held, dropped }) => {
     if (paneId !== state.selectedPaneId) return;
@@ -3154,36 +2788,18 @@ const attachedTerminal = createAttachedTerminal({
   isViewablePath: isViewableTerminalPath,
   onPath: openTerminalPath,
   onFontSizeChange: applyTerminalFontSize,
-  onRetry: (paneId) => { if (paneId === state.selectedPaneId) void refreshOutput(); },
+  onRetry: (paneId) => { if (paneId === state.selectedPaneId) void refreshTerminal(); },
   onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
 });
 
-function showAttachedView(attached) {
-  elements.terminalOutput.hidden = attached;
-  elements.terminalXterm.hidden = !attached;
-  if (!attached) elements.terminalHeld.hidden = true;
-  elements.historyStatus.hidden = attached;
-  renderTerminalLive();
+// The message (loading, errors) stands in for the terminal until a pane is drawn.
+function showTerminalView(shown) {
+  elements.terminalMessage.hidden = shown;
+  elements.terminalXterm.hidden = !shown;
+  if (!shown) elements.terminalHeld.hidden = true;
 }
 
 document.querySelector("#terminal-take-over").addEventListener("click", () => attachedTerminal.takeOver());
-
-const directTerminalInput = attachDirectTerminalInput({
-  output: elements.terminalOutput,
-  input: document.querySelector("#terminal-direct-input"),
-  composer: elements.terminalInput,
-  stage: document.querySelector(".terminal-stage"),
-  indicator: document.querySelector("#terminal-input-indicator"),
-  getPaneId: () => state.authenticated ? state.selectedPaneId : null,
-  getModifiers: () => [...selectedKeyModifiers],
-  clearModifiers: clearKeyModifiers,
-  send: item => terminalStream.send(item, { waitForAck: false }),
-  onSent: ({ paneId }) => {
-    if (paneId === state.selectedPaneId) refreshAfterSubmission();
-  },
-  onError: (error) => setFeedback(`Direct input stopped: ${error.message}. Check the terminal before clicking to resume.`, true),
-  onFiles: (files) => acceptDroppedFiles(files, setFeedback),
-});
 
 elements.inputForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -3193,7 +2809,6 @@ elements.inputForm.addEventListener("submit", async (event) => {
   submitButton.disabled = true;
   setFeedback("Sending…");
   try {
-    await directTerminalInput.idle();
     if (text) {
       const sent = await sendText(text, paneId);
       // An answer to a password prompt is never kept.
@@ -3280,7 +2895,7 @@ elements.terminalInput.addEventListener("input", () => {
 });
 
 elements.terminalInput.addEventListener("blur", () => {
-  void refreshOutput();
+  void refreshTerminal();
 });
 
 window.addEventListener("resize", resizeTerminalInput);
@@ -3298,17 +2913,12 @@ function clearKeyModifiers() {
 }
 
 async function sendCommandKey(key) {
-  if (key && directTerminalInput.isActive()) {
-    directTerminalInput.key(key);
-    return;
-  }
   if (!key || keySendBusy || !state.authenticated || !state.selectedPaneId) return;
   keySendBusy = true;
   const paneId = state.selectedPaneId;
   clearKeyModifiers();
   setFeedback(`Sending ${key}…`);
   try {
-    await directTerminalInput.idle();
     await sendKeys([key], paneId);
     refreshAfterSubmission();
     setFeedback("");
@@ -3333,8 +2943,7 @@ elements.quickKeys.addEventListener("click", (event) => {
     else selectedKeyModifiers.add(key);
     modifierPaneId = state.selectedPaneId;
     renderKeyModifiers();
-    if (directTerminalInput.isActive()) directTerminalInput.focus();
-    else focusComposer();
+    focusComposer();
     return;
   }
   const button = event.target.closest("button[data-key]");
@@ -3350,12 +2959,10 @@ elements.quickKeys.addEventListener("click", (event) => {
 // their normal shortcuts. Without a selected modifier, the composer does too.
 elements.terminalPanel.addEventListener("keydown", (event) => {
   if (!state.authenticated || !state.selectedPaneId) return;
-  if (directTerminalInput.ownsEvent(event)) return;
   // A physical copy shortcut belongs to the browser while text is selected.
   if ((event.ctrlKey || event.metaKey) && !event.altKey &&
       event.key.toLowerCase() === "c" && window.getSelection()?.toString()) return;
-  const directTerminalChord = event.target === elements.terminalOutput && (event.ctrlKey || event.altKey);
-  if (selectedKeyModifiers.size === 0 && !directTerminalChord) return;
+  if (selectedKeyModifiers.size === 0) return;
   const key = keyboardTerminalKey(event, [...selectedKeyModifiers]);
   if (!key) return;
   event.preventDefault();
@@ -4812,36 +4419,6 @@ elements.terminalPanel.addEventListener("wheel", (event) => {
 // there turns on mouse reports.
 }, { passive: false, capture: true });
 
-elements.terminalOutput.addEventListener("touchstart", (event) => {
-  const distance = touchDistance(event.touches);
-  if (distance === null) {
-    terminalPinchDistance = null;
-    return;
-  }
-  event.preventDefault();
-  terminalPinchDistance = distance;
-}, { passive: false });
-
-elements.terminalOutput.addEventListener("touchmove", (event) => {
-  const distance = touchDistance(event.touches);
-  if (distance === null) {
-    terminalPinchDistance = null;
-    return;
-  }
-  event.preventDefault();
-  const direction = terminalPinchDirection(terminalPinchDistance, distance);
-  if (!direction) return;
-  adjustTerminalFont(direction);
-  terminalPinchDistance = distance;
-}, { passive: false });
-
-function finishTerminalPinch(event) {
-  if (event.touches.length < 2) terminalPinchDistance = null;
-}
-
-elements.terminalOutput.addEventListener("touchend", finishTerminalPinch);
-elements.terminalOutput.addEventListener("touchcancel", finishTerminalPinch);
-
 function activatePaneShortcut(event) {
   if (!state.authenticated || document.querySelector("dialog[open]")) return false;
   const paneButtons = Array.from(
@@ -4893,129 +4470,12 @@ desktopMedia.addEventListener("change", () => {
   syncSidebar();
 });
 
-function renderTerminalLive() {
-  elements.terminalLive.hidden = !state.selectedPaneId || !elements.terminalXterm.hidden ||
-    (state.terminalFollow && !state.remoteHistoryPanes.has(state.selectedPaneId));
-  elements.terminalLive.disabled = state.remoteLiveRequests.has(state.selectedPaneId);
-}
-
-// Older history is for reading. Kept after the reader is back at the bottom
-// or has moved to another pane, every stream update re-renders all of it and
-// typing stalls behind that.
-function collapseTerminalHistory(paneId) {
-  if ((state.outputLineLimits.get(paneId) || HISTORY_PAGE_LINES) <= HISTORY_PAGE_LINES) return false;
-  state.outputLineLimits.delete(paneId);
-  state.outputHasMore.delete(paneId);
-  state.historyRequested.delete(paneId);
-  return true;
-}
-
-async function returnTerminalToLive() {
-  const paneId = state.selectedPaneId;
-  if (!state.authenticated || !paneId || state.remoteLiveRequests.has(paneId)) return;
-  if (collapseTerminalHistory(paneId)) void refreshOutput();
-  if (!state.remoteHistoryPanes.has(paneId)) {
-    if (!state.terminalFollow) refreshAfterSubmission();
-    return;
-  }
-  state.remoteLiveRequests.add(paneId);
-  state.terminalFollow = true;
-  state.terminalScrollSettlesAt = 0;
-  renderTerminalLive();
-  try {
-    await api(`/api/panes/${encodeURIComponent(paneId)}/keys`, {
-      method: "POST", body: { keys: ["ctrl+end"] },
-    });
-    state.remoteHistoryPanes.delete(paneId);
-    if (state.selectedPaneId === paneId) refreshAfterSubmission();
-  } catch (error) {
-    if (state.selectedPaneId === paneId) setFeedback(error.message, true);
-  } finally {
-    state.remoteLiveRequests.delete(paneId);
-    renderTerminalLive();
-  }
-}
-
-function terminalAtBottom() {
-  return nearTerminalBottom({
-    scrollTop: elements.terminalOutput.scrollTop,
-    scrollHeight: elements.terminalOutput.scrollHeight,
-    clientHeight: elements.terminalOutput.clientHeight,
-  });
-}
-
-elements.terminalLive.addEventListener("click", () => void returnTerminalToLive());
-elements.terminalOutput.addEventListener("wheel", (event) => {
-  if (event.deltaY > 0 && !event.ctrlKey && terminalAtBottom()) void returnTerminalToLive();
-}, { passive: true });
-let terminalTouchY = null;
-elements.terminalOutput.addEventListener("touchstart", (event) => {
-  terminalTouchY = event.touches.length === 1 ? event.touches[0].clientY : null;
-}, { passive: true });
-elements.terminalOutput.addEventListener("touchmove", (event) => {
-  if (event.touches.length !== 1) { terminalTouchY = null; return; }
-  const nextY = event.touches[0].clientY;
-  if (terminalTouchY !== null && nextY < terminalTouchY - 8 && terminalAtBottom()) void returnTerminalToLive();
-  if (terminalTouchY === null || nextY > terminalTouchY) terminalTouchY = nextY;
-}, { passive: true });
-
-function markTerminalUserScroll() {
-  state.terminalUserScrollAt = Date.now();
-}
-
-for (const gesture of ["wheel", "touchmove"]) {
-  elements.terminalOutput.addEventListener(gesture, markTerminalUserScroll, {
-    passive: true,
-  });
-}
-
-let previousTerminalScrollTop = 0;
-elements.terminalOutput.addEventListener("scroll", () => {
-  const scrollingDown = elements.terminalOutput.scrollTop > previousTerminalScrollTop;
-  previousTerminalScrollTop = elements.terminalOutput.scrollTop;
-  const readerDriven = state.terminalPointerActive ||
-    Date.now() - state.terminalUserScrollAt < TERMINAL_USER_SCROLL_WINDOW_MS;
-  if (readerDriven) {
-    state.terminalFollow = nearTerminalBottom({
-      scrollTop: elements.terminalOutput.scrollTop,
-      scrollHeight: elements.terminalOutput.scrollHeight,
-      clientHeight: elements.terminalOutput.clientHeight,
-      lineHeight: state.terminalFontSize * TERMINAL_LINE_HEIGHT_RATIO,
-    });
-    renderTerminalLive();
-    if (scrollingDown && state.terminalFollow) void returnTerminalToLive();
-    // While the view follows the bottom the scrolling is ours, not the
-    // reader's, and re-rendering there is what keeps output visible.
-    if (!state.terminalFollow) {
-      state.terminalScrollSettlesAt = Date.now() + TERMINAL_SCROLL_SETTLE_MS;
-    }
-  }
-  if (
-    elements.terminalOutput.scrollTop <= 24 &&
-    state.outputHasMore.get(state.selectedPaneId) === true
-  ) {
-    void refreshOutput({ loadOlder: true });
-  }
-});
-
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) terminalStream.pause();
   if (document.hidden || !state.authenticated) return;
   void dismissDeliveredNotifications();
   if (pendingNotificationPaneId) void refreshSnapshot();
-  void refreshOutput();
-});
-
-elements.terminalOutput.addEventListener("pointerdown", () => {
-  state.terminalPointerActive = true;
-});
-
-window.addEventListener("pointerup", () => {
-  state.terminalPointerActive = false;
-});
-
-window.addEventListener("pointercancel", () => {
-  state.terminalPointerActive = false;
+  void refreshTerminal();
 });
 
 elements.loginScreen.addEventListener("click", (event) => {
@@ -5136,7 +4596,6 @@ elements.passkeyRegister.addEventListener("click", async () => {
 });
 
 async function initializeApplication() {
-  document.querySelector("#manage-servers").disabled = false;
   const bootstrap = await api("/api/bootstrap");
   state.csrfToken = bootstrap.csrfToken;
   state.pollIntervalMs = bootstrap.pollIntervalMs || state.pollIntervalMs;
@@ -5145,11 +4604,12 @@ async function initializeApplication() {
     : null;
   document.querySelector("#add-machine").hidden = bootstrap.machines !== true;
   showApplication();
+  showLegacyServersNotice(bootstrap.legacyServers);
   browseState.pinnedServer = readFileServer(browsePathStorage);
   showNavigatorTab(readNavigatorTab(browsePathStorage));
   await refreshSnapshot();
   void resumeAiLogins();
-  await refreshOutput();
+  refreshTerminal();
   if (notificationPanePreference) {
     const cleanUrl = new URL(window.location.href);
     cleanUrl.searchParams.delete("pane");
@@ -5165,71 +4625,19 @@ async function initializeApplication() {
   }
 }
 
-const serversDialog = document.querySelector("#servers-dialog");
-const serverForm = document.querySelector("#server-form");
-const serverFeedback = document.querySelector("#server-feedback");
-let editingServer = null;
-let serverBusy = false;
-
-
-// A server is only worth saving once it has actually answered, so Save stays
-// closed until a test succeeds and reopens only for the settings that passed.
-const serverSubmitButton = serverForm.querySelector('button[type="submit"]');
-let verifiedServerSettings = null;
-
-function serverFormValues() {
-  return Object.fromEntries(new FormData(serverForm));
-}
-
-function serverFormFingerprint() {
-  return JSON.stringify(serverFormValues());
-}
-
-function syncServerSubmitState() {
-  const verified = verifiedServerSettings !== null && verifiedServerSettings === serverFormFingerprint();
-  serverSubmitButton.disabled = !verified;
-  serverSubmitButton.title = verified ? "" : "Test the connection first";
-}
-
-serverForm.addEventListener("input", syncServerSubmitState);
-serverForm.addEventListener("change", syncServerSubmitState);
-
-function resetServerForm(profile = null) {
-  editingServer = profile?.id || null;
-  serverForm.reset();
-  if (profile) for (const name of ["name", "address"]) {
-    serverForm.elements.namedItem(name).value = profile[name] ?? "";
-  }
-  chosenBlock.hidden = profile === null;
-  chosenAddress.textContent = profile?.address ?? "";
-  serverFeedback.textContent = "";
-  serverFeedback.dataset.error = "false";
-  serverForm.querySelector('button[type="submit"]').textContent = profile ? "Save changes" : "Save";
-  // Switching to another server drops whatever the last test proved.
-  verifiedServerSettings = null;
-  syncServerSubmitState();
-}
-
-async function serverAction(action) {
-  if (serverBusy) return;
-  serverBusy = true;
-  serversDialog.querySelectorAll("button, input, select").forEach((element) => { element.disabled = true; });
-  serverFeedback.textContent = "Connecting…";
-  serverFeedback.dataset.error = "false";
-  try { await action(); }
-  catch (error) { serverFeedback.textContent = error.message; serverFeedback.dataset.error = "true"; }
-  finally {
-    serverBusy = false;
-    serversDialog.querySelectorAll("button, input, select").forEach((element) => { element.disabled = false; });
-    // The blanket re-enable above would otherwise hand Save back untested.
-    syncServerSubmitState();
-  }
-}
-
-let savedServers = [];
-
-async function loadServers() {
-  savedServers = (await api("/api/servers")).profiles;
+// Computers linked by an older version (a second HerdRabbit on each) are not
+// shown any more. Said once per browser: those PCs come back with herdr machine.
+const LEGACY_SERVERS_NOTICE_KEY = "herdr:legacy-servers-notice";
+const legacyServersDialog = document.querySelector("#legacy-servers-dialog");
+document.querySelector("#legacy-servers-close").addEventListener("click", () => legacyServersDialog.close());
+function showLegacyServersNotice(count) {
+  let seen = false;
+  try { seen = panePreferenceStorage?.getItem(LEGACY_SERVERS_NOTICE_KEY) === "seen"; } catch {}
+  const message = legacyServersNotice({ count, seen });
+  if (!message || legacyServersDialog.open) return;
+  document.querySelector("#legacy-servers-message").textContent = message;
+  try { panePreferenceStorage?.setItem(LEGACY_SERVERS_NOTICE_KEY, "seen"); } catch {}
+  legacyServersDialog.showModal();
 }
 
 const machineDialog = document.querySelector("#machine-dialog");
@@ -5262,162 +4670,6 @@ document.querySelector("#machine-form").addEventListener("submit", async (event)
   } finally {
     controls.forEach((control) => { control.disabled = false; });
   }
-});
-
-document.querySelector("#manage-servers").addEventListener("click", () => {
-  document.querySelector("#add-menu").open = false;
-  resetServerForm();
-  serversDialog.showModal();
-  void serverAction(async () => { await loadServers(); serverFeedback.textContent = ""; });
-  void lookForServers();
-});
-
-// Typing a tailnet address is a poor way to answer "which machine": the hub can
-// list them, and it can say which ones are actually ready to be added.
-const candidateList = document.querySelector("#server-candidates");
-const setupHint = document.querySelector("#server-setup-hint");
-const restSummary = document.querySelector("#server-rest");
-
-const chosenBlock = document.querySelector("#server-chosen");
-const chosenAddress = document.querySelector("#server-chosen-address");
-
-// A machine is picked, never typed. The address comes from the tailnet, so the
-// only thing left to decide is what to call it here.
-function chooseCandidate(candidate) {
-  serverForm.elements.namedItem("name").value = candidate?.name ?? "";
-  serverForm.elements.namedItem("address").value = candidate?.address ?? "";
-  chosenBlock.hidden = candidate === null;
-  chosenAddress.textContent = candidate ? candidate.address : "";
-  for (const row of candidateList.querySelectorAll(".server-candidate")) {
-    row.classList.toggle("is-chosen", row.dataset.address === candidate?.address);
-  }
-  syncServerSubmitState();
-  if (candidate) serverFeedback.textContent = "Test it to save.";
-}
-
-const CANDIDATE_LABELS = {
-  ready: "Ready",
-  added: "Added",
-  refused: "Refuses this hub",
-  incompatible: "Other version",
-  absent: "No HerdRabbit",
-  offline: "Offline",
-};
-
-// A leaf tells its hub where it is, so anything addable is here without being
-// hunted for. What the scan still earns its keep for is the machine that runs
-// HerdRabbit and will not take this hub -- it points at another one, so it
-// never announces itself here, and only a probe can say so.
-const CANDIDATE_ORDER = ["ready", "refused", "incompatible", "added"];
-const NOTHING_TO_DO = new Set(["absent", "offline"]);
-
-function candidateRow(candidate) {
-  const row = createElement("button", { className: `server-candidate is-${candidate.state}` });
-  row.type = "button";
-  // Only a ready machine can be filled in; the rest are shown so the reason is
-  // visible rather than the machine simply being missing.
-  row.disabled = candidate.state !== "ready";
-  row.dataset.address = candidate.address;
-  row.title = candidate.reason || candidate.address;
-  // The same shape the sidebar uses for a server: a dot for whether it is
-  // there, the name, then where it is. A dialog that looks like a different
-  // application is one more thing to read.
-  const dot = createElement("span", { className: "server-candidate-dot" });
-  dot.setAttribute("aria-hidden", "true");
-  const identity = createElement("span", { className: "server-candidate-identity" });
-  let where = candidate.address;
-  try {
-    const url = new URL(candidate.address);
-    where = url.port ? `${url.hostname}:${url.port}` : url.hostname;
-  } catch { /* an address we cannot parse is shown as it came */ }
-  identity.append(
-    createElement("strong", { text: candidate.name }),
-    createElement("small", { text: where }),
-  );
-  row.append(dot, identity, createElement("small", {
-    className: "server-candidate-state",
-    text: CANDIDATE_LABELS[candidate.state] || candidate.state,
-  }));
-  row.addEventListener("click", () => chooseCandidate(candidate));
-  return row;
-}
-
-function renderCandidates(found) {
-  candidateList.replaceChildren();
-  restSummary.textContent = "";
-  if (!found.available) {
-    setupHint.textContent = "Tailscale is not running, so machines cannot be listed.";
-    return;
-  }
-  setupHint.textContent = found.self?.address
-    ? `New machine? Install it as a leaf of ${found.self.address}`
-    : "";
-  if (found.candidates.length === 0) {
-    candidateList.append(createElement("p", { className: "dialog-feedback", text: "No other machines here." }));
-    return;
-  }
-
-  const ordered = [...found.candidates].sort((first, second) =>
-    CANDIDATE_ORDER.indexOf(first.state) - CANDIDATE_ORDER.indexOf(second.state));
-  const actionable = ordered.filter((candidate) => !NOTHING_TO_DO.has(candidate.state));
-  const rest = ordered.filter((candidate) => NOTHING_TO_DO.has(candidate.state));
-
-  for (const candidate of actionable) candidateList.append(candidateRow(candidate));
-  if (actionable.length === 0) {
-    candidateList.append(createElement("p", {
-      className: "dialog-feedback",
-      text: "Nothing ready to add yet.",
-    }));
-  }
-  // Counted, not listed, and outside the scrolling list -- inside it the count
-  // sat below the fold, which is the one place it could not do its job.
-  // Some are switched off and some have no HerdRabbit; either way there is
-  // nothing to connect to, and saying which would need a row each.
-  restSummary.textContent = rest.length === 0
-    ? ""
-    : `${rest.length} other ${rest.length === 1 ? "machine" : "machines"} with nothing to connect to.`;
-}
-
-async function lookForServers() {
-  candidateList.replaceChildren(createElement("p", { className: "dialog-feedback", text: "Looking…" }));
-  setupHint.textContent = "";
-  try {
-    renderCandidates(await api("/api/servers/discover", { method: "POST", body: {} }));
-  } catch (error) {
-    candidateList.replaceChildren();
-    setupHint.textContent = error.message;
-  }
-}
-
-document.querySelector("#server-refresh").addEventListener("click", () => { void lookForServers(); });
-document.querySelector("#server-close").addEventListener("click", () => { if (!serverBusy) serversDialog.close(); });
-serversDialog.addEventListener("cancel", (event) => { if (serverBusy) event.preventDefault(); });
-serversDialog.addEventListener("close", () => { serverForm.elements.namedItem("password").value = ""; });
-document.querySelector("#server-test").addEventListener("click", () => {
-  if (!serverForm.reportValidity()) return;
-  const profile = serverFormValues();
-  const tested = serverFormFingerprint();
-  void serverAction(async () => {
-    const result = await api("/api/servers/test", { method: "POST", body: profile });
-    verifiedServerSettings = tested;
-    syncServerSubmitState();
-    const reached = result.version ? `Connected to HerdRabbit ${result.version}.` : "Connected.";
-    serverFeedback.textContent = `${reached} ${result.sessions} Herdr sessions, ${result.panes} panes. You can save now.`;
-  });
-});
-serverForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  if (serverSubmitButton.disabled) return;
-  const profile = serverFormValues();
-  void serverAction(async () => {
-    await api(editingServer ? `/api/servers/${editingServer}` : "/api/servers", {
-      method: editingServer ? "PUT" : "POST", body: profile,
-    });
-    resetServerForm();
-    await loadServers();
-    await refreshSnapshot();
-    serverFeedback.textContent = "Saved. Connection status appears in the sidebar.";
-  });
 });
 
 async function start() {

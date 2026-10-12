@@ -17,7 +17,7 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
 try {
   const page = await browser.newPage({ serviceWorkers: "block" });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  await page.locator("#terminal-output").filter({ hasText: "ready" }).waitFor();
+  await page.locator("#terminal-xterm").filter({ hasText: "ready" }).waitFor();
   while (!subscribers.size) await new Promise(resolve => setTimeout(resolve, 10));
   const target = page.locator('.pane-button[data-pane-id="w2:p1"]');
   assert.equal(await target.getAttribute("aria-pressed"), "false");

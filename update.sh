@@ -103,7 +103,8 @@ main() {
     BOUND_HOST="$(systemctl --user show "$UPDATE_SERVICE" --property=Environment --value | tr ' ' '\n' | sed -n 's/^HERDR_WEB_HOST=//p')"
     SERVER_ROLE="$(systemctl --user show "$UPDATE_SERVICE" --property=Environment --value | tr ' ' '\n' | sed -n 's/^HERDR_WEB_ROLE=//p')"
     if [ "$SERVER_ROLE" = leaf ]; then
-        log "This machine is a leaf. Update its hub to the same version, or it will show this server as offline."
+        log "This machine was installed as a leaf, which is no longer supported. It now listens on 127.0.0.1 only."
+        log "         Run 'npm run install-service' here to set it up again, and add it to your other HerdRabbit with herdr machine."
     fi
     if [ "$BOUND_HOST" = 0.0.0.0 ]; then
         log "Warning: this service binds 0.0.0.0, so it answers on every network this machine is on, not only your tailnet."

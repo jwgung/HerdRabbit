@@ -1,6 +1,5 @@
-// Shared by the browser API and the link API a leaf serves. They live here
-// rather than in http-server.mjs so a second route module can use them
-// without the two importing each other.
+// Small HTTP helpers for the browser API, kept apart from http-server.mjs so
+// a route module of its own can use them without importing the server.
 
 export class HttpError extends Error {
   constructor(status, code, message) {
