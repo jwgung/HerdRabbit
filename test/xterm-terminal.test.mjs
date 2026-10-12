@@ -68,16 +68,18 @@ function setup() {
   };
   const fallbacks = [];
   const states = [];
+  const retries = [];
   let term;
   const view = createAttachedTerminal({
     host, connection, fontSize: 12,
     xterm: { Terminal: class extends Terminal { constructor(options) { super(options); term = this; } }, FitAddon, UnicodeGraphemesAddon, WebLinksAddon },
     onFallback: (paneId) => fallbacks.push(paneId),
     onStateChange: (state) => states.push(state),
+    onRetry: (paneId) => retries.push(paneId),
   });
   const receive = (message) => { for (const listener of listeners.attach) listener(message); };
   const reconnect = () => { for (const listener of listeners.reconnect) listener(); };
-  return { view, sent, host, classes, fallbacks, states, receive, reconnect, connection, term: () => term };
+  return { view, sent, host, classes, fallbacks, states, retries, receive, reconnect, connection, term: () => term };
 }
 
 test("shows a pane at the frame's size, writes only its stream, and acknowledges once xterm has drawn it", () => {
@@ -178,4 +180,19 @@ test("typing while the socket reconnects is reported, and waits for the pane to 
   receive({ type: "input-ready", pane_id: "a" });
   term().type("ok");
   assert.deepEqual(sent.filter(([kind]) => kind === "input"), [["input", "a", "ok"]]);
+});
+
+test("a pane that failed for now asks to be shown again once its wait is over", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { view, receive, retries } = setup();
+  view.show("a");
+  receive({ type: "pty-exit", pane_id: "a", code: 0 });
+  context.mock.timers.tick(4_000);
+  assert.deepEqual(retries, []);
+  context.mock.timers.tick(2_000);
+  assert.deepEqual(retries, ["a"]);
+  assert.equal(view.show("a"), true, "and it attaches then");
+  receive({ type: "attach-unavailable", pane_id: "a", code: "attach_unsupported" });
+  context.mock.timers.tick(60_000);
+  assert.deepEqual(retries, ["a"], "a pane that can never attach is not tried again");
 });

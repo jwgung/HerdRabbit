@@ -39,7 +39,7 @@ function themeFrom(element) {
 // pane cannot attach, so the page shows its screen text instead.
 export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
   onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer"),
-  isViewablePath = () => false, onPath = () => {}, onFontSizeChange = () => {} }) {
+  isViewablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {} }) {
   const { Terminal, FitAddon, WebLinksAddon, UnicodeGraphemesAddon } = xterm;
   let term = null;
   let fit = null;
@@ -245,11 +245,16 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     connection.attach(paneId, size);
   }
 
+  // A pane that failed for now is tried again once its wait is over, even if
+  // nothing else on the page asks for it.
+  let retryTimer = null;
   function fallBack(until) {
     const failed = paneId;
     unavailable.set(failed, until);
     stop();
     onFallback(failed);
+    clearTimeout(retryTimer);
+    if (Number.isFinite(until)) retryTimer = setTimeout(() => onRetry(failed), Math.max(0, until - Date.now()) + 50);
   }
 
   function stop() {

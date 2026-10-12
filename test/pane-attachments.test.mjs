@@ -328,3 +328,18 @@ test("a client that leaves while two wait for the same pane does not close it on
   assert.ok(!staying.types().includes("pty-exit"));
   attachments.close();
 });
+
+test("a pty that never reports its exit does not keep the pane from attaching again", async (context) => {
+  const { herdr, attachments } = setup();
+  const desk = client();
+  await attachments.attach(desk, "p", { cols: 80, rows: 24 });
+  herdr.spawns[0].kill = function kill() { this.killed = true; }; // never resolves `exited`
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  attachments.detach(desk, "p");
+  const again = attachments.attach(desk, "p", { cols: 80, rows: 24 });
+  context.mock.timers.tick(3_000);
+  context.mock.timers.reset();
+  await again;
+  assert.equal(herdr.spawns.length, 2);
+  attachments.close();
+});

@@ -3083,6 +3083,7 @@ const attachedTerminal = createAttachedTerminal({
   isViewablePath: isViewableTerminalPath,
   onPath: openTerminalPath,
   onFontSizeChange: applyTerminalFontSize,
+  onRetry: (paneId) => { if (paneId === state.selectedPaneId) void refreshOutput(); },
 });
 
 function showAttachedView(attached) {

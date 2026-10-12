@@ -80,3 +80,19 @@ test("node-pty that cannot load is reported unless it is simply not installed", 
   assert.equal(await loadNodePty({ log, load: async () => { throw wrongBuild; } }), null);
   assert.deepEqual(logged, ["node-pty could not load: The module was compiled against a different Node.js version"]);
 });
+
+test("a hangup that fails still ends in SIGKILL", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const made = [];
+  const pty = { spawn() {
+    const term = { kills: [], onData() {}, onExit(listener) { this.exit = listener; }, write() {}, resize() {}, pause() {}, resume() {},
+      kill(signal = "SIGHUP") { this.kills.push(signal); if (signal === "SIGHUP") throw new Error("hangup failed"); this.exit({ exitCode: null }); } };
+    made.push(term);
+    return term;
+  } };
+  const session = nodePtySpawner(pty)({ command: "herdr", args: [], env: {}, cols: 80, rows: 24, onData() {}, onExit() {} });
+  session.kill();
+  context.mock.timers.tick(2000);
+  assert.deepEqual(made[0].kills, ["SIGHUP", "SIGKILL"]);
+  await session.exited;
+});

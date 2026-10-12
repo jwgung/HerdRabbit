@@ -28,6 +28,8 @@ export const ATTACH_DEFAULTS = Object.freeze({
   relookupMaxMs: 1_000,
 });
 
+const RETIRE_WAIT_MS = 3_000;
+const delay = (ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref?.(); });
 const validSize = (value) => Number.isInteger(value) && value >= 1 && value <= 1000;
 
 export class PaneAttachments {
@@ -268,8 +270,10 @@ export class PaneAttachments {
     clearTimeout(attachment.stallCheck);
     attachment.closed = true;
     for (const client of attachment.clients) this.#windowsOf(client).delete(paneId);
-    // herdr frees its one attach slot only once the old attach has exited.
-    const retired = attachment.pty.exited.finally(() => {
+    // herdr frees its one attach slot only once the old attach has exited. A
+    // pty that never reports its exit must not keep the pane from attaching
+    // again: after a while the next attach just tries.
+    const retired = Promise.race([attachment.pty.exited, delay(RETIRE_WAIT_MS)]).finally(() => {
       if (this.#retiring.get(paneId) === retired) this.#retiring.delete(paneId);
     });
     this.#retiring.set(paneId, retired);
@@ -563,8 +567,9 @@ export function nodePtySpawner(pty) {
       resume: () => { if (!exited && paused) { paused = false; term.resume(); } },
       kill: () => {
         if (exited) return;
-        try { term.kill(); term.resume(); } catch { return; }
-        // A child can ignore SIGHUP: it must not keep the slot.
+        // A child can ignore SIGHUP, or the hangup itself can fail: either way
+        // it must not keep the slot.
+        try { term.kill(); term.resume(); } catch { /* the SIGKILL below still runs */ }
         setTimeout(() => { if (!exited) { try { term.kill("SIGKILL"); } catch { /* gone */ } } }, 2000).unref();
       },
     };
