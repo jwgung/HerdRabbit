@@ -90,8 +90,10 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   // attached pane.
   let mirrored = null;
   // The newest frame held back while the reader is scrolled up in a mirror,
-  // drawn once they are back at the bottom.
+  // or while xterm is still drawing the one before: drawn once they are back
+  // at the bottom and xterm is done, so frames never pile up in its queue.
   let heldFrame = null;
+  let drawingFrame = false;
 
   function create() {
     term = new Terminal({
@@ -107,12 +109,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     });
     fit = new FitAddon();
     term.loadAddon(fit);
-    term.onScroll(() => {
-      if (heldFrame === null || !atBottom()) return;
-      const frame = heldFrame;
-      heldFrame = null;
-      term.write(frame);
-    });
+    term.onScroll(drawHeldFrame);
     matchHerdrWidths(term, UnicodeGraphemesAddon);
     // Web addresses and file paths the page can show are found on the whole
     // screen, so one an agent's output wrapped onto the next row is still one
@@ -478,6 +475,22 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     if (Number.isFinite(until)) retryTimer = setTimeout(() => onRetry(failed), Math.max(0, until - Date.now()) + 50);
   }
 
+  function drawFrame(frame) {
+    heldFrame = frame;
+    drawHeldFrame();
+  }
+
+  function drawHeldFrame() {
+    if (heldFrame === null || drawingFrame || !atBottom()) return;
+    const frame = heldFrame;
+    heldFrame = null;
+    drawingFrame = true;
+    term.write(frame, () => {
+      drawingFrame = false;
+      if (mirrored) drawHeldFrame();
+    });
+  }
+
   function atBottom() {
     const buffer = term.buffer.active;
     return buffer.viewportY >= buffer.baseY;
@@ -544,8 +557,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       host.hidden = false;
       fitNow();
       // A reader scrolled up keeps their place; the newest frame waits.
-      if (atBottom()) term.write(mirrorFrame(text));
-      else heldFrame = mirrorFrame(text);
+      drawFrame(mirrorFrame(text));
       return true;
     },
     takeOver() { if (paneId && held) connection.takeOver(paneId); },

@@ -403,6 +403,7 @@ test("a mirror keeps a scrollback to read back through, and holds new frames whi
   assert.equal(term().options.scrollback, 0, "an attached pane scrolls in herdr");
   receive({ type: "attach-unavailable", pane_id: "a", code: "attach_unsupported" });
   view.mirror("a", "one");
+  term().finishWrites();
   assert.ok(term().options.scrollback >= 200, "the polled lines above the screen can be scrolled back to");
 
   term().scrollTo(10, 40);
@@ -420,6 +421,21 @@ test("a mirror keeps a scrollback to read back through, and holds new frames whi
   assert.equal(term().options.scrollback, 0);
 });
 
+test("frames that come faster than xterm draws them collapse to the newest", () => {
+  const { view, receive, term } = setup();
+  view.show("a");
+  receive({ type: "attach-unavailable", pane_id: "a", code: "attach_unsupported" });
+  term().finishWrites();
+  view.mirror("a", "one");
+  const written = term().written.length;
+  for (const text of ["two", "three", "four"]) view.mirror("a", text);
+  assert.equal(term().written.length, written, "nothing more is queued while a frame is drawing");
+  term().finishWrites();
+  assert.deepEqual(term().written.slice(written - 1), [mirrorFrame("one"), mirrorFrame("four")]);
+  term().finishWrites();
+  assert.equal(term().written.length, written + 1);
+});
+
 test("a pane that cannot attach is mirrored read-only, and attaching again takes over the screen", () => {
   const { view, sent, host, receive, fallbacks, term } = setup();
   view.show("a");
@@ -433,6 +449,7 @@ test("a pane that cannot attach is mirrored read-only, and attaching again takes
   assert.equal(term().written.at(-1), mirrorFrame("$ ls\nfile"));
   assert.equal(term().written.at(-2), "\x1bc", "the attach's modes are reset before the first frame");
   const resets = term().resets;
+  term().finishWrites();
   view.mirror("a", "$ ls\nfile\n$");
   assert.equal(term().resets, resets, "later frames redraw without a reset");
   assert.equal(term().written.at(-1), mirrorFrame("$ ls\nfile\n$"));
