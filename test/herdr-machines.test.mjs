@@ -192,3 +192,70 @@ test("a linked HerdRabbit server's panes still keep the screen-text view", async
     remoteFactory: () => ({ snapshot: async () => ({}), terminalTarget: async () => ({}) }) });
   assert.throws(() => herdr.terminalTarget("link_00000000-0000-0000-0000-000000000000!hs_x~w1:p1"), { code: "attach_unsupported" });
 });
+
+test("a machine without a connection refuses every call the same way, and does not stop other servers' statuses", async () => {
+  const machines = new HerdrMachines({
+    directory: "/run/x", createLink: (machine) => ({ machine, state: "connecting", error: null, start() {}, async stop() {} }), createBridge: () => ({}),
+    read: async () => [{ id: ID, label: "lab", target: "me@lab", session: "default", enabled: true }],
+  });
+  await machines.refresh();
+  const statuses = [];
+  const local = {
+    snapshot: async () => ({ herdr_sessions: [{ session_id: "hs_x", name: "default", running: true }], workspaces: [], tabs: [], panes: [], agents: [] }),
+    watchStatuses: async (ids, onStatus) => { statuses.push(ids); return () => {}; },
+  };
+  const herdr = new MultiServerClient({ local, profiles: { list: () => [] }, machines });
+  await assert.rejects(herdr.createWorkspace("new", "machine-4c139ff50dfb!hs_x"), { code: "machine_offline" });
+  await assert.rejects(herdr.terminalTarget("machine-4c139ff50dfb!hs_x~w1:p1"), { code: "machine_offline" });
+  const errors = [];
+  await herdr.watchStatuses(["hs_x~w1:p1", "machine-4c139ff50dfb!hs_x~w1:p1"], () => {}, (error) => errors.push(error));
+  assert.deepEqual(statuses, [["hs_x~w1:p1"]]);
+  assert.deepEqual(errors, [], "an unconnected machine is skipped, not reported as a failure of all statuses");
+});
+
+test("refreshes run one at a time, so an older listing never lands on a newer one", async () => {
+  const answers = [];
+  const machines = new HerdrMachines({
+    directory: "/run/x", createLink: (machine) => ({ machine, state: "connecting", start() {}, async stop() {} }), createBridge: () => ({}),
+    read: () => new Promise((resolve) => answers.push(resolve)),
+  });
+  const first = machines.refresh();
+  const second = machines.refresh();
+  assert.equal(answers.length, 1, "the second waits for the first");
+  answers[0]([{ id: ID, label: "old", target: "me@lab", session: "default", enabled: true }]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(answers.length, 2, "and then runs once more");
+  answers[1]([]);
+  await Promise.all([first, second]);
+  assert.deepEqual(machines.profiles(), [], "the listing asked for last is the one kept");
+});
+
+test("a forward that fails keeps its reason when the connection closes, and tries again later", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-link-"));
+  const { MachineLink } = await import("../src/herdr-machines.mjs");
+  const { EventEmitter } = await import("node:events");
+  const { writeFile } = await import("node:fs/promises");
+  let child;
+  const link = new MachineLink({ id: ID, label: "lab", target: "me@lab", session: "default" }, {
+    directory,
+    spawnProcess: () => {
+      child = Object.assign(new EventEmitter(), { stderr: new EventEmitter(), kill() { setImmediate(() => this.emit("exit", 255)); } });
+      // The master's control socket appears once it is connected.
+      void writeFile(join(directory, `${ID.slice(0, 12)}.ctl`), "");
+      return child;
+    },
+    // `herdr status server` there says nothing about a socket.
+    run: async () => ({ stdout: "status: stopped\n" }),
+  });
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  link.start();
+  for (let i = 0; i < 50 && link.state !== "offline"; i++) {
+    context.mock.timers.tick(100);
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(link.state, "offline");
+  assert.equal(link.error, "Herdr is not running on this machine.");
+  assert.ok(link.retryTimer, "another try is scheduled");
+  await link.stop();
+});

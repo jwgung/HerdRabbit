@@ -155,7 +155,9 @@ export class MachineLink {
       if (this.master !== master) return;
       this.master = null;
       if (detail) this.log(`machine ${this.machine.label}: ${detail}`);
-      this.#set("offline", sshProblem(stderr));
+      // A forward that failed already said why; the connection it closed adds nothing.
+      this.#set("offline", this.forwardProblem ?? sshProblem(stderr));
+      this.forwardProblem = null;
       this.#retry();
     };
     master.on("exit", () => ended(null));
@@ -180,8 +182,9 @@ export class MachineLink {
       if (this.master !== master) return;
       // The details stay in the log: they name local paths and commands.
       this.log(`machine ${this.machine.label}: ${error.message}`);
-      this.#set("offline", error.message === "Herdr is not running there"
-        ? "Herdr is not running on this machine." : sshProblem(error.stderr));
+      this.forwardProblem = error.message === "Herdr is not running there"
+        ? "Herdr is not running on this machine." : sshProblem(error.stderr);
+      this.#set("offline", this.forwardProblem);
       master.kill();
     }
   }
@@ -256,17 +259,32 @@ export async function machineSocketDirectory(environment = process.env, pid = pr
   return directory;
 }
 
-// A server entry's client for one machine: the local Herdr client, pointed at
-// the machine's forwarded socket once the connection is up.
+// A server entry's client for one machine, there whether or not the machine
+// is connected: the local Herdr client, pointed at the machine's forwarded
+// socket, once the connection is up; until then every call is refused alike.
 export class MachineClient {
-  constructor({ link, createBridge }) {
-    this.link = link;
-    this.bridge = createBridge(link);
+  constructor({ machines, machineId, createBridge }) {
+    this.machines = machines;
+    this.machineId = machineId;
+    this.createBridge = createBridge;
+    this.bridges = new WeakMap();
   }
 
+  get link() { return this.machines.links.get(this.machineId) ?? null; }
+
+  // Whether a call would go through now.
+  get ready() { return this.link?.state === "ready"; }
+
   #ready() {
-    if (this.link.state !== "ready") throw machineOffline(this.link.error ?? undefined);
-    return this.bridge;
+    const link = this.link;
+    if (!link) {
+      const machine = this.machines.machines.find((item) => item.id === this.machineId);
+      throw machineOffline(machine && !machine.enabled ? "Turned off" : undefined);
+    }
+    if (link.state !== "ready") throw machineOffline(link.error ?? undefined);
+    let bridge = this.bridges.get(link);
+    if (!bridge) { bridge = this.createBridge(link); this.bridges.set(link, bridge); }
+    return bridge;
   }
 
   info() { return { version: null, herdrVersion: null }; }
@@ -310,7 +328,28 @@ export class HerdrMachines {
     this.timer.unref?.();
   }
 
-  async refresh() {
+  // One refresh at a time: a request that comes while one runs is answered by
+  // one more run after it, so an older listing never lands on a newer one and
+  // whoever asks after a change gets a listing taken after that change.
+  refresh() {
+    if (this.refreshing) {
+      this.refreshAgain = true;
+      return this.refreshing;
+    }
+    this.refreshing = (async () => {
+      try {
+        do {
+          this.refreshAgain = false;
+          await this.#refreshOnce();
+        } while (this.refreshAgain);
+      } finally {
+        this.refreshing = null;
+      }
+    })();
+    return this.refreshing;
+  }
+
+  async #refreshOnce() {
     try {
       this.machines = await this.read({ binary: this.binary });
     } catch (error) {
@@ -326,7 +365,6 @@ export class HerdrMachines {
         continue;
       }
       this.links.delete(id);
-      this.clients.delete(id);
       await link.stop();
     }
     for (const machine of this.machines) {
@@ -354,13 +392,10 @@ export class HerdrMachines {
     return this.profiles().find((profile) => profile.id === serverId)?.machineId ?? null;
   }
 
-  // Null while the machine has no connection (turned off, or not started yet).
   client(profile) {
-    const link = this.links.get(profile.machineId);
-    if (!link) return null;
     let client = this.clients.get(profile.machineId);
-    if (!client || client.link !== link) {
-      client = new MachineClient({ link, createBridge: this.createBridge });
+    if (!client) {
+      client = new MachineClient({ machines: this, machineId: profile.machineId, createBridge: this.createBridge });
       this.clients.set(profile.machineId, client);
     }
     return client;

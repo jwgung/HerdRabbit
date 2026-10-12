@@ -1,7 +1,6 @@
 import { LeafLinkClient } from "./leaf-link-client.mjs";
 import { HerdrCommandError, InputValidationError } from "./herdr-client.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported } from "./herdr-version.mjs";
-import { machineOffline } from "./herdr-machines.mjs";
 
 const isMachine = (profile) => profile?.transport === "machine";
 
@@ -85,9 +84,6 @@ export class MultiServerClient {
     entry.pending = Promise.resolve().then(async () => {
       try {
         if (entry.profile.enabled === false) throw Object.assign(new Error("Turned off"), { code: "machine_off" });
-        // A machine gets its client once its connection has been made.
-        entry.client ??= this.clientFor(entry.profile);
-        if (!entry.client) throw machineOffline();
         entry.snapshot = await entry.client.snapshot();
         entry.available = true;
         entry.status = "Connected";
@@ -185,7 +181,6 @@ export class MultiServerClient {
 
   async invoke(method, targetId, args, mutation = false) {
     const { entry, id } = this.target(targetId);
-    if (!entry.client) throw machineOffline();
     const result = await entry.client[method](id, ...args);
     if (mutation && entry.profile.id !== "local") {
       if (entry.pending) await entry.pending;
@@ -201,7 +196,6 @@ export class MultiServerClient {
     if (entry.profile.id !== "local" && !isMachine(entry.profile)) {
       throw new HerdrCommandError("Terminal attach is not available for this server yet", { code: "attach_unsupported" });
     }
-    if (!entry.client) throw machineOffline();
     return entry.client.terminalTarget(localId, timeoutMs);
   }
   sendText(id, text, options) { return this.invoke("sendText", id, [text, options]); }
@@ -213,8 +207,9 @@ export class MultiServerClient {
       if (!groups.has(entry)) groups.set(entry, []);
       groups.get(entry).push(id);
     }
-    // A machine still connecting has nothing to watch yet; the next list refresh asks again.
-    const results = await Promise.allSettled([...groups].filter(([entry]) => entry.client).map(([entry, ids]) =>
+    // A machine that is not connected has nothing to watch yet, and must not
+    // stop every other server's statuses; the next list refresh asks again.
+    const results = await Promise.allSettled([...groups].filter(([entry]) => entry.client.ready !== false).map(([entry, ids]) =>
       entry.client.watchStatuses(ids, event => onStatus({ ...event,
         pane_id: entry.profile.id === "local" ? event.pane_id : `${entry.profile.id}!${event.pane_id}` }), onError)));
     const stops = results.filter(result => result.status === "fulfilled").map(result => result.value);
