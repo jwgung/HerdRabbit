@@ -111,6 +111,41 @@ test("shows queued prompts, notices and compaction; drops a cancelled re-send; c
   ]);
 });
 
+test("a subagent's /clear leaves the conversation, its metadata and its history alone", async (context) => {
+  const clear = "<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>";
+  const entries = [
+    user("main question"),
+    answer("main answer", { message: { role: "assistant", model: "claude-opus-4", content: [{ type: "text", text: "main answer" }] } }),
+    user(clear, { isSidechain: true }),
+    user("follow-up"),
+  ];
+  assert.deepEqual(texts(parseClaudeTranscript(jsonl(entries))), ["main question", "main answer", "follow-up"]);
+  assert.equal(parseClaudeMetadata(jsonl(entries)).model, "claude-opus-4");
+
+  forgetConversationState();
+  const directory = await temp(context);
+  const path = join(directory, `${SESSION}.jsonl`);
+  await writeFile(path, jsonl([...Array.from({ length: 60 }, (_, n) => turn(n)).flat(), user(clear, { isSidechain: true })]));
+  const page = await transcriptPage(localTranscriptStore({ configDir: "/nonexistent" }), path);
+  assert.notEqual(page.cursor, null, "older history is still offered");
+});
+
+test("two stores keep their own revisions, even for the same path", async (context) => {
+  forgetConversationState();
+  const directory = await temp(context);
+  const path = join(directory, `${SESSION}.jsonl`);
+  const first = localTranscriptStore({ configDir: "/nonexistent" });
+  const second = localTranscriptStore({ configDir: "/nonexistent" });
+  await writeFile(path, jsonl(Array.from({ length: 60 }, (_, n) => turn(n)).flat()));
+  const page = await transcriptPage(first, path);
+  await writeFile(path, jsonl(Array.from({ length: 55 }, (_, n) => turn(n)).flat()));
+  await assert.rejects(transcriptPage(first, path, { before: page.cursor }), HistoryChanged);
+  // the second store never saw the longer file, so the first one's rewrite is not its history
+  const fresh = await transcriptPage(second, path);
+  assert.equal(fresh.history_id, page.history_id);
+  assert.notEqual((await transcriptPage(first, path)).history_id, page.history_id);
+});
+
 test("reads the model and the context the last request filled", () => {
   const metadata = parseClaudeMetadata(jsonl([
     { type: "assistant", effort: "high", message: { role: "assistant", model: "claude-opus-5-5", usage: { input_tokens: 10, cache_read_input_tokens: 250_000 }, content: [] } },

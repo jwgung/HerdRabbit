@@ -314,6 +314,8 @@ export function parseClaudeTurns(text) {
       continue; // a torn tail line while Claude is mid-append, or any malformed line
     }
     if (entry === null || typeof entry !== "object" || Array.isArray(entry) || entry.isMeta) continue;
+    // a subagent's own records are not this conversation's turns, its /clear included
+    if (entry.isSidechain === true) continue;
     if (isContextClear(entry)) {
       turns.length = 0;
       pending.clear();
@@ -322,8 +324,6 @@ export function parseClaudeTurns(text) {
       cleared = true;
       continue;
     }
-    // a subagent's own records are not this conversation's turns
-    if (entry.isSidechain === true) continue;
     const ts = typeof entry.timestamp === "string" ? entry.timestamp : null;
     const content = record(entry.message).content;
 
@@ -462,6 +462,7 @@ export function parseClaudeMetadata(text) {
     if (!line.includes('"assistant"') && !line.includes("/clear")) continue;
     let entry;
     try { entry = record(JSON.parse(line)); } catch { continue; }
+    if (entry.isSidechain === true && entry.type !== "assistant") continue;
     if (isContextClear(entry)) {
       metadata.model = null;
       metadata.reasoning_effort = null;
@@ -554,7 +555,17 @@ async function pageBefore(store, path, to, { floor, widen, windowBytes, maxPageB
 // into its old bytes are refused. Each file's last bytes are remembered as a
 // short fingerprint; a file that grew is trusted as an append only while the
 // bytes just before its old end still hash the same.
-const revisions = new Map();
+// Revisions and answers are kept per store object: two stores never share
+// them, and a store dropped (a machine's client replaced) takes them along.
+let states = new WeakMap();
+function stateOf(store) {
+  let state = states.get(store);
+  if (!state) {
+    state = { revisions: new Map(), answers: new Map() };
+    states.set(store, state);
+  }
+  return state;
+}
 const TAIL_BYTES = 256;
 function remember(map, key, value, limit) {
   map.delete(key);
@@ -567,7 +578,8 @@ function fingerprint(bytes) {
 }
 
 export async function transcriptId(store, path, stat) {
-  const key = `${store.key}\0${path}`;
+  const { revisions } = stateOf(store);
+  const key = path;
   const previous = revisions.get(key);
   const sameFile = previous && previous.identity === stat.identity;
   const unchanged = sameFile && stat.size === previous.size && stat.mtimeMs === previous.mtimeMs;
@@ -614,8 +626,6 @@ export function versionMatches(ifNoneMatch, version) {
   return Array.isArray(ifNoneMatch) ? ifNoneMatch.includes("*") || ifNoneMatch.includes(version) : ifNoneMatch === version;
 }
 
-const answers = new Map();
-
 // One page of a transcript.
 // - no cursor: the newest page;
 // - `since` alone: every turn from that cursor while it is still inside the
@@ -627,6 +637,7 @@ export async function transcriptPage(store, path, { before, since, ifNoneMatch }
   const stat = await store.stat(path);
   if (!stat) throw new ConversationUnavailable("transcript_missing");
   const id = await transcriptId(store, path, stat);
+  const { answers } = stateOf(store);
   const key = `${store.key}\0${path}\0${before ?? ""}\0${since ?? ""}`;
   // an older page never changes while its file stays the same; the newest changes with every append
   const signature = before !== undefined ? id : `${id}:${stat.size}:${stat.mtimeMs}`;
@@ -742,6 +753,5 @@ function outputInLine(line, needle, toolId) {
 
 // Tests compare cold reads.
 export function forgetConversationState() {
-  revisions.clear();
-  answers.clear();
+  states = new WeakMap();
 }
