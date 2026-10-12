@@ -352,7 +352,7 @@ A linked machine answers for its own files using the same browser it would use f
 
 On iOS, a browser in standalone PWA mode may open a downloaded file instead of saving it. Use the share sheet to store it.
 
-A file an agent names in its output is a link to itself. "wrote `src/api.mjs`", "see `./docs/plan.md`" -- the path opens in the viewer, resolved against the pane's own directory when it is relative. Only paths naming something this app can show become links, which is what keeps `/usr/bin` and `node_modules/` plain; `~` is left alone, because that home belongs to the machine the pane runs on.
+A file an agent names in its output is a link to itself. "wrote `src/api.mjs`", "see `./docs/plan.md`" -- the path opens in the viewer, resolved against the pane's own directory when it is relative. Only paths naming something this app can show become links, which is what keeps `/usr/bin` and `node_modules/` plain; `~` is left alone, because that home belongs to the machine the pane runs on. In the live terminal, these paths and web addresses are underlined all the time, so they can be seen and tapped on a phone, and an address the output wrapped onto the next line is still one link.
 
 A file can be opened instead of downloaded. Images, video and audio play in place, Markdown and HTML are drawn, and text, code, logs and config are shown as characters. Reading a log on a phone should not mean saving it first.
 
