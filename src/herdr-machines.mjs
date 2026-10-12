@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { HttpError } from "./http-basics.mjs";
+import { MachineFiles, shellQuote } from "./machine-files.mjs";
 
 const execFileAsync = promisify(execFile);
 const MACHINE_ID_PATTERN = /^[0-9a-f]{32}$/u;
@@ -64,10 +65,6 @@ export function socketFromStatus(output) {
 // Herdr names the attach socket after the API socket: herdr.sock beside herdr-client.sock.
 export function clientSocketFor(socketPath) {
   return socketPath.replace(/(\.sock)?$/u, "-client.sock");
-}
-
-function shellQuote(value) {
-  return `'${String(value).replaceAll("'", "'\\''")}'`;
 }
 
 // What SSH said, in the words a person acts on; never the raw output (it can
@@ -305,10 +302,11 @@ export async function machineSocketDirectory(environment = process.env, pid = pr
 // is connected: the local Herdr client, pointed at the machine's forwarded
 // socket, once the connection is up; until then every call is refused alike.
 export class MachineClient {
-  constructor({ machines, machineId, createBridge }) {
+  constructor({ machines, machineId, createBridge, createFiles = (options) => new MachineFiles(options) }) {
     this.machines = machines;
     this.machineId = machineId;
     this.createBridge = createBridge;
+    this.createFiles = createFiles;
     this.bridges = new WeakMap();
   }
 
@@ -317,7 +315,8 @@ export class MachineClient {
   // Whether a call would go through now.
   get ready() { return this.link?.state === "ready"; }
 
-  #ready() {
+  // The connection, once it is up; refused the same way as every other call until then.
+  readyLink() {
     const link = this.link;
     if (!link) {
       const machine = this.machines.machines.find((item) => item.id === this.machineId);
@@ -325,6 +324,18 @@ export class MachineClient {
       throw machine && !machine.enabled ? machineOffline("Turned off") : machineOffline(undefined, Boolean(machine));
     }
     if (link.state !== "ready") throw machineOffline(link.error ?? undefined, link.state === "connecting");
+    return link;
+  }
+
+  // The machine's files, over the same SSH connection; nothing runs there but
+  // the fixed commands in machine-files.mjs.
+  files() {
+    this.fileClient ??= this.createFiles({ link: () => this.readyLink(), maxBytes: this.machines.maxTransferBytes });
+    return this.fileClient;
+  }
+
+  #ready() {
+    const link = this.readyLink();
     let bridge = this.bridges.get(link);
     if (!bridge) { bridge = this.createBridge(link); this.bridges.set(link, bridge); }
     return bridge;
@@ -349,8 +360,11 @@ export class MachineClient {
 // Every machine in Herdr's list; the enabled ones kept connected.
 export class HerdrMachines {
   constructor({ binary = "herdr", directory, createBridge, read = (options) => readMachines(options),
-    createLink = (machine, options) => new MachineLink(machine, options), run = execFileAsync, log = () => {}, refreshMs = 30_000 }) {
+    createLink = (machine, options) => new MachineLink(machine, options), run = execFileAsync, log = () => {}, refreshMs = 30_000,
+    maxTransferBytes = 50 * 1024 * 1024, createFiles = undefined }) {
     this.binary = binary;
+    this.createFiles = createFiles;
+    this.maxTransferBytes = maxTransferBytes;
     this.directory = directory;
     this.createBridge = createBridge;
     this.read = read;
@@ -469,7 +483,7 @@ export class HerdrMachines {
   client(profile) {
     let client = this.clients.get(profile.machineId);
     if (!client) {
-      client = new MachineClient({ machines: this, machineId: profile.machineId, createBridge: this.createBridge });
+      client = new MachineClient({ machines: this, machineId: profile.machineId, createBridge: this.createBridge, createFiles: this.createFiles });
       this.clients.set(profile.machineId, client);
     }
     return client;

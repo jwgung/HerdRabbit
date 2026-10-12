@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.16";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.16";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.17";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.17";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -50,8 +50,8 @@ import {
   aiRestartHint,
   isAiLoginWorkspace,
   paneKeepsInputHistory,
-} from "./ui-model.js?v=1.2.16";
-import { ansiToSegments } from "./ansi.js?v=1.2.16";
+} from "./ui-model.js?v=1.2.17";
+import { ansiToSegments } from "./ansi.js?v=1.2.17";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -62,45 +62,45 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.16";
-import { linkTerminalSegments } from "./terminal-links.js?v=1.2.16";
-import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.16";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.16";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.16";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.16";
+} from "./browse-preference.js?v=1.2.17";
+import { linkTerminalSegments } from "./terminal-links.js?v=1.2.17";
+import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.17";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.17";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.17";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.17";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.16";
+} from "./pane-preference.js?v=1.2.17";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.16";
+} from "./workspace-preference.js?v=1.2.17";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.16";
+} from "./terminal-preference.js?v=1.2.17";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.16";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.16";
+} from "./completion-preference.js?v=1.2.17";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.17";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.16";
+} from "./input-history-preference.js?v=1.2.17";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.16";
+} from "./launch-session.js?v=1.2.17";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.16";
+} from "./push-notifications.js?v=1.2.17";
 
 function browserStorage() {
   try {
@@ -4508,10 +4508,10 @@ async function ensureUploadsPath() {
 function refreshServerChoices() {
   const options = [
     { id: "local", name: "This machine" },
-    // Every linked server answers for its own files. A Herdr SSH machine has
-    // no file access yet.
+    // Every linked server answers for its own files, and a Herdr SSH machine
+    // through its SSH connection. One that is turned off has none to offer.
     ...array(state.snapshot?.servers)
-      .filter((server) => server.id !== "local" && server.transport !== "machine")
+      .filter((server) => server.id !== "local" && server.enabled !== false)
       .map((server) => ({ id: server.id, name: server.name || server.id })),
   ];
   elements.fileServer.replaceChildren();

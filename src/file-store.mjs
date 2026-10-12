@@ -10,7 +10,7 @@ import { InputValidationError } from "./herdr-client.mjs";
 // the full 255 so a file copied in from a terminal still lists and downloads.
 const MAX_NAME_BYTES = 200;
 const MAX_STORED_NAME_BYTES = 255;
-const TEMPORARY_PREFIX = ".part-";
+export const TEMPORARY_PREFIX = ".part-";
 const FALLBACK_NAME = "file";
 const MAX_NAME_ATTEMPTS = 100;
 // Separators, shell metacharacters, and whitespace only. Everything else is
@@ -73,7 +73,7 @@ export function validateTransferName(raw) {
   return decoded;
 }
 
-function splitExtension(name) {
+export function splitExtension(name) {
   const dot = name.lastIndexOf(".");
   if (dot <= 0) return { stem: name, extension: "" };
   return { stem: name.slice(0, dot), extension: name.slice(dot) };
