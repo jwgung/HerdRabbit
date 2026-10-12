@@ -10,15 +10,15 @@ import {
   MAX_PANE_READ_LINES,
   validation,
 } from "./herdr-client.mjs";
-import { PasswordAttempts, PasswordAuth } from "./password-auth.mjs";
-import { PasskeyError, passkeyLabel } from "./passkey-auth.mjs";
+import { PasswordAttemptsByKey, PasswordAuth } from "./password-auth.mjs";
+import { PasskeyError, browserLabel, passkeyLabel } from "./passkey-auth.mjs";
 import { OutputRevisions } from "./output-revisions.mjs";
 import { attachTerminalWebSocket } from "./terminal-websocket.mjs";
 import { HttpError, acceptUpload, aiAccountRoute, decodePaneId, readJsonBody, sendJson } from "./http-basics.mjs";
 import { AiAccountError } from "./ai-accounts.mjs";
 import {
   PEER_ADDRESS_HEADER, PEER_LOGIN_HEADER, PeerRejected,
-  isLoopbackSocket, nearestForwardedAddress, normalizeLogin,
+  isLoopbackSocket, nearestForwardedAddress, normalizeLogin, socketAddress,
 } from "./peer-identity.mjs";
 import { terminalOutputWatcher } from "./terminal-output-watch.mjs";
 import { PushValidationError } from "./web-push-service.mjs";
@@ -191,9 +191,24 @@ function requestOrigin(request) {
   return `${protocol}://${request.headers.host}`;
 }
 
+// Who is guessing, in terms the guesser cannot pick. Behind Tailscale Serve
+// (a loopback socket) that is the login or the nearest forwarded address Serve
+// stamps on; on any other socket it is the socket's own address.
+export function attemptKey(request) {
+  if (!isLoopbackSocket(request)) return `address:${socketAddress(request) ?? "unknown"}`;
+  const login = normalizeLogin(request.headers[PEER_LOGIN_HEADER]);
+  if (login) return `login:${login}`;
+  const forwarded = nearestForwardedAddress(request.headers[PEER_ADDRESS_HEADER]);
+  return forwarded ? `address:${forwarded}` : "loopback";
+}
+
+function isSecureRequest(request) {
+  return request.socket.encrypted === true || forwardedProtocol(request) === "https";
+}
+
 function sendAuthenticatedSession(response, request, auth, extra = {}) {
-  const secure = request.socket.encrypted === true || forwardedProtocol(request) === "https";
-  const cookieSession = auth.createSession();
+  const secure = isSecureRequest(request);
+  const cookieSession = auth.createSession({ agent: browserLabel(request.headers["user-agent"]) });
   const launchToken = auth.createLaunchToken();
   response.setHeader("Set-Cookie", auth.sessionCookie(cookieSession, { secure }));
   sendJson(response, 200, {
@@ -514,8 +529,8 @@ export function createHerdrHttpServer({
   maxBodyBytes = 16 * 1024,
   maxTransferBytes = 50 * 1024 * 1024,
   logger = console,
-  passwordAttempts = new PasswordAttempts(),
-  recheckAttempts = new PasswordAttempts(),
+  passwordAttempts = new PasswordAttemptsByKey(),
+  recheckAttempts = new PasswordAttemptsByKey(),
   now = () => Date.now(),
 } = {}) {
   if (!herdr) {
@@ -527,12 +542,13 @@ export function createHerdrHttpServer({
   // Sign-in and the recheck count apart, so wrong guesses at the sign-in screen
   // cannot keep a signed-in owner from removing a lost device's passkey.
   let checkingPassword = false;
-  async function checkPassword(response, password, attempts = passwordAttempts) {
+  async function checkPassword(request, response, password, attempts = passwordAttempts) {
+    const key = attemptKey(request);
     if (checkingPassword) {
       response.setHeader("Retry-After", "1");
       throw new HttpError(429, "too_many_attempts", "Another password is being checked. Try again in a moment.");
     }
-    const waitMs = attempts.retryAfterMs();
+    const waitMs = attempts.retryAfterMs(key);
     if (waitMs > 0) {
       const seconds = Math.ceil(waitMs / 1_000);
       response.setHeader("Retry-After", String(seconds));
@@ -541,10 +557,10 @@ export function createHerdrHttpServer({
     checkingPassword = true;
     try {
       if (!(await auth.verifyPassword(password))) {
-        attempts.failed();
+        attempts.failed(key);
         throw new HttpError(401, "invalid_password", "The password is incorrect.");
       }
-      attempts.succeeded();
+      attempts.succeeded(key);
     } finally {
       checkingPassword = false;
     }
@@ -574,7 +590,7 @@ export function createHerdrHttpServer({
       freshLogins.delete(launchToken);
       return;
     }
-    await checkPassword(response, password, recheckAttempts);
+    await checkPassword(request, response, password, recheckAttempts);
   }
 
   const normalizedAllowedHosts = new Set(
@@ -660,7 +676,7 @@ export function createHerdrHttpServer({
           sendJson(response, 200, { ok: true, required: false });
           return;
         }
-        await checkPassword(response, body.password);
+        await checkPassword(request, response, body.password);
         rememberFreshLogin(sendAuthenticatedSession(response, request, auth, {
           passkeyAvailable: passkeys?.hasCredentials === true,
         }));
@@ -936,6 +952,45 @@ export function createHerdrHttpServer({
           throw new HttpError(404, "ticket_expired", "This download link has expired.");
         }
         throw new HttpError(405, "method_not_allowed", "Method not allowed");
+      }
+
+      // Sign-ins, listed by browser and date. Ending one needs no password:
+      // it only ever takes access away.
+      if (method === "GET" && url.pathname === "/api/auth/sessions") {
+        const current = auth.currentSessionId(request.headers.cookie);
+        sendJson(response, 200, {
+          sessions: auth.sessionSummaries().map((session) => ({ ...session, current: session.id === current })),
+        });
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/api/auth/sessions/end") {
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, maxBodyBytes);
+        if (!(await auth.endSession(body.id))) {
+          throw new HttpError(404, "session_not_found", "This sign-in has already ended.");
+        }
+        sendJson(response, 200, { ok: true });
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/api/auth/sessions/end-all") {
+        requireWriteAuthorization(request, csrfToken);
+        await readJsonBody(request, maxBodyBytes);
+        await auth.endAllSessions();
+        response.setHeader("Set-Cookie", auth.clearSessionCookie({ secure: isSecureRequest(request) }));
+        sendJson(response, 200, { ok: true });
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/api/auth/logout") {
+        requireWriteAuthorization(request, csrfToken);
+        await readJsonBody(request, maxBodyBytes);
+        const current = auth.currentSessionId(request.headers.cookie);
+        if (current) await auth.endSession(current);
+        response.setHeader("Set-Cookie", auth.clearSessionCookie({ secure: isSecureRequest(request) }));
+        sendJson(response, 200, { ok: true });
+        return;
       }
 
       if (method === "GET" && url.pathname === "/api/auth/passkeys") {
@@ -1242,6 +1297,7 @@ export function createHerdrHttpServer({
   const outputWatcher = terminalOutputWatcher({ herdr, outputWindow, outputReadLines });
   attachTerminalWebSocket({
     server,
+    onSessionsEnded: (listener) => auth.onSessionsEnded?.(listener) ?? (() => {}),
     authorizeUpgrade(request) {
       // The upgrade path never reaches the request handler, so the peer gate
       // has to be repeated here or it is simply absent for sockets.

@@ -356,6 +356,7 @@ const state = {
   authRequired: false,
   passkeyAvailable: false,
   passkeyBusy: false,
+  sessionsBusy: false,
   passkeyAutoStarted: false,
 };
 
@@ -1494,6 +1495,92 @@ function showServerDetails(server) {
   serverDetailsDialog.showModal();
 }
 
+// Signed-in devices. Each is named by its browser and dates; the list never
+// carries a token. Signing out needs no password: it only takes access away.
+const sessionsDialog = document.querySelector("#sessions-dialog");
+const sessionsList = document.querySelector("#sessions-list");
+const sessionsFeedback = document.querySelector("#sessions-feedback");
+document.querySelector("#sessions-close").addEventListener("click", () => sessionsDialog.close());
+document.querySelector("#sessions-end-all").addEventListener("click", () => {
+  if (!window.confirm("Sign out every browser, this one included?")) return;
+  void sessionsAction(async () => {
+    await api("/api/auth/sessions/end-all", { method: "POST", body: {} });
+    sessionsDialog.close();
+    signedOut();
+  });
+});
+
+function setSessionsFeedback(text, isError = false) {
+  sessionsFeedback.textContent = text;
+  sessionsFeedback.dataset.error = String(isError);
+}
+
+async function sessionsAction(work) {
+  if (state.sessionsBusy) return;
+  state.sessionsBusy = true;
+  const controls = sessionsDialog.querySelectorAll("button");
+  controls.forEach((control) => { control.disabled = true; });
+  try {
+    await work();
+  } catch (error) {
+    if (error.code !== "authentication_required") setSessionsFeedback(error.message, true);
+  } finally {
+    state.sessionsBusy = false;
+    controls.forEach((control) => { control.disabled = false; });
+  }
+}
+
+function sessionRow(session) {
+  const row = createElement("li", { className: "passkey-row" });
+  const identity = createElement("div", { className: "passkey-identity" });
+  identity.append(createElement("strong", { text: session.current ? `${session.agent} (this device)` : session.agent }));
+  identity.append(createElement("small", {
+    text: `Signed in ${passkeyDate(session.createdAt * 1000)} · last used ${passkeyDate(session.lastUsedAt * 1000)}`,
+  }));
+  const end = createElement("button", { className: "secondary-button passkey-remove", text: "Sign out" });
+  end.type = "button";
+  end.addEventListener("click", () => void sessionsAction(async () => {
+    if (session.current) {
+      await api("/api/auth/logout", { method: "POST", body: {} });
+      sessionsDialog.close();
+      signedOut();
+      return;
+    }
+    await api("/api/auth/sessions/end", { method: "POST", body: { id: session.id } });
+    setSessionsFeedback(`Signed out ${session.agent}.`);
+    await loadSessions();
+  }));
+  row.append(identity, end);
+  return row;
+}
+
+async function loadSessions() {
+  const { sessions } = await api("/api/auth/sessions");
+  const items = array(sessions);
+  sessionsList.replaceChildren(...(items.length > 0
+    ? items.map(sessionRow)
+    : [createElement("li", { className: "passkey-empty", text: "Only sign-ins made since this list started are shown." })]));
+}
+
+async function showSessions() {
+  setSessionsFeedback("");
+  sessionsList.replaceChildren();
+  sessionsDialog.showModal();
+  await sessionsAction(loadSessions);
+}
+
+// Even when the server cannot be told, this window forgets its launch token,
+// so it is signed out here either way.
+async function signOut() {
+  await api("/api/auth/logout", { method: "POST", body: {} }).catch(() => {});
+  signedOut();
+}
+
+function signedOut() {
+  state.launchToken = clearLaunchToken(launchSessionStorage);
+  showLogin();
+}
+
 // Passkeys. The server lists each one by name, dates and a handle; credential
 // IDs and public keys never leave it.
 const passkeysDialog = document.querySelector("#passkeys-dialog");
@@ -2002,6 +2089,14 @@ function serverActionMenu(server) {
       label: "Passkeys",
       paths: ["M8 15a4 4 0 1 1 3.9-5H21v3h-2v2h-3v-2h-4.1A4 4 0 0 1 8 15Z", "M8 11h.01"],
       onSelect: () => void showPasskeys(),
+    }, {
+      label: "Signed-in devices",
+      paths: ["M4 5h16v10H4z", "M8 19h8", "M12 15v4"],
+      onSelect: () => void showSessions(),
+    }, {
+      label: "Sign out",
+      paths: ["M15 12H4", "M8 8l-4 4 4 4", "M12 4h7v16h-7"],
+      onSelect: () => void signOut(),
     });
   }
   // This machine is not a connection: there is nothing to rename or drop.

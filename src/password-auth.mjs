@@ -16,6 +16,11 @@ const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const AUTH_VERSION = 1;
 const PASSKEY_DEVICE_TYPES = new Set(["singleDevice", "multiDevice"]);
 const PASSKEY_HANDLE_PATTERN = /^[A-Za-z0-9_-]{22}$/u;
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/u;
+const MAX_SESSIONS = 64;
+// A sign-in is used constantly; writing that down every time would rewrite the
+// auth file on each request. Within this long it is still "just now".
+const LAST_USED_RESOLUTION_MS = 10 * 60_000;
 const SCRYPT_OPTIONS = Object.freeze({
   N: 16_384,
   r: 8,
@@ -85,6 +90,28 @@ export function passkeyHandle(id) {
   return createHash("sha256").update(id).digest().subarray(0, 16).toString("base64url");
 }
 
+function isSessionAgent(value) {
+  return typeof value === "string" && value.length <= 80 && !/[\p{Cc}\p{Cf}]/u.test(value);
+}
+
+function validateStoredSession(value) {
+  if (
+    !value ||
+    typeof value.id !== "string" || !SESSION_ID_PATTERN.test(value.id) ||
+    !isTimestamp(value.createdAt) || !isTimestamp(value.expiresAt) ||
+    !isTimestamp(value.lastUsedAt) || !isSessionAgent(value.agent)
+  ) {
+    throw new Error("HerdRabbit session configuration is invalid");
+  }
+  return { id: value.id, createdAt: value.createdAt, expiresAt: value.expiresAt, lastUsedAt: value.lastUsedAt, agent: value.agent };
+}
+
+// A session is named by a hash of its nonce, so the list can be shown and
+// matched without keeping anything that would sign a request.
+export function sessionId(nonce) {
+  return createHash("sha256").update(nonce).digest().subarray(0, 16).toString("base64url");
+}
+
 function validateStoredConfiguration(value) {
   if (
     !value ||
@@ -93,9 +120,14 @@ function validateStoredConfiguration(value) {
     typeof value.password.salt !== "string" ||
     typeof value.password.hash !== "string" ||
     typeof value.sessionSecret !== "string" ||
-    (value.sessionEpoch !== undefined && !isTimestamp(value.sessionEpoch))
+    (value.sessionEpoch !== undefined && !isTimestamp(value.sessionEpoch)) ||
+    (value.sessionsSince !== undefined && !isTimestamp(value.sessionsSince))
   ) {
     throw new Error("HerdRabbit authentication configuration is invalid");
+  }
+  const sessions = value.sessions === undefined ? [] : value.sessions;
+  if (!Array.isArray(sessions) || sessions.length > MAX_SESSIONS) {
+    throw new Error("HerdRabbit session configuration is invalid");
   }
   const passkeys = value.passkeys === undefined ? [] : value.passkeys;
   if (!Array.isArray(passkeys) || passkeys.length > 32) {
@@ -111,6 +143,8 @@ function validateStoredConfiguration(value) {
     sessionSecret: value.sessionSecret,
     ...(value.sessionEpoch ? { sessionEpoch: value.sessionEpoch } : {}),
     passkeys: normalizedPasskeys,
+    ...(value.sessionsSince === undefined ? {} : { sessionsSince: value.sessionsSince }),
+    sessions: sessions.map(validateStoredSession),
   };
 }
 
@@ -222,6 +256,47 @@ export class PasswordAttempts {
   }
 }
 
+// Wrong passwords counted per caller, so guesses from one device cannot lock the
+// owner out on another. The key is whatever the caller cannot choose: the
+// Tailscale login or nearest forwarded address Serve stamps on, or the socket
+// address. A loose instance-wide count still bounds guessing from many keys.
+export class PasswordAttemptsByKey {
+  constructor({ now = () => Date.now(), free = 5, maxLockMs = 15 * 60_000, overallFree = 50, maxKeys = 256 } = {}) {
+    this.options = { now, free, maxLockMs };
+    this.maxKeys = maxKeys;
+    this.byKey = new Map();
+    this.overall = new PasswordAttempts({ now, free: overallFree, maxLockMs });
+  }
+
+  #attempts(key) {
+    let attempts = this.byKey.get(key);
+    if (!attempts) {
+      if (this.byKey.size >= this.maxKeys) {
+        // Forget whichever key is no longer locked, else the oldest.
+        const idle = [...this.byKey].find(([, value]) => value.retryAfterMs() === 0)?.[0];
+        this.byKey.delete(idle ?? this.byKey.keys().next().value);
+      }
+      attempts = new PasswordAttempts(this.options);
+      this.byKey.set(key, attempts);
+    }
+    return attempts;
+  }
+
+  retryAfterMs(key) {
+    return Math.max(this.overall.retryAfterMs(), this.byKey.get(key)?.retryAfterMs() ?? 0);
+  }
+
+  failed(key) {
+    this.#attempts(key).failed();
+    this.overall.failed();
+  }
+
+  succeeded(key) {
+    this.byKey.delete(key);
+    this.overall.succeeded();
+  }
+}
+
 export class PasswordAuth {
   constructor(configuration = null, {
     now = () => Date.now(),
@@ -233,6 +308,18 @@ export class PasswordAuth {
     this.now = now;
     this.authFile = authFile;
     this.writeQueue = Promise.resolve();
+    this.sessionListeners = new Set();
+  }
+
+  // Called with nothing whenever sessions end, so open connections can check
+  // their own again instead of waiting for their next message.
+  onSessionsEnded(listener) {
+    this.sessionListeners.add(listener);
+    return () => this.sessionListeners.delete(listener);
+  }
+
+  #sessionsEnded() {
+    for (const listener of this.sessionListeners) listener();
   }
 
   get required() {
@@ -308,8 +395,9 @@ export class PasswordAuth {
       const passkeys = configuration.passkeys.filter(({ id }) => passkeyHandle(id) !== handle);
       removed = passkeys.length < configuration.passkeys.length;
       if (!removed) return configuration;
-      return { ...configuration, passkeys, sessionEpoch: (configuration.sessionEpoch ?? 0) + 1 };
+      return { ...configuration, passkeys, sessionEpoch: (configuration.sessionEpoch ?? 0) + 1, sessions: [] };
     });
+    if (removed) this.#sessionsEnded();
     return removed;
   }
 
@@ -332,6 +420,57 @@ export class PasswordAuth {
       return found ? { ...configuration, passkeys } : configuration;
     });
     return found;
+  }
+
+  // Newest first; the caller marks which one it is itself.
+  sessionSummaries() {
+    if (!this.required) return [];
+    const now = Math.floor(this.now() / 1000);
+    return this.configuration.sessions
+      .filter((session) => session.expiresAt > now)
+      .map((session) => ({ ...session }))
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  currentSessionId(cookieHeader) {
+    const token = cookieValue(cookieHeader, "herdr_session");
+    return this.#tokenSession(token, "cookie")?.id ?? null;
+  }
+
+  // False when no session has that id, including one ended a moment ago.
+  async endSession(id) {
+    if (!this.required || typeof id !== "string" || !SESSION_ID_PATTERN.test(id)) return false;
+    if (!this.configuration.sessions.some((session) => session.id === id)) return false;
+    const ending = this.#changeSessions((sessions) => sessions.filter((session) => session.id !== id));
+    this.#sessionsEnded();
+    await ending;
+    return true;
+  }
+
+  // Every session, including ones signed before sessions were listed.
+  async endAllSessions() {
+    if (!this.required) return;
+    const ending = this.#replaceConfiguration({
+      ...this.configuration, sessionEpoch: (this.configuration.sessionEpoch ?? 0) + 1, sessions: [],
+    });
+    this.#sessionsEnded();
+    await ending;
+  }
+
+  #changeSessions(change) {
+    return this.#replaceConfiguration({
+      ...this.configuration,
+      sessionsSince: this.configuration.sessionsSince ?? Math.floor(this.now() / 1000),
+      sessions: change(this.configuration.sessions),
+    });
+  }
+
+  // Sessions change in memory at once, so the very next request sees them;
+  // the file catches up behind. Without an auth file (tests, a password passed
+  // in memory) they are just not kept across a restart.
+  #replaceConfiguration(next) {
+    this.configuration = validateStoredConfiguration(next);
+    return this.authFile ? this.#updateConfiguration((configuration) => configuration) : Promise.resolve();
   }
 
   async #updateConfiguration(update) {
@@ -359,8 +498,23 @@ export class PasswordAuth {
     return safeEquals(expected, candidate);
   }
 
-  createSession() {
-    return this.#createToken("cookie");
+  // The session is listed at once, so the request that follows can rely on
+  // it; writing it down finishes behind.
+  createSession({ agent = "Unknown browser" } = {}) {
+    const token = this.#createToken("cookie");
+    if (!token) return null;
+    const [nonce, rawExpiry] = token.split(".");
+    const now = Math.floor(this.now() / 1000);
+    const session = {
+      id: sessionId(nonce), createdAt: now, expiresAt: Number(rawExpiry), lastUsedAt: now,
+      agent: isSessionAgent(agent) && agent ? agent : "Unknown browser",
+    };
+    const write = this.#changeSessions((sessions) => [
+      session,
+      ...sessions.filter((item) => item.expiresAt > now),
+    ].slice(0, MAX_SESSIONS));
+    write.catch(() => {});
+    return token;
   }
 
   createLaunchToken() {
@@ -378,7 +532,33 @@ export class PasswordAuth {
   hasValidSession(cookieHeader) {
     if (!this.required) return true;
     const token = cookieValue(cookieHeader, "herdr_session");
-    return this.#hasValidToken(token, "cookie");
+    const session = this.#tokenSession(token, "cookie");
+    if (!session) return false;
+    if (session.legacy) return true;
+    const listed = this.configuration.sessions.find((item) => item.id === session.id);
+    if (!listed) return false;
+    this.#touch(listed);
+    return true;
+  }
+
+  #touch(session) {
+    const now = Math.floor(this.now() / 1000);
+    if ((now - session.lastUsedAt) * 1000 < LAST_USED_RESOLUTION_MS) return;
+    session.lastUsedAt = now;
+    this.#changeSessions((sessions) => sessions.map((item) => (
+      item.id === session.id ? { ...item, lastUsedAt: Math.max(item.lastUsedAt, now) } : item
+    ))).catch(() => {});
+  }
+
+  // A signed, unexpired token, and the session it names. Tokens made before
+  // sessions were listed stay valid until they expire, so an upgrade signs no
+  // one out; one made since must still be on the list.
+  #tokenSession(token, purpose) {
+    if (!this.#hasValidToken(token, purpose)) return null;
+    const [nonce, rawExpiry] = token.split(".");
+    const createdAt = Number(rawExpiry) - SESSION_TTL_SECONDS;
+    const since = this.configuration.sessionsSince;
+    return { id: sessionId(nonce), legacy: since === undefined || createdAt < since };
   }
 
   hasValidLaunchToken(token) {
@@ -405,6 +585,10 @@ export class PasswordAuth {
     return createHmac("sha256", this.configuration.sessionSecret)
       .update(epoch === 0 ? `${purpose}.${payload}` : `${purpose}.${epoch}.${payload}`)
       .digest("base64url");
+  }
+
+  clearSessionCookie({ secure = false } = {}) {
+    return ["herdr_session=", "Path=/", "HttpOnly", "SameSite=Strict", "Max-Age=0", ...(secure ? ["Secure"] : [])].join("; ");
   }
 
   sessionCookie(token, { secure = false } = {}) {

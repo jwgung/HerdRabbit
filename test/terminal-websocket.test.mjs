@@ -7,6 +7,7 @@ import { createHerdrHttpServer } from "../src/http-server.mjs";
 async function fixture(context, overrides = {}) {
   let output = "prompt";
   let authenticated = true;
+  const endedListeners = new Set();
   const writes = [];
   const requests = [];
   let inFlight = 0;
@@ -22,7 +23,8 @@ async function fixture(context, overrides = {}) {
   const app = createHerdrHttpServer({
     csrfToken: "csrf",
     auth: { required: true, hasValidSession: cookie => authenticated && cookie === "session=valid",
-      hasValidLaunchToken: token => authenticated && token === "launch" },
+      hasValidLaunchToken: token => authenticated && token === "launch",
+      onSessionsEnded: listener => { endedListeners.add(listener); return () => endedListeners.delete(listener); } },
     herdr: { async readPane() { return output; }, async sendText(paneId, text, options) { await record({ paneId, text, ...options }); },
       async sendKeys(paneId, keys) { await record({ paneId, keys }); }, ...overrides },
     notificationMonitor: { recordRequest(...args) { requests.push(args); } },
@@ -56,7 +58,8 @@ async function fixture(context, overrides = {}) {
     ws.send(JSON.stringify(auth));
     return { ws, messages, wait, send: message => ws.send(JSON.stringify(message)) };
   }
-  return { connect, writes, requests, origin, max: () => maximum, expire: () => { authenticated = false; } };
+  return { connect, writes, requests, origin, max: () => maximum, expire: () => { authenticated = false; },
+    endSessions: () => { authenticated = false; for (const listener of endedListeners) listener(); } };
 }
 
 test("WebSocket streams a baseline and deltas, preserving input order without client ACK waits", async context => {
@@ -100,6 +103,16 @@ test("WebSocket revalidates login before accepting input", async context => {
   client.send({ type: "input", id: 1, paneId: "w1:p1", text: "must not write" });
   await once(client.ws, "close");
   assert.equal(app.writes.length, 0);
+});
+
+test("an ended sign-in closes its terminal socket at once, without waiting for a message", async context => {
+  const app = await fixture(context);
+  const client = await app.connect();
+  await client.wait(message => message.type === "ready");
+  const closed = once(client.ws, "close");
+  app.endSessions();
+  const [code] = await closed;
+  assert.equal(code, 4001);
 });
 
 test("a failed terminal write discards the queued Enter and never replays it", async context => {

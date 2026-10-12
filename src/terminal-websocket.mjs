@@ -2,8 +2,11 @@ import { WebSocketServer } from "ws";
 
 // Authentication stays with the HTTP server. No launch token is put in a URL.
 export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMessage,
-  sendInput, watchOutput, watchStatuses, onRequest = () => {} }) {
+  sendInput, watchOutput, watchStatuses, onRequest = () => {}, onSessionsEnded = () => () => {} }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
+  // An ended sign-in closes its sockets now, not at their next heartbeat.
+  const rechecks = new Set();
+  const stopListening = onSessionsEnded(() => { for (const recheck of rechecks) recheck(); });
   server.on("upgrade", (request, socket, head) => {
     try {
       if (new URL(request.url, "http://localhost").pathname !== "/api/terminal") throw new Error("Unknown socket");
@@ -60,6 +63,8 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
         if (stopped) { writes.length = 0; pending = 0; }
       }
     }
+    const recheck = () => { if (credentials && !stopped) valid(); };
+    rechecks.add(recheck);
     const authTimeout = setTimeout(() => ws.close(4001, "Authentication required"), 5000);
     const heartbeat = setInterval(() => {
       if (!alive) { ws.terminate(); return; }
@@ -71,6 +76,7 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
     ws.on("pong", () => { alive = true; });
     ws.on("error", () => {});
     ws.on("close", () => {
+      rechecks.delete(recheck);
       stopped = true;
       generation++;
       statusGeneration++;
@@ -156,6 +162,7 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
   const close = server.close.bind(server);
   server.close = (...args) => {
     for (const ws of wss.clients) ws.terminate();
+    stopListening?.();
     wss.close();
     return close(...args);
   };

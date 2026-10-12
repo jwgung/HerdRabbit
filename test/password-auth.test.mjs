@@ -8,6 +8,7 @@ import {
   loadPasswordAuth,
   passkeyHandle,
   PasswordAttempts,
+  PasswordAttemptsByKey,
   PasswordAuth,
   SESSION_DURATION_SECONDS,
   writePasswordConfiguration,
@@ -184,6 +185,7 @@ test("removing a passkey signs out every session made before it", async () => {
   const after = auth.createSession();
   assert.equal(auth.hasValidSession(`herdr_session=${after}`), true);
   // The ending survives a restart.
+  await auth.writeQueue;
   const reloaded = await loadPasswordAuth(authFile);
   assert.equal(reloaded.hasValidSession(`herdr_session=${before}`), false);
   assert.equal(reloaded.hasValidSession(`herdr_session=${after}`), true);
@@ -207,4 +209,66 @@ test("a few wrong passwords are free, then each locks for twice as long", () => 
   attempts.succeeded();
   attempts.failed();
   assert.equal(attempts.retryAfterMs(), 0);
+});
+
+test("lists sign-ins, ends one, and keeps that across a restart", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-auth-"));
+  const authFile = join(directory, "auth.json");
+  await writePasswordConfiguration(authFile, "secret");
+  const auth = await loadPasswordAuth(authFile);
+  let ended = 0;
+  auth.onSessionsEnded(() => { ended += 1; });
+  const phone = auth.createSession({ agent: "Chrome · Android" });
+  const laptop = auth.createSession({ agent: "Firefox · Linux" });
+  assert.equal(auth.hasValidSession(`herdr_session=${phone}`), true, "listed at once");
+  assert.deepEqual(auth.sessionSummaries().map((item) => item.agent).sort(), ["Chrome · Android", "Firefox · Linux"]);
+  const phoneId = auth.currentSessionId(`herdr_session=${phone}`);
+  assert.equal(auth.sessionSummaries().some((item) => item.id === phoneId), true);
+
+  assert.equal(await auth.endSession(phoneId), true);
+  assert.equal(ended, 1);
+  assert.equal(auth.hasValidSession(`herdr_session=${phone}`), false);
+  assert.equal(auth.hasValidSession(`herdr_session=${laptop}`), true);
+  assert.equal(await auth.endSession(phoneId), false, "an ended session is gone");
+  await auth.writeQueue;
+  const reloaded = await loadPasswordAuth(authFile);
+  assert.equal(reloaded.hasValidSession(`herdr_session=${phone}`), false);
+  assert.equal(reloaded.hasValidSession(`herdr_session=${laptop}`), true);
+  assert.doesNotMatch(await readFile(authFile, "utf8"), new RegExp(laptop.split(".")[0]), "the file keeps no token");
+});
+
+test("a sign-in made before sessions were listed lasts until it expires; ending all ends it too", async () => {
+  let now = 1_000_000_000;
+  const configuration = await createPasswordConfiguration("secret");
+  const before = new PasswordAuth(configuration, { now: () => now }).createSession();
+  now += 60_000;
+  const auth = new PasswordAuth({ ...configuration, sessions: [] }, { now: () => now });
+  assert.equal(auth.hasValidSession(`herdr_session=${before}`), true);
+  const listed = auth.createSession();
+  assert.equal(auth.hasValidSession(`herdr_session=${before}`), true, "the upgrade signs no one out");
+  await auth.endAllSessions();
+  assert.equal(auth.hasValidSession(`herdr_session=${before}`), false);
+  assert.equal(auth.hasValidSession(`herdr_session=${listed}`), false);
+  assert.deepEqual(auth.sessionSummaries(), []);
+});
+
+test("an unlisted token signed after sessions were listed is refused", async () => {
+  const auth = new PasswordAuth(await createPasswordConfiguration("secret"));
+  const kept = auth.createSession();
+  const id = auth.currentSessionId(`herdr_session=${kept}`);
+  await auth.endSession(id);
+  assert.equal(auth.hasValidSession(`herdr_session=${kept}`), false);
+});
+
+test("wrong passwords lock only the caller that made them", () => {
+  let clock = 0;
+  const attempts = new PasswordAttemptsByKey({ now: () => clock, free: 1, maxLockMs: 4_000, overallFree: 3 });
+  attempts.failed("phone");
+  attempts.failed("phone");
+  assert.equal(attempts.retryAfterMs("phone"), 1_000);
+  assert.equal(attempts.retryAfterMs("laptop"), 0, "another device can still sign in");
+  attempts.succeeded("laptop");
+  assert.equal(attempts.retryAfterMs("phone"), 1_000, "someone else's success does not clear the phone");
+  for (const key of ["a", "b", "c", "d"]) attempts.failed(key);
+  assert.ok(attempts.retryAfterMs("laptop") > 0, "many keys together still hit the instance-wide limit");
 });

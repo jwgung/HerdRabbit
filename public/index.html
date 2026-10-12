@@ -368,6 +368,21 @@
       </div>
     </dialog>
 
+    <dialog id="sessions-dialog" class="app-dialog passkeys-dialog" aria-labelledby="sessions-title">
+      <div class="dialog-form">
+        <div class="dialog-heading">
+          <h2 id="sessions-title">Signed-in devices</h2>
+          <p>Browsers signed in to this HerdRabbit. Signing one out closes its open terminals at once.</p>
+        </div>
+        <ul id="sessions-list" class="passkey-rows"></ul>
+        <p id="sessions-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="sessions-close" class="secondary-button" type="button">Close</button>
+          <button id="sessions-end-all" class="secondary-button" type="button">Sign out everywhere</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="passkey-password-dialog" class="app-dialog" aria-labelledby="passkey-password-title">
       <form id="passkey-password-form" class="dialog-form">
         <div class="dialog-heading">
