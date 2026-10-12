@@ -987,8 +987,7 @@ export function createHerdrHttpServer({
       if (method === "POST" && url.pathname === "/api/auth/logout") {
         requireWriteAuthorization(request, csrfToken);
         await readJsonBody(request, maxBodyBytes);
-        const current = auth.currentSessionId(request.headers.cookie);
-        if (current) await auth.endSession(current);
+        await auth.endCurrentSession(request.headers.cookie);
         response.setHeader("Set-Cookie", auth.clearSessionCookie({ secure: isSecureRequest(request) }));
         sendJson(response, 200, { ok: true });
         return;

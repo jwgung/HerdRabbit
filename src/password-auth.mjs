@@ -18,6 +18,9 @@ const PASSKEY_DEVICE_TYPES = new Set(["singleDevice", "multiDevice"]);
 const PASSKEY_HANDLE_PATTERN = /^[A-Za-z0-9_-]{22}$/u;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/u;
 const MAX_SESSIONS = 64;
+// Cookies for listed sessions sign under this purpose; plain "cookie" ones were
+// signed before sessions were listed.
+const LISTED_COOKIE = "listed-cookie";
 // A sign-in is used constantly; writing that down every time would rewrite the
 // auth file on each request. Within this long it is still "just now".
 const LAST_USED_RESOLUTION_MS = 10 * 60_000;
@@ -120,13 +123,17 @@ function validateStoredConfiguration(value) {
     typeof value.password.salt !== "string" ||
     typeof value.password.hash !== "string" ||
     typeof value.sessionSecret !== "string" ||
-    (value.sessionEpoch !== undefined && !isTimestamp(value.sessionEpoch)) ||
-    (value.sessionsSince !== undefined && !isTimestamp(value.sessionsSince))
+    (value.sessionEpoch !== undefined && !isTimestamp(value.sessionEpoch))
   ) {
     throw new Error("HerdRabbit authentication configuration is invalid");
   }
   const sessions = value.sessions === undefined ? [] : value.sessions;
-  if (!Array.isArray(sessions) || sessions.length > MAX_SESSIONS) {
+  const endedUnlisted = value.endedUnlisted === undefined ? [] : value.endedUnlisted;
+  if (
+    !Array.isArray(sessions) || sessions.length > MAX_SESSIONS ||
+    !Array.isArray(endedUnlisted) || endedUnlisted.length > MAX_SESSIONS ||
+    !endedUnlisted.every((item) => typeof item?.id === "string" && SESSION_ID_PATTERN.test(item.id) && isTimestamp(item.expiresAt))
+  ) {
     throw new Error("HerdRabbit session configuration is invalid");
   }
   const passkeys = value.passkeys === undefined ? [] : value.passkeys;
@@ -143,8 +150,8 @@ function validateStoredConfiguration(value) {
     sessionSecret: value.sessionSecret,
     ...(value.sessionEpoch ? { sessionEpoch: value.sessionEpoch } : {}),
     passkeys: normalizedPasskeys,
-    ...(value.sessionsSince === undefined ? {} : { sessionsSince: value.sessionsSince }),
     sessions: sessions.map(validateStoredSession),
+    ...(endedUnlisted.length ? { endedUnlisted: endedUnlisted.map(({ id, expiresAt }) => ({ id, expiresAt })) } : {}),
   };
 }
 
@@ -395,7 +402,7 @@ export class PasswordAuth {
       const passkeys = configuration.passkeys.filter(({ id }) => passkeyHandle(id) !== handle);
       removed = passkeys.length < configuration.passkeys.length;
       if (!removed) return configuration;
-      return { ...configuration, passkeys, sessionEpoch: (configuration.sessionEpoch ?? 0) + 1, sessions: [] };
+      return { ...configuration, passkeys, sessionEpoch: (configuration.sessionEpoch ?? 0) + 1, sessions: [], endedUnlisted: [] };
     });
     if (removed) this.#sessionsEnded();
     return removed;
@@ -434,7 +441,28 @@ export class PasswordAuth {
 
   currentSessionId(cookieHeader) {
     const token = cookieValue(cookieHeader, "herdr_session");
-    return this.#tokenSession(token, "cookie")?.id ?? null;
+    return this.#tokenSession(token)?.id ?? null;
+  }
+
+  // Signing out: a sign-in from before sessions were listed is not on the list,
+  // so it is remembered as ended until its token would have expired anyway.
+  async endCurrentSession(cookieHeader) {
+    if (!this.required) return false;
+    const session = this.#tokenSession(cookieValue(cookieHeader, "herdr_session"));
+    if (!session) return false;
+    if (!session.unlisted) return this.endSession(session.id);
+    const now = Math.floor(this.now() / 1000);
+    const endedUnlisted = [
+      { id: session.id, expiresAt: session.expiresAt },
+      ...(this.configuration.endedUnlisted ?? []).filter((item) => item.expiresAt > now && item.id !== session.id),
+    ];
+    // Past the limit, ending them all is the one way left that loses none.
+    const ending = endedUnlisted.length > MAX_SESSIONS
+      ? this.#replaceConfiguration({ ...this.configuration, sessionEpoch: (this.configuration.sessionEpoch ?? 0) + 1, sessions: [], endedUnlisted: [] })
+      : this.#replaceConfiguration({ ...this.configuration, endedUnlisted });
+    this.#sessionsEnded();
+    await ending;
+    return true;
   }
 
   // False when no session has that id, including one ended a moment ago.
@@ -451,38 +479,43 @@ export class PasswordAuth {
   async endAllSessions() {
     if (!this.required) return;
     const ending = this.#replaceConfiguration({
-      ...this.configuration, sessionEpoch: (this.configuration.sessionEpoch ?? 0) + 1, sessions: [],
+      ...this.configuration, sessionEpoch: (this.configuration.sessionEpoch ?? 0) + 1, sessions: [], endedUnlisted: [],
     });
     this.#sessionsEnded();
     await ending;
   }
 
   #changeSessions(change) {
-    return this.#replaceConfiguration({
-      ...this.configuration,
-      sessionsSince: this.configuration.sessionsSince ?? Math.floor(this.now() / 1000),
-      sessions: change(this.configuration.sessions),
-    });
+    return this.#replaceConfiguration({ ...this.configuration, sessions: change(this.configuration.sessions) });
   }
 
   // Sessions change in memory at once, so the very next request sees them;
-  // the file catches up behind. Without an auth file (tests, a password passed
-  // in memory) they are just not kept across a restart.
+  // the file catches up behind. A failed write rejects the caller's promise,
+  // and an ending still holds until restart. Without an auth file (tests, a
+  // password passed in memory) they are just not kept across a restart.
   #replaceConfiguration(next) {
     this.configuration = validateStoredConfiguration(next);
     return this.authFile ? this.#persist() : Promise.resolve();
   }
 
-  // Every change lands in memory first, in call order, and each queued write
-  // saves whatever is current when it runs. A write never puts back the state
-  // it started from, so a session ended while another write was in flight
-  // stays ended.
+  // Passkey changes count only once written: a failed write leaves memory as
+  // the file has it. They run in the write queue, after any session write. A
+  // session that changed in memory while this one was being written is kept
+  // by applying the update again to what memory holds now, which the session's
+  // own queued write then saves.
   async #updateConfiguration(update) {
     if (!this.required || !this.authFile) {
       throw new Error("Passkeys require a persistent password configuration");
     }
-    this.configuration = validateStoredConfiguration(update(this.configuration));
-    return this.#persist();
+    const operation = this.writeQueue.then(async () => {
+      const before = this.configuration;
+      const next = validateStoredConfiguration(update(before));
+      if (next === before) return;
+      await writeConfigurationFile(this.authFile, next);
+      this.configuration = this.configuration === before ? next : validateStoredConfiguration(update(this.configuration));
+    });
+    this.writeQueue = operation.catch(() => {});
+    return operation;
   }
 
   #persist() {
@@ -506,7 +539,7 @@ export class PasswordAuth {
   // The session is listed at once, so the request that follows can rely on
   // it; writing it down finishes behind.
   createSession({ agent = "Unknown browser" } = {}) {
-    const token = this.#createToken("cookie");
+    const token = this.#createToken(LISTED_COOKIE);
     if (!token) return null;
     const [nonce, rawExpiry] = token.split(".");
     const now = Math.floor(this.now() / 1000);
@@ -537,9 +570,9 @@ export class PasswordAuth {
   hasValidSession(cookieHeader) {
     if (!this.required) return true;
     const token = cookieValue(cookieHeader, "herdr_session");
-    const session = this.#tokenSession(token, "cookie");
+    const session = this.#tokenSession(token);
     if (!session) return false;
-    if (session.legacy) return true;
+    if (session.unlisted) return !(this.configuration.endedUnlisted ?? []).some((item) => item.id === session.id);
     const listed = this.configuration.sessions.find((item) => item.id === session.id);
     if (!listed) return false;
     this.#touch(listed);
@@ -555,15 +588,15 @@ export class PasswordAuth {
     ))).catch(() => {});
   }
 
-  // A signed, unexpired token, and the session it names. Tokens made before
-  // sessions were listed stay valid until they expire, so an upgrade signs no
-  // one out; one made since must still be on the list.
-  #tokenSession(token, purpose) {
-    if (!this.#hasValidToken(token, purpose)) return null;
+  // A signed, unexpired cookie, and the session it names. Listed sessions sign
+  // under their own purpose, so the signature alone tells them from tokens made
+  // before sessions were listed. Those stay valid until they expire, so an
+  // upgrade signs no one out; a listed one must still be on the list.
+  #tokenSession(token) {
+    const unlisted = !this.#hasValidToken(token, LISTED_COOKIE);
+    if (unlisted && !this.#hasValidToken(token, "cookie")) return null;
     const [nonce, rawExpiry] = token.split(".");
-    const createdAt = Number(rawExpiry) - SESSION_TTL_SECONDS;
-    const since = this.configuration.sessionsSince;
-    return { id: sessionId(nonce), legacy: since === undefined || createdAt < since };
+    return { id: sessionId(nonce), expiresAt: Number(rawExpiry), unlisted };
   }
 
   hasValidLaunchToken(token) {
