@@ -329,6 +329,9 @@ export class HerdrClient {
     ]);
     const session = sessions.find(item => item.name === (this.sessionName || "default") && item.running);
     if (!session?.socket_path) throw new HerdrCommandError("Herdr socket is unavailable", { code: "server_unavailable" });
+    // `terminal attach` takes the API socket in HERDR_SOCKET_PATH and finds the
+    // client socket beside it as `<name>-client.sock`; on a Herdr machine that
+    // is the second socket the SSH link forwards (clientSocketFor).
     // On a Herdr machine this id comes from the other side: it may only ever be
     // an id, never something `terminal attach` would read as an option.
     if (typeof pane?.terminal_id !== "string" || !/^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$/u.test(pane.terminal_id)) {
