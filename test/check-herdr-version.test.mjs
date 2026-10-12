@@ -46,6 +46,9 @@ test("stops instead of guessing when the incoming module cannot be read", async 
   const unnamed = check(await module("export const SOMETHING_ELSE = 1;\n"));
   assert.equal(unnamed.status, 1);
   assert.match(unnamed.stderr, /names no MIN_HERDR_VERSION/);
+  const misspelled = check(await module(rules('"0.10"')));
+  assert.equal(misspelled.status, 1);
+  assert.match(misspelled.stderr, /Could not read the Herdr version the new code needs: "0\.10" is not a Herdr version/);
 });
 
 test("judges with the incoming code's own rules, not the installed ones", async (t) => {

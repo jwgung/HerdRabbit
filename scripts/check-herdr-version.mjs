@@ -19,13 +19,19 @@ async function versionRules() {
   return rules;
 }
 
-const rules = await versionRules().catch((error) => {
+// A release whose rules cannot judge (a misspelled minimum, say) stops the
+// update the same way a module that cannot be read does.
+async function judge() {
+  const rules = await versionRules();
+  const version = await rules.readHerdrVersion(binary);
+  return { minimum: rules.MIN_HERDR_VERSION, version, supported: rules.herdrVersionSupported(version, rules.MIN_HERDR_VERSION) };
+}
+
+const { minimum, version, supported } = await judge().catch((error) => {
   console.error(`Could not read the Herdr version the new code needs: ${error.message}`);
   process.exit(1);
 });
-const minimum = rules.MIN_HERDR_VERSION;
-const version = await rules.readHerdrVersion(binary);
-if (!rules.herdrVersionSupported(version, minimum)) {
+if (!supported) {
   console.error(`Herdr ${version || "(unknown version)"} is older than ${minimum}. Run: ${binary} update --handoff`);
   process.exit(1);
 }

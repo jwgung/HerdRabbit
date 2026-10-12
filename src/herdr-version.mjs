@@ -40,6 +40,7 @@ function comparePrerelease(left, right) {
 export function herdrVersionSupported(version, minimum = MIN_HERDR_VERSION) {
   const actual = parseHerdrVersion(version);
   const required = parseHerdrVersion(minimum);
+  if (!required) throw new Error(`${JSON.stringify(minimum)} is not a Herdr version`);
   if (!actual) return false;
   for (let index = 0; index < 3; index += 1) {
     if (actual.core[index] !== required.core[index]) return actual.core[index] > required.core[index];
