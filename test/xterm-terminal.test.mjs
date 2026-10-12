@@ -243,6 +243,28 @@ test("a pane that failed for now asks to be shown again once its wait is over", 
   assert.deepEqual(retries, ["a"], "a pane that can never attach is not tried again");
 });
 
+test("a pane mirrored after a passing attach error attaches again once its wait is over, and the mirror ends", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { view, sent, host, receive, fallbacks, retries, term } = setup();
+  view.show("a");
+  receive({ type: "attach-error", pane_id: "a", code: "attach_failed" });
+  assert.deepEqual(fallbacks, ["a"]);
+  assert.equal(view.show("a"), false, "while the wait lasts the page mirrors it");
+  assert.equal(view.mirror("a", "$ polled"), true);
+  term().finishWrites();
+  assert.ok(term().options.scrollback > 0);
+
+  context.mock.timers.tick(5_100);
+  assert.deepEqual(retries, ["a"]);
+  const before = sent.length;
+  assert.equal(view.show("a"), true, "the retry attaches the same pane");
+  assert.deepEqual(sent.slice(before), [["attach", "a", { cols: 100, rows: 30 }]]);
+  assert.equal(host.hidden, false);
+  assert.equal(term().options.scrollback, 0, "herdr owns the scrollback again");
+  assert.equal(view.mirror("a", "$ late poll"), false, "a poll that lands after the attach draws nothing");
+  assert.notEqual(term().written.at(-1), mirrorFrame("$ late poll"));
+});
+
 test("a write that finishes after the page moved to another pane acknowledges nothing", () => {
   const { view, sent, receive, term } = setup();
   view.show("a");
