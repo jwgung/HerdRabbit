@@ -1220,7 +1220,7 @@ export function createHerdrHttpServer({
         if (body.submit === true && !secret) {
           notificationMonitor?.recordRequest(paneId, body.text);
         }
-        sendJson(response, 200, { ok: true });
+        sendJson(response, 200, { ok: true, ...(secret ? { secret } : {}) });
         return;
       }
 
