@@ -35,6 +35,9 @@ case "$name:$*" in
   'git:merge-base --is-ancestor HEAD FETCH_HEAD') [ "$UPDATE_TEST_MODE" != diverged ] ;;
   'git:rev-parse --short HEAD') printf '123abcd\\n' ;;
   'git:archive FETCH_HEAD src') if [ "$UPDATE_TEST_MODE" = archive-failed ]; then exit 1; fi; tar -cf - -T /dev/null ;;
+  'git:rev-parse HEAD') printf 'previous000\\n' ;;
+  'git:rev-parse --short previous000') printf 'prev000\\n' ;;
+  'systemctl:--user is-active --quiet'*) [ "$UPDATE_TEST_MODE" != inactive ] ;;
   'npm:run verify') [ "$UPDATE_TEST_MODE" != verify-failed ] ;;
   'npm:ci --omit=dev') [ "$UPDATE_TEST_MODE" != install-failed ] ;;
   'systemctl:'*'--property=LoadState --value') printf 'loaded\\n' ;;
@@ -91,6 +94,24 @@ test("updater changes nothing, Herdr included, when it cannot read the new code"
   const { result, commands } = await runFixture(t, "archive-failed");
   assert.notEqual(result.code, undefined);
   assert.doesNotMatch(commands, /herdr update|git merge --ff-only|npm ci|systemctl --user restart/);
+});
+
+for (const mode of ["install-failed", "verify-failed"]) {
+  test(`updater rolls back to the previous commit on ${mode}`, async (t) => {
+    const { result, commands } = await runFixture(t, mode);
+    assert.notEqual(result.code, undefined);
+    assert.match(commands, /git reset --hard previous000/);
+    assert.ok(commands.lastIndexOf("npm ci --omit=dev") > commands.indexOf("git reset --hard"));
+    assert.match(result.stderr, /rolled back/);
+  });
+}
+
+test("updater rolls back and restarts the previous version when the new one will not run", async (t) => {
+  const { result, commands } = await runFixture(t, "inactive");
+  assert.notEqual(result.code, undefined);
+  const reset = commands.indexOf("git reset --hard previous000");
+  assert.ok(reset > commands.indexOf("systemctl --user restart"));
+  assert.ok(commands.indexOf("systemctl --user restart", reset) > reset, "the previous version is started again");
 });
 
 for (const mode of ["branch", "dirty", "wrong-service", "diverged", "fetch-failed", "install-failed", "verify-failed", "herdr-too-old"]) {

@@ -37,7 +37,7 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 
 - Browse the current OS user's Herdr persistent sessions, workspaces, tabs, panes, and agent states
 - Aggregate multiple Herdr persistent sessions without local ID collisions
-- Render ANSI terminal output, restore past conversation for alternate-screen agents such as Claude from their session log, and load 200 older lines when scrolling to the top
+- Render ANSI terminal output and load 200 older lines of Herdr scrollback when scrolling to the top
 - Send text and shell commands, or use a two-row extra-key bar with Ctrl/Alt/Shift, Esc, Tab, Home/End, PgUp/PgDn, arrows, slash, minus, and Enter. Select modifiers, then tap a key or type it on your keyboard (for example Ctrl → End or Ctrl → C). Modifiers clear after one send or when switching panes. Ordinary composer shortcuts remain local unless a screen modifier is selected.
 - Create shell workspaces and tabs, rename workspaces and sessions, and close tabs or workspaces after confirmation
 - View images, video, audio, Markdown and text in the browser instead of downloading them first
@@ -49,10 +49,10 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 - Restore terminal font size and the last 100 sent prompts per pane across app launches; use Up/Down in the composer to recall prompts
 - Show Herdr-native state symbols such as `×`, `◐`, `✓`, `○`, and `·`
 - Emphasize unviewed completed sessions and their collapsed projects in the sidebar
-- Send status-only PWA notifications with the project and tab names when agent state changes
+- Send status-only PWA notifications with the project and tab names when an agent needs input or finishes; while the app is in front, show them inside it instead
 - Install as a responsive PWA with light and dark themes
 - Resize terminal text with `Ctrl`/`Cmd` + wheel, trackpad zoom, or a two-finger mobile gesture
-- Protect an instance with an optional password, Passkey login, a seven-day hard session limit, and login on each new PWA window
+- Protect an instance with an optional password, Passkey login, a seven-day hard session limit, login on each new PWA window, and a list of signed-in browsers to sign out one by one or all at once
 - Install a per-user systemd service on a collision-free port in `30000–39999`
 - Register Tailscale Serve HTTPS during setup when Tailscale is available
 
@@ -257,6 +257,10 @@ The plaintext HerdRabbit login password is never stored. The `scrypt` hash, sess
 
 Authenticated sessions have a fixed seven-day maximum lifetime. Every API request requires both an `HttpOnly`, `SameSite=Strict` cookie and a separately signed token stored in the current window's `sessionStorage`. Closing the PWA or tab and opening a new one requires login again by Passkey or password. Reloading or returning from the background in the same window keeps the login. HTTPS connections also use the cookie's `Secure` attribute.
 
+This machine's `⋯` menu opens **Signed-in devices**: each browser signed in, named by browser and system, with when it signed in and was last used. **Sign out** ends one, and its open terminals close at once; **Sign out everywhere** ends all of them, this one included. Neither asks for the password, since they only take access away. The menu's **Sign out** ends this browser's own session. The list keeps a hash of each session, never the token, in the auth file. Sign-ins made before the list existed stay valid until they expire and are not listed; **Sign out everywhere** ends them too.
+
+Wrong passwords are counted per caller: the Tailscale login or forwarded address Tailscale Serve reports, or the connecting address. Guesses from one device lock only that device, up to fifteen minutes; a loose limit across all callers still applies.
+
 After the first successful password login, HerdRabbit offers to register a Passkey when the browser supports WebAuthn. Within five minutes of that sign-in the window can register one passkey without typing the password again; after that, registering asks for it. Later login screens show **Sign in with a passkey** beside the password fallback. Depending on the device, the browser can use Face ID, a fingerprint, Windows Hello, the device PIN, a security key, or cross-device QR authentication. The biometric and private key stay on the authenticator; HerdRabbit stores only the credential ID, public key, signature counter, transport metadata, and the name and dates shown in the list below. Passkeys are bound to the exact hostname used during registration, so use the stable Tailscale HTTPS address rather than alternating between addresses.
 
 **Passkeys** in this machine's row menu lists the registered passkeys by name, with the day each was added and last used, and whether it syncs between devices. The name comes from the browser that registered it, such as `Safari · iOS`; passkeys registered before this list existed show as `Passkey` with no dates. Removing one or adding another asks for the password again, so a stolen browser session cannot plant a passkey that outlives it. Removing a passkey signs every other device out -- the usual reason to remove one is a lost device, which may still be signed in -- while the browser that removed it stays signed in; open terminals elsewhere close within 15 seconds. Removing the last one leaves the password. The list and removal work without WebAuthn, so a lost device's passkey can be removed from any browser. The list shows names and dates only; credential IDs and public keys stay in the auth file. To clear every passkey at once, run `npm run password`.
@@ -274,7 +278,9 @@ Opening a completed `✓` session marks that completion as viewed and changes it
 Use the bell at the bottom of the sidebar to enable or disable notifications for the current browser or installed PWA. Permission is requested only after pressing this control.
 
 - Titles use `project name · tab name`.
-- Completion, input required, returned to idle, and unavailable-state transitions use short status-only messages.
+- Only completion and input required are sent, as short status-only messages. An agent going idle or an unknown state sends nothing.
+- While a HerdRabbit window is in front, no system notification appears: the pane it shows stays quiet, and another pane's alert drops in at the top of the app with a short sound. Tap it to open that pane. The machine's `⋯` menu turns the sound off or on.
+- With notifications on, the same menu sends a test notification to every subscribed device.
 - Each state event is sent once, and a newer alert replaces the previous alert for the same session. Opening it launches or focuses the installed PWA and restores the targeted session.
 
 Background delivery uses standards-based Web Push; a Firebase project and FCM SDK are not required. On iPhone and iPad, install HerdRabbit on the Home Screen and allow notifications on iOS/iPadOS 16.4 or newer.
@@ -480,7 +486,7 @@ cd ~/.local/share/herd-rabbit
 sh ./update.sh
 ```
 
-Run as the Linux account that installed the service. The updater uses its own directory, or `HERD_RABBIT_INSTALL_DIR`. It requires a clean `main` branch and the official origin, fetches `main`, updates the service's Herdr with `herdr update --handoff` (running panes stay alive), then fast-forwards `main`, installs dependencies, verifies, and restarts the matching user service. Herdr is checked against the minimum the incoming code requires before any file changes: a failed Herdr update continues when the installed Herdr is new enough, and stops the update with nothing changed otherwise. A lock prevents concurrent updates. Local changes, divergent commits, or failed dependency installation/verification stop the process before restart. This is an in-place update: code or dependencies may already have changed on failure; there is no automatic rollback. Ports, authentication, Tailscale settings, and saved servers are preserved. If an older installation lacks `update.sh`, run `git pull --ff-only` once first. An installation older than 1.2.10 runs its own earlier `update.sh`, which does not update Herdr: run `herdr update --handoff` outside Herdr before that first update. HerdRabbit warns at startup and in the machine's Details while Herdr is older than 0.9.0.
+Run as the Linux account that installed the service. The updater uses its own directory, or `HERD_RABBIT_INSTALL_DIR`. It requires a clean `main` branch and the official origin, fetches `main`, updates the service's Herdr with `herdr update --handoff` (running panes stay alive), then fast-forwards `main`, installs dependencies, verifies, and restarts the matching user service. Herdr is checked against the minimum the incoming code requires before any file changes: a failed Herdr update continues when the installed Herdr is new enough, and stops the update with nothing changed otherwise. A lock prevents concurrent updates. Local changes or divergent commits stop the process before anything changes. When dependency installation, verification, or the restart fails after `main` moved, the updater resets to the previous commit, reinstalls its dependencies, and restarts that version if it had already restarted. Herdr itself is not rolled back. Ports, authentication, Tailscale settings, and saved servers are preserved. If an older installation lacks `update.sh`, run `git pull --ff-only` once first. An installation older than 1.2.10 runs its own earlier `update.sh`, which does not update Herdr: run `herdr update --handoff` outside Herdr before that first update. HerdRabbit warns at startup and in the machine's Details while Herdr is older than 0.9.0.
 
 The Service Worker reloads the page once when it activates a new app shell. Manually refresh a tab that has remained open for a long time.
 
@@ -490,6 +496,8 @@ The Service Worker reloads the page once when it activates a new app shell. Manu
 npm run verify
 npm run dev
 ```
+
+`npm run check` finds every script under `src`, `public` and `scripts` and checks its syntax, along with `install.sh` and `update.sh`, so a new file needs no registration. GitHub Actions runs `npm run verify` on every pull request and on pushes to `main`.
 
 Tests use a fake Herdr executable and temporary state. They do not write to real terminal panes or create and close real workspaces or sessions.
 
