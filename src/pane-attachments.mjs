@@ -60,15 +60,18 @@ export class PaneAttachments {
     if (attachment.clients.has(client)) return;
     attachment.clients.add(client);
     this.#windowsOf(client).set(paneId, new OutputWindow());
+    // The screen so far was drawn on the current grid: the joiner takes that
+    // grid first, then the screen, and only then may it set a size of its own.
+    this.#sendGeometry(client, paneId);
     const replay = attachment.replay.text();
     if (replay) this.#sendOutput(client, paneId, replay);
     if (attachment.held) client.send({ type: "attach-held", pane_id: paneId });
     this.#reconcile(paneId);
     if (client.closed) return;
     if (attachment.ready && !attachment.held) client.send({ type: "input-ready", pane_id: paneId });
-    if (!observing) attachment.sizes.set(client, { cols, rows });
-    if (!observing && !attachment.clients.has(attachment.owner)) this.#own(paneId, client);
-    else this.#sendGeometry(client, paneId);
+    if (observing) return;
+    attachment.sizes.set(client, { cols, rows });
+    if (!attachment.clients.has(attachment.owner)) this.#own(paneId, client);
   }
 
   detach(client, paneId) {

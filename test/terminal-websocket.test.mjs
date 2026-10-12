@@ -286,3 +286,16 @@ test("a detach that arrives while the attach is still looking up its terminal le
   assert.equal(ptys.length, 1);
   assert.equal(ptys[0].killed, true, "nobody wants the pane any more");
 });
+
+test("the password check reads the pane's unwrapped lines, so a prompt the terminal wrapped is still one line", async context => {
+  const reads = [];
+  // herdr joins rows the terminal soft-wrapped when it reads recent-unwrapped.
+  const prompt = "Enter passphrase for key '/home/alice/.ssh/id_ed25519_with_a_rather_long_name_for_this_machine':";
+  const app = await fixture(context, { async readPane(paneId, options) { reads.push(options); return `$ git fetch\n${prompt} `; } });
+  const client = await app.connect();
+  await client.wait(message => message.type === "ready");
+  client.send({ type: "input", id: 1, paneId: "w1:p1", text: "correct horse", submit: true });
+  assert.equal((await client.wait(message => message.type === "ack" && message.id === 1)).secret, true);
+  assert.deepEqual(app.requests, []);
+  assert.deepEqual(reads[0], { lines: 4, format: "text" });
+});

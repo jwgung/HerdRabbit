@@ -74,7 +74,7 @@ test("one attach per pane, shared; a joiner gets the screen so far and an observ
   await attachments.attach(phone, "p", { cols: 40, rows: 20 });
   assert.equal(herdr.spawns.length, 1, "the joiner shares the pty");
   assert.equal(phone.output(), "\x1b[?1049hhello");
-  assert.deepEqual(phone.messages.at(-1), { type: "pane-geometry", pane_id: "p", cols: 100, rows: 30, owner: false });
+  assert.deepEqual(phone.messages[0], { type: "pane-geometry", pane_id: "p", cols: 100, rows: 30, owner: false }, "the grid comes before the screen");
   assert.equal(attachments.input(phone, "p", "rm\r"), false);
   assert.equal(attachments.resize(phone, "p", 40, 20), false);
   assert.equal(attachments.resize(desk, "p", 90, 25), true);
@@ -275,4 +275,18 @@ test("a late acknowledgement for a pane the client left is ignored, not refused"
   assert.equal(attachments.acknowledge(desk, "p", streamId, offset), true);
   assert.equal(attachments.acknowledge(desk, "never-attached", "x", 5), true);
   assert.equal(desk.closed, false);
+});
+
+test("a joiner gets the grid before the screen drawn on it", async () => {
+  const { herdr, attachments } = setup();
+  const desk = client();
+  await attachments.attach(desk, "p", { cols: 120, rows: 40 });
+  herdr.spawns[0].emit("\x1b[?1049hwide screen");
+  await sleep(20);
+  const phone = client();
+  await attachments.attach(phone, "p", { cols: 40, rows: 20 });
+  const order = phone.messages.filter((message) => ["pane-geometry", "pty-data"].includes(message.type));
+  assert.deepEqual(order.slice(0, 2).map((message) => message.type), ["pane-geometry", "pty-data"]);
+  assert.deepEqual([order[0].cols, order[0].rows], [120, 40]);
+  attachments.close();
 });
