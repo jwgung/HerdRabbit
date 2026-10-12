@@ -2,23 +2,12 @@
 // real pseudo-terminal per pane, shared by every browser that has the pane open.
 // Ported from herdr-web-ui (MIT), server/index.ts (attachments) and
 // server/pty/pty-host.mjs, without its Bun sidecar: node-pty runs in this process.
-import { AttachOutputTail, isTakeoverExit } from "./attach-output.mjs";
+import { AttachOutputTail, attachEnd, isAttachPreamble, isRefusing } from "./attach-output.mjs";
 import {
   OUTPUT_HARD_BYTES, OUTPUT_HIGH_BYTES, OUTPUT_STALL_MS, OutputWindow, ReplayBuffer,
 } from "./output-window.mjs";
 
 export const MAX_REPLAY_BYTES = 256 * 1024;
-// herdr refuses an attach while a read of the same terminal is in progress and
-// asks for a retry. A long read of an idle alt-screen agent can take seconds.
-const ATTACH_READ_RACE_RE = /has a read in progress; retry/u;
-// herdr's refusal when another client holds the terminal's one attach slot: the
-// attach's last line, after its teardown.
-const ATTACH_HELD_RE = /terminal attach failed: [^\r\n]*(?:already has an attached client|retry with --takeover)[^\r\n]*\s*$/u;
-// A refusal, maybe not all of it yet, still the last output before the exit.
-const ATTACH_REFUSING_RE = /terminal attach failed[^\r\n]*\s*$/u;
-// What the attach writes before herdr has answered: mode switches only. They say
-// nothing about whether the attach took, so they do not start the hold.
-const ATTACH_PREAMBLE_RE = /^(?:\x1b\[\?[\d;]+[hl])*(?:\x1b(?:\[(?:\?[\d;]*)?)?)?$/u;
 const PANE_GONE_CODES = new Set(["pane_not_found", "pane_not_restored", "no_terminal"]);
 export const ATTACH_DEFAULTS = Object.freeze({
   retryForMs: 20_000,
@@ -369,7 +358,7 @@ export class PaneAttachments {
       const took = () => {
         if (!current()) return;
         // A refusal whose exit is late is no attach: wait for that exit a while.
-        if (ATTACH_REFUSING_RE.test(output)) {
+        if (isRefusing(output)) {
           if (Date.now() - heldSince < options.refusalExitMs) {
             holdTimer = setTimeout(took, options.holdMs);
             return;
@@ -400,8 +389,9 @@ export class PaneAttachments {
         attachment.ready = false;
         const now = Date.now();
         // Displaced after attaching: herdr's last words say the slot was taken over.
-        const displaced = code !== 0 && isTakeoverExit(output);
-        if (!displaced && code !== 0 && ATTACH_READ_RACE_RE.test(output) && now - (refusedSince ??= now) < options.retryForMs) {
+        const end = attachEnd(output, code);
+        const displaced = end === "taken-over";
+        if (end === "read-race" && now - (refusedSince ??= now) < options.retryForMs) {
           held = null;
           retries += 1;
           takeover = mayTakeOver(takingOver) ? takingOver : takeoverWanted;
@@ -409,7 +399,7 @@ export class PaneAttachments {
           attachment.retry = setTimeout(again, Math.min(options.retryMs * 2 ** (retries - 1), options.retryMaxMs));
           return;
         }
-        if (displaced || (code !== 0 && ATTACH_HELD_RE.test(output))) {
+        if (displaced || end === "held") {
           flushTail(displaced);
           held = null;
           refusedSince = null;
@@ -484,7 +474,7 @@ export class PaneAttachments {
             took();
           }, options.refusalExitMs);
           held += data;
-          if (!holding && !ATTACH_PREAMBLE_RE.test(held)) {
+          if (!holding && !isAttachPreamble(held)) {
             holding = true;
             heldSince = Date.now();
             holdTimer = setTimeout(took, options.holdMs);
