@@ -6,7 +6,8 @@ export const MIN_HERDR_VERSION = "0.9.0";
 
 // "0.9.0-beta.1" keeps its prerelease tag: it comes before 0.9.0, so it must
 // not pass as that release. Prereleases of one version order as semver does.
-const VERSION_PATTERN = /(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?/u;
+// Build metadata is allowed and ignored; anything else glued on is not a version.
+const VERSION_PATTERN = /(?<![0-9A-Za-z.])(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?![0-9A-Za-z.+-])/u;
 
 export function parseHerdrVersion(text) {
   const match = VERSION_PATTERN.exec(String(text ?? ""));

@@ -26,11 +26,16 @@ async function fixture(t, version) {
   return { check, module, directory };
 }
 
+// An incoming module in the shape the current one has, with its own minimum.
+const rules = (minimum) => `export const MIN_HERDR_VERSION = ${minimum};
+export { readHerdrVersion, herdrVersionSupported } from ${JSON.stringify(new URL("../src/herdr-version.mjs", import.meta.url).href)};
+`;
+
 test("checks Herdr against the minimum the incoming code names", async (t) => {
   const { check, module } = await fixture(t, "0.9.3");
   assert.equal(check().status, 0, "the current minimum without an incoming module");
-  assert.equal(check(await module('export const MIN_HERDR_VERSION = "0.9.0";\n')).status, 0);
-  const raised = check(await module("// reformatted\nexport const MIN_HERDR_VERSION = '0.10.0'\n"));
+  assert.equal(check(await module(rules('"0.9.0"'))).status, 0);
+  const raised = check(await module(`// reformatted\n${rules("'0.10.0'")}`));
   assert.equal(raised.status, 1, "a raised minimum is enforced whatever the declaration looks like");
   assert.match(raised.stderr, /older than 0\.10\.0/);
 });
@@ -41,4 +46,13 @@ test("stops instead of guessing when the incoming module cannot be read", async 
   const unnamed = check(await module("export const SOMETHING_ELSE = 1;\n"));
   assert.equal(unnamed.status, 1);
   assert.match(unnamed.stderr, /names no MIN_HERDR_VERSION/);
+});
+
+test("judges with the incoming code's own rules, not the installed ones", async (t) => {
+  const { check, module } = await fixture(t, "0.9.3");
+  const strict = check(await module('export const MIN_HERDR_VERSION = "0.9.0";\nexport async function readHerdrVersion() { return "0.9.3"; }\nexport function herdrVersionSupported() { return false; }\n'));
+  assert.equal(strict.status, 1);
+  const partial = check(await module('export const MIN_HERDR_VERSION = "0.9.0";\n'));
+  assert.equal(partial.status, 1);
+  assert.match(partial.stderr, /has no readHerdrVersion/);
 });

@@ -6,6 +6,10 @@ test("parses the version Herdr prints", () => {
   assert.deepEqual(parseHerdrVersion("herdr 0.9.3\n"), { core: [0, 9, 3], prerelease: "", text: "0.9.3" });
   assert.deepEqual(parseHerdrVersion("herdr 0.9.0-beta.1"), { core: [0, 9, 0], prerelease: "beta.1", text: "0.9.0-beta.1" });
   assert.equal(parseHerdrVersion("herdr"), null);
+  assert.equal(parseHerdrVersion("herdr 0.9.0broken"), null);
+  assert.equal(parseHerdrVersion("herdr 0.9.0+"), null);
+  assert.equal(parseHerdrVersion("herdr 0.9.0+build.7").text, "0.9.0+build.7");
+  assert.deepEqual(parseHerdrVersion("herdr 0.9.0+build.7").core, [0, 9, 0]);
 });
 
 test("accepts 0.9.0 and newer only", () => {
