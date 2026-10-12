@@ -1,6 +1,6 @@
 // Browser check of the attached terminal: xterm shows herdr's stream, typing
 // reaches the pty, a held pane offers "Open here", and a pane that cannot
-// attach falls back to the screen-text view. Runs against a fake herdr.
+// attach is mirrored from its polled screen. Runs against a fake herdr.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { once } from "node:events";
