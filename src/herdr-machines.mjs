@@ -113,14 +113,21 @@ export function endProcess(child, graceMs = 3_000) {
   if (child.exitCode != null || child.signalCode != null) return Promise.resolve();
   return new Promise((resolve) => {
     let timer = setTimeout(() => {
-      child.kill("SIGKILL");
+      try { child.kill("SIGKILL"); } catch {}
       // Gone at once, as a rule; a process that cannot even be killed is not waited on for ever.
       timer = setTimeout(resolve, graceMs);
       timer.unref?.();
     }, graceMs);
     timer.unref?.();
+    // Node emits "exit" on a later turn, so no exit can slip in between the
+    // check above and this listener.
     child.once("exit", () => { clearTimeout(timer); resolve(); });
-    child.kill();
+    try {
+      child.kill();
+    } catch {
+      clearTimeout(timer);
+      resolve();
+    }
   });
 }
 

@@ -475,6 +475,7 @@ test("a stopped connection waits for its SSH process to end, and kills one that 
   stuck.emit("exit", null, "SIGKILL");
   await waiting;
   await endProcess(Object.assign(new EventEmitter(), { exitCode: 0, signalCode: null, kill() { throw new Error("already gone"); } }));
+  await endProcess(Object.assign(new EventEmitter(), { exitCode: null, signalCode: null, kill() { throw new Error("cannot signal"); } }), 3_000);
 });
 
 test("stopping does not wait for ever on a machine listing that hangs, and starts no connection after", async (context) => {
