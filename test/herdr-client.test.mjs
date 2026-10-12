@@ -278,3 +278,12 @@ test("a terminal id that could read as an option is refused", async () => {
   const client = new HerdrClient({ runner: fake.runner, socketPath: "/run/m/x.sock" });
   await assert.rejects(client.terminalTarget("w1:p2"), { code: "no_terminal" });
 });
+
+test("terminal ids with hyphens, dots or colons inside are taken as they are", async () => {
+  const json = (result) => ({ stdout: JSON.stringify({ result }), stderr: "" });
+  for (const id of ["term-9", "6f1c2a7e-3b4d-4e5f-8a9b-0c1d2e3f4a5b", "term_65da1de08bbbc11", "w1:t2.p3"]) {
+    const fake = recordingRunner([json({ pane: { pane_id: "w1:p2", terminal_id: id } }), json({ layout: { panes: [] } })]);
+    const client = new HerdrClient({ runner: fake.runner, socketPath: "/run/m/x.sock" });
+    assert.equal((await client.terminalTarget("w1:p2")).terminalId, id);
+  }
+});
