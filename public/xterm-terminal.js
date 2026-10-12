@@ -55,6 +55,9 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   // The Copy bar over a selection, and the finger selecting, if one is.
   let copyBar = null;
   let selecting = null;
+  // A finger held still, before it starts selecting.
+  let pressTimer = null;
+  const cancelPress = () => { clearTimeout(pressTimer); pressTimer = null; };
   let fit = null;
   let paneId = null;
   let resizeTimer = null;
@@ -125,8 +128,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       if (key === "c" && term.hasSelection()) {
         if (event.type === "keydown") {
           event.preventDefault();
-          void navigator.clipboard?.writeText(term.getSelection()).catch(() => {});
-          term.clearSelection();
+          void copySelection();
         }
         return false;
       }
@@ -195,10 +197,10 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     });
     let pinch = null;
     // A held finger selects: from the cell it was held on to the one under it.
-    let pressTimer = null;
     let pressAt = null;
     const cellUnder = (x, y) => {
       const screen = term.element?.querySelector(".xterm-screen");
+      if (!screen) return { col: 0, row: term.buffer.active.viewportY };
       const cell = cellAt(screen.getBoundingClientRect(), term.cols, term.rows, x, y);
       return { col: cell.col, row: cell.row + term.buffer.active.viewportY };
     };
@@ -206,7 +208,6 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       const run = selectionRun(selecting.anchor, point, term.cols);
       term.select(run.col, run.row, run.length);
     };
-    const cancelPress = () => { clearTimeout(pressTimer); pressTimer = null; };
     const spread = (touches) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
     // A touch's later events go to the element it began on. Scrolling redraws
     // the rows, so that row leaves the page; events aimed at it then reach
@@ -400,6 +401,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   let generation = 0;
   function clearScreen() {
     generation += 1;
+    cancelPress();
     selecting = null;
     term?.clearSelection();
     term?.write("\x1bc");
@@ -448,6 +450,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
 
   function stop() {
     clearTimeout(resizeTimer);
+    cancelPress();
     scroller?.cancel();
     if (paneId) connection.detach(paneId);
     paneId = null;
