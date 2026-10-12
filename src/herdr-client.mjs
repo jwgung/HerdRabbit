@@ -308,6 +308,31 @@ export class HerdrClient {
       openSocket: this.runner.openSocket, onStatus, onError });
   }
 
+  // What `terminal attach` needs for a pane: its terminal, the socket of this
+  // session (the attach must reach the server the other commands talk to), and
+  // the pane's own size for a viewer that does not set one.
+  async terminalTarget(paneId) {
+    const safePaneId = validatePaneId(paneId);
+    const [{ pane }, sessions, layout] = await Promise.all([
+      this.#run(["pane", "get", safePaneId]),
+      this.listSessions(),
+      this.#run(["pane", "layout", "--pane", safePaneId]).catch(() => null),
+    ]);
+    const session = sessions.find(item => item.name === (this.sessionName || "default") && item.running);
+    if (!session?.socket_path) throw new HerdrCommandError("Herdr socket is unavailable", { code: "server_unavailable" });
+    if (typeof pane?.terminal_id !== "string" || !pane.terminal_id) throw new HerdrCommandError("The pane has no terminal", { code: "no_terminal" });
+    const rect = layout?.layout?.panes?.find(item => item.pane_id === safePaneId)?.rect;
+    return {
+      command: this.binary,
+      args: ["terminal", "attach", pane.terminal_id],
+      // herdr's CLI reads HERDR_SOCKET_PATH, not HERDR_SOCKET.
+      env: { HERDR_SOCKET_PATH: session.socket_path },
+      terminalId: pane.terminal_id,
+      cols: rect?.width,
+      rows: rect?.height,
+    };
+  }
+
   async sendText(paneId, text, { submit = false } = {}) {
     const safePaneId = validatePaneId(paneId);
     const safeText = validateText(text);

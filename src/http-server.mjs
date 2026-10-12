@@ -526,6 +526,7 @@ export function createHerdrHttpServer({
   discover = null,
   announcements = null,
   aiAccounts = null,
+  attachments = null,
   csrfToken = randomBytes(32).toString("base64url"),
   maxBodyBytes = 16 * 1024,
   maxTransferBytes = 50 * 1024 * 1024,
@@ -1332,6 +1333,7 @@ export function createHerdrHttpServer({
     },
     watchOutput: (...args) => outputWatcher.watch(...args),
     watchStatuses: typeof herdr.watchStatuses === "function" ? (...args) => herdr.watchStatuses(...args) : undefined,
+    attachments,
     onRequest: (paneId, text) => notificationMonitor?.recordRequest(paneId, text),
   });
 

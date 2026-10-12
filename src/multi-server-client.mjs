@@ -1,5 +1,5 @@
 import { LeafLinkClient } from "./leaf-link-client.mjs";
-import { InputValidationError } from "./herdr-client.mjs";
+import { HerdrCommandError, InputValidationError } from "./herdr-client.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported } from "./herdr-version.mjs";
 
 const collections = ["herdr_sessions", "workspaces", "tabs", "panes", "agents"];
@@ -171,6 +171,12 @@ export class MultiServerClient {
   }
 
   readPane(id, options) { return this.invoke("readPane", id, [options]); }
+  // Only this machine's panes attach for now; another server's keep the screen-text view.
+  terminalTarget(id) {
+    const { entry, id: localId } = this.target(id);
+    if (entry.profile.id !== "local") throw new HerdrCommandError("Terminal attach is not available for this server yet", { code: "attach_unsupported" });
+    return entry.client.terminalTarget(localId);
+  }
   sendText(id, text, options) { return this.invoke("sendText", id, [text, options]); }
   sendKeys(id, keys) { return this.invoke("sendKeys", id, [keys]); }
   async watchStatuses(paneIds, onStatus, onError) {

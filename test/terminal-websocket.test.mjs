@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import WebSocket from "ws";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
+import { PaneAttachments } from "../src/pane-attachments.mjs";
 
-async function fixture(context, overrides = {}) {
+async function fixture(context, overrides = {}, { attachments = null } = {}) {
   let output = "prompt";
   let authenticated = true;
   const endedListeners = new Set();
@@ -29,6 +30,7 @@ async function fixture(context, overrides = {}) {
       async sendKeys(paneId, keys) { await record({ paneId, keys }); }, ...overrides },
     notificationMonitor: { recordRequest(...args) { requests.push(args); } },
     logger: { error() {} },
+    attachments,
   });
   app.server.listen(0, "127.0.0.1");
   await once(app.server, "listening");
@@ -195,4 +197,50 @@ test("batched input preserves keys, submissions, pane boundaries and every ackno
   assert.deepEqual(client.messages.filter(message => message.type === "ack").map(message => message.id),
     Array.from({ length: 10 }, (_, index) => index + 1));
   assert.deepEqual(app.requests, [["w1:p1", "run"]]);
+});
+
+test("an attached pane streams herdr's own terminal: typing and size go to its pty, a watcher only reads", async context => {
+  const ptys = [];
+  const attachments = new PaneAttachments({
+    log: () => {},
+    options: { holdMs: 5 },
+    resolveTerminal: async () => ({ command: "herdr", args: ["terminal", "attach", "term_1"], env: {}, terminalId: "term_1" }),
+    spawnPty: options => {
+      const pty = { options, written: [], sizes: [], exited: new Promise(() => {}),
+        write(data) { this.written.push(data); }, resize(cols, rows) { this.sizes.push([cols, rows]); },
+        pause() {}, resume() {}, kill() {} };
+      ptys.push(pty);
+      setTimeout(() => options.onData("\x1b[?1049hscreen"), 5);
+      return pty;
+    },
+  });
+  const app = await fixture(context, {}, { attachments });
+  const desk = await app.connect();
+  await desk.wait(message => message.type === "ready");
+  desk.send({ type: "attach", paneId: "w1:p1", cols: 100, rows: 30 });
+  await desk.wait(message => message.type === "input-ready");
+  const data = await desk.wait(message => message.type === "pty-data");
+  assert.equal(data.data, "\x1b[?1049hscreen");
+  desk.send({ type: "pty-input", paneId: "w1:p1", data: "ls\r" });
+  desk.send({ type: "resize", paneId: "w1:p1", cols: 90, rows: 25 });
+  desk.send({ type: "pty-ack", paneId: "w1:p1", streamId: data.flow.stream_id, offset: data.flow.offset });
+
+  const phone = await app.connect();
+  await phone.wait(message => message.type === "ready");
+  phone.send({ type: "role", mode: "observe" });
+  phone.send({ type: "attach", paneId: "w1:p1", cols: 40, rows: 20 });
+  await phone.wait(message => message.type === "pane-geometry" && message.cols === 90);
+  phone.send({ type: "pty-input", paneId: "w1:p1", data: "rm\r" });
+  await phone.wait(message => message.type === "pty-input-dropped");
+  assert.deepEqual(ptys[0].written, ["ls\r"]);
+  assert.deepEqual(ptys[0].sizes.at(-1), [90, 25]);
+  assert.equal(ptys.length, 1);
+});
+
+test("a pane that cannot attach says so, and the page keeps the screen-text view", async context => {
+  const app = await fixture(context);
+  const client = await app.connect();
+  await client.wait(message => message.type === "ready");
+  client.send({ type: "attach", paneId: "w1:p1", cols: 80, rows: 24 });
+  assert.deepEqual(await client.wait(message => message.type === "attach-unavailable"), { type: "attach-unavailable", pane_id: "w1:p1" });
 });

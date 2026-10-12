@@ -17,6 +17,7 @@ import { announcementWriter, readAnnouncements } from "./announcement-store.mjs"
 import { announceToHub } from "./leaf-announce.mjs";
 import { FileStore } from "./file-store.mjs";
 import { MultiServerClient } from "./multi-server-client.mjs";
+import { PaneAttachments, loadNodePty, nodePtySpawner } from "./pane-attachments.mjs";
 import { AiAccounts, runningAgentsIn } from "./ai-accounts.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported, readHerdrVersion } from "./herdr-version.mjs";
 
@@ -82,8 +83,15 @@ const herdr = new MultiServerClient({ local, profiles, hubVersion, machineName, 
 // Only this machine's panes decide whether a switch here would disturb anything.
 const aiAccounts = new AiAccounts({ directory: config.aiAccountsDir, runningAgents: () => runningAgentsIn(local) });
 const notificationMonitor = new AgentNotificationMonitor({ herdr, push });
+// Without node-pty's native module every pane keeps the screen-text view.
+const nodePty = await loadNodePty();
+if (!nodePty) console.warn("node-pty is unavailable; terminals show screen text instead of attaching.");
+const attachments = nodePty
+  ? new PaneAttachments({ resolveTerminal: (paneId) => herdr.terminalTarget(paneId), spawnPty: nodePtySpawner(nodePty) })
+  : null;
 const { server } = createHerdrHttpServer({
   herdr,
+  attachments,
   profiles,
   files,
   auth,
@@ -150,6 +158,7 @@ server.listen(config.port, config.host, () => {
 function shutdown() {
   herdr.stopped = true;
   notificationMonitor.stop();
+  attachments?.close();
   server.close((error) => {
     if (error) {
       console.error("Shutdown failed:", error.message);

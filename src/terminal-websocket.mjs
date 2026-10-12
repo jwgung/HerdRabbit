@@ -2,7 +2,7 @@ import { WebSocketServer } from "ws";
 
 // Authentication stays with the HTTP server. No launch token is put in a URL.
 export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMessage,
-  sendInput, watchOutput, watchStatuses, onRequest = () => {}, onSessionsEnded = () => () => {} }) {
+  sendInput, watchOutput, watchStatuses, attachments = null, onRequest = () => {}, onSessionsEnded = () => () => {} }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
   // An ended sign-in closes its sockets now, not at their next heartbeat.
   const rechecks = new Set();
@@ -32,6 +32,19 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
       if (ws.readyState !== ws.OPEN) return;
       if (ws.bufferedAmount > 2 * 1024 * 1024) { ws.close(1013, "Client too slow"); return; }
       ws.send(JSON.stringify(message));
+    };
+    // This socket as one viewer of attached panes. It may type and resize until
+    // it says it only watches.
+    const viewer = {
+      mode: "interact",
+      get closed() { return stopped; },
+      send: message => { if (!stopped && valid()) send(message); },
+      bufferedAmount: () => ws.bufferedAmount,
+      close: (code, reason) => { stopped = true; ws.close(code, reason); },
+    };
+    const paneId = value => {
+      if (typeof value !== "string" || !value || value.length > 512) throw new Error("Invalid pane id");
+      return value;
     };
     const valid = () => {
       try { authorizeMessage(request, credentials); return true; }
@@ -84,6 +97,7 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
       clearInterval(heartbeat);
       stopWatch?.();
       stopStatuses?.();
+      attachments?.detachAll(viewer);
     });
     ws.on("message", (bytes, binary) => {
       try {
@@ -116,6 +130,37 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
           }).catch(() => {
             if (current === statusGeneration && !stopped) send({ type: "statuses-unavailable" });
           });
+          return;
+        }
+        if (message.type === "attach") {
+          const id = paneId(message.paneId);
+          if (message.keepSize !== undefined && typeof message.keepSize !== "boolean") throw new Error("Invalid attach");
+          if (!attachments) { send({ type: "attach-unavailable", pane_id: id }); return; }
+          attachments.attach(viewer, id, { cols: message.cols, rows: message.rows, keepSize: message.keepSize === true })
+            .catch(error => {
+              if (stopped) return;
+              if (error instanceof RangeError) { stopped = true; ws.close(1008, "Invalid terminal request"); return; }
+              send({ type: "attach-unavailable", pane_id: id, message: error.message });
+            });
+          return;
+        }
+        if (message.type === "detach") { attachments?.detach(viewer, paneId(message.paneId)); return; }
+        if (message.type === "pty-input") {
+          if (typeof message.data !== "string" || !message.data || message.data.length > 16_384) throw new Error("Invalid terminal input");
+          if (!attachments?.input(viewer, paneId(message.paneId), message.data)) send({ type: "pty-input-dropped", pane_id: message.paneId });
+          return;
+        }
+        if (message.type === "resize") { attachments?.resize(viewer, paneId(message.paneId), message.cols, message.rows); return; }
+        if (message.type === "pty-ack") {
+          if (typeof message.streamId !== "string" || !attachments?.acknowledge(viewer, paneId(message.paneId), message.streamId, message.offset)) {
+            throw new Error("Invalid acknowledgement");
+          }
+          return;
+        }
+        if (message.type === "take-over") { attachments?.takeOver(viewer, paneId(message.paneId)); return; }
+        if (message.type === "role") {
+          if (message.mode !== "interact" && message.mode !== "observe") throw new Error("Invalid role");
+          viewer.mode = message.mode;
           return;
         }
         if (message.type === "watch") {
