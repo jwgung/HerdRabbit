@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.18";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.18";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.19";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.19";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -50,8 +50,8 @@ import {
   aiRestartHint,
   isAiLoginWorkspace,
   paneKeepsInputHistory,
-} from "./ui-model.js?v=1.2.18";
-import { ansiToSegments } from "./ansi.js?v=1.2.18";
+} from "./ui-model.js?v=1.2.19";
+import { ansiToSegments } from "./ansi.js?v=1.2.19";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -62,45 +62,45 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.18";
-import { linkTerminalSegments } from "./terminal-links.js?v=1.2.18";
-import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.18";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.18";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.18";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.18";
+} from "./browse-preference.js?v=1.2.19";
+import { linkTerminalSegments } from "./terminal-links.js?v=1.2.19";
+import { attachDirectTerminalInput } from "./direct-terminal-input.js?v=1.2.19";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.19";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.19";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.19";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.18";
+} from "./pane-preference.js?v=1.2.19";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.18";
+} from "./workspace-preference.js?v=1.2.19";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.18";
+} from "./terminal-preference.js?v=1.2.19";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.18";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.18";
+} from "./completion-preference.js?v=1.2.19";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.19";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.18";
+} from "./input-history-preference.js?v=1.2.19";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.18";
+} from "./launch-session.js?v=1.2.19";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.18";
+} from "./push-notifications.js?v=1.2.19";
 
 function browserStorage() {
   try {
@@ -2144,12 +2144,13 @@ function serverActionMenu(server) {
       paths: ["M12 8h.01", "M11 12h1v4h1", "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"],
       onSelect: () => showServerDetails(server),
     },
-    // A Herdr SSH machine has no account switching yet.
-    ...(server.transport === "machine" ? [] : [{
+    // A Herdr SSH machine switches too, when it has Node.js; without it the
+    // dialog says so in place of each CLI's accounts.
+    {
       label: "AI accounts",
       paths: ["M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M4 20a8 8 0 0 1 16 0"],
       onSelect: () => showAiAccounts(server),
-    }]),
+    },
   ];
   // Sign-in belongs to the HerdRabbit the browser is talking to; a linked
   // machine has none.
