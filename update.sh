@@ -60,6 +60,14 @@ main() {
     HERDR_BIN="${SERVICE_HERDR_BIN:-${HERDR_BIN:-herdr}}"
     export HERDR_BIN
     need "$HERDR_BIN"
+    # A leaf never had a password, and the new code serves one without it only
+    # a locked page. Stop before anything changes and say how to move it over.
+    SERVER_ROLE="$(systemctl --user show "$UPDATE_SERVICE" --property=Environment --value | node scripts/service-environment.mjs HERDR_WEB_ROLE)"
+    if [ "$SERVER_ROLE" = leaf ]; then
+        log "This machine was installed as a leaf, which is no longer supported; remote PCs are added with herdr machine now."
+        log "         To keep HerdRabbit here, run 'git pull --ff-only && npm ci --omit=dev && npm run install-service' (it asks for a password)."
+        fail "a leaf cannot be updated in place; nothing was changed"
+    fi
 
     log "Fetching main in $UPDATE_DIRECTORY"
     git fetch origin main
@@ -101,13 +109,6 @@ main() {
     # including LAN and container bridges, and nothing else says so. The
     # installer binds loopback and lets Tailscale terminate HTTPS in front.
     BOUND_HOST="$(systemctl --user show "$UPDATE_SERVICE" --property=Environment --value | tr ' ' '\n' | sed -n 's/^HERDR_WEB_HOST=//p')"
-    SERVER_ROLE="$(systemctl --user show "$UPDATE_SERVICE" --property=Environment --value | tr ' ' '\n' | sed -n 's/^HERDR_WEB_ROLE=//p')"
-    # A former leaf without a password refuses to start, so it never gets here:
-    # the restart above rolls it back to the version it ran before.
-    if [ "$SERVER_ROLE" = leaf ]; then
-        log "This machine was installed as a leaf, which is no longer supported. It now listens on 127.0.0.1 only."
-        log "         Run 'npm run install-service' here to set it up again, and add it to your other HerdRabbit with herdr machine."
-    fi
     if [ "$BOUND_HOST" = 0.0.0.0 ]; then
         log "Warning: this service binds 0.0.0.0, so it answers on every network this machine is on, not only your tailnet."
         log "         Set Environment=HERDR_WEB_HOST=127.0.0.1 in the unit and register 'tailscale serve --https=<port> http://127.0.0.1:<port>' to close that off."

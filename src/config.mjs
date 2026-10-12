@@ -107,10 +107,10 @@ export function obsoleteSettingsWarning({ obsoleteSettings = [], wasLeaf = false
 // A leaf never had a password: the old server refused one and relied on the
 // peer gate instead. Some sat on loopback behind Tailscale Serve, which still
 // forwards the tailnet to them, so loopback alone does not close them. Without
-// a password a former leaf does not start at all.
+// a password a former leaf serves only this message.
 export function formerLeafRefusal({ wasLeaf = false } = {}, passwordRequired) {
   if (!wasLeaf || passwordRequired) return null;
-  return "This former leaf has no password, and leaf mode with its peer gate was removed. Run npm run install-service to set it up again (it asks for a password), or npm run password, then start it again.";
+  return "HerdRabbit is locked: this former leaf has no password, and leaf mode with its peer gate was removed. Run npm run install-service here to set it up again (it asks for a password), or npm run password and restart the service.";
 }
 
 export { parseAllowedHosts, parseHost, parsePort };

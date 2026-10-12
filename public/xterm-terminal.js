@@ -513,6 +513,10 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         mirrored = nextPaneId;
         clearScreen();
       }
+      // A mirror has no other page sizing it: it fits its own frame, even when
+      // the attach before it was following another page's grid.
+      owner = true;
+      host.classList.remove("is-adopted");
       host.hidden = false;
       fitNow();
       term.write(mirrorFrame(text));

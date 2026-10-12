@@ -9,6 +9,7 @@ import { loadWebPushService } from "./web-push-service.mjs";
 import { hostname } from "node:os";
 import { readAppVersion } from "./app-version.mjs";
 import { countLegacyServers } from "./legacy-servers.mjs";
+import { serveLocked } from "./locked-server.mjs";
 import { FileStore } from "./file-store.mjs";
 import { MultiServerClient } from "./multi-server-client.mjs";
 import { HerdrMachines, machineSocketDirectory } from "./herdr-machines.mjs";
@@ -23,7 +24,11 @@ const auth = await loadPasswordAuth(config.authFile);
 const leafRefusal = formerLeafRefusal(config, auth.required);
 if (leafRefusal) {
   console.error(leafRefusal);
-  process.exit(1);
+  // Nothing below runs: the port only says how to set a password.
+  await serveLocked(config, leafRefusal, {
+    onListening: () => console.log(`HerdRabbit locked: http://${config.host}:${config.port}`),
+  });
+  process.exit();
 }
 // This machine goes by its host name; a Herdr machine by its own label.
 function machineName(profile) {

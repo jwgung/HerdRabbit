@@ -380,6 +380,18 @@ test("a mirrored screen is redrawn whole, with every line break returning to the
   assert.equal(mirrorFrame("\x1b[32mok\x1b[0m\n\n"), "\x1b[0m\x1b[H\x1b[2J\x1b[32mok\x1b[0m\r\n");
 });
 
+test("a mirror fits its own frame even after following another page's grid", () => {
+  const { view, receive, classes, term } = setup();
+  view.show("a");
+  receive({ type: "pane-geometry", pane_id: "a", cols: 160, rows: 50, owner: false });
+  assert.equal(term().cols, 160);
+  receive({ type: "attach-unavailable", pane_id: "a", code: "attach_unsupported" });
+  assert.equal(view.mirror("a", "text"), true);
+  assert.ok(!classes.has("is-adopted"));
+  assert.equal(term().cols, 100);
+  assert.equal(term().rows, 30);
+});
+
 test("a pane that cannot attach is mirrored read-only, and attaching again takes over the screen", () => {
   const { view, sent, host, receive, fallbacks, term } = setup();
   view.show("a");

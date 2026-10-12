@@ -103,7 +103,7 @@ Files 탭과 업로드 대화상자도 이 머신들에서 동작합니다. File
 
 이전 버전은 다른 PC에 HerdRabbit을 "leaf" 모드로 하나 더 설치하고 **+ → Connect Server**로 연결했습니다. 그 방식은 없어졌습니다. 이제 원격 PC는 Herdr SSH 머신이고, 거기에는 HerdRabbit을 설치하지 않습니다. 이전 버전이 `~/.config/herdr-bridge/servers.json`(또는 `HERDR_WEB_SERVERS_FILE`)에 저장한 연결은 더 이상 표시하지 않습니다. 파일은 그대로 두고, 브라우저마다 한 번 몇 개였는지 알려 줍니다. 그 PC들은 **+ → Add SSH machine**(또는 `herdr machine add`)으로 다시 추가하세요.
 
-leaf로 설치했던 PC는 leaf 설정(`HERDR_WEB_ROLE`, `HERDR_WEB_PEER_LOGINS`, `HERDR_WEB_PEER_ADDRESSES`, `HERDR_WEB_HUB`)을 무시하고 경고를 한 줄 남기며, `127.0.0.1`에서만 듣습니다. leaf에는 원래 비밀번호가 없었고 그 대신이던 peer 검사도 없어졌으므로, 비밀번호가 없으면 Tailscale Serve 뒤에서 열린 채로 남지 않도록 시작하지 않습니다. 그 PC에서 `npm run install-service`를 다시 실행해 비밀번호가 있는 일반 HerdRabbit으로 설치하거나, Herdr SSH 머신으로만 쓴다면 그 서비스를 멈추세요.
+leaf로 설치했던 PC는 leaf 설정(`HERDR_WEB_ROLE`, `HERDR_WEB_PEER_LOGINS`, `HERDR_WEB_PEER_ADDRESSES`, `HERDR_WEB_HUB`)을 무시하고 경고를 한 줄 남기며, `127.0.0.1`에서만 듣습니다. leaf에는 원래 비밀번호가 없었고 그 대신이던 peer 검사도 없어졌습니다. 그래서 비밀번호가 없으면 HerdRabbit을 열지 않습니다. 서비스는 켜진 채로 남아 업데이트가 되돌려지지 않지만, 모든 요청에 비밀번호를 설정하라는 503 응답만 돌려주므로 Tailscale Serve 뒤에서 열린 채로 남지 않습니다. 이 버전부터 `update.sh`는 leaf를 만나면 아무것도 바꾸기 전에 멈추고 같은 절차를 알려 줍니다. 그 PC에서 `npm run install-service`를 다시 실행해 비밀번호가 있는 일반 HerdRabbit으로 설치하거나, Herdr SSH 머신으로만 쓴다면 그 서비스를 멈추세요.
 
 ## 구조
 
