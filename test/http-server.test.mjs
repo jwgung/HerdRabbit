@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { get } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -834,6 +834,7 @@ test("lists passkeys by name only and removes one after the password", async (co
     stored("phone-credential", { label: "Safari · iOS", createdAt: 1_700_000_000_000, lastUsedAt: 1_700_000_500_000 }),
     stored("old-credential"),
   ];
+  await writeFile(join(directory, "auth.json"), JSON.stringify(configuration));
   const auth = new PasswordAuth(configuration, { authFile: join(directory, "auth.json") });
   const app = await startServer({ async snapshot() { return {}; } }, {
     auth,

@@ -86,6 +86,8 @@ main() {
     log "Verifying the updated code"
     npm run verify || roll_back "verification failed"
     log "Configuring Claude to use native terminal scrollback"
+    # Not rolled back: it only edits Claude's settings, and the new code has
+    # already passed verification.
     node scripts/configure-claude.mjs
     log "Restarting $UPDATE_SERVICE"
     RESTARTED=1

@@ -155,6 +155,12 @@ function validateStoredConfiguration(value) {
   };
 }
 
+// A new epoch unsigns every cookie and launch token made under the old one, so
+// nothing about the sessions it ended needs keeping.
+function allSessionsEnded(configuration) {
+  return { ...configuration, sessionEpoch: (configuration.sessionEpoch ?? 0) + 1, sessions: [], endedUnlisted: [] };
+}
+
 async function derivePassword(password, salt) {
   return scrypt(password, salt, PASSWORD_BYTES, SCRYPT_OPTIONS);
 }
@@ -233,10 +239,9 @@ function cookieValue(cookieHeader, name) {
   return null;
 }
 
-// Wrong passwords, counted for the whole instance: there is one password, and
-// behind Tailscale Serve every caller has the same address. A few mistakes are
-// free; after that each one locks password checks for twice as long as the
-// last, up to fifteen minutes. A locked check is refused before scrypt runs.
+// Wrong passwords, counted for one caller, or by PasswordAttemptsByKey for the
+// whole instance as well. A few mistakes are free; after that each one locks
+// password checks for twice as long as the last, up to fifteen minutes. A locked check is refused before scrypt runs.
 // Passkey sign-in is not counted, so it still works while this is locked.
 export class PasswordAttempts {
   constructor({ now = () => Date.now(), free = 5, maxLockMs = 15 * 60_000 } = {}) {
@@ -402,7 +407,7 @@ export class PasswordAuth {
       const passkeys = configuration.passkeys.filter(({ id }) => passkeyHandle(id) !== handle);
       removed = passkeys.length < configuration.passkeys.length;
       if (!removed) return configuration;
-      return { ...configuration, passkeys, sessionEpoch: (configuration.sessionEpoch ?? 0) + 1, sessions: [], endedUnlisted: [] };
+      return { ...allSessionsEnded(configuration), passkeys };
     });
     if (removed) this.#sessionsEnded();
     return removed;
@@ -456,10 +461,11 @@ export class PasswordAuth {
       { id: session.id, expiresAt: session.expiresAt },
       ...(this.configuration.endedUnlisted ?? []).filter((item) => item.expiresAt > now && item.id !== session.id),
     ];
-    // Past the limit, ending them all is the one way left that loses none.
-    const ending = endedUnlisted.length > MAX_SESSIONS
-      ? this.#replaceConfiguration({ ...this.configuration, sessionEpoch: (this.configuration.sessionEpoch ?? 0) + 1, sessions: [], endedUnlisted: [] })
-      : this.#replaceConfiguration({ ...this.configuration, endedUnlisted });
+    // Past the limit there is no room to remember this one, so every session
+    // ends instead: signing out must never be what gets dropped.
+    const ending = this.#replaceConfiguration(endedUnlisted.length > MAX_SESSIONS
+      ? allSessionsEnded(this.configuration)
+      : { ...this.configuration, endedUnlisted });
     this.#sessionsEnded();
     await ending;
     return true;
@@ -478,9 +484,7 @@ export class PasswordAuth {
   // Every session, including ones signed before sessions were listed.
   async endAllSessions() {
     if (!this.required) return;
-    const ending = this.#replaceConfiguration({
-      ...this.configuration, sessionEpoch: (this.configuration.sessionEpoch ?? 0) + 1, sessions: [], endedUnlisted: [],
-    });
+    const ending = this.#replaceConfiguration(allSessionsEnded(this.configuration));
     this.#sessionsEnded();
     await ending;
   }
@@ -511,15 +515,27 @@ export class PasswordAuth {
       const before = this.configuration;
       const next = validateStoredConfiguration(update(before));
       if (next === before) return;
-      await writeConfigurationFile(this.authFile, next);
-      this.configuration = this.configuration === before ? next : validateStoredConfiguration(update(this.configuration));
+      await this.#write(next);
+      if (this.configuration === before) this.configuration = next;
+      else this.configuration = validateStoredConfiguration(update(this.configuration));
     });
     this.writeQueue = operation.catch(() => {});
     return operation;
   }
 
+  // The password CLI writes the file while the service runs and restarts it
+  // after. Until then this server holds the old password, so it must not write
+  // that back over a new one, or recreate a file that turned the password off.
+  async #write(configuration) {
+    const onDisk = await readFile(this.authFile, "utf8").then(JSON.parse).catch(() => null);
+    if (onDisk?.password?.hash !== configuration.password.hash || onDisk?.sessionSecret !== configuration.sessionSecret) {
+      throw new Error("The password was changed outside this server; restart it to use the new one");
+    }
+    await writeConfigurationFile(this.authFile, configuration);
+  }
+
   #persist() {
-    const operation = this.writeQueue.then(() => writeConfigurationFile(this.authFile, this.configuration));
+    const operation = this.writeQueue.then(() => this.#write(this.configuration));
     this.writeQueue = operation.catch(() => {});
     return operation;
   }
@@ -593,6 +609,7 @@ export class PasswordAuth {
   // before sessions were listed. Those stay valid until they expire, so an
   // upgrade signs no one out; a listed one must still be on the list.
   #tokenSession(token) {
+    if (!this.required || !token) return null;
     const unlisted = !this.#hasValidToken(token, LISTED_COOKIE);
     if (unlisted && !this.#hasValidToken(token, "cookie")) return null;
     const [nonce, rawExpiry] = token.split(".");

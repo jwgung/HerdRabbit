@@ -227,7 +227,6 @@ function hideAppAlert() {
   appAlert.hidden = true;
 }
 
-
 // Two short tones. A page the person has not touched yet may not play sound;
 // then the alert is only seen.
 let alertAudio = null;

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -116,6 +116,7 @@ test("keeps passkey names and dates, removes by handle, and loads older entries"
     deviceType: "singleDevice",
     backedUp: false,
   }];
+  await writeFile(authFile, JSON.stringify(configuration));
   const auth = new PasswordAuth(configuration, { authFile, now: () => now });
   await auth.addPasskey({
     id: "newer",
@@ -175,6 +176,7 @@ test("removing a passkey signs out every session made before it", async () => {
     deviceType: "multiDevice",
     backedUp: true,
   }];
+  await writeFile(authFile, JSON.stringify(configuration));
   const auth = new PasswordAuth(configuration, { authFile });
   const before = auth.createSession();
   const beforeLaunch = auth.createLaunchToken();
@@ -362,4 +364,28 @@ test("ending a session while another write is in flight stays ended, on disk too
   await auth.writeQueue;
   assert.equal(auth.hasValidSession(`herdr_session=${kept}`), false, "a write in flight does not undo the epoch");
   assert.equal((await loadPasswordAuth(authFile)).hasValidSession(`herdr_session=${kept}`), false);
+});
+
+test("a running server never writes its old password over one changed from the command line", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-auth-"));
+  const authFile = join(directory, "auth.json");
+  await writePasswordConfiguration(authFile, "old");
+  const auth = await loadPasswordAuth(authFile);
+  await writePasswordConfiguration(authFile, "new");
+  await assert.rejects(auth.endAllSessions(), /changed outside this server/);
+  const session = auth.createSession();
+  await auth.writeQueue;
+  assert.equal(await (await loadPasswordAuth(authFile)).verifyPassword("new"), true);
+  assert.equal(auth.hasValidSession(`herdr_session=${session}`), true, "this server keeps working until it restarts");
+
+  await unlink(authFile);
+  auth.createSession();
+  await auth.writeQueue;
+  assert.equal((await loadPasswordAuth(authFile)).required, false, "a password turned off stays off");
+});
+
+test("without a password there is no current session to name", () => {
+  const auth = new PasswordAuth(null);
+  assert.equal(auth.currentSessionId(undefined), null);
+  assert.equal(auth.currentSessionId("herdr_session=anything"), null);
 });
