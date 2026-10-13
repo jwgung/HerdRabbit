@@ -3,7 +3,7 @@
 ## herdr-web-ui
 
 Parts of the terminal attachment (`src/pane-attachments.mjs`, `src/output-window.mjs`,
-`src/attach-output.mjs`, `src/secret-prompt.mjs`, `public/xterm-terminal.js`,
+`src/attach-output.mjs`, `public/secret-prompt.js`, `public/xterm-terminal.js`,
 `public/terminal-widths.js`), the Claude and Codex conversation readers (`src/conversation/pages.mjs`,
 `src/conversation/claude.mjs`, `src/conversation/codex.mjs`, `src/conversation/monitor.mjs`, and the Codex
 rollout fixtures in `test/conversation-codex.test.mjs`), the Chat lens (`public/chat/chat-view.js`,

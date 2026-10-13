@@ -2,6 +2,8 @@
 // pane keeps the message typed but not sent. The drafts live in memory and are
 // mirrored to localStorage, a bounded number of panes and a bounded size each.
 // Only unsent text goes here: whoever sends or queues a message clears it first.
+import { secretPrompt } from "./secret-prompt.js?v=1.2.30";
+
 export const COMPOSER_DRAFT_STORAGE_KEY = "herdrbridge-composer-drafts";
 export const MAX_DRAFT_LENGTH = 8_000;
 export const MAX_DRAFT_PANES = 30;
@@ -32,12 +34,15 @@ function loaded(storage, now) {
   return new Map(ordered);
 }
 
-// isSecret(paneId) tells whether that pane's screen asks for a password right
-// now. Such a draft stays in memory for this visit, is never written, and any
-// copy already stored for the pane is removed.
+// isSecret(paneId) tells whether that pane's draft must not be written: its
+// screen asks for a password, or cannot be trusted to say it does not. Such a
+// draft stays in memory for this visit, is never written, and any copy already
+// stored for the pane is removed. A text judged secret stays secret while it is
+// unchanged, even if the prompt leaves the screen, and a text judged fine stays
+// stored while unchanged; only a changed, cleared or sent text is judged again.
 export function createComposerDrafts(storage, now = Date.now, isSecret = () => false) {
   const entries = loaded(storage, now());
-  const memoryOnly = new Set();
+  const memoryOnly = new Map(); // pane id -> the text judged secret
 
   // Text longer than a draft may be stays in memory for this visit only: a
   // stale shorter copy in storage must not come back instead of it.
@@ -64,12 +69,20 @@ export function createComposerDrafts(storage, now = Date.now, isSecret = () => f
     get(paneId) {
       return validPaneId(paneId) ? entries.get(paneId)?.text ?? "" : "";
     },
-    set(paneId, text) {
+    // `memoryOnly: true` keeps this text out of storage without asking.
+    set(paneId, text, { memoryOnly: forced = false } = {}) {
       if (!validPaneId(paneId)) return false;
       if (typeof text !== "string" || text === "") return this.clear(paneId);
-      let secret = false;
-      try { secret = isSecret(paneId) === true; } catch { secret = true; }
-      if (secret) memoryOnly.add(paneId); else memoryOnly.delete(paneId);
+      // An unchanged text keeps the verdict it already has, either way: it was
+      // judged when it was typed, and a later screen (a prompt appearing, or an
+      // unreadable one while the page unloads) does not change what it is.
+      const unchanged = entries.get(paneId)?.text === text;
+      let secret = forced;
+      if (!secret && unchanged) secret = memoryOnly.get(paneId) === text;
+      else if (!secret) {
+        try { secret = isSecret(paneId) === true; } catch { secret = true; }
+      }
+      if (secret) memoryOnly.set(paneId, text); else memoryOnly.delete(paneId);
       entries.delete(paneId);
       entries.set(paneId, { text, at: now() });
       while (entries.size > MAX_DRAFT_PANES) entries.delete(entries.keys().next().value);
@@ -80,8 +93,24 @@ export function createComposerDrafts(storage, now = Date.now, isSecret = () => f
       if (!entries.delete(paneId)) return true;
       return persist();
     },
+    // Sign-out: nothing of any pane stays, in memory or in storage.
+    clearAll() {
+      entries.clear();
+      memoryOnly.clear();
+      persist();
+    },
     panes() {
       return [...entries.keys()];
     },
   };
+}
+
+// `screen` is { paneId, text, cols, fresh } from the terminal. True when the
+// draft of `paneId` must not be written: it is not the pane on show, the screen
+// is another pane's, missing, parked, not yet drawn or held back (not fresh), or
+// a password prompt is on it. Anything the page cannot verify fails closed.
+export function draftScreenIsSecret(paneId, shownPaneId, screen) {
+  if (!paneId || paneId !== shownPaneId) return true;
+  if (!screen || screen.paneId !== paneId || screen.fresh !== true) return true;
+  return secretPrompt(String(screen.text ?? ""), screen.cols || Infinity) !== null;
 }

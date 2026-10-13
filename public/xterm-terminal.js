@@ -93,6 +93,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   // or while xterm is still drawing the one before: drawn once they are back
   // at the bottom and xterm is done, so frames never pile up in its queue.
   let heldFrame = null;
+  // False from a screen clear until the first output of the new stream is drawn.
+  let drawn = false;
   let drawingFrame = false;
 
   function create() {
@@ -392,6 +394,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       case "pty-data": {
         const stream = generation;
         term.write(message.data, () => {
+          if (stream === generation) drawn = true;
           // Drawn after the page moved on to another pane or socket: that credit is not owed.
           if (message.flow && stream === generation) connection.acknowledge(message.pane_id, message.flow.stream_id, message.flow.offset);
         });
@@ -446,6 +449,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   let generation = 0;
   function clearScreen() {
     generation += 1;
+    drawn = false;
     cancelPress();
     selecting = null;
     term?.clearSelection();
@@ -503,7 +507,9 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     const frame = heldFrame;
     heldFrame = null;
     drawingFrame = true;
+    const stream = generation;
     term.write(frame, () => {
+      if (stream === generation) drawn = true;
       drawingFrame = false;
       if (mirrored) drawHeldFrame();
     });
@@ -585,14 +591,19 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       fitNow();
     },
     // The last lines of the screen that hold text, for the page to tell whether
-    // a program asks for a password. Empty until a terminal is drawn.
+    // a program asks for a password. `paneId` is the pane the screen belongs
+    // to, and `fresh` is false whenever the text cannot be trusted to be that
+    // pane's current screen: no terminal yet, parked, the first frame of a new
+    // stream not drawn, or a frame held back because the reader scrolled up.
     screenText(lines = 8) {
-      if (!term) return { text: "", cols: 0 };
+      const shown = paneId ?? mirrored ?? null;
+      if (!term) return { paneId: shown, text: "", cols: 0, fresh: false };
       const buffer = term.buffer.active;
       const rows = [];
       for (let y = buffer.baseY; y < buffer.baseY + term.rows; y += 1) rows.push(buffer.getLine(y)?.translateToString(true) ?? "");
       while (rows.length && rows.at(-1).trim() === "") rows.pop();
-      return { text: rows.slice(-lines).join("\n"), cols: term.cols };
+      const fresh = shown !== null && !host.hidden && drawn && heldFrame === null && atBottom();
+      return { paneId: shown, text: rows.slice(-lines).join("\n"), cols: term.cols, fresh };
     },
     // Fits again once the terminal is shown (the Terminal lens, with the key bar back).
     refit() { fitNow(); },

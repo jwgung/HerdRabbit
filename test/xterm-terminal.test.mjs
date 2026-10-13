@@ -21,7 +21,8 @@ class Terminal {
     this.resets = 0;
     this.unicode = { register() {}, activeVersion: "" };
     this.listeners = { data: [], resize: [] };
-    this.buffer = { active: { viewportY: 0, baseY: 0 } };
+    this.screen = [];
+    this.buffer = { active: { viewportY: 0, baseY: 0, getLine: (y) => (this.screen[y] === undefined ? undefined : { translateToString: (trim) => (trim ? this.screen[y].trimEnd() : this.screen[y]) }) } };
     // The private hook the page overrides, as xterm 5.5 has it.
     const coreService = { inputs: [], triggerDataEvent(data, wasUserInput) { this.inputs.push([data, wasUserInput]); } };
     this._core = {
@@ -513,3 +514,50 @@ test("a pane that cannot attach is mirrored read-only, and attaching again takes
   assert.equal(host.hidden, true);
 });
 
+
+test("screenText says whose screen it is and whether it can be trusted", () => {
+  const { view, receive, term, host } = setup();
+  // no terminal yet
+  assert.deepEqual(view.screenText(), { paneId: null, text: "", cols: 0, fresh: false });
+  view.show("a");
+  // the new stream has drawn nothing yet
+  assert.equal(view.screenText().paneId, "a");
+  assert.equal(view.screenText().fresh, false, "first frame not drawn");
+  term().screen = ["$ sudo true", "[sudo] password for me: ", "", ""];
+  receive({ type: "pty-data", pane_id: "a", data: "x" });
+  assert.equal(view.screenText().fresh, false, "written but not yet drawn");
+  term().finishWrites();
+  const screen = view.screenText(8);
+  assert.deepEqual(screen, { paneId: "a", text: "$ sudo true\n[sudo] password for me:", cols: 100, fresh: true });
+  // another pane: cleared again until its first frame is drawn
+  view.show("b");
+  assert.deepEqual([view.screenText().paneId, view.screenText().fresh], ["b", false]);
+  receive({ type: "pty-data", pane_id: "b", data: "y" });
+  term().finishWrites();
+  assert.equal(view.screenText().fresh, true);
+  // data of the pane left behind does not count for the new stream
+  view.show("a");
+  term().finishWrites();
+  assert.equal(view.screenText().fresh, false);
+  // parked (the Chat lens left the terminal alone)
+  receive({ type: "pty-data", pane_id: "a", data: "z" });
+  term().finishWrites();
+  assert.equal(view.screenText().fresh, true);
+  view.show(null);
+  assert.equal(view.screenText().paneId, null);
+  assert.equal(view.screenText().fresh, false, "parked");
+  assert.equal(host.hidden, true);
+});
+
+test("a mirrored screen is not trusted while a frame is held back or before it is drawn", () => {
+  const { view, term } = setup();
+  view.mirror("m", "$ ");
+  assert.equal(view.screenText().paneId, "m");
+  assert.equal(view.screenText().fresh, false, "frame still being drawn");
+  term().finishWrites();
+  assert.equal(view.screenText().fresh, true);
+  term().scrollTo(0, 10); // the reader scrolled up
+  view.mirror("m2", "x");
+  view.mirror("m2", "[sudo] password for me:");
+  assert.equal(view.screenText().fresh, false, "a held frame");
+});

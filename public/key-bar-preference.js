@@ -60,13 +60,19 @@ export function keyBarItemKey(item, heldModifiers = []) {
   return combinedTerminalKey(item.key, item.modifiers ?? heldModifiers);
 }
 
+// What the window can create: a name from the list, or one printable character.
+function isOfferedBase(name) {
+  if (KEY_BAR_KEYS.includes(name)) return true;
+  return [...name].length === 1 && !/[\p{C}\s+]/u.test(name);
+}
+
 function sanitizeItem(raw) {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
   if (raw.type === "modifier") {
     return KEY_BAR_MODIFIERS.includes(raw.modifier) ? modifier(raw.modifier) : null;
   }
   if (raw.type !== "key" || typeof raw.key !== "string" || raw.key.includes("+")) return null;
-  if (!combinedTerminalKey(raw.key, [])) return null;
+  if (!isOfferedBase(raw.key) || !combinedTerminalKey(raw.key, [])) return null;
   if (raw.modifiers === undefined) return key(raw.key);
   const modifiers = normalizedModifiers(raw.modifiers);
   if (!modifiers || !combinedTerminalKey(raw.key, modifiers)) return null;
@@ -97,7 +103,7 @@ export function sanitizeKeyBarItems(raw, fallback = DEFAULT_KEY_BAR_ITEMS) {
 export function customKeyBarItem(base, modifiers = []) {
   if (typeof base !== "string") return null;
   const name = [...base].length === 1 ? base.toLowerCase() : base;
-  if (name.trim() === "" || name.includes("+")) return null;
+  if (!isOfferedBase(name)) return null;
   const parts = normalizedModifiers(modifiers) ?? [];
   if (!combinedTerminalKey(name, []) || !combinedTerminalKey(name, parts)) return null;
   return parts.length ? key(name, parts) : key(name);

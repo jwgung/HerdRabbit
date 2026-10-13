@@ -6,6 +6,7 @@ import {
   MAX_DRAFT_LENGTH,
   MAX_DRAFT_PANES,
   createComposerDrafts,
+  draftScreenIsSecret,
 } from "../public/composer-draft-preference.js";
 
 function memoryStorage(initial = {}) {
@@ -137,4 +138,62 @@ test("a draft is not written while the screen asks for a password, and is again 
   const throwing = createComposerDrafts(memoryStorage(), Date.now, () => { throw new Error("no screen"); });
   throwing.set("c", "x");
   assert.deepEqual(throwing.panes(), ["c"]);
+});
+
+test("a text judged secret stays out of storage while it is unchanged, whatever the screen shows later", () => {
+  const storage = memoryStorage();
+  let secret = true;
+  const drafts = createComposerDrafts(storage, Date.now, () => secret);
+  drafts.set("a", "hunter2");
+  secret = false; // the prompt left the screen
+  drafts.set("a", "hunter2");
+  drafts.set("a", "hunter2");
+  assert.equal(storage.values.has(COMPOSER_DRAFT_STORAGE_KEY), false, "still not written");
+  assert.equal(drafts.get("a"), "hunter2");
+  drafts.set("a", "hunter2!");
+  assert.equal(createComposerDrafts(storage).get("a"), "hunter2!", "a changed text is judged again");
+  secret = true;
+  drafts.set("a", "again");
+  secret = false;
+  drafts.clear("a");
+  drafts.set("a", "again");
+  assert.equal(createComposerDrafts(storage).get("a"), "again", "cleared, then typed anew, is judged anew");
+  assert.equal(drafts.set("b", "forced", { memoryOnly: true }), true);
+  assert.deepEqual(Object.keys(JSON.parse(storage.getItem(COMPOSER_DRAFT_STORAGE_KEY))), ["a"], "a forced memory-only draft is not written");
+  assert.equal(drafts.get("b"), "forced");
+});
+
+test("sign-out removes every draft from memory and storage", () => {
+  const storage = memoryStorage();
+  const drafts = createComposerDrafts(storage);
+  drafts.set("a", "one");
+  drafts.set("b", "two", { memoryOnly: true });
+  drafts.clearAll();
+  assert.deepEqual(drafts.panes(), []);
+  assert.equal(storage.values.has(COMPOSER_DRAFT_STORAGE_KEY), false);
+  assert.equal(createComposerDrafts(storage).get("a"), "");
+});
+
+test("the screen check fails closed unless it is the pane's own, drawn, current screen without a prompt", () => {
+  const ok = { paneId: "a", text: "$ ", cols: 80, fresh: true };
+  assert.equal(draftScreenIsSecret("a", "a", ok), false);
+  assert.equal(draftScreenIsSecret("a", "a", { ...ok, text: "[sudo] password for me:" }), true, "a prompt");
+  assert.equal(draftScreenIsSecret("a", "a", { ...ok, paneId: "b" }), true, "another pane's screen");
+  assert.equal(draftScreenIsSecret("a", "a", { ...ok, paneId: null }), true, "no pane shown");
+  assert.equal(draftScreenIsSecret("a", "a", { ...ok, fresh: false }), true, "no term, parked, first frame not drawn or a held frame");
+  assert.equal(draftScreenIsSecret("a", "b", ok), true, "the draft is not the pane on show");
+  assert.equal(draftScreenIsSecret("a", "a", null), true);
+  assert.equal(draftScreenIsSecret(null, null, ok), true);
+});
+
+test("a text stored as fine is not pulled out by a later unreadable or prompting screen while unchanged", () => {
+  const storage = memoryStorage();
+  let secret = false;
+  const drafts = createComposerDrafts(storage, Date.now, () => secret);
+  drafts.set("a", "fine text");
+  secret = true; // the page is unloading, or a prompt appeared
+  drafts.set("a", "fine text");
+  assert.equal(createComposerDrafts(storage).get("a"), "fine text");
+  drafts.set("a", "fine text and a password");
+  assert.equal(createComposerDrafts(storage).get("a"), "", "changed under a prompt: not written, old copy gone");
 });

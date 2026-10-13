@@ -107,3 +107,15 @@ test("without usable storage the bar still works", () => {
   assert.equal(resetKeyBarItems(throwing), false);
   assert.deepEqual(sanitizeKeyBarItems(undefined), [...DEFAULT_KEY_BAR_ITEMS]);
 });
+
+test("a stored base key must be one the window can create", () => {
+  const stored = (items) => memoryStorage({ [KEY_BAR_STORAGE_KEY]: JSON.stringify({ version: 1, items }) });
+  const read = (items) => labels(readKeyBarItems(stored(items)));
+  assert.deepEqual(read([
+    { type: "key", key: "esc" }, { type: "key", key: "f12" }, { type: "key", key: "r", modifiers: ["ctrl"] },
+    { type: "key", key: "é" }, { type: "key", key: "F1" }, { type: "key", key: "xyz" }, { type: "key", key: "unknown" },
+    { type: "key", key: "a\u0007" }, { type: "key", key: "\u200b" }, { type: "key", key: "pageup", modifiers: ["alt"] },
+  ]), ["Esc", "F12", "Ctrl+R", "é", "Alt+PgUp"]);
+  assert.equal(customKeyBarItem("xyz", ["ctrl"]), null);
+  assert.equal(customKeyBarItem("f5", ["ctrl"]).key, "f5");
+});

@@ -41,6 +41,14 @@ test("drafts: saved on pane switch, cleared before a send, never kept for a pass
   assert.match(app, /scheduleComposerDraftSave\(\);\n\}\);/u);
 });
 
+test("sign-out drops the drafts, and an unverifiable screen keeps a draft out of storage", () => {
+  assert.match(app, /function signedOut\(\) \{[^}]*composerDrafts\.clearAll\(\)/u);
+  assert.match(app, /draftScreenIsSecret\(paneId, draftPaneId, attachedTerminal\.screenText\(8\)\)/u);
+  assert.match(app, /composerDrafts\.set\(paneId, text, \{ memoryOnly: true \}\)/u, "a send that failed after leaving the pane is not written");
+  assert.doesNotMatch(page, /key-bar-feedback/u);
+  assert.match(app, /KEY_BAR_MODIFIERS\.filter/u);
+});
+
 test("the ported files carry their attribution, and the notices list them", () => {
   for (const file of ["key-bar-preference.js", "composer-draft-preference.js", "key-bar.css"]) {
     assert.match(notices, new RegExp(`public/${file.replace(".", "\\.")}`, "u"), `${file} is in THIRD_PARTY_NOTICES.md`);

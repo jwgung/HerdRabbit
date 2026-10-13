@@ -22,6 +22,7 @@ const attachments = new PaneAttachments({
   resolveTerminal: async (paneId) => ({ command: "herdr", args: ["terminal", "attach", `term_${paneId}`], env: {}, terminalId: `term_${paneId}` }),
   spawnPty: (options) => {
     let exit;
+    herdr.screen = (text) => options.onData(text);
     const pty = { options, exited: new Promise((resolve) => { exit = resolve; }), write() {}, resize() {}, pause() {}, resume() {}, kill() { exit(); } };
     setTimeout(() => options.onData(herdr.asking ? "\x1b[?1049h$ sudo true\r\n[sudo] password for me: " : "\x1b[?1049hready terminal\r\n$ "), 10);
     return pty;
@@ -244,6 +245,12 @@ try {
     await noCopy("not after the typing pause");
     await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
     await noCopy("not on pagehide");
+    // The prompt leaves the screen but the text is unchanged: it stays unwritten.
+    herdr.screen("\x1b[2J\x1b[H$ ");
+    await page.waitForFunction(() => !document.querySelector("#terminal-xterm")?.textContent.includes("password for me"), null, { timeout: 8_000 });
+    await page.waitForTimeout(700);
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    await noCopy("not once the prompt is gone, for the same text");
     await openPane("w1:p1");
     await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
     await noCopy("not on a pane switch");

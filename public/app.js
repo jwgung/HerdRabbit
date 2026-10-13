@@ -99,12 +99,12 @@ import {
   readInputHistories,
   writeInputHistories,
 } from "./input-history-preference.js?v=1.2.30";
-import { secretPrompt } from "./secret-prompt.js?v=1.2.30";
-import { createComposerDrafts } from "./composer-draft-preference.js?v=1.2.30";
+import { createComposerDrafts, draftScreenIsSecret } from "./composer-draft-preference.js?v=1.2.30";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
   KEY_BAR_KEYS,
+  KEY_BAR_MODIFIERS,
   addKeyBarItem,
   customKeyBarItem,
   keyBarItemId,
@@ -316,13 +316,10 @@ const initialAcknowledgedCompletions = readAcknowledgedCompletions(
   panePreferenceStorage,
 );
 const initialInputHistories = readInputHistories(panePreferenceStorage);
-// A draft is not stored while the pane's screen asks for a password.
-const composerDrafts = createComposerDrafts(panePreferenceStorage, Date.now, (paneId) => {
-  // draftPaneId is the pane the terminal still shows while a switch saves it.
-  if (paneId !== draftPaneId) return false;
-  const { text, cols } = attachedTerminal.screenText(8);
-  return secretPrompt(text, cols || Infinity) !== null;
-});
+// A draft is not stored unless the screen is known to be this pane's current
+// one and is not asking for a password: anything else fails closed.
+const composerDrafts = createComposerDrafts(panePreferenceStorage, Date.now, (paneId) =>
+  draftScreenIsSecret(paneId, draftPaneId, attachedTerminal.screenText(8)));
 document.documentElement.style.setProperty(
   "--terminal-font-size",
   `${initialTerminalFontSize}px`,
@@ -907,6 +904,7 @@ function syncComposerDraft() {
   const leaving = draftPaneId;
   draftBlocked.delete(leaving);
   draftPaneId = paneId;
+  if (paneId) draftBlocked.delete(paneId);
   resetInputHistoryNavigation();
   const text = paneId ? composerDrafts.get(paneId) : "";
   if (elements.terminalInput.value !== text) {
@@ -924,15 +922,18 @@ function holdComposerDraft(paneId) {
   composerDrafts.clear(paneId);
 }
 
-function releaseComposerDraft(paneId, { sent, text }) {
+function releaseComposerDraft(paneId, { sent, text, secret = false }) {
   draftHeld.delete(paneId);
   if (sent) {
-    draftBlocked.delete(paneId);
+    // A password answer keeps its pane blocked until the composer is cleared or left.
+    if (secret && draftPaneId === paneId && elements.terminalInput.value !== "") draftBlocked.add(paneId);
+    else draftBlocked.delete(paneId);
     return;
   }
   if (draftPaneId === paneId) saveComposerDraft();
-  // The pane was left while the message was on its way and it did not go.
-  else if (!draftBlocked.has(paneId) && !composerDrafts.get(paneId)) composerDrafts.set(paneId, text);
+  // The pane was left while the message was on its way and it did not go: its
+  // screen is not on show to be checked, so the text stays in memory only.
+  else if (!draftBlocked.has(paneId) && !composerDrafts.get(paneId)) composerDrafts.set(paneId, text, { memoryOnly: true });
 }
 
 window.addEventListener("pagehide", saveComposerDraft);
@@ -1758,6 +1759,13 @@ async function signOut() {
 
 function signedOut() {
   state.launchToken = clearLaunchToken(launchSessionStorage);
+  // Unsent text is this browser's, for this sign-in: it goes with it.
+  window.clearTimeout(draftSaveTimer);
+  draftSaveTimer = null;
+  composerDrafts.clearAll();
+  draftBlocked.clear();
+  clearComposer();
+  draftPaneId = null;
   showLogin();
 }
 
@@ -3228,6 +3236,7 @@ function showTerminalView(shown) {
 document.querySelector("#terminal-take-over").addEventListener("click", () => attachedTerminal.takeOver());
 
 function clearComposer() {
+  if (draftPaneId) draftBlocked.delete(draftPaneId);
   elements.terminalInput.value = "";
   window.clearTimeout(terminalInputResizeTimer);
   terminalInputResizeTimer = null;
@@ -3284,12 +3293,14 @@ elements.inputForm.addEventListener("submit", async (event) => {
   // The Chat lens shows the message on its way and goes to the end at once.
   // The text itself shows only once the server says it was no password answer.
   let delivered = false;
+  let secret = false;
   if (paneId) holdComposerDraft(paneId);
   chatLens.sent(paneId, null);
   let pending = null;
   try {
     if (text) {
       const sent = await sendText(text, paneId);
+      secret = sent?.secret === true;
       // An answer to a password prompt is never kept, nor left on show in the chat.
       if (!sent?.secret) pending = chatLens.pend(paneId, text);
       if (!sent?.secret && paneKeepsInputHistory(paneId, snapshotRecords())) rememberSentInput(paneId, text);
@@ -3305,7 +3316,7 @@ elements.inputForm.addEventListener("submit", async (event) => {
     chatLens.unsent(paneId, pending);
     setFeedback(error.message, true);
   } finally {
-    if (paneId) releaseComposerDraft(paneId, { sent: delivered, text });
+    if (paneId) releaseComposerDraft(paneId, { sent: delivered, text, secret });
     submitButton.disabled = false;
   }
 });
@@ -3527,7 +3538,6 @@ const keyBarDialog = {
   comboChar: document.querySelector("#key-bar-combo-char"),
   comboPreview: document.querySelector("#key-bar-combo-preview"),
   comboAdd: document.querySelector("#key-bar-combo-add"),
-  feedback: document.querySelector("#key-bar-feedback"),
 };
 const KEY_BAR_CHARACTER = "character";
 const comboModifiers = new Set();
@@ -3574,7 +3584,7 @@ function fillKeyBarSelects() {
   const chosen = keyBarDialog.addSelect.value;
   const present = new Set(keyBarItems.map(keyBarItemId));
   const options = [
-    ...["ctrl", "alt", "shift"].filter((name) => !present.has(`modifier:${name}`)).map(modifierOption),
+    ...KEY_BAR_MODIFIERS.filter((name) => !present.has(`modifier:${name}`)).map(modifierOption),
     ...KEY_BAR_KEYS.filter((name) => !present.has(keyBarItemId({ type: "key", key: name }))).map(keyOption),
   ];
   if (!options.length) {
