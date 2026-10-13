@@ -137,6 +137,43 @@ if [ -L "$1" ] || [ ! -f "$1" ]; then exit 64; fi
 rm -f -- "$1" 2>/dev/null || exit 66
 `;
 
+// Claude Code transcripts (conversation/stores.mjs). $1: a session id (a
+// UUID); the rest: project folder names ([A-Za-z0-9-] only). The first
+// `<session>.jsonl` under one of those projects, else under any project,
+// in the store an SSH command's Claude would use.
+const LOCATE_TRANSCRIPT_SCRIPT = `LC_ALL=C; export LC_ALL
+case "$CLAUDE_CONFIG_DIR" in /*) c=$CLAUDE_CONFIG_DIR ;; *) c=$HOME/.claude ;; esac
+p=$c/projects
+s=$1; shift
+for d in "$@"; do
+  if [ -f "$p/$d/$s.jsonl" ]; then printf "%s\\0" "$p/$d/$s.jsonl"; exit 0; fi
+done
+[ -d "$p" ] || exit 0
+for f in "$p"/*/"$s.jsonl"; do
+  if [ -f "$f" ]; then printf "%s\\0" "$f"; exit 0; fi
+done
+exit 0
+`;
+
+// $1: a transcript. Its device, inode, size and time, or 64 when it is gone.
+const TRANSCRIPT_STAT_SCRIPT = `${PRELUDE}[ -e "$1" ] || exit 64
+[ -f "$1" ] || exit 67
+find -L "$1" -maxdepth 0 -printf "%D\\0%i\\0%s\\0%T@\\0"
+`;
+
+// One read of a transcript is at most this much.
+const MAX_TRANSCRIPT_READ = 4 * 1024 * 1024;
+const TRANSCRIPT_SESSION = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+const TRANSCRIPT_PROJECT = /^[A-Za-z0-9-]{1,255}$/u;
+
+function transcriptPath(path) {
+  if (typeof path !== "string" || !path.startsWith("/") || !path.endsWith(".jsonl") || path.length > 4096 ||
+      /[\u0000-\u001f\u007f\\]/u.test(path)) {
+    throw new FileAccessError(400, "invalid_path", "That transcript cannot be read on an SSH machine.");
+  }
+  return path;
+}
+
 export function shellQuote(value) {
   return `'${String(value).replaceAll("'", "'\\''")}'`;
 }
@@ -645,6 +682,59 @@ export class MachineFiles {
       if (error instanceof FileAccessError && error.code === "not_found") throw new InputValidationError("File not found");
       throw error;
     }
+  }
+
+  // Where a Claude session's transcript is on the machine, or null.
+  async locateClaudeTranscript(session, projectDirs = []) {
+    if (typeof session !== "string" || !TRANSCRIPT_SESSION.test(session) ||
+        !Array.isArray(projectDirs) || projectDirs.length > 8 || projectDirs.some((dir) => typeof dir !== "string" || !TRANSCRIPT_PROJECT.test(dir))) {
+      throw new FileAccessError(400, "invalid_path", "That transcript cannot be looked up on an SSH machine.");
+    }
+    const link = this.#ready();
+    const [raw] = fields(await this.#command(link, LOCATE_TRANSCRIPT_SCRIPT, [session, ...projectDirs]));
+    if (!raw) return null;
+    const path = raw.toString("utf8");
+    // What comes back is used as an argument again: it must be the file asked for.
+    try {
+      transcriptPath(path);
+    } catch {
+      throw failed();
+    }
+    if (!path.endsWith(`/${session}.jsonl`) || !Buffer.from(path, "utf8").equals(raw)) throw failed();
+    return path;
+  }
+
+  // A transcript's identity, size and time, or null when it is gone.
+  async transcriptStat(path) {
+    const checked = transcriptPath(path);
+    const link = this.#ready();
+    let output;
+    try {
+      output = fields(await this.#command(link, TRANSCRIPT_STAT_SCRIPT, [checked]));
+    } catch (error) {
+      if (error instanceof FileAccessError && error.code === "not_found") return null;
+      throw error;
+    }
+    const [device, inode, size, time] = output.map((part) => part.toString("latin1"));
+    const mtimeMs = timeMs(time);
+    if (!/^\d+$/u.test(device ?? "") || !/^\d+$/u.test(inode ?? "") || !/^\d+$/u.test(size ?? "") || mtimeMs === null) throw failed();
+    return {
+      identity: `${BigInt(device).toString(36)}-${BigInt(inode).toString(36)}`,
+      size: Number(size),
+      mtimeMs,
+    };
+  }
+
+  // Up to `length` bytes of a transcript from `start`, at most MAX_TRANSCRIPT_READ.
+  async readTranscriptRange(path, start, length) {
+    const checked = transcriptPath(path);
+    if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(length) || length < 0) {
+      throw new FileAccessError(400, "invalid_range", "That part of the transcript cannot be read.");
+    }
+    const wanted = Math.min(length, MAX_TRANSCRIPT_READ);
+    if (wanted === 0) return Buffer.alloc(0);
+    const link = this.#ready();
+    return this.#command(link, READ_SCRIPT, [checked, `+${start + 1}`, String(wanted), "follow"], { maxBytes: wanted });
   }
 
   // Kept so callers can treat every file client alike.
