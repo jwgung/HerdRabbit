@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.30";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.30";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.31";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.31";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -49,7 +49,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.30";
+} from "./ui-model.js?v=1.2.31";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -60,46 +60,45 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.30";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.30";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.30";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.30";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.30";
-import { createPendingMessages, shouldQueue } from "./chat/pending-messages.js?v=1.2.30";
+} from "./browse-preference.js?v=1.2.31";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.31";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.31";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.31";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.31";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.30";
-import { chatAgent } from "./lens-preference.js?v=1.2.30";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.30";
+} from "./chat-font-preference.js?v=1.2.31";
+import { chatAgent } from "./lens-preference.js?v=1.2.31";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.31";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.30";
+} from "./pane-preference.js?v=1.2.31";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.30";
+} from "./workspace-preference.js?v=1.2.31";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.30";
+} from "./terminal-preference.js?v=1.2.31";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.30";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.30";
+} from "./completion-preference.js?v=1.2.31";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.31";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.30";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.30";
+} from "./input-history-preference.js?v=1.2.31";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.31";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -115,16 +114,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.30";
+} from "./key-bar-preference.js?v=1.2.31";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.30";
+} from "./launch-session.js?v=1.2.31";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.30";
+} from "./push-notifications.js?v=1.2.31";
 
 function browserStorage() {
   try {
@@ -352,8 +351,6 @@ const elements = {
   quickKeys: document.querySelector(".quick-keys"),
   inputForm: document.querySelector("#input-form"),
   sendButton: document.querySelector("#input-form .send-button"),
-  sendMenu: document.querySelector("#send-menu"),
-  pendingMessages: document.querySelector("#pending-messages"),
   terminalInput: document.querySelector("#terminal-input"),
   actionFeedback: document.querySelector("#action-feedback"),
   projectDialog: document.querySelector("#project-dialog"),
@@ -867,7 +864,7 @@ function resetInputHistoryNavigation() {
 
 // Each pane keeps the message typed but not sent. The textarea shows the
 // selected pane's; switching panes saves it and brings the other pane's back.
-// A draft is dropped before it is sent or queued, and a text the server calls
+// A draft is dropped before it is sent, and a text the server calls
 // a password answer is never stored.
 let draftPaneId = null;
 let draftSaveTimer = null;
@@ -2651,8 +2648,6 @@ function renderPaneHeading(pane, tab, workspace) {
     elements.paneTitle.removeAttribute("title");
     chatLens.select(null);
     promptDock?.select(null);
-    pendingMessages?.select(null);
-    renderComposerMode();
     return;
   }
 
@@ -2660,8 +2655,6 @@ function renderPaneHeading(pane, tab, workspace) {
   const agent = agentForPane(paneId);
   chatLens.select(paneId, { agent: chatAgent(pane, agent), status: agentStatus(agent, pane) });
   promptDock?.select(paneId, { status: agentStatus(agent, pane) });
-  pendingMessages?.select(paneId);
-  renderComposerMode();
   const workspaceLabel = displayRecordLabel(workspace, "Project");
   const tabLabel = displayTabLabel(tab);
 
@@ -3039,7 +3032,6 @@ function scheduleTerminalPark(lens, paneId) {
 
 // Made right after the lens switch, which tells it the lens (below).
 let promptDock = null;
-let pendingMessages = null;
 const chatLens = createChatLens({
   stage: elements.terminalStage,
   host: elements.chatHost,
@@ -3084,111 +3076,6 @@ promptDock = createPromptDock({
 });
 promptDock.setLens(chatLens.lens);
 elements.terminalPanel.dataset.lens = chatLens.lens;
-
-// Messages queued for the selected pane's next turn, over the composer in
-// both lenses (src/pending-input.mjs, public/chat/pending-messages.js).
-pendingMessages = createPendingMessages({
-  host: elements.pendingMessages,
-  connection: terminalStream,
-  getJson: (path) => api(path),
-  postJson: (path, body) => api(path, { method: "POST", body }),
-  onChange: (paneId, items) => {
-    chatLens.setQueued(paneId, items);
-    renderComposerMode();
-  },
-  // A queued message reached the pane: the chat shows it on its way, like
-  // one just sent, until the transcript has it. It is never a password
-  // answer: the server queues none and delivers none while one is asked.
-  onDelivered: (paneId, queuedText) => {
-    chatLens.sent(paneId, queuedText);
-    refreshAfterSubmission();
-  },
-});
-
-// While the selected pane's agent works or asks something (or messages
-// already wait), Enter queues the message for the next turn, and Alt+Enter
-// types it into the pane at once. The send button opens a small menu with
-// both choices.
-function composerQueues() {
-  if (!state.selectedPaneId || pendingMessages?.paneId !== state.selectedPaneId) return false;
-  return shouldQueue({ status: selectedAgentStatus(), items: pendingMessages.items });
-}
-
-function renderComposerMode() {
-  if (!elements.sendButton) return;
-  const queue = composerQueues();
-  const mode = queue ? "queue" : "send";
-  if (elements.sendButton.dataset.mode === mode) return;
-  elements.sendButton.dataset.mode = mode;
-  elements.sendButton.setAttribute("aria-label", queue ? "Send or queue…" : "Send");
-  elements.sendButton.title = queue ? "Send or queue for the next turn (Enter queues, Alt+Enter sends now)" : "Send";
-  if (queue) {
-    elements.sendButton.setAttribute("aria-haspopup", "menu");
-    elements.sendButton.setAttribute("aria-expanded", "false");
-  } else {
-    closeSendMenu({ restoreFocus: false });
-    elements.sendButton.removeAttribute("aria-haspopup");
-    elements.sendButton.removeAttribute("aria-expanded");
-  }
-}
-
-const sendMenuItems = () => [...elements.sendMenu.querySelectorAll('[role="menuitem"]')];
-function closeSendMenu({ restoreFocus = true } = {}) {
-  if (elements.sendMenu.hidden) return;
-  elements.sendMenu.hidden = true;
-  if (elements.sendButton.hasAttribute("aria-expanded")) elements.sendButton.setAttribute("aria-expanded", "false");
-  if (restoreFocus) elements.sendButton.focus();
-}
-function openSendMenu() {
-  elements.sendMenu.hidden = false;
-  elements.sendButton.setAttribute("aria-expanded", "true");
-  sendMenuItems()[0].focus();
-}
-// Submits the form as the send button, without a click (a click opens the menu).
-function submitComposer({ now = false } = {}) {
-  if (elements.sendButton.disabled) return;
-  sendNowRequested = now;
-  elements.inputForm.requestSubmit(elements.sendButton);
-}
-// In queue mode a click on the button with text to send asks which way;
-// without text (a bare Enter to the pane) it submits as before.
-elements.sendButton.addEventListener("click", (event) => {
-  if (!composerQueues() || !elements.terminalInput.value) return;
-  event.preventDefault();
-  if (elements.sendMenu.hidden) openSendMenu(); else closeSendMenu();
-});
-elements.sendMenu.addEventListener("click", (event) => {
-  const item = event.target instanceof Element ? event.target.closest('[role="menuitem"]') : null;
-  if (!item) return;
-  const now = item.id === "send-menu-now";
-  closeSendMenu({ restoreFocus: false });
-  elements.terminalInput.focus();
-  submitComposer({ now });
-});
-elements.sendMenu.addEventListener("keydown", (event) => {
-  const items = sendMenuItems();
-  const index = items.indexOf(document.activeElement);
-  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-    event.preventDefault();
-    const step = event.key === "ArrowDown" ? 1 : -1;
-    items[(index + step + items.length) % items.length].focus();
-  } else if (event.key === "Home" || event.key === "End") {
-    event.preventDefault();
-    items[event.key === "Home" ? 0 : items.length - 1].focus();
-  } else if (event.key === "Escape") {
-    event.preventDefault();
-    event.stopPropagation();
-    closeSendMenu();
-  } else if (event.key === "Tab") {
-    closeSendMenu({ restoreFocus: false });
-  }
-});
-document.addEventListener("pointerdown", (event) => {
-  if (elements.sendMenu.hidden || !(event.target instanceof Node)) return;
-  if (elements.sendMenu.contains(event.target) || elements.sendButton.contains(event.target)) return;
-  closeSendMenu({ restoreFocus: false });
-});
-renderComposerMode();
 
 // The Chat lens's text size, apart from the terminal's (chat-font-preference.js).
 let chatFontSize = readChatFontSize(panePreferenceStorage);
@@ -3250,50 +3137,10 @@ function clearComposer() {
   resizeTerminalInput();
 }
 
-// A message for the pane's next turn: kept by the server until the agent is
-// ready. One that would answer a password prompt is refused there.
-// Its paste marks take 12 of the pane's 8000 characters.
-const MAX_QUEUED_TEXT = 7988;
-async function queueComposerText(paneId, text) {
-  if (text.length > MAX_QUEUED_TEXT) {
-    setFeedback(`A queued message can be up to ${MAX_QUEUED_TEXT} characters. Shorten it, or use Send now.`, true);
-    return;
-  }
-  const submitButton = elements.sendButton;
-  submitButton.disabled = true;
-  setFeedback("Queueing…");
-  holdComposerDraft(paneId);
-  let queued = false;
-  try {
-    await pendingMessages.enqueue(paneId, text);
-    queued = true;
-    if (paneKeepsInputHistory(paneId, snapshotRecords())) rememberSentInput(paneId, text);
-    // only the draft that was queued: another pane's, typed meanwhile, stays
-    if (state.selectedPaneId === paneId && elements.terminalInput.value === text) clearComposer();
-    setFeedback("");
-  } catch (error) {
-    // The server refuses a queued password answer: what was typed is not stored.
-    if (error?.code === "secret_prompt") draftBlocked.add(paneId);
-    setFeedback(error.message, true);
-  } finally {
-    releaseComposerDraft(paneId, { sent: queued, text });
-    submitButton.disabled = false;
-  }
-}
-
-// Alt+Enter asks the next submit to go now, past the queue.
-let sendNowRequested = false;
-
 elements.inputForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = elements.terminalInput.value;
   const paneId = state.selectedPaneId;
-  const now = sendNowRequested;
-  sendNowRequested = false;
-  if (text && paneId && !now && composerQueues()) {
-    await queueComposerText(paneId, text);
-    return;
-  }
   const submitButton = elements.sendButton;
   submitButton.disabled = true;
   setFeedback("Sending…");
@@ -3361,14 +3208,6 @@ elements.terminalInput.addEventListener("keydown", (event) => {
     return;
   }
 
-  // Alt+Enter sends now while Send would queue the message.
-  if (event.key === "Enter" && event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing &&
-      selectedKeyModifiers.size === 0 && composerQueues()) {
-    event.preventDefault();
-    submitComposer({ now: true });
-    return;
-  }
-
   const action = inputKeyAction({
     key: event.key,
     ctrlKey: event.ctrlKey,
@@ -3378,7 +3217,7 @@ elements.terminalInput.addEventListener("keydown", (event) => {
   });
   if (action === "submit") {
     event.preventDefault();
-    submitComposer();
+    if (!elements.sendButton.disabled) elements.inputForm.requestSubmit();
   } else if (action === "newline") {
     event.preventDefault();
     const next = insertNewlineAtSelection(

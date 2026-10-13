@@ -5,8 +5,6 @@ import {once} from 'node:events';
 import {readFile} from 'node:fs/promises';
 import {createHerdrHttpServer} from '../src/http-server.mjs';
 const snapshot=JSON.parse(await readFile(new URL('../test/fixtures/fake-state.template.json',import.meta.url),'utf8')).snapshot;
-// Busy panes queue what is sent; this check is about immediate sends, so every agent is idle.
-for (const agent of snapshot.agents) agent.state = "idle";
 const {server}=createHerdrHttpServer({herdr:{async snapshot(){return snapshot;},async readPane(){return 'terminal';},async sendText(){},async sendKeys(){}},logger:{info(){},error(){}}});
 server.listen(0,'127.0.0.1');await once(server,'listening');
 const origin='http://127.0.0.1:'+server.address().port;

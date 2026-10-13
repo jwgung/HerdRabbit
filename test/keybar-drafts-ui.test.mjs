@@ -36,7 +36,8 @@ test("drafts: saved on pane switch, cleared before a send, never kept for a pass
   assert.match(app, /function syncComposerDraft\(\)/u);
   assert.equal([...app.matchAll(/syncComposerDraft\(\);/gu)].length >= 3, true, "every place that selects a pane syncs the draft");
   assert.match(app, /holdComposerDraft\(paneId\);\s*chatLens\.sent\(paneId, null\)/u, "the stored draft goes before the message does");
-  assert.match(app, /error\?\.code === "secret_prompt"\) draftBlocked\.add\(paneId\)/u);
+  assert.match(app, /releaseComposerDraft\(paneId, \{ sent: delivered, text, secret \}\)/u, "a password answer is released as secret");
+  assert.match(app, /if \(secret && draftPaneId === paneId && elements\.terminalInput\.value !== ""\) draftBlocked\.add\(paneId\)/u);
   assert.match(app, /state\.inputHistoryCursor !== null \? state\.inputHistoryDraft : elements\.terminalInput\.value/u, "a recalled history entry is not the draft");
   assert.match(app, /scheduleComposerDraftSave\(\);\n\}\);/u);
 });

@@ -10,19 +10,18 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>HerdRabbit</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <script src="/theme.js?v=1.2.30"></script>
+    <script src="/theme.js?v=1.2.31"></script>
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/rabbit-outline-32-v33.png" />
     <link rel="icon" type="image/svg+xml" href="/icons/rabbit-outline-v33.svg" />
     <link rel="apple-touch-icon" href="/icons/rabbit-outline-app-180-v35.png" />
     <link rel="stylesheet" href="/ui/ui.css" />
-    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.30" />
-    <link rel="stylesheet" href="/styles.css?v=1.2.30" />
-    <link rel="stylesheet" href="/chat/chat-view.css?v=1.2.30" />
-    <link rel="stylesheet" href="/chat/prompt-card.css?v=1.2.30" />
-    <link rel="stylesheet" href="/key-bar.css?v=1.2.30" />
-    <link rel="stylesheet" href="/chat/pending-messages.css?v=1.2.30" />
-    <script src="/vendor/simplewebauthn-browser.js?v=1.2.30"></script>
-    <script type="module" src="/app.js?v=1.2.30"></script>
+    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.31" />
+    <link rel="stylesheet" href="/styles.css?v=1.2.31" />
+    <link rel="stylesheet" href="/chat/chat-view.css?v=1.2.31" />
+    <link rel="stylesheet" href="/chat/prompt-card.css?v=1.2.31" />
+    <link rel="stylesheet" href="/key-bar.css?v=1.2.31" />
+    <script src="/vendor/simplewebauthn-browser.js?v=1.2.31"></script>
+    <script type="module" src="/app.js?v=1.2.31"></script>
   </head>
   <body class="auth-pending">
     <main class="shell">
@@ -207,7 +206,6 @@
 
         <form id="input-form" class="input-form">
           <span id="action-feedback" role="status" aria-live="polite"></span>
-          <div id="pending-messages" class="pending-messages" aria-label="Queued messages" hidden></div>
           <div class="input-composer">
             <button
               id="attach-button"
@@ -226,21 +224,11 @@
               maxlength="8000"
               rows="1"
             ></textarea>
-            <button class="primary-button send-button" type="submit" aria-label="Send" title="Send" data-mode="send">
+            <button class="primary-button send-button" type="submit" aria-label="Send" title="Send">
               <svg class="send-icon-now" aria-hidden="true" viewBox="0 0 20 20" focusable="false">
                 <path d="M10 16V4m0 0L5.5 8.5M10 4l4.5 4.5" />
               </svg>
             </button>
-            <div id="send-menu" class="ui-menu-panel send-menu" role="menu" aria-label="Send or queue" hidden>
-              <button id="send-menu-queue" class="ui-menu-item" type="button" role="menuitem">
-                <svg aria-hidden="true" viewBox="0 0 20 20" focusable="false"><path d="M3.5 5.5h9M3.5 10h6M3.5 14.5h5M14.5 9.5v7m-3.5-3.5h7" /></svg>
-                <span>Queue for next turn</span>
-              </button>
-              <button id="send-menu-now" class="ui-menu-item" type="button" role="menuitem">
-                <svg aria-hidden="true" viewBox="0 0 20 20" focusable="false"><path d="M10 16V4m0 0L5.5 8.5M10 4l4.5 4.5" /></svg>
-                <span>Send now</span>
-              </button>
-            </div>
           </div>
         </form>
       </section>

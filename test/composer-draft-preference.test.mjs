@@ -33,7 +33,7 @@ test("each pane keeps its own text, which survives a restart", () => {
   assert.equal(again.get("b"), "hello b");
 });
 
-test("clearing (a message was sent or queued) leaves nothing stored", () => {
+test("clearing (a message was sent) leaves nothing stored", () => {
   const storage = memoryStorage();
   const drafts = createComposerDrafts(storage);
   drafts.set("a", "secret?");

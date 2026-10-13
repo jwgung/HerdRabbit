@@ -7,13 +7,11 @@ const MAX_ATTACHED_PANES = 4;
 const MAX_WATCHED_CONVERSATIONS = 4;
 // Panes whose prompt card one socket hears of: the selected one, and a few more.
 const MAX_WATCHED_PROMPTS = 4;
-// Panes whose queued messages one socket hears of, for the same reason.
-const MAX_WATCHED_PENDING = 4;
 
 // Authentication stays with the HTTP server. No launch token is put in a URL.
 export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMessage,
   sendInput, watchOutput, watchStatuses, attachments = null, onRequest = () => {}, onSessionsEnded = () => () => {},
-  watchConversation = null, watchPrompt = null, watchPending = null }) {
+  watchConversation = null, watchPrompt = null }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
   // An ended sign-in closes its sockets now, not at their next heartbeat.
   const rechecks = new Set();
@@ -47,8 +45,6 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
     const conversations = new Map();
     // Panes whose prompt card this socket hears of, each with the call that stops it.
     const prompts = new Map();
-    // Panes whose queued messages this socket hears of, each with the call that stops it.
-    const pendingLists = new Map();
     const send = message => {
       if (ws.readyState !== ws.OPEN) return;
       if (ws.bufferedAmount > 2 * 1024 * 1024) { ws.close(1013, "Client too slow"); return; }
@@ -123,8 +119,6 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
       conversations.clear();
       for (const stop of prompts.values()) stop();
       prompts.clear();
-      for (const stop of pendingLists.values()) stop();
-      pendingLists.clear();
       attachments?.detachAll(viewer);
     });
     ws.on("message", (bytes, binary) => {
@@ -229,33 +223,6 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
           const id = paneId(message.paneId);
           prompts.get(id)?.();
           prompts.delete(id);
-          return;
-        }
-        // A pane's queued messages, sent whole now and whenever they change
-        // (and which went, as `removed`). Changing them goes over HTTP.
-        if (message.type === "watch-pending") {
-          const id = paneId(message.paneId);
-          if (pendingLists.has(id)) return;
-          if (!watchPending || pendingLists.size >= MAX_WATCHED_PENDING) {
-            send({ type: "pending-unavailable", pane_id: id, code: watchPending ? "busy" : "unsupported" });
-            return;
-          }
-          let stop;
-          try {
-            stop = watchPending(id, ({ items, removed, revision }) => {
-              if (!stopped && valid()) send({ type: "pending-messages", pane_id: id, items, revision, ...(removed ? { removed } : {}) });
-            });
-          } catch {
-            send({ type: "pending-unavailable", pane_id: id, code: "busy" });
-            return;
-          }
-          pendingLists.set(id, stop);
-          return;
-        }
-        if (message.type === "unwatch-pending") {
-          const id = paneId(message.paneId);
-          pendingLists.get(id)?.();
-          pendingLists.delete(id);
           return;
         }
         if (message.type === "detach") {
