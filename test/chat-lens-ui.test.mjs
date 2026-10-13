@@ -59,7 +59,7 @@ test("the page wires the lens: selection, sending, Mod+J, and reads with If-None
   assert.match(app, /chatLens\.select\(paneId, \{ claude: isClaudePane\(pane, agent\), status: agentStatus\(agent, pane\) \}\);/u);
   // shown on its way and followed to the end at once; taken back if the send fails
   assert.match(app, /chatLens\.sent\(paneId, text\);\s*try \{/u);
-  assert.match(app, /catch \(error\) \{\s*chatLens\.unsent\(paneId\);/u);
+  assert.match(app, /catch \(error\) \{\s*chatLens\.unsent\(paneId, pending\);/u);
   const shortcut = app.match(/function activateLensShortcut\(event\) \{[\s\S]*?\n\}/u)?.[0] ?? "";
   assert.match(shortcut, /event\.key\.toLowerCase\(\) !== "j"/u);
   assert.match(shortcut, /chatLens\.toggle\(\);/u);
@@ -103,6 +103,14 @@ test("the prompt dock sits in the stage, so the card shares the lens and the ban
 });
 
 test("an answer to a password prompt does not stay on show as a pending message", () => {
-  assert.match(app, /if \(sent\?\.secret\) chatLens\.withdraw\(paneId\);/u);
-  assert.match(view, /withdraw\(\) \{\s*pending = pending\.slice\(0, -1\);/u);
+  assert.match(app, /if \(sent\?\.secret\) chatLens\.withdraw\(paneId, pending\);/u);
+  assert.match(view, /withdraw\(message\) \{\s*pending = pending\.filter\(\(item\) => item !== message\);/u);
+});
+
+test("a failed send takes back only its own pending message, so a failed bare Enter keeps an earlier one", () => {
+  assert.match(app, /const pending = chatLens\.sent\(paneId, text\);/u);
+  assert.match(app, /chatLens\.unsent\(paneId, pending\);/u);
+  assert.match(view, /unsent\(message\) \{\s*pending = pending\.filter\(\(item\) => item !== message\);/u);
+  assert.match(view, /const message = typeof text === "string" && text\.trim\(\) \? pendingMessage\(/u);
+  assert.doesNotMatch(view, /pending\.slice\(0, -1\)/u);
 });

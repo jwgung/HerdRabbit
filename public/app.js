@@ -2966,12 +2966,12 @@ elements.inputForm.addEventListener("submit", async (event) => {
   submitButton.disabled = true;
   setFeedback("Sending…");
   // The Chat lens shows the message on its way and goes to the end at once.
-  chatLens.sent(paneId, text);
+  const pending = chatLens.sent(paneId, text);
   try {
     if (text) {
       const sent = await sendText(text, paneId);
       // An answer to a password prompt is never kept, nor left on show in the chat.
-      if (sent?.secret) chatLens.withdraw(paneId);
+      if (sent?.secret) chatLens.withdraw(paneId, pending);
       if (!sent?.secret && paneKeepsInputHistory(paneId, snapshotRecords())) rememberSentInput(paneId, text);
     } else {
       await sendKeys(["enter"], paneId);
@@ -2983,7 +2983,7 @@ elements.inputForm.addEventListener("submit", async (event) => {
     setFeedback("");
     refreshAfterSubmission();
   } catch (error) {
-    chatLens.unsent(paneId);
+    chatLens.unsent(paneId, pending);
     setFeedback(error.message, true);
   } finally {
     submitButton.disabled = false;

@@ -649,25 +649,29 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
     },
     // A message the composer just sent: shown at the end as on its way, with
     // the working row, until the transcript has it.
+    // Returns the pending message it shows, or null, so a failed send takes
+    // back only its own.
     sent(text) {
       const now = Date.now();
-      if (typeof text === "string" && text.trim()) pending = [...pending, pendingMessage(text, loader.history.turns, now)];
+      const message = typeof text === "string" && text.trim() ? pendingMessage(text, loader.history.turns, now) : null;
+      if (message) pending = [...pending, message];
       optimisticUntil = now + OPTIMISTIC_MS;
       if (status !== "working") workingSince = now;
       drawActivity();
       stick = true;
       jumpButton.hidden = true;
       keepAtEnd();
+      return message;
     },
     // The message answered a password prompt: it never shows, though the
     // pane still works on it.
-    withdraw() {
-      pending = pending.slice(0, -1);
+    withdraw(message) {
+      pending = pending.filter((item) => item !== message);
       drawActivity();
     },
     // The send failed: nothing is on its way.
-    unsent() {
-      pending = pending.slice(0, -1);
+    unsent(message) {
+      pending = pending.filter((item) => item !== message);
       optimisticUntil = 0;
       drawActivity();
     },
@@ -865,12 +869,13 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
     // goes to the end, following what comes, wherever the reader had scrolled.
     sent(id, text) {
       const chat = chats.get(id);
-      if (!chat?.visible) return;
-      chat.sent(text);
+      if (!chat?.visible) return null;
+      const message = chat.sent(text);
       chat.refresh({ now: true });
+      return message;
     },
-    unsent(id) { chats.get(id)?.unsent(); },
-    withdraw(id) { chats.get(id)?.withdraw(); },
+    unsent(id, message) { chats.get(id)?.unsent(message); },
+    withdraw(id, message) { chats.get(id)?.withdraw(message); },
     get lens() { return lens; },
     get paneId() { return paneId; },
     chatFor: (id) => chats.get(id) ?? null,
