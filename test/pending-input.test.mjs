@@ -10,6 +10,8 @@ import {
 function fakeHerdr(statuses = { "w1:p1": "working" }) {
   const herdr = {
     statuses: { ...statuses },
+    // pane -> agent name (claude unless set; null for a pane with no agent)
+    agents: {},
     screens: {},
     sent: [],
     snapshots: 0,
@@ -17,7 +19,7 @@ function fakeHerdr(statuses = { "w1:p1": "working" }) {
     async snapshot() {
       herdr.snapshots += 1;
       return {
-        panes: Object.entries(herdr.statuses).map(([pane_id, agent_status]) => ({ pane_id, agent: "claude", agent_status })),
+        panes: Object.entries(herdr.statuses).map(([pane_id, agent_status]) => ({ pane_id, agent: pane_id in herdr.agents ? herdr.agents[pane_id] : "claude", agent_status })),
         agents: [],
       };
     },
@@ -94,6 +96,36 @@ test("messages wait while the agent works and go one per turn, in order, once it
   await pending.tick();
   assert.deepEqual(herdr.sent, [...pasted("w1:p1", "first"), ...pasted("w1:p1", "second")]);
   assert.deepEqual(pending.list("w1:p1"), []);
+});
+
+test("a message never reaches a pane whose agent changed or exited: it waits as failed for the user", async (context) => {
+  const herdr = fakeHerdr();
+  const { pending } = service(context, herdr);
+  await pending.enqueue("w1:p1", "make test");
+  // Claude exited; herdr still reports the pane idle, now with no agent (a shell)
+  herdr.agents["w1:p1"] = null;
+  herdr.statuses["w1:p1"] = "idle";
+  await pending.tick();
+  assert.deepEqual(herdr.sent, [], "nothing is typed into the shell");
+  const [item] = pending.list("w1:p1");
+  assert.equal(item.state, "failed");
+  assert.match(item.error, /changed/);
+  await assert.rejects(pending.sendNow("w1:p1", item.id), (error) => error.code === "agent_changed");
+
+  // another agent took the pane: still nothing until the user retries for it
+  herdr.agents["w1:p1"] = "codex";
+  await pending.tick();
+  assert.deepEqual(herdr.sent, []);
+  pending.retry("w1:p1", item.id);
+  await pending.tick();
+  assert.deepEqual(herdr.sent, pasted("w1:p1", "make test"));
+});
+
+test("a pane with no agent cannot queue", async (context) => {
+  const herdr = fakeHerdr({ "w1:p1": "idle" });
+  herdr.agents["w1:p1"] = null;
+  const { pending } = service(context, herdr);
+  await assert.rejects(pending.enqueue("w1:p1", "ls"), (error) => error.code === "no_agent");
 });
 
 test("the turn gate opens after its timeout when the agent never shows it worked", async (context) => {

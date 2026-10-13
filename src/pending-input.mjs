@@ -94,7 +94,10 @@ export class PendingInputs {
   #pane(paneId, { create = false } = {}) {
     let pane = this.panes.get(paneId);
     if (!pane && create) {
-      if (this.panes.size >= MAX_PANES) throw new HttpError(503, "busy", "Too many panes have queued messages.");
+      // Panes holding messages count; panes only watched (any id a page asks
+      // about) cannot crowd them out, though they are bounded too.
+      const holding = [...this.panes.values()].filter((other) => other.items.length > 0 || other.gate).length;
+      if (holding >= MAX_PANES || this.panes.size >= MAX_PANES * 4) throw new HttpError(503, "busy", "Too many panes have queued messages.");
       pane = { paneId, items: [], status: undefined, gate: null, busy: false, listeners: new Set() };
       this.panes.set(paneId, pane);
     }
@@ -141,7 +144,11 @@ export class PendingInputs {
     if ((existing?.items.length ?? 0) >= this.maxItems) {
       throw new HttpError(409, "pending_limit", `At most ${this.maxItems} messages can wait. Send or remove one first.`);
     }
-    if (!paneAgent(await this.herdr.snapshot(), paneId)) throw new HttpError(404, "pane_not_found", "This pane is gone.");
+    const agent = paneAgent(await this.herdr.snapshot(), paneId);
+    if (!agent) throw new HttpError(404, "pane_not_found", "This pane is gone.");
+    // A message waits for the agent it was written to: with no agent known,
+    // the text could reach a shell as a command.
+    if (agent.name === "unknown") throw new HttpError(409, "no_agent", "Only a pane running an agent can queue messages. Send it directly instead.");
     // An answer to a password prompt is never kept, not even for a moment.
     if (await this.asksForSecret(paneId)) {
       throw new HttpError(409, "secret_prompt", "This pane may be asking for a password. Send it directly instead of queueing it.");
@@ -150,7 +157,7 @@ export class PendingInputs {
     if (pane.items.length >= this.maxItems) {
       throw new HttpError(409, "pending_limit", `At most ${this.maxItems} messages can wait. Send or remove one first.`);
     }
-    const item = { id: this.newId(), text, state: "queued" };
+    const item = { id: this.newId(), text, state: "queued", agent: agent.name };
     pane.items.push(item);
     this.#publish(pane);
     this.#schedule(0);
@@ -190,6 +197,8 @@ export class PendingInputs {
     if (item.state !== "failed") throw new HttpError(409, "pending_not_failed", "Only a message that failed can be tried again.");
     item.state = "queued";
     delete item.error;
+    // The user tries it again for whatever agent runs there when it goes.
+    item.agent = null;
     this.#publish(pane);
     this.#schedule(0);
   }
@@ -203,6 +212,7 @@ export class PendingInputs {
     try {
       const agent = paneAgent(await this.herdr.snapshot(), paneId);
       if (!agent) throw new HttpError(404, "pane_not_found", "This pane is gone.");
+      if (item.agent !== null && agent.name !== item.agent) throw new HttpError(409, "agent_changed", "The program in this pane changed since this was queued. Send it directly if it still applies.");
       if (agent.status === "blocked") throw new HttpError(409, "pane_blocked", "The pane is asking something. Answer it first.");
       if (await this.asksForSecret(paneId)) throw new HttpError(409, "secret_prompt", "The pane is asking for a password. Answer it in the terminal first.");
       if (!pane.items.includes(item) || item.state === "sending") throw notFound();
@@ -241,7 +251,9 @@ export class PendingInputs {
       const snapshot = await this.herdr.snapshot().catch(() => null);
       if (!snapshot) return;
       for (const pane of waiting) {
-        this.#apply(pane, paneAgent(snapshot, pane.paneId)?.status ?? "unknown");
+        const agent = paneAgent(snapshot, pane.paneId);
+        pane.agent = agent?.name ?? null;
+        this.#apply(pane, agent?.status ?? "unknown");
         if (pane.gate && this.now() >= pane.gate.deadline) pane.gate = null;
       }
       for (const pane of waiting) await this.#next(pane);
@@ -262,6 +274,16 @@ export class PendingInputs {
     if (pane.items.some((item) => item.state !== "queued")) return;
     const head = pane.items[0];
     if (!head) return;
+    // A retried message goes to the agent there now, if there is one.
+    if (head.agent === null && pane.agent && pane.agent !== "unknown") head.agent = pane.agent;
+    // The agent it was queued for is gone (exited to a shell, or another
+    // program took the pane): the message waits for the user instead.
+    if (head.agent !== pane.agent) {
+      head.state = "failed";
+      head.error = "The program in this pane changed since this was queued.";
+      this.#publish(pane);
+      return;
+    }
     pane.busy = true;
     try {
       if (await this.asksForSecret(pane.paneId)) return;
