@@ -1,7 +1,7 @@
 // A pane's prompt card: what a blocked agent asks (a tool approval, a
 // question, a menu) with a button per answer. The server reads it off the
 // pane's screen (src/prompt/) and pushes it over the terminal socket while
-// the selected pane is blocked; a button posts the answer, and the server
+// the selected pane is a Claude or Codex pane or is blocked; a button posts the answer, and the server
 // sends the keys. The card sits at the bottom of the Chat lens, over the
 // composer. Over the Terminal lens a banner says the agent is asking: it
 // switches to the Chat lens, or, for a pane without one, opens the same card
@@ -10,14 +10,16 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/PromptCard.tsx
 // and PromptCard.css, rewritten as plain DOM code without React.
-import { agentLabel } from "./chat-activity.js?v=1.2.33";
+import { agentLabel } from "./chat-activity.js?v=1.2.34";
 
 // After an answer, the card is looked for once more this much later.
 const RECHECK_AFTER_ANSWER_MS = 1_500;
 
-// Only a blocked pane is asked for its card.
-export function shouldWatchPrompt(status) {
-  return status === "blocked";
+// A Claude or Codex pane is asked for its card whatever herdr says it is
+// doing (it does not always say blocked while a menu waits); any other pane
+// only while it is blocked.
+export function shouldWatchPrompt(status, agent = null) {
+  return agent === "claude" || agent === "codex" || status === "blocked";
 }
 
 // Claude draws its menu's own pick as "Redis (Recommended)": a tag reads better.
@@ -138,6 +140,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
   showChat = () => false, onAnswered = () => {} }) {
   let paneId = null;
   let status = null;
+  let agentName = null;
   let lens = "terminal";
   let watched = null;
   let card = null;
@@ -331,18 +334,20 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     clearTimeout(rewatchTimer);
     rewatchTimer = setTimeout(() => {
       rewatchTimer = null;
-      if (id === paneId && watched === null && shouldWatchPrompt(status)) watch(id);
+      if (id === paneId && watched === null && shouldWatchPrompt(status, agentName)) watch(id);
     }, REWATCH_MS);
   });
 
   return {
-    // The pane shown now and its agent status: a blocked pane is watched.
-    select(nextPaneId, { status: nextStatus = null } = {}) {
+    // The pane shown now, its agent and status: a Claude or Codex pane, or a
+    // blocked one, is watched.
+    select(nextPaneId, { status: nextStatus = null, agent: nextAgent = null } = {}) {
+      agentName = nextAgent;
       const switched = nextPaneId !== paneId;
       paneId = nextPaneId ?? null;
       status = nextStatus;
       if (switched) { answering = null; view.pending = false; setCard(null); }
-      const wanted = paneId !== null && shouldWatchPrompt(status);
+      const wanted = paneId !== null && shouldWatchPrompt(status, agentName);
       watch(wanted ? paneId : null);
       if (!wanted && card) setCard(null);
     },

@@ -1,5 +1,6 @@
-// A pane's prompt card: read off its screen while herdr reports the agent
-// blocked, answered by keys sent to the pane, and announced to the pages that
+// A pane's prompt card: read off its screen (any status for Claude and Codex
+// panes, whose readers insist on the menu itself being on screen; the generic
+// fallback only while herdr reports the agent blocked), answered by keys sent to the pane, and announced to the pages that
 // watch the pane when it appears, changes or goes.
 //
 // The answer flow follows herdr-web-ui's (MIT, Copyright (c) 2026 devswha,
@@ -18,18 +19,26 @@ import { InvalidAnswer, KEY, answerSteps, publicCard, verifiesCursor } from "./s
 // The screen's bottom: enough for a long approval panel.
 const SCREEN_LINES = 120;
 const KNOWN_STATES = new Set(["idle", "working", "blocked", "done", "unknown"]);
-// Panes one server watches at most (each blocked one costs a read a tick).
+// Panes one server watches at most (each readable one costs a read a tick).
 const MAX_WATCHED_PANES = 16;
 // Every watch, panes gone from the snapshot included: those hold no place
 // among the 16 but cannot pile up without end either.
 const MAX_WATCHES = 64;
-// Blocked panes whose screens one tick reads at once.
+// Panes whose screens one tick reads at once.
 const READS_AT_ONCE = 4;
 // Ticks a watched pane may be missing from the snapshot before it is let go.
 const MISSING_TICKS = 3;
 
 // Each agent's own readers, by the name herdr gives it.
 const READERS = { claude: parseClaudePrompt, codex: parseCodexPrompt };
+
+// The agent's dedicated reader decides from the screen alone, so the pane is
+// read whatever herdr says it is doing (it does not always say blocked while a
+// menu waits); any other agent is read only while blocked.
+function readerName(agent) {
+  const name = agent.claude ? "claude" : agent.name;
+  return Object.hasOwn(READERS, name) ? name : null;
+}
 
 const delay = (ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref?.(); });
 
@@ -75,6 +84,12 @@ export function paneAgent(snapshot, paneId) {
   return { claude, name, status: KNOWN_STATES.has(value) ? value : "unknown" };
 }
 
+// Ticks between reads of a non-blocked pane that has shown no menu for
+// `quiet` reads running: 1, then 2, then at most 4.
+function quietStride(quiet) {
+  return quiet < 3 ? 1 : quiet < 6 ? 2 : 4;
+}
+
 export class PromptService {
   constructor({ herdr, settleMs = 1_500, stepDelayMs = 30, lookMs = 50, pollMs = 1_000 }) {
     this.herdr = herdr;
@@ -90,28 +105,31 @@ export class PromptService {
     this.answeredMs = 3_000;
     this.watches = new Map();
     // One tick looks at every watched pane: a snapshot (one per server, the
-    // client's own), then the screens of the blocked ones.
+    // client's own), then the screens of the readable ones.
     this.timer = null;
     this.dueAt = Infinity;
     this.running = false;
     this.again = false;
   }
 
-  // The card the pane shows now, with the reader's bookkeeping, or null. Only
-  // a pane herdr reports blocked is read: its agent's readers first (Claude's
-  // or Codex's), then the fallback card for any agent. A password prompt is
-  // never a card.
+  // The card the pane shows now, with the reader's bookkeeping, or null. A
+  // Claude or Codex pane is read whatever its status, by its agent's reader;
+  // any other pane only while herdr reports it blocked. The fallback card (any
+  // agent) is for blocked panes only. A password prompt is never a card.
   async read(paneId) {
     const agent = paneAgent(await this.herdr.snapshot(), paneId);
     if (!agent) throw new HttpError(404, "pane_not_found", "This pane is gone.");
-    return this.#readBlocked(paneId, agent);
+    return this.#readScreen(paneId, agent);
   }
 
-  async #readBlocked(paneId, agent) {
-    if (agent.status !== "blocked") return null;
+  async #readScreen(paneId, agent) {
+    const reader = readerName(agent);
+    const blocked = agent.status === "blocked";
+    if (!reader && !blocked) return null;
     const screen = await this.herdr.readPane(paneId, { lines: SCREEN_LINES, format: "text", source: "detection" });
-    const name = agent.claude ? "claude" : agent.name;
-    return (READERS[name]?.(screen) ?? null) ?? parseFallbackPrompt(screen, { agent: name });
+    const card = reader ? READERS[reader](screen) ?? null : null;
+    if (card || !blocked) return card;
+    return parseFallbackPrompt(screen, { agent: reader ?? agent.name });
   }
 
   async card(paneId) {
@@ -216,7 +234,12 @@ export class PromptService {
 
   // Looks again soon: input went to the pane.
   nudge(paneId) {
-    if (this.watches.has(paneId)) this.#schedule(100);
+    const entry = this.watches.get(paneId);
+    if (!entry) return;
+    // input may have opened a menu: look at once and every tick again
+    entry.quiet = 0;
+    entry.skipped = Infinity;
+    this.#schedule(100);
   }
 
   stop() {
@@ -256,11 +279,21 @@ export class PromptService {
     try {
       const snapshot = await this.herdr.snapshot().catch(() => null);
       if (!snapshot) return;
-      const blocked = [];
+      const reading = [];
       for (const entry of [...this.watches.values()]) {
         const agent = paneAgent(snapshot, entry.paneId);
         if (agent) entry.missing = 0;
-        if (agent?.status === "blocked") blocked.push({ entry, agent });
+        if (agent && agent.status === "blocked") { entry.quiet = 0; reading.push({ entry, agent }); }
+        else if (agent && readerName(agent)) {
+          // A Claude or Codex pane herdr does not call blocked may still wait
+          // on a menu, so it is read too -- but less often while nothing has
+          // shown: every tick, then every 2nd, then every 4th, until a card,
+          // a status change or input (a nudge) brings it back to every tick.
+          if (entry.lastStatus !== agent.status) entry.quiet = 0;
+          entry.lastStatus = agent.status;
+          entry.skipped = (entry.skipped ?? 0) + 1;
+          if (entry.skipped >= quietStride(entry.quiet ?? 0)) { entry.skipped = 0; reading.push({ entry, agent }); }
+        }
         else if (agent) this.#tell(entry, null);
         else if (!serverPending(snapshot, entry.paneId)) {
           // One snapshot without the pane is not the end of it (a tab moved,
@@ -270,8 +303,9 @@ export class PromptService {
           entry.missing = (entry.missing ?? 0) + 1;
         }
       }
-      await eachLimited(blocked, READS_AT_ONCE, async ({ entry, agent }) => {
-        const card = publicCard(await this.#readBlocked(entry.paneId, agent).catch(() => null));
+      await eachLimited(reading, READS_AT_ONCE, async ({ entry, agent }) => {
+        const card = publicCard(await this.#readScreen(entry.paneId, agent).catch(() => null));
+        entry.quiet = card ? 0 : (entry.quiet ?? 0) + 1;
         this.#tell(entry, card);
       });
     } finally {

@@ -10,9 +10,16 @@ import { TERMINAL_FONT_SIZE_STORAGE_KEY } from "../public/terminal-preference.js
 
 const card = { id: "abc123def456", agent: "claude", title: "Bash command", options: [{ label: "Yes" }, { label: "No" }], customOptionIndex: null };
 
-test("only a blocked pane is watched for a card", () => {
+test("a Claude or Codex pane is watched for a card whatever its status; other panes only while blocked", () => {
+  for (const agent of ["claude", "codex"]) {
+    for (const status of ["blocked", "idle", "working", "done", "unknown", null]) assert.equal(shouldWatchPrompt(status, agent), true);
+  }
+  for (const agent of [null, "gemini", "unknown"]) {
+    assert.equal(shouldWatchPrompt("blocked", agent), true);
+    for (const status of ["idle", "working", "done", "unknown", null]) assert.equal(shouldWatchPrompt(status, agent), false);
+  }
   assert.equal(shouldWatchPrompt("blocked"), true);
-  for (const status of ["idle", "working", "done", "unknown", null]) assert.equal(shouldWatchPrompt(status), false);
+  assert.equal(shouldWatchPrompt("working"), false);
 });
 
 test("an answer names the card and exactly one choice", () => {
@@ -117,5 +124,12 @@ test("a dismissed banner comes back when the same prompt is asked again, and a r
   const source = await readFile(new URL("../public/chat/prompt-card.js", import.meta.url), "utf8");
   assert.match(source, /if \(moved && card\) dismissed\.delete\(card\.id\);/u);
   assert.match(source, /watch\(null\);\s*clearTimeout\(rewatchTimer\);\s*rewatchTimer = setTimeout\(/u);
-  assert.match(source, /if \(id === paneId && watched === null && shouldWatchPrompt\(status\)\) watch\(id\);/u);
+  assert.match(source, /if \(id === paneId && watched === null && shouldWatchPrompt\(status, agentName\)\) watch\(id\);/u);
+});
+
+test("the page tells the prompt dock which agent the pane runs, so Claude and Codex panes are watched at any status", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  assert.match(app, /promptDock\?\.select\(paneId, \{ agent: chatAgent\(pane, agent\), status: agentStatus\(agent, pane\) \}\);/u);
+  assert.match(app, /import \{ chatAgent \} from "\.\/lens-preference\.js/u);
 });

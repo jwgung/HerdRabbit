@@ -91,6 +91,79 @@ for (const [option, keys, label] of [
   });
 }
 
+function anyStatusPanes() {
+  return {
+    panes: [
+      { pane_id: "w1:p1", agent: "claude", agent_status: "working" },
+      { pane_id: "w1:p2", agent: "claude", agent_status: "done" },
+      { pane_id: "w1:p3", agent: "claude", agent_status: "idle" },
+      { pane_id: "w1:p4", agent: "codex", agent_status: "working" },
+      { pane_id: "w1:p5", agent: "gemini", agent_status: "working" },
+      { pane_id: "w1:p6", agent: "claude", agent_status: "working" },
+      { pane_id: "w1:p7", agent: "gemini", agent_status: "blocked" },
+    ],
+    menus: { "w1:p1": { cursor: 0 }, "w1:p4": { cursor: 0, agent: "codex" }, "w1:p5": { cursor: 0 } },
+    questions: { "w1:p2": { checked: [], cursor: 0 } },
+    outputs: {
+      "w1:p3": "● Here are the steps:\n1. Foo\n2. Bar\n3. Baz\n\nWant me to continue?\n",
+      "w1:p6": "● Options\n  ❯ 1. Foo\n    2. Bar\n",
+      "w1:p7": "Overwrite?\nContinue? (y/n)",
+    },
+  };
+}
+
+test("a Claude or Codex pane shows its card whatever herdr says it is doing, and takes the answer", async (context) => {
+  const { get, answer, herdr } = await fixture(context, { herdr: fakePromptHerdr(anyStatusPanes()) });
+  const working = (await get("w1:p1")).body.card;
+  assert.equal(working.id, CARD_ID);
+  assert.equal(working.kind, "approval");
+  assert.equal((await answer("w1:p1", { cardId: CARD_ID, option: 2 })).status, 200);
+  assert.deepEqual(herdr.sent.filter((item) => item.paneId === "w1:p1"), [{ paneId: "w1:p1", keys: ["down"] }, { paneId: "w1:p1", keys: ["down"] }, { paneId: "w1:p1", keys: ["enter"] }]);
+  const done = (await get("w1:p2")).body.card;
+  assert.ok(done.multiSelect);
+  assert.equal((await answer("w1:p2", { cardId: done.id, options: [0] })).status, 200);
+  assert.deepEqual(herdr.answered.find((item) => item.paneId === "w1:p2").answer, ["LM-O"]);
+  const codex = (await get("w1:p4")).body.card;
+  assert.equal(codex.agent, "codex");
+  assert.equal((await answer("w1:p4", { cardId: codex.id, option: 0 })).status, 200);
+});
+
+test("a Claude pane with ordinary output, even a numbered list, shows no card", async (context) => {
+  const { get, answer, herdr } = await fixture(context, { herdr: fakePromptHerdr(anyStatusPanes()) });
+  for (const paneId of ["w1:p3", "w1:p6"]) {
+    assert.deepEqual(await get(paneId), { status: 200, body: { card: null } });
+    assert.equal((await answer(paneId, { cardId: "000000000000", option: 0 })).status, 409);
+  }
+  assert.deepEqual(herdr.sent, []);
+});
+
+test("another agent's pane that is not blocked is not read, and a blocked one still gets the fallback", async (context) => {
+  const { get, herdr } = await fixture(context, { herdr: fakePromptHerdr(anyStatusPanes()) });
+  assert.deepEqual(await get("w1:p5"), { status: 200, body: { card: null } });
+  assert.equal(herdr.reads.filter((read) => read.paneId === "w1:p5").length, 0);
+  assert.equal((await get("w1:p7")).body.card.fallback, true);
+});
+
+test("a watched Claude pane is read each look whatever its status; another agent's only while blocked", async (context) => {
+  const herdr = fakePromptHerdr(anyStatusPanes());
+  const prompts = new PromptService({ herdr, pollMs: 60_000 });
+  context.after(() => prompts.stop());
+  const keepAlive = setInterval(() => {}, 1_000);
+  context.after(() => clearInterval(keepAlive));
+  const heard = new Map();
+  const ids = ["w1:p1", "w1:p2", "w1:p3", "w1:p5", "w1:p7"];
+  for (const paneId of ids) prompts.watch(paneId, (card) => heard.set(paneId, card));
+  for (let tries = 0; tries < 100 && heard.size < ids.length; tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(herdr.snapshots, 1);
+  assert.equal(heard.get("w1:p1").id, CARD_ID);
+  assert.ok(heard.get("w1:p2").multiSelect);
+  assert.equal(heard.get("w1:p3"), null);
+  assert.equal(heard.get("w1:p5"), null);
+  assert.equal(heard.get("w1:p7").fallback, true);
+  const readsOf = (paneId) => herdr.reads.filter((read) => read.paneId === paneId).length;
+  assert.deepEqual(ids.map(readsOf), [1, 1, 1, 0, 1]);
+});
+
 test("an answer to a card that changed is a 409 prompt_changed, and nothing is sent", async (context) => {
   const { answer, herdr } = await fixture(context);
   const stale = await answer("w1:p1", { cardId: "000000000000", option: 0 });
@@ -270,7 +343,7 @@ test("options ticked in the terminal come with the card and are kept, added to o
   }
 });
 
-test("one look takes one snapshot for every watched pane and reads only the blocked ones", async (context) => {
+test("one look takes one snapshot for every watched pane and reads the blocked ones and the Claude and Codex ones", async (context) => {
   const herdr = fakePromptHerdr(panes());
   const prompts = new PromptService({ herdr, pollMs: 60_000 });
   context.after(() => prompts.stop());
@@ -284,7 +357,7 @@ test("one look takes one snapshot for every watched pane and reads only the bloc
   await waitFor(() => heard.size === 4);
   assert.equal(herdr.snapshots, 1);
   const readsOf = (paneId) => herdr.reads.filter((read) => read.paneId === paneId).length;
-  assert.deepEqual(["w1:p1", "w1:p2", "w1:p3", "w1:p4"].map(readsOf), [1, 0, 1, 1]);
+  assert.deepEqual(["w1:p1", "w1:p2", "w1:p3", "w1:p4"].map(readsOf), [1, 1, 1, 1]);
   assert.equal(heard.get("w1:p1")[0].id, CARD_ID);
   assert.equal(heard.get("w1:p3")[0].fallback, true);
   assert.deepEqual(heard.get("w1:p2"), [null]);
@@ -292,7 +365,7 @@ test("one look takes one snapshot for every watched pane and reads only the bloc
   assert.deepEqual(heard.get("w1:p4"), [null]);
   prompts.nudge("w1:p1");
   await waitFor(() => herdr.snapshots === 2 && readsOf("w1:p4") === 2);
-  assert.deepEqual(["w1:p1", "w1:p2", "w1:p3", "w1:p4"].map(readsOf), [2, 0, 2, 2]);
+  assert.deepEqual(["w1:p1", "w1:p2", "w1:p3", "w1:p4"].map(readsOf), [2, 2, 2, 2]);
 });
 
 test("a watched pane the snapshot does not have is let go and holds no place", async (context) => {
@@ -376,7 +449,7 @@ test("one look takes one snapshot of this PC and at most one of each herdr machi
   assert.ok(remote.snapshots - before.remote <= 1);
   assert.equal(heard.get("machine-lab!w1:p1").id, CARD_ID);
   assert.equal(heard.get("machine-lab!w1:p2"), null);
-  assert.deepEqual(remote.reads.map((read) => read.paneId).sort(), ["w1:p1", "w1:p3"]);
+  assert.deepEqual(remote.reads.map((read) => read.paneId).sort(), ["w1:p1", "w1:p2", "w1:p3"]);
 });
 
 test("a herdr machine's Codex pane shows its approval card and takes the answer's keys over its client", async (context) => {
@@ -402,4 +475,27 @@ test("a herdr machine's Codex pane shows its approval card and takes the answer'
   assert.deepEqual(remote.sent.map((item) => item.keys), [["down"], ["enter"]]);
   assert.deepEqual(remote.answered, [{ paneId: "w1:p1", answer: "Yes, and don't ask again for commands that start with npm" }]);
   assert.deepEqual(local.sent, []);
+});
+
+test("a Claude pane that is not blocked and shows no menu is read less and less often, and input brings it back", async (context) => {
+  const keepAlive = setInterval(() => {}, 1_000);
+  context.after(() => clearInterval(keepAlive));
+  const herdr = fakePromptHerdr({
+    panes: [{ pane_id: "w5:p1", agent: "claude", agent_status: "done" }],
+    outputs: { "w5:p1": "All done.\n1. Wrote the file\n2. Ran the tests\n> " },
+  });
+  const prompts = new PromptService({ herdr, pollMs: 5 });
+  context.after(() => prompts.stop());
+  prompts.watch("w5:p1", () => {});
+  const readsOf = () => herdr.reads.filter((read) => read.paneId === "w5:p1").length;
+  for (let tries = 0; tries < 400 && herdr.snapshots < 40; tries += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  const looks = herdr.snapshots;
+  const reads = readsOf();
+  assert.ok(looks >= 40, `ticks ran (${looks})`);
+  assert.ok(reads < looks * 0.5, `a quiet pane is read on fewer than half the ticks (${reads} of ${looks})`);
+  // input may have opened a menu: the next tick reads it again
+  prompts.nudge("w5:p1");
+  const before = readsOf();
+  for (let tries = 0; tries < 100 && readsOf() === before; tries += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.ok(readsOf() > before, "read again right after input");
 });
