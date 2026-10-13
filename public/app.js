@@ -2966,12 +2966,14 @@ elements.inputForm.addEventListener("submit", async (event) => {
   submitButton.disabled = true;
   setFeedback("Sending…");
   // The Chat lens shows the message on its way and goes to the end at once.
-  const pending = chatLens.sent(paneId, text);
+  // The text itself shows only once the server says it was no password answer.
+  chatLens.sent(paneId, null);
+  let pending = null;
   try {
     if (text) {
       const sent = await sendText(text, paneId);
       // An answer to a password prompt is never kept, nor left on show in the chat.
-      if (sent?.secret) chatLens.withdraw(paneId, pending);
+      if (!sent?.secret) pending = chatLens.pend(paneId, text);
       if (!sent?.secret && paneKeepsInputHistory(paneId, snapshotRecords())) rememberSentInput(paneId, text);
     } else {
       await sendKeys(["enter"], paneId);

@@ -665,9 +665,15 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
     },
     // The message answered a password prompt: it never shows, though the
     // pane still works on it.
-    withdraw(message) {
-      pending = pending.filter((item) => item !== message);
+    // The message sent, once known to be no password answer: shown on its way
+    // until the transcript has it.
+    pend(text) {
+      if (typeof text !== "string" || !text.trim()) return null;
+      const message = pendingMessage(text, loader.history.turns, Date.now());
+      pending = [...pending, message];
       drawActivity();
+      if (stick) keepAtEnd();
+      return message;
     },
     // The send failed: nothing is on its way.
     unsent(message) {
@@ -875,7 +881,7 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
       return message;
     },
     unsent(id, message) { chats.get(id)?.unsent(message); },
-    withdraw(id, message) { chats.get(id)?.withdraw(message); },
+    pend(id, text) { const chat = chats.get(id); return chat?.visible ? chat.pend(text) : null; },
     get lens() { return lens; },
     get paneId() { return paneId; },
     chatFor: (id) => chats.get(id) ?? null,

@@ -63,9 +63,10 @@ export function paneAgent(snapshot, paneId) {
   const agent = (snapshot?.agents ?? []).find((item) => item.pane_id === paneId) ?? null;
   if (!pane && !agent) return null;
   const names = [pane?.agent, pane?.agent_session?.agent, agent?.agent];
-  const claude = names.some((name) => typeof name === "string" && name.toLowerCase() === "claude");
+  const name = names.find((item) => typeof item === "string" && item.trim())?.trim().toLowerCase() ?? "unknown";
+  const claude = names.some((item) => typeof item === "string" && item.toLowerCase() === "claude");
   const value = agent?.agent_status || agent?.state || pane?.agent_status || pane?.agent_state;
-  return { claude, status: KNOWN_STATES.has(value) ? value : "unknown" };
+  return { claude, name, status: KNOWN_STATES.has(value) ? value : "unknown" };
 }
 
 export class PromptService {
@@ -97,7 +98,7 @@ export class PromptService {
   async #readBlocked(paneId, agent) {
     if (agent.status !== "blocked") return null;
     const screen = await this.herdr.readPane(paneId, { lines: SCREEN_LINES, format: "text", source: "detection" });
-    return (agent.claude ? parseClaudePrompt(screen) : null) ?? parseFallbackPrompt(screen);
+    return (agent.claude ? parseClaudePrompt(screen) : null) ?? parseFallbackPrompt(screen, { agent: agent.claude ? "claude" : agent.name });
   }
 
   async card(paneId) {

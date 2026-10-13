@@ -570,7 +570,9 @@ function claudeListWaits(lines) {
 // last lines with the keys its hint lines name, plus Enter and Esc; a
 // numbered menu that owns the screen's end is answered by its numbers.
 // Null for a password prompt or Claude's own lists.
-export function parseFallbackPrompt(screen) {
+// `agent` names whose screen it is: a fallback card answers any agent.
+export function parseFallbackPrompt(screen, { agent = "claude" } = {}) {
+  const asker = agent === "claude" ? "Claude" : "The program";
   const text = String(screen ?? "");
   if (secretPrompt(text) !== null) return null;
   const lines = text.replace(ANSI_RE, "").split(/\r?\n/);
@@ -592,7 +594,7 @@ export function parseFallbackPrompt(screen) {
     ];
     const body = withoutLine(above, question);
     return screenCard(lines, shown, steady, finishPrompt({
-      kind: "menu", fallback: true, title: "Waiting for your answer", question: question ?? "Claude is waiting for your answer.",
+      agent, kind: "menu", fallback: true, title: "Waiting for your answer", question: question ?? `${asker} is waiting for your answer.`,
       body,
       options: choices.map(({ label }) => ({ label, description: null })),
       multiSelect: false, customOptionIndex: null,
@@ -612,7 +614,7 @@ export function parseFallbackPrompt(screen) {
   ];
   const body = withoutLine(last, question);
   return screenCard(lines, shown, steady, finishPrompt({
-    kind: "menu", fallback: true, title: "Waiting for input", question: question ?? "Claude is waiting for input.",
+    agent, kind: "menu", fallback: true, title: "Waiting for input", question: question ?? `${asker} is waiting for input.`,
     body,
     options: choices.map(({ label }) => ({ label, description: null })),
     multiSelect: false, customOptionIndex: null,

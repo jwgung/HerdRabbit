@@ -58,7 +58,7 @@ test("switching lenses only hides one: the terminal stays attached and xterm fit
 test("the page wires the lens: selection, sending, Mod+J, and reads with If-None-Match", () => {
   assert.match(app, /chatLens\.select\(paneId, \{ claude: isClaudePane\(pane, agent\), status: agentStatus\(agent, pane\) \}\);/u);
   // shown on its way and followed to the end at once; taken back if the send fails
-  assert.match(app, /chatLens\.sent\(paneId, text\);\s*try \{/u);
+  assert.match(app, /chatLens\.sent\(paneId, null\);\s*let pending = null;\s*try \{/u);
   assert.match(app, /catch \(error\) \{\s*chatLens\.unsent\(paneId, pending\);/u);
   const shortcut = app.match(/function activateLensShortcut\(event\) \{[\s\S]*?\n\}/u)?.[0] ?? "";
   assert.match(shortcut, /event\.key\.toLowerCase\(\) !== "j"/u);
@@ -102,13 +102,14 @@ test("the prompt dock sits in the stage, so the card shares the lens and the ban
   assert.match(css, /\.prompt-dock\[data-mode="overlay"\] \{\s*position: absolute;/u);
 });
 
-test("an answer to a password prompt does not stay on show as a pending message", () => {
-  assert.match(app, /if \(sent\?\.secret\) chatLens\.withdraw\(paneId, pending\);/u);
-  assert.match(view, /withdraw\(message\) \{\s*pending = pending\.filter\(\(item\) => item !== message\);/u);
+test("an answer to a password prompt is never shown, not even while it is on its way", () => {
+  // nothing is drawn from the text until the server says it was no password answer
+  assert.match(app, /chatLens\.sent\(paneId, null\);/u);
+  assert.match(app, /if \(!sent\?\.secret\) pending = chatLens\.pend\(paneId, text\);/u);
+  assert.doesNotMatch(app, /chatLens\.sent\(paneId, text\)/u);
 });
 
 test("a failed send takes back only its own pending message, so a failed bare Enter keeps an earlier one", () => {
-  assert.match(app, /const pending = chatLens\.sent\(paneId, text\);/u);
   assert.match(app, /chatLens\.unsent\(paneId, pending\);/u);
   assert.match(view, /unsent\(message\) \{\s*pending = pending\.filter\(\(item\) => item !== message\);/u);
   assert.match(view, /const message = typeof text === "string" && text\.trim\(\) \? pendingMessage\(/u);

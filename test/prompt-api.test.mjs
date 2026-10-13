@@ -144,6 +144,7 @@ test("a blocked pane no reader knows gets the fallback card, answered with its k
   const { get, answer, herdr } = await fixture(context);
   const { card } = (await get("w1:p3")).body;
   assert.equal(card.fallback, true);
+  assert.equal(card.agent, "codex", "the card names the program asking, not Claude");
   assert.deepEqual(card.options.map((option) => option.label), ["Yes (y)", "No (n)", "Enter", "Esc"]);
   assert.equal((await answer("w1:p3", { cardId: card.id, option: 0 })).status, 200);
   assert.equal((await answer("w1:p3", { cardId: card.id, option: 3 })).status, 200);
