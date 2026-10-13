@@ -338,9 +338,9 @@ Claude Code나 Codex가 돌고 있는 패인은 채팅으로도 읽을 수 있�
 
 ### 질문 카드
 
-herdr가 패인을 blocked로 알리면 서버가 그 패인 화면을 읽어 묻는 내용을 카드로 만듭니다. Claude Code의 도구 승인(Yes / Yes, and don't ask again / No), 계획 승인, AskUserQuestion 메뉴(하나 고르기, 여러 개 고르기, 직접 입력), 여러 답을 한 번에 보내기 전 확인, 폴더 신뢰 확인 같은 번호 없는 메뉴를 읽고, Codex의 승인(명령 실행, 편집 적용, 폴더 신뢰. "No, and tell Codex what to do differently"는 Esc로 답함), plan 모드 질문(선택지, 또는 "None of the above"의 메모로 직접 입력), 일하는 동안 대기열에 넣은 질문, "Press enter to continue" 메뉴도 읽습니다. 모르는 blocked 화면은 마지막 몇 줄과 기본 키(Enter, Esc, 번호 메뉴의 숫자, y/n)를 담은 대체 카드가 됩니다. 비밀번호 입력 화면은 카드로 만들지 않습니다. Chat 화면에서는 카드가 입력창 바로 위에 붙고, Terminal 화면 위에는 에이전트가 묻고 있다는 배너가 뜹니다. 배너의 **Answer**는 채팅으로 넘어가고, 채팅이 없는 패인이면 같은 카드를 터미널 위에 띄웁니다. 배너는 그 질문에 한해 닫을 수 있습니다.
+선택한 Claude나 Codex 패인은 herdr가 어떤 상태로 알리든(메뉴가 떠 있어도 blocked로 알리지 않을 때가 있습니다) 서버가 그 화면을 읽어 화면에 뜬 메뉴를 카드로 만듭니다. 일반 출력은, 답변 속 번호 목록이라도 카드가 되지 않습니다. Claude Code의 도구 승인(Yes / Yes, and don't ask again / No), 계획 승인, AskUserQuestion 메뉴(하나 고르기, 여러 개 고르기, 직접 입력), 여러 답을 한 번에 보내기 전 확인, 폴더 신뢰 확인 같은 번호 없는 메뉴를 읽고, Codex의 승인(명령 실행, 편집 적용, 폴더 신뢰. "No, and tell Codex what to do differently"는 Esc로 답함), plan 모드 질문(선택지, 또는 "None of the above"의 메모로 직접 입력), 일하는 동안 대기열에 넣은 질문, "Press enter to continue" 메뉴도 읽습니다. herdr가 패인을 blocked로 알리는 동안에만, 어느 리더도 모르는 화면이 마지막 몇 줄과 기본 키(Enter, Esc, 번호 메뉴의 숫자, y/n)를 담은 대체 카드가 됩니다. 비밀번호 입력 화면은 카드로 만들지 않습니다. Chat 화면에서는 카드가 입력창 바로 위에 붙고, Terminal 화면 위에는 에이전트가 묻고 있다는 배너가 뜹니다. 배너의 **Answer**는 채팅으로 넘어가고, 채팅이 없는 패인이면 같은 카드를 터미널 위에 띄웁니다. 배너는 그 질문에 한해 닫을 수 있습니다.
 
-선택지를 누르면 카드 id를 보냅니다. 서버는 화면을 다시 읽어 질문이 바뀌었으면 `409 prompt_changed`로 거절하고(카드는 새로 읽습니다), 아니면 커서 이동 키를 보낸 뒤 화면에서 커서가 고른 줄에 온 것을 확인하고서야 Enter를 보냅니다. 카드는 선택한 패인이 blocked인 동안에만 터미널 소켓으로 받습니다. Herdr 머신의 패인도 같은 방식으로 동작합니다.
+선택지를 누르면 카드 id를 보냅니다. 서버는 화면을 다시 읽어 질문이 바뀌었으면 `409 prompt_changed`로 거절하고(카드는 새로 읽습니다), 아니면 커서 이동 키를 보낸 뒤 화면에서 커서가 고른 줄에 온 것을 확인하고서야 Enter를 보냅니다. 카드는 선택한 패인이 Claude나 Codex 패인이거나 blocked인 동안에만 터미널 소켓으로 받습니다. Herdr 머신의 패인도 같은 방식으로 동작합니다.
 
 패인에 비밀번호 프롬프트(`[sudo] password for …:`, `Password:`, passphrase, PIN)가 떠 있을 때 입력창으로 보낸 메시지는 입력 히스토리와 알림 요청 기록에 남기지 않습니다.
 

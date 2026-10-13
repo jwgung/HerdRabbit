@@ -60,8 +60,10 @@ function world() {
         agent_session: { agent: "claude", kind: "id", value: SESSION }, agent_status: "blocked" },
       { pane_id: "w1:p2", tab_id: "w1:t1", workspace_id: "w1", label: "Shell", agent: "codex", agent_status: "blocked" },
       { pane_id: "w1:p3", tab_id: "w1:t1", workspace_id: "w1", label: "Datasets", agent: "claude", agent_status: "blocked" },
+      // herdr says working while Claude waits on a menu
+      { pane_id: "w1:p4", tab_id: "w1:t1", workspace_id: "w1", label: "Quiet", agent: "claude", agent_status: "working" },
     ],
-    menus: { "w1:p1": { cursor: 0 } },
+    menus: { "w1:p1": { cursor: 0 }, "w1:p4": { cursor: 0 } },
     // LM-O is ticked in the terminal already
     questions: { "w1:p3": { checked: [0], cursor: 0 } },
     outputs: { "w1:p2": "Overwrite the build folder?\nContinue? (y/n)" },
@@ -288,9 +290,20 @@ try {
     assert.deepEqual(herdr.sent.filter((item) => item.paneId === "w1:p3").map((item) => item.keys.join("+")), ["down", "down", "enter", "right"]);
     assert.deepEqual(herdr.answered.filter((item) => item.paneId === "w1:p3"), [{ paneId: "w1:p3", answer: ["LM-O", "T-LESS"] }]);
 
+    // herdr still says "working" while the approval is on screen: the card appears all the same, and answers.
+    await page.goto(`${url}/?pane=${encodeURIComponent("w1:p4")}`);
+    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "banner");
+    await page.locator(".prompt-banner-open").click();
+    await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "card" || document.querySelector("#prompt-dock")?.dataset.mode === "overlay");
+    assert.equal((await herdr.snapshot()).panes.find((pane) => pane.pane_id === "w1:p4").agent_status, "working");
+    await page.locator('.prompt-card [data-prompt-option="0"]').click();
+    await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "hidden" || document.querySelector(".prompt-card-error"));
+    assert.deepEqual(herdr.answered.filter((item) => item.paneId === "w1:p4"), [{ paneId: "w1:p4", answer: "Yes" }]);
+
     assert.deepEqual(errors, []);
     results.push({ mobile, banner: !mobile, card: true, keyBar: true, conflict: true, keyboard: true, working: true,
-      pendingAndFollow: true, copyIcon: true, chatFontSize: `${before}->${after}`, fallbackOverlay: true, multipleChoice: true });
+      pendingAndFollow: true, copyIcon: true, chatFontSize: `${before}->${after}`, fallbackOverlay: true, multipleChoice: true, workingPaneCard: true });
     await context.close();
   }
 } finally {
