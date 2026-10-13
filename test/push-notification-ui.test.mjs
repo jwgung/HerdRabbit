@@ -10,10 +10,10 @@ const page = await readFile(new URL("../public/index.html", import.meta.url), "u
 const worker = await readFile(new URL("../public/sw.js", import.meta.url), "utf8");
 const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
 
-test("renders an accessible notification toggle in the sidebar footer", () => {
-  assert.match(page, /id="notification-toggle"/);
-  assert.match(page, /aria-label="Turn on notifications"/);
-  assert.match(page, /class="notification-icon"/);
+test("offers the notification toggle as an item of the settings menu, hidden when push is unsupported", () => {
+  assert.doesNotMatch(page, /id="notification-toggle"/);
+  assert.match(app, /key: "notifications", label: "Notifications"/);
+  assert.match(app, /notifications\.hidden = !push \|\| push\.hidden;/);
 });
 
 test("describes enabled, disabled, denied, and unavailable push states", () => {

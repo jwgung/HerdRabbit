@@ -76,8 +76,13 @@ test("manages passkeys from this machine's menu only, with the password again", 
   assert.match(page, /id="passkey-dialog-password"[^>]*type="password"/);
   assert.match(
     app,
-    /if \(server\.id === "local" && state\.authRequired\) \{\s+actions\.push\(\{\s+label: "Passkeys",/,
+    /key: "passkeys",\s+label: "Passkeys",/,
   );
+  // Both sign-in items follow the sign-in being on; the machine menu has none of them.
+  assert.match(app, /for \(const key of \["passkeys", "sessions"\]\) item\(key\)\.hidden = !state\.authRequired;/);
+  const machineMenu = app.slice(app.indexOf("function serverActionMenu"), app.indexOf("// This machine is not a connection"));
+  assert.doesNotMatch(machineMenu, /Passkeys|Signed-in devices|Sign out/);
+  assert.doesNotMatch(app, /function signOut\(/);
   // Without WebAuthn the list still opens, to remove; only adding is hidden.
   assert.match(app, /querySelector\("#passkeys-add"\)\.hidden = !supportsPasskeys\(\);/);
   // Escape cannot close either dialog under a running ceremony.

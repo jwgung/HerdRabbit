@@ -181,9 +181,7 @@ body.sidebar-collapsed .navigator-create-project,
 body.sidebar-collapsed .herdr-session-heading,
 body.sidebar-collapsed .herdr-session-empty,
 body.sidebar-collapsed .workspace-heading,
-body.sidebar-collapsed .tab-heading,
-body.sidebar-collapsed .theme-button,
-body.sidebar-collapsed .notification-button {
+body.sidebar-collapsed .tab-heading {
   display: none;
 }
 
@@ -501,6 +499,27 @@ body.sidebar-collapsed .terminal-panel {
   stroke-width: 3;
 }
 
+.sidebar-action-item[hidden],
+.sidebar-action-separator[hidden] {
+  display: none;
+}
+
+.sidebar-action-item:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.sidebar-action-separator {
+  height: 1px;
+  margin: 3px 4px;
+  background: var(--line);
+}
+
+/* Longer labels than a row menu carries ("Notifications: Blocked"). */
+.settings-menu > .sidebar-action-popover {
+  width: 210px;
+}
+
 #add-menu .sidebar-action-item {
   display: block;
 }
@@ -696,70 +715,6 @@ body.sidebar-collapsed .terminal-panel {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.theme-button,
-.notification-button {
-  position: relative;
-  width: 34px;
-  min-width: 34px;
-  height: 34px;
-  min-height: 30px;
-  display: inline-block;
-  padding: 5px 9px;
-  color: var(--control-text);
-  line-height: 0;
-}
-
-.notification-icon {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 18px;
-  height: 18px;
-  transform: translate(-50%, -50%);
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
-}
-
-.notification-button[data-state="enabled"] {
-  color: var(--accent);
-}
-
-.notification-button[data-state="enabled"] .notification-icon {
-  fill: color-mix(in srgb, var(--accent) 20%, transparent);
-}
-
-.notification-button[data-state="denied"] {
-  color: var(--danger);
-  opacity: 0.7;
-}
-
-.notification-button[hidden] {
-  display: none;
-}
-
-.theme-icon {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 18px;
-  height: 18px;
-  display: none;
-  transform: translate(-50%, -50%);
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
-}
-
-.theme-button[data-next-theme="light"] .theme-icon-light,
-.theme-button[data-next-theme="dark"] .theme-icon-dark {
-  display: block;
 }
 
 .terminal-stage {
@@ -1420,6 +1375,13 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   overflow: visible;
 }
 
+/* The shared menu panel sets its own display, which outranks the popover's
+   default of none; without this the panel shows for a frame at its in-flow
+   spot before the script places it. */
+.sidebar-action-popover.is-floating:not(:popover-open) {
+  display: none;
+}
+
 /* The row's one control is a menu button, not the row of squares it replaced. */
 .uploads-row .uploads-action-menu > summary {
   width: 32px;
@@ -1876,12 +1838,11 @@ body.is-resizing-sidebar {
   grid-row: 3;
 }
 
-/* The shared footer spreads its items to both ends. The connection dot used to
-   take the far end and leave the buttons together; without it they would be
-   pulled apart, so they are kept together at the start. */
+/* The footer holds two controls: the uploads folder at the start and the
+   settings menu at the far end. */
 .navigator .navigator-footer {
   grid-row: 4;
-  justify-content: flex-start;
+  justify-content: space-between;
 }
 
 .navigator-tabs {
@@ -1938,9 +1899,27 @@ body.is-resizing-sidebar {
   grid-template-rows: auto minmax(0, 1fr) auto auto;
 }
 
-/* Lives in the sidebar footer with the other standing controls, matching the
-   theme toggle beside it. */
-.uploads-button svg {
+/* Both footer controls are the same square; the settings button is the summary
+   of a menu, so it carries the menu's border-on-open look. */
+.uploads-button,
+.settings-button {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 30px;
+  flex: 0 0 34px;
+  padding: 5px 9px;
+  color: var(--control-text);
+}
+
+.settings-button {
+  border-color: var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+
+.uploads-button svg,
+.settings-button svg {
   width: 20px;
   height: 20px;
   fill: none;
