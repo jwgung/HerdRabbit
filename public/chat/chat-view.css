@@ -33,7 +33,15 @@
   cursor: pointer;
 }
 
+/* The word is trimmed to its capital letters, so it centres on the icon by
+   what is drawn, whatever the font's spacing above and below. */
+.lens-label {
+  line-height: 1;
+  text-box: trim-both cap alphabetic;
+}
+
 .lens-icon {
+  display: block;
   flex: 0 0 auto;
   width: 16px;
   height: 16px;

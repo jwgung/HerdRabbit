@@ -442,7 +442,10 @@ test("a file of unknown size is read to its end, bounded by the cap rather than 
   assert.equal((await text(limited.stream)).length, 5);
 });
 
-test("a download whose browser stops reading is ended; one that reads slowly keeps going", async () => {
+test("a download whose browser stops reading is ended; one that reads slowly keeps going", async (context) => {
+  // the stream's own timers do not hold the process open: this test does
+  const keepAlive = setInterval(() => {}, 1_000);
+  context.after(() => clearInterval(keepAlive));
   const { home, files } = await setup({ readIdleMs: 40, stalledClientMs: 400 });
   await writeFile(join(home, "big.bin"), Buffer.alloc(256 * 1024, 3));
   const stalled = await files.openFile(join(home, "big.bin"));

@@ -230,6 +230,18 @@ try {
     await shows("ready terminal");
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
     assert.equal(await lens(), "terminal", "the lens chosen last for the pane comes back");
+    // On a wide window each lens button shows its icon and word on one line,
+    // centred on each other.
+    if (!mobile) {
+      const offsets = await page.evaluate(() => [...document.querySelectorAll("#lens-switch button")].map((button) => {
+        const icon = button.querySelector(".lens-icon").getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(button.querySelector(".lens-label"));
+        const text = range.getBoundingClientRect();
+        return Math.abs((icon.top + icon.height / 2) - (text.top + text.height / 2));
+      }));
+      assert.ok(offsets.every((offset) => offset <= 1), `icon and word centred on each other: ${offsets}`);
+    }
 
     // Five minutes in the chat lets the terminal go; back in Terminal it attaches again.
     const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
