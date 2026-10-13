@@ -120,3 +120,13 @@ test("the lens buttons are icons, with their words beside them on wide windows a
   assert.match(styles, /@media \(max-width: 760px\) \{[\s\S]*?\.lens-label \{\s*position: absolute;[\s\S]*?clip-path: inset\(50%\);/u);
   assert.doesNotMatch(styles, /\.lens-label \{[^}]*display: none/u, "the words stay readable to screen readers");
 });
+
+test("the composer sends at once whatever the agent is doing: no queue, no send menu", () => {
+  const submit = app.slice(app.indexOf('elements.inputForm.addEventListener("submit"'));
+  const handler = submit.slice(0, submit.indexOf("\n});") + 4);
+  assert.match(handler, /await sendText\(text, paneId\)/u);
+  assert.match(handler, /await sendKeys\(\["enter"\], paneId\)/u);
+  assert.doesNotMatch(handler, /agentStatus|selectedAgentStatus|queue/iu, "the agent's state does not change what Send does");
+  assert.doesNotMatch(app, /\/pending`|\/pending\/|send-menu|composerQueues|Queue for next turn/u);
+  assert.doesNotMatch(page, /send-menu|pending-messages/u);
+});
