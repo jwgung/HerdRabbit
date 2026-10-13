@@ -106,7 +106,8 @@ export class ConversationService {
       ? { kind: own.kind, value: own.value } : null;
     const thread = session && (session.kind === undefined || session.kind === "id") && THREAD_ID.test(session.value) ? session.value : null;
     const local = serverId === LOCAL;
-    const found = await this.#located(`codex\0${serverId}\0${session?.kind ?? ""}\0${session?.value ?? ""}\0${cwds.join("\0")}`,
+    // per pane: the open files and the screen that may decide it are the pane's own
+    const found = await this.#located(`codex\0${serverId}\0${paneId}\0${session?.kind ?? ""}\0${session?.value ?? ""}\0${cwds.join("\0")}`,
       async () => locateCodexRollout(store, {
         session,
         cwd: cwds[0] ?? null,

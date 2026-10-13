@@ -440,6 +440,36 @@ test("finds a Codex pane's rollout through herdr's process info on this machine"
   assert.deepEqual(asked, ["w1:p1"]);
 });
 
+test("two Codex panes in one directory with no session named each get their own rollout", async (context) => {
+  if (process.platform !== "linux") { context.skip("reads /proc"); return; }
+  forgetConversationState();
+  forgetCodexState();
+  const home = await temp(context);
+  const first = await rolloutIn(home, THREAD, jsonl(meta({ id: THREAD }), ...task(1)));
+  const second = await rolloutIn(home, OTHER, jsonl(meta({ id: OTHER }), ...task(2)));
+  const handles = { "w1:p1": await open(first, "r"), "w1:p2": await open(second, "r") };
+  context.after(() => Promise.all(Object.values(handles).map((handle) => handle.close())));
+  // each pane's process holds only its own file open: a helper process per pane
+  const { spawn } = await import("node:child_process");
+  const holders = {};
+  for (const [paneId, path] of [["w1:p1", first], ["w1:p2", second]]) {
+    const child = spawn(process.execPath, ["-e", `require("fs").openSync(${JSON.stringify(path)}, "r"); setInterval(() => {}, 1000)`], { stdio: "ignore" });
+    holders[paneId] = child;
+    context.after(() => child.kill());
+  }
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const service = codexService(home, [
+    { pane_id: "w1:p1", agent: "codex", cwd: "/work/app" },
+    { pane_id: "w1:p2", agent: "codex", cwd: "/work/app" },
+  ], {
+    async paneProcessInfo(paneId) {
+      return { process_info: { foreground_processes: [{ pid: holders[paneId].pid, argv: ["/usr/bin/codex"] }] } };
+    },
+  });
+  assert.deepEqual(texts((await service.page("w1:p1")).turns), ["prompt 1", "answer 1"]);
+  assert.deepEqual(texts((await service.page("w1:p2")).turns), ["prompt 2", "answer 2"], "not the first pane's conversation");
+});
+
 test("a Codex pane herdr names no session for is matched by its screen among its directory's threads", async (context) => {
   let sqlite;
   try { sqlite = await import("node:sqlite"); } catch { context.skip("node:sqlite is not available"); return; }

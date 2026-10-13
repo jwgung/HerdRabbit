@@ -164,7 +164,10 @@ test("the fallback card speaks for Codex, but never over its /model list", () =>
   assert.equal(parseFallbackPrompt(`${models.replace("enter select · esc back", "enter default · s session · esc back")}\n`, { agent: "codex" }), null);
 });
 
-test("a blocked Codex pane's approval is answered through the service, the cursor checked first", async () => {
+test("a blocked Codex pane's approval is answered through the service, the cursor checked first", async (context) => {
+  // the service's own waits do not hold the process open: this test does
+  const keepAlive = setInterval(() => {}, 1_000);
+  context.after(() => clearInterval(keepAlive));
   const herdr = fakePromptHerdr({
     panes: [{ pane_id: "w1:p1", agent: "codex", agent_status: "blocked" }, { pane_id: "w1:p2", agent: "codex", agent_status: "blocked" }],
     menus: { "w1:p1": { agent: "codex", cursor: 0 }, "w1:p2": { agent: "codex", cursor: 0 } },
