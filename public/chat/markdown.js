@@ -470,12 +470,18 @@ function listHtml(block, options) {
   return `<${tag} class="md-list"${start}>${items}</${tag}>`;
 }
 
+// The copy buttons' icons, stroked on 20 units like the composer's, and the
+// check a button shows for a moment once a copy worked (chat-view.js).
+export const COPY_ICONS = '<svg class="copy-icon" aria-hidden="true" viewBox="0 0 20 20" focusable="false">' +
+  '<rect x="7" y="7" width="10" height="10" rx="2" /><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" /></svg>' +
+  '<svg class="copied-icon" aria-hidden="true" viewBox="0 0 20 20" focusable="false"><path d="m4.5 10.5 3.5 3.5 7.5-8" /></svg>';
+
 function codeHtml(block) {
   const lines = block.value.split("\n").length;
   const folded = lines > FOLD_CODE_AFTER_LINES;
   return `<div class="md-code${folded ? " is-folded" : ""}">` +
     `<div class="md-code-head"><span>${escapeHtml(block.language || "text")}</span>` +
-    `<button type="button" class="md-code-copy" data-action="copy-code">Copy</button></div>` +
+    `<button type="button" class="md-code-copy" data-action="copy-code" aria-label="Copy code" title="Copy code">${COPY_ICONS}</button></div>` +
     `<pre><code>${escapeHtml(block.value)}</code></pre>` +
     (folded ? `<button type="button" class="md-code-more" data-action="unfold-code" aria-expanded="false" data-lines="${lines}">Show all ${lines} lines</button>` : "") +
     "</div>";

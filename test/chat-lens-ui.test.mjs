@@ -18,6 +18,10 @@ const CHAT_FILES = [
   "/chat/conversation-refresh.js",
   "/chat/chat-view.js",
   "/chat/chat-view.css",
+  "/chat/chat-activity.js",
+  "/chat/prompt-card.js",
+  "/chat/prompt-card.css",
+  "/chat-font-preference.js",
 ];
 
 test("the pane header has a Chat / Terminal switch, and both lenses share the stage", () => {
@@ -53,7 +57,9 @@ test("switching lenses only hides one: the terminal stays attached and xterm fit
 
 test("the page wires the lens: selection, sending, Mod+J, and reads with If-None-Match", () => {
   assert.match(app, /chatLens\.select\(paneId, \{ claude: isClaudePane\(pane, agent\), status: agentStatus\(agent, pane\) \}\);/u);
-  assert.match(app, /chatLens\.sent\(paneId\);/u);
+  // shown on its way and followed to the end at once; taken back if the send fails
+  assert.match(app, /chatLens\.sent\(paneId, null\);\s*let pending = null;\s*try \{/u);
+  assert.match(app, /catch \(error\) \{\s*chatLens\.unsent\(paneId, pending\);/u);
   const shortcut = app.match(/function activateLensShortcut\(event\) \{[\s\S]*?\n\}/u)?.[0] ?? "";
   assert.match(shortcut, /event\.key\.toLowerCase\(\) !== "j"/u);
   assert.match(shortcut, /chatLens\.toggle\(\);/u);
@@ -77,4 +83,35 @@ test("a dropped chat lets go of its resize observer, and any conversation messag
   assert.doesNotMatch(view, /new ResizeObserver\([^)]*\)\.observe/u, "no observer is left without a handle");
   assert.match(view, /connection\.onConversation\(\(message\) => \{[^}]*chat\.refresh\(\);/su);
   assert.doesNotMatch(view, /message\.type === "conversation-changed"\) chat\.refresh/u);
+});
+
+test("the key bar is the terminal's: the Chat lens hides it and keeps the composer", async () => {
+  const main = await read("../public/styles.css");
+  assert.match(main, /\.terminal-panel\[data-lens="chat"\] \.quick-keys \{\s*display: none;/u);
+  assert.match(main, /\.terminal-panel\[data-lens="chat"\] \{\s*grid-template-rows: auto minmax\(0, 1fr\) auto;/u);
+  assert.match(app, /elements\.terminalPanel\.dataset\.lens = lens;/u);
+  assert.match(app, /if \(lens === "terminal"\) window\.requestAnimationFrame\(\(\) => attachedTerminal\.refit\(\)\);/u);
+});
+
+test("the prompt dock sits in the stage, so the card shares the lens and the banner floats over the terminal", async () => {
+  const stage = page.match(/<div class="terminal-stage"[\s\S]*?<div id="prompt-dock"[^>]*><\/div>/u)?.[0] ?? "";
+  assert.match(stage, /<div id="prompt-dock" class="prompt-dock" data-mode="hidden" hidden><\/div>/u);
+  assert.match(page, /<link rel="stylesheet" href="\/chat\/prompt-card\.css\?v=[^"]+" \/>/u);
+  const css = await read("../public/chat/prompt-card.css");
+  assert.match(css, /\.prompt-dock\[data-mode="banner"\] \{\s*position: absolute;/u);
+  assert.match(css, /\.prompt-dock\[data-mode="overlay"\] \{\s*position: absolute;/u);
+});
+
+test("an answer to a password prompt is never shown, not even while it is on its way", () => {
+  // nothing is drawn from the text until the server says it was no password answer
+  assert.match(app, /chatLens\.sent\(paneId, null\);/u);
+  assert.match(app, /if \(!sent\?\.secret\) pending = chatLens\.pend\(paneId, text\);/u);
+  assert.doesNotMatch(app, /chatLens\.sent\(paneId, text\)/u);
+});
+
+test("a failed send takes back only its own pending message, so a failed bare Enter keeps an earlier one", () => {
+  assert.match(app, /chatLens\.unsent\(paneId, pending\);/u);
+  assert.match(view, /unsent\(message\) \{\s*pending = pending\.filter\(\(item\) => item !== message\);/u);
+  assert.match(view, /const message = typeof text === "string" && text\.trim\(\) \? pendingMessage\(/u);
+  assert.doesNotMatch(view, /pending\.slice\(0, -1\)/u);
 });

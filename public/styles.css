@@ -2208,3 +2208,13 @@ body.is-resizing-sidebar {
   color: var(--accent-ink);
   font-size: 13px;
 }
+
+/* The key bar drives the terminal: the Chat lens hides it, and the chat takes
+   its row. The composer (files, text, send) stays in both lenses. */
+.terminal-panel[data-lens="chat"] {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.terminal-panel[data-lens="chat"] .quick-keys {
+  display: none;
+}

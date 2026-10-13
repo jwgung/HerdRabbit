@@ -5,11 +5,13 @@ const MAX_PENDING_ATTACHES = 4;
 const MAX_ATTACHED_PANES = 4;
 // Conversations one socket may watch for changes, for the same reason.
 const MAX_WATCHED_CONVERSATIONS = 4;
+// Panes whose prompt card one socket hears of: the selected one, and a few more.
+const MAX_WATCHED_PROMPTS = 4;
 
 // Authentication stays with the HTTP server. No launch token is put in a URL.
 export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMessage,
   sendInput, watchOutput, watchStatuses, attachments = null, onRequest = () => {}, onSessionsEnded = () => () => {},
-  watchConversation = null }) {
+  watchConversation = null, watchPrompt = null }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
   // An ended sign-in closes its sockets now, not at their next heartbeat.
   const rechecks = new Set();
@@ -41,6 +43,8 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
     const wantedPanes = new Set();
     // Conversations this socket hears changes of, each with the call that stops it.
     const conversations = new Map();
+    // Panes whose prompt card this socket hears of, each with the call that stops it.
+    const prompts = new Map();
     const send = message => {
       if (ws.readyState !== ws.OPEN) return;
       if (ws.bufferedAmount > 2 * 1024 * 1024) { ws.close(1013, "Client too slow"); return; }
@@ -113,6 +117,8 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
       stopStatuses?.();
       for (const stop of conversations.values()) stop();
       conversations.clear();
+      for (const stop of prompts.values()) stop();
+      prompts.clear();
       attachments?.detachAll(viewer);
     });
     ws.on("message", (bytes, binary) => {
@@ -190,6 +196,33 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
           const id = paneId(message.paneId);
           conversations.get(id)?.();
           conversations.delete(id);
+          return;
+        }
+        // A pane's prompt card, sent whole whenever it appears, changes or goes
+        // (card null). Answering goes over HTTP.
+        if (message.type === "watch-prompt") {
+          const id = paneId(message.paneId);
+          if (prompts.has(id)) return;
+          if (!watchPrompt || prompts.size >= MAX_WATCHED_PROMPTS) {
+            send({ type: "prompt-unavailable", pane_id: id, code: watchPrompt ? "busy" : "unsupported" });
+            return;
+          }
+          let stop;
+          try {
+            stop = watchPrompt(id, card => {
+              if (!stopped && valid()) send({ type: "prompt", pane_id: id, card: card ?? null });
+            });
+          } catch {
+            send({ type: "prompt-unavailable", pane_id: id, code: "busy" });
+            return;
+          }
+          prompts.set(id, stop);
+          return;
+        }
+        if (message.type === "unwatch-prompt") {
+          const id = paneId(message.paneId);
+          prompts.get(id)?.();
+          prompts.delete(id);
           return;
         }
         if (message.type === "detach") {

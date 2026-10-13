@@ -31,6 +31,7 @@ import { validMachineLabel, validMachineTarget } from "./herdr-machines.mjs";
 import { ConversationError } from "./conversation/claude.mjs";
 import { ConversationMonitor } from "./conversation/monitor.mjs";
 import { ConversationService } from "./conversation/service.mjs";
+import { PromptService } from "./prompt/service.mjs";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
 const SIMPLEWEBAUTHN_BROWSER_BUNDLE = fileURLToPath(new URL(
@@ -74,6 +75,10 @@ const STATIC_FILES = new Map([
   ["/chat/conversation-refresh.js", { path: `${PUBLIC_DIR}/chat/conversation-refresh.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/chat-view.js", { path: `${PUBLIC_DIR}/chat/chat-view.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/chat-view.css", { path: `${PUBLIC_DIR}/chat/chat-view.css`, type: "text/css; charset=utf-8" }],
+  ["/chat/chat-activity.js", { path: `${PUBLIC_DIR}/chat/chat-activity.js`, type: "text/javascript; charset=utf-8" }],
+  ["/chat/prompt-card.js", { path: `${PUBLIC_DIR}/chat/prompt-card.js`, type: "text/javascript; charset=utf-8" }],
+  ["/chat/prompt-card.css", { path: `${PUBLIC_DIR}/chat/prompt-card.css`, type: "text/css; charset=utf-8" }],
+  ["/chat-font-preference.js", { path: `${PUBLIC_DIR}/chat-font-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/vendor/simplewebauthn-browser.js", { path: SIMPLEWEBAUTHN_BROWSER_BUNDLE, type: "text/javascript; charset=utf-8" }],
   ["/theme.js", { path: `${PUBLIC_DIR}/theme.js`, type: "text/javascript; charset=utf-8" }],
   ["/styles.css", { path: `${PUBLIC_DIR}/styles.css`, type: "text/css; charset=utf-8" }],
@@ -568,6 +573,8 @@ export function createHerdrHttpServer({
   // A pane's Claude conversation (src/conversation/): this machine's
   // transcripts, and a Herdr machine's through its file client.
   conversations = null,
+  // Prompt cards (src/prompt/): a blocked pane's approval or question.
+  prompts = null,
   // How many links to other HerdRabbits an older version saved. Those are not
   // used any more; the page says once to add those PCs again with herdr machine.
   legacyServers = 0,
@@ -584,6 +591,7 @@ export function createHerdrHttpServer({
   }
   const conversationService = conversations ?? new ConversationService({ herdr });
   const conversationMonitor = new ConversationMonitor({ resolve: (paneId) => conversationService.resolve(paneId) });
+  const promptService = prompts ?? new PromptService({ herdr });
 
   // A message sent while the pane asks for a password is that password: the
   // page keeps it out of its input history, and no request is recorded. A
@@ -1243,6 +1251,26 @@ export function createHerdrHttpServer({
         return;
       }
 
+      // The card a blocked pane shows (approval, question, menu), or null.
+      const promptMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/prompt$/);
+      if (method === "GET" && promptMatch) {
+        sendJson(response, 200, { card: await promptService.card(decodePaneId(promptMatch[1])) });
+        return;
+      }
+
+      // An option of that card, by its id: a card that changed meanwhile is a
+      // 409 prompt_changed, and nothing is sent.
+      const answerMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/prompt\/answer$/);
+      if (method === "POST" && answerMatch) {
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, maxBodyBytes);
+        const paneId = decodePaneId(answerMatch[1]);
+        await promptService.answer(paneId, body);
+        outputWatcher.input(paneId);
+        sendJson(response, 200, { ok: true });
+        return;
+      }
+
       const textMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/text$/);
       if (method === "POST" && textMatch) {
         requireWriteAuthorization(request, csrfToken);
@@ -1252,6 +1280,7 @@ export function createHerdrHttpServer({
         await herdr.sendText(paneId, body.text, {
           submit: body.submit === true,
         });
+        promptService.nudge(paneId);
         if (body.submit === true && !secret) {
           notificationMonitor?.recordRequest(paneId, body.text);
         }
@@ -1264,6 +1293,7 @@ export function createHerdrHttpServer({
         requireWriteAuthorization(request, csrfToken);
         const body = await readJsonBody(request, maxBodyBytes);
         await herdr.sendKeys(decodePaneId(keysMatch[1]), body.keys);
+        promptService.nudge(decodePaneId(keysMatch[1]));
         sendJson(response, 200, { ok: true });
         return;
       }
@@ -1385,6 +1415,7 @@ export function createHerdrHttpServer({
         await herdr.sendText(message.paneId, text, { submit: message.submit === true });
       }
       outputWatcher.input(message.paneId);
+      promptService.nudge(message.paneId);
       return { secret };
     },
     watchOutput: (...args) => outputWatcher.watch(...args),
@@ -1392,8 +1423,9 @@ export function createHerdrHttpServer({
     attachments,
     onRequest: (paneId, text) => notificationMonitor?.recordRequest(paneId, text),
     watchConversation: (paneId, listener) => conversationMonitor.watch(paneId, listener),
+    watchPrompt: (paneId, listener) => promptService.watch(paneId, listener),
   });
-  server.once("close", () => conversationMonitor.stop());
+  server.once("close", () => { conversationMonitor.stop(); promptService.stop(); });
 
   return Object.freeze({ server, csrfToken, conversationMonitor });
 }

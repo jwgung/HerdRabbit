@@ -151,3 +151,45 @@ test("a watched conversation is asked for on every socket, and only its changes 
   assert.equal(sockets[1].sent.filter(message => message.type === "unwatch-conversation").length, 1);
   connection.pause();
 });
+
+test("a watched prompt is asked for on every socket, only its cards are heard, and unwatching stops it", async () => {
+  const sockets = [];
+  class Socket {
+    static OPEN = 1;
+    readyState = 0;
+    bufferedAmount = 0;
+    sent = [];
+    constructor() { sockets.push(this); }
+    send(message) { this.sent.push(JSON.parse(message)); }
+    open() { this.readyState = 1; this.onopen(); }
+    receive(message) { this.onmessage({ data: JSON.stringify(message) }); }
+    close() { this.readyState = 3; this.onclose({ code: 1006 }); }
+  }
+  const connection = terminalConnection({ WebSocketImpl: Socket, url: "ws://localhost/api/terminal",
+    credentials: () => ({ csrf: "write", launchToken: "launch" }), onOutput() {}, onDisconnect() {}, onAuthenticationRequired() {} });
+  const heard = [];
+  connection.onPrompt(message => heard.push(message));
+  connection.watchPrompt("w1:p1");
+  connection.watchPrompt("w1:p1");
+  assert.equal(sockets.length, 1, "a prompt alone opens the socket");
+  sockets[0].open();
+  sockets[0].receive({ type: "ready" });
+  assert.deepEqual(sockets[0].sent.filter(message => message.type === "watch-prompt"), [{ type: "watch-prompt", paneId: "w1:p1" }]);
+  sockets[0].receive({ type: "prompt", pane_id: "w1:p1", card: { id: "a" } });
+  sockets[0].receive({ type: "prompt", pane_id: "w9:p9", card: { id: "b" } });
+  sockets[0].receive({ type: "prompt-unavailable", pane_id: "w1:p1", code: "busy" });
+  assert.deepEqual(heard.map(message => [message.type, message.card?.id ?? message.code]), [["prompt", "a"], ["prompt-unavailable", "busy"]]);
+
+  sockets[0].close();
+  await new Promise(resolve => setTimeout(resolve, 280));
+  sockets[1].open();
+  sockets[1].receive({ type: "ready" });
+  assert.ok(sockets[1].sent.some(message => message.type === "watch-prompt" && message.paneId === "w1:p1"), "asked for again on the new socket");
+  connection.unwatchPrompt("w1:p1");
+  assert.deepEqual(sockets[1].sent.at(-1), { type: "unwatch-prompt", paneId: "w1:p1" });
+  connection.unwatchPrompt("w1:p1");
+  assert.equal(sockets[1].sent.filter(message => message.type === "unwatch-prompt").length, 1);
+  connection.watchPrompt("w1:p1");
+  assert.deepEqual(sockets[1].sent.at(-1), { type: "watch-prompt", paneId: "w1:p1" }, "after an unwatch it can be watched again");
+  connection.pause();
+});

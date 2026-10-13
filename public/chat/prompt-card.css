@@ -1,0 +1,306 @@
+/* A blocked pane's prompt card, and the banner over its terminal. Colors
+   come from the app's tokens (public/ui/tokens.css), so both themes follow.
+   Layout adapted from herdr-web-ui (MIT), src/components/PromptCard.css. */
+
+/* The dock sits at the bottom of the pane's stage. In the Chat lens it takes
+   its place under the conversation, which gives way; over the Terminal lens
+   it floats, so the attached terminal never changes size for it. */
+.prompt-dock {
+  flex: 0 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: calc(14px * var(--chat-scale, 1));
+}
+
+.prompt-dock[hidden] {
+  display: none;
+}
+
+.prompt-dock[data-mode="card"] {
+  max-height: 62%;
+  margin-top: 8px;
+}
+
+.prompt-dock[data-mode="banner"] {
+  position: absolute;
+  z-index: 4;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  align-items: center;
+  pointer-events: none;
+}
+
+.prompt-dock[data-mode="overlay"] {
+  position: absolute;
+  z-index: 4;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  max-height: 72%;
+}
+
+/* --- the banner --------------------------------------------------------- */
+
+.prompt-banner {
+  max-width: min(640px, 100%);
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-control, 8px);
+  background: var(--surface-raised, var(--surface));
+  box-shadow: 0 6px 22px rgb(0 0 0 / 22%);
+  pointer-events: auto;
+}
+
+.prompt-banner button {
+  min-height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.prompt-banner-open {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-control, 8px) 0 0 var(--radius-control, 8px);
+  font-size: 13px;
+  text-align: left;
+}
+
+.prompt-banner-open:hover,
+.prompt-banner-close:hover {
+  background: var(--hover-surface);
+}
+
+.prompt-banner-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+.prompt-banner-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-banner-action {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.prompt-banner-close {
+  flex: 0 0 auto;
+  width: 36px;
+  border-radius: 0 var(--radius-control, 8px) var(--radius-control, 8px) 0;
+  color: var(--muted) !important;
+  font-size: 18px;
+}
+
+/* --- the card ----------------------------------------------------------- */
+
+.prompt-card {
+  min-height: 0;
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--warning);
+  border-radius: 10px;
+  background: var(--surface-raised, var(--surface));
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.prompt-dock[data-mode="overlay"] .prompt-card {
+  box-shadow: 0 8px 28px rgb(0 0 0 / 30%);
+}
+
+.prompt-card > * {
+  flex: none;
+}
+
+.prompt-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prompt-card-header h2 {
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--warning);
+  font-size: 0.93em;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.prompt-card-close {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control, 8px);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.prompt-card-question {
+  margin: 0;
+  font-size: 1.07em;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* the command, plan or screen lines: the part that gives way when the card is short */
+.prompt-card-body {
+  flex: 0 1 auto;
+  min-height: 2.6em;
+  max-height: 14em;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--terminal-bg);
+  color: var(--terminal-text);
+  font-family: var(--mono);
+  font-size: 0.86em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.prompt-card-body.is-line {
+  min-height: 0;
+}
+
+.prompt-card-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prompt-card-option {
+  min-height: 40px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control, 8px);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.prompt-card-option:hover:not([disabled]),
+.prompt-card-option.is-checked {
+  border-color: var(--accent);
+  background: var(--hover-surface);
+}
+
+.prompt-card-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.prompt-card-option[disabled] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.prompt-card-option input {
+  margin: 3px 0 0;
+}
+
+.prompt-card-number {
+  flex: 0 0 auto;
+  min-width: 1.6em;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.86em;
+  text-align: center;
+}
+
+.prompt-card-option-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.prompt-card-option-label {
+  overflow-wrap: anywhere;
+}
+
+.prompt-card-option-description {
+  color: var(--muted);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.prompt-card-tag {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.78em;
+}
+
+.prompt-card-submit {
+  align-self: flex-start;
+}
+
+.prompt-card-custom {
+  display: flex;
+  gap: 6px;
+}
+
+.prompt-card-custom-input {
+  min-width: 0;
+  flex: 1 1 auto;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input, 8px);
+  background: var(--page);
+  color: var(--input-text, var(--text));
+  font: inherit;
+}
+
+.prompt-card-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.93em;
+}
+
+@media (hover: none) {
+  .prompt-card-option {
+    min-height: 44px;
+  }
+}

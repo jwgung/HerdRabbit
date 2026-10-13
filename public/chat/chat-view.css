@@ -113,7 +113,7 @@
   flex-direction: column;
   gap: 14px;
   color: var(--text);
-  font-size: 14px;
+  font-size: calc(14px * var(--chat-scale, 1));
   line-height: 1.55;
 }
 
@@ -139,7 +139,7 @@
 .chat-state {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--chat-scale, 1));
   text-align: center;
 }
 
@@ -162,7 +162,7 @@
   border-radius: 999px;
   background: var(--surface-raised);
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--chat-scale, 1));
   box-shadow: 0 6px 18px rgb(0 0 0 / 0.25);
   cursor: pointer;
 }
@@ -196,7 +196,7 @@
 .chat-image-note {
   margin: 0 0 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--chat-scale, 1));
 }
 
 .chat-turn-meta {
@@ -204,18 +204,44 @@
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--chat-scale, 1));
 }
 
 .chat-copy {
-  min-height: 24px;
-  padding: 0 8px;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
   color: var(--muted);
-  font-size: 11px;
   cursor: pointer;
+}
+
+/* the copy icon, and the check that takes its place for a moment after a copy */
+.chat-copy svg,
+.md-code-copy svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.chat-copy .copied-icon,
+.md-code-copy .copied-icon,
+.is-copied .copy-icon {
+  display: none;
+}
+
+.is-copied .copied-icon {
+  display: block;
+  color: var(--done, var(--accent));
 }
 
 .chat-copy:hover,
@@ -227,7 +253,7 @@
 /* compactions and Claude Code's own notices: a quiet divider, the text on request */
 .chat-compact {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--chat-scale, 1));
 }
 
 .chat-compact summary {
@@ -241,7 +267,7 @@
   padding: 10px 12px;
   border-left: 2px solid var(--line);
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--chat-scale, 1));
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -270,7 +296,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--chat-scale, 1));
   text-align: left;
   cursor: pointer;
 }
@@ -334,19 +360,19 @@
   flex: 0 0 auto;
   color: var(--text);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--chat-scale, 1));
 }
 
 .work-row-name.is-verb {
   font-family: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--chat-scale, 1));
 }
 
 .work-row-summary {
   min-width: 0;
   overflow: hidden;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--chat-scale, 1));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -370,7 +396,7 @@
   gap: 8px;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--chat-scale, 1));
 }
 
 .chat-link-button {
@@ -381,7 +407,7 @@
   background: transparent;
   color: var(--accent);
   font-family: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--chat-scale, 1));
   cursor: pointer;
 }
 
@@ -391,7 +417,7 @@
 
 .work-thinking {
   color: var(--muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--chat-scale, 1));
   font-style: italic;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -424,7 +450,7 @@ pre.chat-tool-io,
   background: var(--terminal-bg);
   color: var(--terminal-text);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--chat-scale, 1));
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -441,14 +467,14 @@ pre.chat-tool-io,
   margin: 0;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--chat-scale, 1));
   overflow-wrap: anywhere;
 }
 
 .chat-tool-output h5 {
   margin: 0 0 4px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--chat-scale, 1));
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -539,16 +565,16 @@ pre.chat-tool-io,
 
 .markdown h4 {
   margin: 14px 0 6px;
-  font-size: 15px;
+  font-size: calc(15px * var(--chat-scale, 1));
   line-height: 1.3;
 }
 
 .markdown h4.md-h1 {
-  font-size: 18px;
+  font-size: calc(18px * var(--chat-scale, 1));
 }
 
 .markdown h4.md-h2 {
-  font-size: 16px;
+  font-size: calc(16px * var(--chat-scale, 1));
 }
 
 .markdown .md-list {
@@ -644,7 +670,14 @@ pre.chat-tool-io,
   border-bottom: 1px solid var(--line);
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--chat-scale, 1));
+}
+
+.md-code-copy {
+  width: 28px;
+  padding: 0 !important;
+  display: inline-grid;
+  place-items: center;
 }
 
 .md-code-copy,
@@ -655,7 +688,7 @@ pre.chat-tool-io,
   border-radius: 5px;
   background: transparent;
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--chat-scale, 1));
   cursor: pointer;
 }
 
@@ -671,7 +704,7 @@ pre.chat-tool-io,
   overflow-x: auto;
   color: var(--terminal-text);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--chat-scale, 1));
   line-height: 1.5;
 }
 
@@ -693,7 +726,7 @@ pre.chat-tool-io,
 
 .markdown table {
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: calc(13px * var(--chat-scale, 1));
 }
 
 .markdown th,
@@ -724,5 +757,57 @@ pre.md-math {
 
   .lens-switch button {
     padding: 0 10px;
+  }
+}
+
+/* --- the end of the chat: a message on its way, and Claude at work ------ */
+
+.chat-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-activity:empty {
+  display: none;
+}
+
+.chat-turn-user.is-pending .chat-bubble {
+  opacity: 0.72;
+  border-style: dashed;
+}
+
+.chat-pending-text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.chat-working {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: calc(13px * var(--chat-scale, 1));
+}
+
+.chat-working-dots {
+  width: 22px;
+  height: 6px;
+  background:
+    radial-gradient(circle closest-side, var(--working, var(--accent)) 90%, transparent) 0 50% / 6px 6px no-repeat,
+    radial-gradient(circle closest-side, var(--working, var(--accent)) 90%, transparent) 8px 50% / 6px 6px no-repeat,
+    radial-gradient(circle closest-side, var(--working, var(--accent)) 90%, transparent) 16px 50% / 6px 6px no-repeat;
+  animation: chat-working-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes chat-working-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-working-dots {
+    animation: none;
   }
 }
