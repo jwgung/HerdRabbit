@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.22";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.22";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.23";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.23";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -45,7 +45,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.22";
+} from "./ui-model.js?v=1.2.23";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -56,43 +56,45 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.22";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.22";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.22";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.22";
+} from "./browse-preference.js?v=1.2.23";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.23";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.23";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.23";
+import { isClaudePane } from "./lens-preference.js?v=1.2.23";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.23";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.22";
+} from "./pane-preference.js?v=1.2.23";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.22";
+} from "./workspace-preference.js?v=1.2.23";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.22";
+} from "./terminal-preference.js?v=1.2.23";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.22";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.22";
+} from "./completion-preference.js?v=1.2.23";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.23";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.22";
+} from "./input-history-preference.js?v=1.2.23";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.22";
+} from "./launch-session.js?v=1.2.23";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.22";
+} from "./push-notifications.js?v=1.2.23";
 
 function browserStorage() {
   try {
@@ -306,6 +308,11 @@ const elements = {
   terminalMessage: document.querySelector("#terminal-message"),
   terminalXterm: document.querySelector("#terminal-xterm"),
   terminalHeld: document.querySelector("#terminal-held"),
+  terminalStage: document.querySelector(".terminal-stage"),
+  chatHost: document.querySelector("#chat-host"),
+  lensSwitch: document.querySelector("#lens-switch"),
+  lensChat: document.querySelector("#lens-chat"),
+  lensTerminal: document.querySelector("#lens-terminal"),
   quickKeys: document.querySelector(".quick-keys"),
   inputForm: document.querySelector("#input-form"),
   terminalInput: document.querySelector("#terminal-input"),
@@ -394,6 +401,8 @@ const state = {
   passkeyBusy: false,
   sessionsBusy: false,
   passkeyAutoStarted: false,
+  // The pane whose terminal was let go while its chat stayed on screen.
+  terminalParked: null,
 };
 
 const desktopMedia = window.matchMedia("(min-width: 761px)");
@@ -2459,11 +2468,13 @@ function renderPaneHeading(pane, tab, workspace) {
   if (!pane) {
     elements.paneContext.textContent = "Select a pane";
     elements.paneTitle.textContent = "Terminal";
+    chatLens.select(null);
     return;
   }
 
   const paneId = idOf(pane, "pane_id", "id");
   const agent = agentForPane(paneId);
+  chatLens.select(paneId, { claude: isClaudePane(pane, agent), status: agentStatus(agent, pane) });
   const workspaceLabel = displayRecordLabel(workspace, "Project");
   const tabLabel = displayTabLabel(tab);
 
@@ -2679,6 +2690,9 @@ function refreshTerminal({ streamPayload = null } = {}) {
     }
     return;
   }
+  // Long in the Chat lens, the terminal was let go: it attaches again on return.
+  if (state.terminalParked !== null && state.terminalParked !== paneId) state.terminalParked = null;
+  if (state.terminalParked === paneId) return;
   state.lastOutputRequestAt = Date.now();
   if (attachedTerminal.show(paneId)) {
     terminalStream.unwatch();
@@ -2792,6 +2806,75 @@ const attachedTerminal = createAttachedTerminal({
   onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
 });
 
+// A conversation page or tool output for the Chat lens. The answer's ETag
+// comes back as If-None-Match, so an unchanged page costs no body (a 304).
+async function conversationRequest(path, { etag } = {}) {
+  const headers = new Headers();
+  if (etag) headers.set("If-None-Match", etag);
+  if (state.launchToken) headers.set("X-Herdr-Launch-Token", state.launchToken);
+  const response = await fetch(path, { headers, credentials: "same-origin", cache: "no-store" });
+  if (response.status === 304) return { notModified: true };
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new ApiError(payload?.error?.message || `HTTP ${response.status}`, {
+      status: response.status,
+      code: payload?.error?.code,
+      details: payload?.error?.details,
+    });
+    if (error.code === "authentication_required") {
+      state.launchToken = clearLaunchToken(launchSessionStorage);
+      showLogin();
+    }
+    throw error;
+  }
+  return { payload, etag: response.headers.get("ETag") };
+}
+
+// After this long in the Chat lens without the terminal, the terminal is let
+// go (detached); switching back attaches it again and herdr redraws it.
+const TERMINAL_PARK_MS = 5 * 60_000;
+let terminalParkTimer = null;
+
+function scheduleTerminalPark(lens, paneId) {
+  window.clearTimeout(terminalParkTimer);
+  terminalParkTimer = null;
+  if (lens !== "chat" || !paneId) return;
+  terminalParkTimer = window.setTimeout(() => {
+    terminalParkTimer = null;
+    if (chatLens.lens !== "chat" || state.selectedPaneId !== paneId) return;
+    state.terminalParked = paneId;
+    attachedTerminal.show(null);
+    terminalStream.unwatch();
+  }, TERMINAL_PARK_MS);
+}
+
+const chatLens = createChatLens({
+  stage: elements.terminalStage,
+  host: elements.chatHost,
+  group: elements.lensSwitch,
+  chatButton: elements.lensChat,
+  terminalButton: elements.lensTerminal,
+  storage: panePreferenceStorage,
+  layout: () => ({ compact: !desktopMedia.matches, touch: usesTouchInputEnvironment() }),
+  connection: terminalStream,
+  fetchJson: conversationRequest,
+  isViewablePath: isViewableTerminalPath,
+  onOpenPath: openTerminalPath,
+  onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
+  onLensChange: (lens, paneId) => {
+    scheduleTerminalPark(lens, paneId);
+    // Typing must not go on into a terminal that is no longer on screen.
+    if (lens === "chat" && elements.terminalXterm.contains(document.activeElement)) {
+      if (usesTouchInputEnvironment()) document.activeElement.blur();
+      else elements.terminalInput.focus({ preventScroll: true });
+    }
+    if (lens === "terminal" && state.terminalParked) {
+      state.terminalParked = null;
+      void refreshTerminal();
+    }
+  },
+});
+
 // The message (loading, errors) stands in for the terminal until a pane is drawn.
 function showTerminalView(shown) {
   elements.terminalMessage.hidden = shown;
@@ -2822,6 +2905,7 @@ elements.inputForm.addEventListener("submit", async (event) => {
     resizeTerminalInput();
     setFeedback("");
     refreshAfterSubmission();
+    chatLens.sent(paneId);
   } catch (error) {
     setFeedback(error.message, true);
   } finally {
@@ -4445,7 +4529,23 @@ function activatePaneShortcut(event) {
   return true;
 }
 
+// Mod+J switches the pane between Chat and Terminal. Inside the terminal,
+// Ctrl+J stays the program's (a newline); Cmd+J on a Mac switches there too.
+function activateLensShortcut(event) {
+  if (!state.authenticated || event.isComposing || event.altKey || event.shiftKey ||
+      event.key.toLowerCase() !== "j" || document.querySelector("dialog[open]")) return false;
+  const mac = /Mac|iPhone|iPad/u.test(navigator.platform);
+  if (mac ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey) return false;
+  if (!mac && elements.terminalXterm.contains(document.activeElement) && chatLens.lens === "terminal") return false;
+  if (!chatLens.paneId) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  chatLens.toggle();
+  return true;
+}
+
 document.addEventListener("keydown", (event) => {
+  if (activateLensShortcut(event)) return;
   if (activatePaneShortcut(event)) return;
   if (event.key !== "Escape") return;
   document.querySelector("#add-menu").open = false;
@@ -4473,6 +4573,8 @@ desktopMedia.addEventListener("change", () => {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) terminalStream.pause();
   if (document.hidden || !state.authenticated) return;
+  // A chat watching a pane whose terminal was let go still needs the socket.
+  terminalStream.resume();
   void dismissDeliveredNotifications();
   if (pendingNotificationPaneId) void refreshSnapshot();
   void refreshTerminal();

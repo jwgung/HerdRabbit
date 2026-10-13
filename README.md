@@ -38,6 +38,7 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 - Browse the current OS user's Herdr persistent sessions, workspaces, tabs, panes, and agent states
 - Aggregate multiple Herdr persistent sessions without local ID collisions
 - Show every pane as Herdr itself draws it (a real `herdr terminal attach` in xterm.js), on this machine and on Herdr SSH machines, so full-screen TUIs, the cursor and colors match; a pane that cannot attach is mirrored read-only in the same terminal
+- Read a Claude Code pane as a chat: its conversation as turns, the agent's tool calls folded under one "Worked for …" row, older turns loaded as you scroll up. A **Chat** / **Terminal** switch in the pane header (or `Ctrl`/`Cmd`+`J`) flips between the two without reconnecting anything
 - Send text and shell commands, or use a two-row extra-key bar with Ctrl/Alt/Shift, Esc, Tab, Home/End, PgUp/PgDn, arrows, slash, minus, and Enter. Select modifiers, then tap a key or type it on your keyboard (for example Ctrl → End or Ctrl → C). Modifiers clear after one send or when switching panes. Ordinary composer shortcuts remain local unless a screen modifier is selected.
 - Create shell workspaces and tabs, rename workspaces and sessions, and close tabs or workspaces after confirmation
 - View images, video, audio, Markdown and text in the browser instead of downloading them first
@@ -306,6 +307,14 @@ Run commands such as `cd`, `codex`, or `claude` inside a created shell. Creation
 
 A pane on this machine is attached: the server runs one `herdr terminal attach` per pane on a pseudo-terminal (node-pty) and every open browser shares it. Typing goes straight to it, the terminal follows the size of the browser that opened the pane or typed into it last (others show that size as it is), and the wheel or a finger drag scrolls Herdr's own history, gliding on after a flick. A browser that opens the pane later gets the recent screen. When another client already holds the pane's attach slot (another web bridge), the pane says so and **Open here** takes it over; otherwise it tries again every few seconds and attaches once that client lets go. If node-pty cannot load, or herdr will not attach a pane, the same terminal mirrors that pane instead: the screen the server polls is redrawn in place on each change. A mirror is read-only to keystrokes -- type into the composer or use the extra keys, which still send to the pane -- and it attaches again on its own once it can.
 
+### Chat
+
+A pane running Claude Code can also be read as a chat. **Chat** and **Terminal** in the pane header (or `Ctrl`+`J`, `Cmd`+`J` on a Mac) switch between the two in one tap; inside the terminal `Ctrl`+`J` stays the program's, so press it from the composer there. Both live in the same place: switching only hides one and shows the other, so the terminal stays attached, the draft in the composer stays, and each keeps its scroll position. After five minutes in the chat without the terminal, the terminal is let go to save resources and attaches again (Herdr redraws it) when you switch back.
+
+The chat reads Claude's own conversation file for that pane (the transcript Claude Code writes under `~/.claude/projects`), on this machine or a Herdr SSH machine, and draws it as turns: your prompts as bubbles, the answer as Markdown, and everything the agent did on the way (commands, edits, reads, thinking) folded under one "Worked for 12s · 2 edits · 1 command" row that opens to each call, its diff or output, and the whole output on request. A command row offers **View in terminal**. File paths the viewer can show open in it, as they do in the terminal. Scrolling up loads earlier turns; the view follows new turns while you are at the end. Markdown is drawn safely: everything is escaped, and only http(s) and mailto links are made. Changes are announced over the terminal socket while the chat is on screen, and each read sends `If-None-Match`, so an unchanged conversation costs nothing.
+
+The last lens chosen is remembered per pane. A pane never chosen for opens in Chat on a phone or touch screen and in Terminal on a desktop. A pane that is not Claude Code, or whose conversation cannot be read yet (no session reported, no file), shows only its terminal, and the Chat button says why. Sending from the chat uses the same composer and send path as the terminal.
+
 While the pane shows a password prompt (`[sudo] password for …:`, `Password:`, a passphrase or PIN), a message sent from the composer is not kept in its input history or in notification requests.
 
 ### Input
@@ -370,7 +379,7 @@ The CLI's own files are what gets switched: `~/.claude/.credentials.json` plus t
 
 ### Output and history
 
-Output and history come only from Herdr's own screen and scrollback. Claude's JSONL logs are never read or merged into the screen. In an attached terminal the wheel or a finger drag scrolls Herdr's own history; a mirrored pane shows its current screen only. History Herdr no longer holds cannot be shown. Claude must run in the plain terminal mode the installer configures for its scrollback to be readable.
+Terminal output and history come only from Herdr's own screen and scrollback. Claude's JSONL transcript is never merged into the terminal; only the Chat lens reads it, as its own view. In an attached terminal the wheel or a finger drag scrolls Herdr's own history; a mirrored pane shows its current screen only. History Herdr no longer holds cannot be shown. Claude must run in the plain terminal mode the installer configures for its scrollback to be readable.
 
 During install and update, the current user's global Claude settings (`~/.claude/settings.json`, or the path in `CLAUDE_CONFIG_DIR`) get `tui: "default"` and `env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1"`, so ordinary terminal scrolling is used instead of Claude's own. Existing settings are backed up beside the file as `settings.json.herdrabbit-*.bak` and other keys are preserved. A running Claude picks this up after a restart. Each machine that runs HerdRabbit applies it during its own install or update; a Herdr SSH machine is not changed. The settings survive Claude's own updates. To apply it by hand: `node scripts/configure-claude.mjs`.
 

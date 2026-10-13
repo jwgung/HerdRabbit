@@ -10,15 +10,16 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>HerdRabbit</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <script src="/theme.js?v=1.2.22"></script>
+    <script src="/theme.js?v=1.2.23"></script>
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/rabbit-outline-32-v33.png" />
     <link rel="icon" type="image/svg+xml" href="/icons/rabbit-outline-v33.svg" />
     <link rel="apple-touch-icon" href="/icons/rabbit-outline-app-180-v35.png" />
     <link rel="stylesheet" href="/ui/ui.css" />
-    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.22" />
-    <link rel="stylesheet" href="/styles.css?v=1.2.22" />
-    <script src="/vendor/simplewebauthn-browser.js?v=1.2.22"></script>
-    <script type="module" src="/app.js?v=1.2.22"></script>
+    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.23" />
+    <link rel="stylesheet" href="/styles.css?v=1.2.23" />
+    <link rel="stylesheet" href="/chat/chat-view.css?v=1.2.23" />
+    <script src="/vendor/simplewebauthn-browser.js?v=1.2.23"></script>
+    <script type="module" src="/app.js?v=1.2.23"></script>
   </head>
   <body class="auth-pending">
     <main class="shell">
@@ -170,9 +171,14 @@
             <span class="pane-heading-separator" aria-hidden="true">·</span>
             <h2 id="pane-title">Terminal</h2>
           </div>
+          <div id="lens-switch" class="lens-switch" role="group" aria-label="Pane view" hidden>
+            <button id="lens-chat" type="button" aria-pressed="false" aria-disabled="true">Chat</button>
+            <button id="lens-terminal" type="button" aria-pressed="true">Terminal</button>
+          </div>
         </div>
 
-        <div class="terminal-stage">
+        <div class="terminal-stage" data-lens="terminal">
+          <div id="chat-host" class="chat-host" aria-label="Conversation"></div>
           <p id="terminal-message" class="terminal-message" role="status" aria-live="polite">Loading projects…</p>
           <div id="terminal-xterm" class="terminal-xterm" hidden></div>
           <div id="terminal-held" class="terminal-held" role="status" hidden>
