@@ -547,15 +547,31 @@ export function visibleAgentStatus(agent, pane, acknowledgedCompletion = null) {
 // without a mark of its own.
 const SHELL_NAMES = new Set(["", "shell", "terminal", "bash", "zsh", "sh", "fish", "pwsh", "powershell", "nu"]);
 
+// The agents with a mark of their own, in the order a pane is tested for them,
+// by the names their program goes by.
+const MARKED_AGENTS = [
+  ["claude", ["claude"]],
+  ["codex", ["codex"]],
+  ["agy", ["agy", "antigravity"]],
+  ["opencode", ["opencode"]],
+];
+
+// The marked agent a lower-case program name starts with, or null.
+function markedAgentOf(name) {
+  for (const [kind, prefixes] of MARKED_AGENTS) {
+    if (prefixes.some((prefix) => name.startsWith(prefix))) return kind;
+  }
+  return null;
+}
+
 export function paneAgentKind(pane, agent) {
   const names = [agent?.agent, agent?.display_agent, pane?.agent, pane?.display_agent, pane?.agent_session?.agent]
     .filter((name) => typeof name === "string" && name.trim() !== "")
     .map((name) => name.trim().toLowerCase());
   if (names.length === 0) return "shell";
-  if (names.some((name) => name === "claude" || name.startsWith("claude"))) return "claude";
-  if (names.some((name) => name === "codex" || name.startsWith("codex"))) return "codex";
-  if (names.some((name) => name === "agy" || name.startsWith("antigravity"))) return "agy";
-  if (names.some((name) => name === "opencode" || name.startsWith("opencode"))) return "opencode";
+  for (const [kind] of MARKED_AGENTS) {
+    if (names.some((name) => markedAgentOf(name) === kind)) return kind;
+  }
   return names.every((name) => SHELL_NAMES.has(name)) ? "shell" : "other";
 }
 
@@ -576,9 +592,17 @@ export function paneFolder(pane) {
   return cwd.trim().replace(/[\\/]+$/u, "").split(/[\\/]/u).pop() ?? "";
 }
 
-// Titles a program sets that say nothing the mark or the folder does not:
-// its own name, or a shell's default "user@host: ~/dir".
-const UNTOLD_TITLES = new Set([...SHELL_NAMES, "claude", "claude code", "codex", "opencode", "agy", "antigravity"]);
+// A title that is only a program's name, maybe with "code", "cli" or a
+// version after it ("Claude Code 2.0", "codex v0.4"). A conversation title
+// that merely starts with an agent's name ("claude-config-fix") is not one.
+function namesOnlyItsProgram(title) {
+  const lower = title.toLowerCase();
+  if (SHELL_NAMES.has(lower)) return true;
+  const [first, ...rest] = lower.split(/\s+/u);
+  const agent = markedAgentOf(first);
+  if (!agent || !MARKED_AGENTS.find(([kind]) => kind === agent)[1].includes(first)) return false;
+  return rest.every((word) => word === "code" || word === "cli" || /^v?\d[\w.-]*$/u.test(word));
+}
 
 // The title the pane's program gave its terminal (Claude names it after the
 // conversation), with Herdr's spinner already stripped; "" when it only names
@@ -589,7 +613,7 @@ export function paneTerminalTitle(pane) {
   );
   if (!value) return "";
   const title = value.trim();
-  if (UNTOLD_TITLES.has(title.toLowerCase())) return "";
+  if (namesOnlyItsProgram(title)) return "";
   if (/^[^\s@]+@[^\s:]+(:|$)/u.test(title)) return "";
   if (/^[~/]|^[A-Za-z]:[\\/]|^\\\\/u.test(title)) return "";
   return title;

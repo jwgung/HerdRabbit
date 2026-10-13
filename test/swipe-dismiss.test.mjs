@@ -67,15 +67,16 @@ test("only the click right after a drag is swallowed", () => {
   const clock = { t: 0 };
   const element = fakeAlert();
   const swipe = attachSwipeDismiss(element, { onDismiss() {}, now: () => clock.t });
-  drag(element, 30, clock);
-  assert.equal(swipe.consumedClick(), true, "the drag's own click");
+  drag(element, 20, clock);
+  assert.ok(!element.classes.has("leaving"), "a short drag snaps back");
+  assert.equal(swipe.consumedClick(), true, "the click after a snap-back is the drag's own");
   assert.equal(swipe.consumedClick(), false, "a second tap opens the pane");
 
-  drag(element, 30, clock);
+  drag(element, 20, clock);
   clock.t += DRAG_CLICK_WINDOW + 1;
   assert.equal(swipe.consumedClick(), false, "a drag that ended with no click does not eat a later tap");
 
-  drag(element, 30, clock);
+  drag(element, 20, clock);
   swipe.reset();
   assert.equal(swipe.consumedClick(), false, "a new alert forgets the old drag");
 });
@@ -98,4 +99,30 @@ test("a new alert shown mid-leave is not hidden by the old swipe", async () => {
   element.fire("transitionend");
   await new Promise((resolve) => setTimeout(resolve, 450));
   assert.equal(dismissed, 1, "a finished leave dismisses once");
+});
+
+test("a new alert drops a drag begun on the old one", () => {
+  globalThis.window ??= { innerWidth: 400 };
+  const clock = { t: 0 };
+  const element = fakeAlert();
+  let dismissed = 0;
+  const swipe = attachSwipeDismiss(element, { onDismiss: () => dismissed++, now: () => clock.t, reducedMotion: () => true });
+  const base = { pointerType: "touch", isPrimary: true, pointerId: 1, clientY: 20 };
+  element.fire("pointerdown", { ...base, clientX: 100 });
+  element.fire("pointermove", { ...base, clientX: 300 });
+  swipe.reset();
+  element.fire("pointerup", { ...base, clientX: 300 });
+  assert.equal(dismissed, 0);
+  assert.equal(swipe.consumedClick(), false);
+});
+
+test("a reduced-motion dismiss still swallows its click", () => {
+  globalThis.window ??= { innerWidth: 400 };
+  const clock = { t: 0 };
+  const element = fakeAlert();
+  let dismissed = 0;
+  const swipe = attachSwipeDismiss(element, { onDismiss: () => dismissed++, now: () => clock.t, reducedMotion: () => true });
+  drag(element, 200, clock);
+  assert.equal(dismissed, 1);
+  assert.equal(swipe.consumedClick(), true);
 });

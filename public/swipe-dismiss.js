@@ -52,17 +52,26 @@ export function attachSwipeDismiss(element, { onDismiss, reducedMotion = () => f
     element.style.setProperty("--swipe-y", `${y}px`);
   }
 
-  function reset() {
+  // Puts the alert back where it sits, calling off any leave under way. The
+  // drag's trailing click is still remembered.
+  function settle() {
     if (leaving) {
       clearTimeout(leaving.timer);
       element.removeEventListener("transitionend", leaving.complete);
       leaving = null;
     }
-    draggedAt = null;
     element.classList.remove("swiping", "leaving");
     element.style.removeProperty("--swipe-x");
     element.style.removeProperty("--swipe-y");
     element.style.removeProperty("opacity");
+  }
+
+  // For a new alert: forgets every gesture made on the old one too.
+  function reset() {
+    settle();
+    start = null;
+    samples = [];
+    draggedAt = null;
   }
 
   function velocity() {
@@ -111,17 +120,17 @@ export function attachSwipeDismiss(element, { onDismiss, reducedMotion = () => f
     const decision = cancelled
       ? { dismiss: false }
       : decideSwipe({ dx, dy: Math.min(0, dy), vx, vy, width: rect.width, height: rect.height });
-    if (!decision.dismiss) { reset(); return; }
+    if (!decision.dismiss) { settle(); return; }
     const x = decision.direction === "left" ? -window.innerWidth : decision.direction === "right" ? window.innerWidth : dx;
     const y = decision.direction === "up" ? -(rect.bottom + 24) : Math.min(0, dy);
-    if (reducedMotion()) { reset(); onDismiss(); return; }
+    if (reducedMotion()) { settle(); onDismiss(); return; }
     element.classList.add("leaving");
     apply(x, y);
     element.style.opacity = "0";
     const ending = { complete: null, timer: null };
     ending.complete = () => {
       if (leaving !== ending) return;
-      reset();
+      settle();
       onDismiss();
     };
     ending.timer = setTimeout(ending.complete, LEAVE_BACKSTOP);
