@@ -7,20 +7,50 @@
 // read again and the card must still be the one answered (else 409
 // prompt_changed); the cursor moves go out first, and the key that commits
 // (Enter, a typed answer) only once the screen shows the same card with the
-// cursor on the row the moves were for.
+// cursor on the row the moves were for. A multiple choice's answer is several
+// such keys (a tick per option, then →): the screen is looked at before each.
 import { HttpError } from "../http-basics.mjs";
 import { InvalidAnswer, KEY, answerSteps, parseClaudePrompt, parseFallbackPrompt, publicCard, verifiesCursor } from "./claude.mjs";
 
 // The screen's bottom: enough for a long approval panel.
 const SCREEN_LINES = 120;
 const KNOWN_STATES = new Set(["idle", "working", "blocked", "done", "unknown"]);
-// Panes one server watches at most (each costs a snapshot and a read a tick).
+// Panes one server watches at most (each blocked one costs a read a tick).
 const MAX_WATCHED_PANES = 16;
+// Blocked panes whose screens one tick reads at once.
+const READS_AT_ONCE = 4;
 
 const delay = (ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref?.(); });
 
 function promptChanged() {
   return new HttpError(409, "prompt_changed", "The prompt changed. Look at it again and choose once more.");
+}
+
+// Whether the snapshot cannot tell yet if the pane is there: its herdr
+// machine is still being listed or reached.
+function serverPending(snapshot, paneId) {
+  const separator = paneId.indexOf("!");
+  if (separator < 0) return false;
+  if (snapshot?.servers_pending) return true;
+  const server = (snapshot?.servers ?? []).find((item) => item.id === paneId.slice(0, separator));
+  return Boolean(server && !server.available && server.connecting);
+}
+
+// What a watching page is told again for: another card, or other ticks.
+function cardVersion(card) {
+  return card ? `${card.id}:${(card.checked ?? []).join(",")}` : null;
+}
+
+async function eachLimited(items, limit, run) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const item = items[next];
+      next += 1;
+      await run(item);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
 export function paneAgent(snapshot, paneId) {
@@ -42,6 +72,12 @@ export class PromptService {
     this.pollMs = pollMs;
     this.turns = new Map();
     this.watches = new Map();
+    // One tick looks at every watched pane: a snapshot (one per server, the
+    // client's own), then the screens of the blocked ones.
+    this.timer = null;
+    this.dueAt = Infinity;
+    this.running = false;
+    this.again = false;
   }
 
   // The card the pane shows now, with the reader's bookkeeping, or null. Only
@@ -50,6 +86,10 @@ export class PromptService {
   async read(paneId) {
     const agent = paneAgent(await this.herdr.snapshot(), paneId);
     if (!agent) throw new HttpError(404, "pane_not_found", "This pane is gone.");
+    return this.#readBlocked(paneId, agent);
+  }
+
+  async #readBlocked(paneId, agent) {
     if (agent.status !== "blocked") return null;
     const screen = await this.herdr.readPane(paneId, { lines: SCREEN_LINES, format: "text", source: "detection" });
     return (agent.claude ? parseClaudePrompt(screen) : null) ?? parseFallbackPrompt(screen);
@@ -84,25 +124,27 @@ export class PromptService {
     }
     const verify = verifiesCursor(parsed);
     let cursor = parsed.selectedIndex;
-    let moved = false;
-    let committed = false;
+    let sent = false;
+    let typed = false;
     try {
       for (const [index, step] of steps.entries()) {
         const move = step.keys?.every((key) => key === KEY.up || key === KEY.down) ?? false;
-        if (!move && !committed) {
-          // The menu answered in the terminal meanwhile, with another one in
-          // its place, would take this Enter: it goes only once the screen
-          // shows this card again with the cursor where the moves left it.
-          // Claude's unnumbered menus are looked at even without a move.
-          if (verify && (moved || parsed.responder === "claude-confirm") && !(await this.#onRow(paneId, parsed.id, cursor))) {
-            throw promptChanged();
-          }
-          committed = true;
+        // A key that picks or ticks goes only once the screen shows this
+        // prompt again with the cursor where the keys so far left it: the menu
+        // answered in the terminal meanwhile, with another in its place, would
+        // take it. Each tick of a multiple choice is looked at, and so is the
+        // → that ends it. Claude's unnumbered menus are looked at even before
+        // the first key. Once a typed answer is in, the row shows it and the
+        // rest goes as it is.
+        if (!move && !typed && verify && (sent || parsed.responder === "claude-confirm")
+            && !(await this.#onRow(paneId, parsed.promptKey ?? parsed.id, cursor))) {
+          throw promptChanged();
         }
         if (step.keys) await this.herdr.sendKeys(paneId, step.keys);
         else await this.herdr.sendText(paneId, step.text);
+        sent = true;
+        if (step.text !== undefined) typed = true;
         if (move) {
-          moved = true;
           for (const key of step.keys) cursor = key === KEY.down ? cursor + 1 : Math.max(0, cursor - 1);
         }
         if (index < steps.length - 1) await delay(this.stepDelayMs);
@@ -113,11 +155,11 @@ export class PromptService {
     return { ok: true };
   }
 
-  async #onRow(paneId, cardId, cursor) {
+  async #onRow(paneId, promptKey, cursor) {
     const deadline = Date.now() + this.settleMs;
     while (Date.now() < deadline) {
       const shown = await this.read(paneId).catch(() => null);
-      if (shown?.id === cardId && shown.selectedIndex === cursor) return true;
+      if (shown && (shown.promptKey ?? shown.id) === promptKey && shown.selectedIndex === cursor) return true;
       await delay(this.lookMs);
     }
     return false;
@@ -125,57 +167,92 @@ export class PromptService {
 
   // Hears the pane's card (or null) whenever it appears, changes or goes,
   // shared by every page that watches the pane. Returns the call that stops.
+  // A pane the snapshot does not have is let go (told null once): it holds
+  // no place among the watched.
   watch(paneId, listener) {
     let entry = this.watches.get(paneId);
     if (!entry) {
       if (this.watches.size >= MAX_WATCHED_PANES) throw new HttpError(503, "busy", "Too many panes are watched.");
-      entry = { paneId, listeners: new Set(), timer: null, running: false, known: undefined, card: null };
+      entry = { paneId, listeners: new Set(), known: undefined, card: null };
       this.watches.set(paneId, entry);
     }
     entry.listeners.add(listener);
     if (entry.known !== undefined) listener(entry.card);
-    this.#schedule(entry, 0);
+    this.#schedule(0);
     return () => {
       entry.listeners.delete(listener);
-      if (entry.listeners.size === 0) {
-        clearTimeout(entry.timer);
-        if (this.watches.get(paneId) === entry) this.watches.delete(paneId);
-      }
+      if (entry.listeners.size === 0 && this.watches.get(paneId) === entry) this.watches.delete(paneId);
+      if (this.watches.size === 0) this.#cancel();
     };
   }
 
   // Looks again soon: input went to the pane.
   nudge(paneId) {
-    const entry = this.watches.get(paneId);
-    if (entry) this.#schedule(entry, 100);
+    if (this.watches.has(paneId)) this.#schedule(100);
   }
 
   stop() {
-    for (const entry of this.watches.values()) clearTimeout(entry.timer);
+    this.#cancel();
     this.watches.clear();
   }
 
-  #schedule(entry, ms) {
-    clearTimeout(entry.timer);
-    if (!entry.listeners.size) return;
-    entry.timer = setTimeout(() => void this.#poll(entry), ms);
-    entry.timer.unref?.();
+  #cancel() {
+    clearTimeout(this.timer);
+    this.timer = null;
+    this.dueAt = Infinity;
   }
 
-  async #poll(entry) {
-    if (entry.running || !entry.listeners.size) return;
-    entry.running = true;
-    try {
-      const card = await this.card(entry.paneId).catch(() => null);
-      const id = card?.id ?? null;
-      if (entry.known !== id) {
-        entry.known = id;
-        entry.card = card;
-        for (const listener of entry.listeners) listener(card);
-      }
-    } finally {
-      entry.running = false;
-      this.#schedule(entry, this.pollMs);
+  // The next tick in `ms`, unless one is due sooner.
+  #schedule(ms) {
+    if (this.watches.size === 0) return;
+    if (this.running) {
+      if (ms < this.pollMs) this.again = true;
+      return;
     }
+    const at = Date.now() + ms;
+    if (this.timer !== null && this.dueAt <= at) return;
+    clearTimeout(this.timer);
+    this.dueAt = at;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.dueAt = Infinity;
+      void this.#tick();
+    }, ms);
+    this.timer.unref?.();
+  }
+
+  async #tick() {
+    if (this.running || this.watches.size === 0) return;
+    this.running = true;
+    this.again = false;
+    try {
+      const snapshot = await this.herdr.snapshot().catch(() => null);
+      if (!snapshot) return;
+      const blocked = [];
+      for (const entry of [...this.watches.values()]) {
+        const agent = paneAgent(snapshot, entry.paneId);
+        if (agent?.status === "blocked") blocked.push({ entry, agent });
+        else if (agent) this.#tell(entry, null);
+        else if (!serverPending(snapshot, entry.paneId)) {
+          if (this.watches.get(entry.paneId) === entry) this.watches.delete(entry.paneId);
+          this.#tell(entry, null);
+        }
+      }
+      await eachLimited(blocked, READS_AT_ONCE, async ({ entry, agent }) => {
+        const card = publicCard(await this.#readBlocked(entry.paneId, agent).catch(() => null));
+        this.#tell(entry, card);
+      });
+    } finally {
+      this.running = false;
+      this.#schedule(this.again ? 0 : this.pollMs);
+    }
+  }
+
+  #tell(entry, card) {
+    const version = cardVersion(card);
+    if (entry.known === version || !entry.listeners.size) return;
+    entry.known = version;
+    entry.card = card;
+    for (const listener of entry.listeners) listener(card);
   }
 }

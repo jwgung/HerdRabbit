@@ -4,7 +4,8 @@
 // the expected keys, a card that changed on screen (409) read again, the
 // fallback card over a pane with no chat, the key bar hidden in the chat, the
 // working row and a sent message on its way, the chat's own text size, and
-// the copy icons. Runs against an in-process fake herdr and a transcript in a
+// the copy icons, and a multiple choice with an option already ticked in the
+// terminal that the card starts from. Runs against an in-process fake herdr and a transcript in a
 // temporary Claude folder; nothing reaches a real herdr.
 import assert from "node:assert/strict";
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -58,8 +59,11 @@ function world() {
       { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Claude", agent: "claude", cwd: CWD,
         agent_session: { agent: "claude", kind: "id", value: SESSION }, agent_status: "blocked" },
       { pane_id: "w1:p2", tab_id: "w1:t1", workspace_id: "w1", label: "Shell", agent: "codex", agent_status: "blocked" },
+      { pane_id: "w1:p3", tab_id: "w1:t1", workspace_id: "w1", label: "Datasets", agent: "claude", agent_status: "blocked" },
     ],
     menus: { "w1:p1": { cursor: 0 } },
+    // LM-O is ticked in the terminal already
+    questions: { "w1:p3": { checked: [0], cursor: 0 } },
     outputs: { "w1:p2": "Overwrite the build folder?\nContinue? (y/n)" },
   });
   const snapshot = herdr.snapshot;
@@ -268,9 +272,25 @@ try {
     await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "hidden" || document.querySelector(".prompt-card-error"));
     assert.deepEqual(herdr.sent.filter((item) => item.paneId === "w1:p2"), [{ paneId: "w1:p2", keys: ["esc"] }]);
 
+    // A multiple choice: the card starts from the terminal's tick, and adding one more sends only that tick and →.
+    await page.goto(`${url}/?pane=${encodeURIComponent("w1:p3")}`);
+    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "banner");
+    await page.locator(".prompt-banner-open").click();
+    await page.waitForFunction(() => document.querySelectorAll(".prompt-card [data-prompt-toggle]").length === 3);
+    const ticks = () => page.locator(".prompt-card [data-prompt-toggle]").evaluateAll((boxes) => boxes.map((box) => box.checked));
+    assert.deepEqual(await ticks(), [true, false, false], "the card starts from the terminal's tick");
+    assert.equal(await page.locator('.prompt-card [data-prompt-action="submit"]').isDisabled(), false, "the tick as it is can be sent");
+    await page.locator('.prompt-card [data-prompt-toggle="2"]').check();
+    assert.deepEqual(await ticks(), [true, false, true]);
+    await page.locator('.prompt-card [data-prompt-action="submit"]').click();
+    await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "hidden" || document.querySelector(".prompt-card-error"));
+    assert.deepEqual(herdr.sent.filter((item) => item.paneId === "w1:p3").map((item) => item.keys.join("+")), ["down", "down", "enter", "right"]);
+    assert.deepEqual(herdr.answered.filter((item) => item.paneId === "w1:p3"), [{ paneId: "w1:p3", answer: ["LM-O", "T-LESS"] }]);
+
     assert.deepEqual(errors, []);
     results.push({ mobile, banner: !mobile, card: true, keyBar: true, conflict: true, keyboard: true, working: true,
-      pendingAndFollow: true, copyIcon: true, chatFontSize: `${before}->${after}`, fallbackOverlay: true });
+      pendingAndFollow: true, copyIcon: true, chatFontSize: `${before}->${after}`, fallbackOverlay: true, multipleChoice: true });
     await context.close();
   }
 } finally {

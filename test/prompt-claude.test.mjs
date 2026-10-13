@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { answerSteps, parseClaudePrompt, parseFallbackPrompt, publicCard } from "../src/prompt/claude.mjs";
 import { indexAtColumn, stringWidth } from "../src/prompt/text-width.mjs";
-import { approvalScreen } from "./fixtures/claude-prompt.mjs";
+import { approvalScreen, questionScreen } from "./fixtures/claude-prompt.mjs";
 
 const labels = (parsed) => parsed?.options.map((option) => option.label);
 const keys = (steps) => steps.flatMap((step) => step.keys ?? [`text:${step.text}`]);
@@ -38,7 +38,7 @@ test("the card id stays while the cursor moves and changes with the command", ()
 
 test("public cards leave out the reader's bookkeeping", () => {
   const card = publicCard(parseClaudePrompt(approvalScreen()));
-  assert.deepEqual(Object.keys(card).sort(), ["agent", "body", "customOptionIndex", "id", "kind", "multiSelect", "options", "question", "title"]);
+  assert.deepEqual(Object.keys(card).sort(), ["agent", "body", "checked", "customOptionIndex", "id", "kind", "multiSelect", "options", "question", "title"]);
   assert.equal(publicCard(null), null);
 });
 
@@ -246,6 +246,33 @@ test("a multiple choice ticked in the terminal unticks only what is not wanted",
   assert.deepEqual(keys(answerSteps(prompt, { options: [0] })), ["enter", "right"]);
   assert.deepEqual(keys(answerSteps(parseClaudePrompt(screen(true, "Submit")), { options: [0] })), ["up", "up", "enter", "right"]);
   assert.deepEqual(keys(answerSteps(parseClaudePrompt(screen(false, "Chat")), { options: [0] })), ["up", "up", "up", "up", "enter", "right"]);
+});
+
+test("a multiple choice's ticks travel with its card, and an answer keeps, adds or removes them", () => {
+  const ticked = parseClaudePrompt(questionScreen({ checked: [0, 1], cursor: 1 }));
+  assert.deepEqual(publicCard(ticked).checked, [0, 1]);
+  assert.deepEqual(publicCard(parseClaudePrompt(questionScreen())).checked, []);
+  assert.deepEqual(publicCard(parseClaudePrompt(approvalScreen())).checked, []);
+  // keep: only → goes
+  assert.deepEqual(keys(answerSteps(ticked, { options: [1, 0] })), ["right"]);
+  // add
+  assert.deepEqual(keys(answerSteps(ticked, { options: [0, 1, 2] })), ["down", "enter", "right"]);
+  // remove
+  assert.deepEqual(keys(answerSteps(ticked, { options: [1] })), ["up", "enter", "right"]);
+  // remove one, add another
+  assert.deepEqual(keys(answerSteps(ticked, { options: [0, 2] })), ["enter", "down", "enter", "right"]);
+  assert.throws(() => answerSteps(ticked, { options: [] }), /one or more/);
+});
+
+test("a tick leaves a multiple choice the same prompt between an answer's keys", () => {
+  const before = parseClaudePrompt(questionScreen());
+  const after = parseClaudePrompt(questionScreen({ checked: [0] }));
+  // the tab is marked answered, so the card reads (and is told) anew
+  assert.notEqual(after.id, before.id);
+  assert.equal(after.promptKey, before.promptKey);
+  assert.notEqual(parseClaudePrompt(questionScreen({ question: "Which models?" })).promptKey, before.promptKey);
+  const approval = parseClaudePrompt(approvalScreen());
+  assert.equal(approval.promptKey, approval.id);
 });
 
 test("reads a Korean question in a narrow pane whose hint wrapped", () => {

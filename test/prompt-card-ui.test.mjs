@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answerBody, bannerText, dockMode, optionLabel, shouldWatchPrompt } from "../public/chat/prompt-card.js";
+import { answerBody, bannerText, cardVersion, dockMode, initialSelection, optionLabel, shouldWatchPrompt } from "../public/chat/prompt-card.js";
 import { comparableText, formatElapsed, pendingMessage, settlePending, showsWorking, workingText } from "../public/chat/chat-activity.js";
 import {
   CHAT_FONT_SIZE_STORAGE_KEY, DEFAULT_CHAT_FONT_SIZE, MAX_CHAT_FONT_SIZE, MIN_CHAT_FONT_SIZE,
@@ -19,6 +19,20 @@ test("an answer names the card and exactly one choice", () => {
   assert.deepEqual(answerBody(card, { option: 1 }), { cardId: card.id, option: 1 });
   assert.deepEqual(answerBody(card, { options: [2, 0] }), { cardId: card.id, options: [0, 2] });
   assert.deepEqual(answerBody(card, { text: "  use HOPE " }), { cardId: card.id, text: "use HOPE" });
+});
+
+test("a multiple choice starts from the ticks the terminal shows, and other ticks are another card", () => {
+  const choice = { id: "c1", multiSelect: true, options: [{ label: "A" }, { label: "B" }, { label: "C" }], checked: [0, 2], customOptionIndex: null };
+  assert.deepEqual([...initialSelection(choice)], [0, 2]);
+  // untouched, the answer keeps the ticks as they are
+  assert.deepEqual(answerBody(choice, { options: [...initialSelection(choice)] }), { cardId: "c1", options: [0, 2] });
+  assert.deepEqual([...initialSelection({ ...choice, checked: [5, -1, "x", 1] })], [1]);
+  assert.deepEqual([...initialSelection({ ...choice, checked: undefined })], []);
+  assert.deepEqual([...initialSelection({ ...card, checked: [0] })], []);
+  assert.deepEqual([...initialSelection(null)], []);
+  assert.notEqual(cardVersion(choice), cardVersion({ ...choice, checked: [0] }));
+  assert.equal(cardVersion(choice), cardVersion({ ...choice }));
+  assert.equal(cardVersion(null), null);
 });
 
 test("Claude's (Recommended) suffix becomes a tag", () => {

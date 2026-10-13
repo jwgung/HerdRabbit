@@ -32,6 +32,19 @@ export function answerBody(card, choice) {
   return { cardId: card.id, option: choice.option };
 }
 
+// A multiple choice starts from what is ticked in the terminal already: the
+// answer is the whole set wanted, so an untouched card keeps those ticks.
+export function initialSelection(card) {
+  const count = card?.options?.length ?? 0;
+  return new Set((card?.multiSelect ? card.checked ?? [] : []).filter((index) => Number.isInteger(index) && index >= 0 && index < count));
+}
+
+// What tells one card from the next for the controls: another prompt, or
+// other ticks made in the terminal.
+export function cardVersion(card) {
+  return card ? `${card.id}:${(card.checked ?? []).join(",")}` : null;
+}
+
 export function bannerText(card) {
   if (!card) return "";
   return card.fallback ? "This pane is waiting for input" : `Claude is asking: ${card.title}`;
@@ -133,19 +146,23 @@ export function createPromptDock({ document = globalThis.document, dock, connect
   // What the shown card's controls hold.
   let view = { pending: false, error: null, selected: new Set(), custom: "" };
   let drawn = null;
+  // The answer on its way, if any.
+  let answering = null;
 
   function resetView() {
-    view = { pending: false, error: null, selected: new Set(), custom: "" };
+    view = { pending: false, error: null, selected: initialSelection(card), custom: "" };
   }
 
   function setCard(next, { keepError = false } = {}) {
-    const changed = (next?.id ?? null) !== (card?.id ?? null);
+    const changed = cardVersion(next ?? null) !== cardVersion(card);
+    const moved = (next?.id ?? null) !== (card?.id ?? null);
     card = next ?? null;
-    if (changed) {
+    // an answer on its way ticks the card itself: its controls wait for it
+    if (changed && !(view.pending && card)) {
       const error = keepError ? view.error : null;
       resetView();
       view.error = error;
-      expanded = false;
+      if (moved) expanded = false;
     }
     render();
   }
@@ -208,12 +225,15 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     if (!card || view.pending) return;
     const answered = card;
     const id = paneId;
+    const token = {};
+    answering = token;
     view.pending = true;
     view.error = null;
     render();
     try {
       await postJson(`/api/panes/${encodeURIComponent(id)}/prompt/answer`, answerBody(answered, choice));
-      if (card?.id === answered.id && id === paneId) {
+      if (answering === token && id === paneId) {
+        answering = null;
         // gone from the screen: the push confirms it a moment later, and a
         // look shortly after brings it back if the answer did not take
         setCard(null);
@@ -221,8 +241,11 @@ export function createPromptDock({ document = globalThis.document, dock, connect
         setTimeout(() => { if (id === paneId && card === null) void refresh(); }, RECHECK_AFTER_ANSWER_MS);
       }
     } catch (error) {
-      if (card?.id !== answered.id || id !== paneId) return;
+      if (answering !== token || id !== paneId) return;
+      answering = null;
       view.pending = false;
+      // the card changed while the answer was out: its controls start again from it
+      if (card && cardVersion(card) !== cardVersion(answered)) view.selected = initialSelection(card);
       if (error?.code === "prompt_changed" || error?.status === 409) {
         view.error = "The prompt changed. Check it and answer again.";
         render();
@@ -295,7 +318,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
       const switched = nextPaneId !== paneId;
       paneId = nextPaneId ?? null;
       status = nextStatus;
-      if (switched) setCard(null);
+      if (switched) { answering = null; view.pending = false; setCard(null); }
       const wanted = paneId !== null && shouldWatchPrompt(status);
       watch(wanted ? paneId : null);
       if (!wanted && card) setCard(null);

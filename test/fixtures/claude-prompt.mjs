@@ -22,10 +22,35 @@ export function approvalScreen({ command = "npm test", description = "Run the te
   ].join("\n");
 }
 
+export const QUESTION_ROWS = Object.freeze(["LM-O", "YCB-V", "T-LESS"]);
+
+// Claude's multiple choice: ticked rows show [✔], and a tick marks the
+// question's tab answered (☒).
+export function questionScreen({ question = "Which datasets?", rows = QUESTION_ROWS, checked = [], cursor = 0 } = {}) {
+  const ticked = new Set(checked);
+  return [
+    `←  ${ticked.size > 0 ? "☒" : "☐"} Sets  ✔ Submit  →`,
+    question,
+    ...rows.flatMap((row, index) => [
+      `${index === cursor ? "❯" : " "} ${index + 1}. [${ticked.has(index) ? "✔" : " "}] ${row}`,
+      `         Include the ${row} dataset.`,
+    ]),
+    `${cursor === rows.length ? "❯" : " "} ${rows.length + 1}. [ ] Type something`,
+    "     Next",
+    "─".repeat(40),
+    `  ${rows.length + 2}. Chat about this`,
+    "Enter to select · ↑/↓ to navigate · Esc to cancel",
+    "",
+  ].join("\n");
+}
+
 // An in-process herdr with panes, each either a menu or plain output.
 // `menus[paneId]` = { command, rows, cursor }; keys move it, Enter answers
-// it (the pane goes back to work), Esc dismisses it.
-export function fakePromptHerdr({ panes, agents = [], menus = {}, outputs = {} }) {
+// it (the pane goes back to work), Esc dismisses it. `questions[paneId]` =
+// { question, rows, checked, cursor } is a multiple choice: Enter ticks or
+// unticks the row, → answers it with the ticked rows. `snapshots` counts the
+// snapshots asked for.
+export function fakePromptHerdr({ panes, agents = [], menus = {}, outputs = {}, questions = {} }) {
   const sent = [];
   const answered = [];
   const snapshot = { workspaces: [], tabs: [], panes, agents };
@@ -35,15 +60,39 @@ export function fakePromptHerdr({ panes, agents = [], menus = {}, outputs = {} }
     answered,
     menus,
     outputs,
+    questions,
     reads: [],
-    async snapshot() { return structuredClone(snapshot); },
+    snapshots: 0,
+    async snapshot() { herdr.snapshots += 1; return structuredClone(snapshot); },
     async readPane(paneId, options = {}) {
       herdr.reads.push({ paneId, ...options });
       const menu = menus[paneId];
+      if (questions[paneId]) return questionScreen(questions[paneId]);
       return menu ? approvalScreen(menu) : outputs[paneId] ?? "$ ";
     },
     async sendKeys(paneId, keys) {
       sent.push({ paneId, keys: [...keys] });
+      const asked = questions[paneId];
+      if (asked) {
+        const rows = asked.rows ?? QUESTION_ROWS;
+        asked.checked ??= [];
+        asked.cursor ??= 0;
+        for (const key of keys) {
+          if (key === "down") asked.cursor = Math.min(rows.length, asked.cursor + 1);
+          else if (key === "up") asked.cursor = Math.max(0, asked.cursor - 1);
+          else if (key === "enter" && asked.cursor < rows.length) {
+            asked.checked = asked.checked.includes(asked.cursor)
+              ? asked.checked.filter((index) => index !== asked.cursor) : [...asked.checked, asked.cursor].sort();
+          } else if (key === "right") {
+            answered.push({ paneId, answer: asked.checked.map((index) => rows[index]) });
+            delete questions[paneId];
+            outputs[paneId] = "● Thanks\n";
+            herdr.setStatus(paneId, "working");
+            break;
+          }
+        }
+        return;
+      }
       const menu = menus[paneId];
       if (!menu) return;
       for (const key of keys) {

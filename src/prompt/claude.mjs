@@ -123,15 +123,23 @@ function sequentialRows(rows) {
   return rows.length > 0 && rows.every((row, index) => row.number === index + 1);
 }
 
+function hashOf(value) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 12);
+}
+
 // The card's id hashes everything it shows (and what `hashed` adds), never
 // where the cursor is: a moved cursor is the same prompt, a changed command
-// or option is another one. The body is capped for display after hashing.
+// or option is another one. Ticks are not shown in the hashed options either.
+// The body is capped for display after hashing.
+//
+// `promptKey` is what an answer in progress checks between its keys: for a
+// multiple choice it leaves out the title as well, since a tick can mark the
+// question's tab answered and so retitle the card; otherwise it is the id.
 function finishPrompt(input, internal, hashed = {}) {
-  const id = createHash("sha256")
-    .update(JSON.stringify({ agent: "claude", ...input, ...hashed }))
-    .digest("hex")
-    .slice(0, 12);
-  return { id, agent: "claude", ...input, body: input.body?.slice(0, 12_000) ?? null, ...internal };
+  const id = hashOf({ agent: "claude", ...input, ...hashed });
+  const { title: _title, ...untitled } = input;
+  const promptKey = input.multiSelect ? hashOf({ agent: "claude", ...untitled, ...hashed }) : id;
+  return { id, agent: "claude", ...input, body: input.body?.slice(0, 12_000) ?? null, promptKey, ...internal };
 }
 
 // What the browser gets: the card without the reader's own bookkeeping.
@@ -146,6 +154,8 @@ export function publicCard(parsed) {
     body: parsed.body,
     options: parsed.options.map((option) => ({ label: option.label, description: option.description ?? null })),
     multiSelect: parsed.multiSelect,
+    // a multiple choice's options already ticked in the terminal
+    checked: [...(parsed.checkedOptionIndices ?? [])],
     customOptionIndex: parsed.customOptionIndex,
     ...(parsed.fallback ? { fallback: true } : {}),
   };
@@ -514,6 +524,7 @@ function steadyFields(question, body, steady) {
 function screenCard(lines, shown, steady, parsed) {
   const screen = shown.map((index) => steady.read(cleanLine(lines[index]))).join("\n");
   parsed.id = createHash("sha256").update(JSON.stringify({ card: parsed.id, screen, ...(steady.working === null ? {} : { working: steady.working }) })).digest("hex").slice(0, 12);
+  parsed.promptKey = parsed.id;
   return parsed;
 }
 

@@ -183,3 +183,126 @@ test("a watched pane's card is pushed over the terminal socket when it appears a
   const gone = await next((message) => message.type === "prompt" && message.card === null);
   assert.equal(gone.pane_id, "w1:p1");
 });
+
+function multipleChoice({ checked = [] } = {}) {
+  return fakePromptHerdr({
+    panes: [{ pane_id: "w1:q1", agent: "claude", agent_status: "blocked" }],
+    questions: { "w1:q1": { checked, cursor: 0 } },
+  });
+}
+
+test("a multiple choice ticks each wanted option and moves on with →, looked at before every key that ticks", async (context) => {
+  const herdr = multipleChoice();
+  const { get, answer } = await fixture(context, { herdr });
+  const { card } = (await get("w1:q1")).body;
+  assert.equal(card.multiSelect, true);
+  assert.deepEqual(card.checked, []);
+  const reads = herdr.reads.length;
+  assert.deepEqual(await answer("w1:q1", { cardId: card.id, options: [0, 2] }), { status: 200, body: { ok: true } });
+  assert.deepEqual(herdr.sent.map((item) => item.keys), [["enter"], ["down"], ["down"], ["enter"], ["right"]]);
+  assert.deepEqual(herdr.answered, [{ paneId: "w1:q1", answer: ["LM-O", "T-LESS"] }]);
+  // the answer's own read, then a look before the second tick and before →
+  assert.ok(herdr.reads.length - reads >= 3);
+});
+
+test("a multiple choice whose screen changes after a tick gets no more keys, and a 409", async (context) => {
+  const herdr = multipleChoice();
+  const sendKeys = herdr.sendKeys;
+  herdr.sendKeys = async (paneId, keys) => {
+    await sendKeys(paneId, keys);
+    // another question takes the place of this one after the first tick
+    if (keys.includes("enter")) herdr.questions[paneId] = { question: "Which models?", checked: [], cursor: 0 };
+  };
+  const { get, answer } = await fixture(context, { herdr });
+  const { card } = (await get("w1:q1")).body;
+  const result = await answer("w1:q1", { cardId: card.id, options: [0, 2] });
+  assert.equal(result.status, 409);
+  assert.equal(result.body.error.code, "prompt_changed");
+  assert.deepEqual(herdr.sent.map((item) => item.keys), [["enter"], ["down"], ["down"]]);
+  assert.deepEqual(herdr.answered, []);
+});
+
+test("options ticked in the terminal come with the card and are kept, added to or taken from", async (context) => {
+  for (const [options, keys, answered] of [
+    [[0, 1], [["right"]], ["LM-O", "YCB-V"]],
+    [[0, 1, 2], [["down"], ["down"], ["enter"], ["right"]], ["LM-O", "YCB-V", "T-LESS"]],
+    [[1], [["enter"], ["right"]], ["YCB-V"]],
+  ]) {
+    const herdr = multipleChoice({ checked: [0, 1] });
+    const { get, answer } = await fixture(context, { herdr });
+    const { card } = (await get("w1:q1")).body;
+    assert.deepEqual(card.checked, [0, 1]);
+    assert.equal((await answer("w1:q1", { cardId: card.id, options })).status, 200);
+    assert.deepEqual(herdr.sent.map((item) => item.keys), keys);
+    assert.deepEqual(herdr.answered, [{ paneId: "w1:q1", answer: answered }]);
+  }
+});
+
+test("one look takes one snapshot for every watched pane and reads only the blocked ones", async (context) => {
+  const herdr = fakePromptHerdr(panes());
+  const prompts = new PromptService({ herdr, pollMs: 60_000 });
+  context.after(() => prompts.stop());
+  const heard = new Map();
+  const listen = (paneId) => prompts.watch(paneId, (card) => heard.set(paneId, [...(heard.get(paneId) ?? []), card]));
+  for (const paneId of ["w1:p1", "w1:p2", "w1:p3", "w1:p4"]) listen(paneId);
+  const waitFor = async (predicate) => {
+    for (let tries = 0; tries < 100 && !predicate(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(predicate());
+  };
+  await waitFor(() => heard.size === 4);
+  assert.equal(herdr.snapshots, 1);
+  const readsOf = (paneId) => herdr.reads.filter((read) => read.paneId === paneId).length;
+  assert.deepEqual(["w1:p1", "w1:p2", "w1:p3", "w1:p4"].map(readsOf), [1, 0, 1, 1]);
+  assert.equal(heard.get("w1:p1")[0].id, CARD_ID);
+  assert.equal(heard.get("w1:p3")[0].fallback, true);
+  assert.deepEqual(heard.get("w1:p2"), [null]);
+  // the password prompt is read, and shows no card
+  assert.deepEqual(heard.get("w1:p4"), [null]);
+  prompts.nudge("w1:p1");
+  await waitFor(() => herdr.snapshots === 2 && readsOf("w1:p4") === 2);
+  assert.deepEqual(["w1:p1", "w1:p2", "w1:p3", "w1:p4"].map(readsOf), [2, 0, 2, 2]);
+});
+
+test("a watched pane the snapshot does not have is let go and holds no place", async (context) => {
+  const herdr = fakePromptHerdr(panes());
+  const prompts = new PromptService({ herdr, pollMs: 60_000 });
+  context.after(() => prompts.stop());
+  const heard = [];
+  for (let index = 0; index < 16; index += 1) prompts.watch(`w9:p${index}`, (card) => heard.push(card));
+  assert.throws(() => prompts.watch("w1:p1", () => {}), /Too many panes/);
+  for (let tries = 0; tries < 100 && heard.length < 16; tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(heard, Array(16).fill(null));
+  assert.equal(prompts.watches.size, 0);
+  assert.deepEqual(herdr.reads, []);
+  const cards = [];
+  prompts.watch("w1:p1", (card) => cards.push(card));
+  for (let tries = 0; tries < 100 && cards.length === 0; tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(cards[0].id, CARD_ID);
+});
+
+test("one look takes one snapshot of this PC and at most one of each herdr machine", async (context) => {
+  const local = fakePromptHerdr(panes());
+  const remote = fakePromptHerdr(panes());
+  const machines = {
+    listed: true,
+    profiles: () => [{ id: "machine-lab", name: "lab", transport: "machine", enabled: true }],
+    client: () => remote,
+  };
+  const herdr = new MultiServerClient({ local, machines });
+  await herdr.snapshot();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const before = { local: local.snapshots, remote: remote.snapshots };
+  const prompts = new PromptService({ herdr, pollMs: 60_000 });
+  context.after(() => prompts.stop());
+  const heard = new Map();
+  for (const paneId of ["w1:p1", "w1:p3", "machine-lab!w1:p1", "machine-lab!w1:p2", "machine-lab!w1:p3"]) {
+    prompts.watch(paneId, (card) => heard.set(paneId, card));
+  }
+  for (let tries = 0; tries < 100 && heard.size < 5; tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(heard.size, 5);
+  assert.equal(local.snapshots - before.local, 1);
+  assert.ok(remote.snapshots - before.remote <= 1);
+  assert.equal(heard.get("machine-lab!w1:p1").id, CARD_ID);
+  assert.equal(heard.get("machine-lab!w1:p2"), null);
+  assert.deepEqual(remote.reads.map((read) => read.paneId).sort(), ["w1:p1", "w1:p3"]);
+});
