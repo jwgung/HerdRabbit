@@ -10,18 +10,19 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>HerdRabbit</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <script src="/theme.js?v=1.2.29"></script>
+    <script src="/theme.js?v=1.2.30"></script>
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/rabbit-outline-32-v33.png" />
     <link rel="icon" type="image/svg+xml" href="/icons/rabbit-outline-v33.svg" />
     <link rel="apple-touch-icon" href="/icons/rabbit-outline-app-180-v35.png" />
     <link rel="stylesheet" href="/ui/ui.css" />
-    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.29" />
-    <link rel="stylesheet" href="/styles.css?v=1.2.29" />
-    <link rel="stylesheet" href="/chat/chat-view.css?v=1.2.29" />
-    <link rel="stylesheet" href="/chat/prompt-card.css?v=1.2.29" />
-    <link rel="stylesheet" href="/chat/pending-messages.css?v=1.2.29" />
-    <script src="/vendor/simplewebauthn-browser.js?v=1.2.29"></script>
-    <script type="module" src="/app.js?v=1.2.29"></script>
+    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.30" />
+    <link rel="stylesheet" href="/styles.css?v=1.2.30" />
+    <link rel="stylesheet" href="/chat/chat-view.css?v=1.2.30" />
+    <link rel="stylesheet" href="/chat/prompt-card.css?v=1.2.30" />
+    <link rel="stylesheet" href="/key-bar.css?v=1.2.30" />
+    <link rel="stylesheet" href="/chat/pending-messages.css?v=1.2.30" />
+    <script src="/vendor/simplewebauthn-browser.js?v=1.2.30"></script>
+    <script type="module" src="/app.js?v=1.2.30"></script>
   </head>
   <body class="auth-pending">
     <main class="shell">
@@ -202,24 +203,7 @@
           <div id="prompt-dock" class="prompt-dock" data-mode="hidden" hidden></div>
         </div>
 
-        <div class="quick-keys" aria-label="Special keys">
-          <button type="button" data-key="esc">Esc</button>
-          <button type="button" data-key="/">/</button>
-          <button type="button" data-key="-">−</button>
-          <button type="button" data-key="home">Home</button>
-          <button type="button" data-key="up">↑</button>
-          <button type="button" data-key="end">End</button>
-          <button type="button" data-key="pageup">PgUp</button>
-          <button type="button" data-modifier="shift" aria-pressed="false" title="Combine with the next button or keyboard key">Shift</button>
-          <button type="button" data-key="tab">Tab</button>
-          <button type="button" data-modifier="ctrl" aria-pressed="false" title="Combine with the next button or keyboard key">Ctrl</button>
-          <button type="button" data-modifier="alt" aria-pressed="false" title="Combine with the next button or keyboard key">Alt</button>
-          <button type="button" data-key="left">←</button>
-          <button type="button" data-key="down">↓</button>
-          <button type="button" data-key="right">→</button>
-          <button type="button" data-key="pagedown">PgDn</button>
-          <button type="button" data-key="enter">Enter</button>
-        </div>
+        <div class="quick-keys" id="quick-keys" aria-label="Special keys"></div>
 
         <form id="input-form" class="input-form">
           <span id="action-feedback" role="status" aria-live="polite"></span>
@@ -292,6 +276,45 @@
         <p id="login-feedback" class="login-feedback" role="status" aria-live="polite"></p>
       </form>
     </section>
+
+    <dialog id="key-bar-dialog" class="app-dialog key-bar-dialog" aria-labelledby="key-bar-dialog-title">
+      <div class="dialog-form key-bar-settings">
+        <div class="dialog-heading">
+          <h2 id="key-bar-dialog-title">Edit keys</h2>
+          <p>Choose the keys under the terminal and their order. Changes apply right away.</p>
+        </div>
+        <ol id="key-bar-list" class="key-bar-list" aria-label="Keys on the bar"></ol>
+        <p id="key-bar-empty" class="key-bar-hint" hidden>No keys on the bar.</p>
+        <div class="key-bar-add">
+          <label class="key-bar-field" for="key-bar-add-select">Add a key</label>
+          <div class="key-bar-row">
+            <select id="key-bar-add-select"></select>
+            <button id="key-bar-add" class="secondary-button" type="button">Add</button>
+          </div>
+        </div>
+        <div class="key-bar-add">
+          <span class="key-bar-field">Custom combination</span>
+          <div class="key-bar-row">
+            <select id="key-bar-combo-key" aria-label="Base key"></select>
+            <input id="key-bar-combo-char" type="text" maxlength="2" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Character" placeholder="r" hidden />
+          </div>
+          <div class="key-bar-row" role="group" aria-label="Combination modifiers">
+            <button type="button" class="key-bar-mod" data-combo-modifier="ctrl" aria-pressed="false">Ctrl</button>
+            <button type="button" class="key-bar-mod" data-combo-modifier="alt" aria-pressed="false">Alt</button>
+            <button type="button" class="key-bar-mod" data-combo-modifier="shift" aria-pressed="false">Shift</button>
+          </div>
+          <div class="key-bar-row">
+            <span id="key-bar-combo-preview" class="key-bar-preview" aria-live="polite"></span>
+            <button id="key-bar-combo-add" class="secondary-button" type="button">Add combination</button>
+          </div>
+        </div>
+        <p id="key-bar-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="key-bar-reset" class="secondary-button" type="button">Reset to default</button>
+          <button id="key-bar-close" class="primary-button" type="button">Done</button>
+        </div>
+      </div>
+    </dialog>
 
     <dialog id="project-dialog" class="app-dialog" aria-labelledby="project-dialog-title">
       <form id="project-create-form" class="dialog-form">

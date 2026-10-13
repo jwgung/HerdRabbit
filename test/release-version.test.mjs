@@ -15,14 +15,14 @@ const manifest = await readFile(
   "utf8",
 );
 
-test("uses the 1.2.29 release version for the PWA and all cached assets", () => {
-  assert.equal(packageJson.version, "1.2.29");
-  assert.doesNotMatch(page, /\?v=(?!1\.2\.29)[^"']+/u);
-  assert.doesNotMatch(app, /\?v=(?!1\.2\.29)[^"']+/u);
-  assert.doesNotMatch(worker, /\?v=(?!1\.2\.29)[^"']+/u);
-  assert.doesNotMatch(manifest, /\?v=(?!1\.2\.29)[^"']+/u);
-  assert.doesNotMatch(chatView, /\?v=(?!1\.2\.29)[^"']+/u);
-  assert.match(worker, /const CACHE_NAME = "herd-rabbit-v1\.2\.29"/u);
+test("uses the 1.2.30 release version for the PWA and all cached assets", () => {
+  assert.equal(packageJson.version, "1.2.30");
+  assert.doesNotMatch(page, /\?v=(?!1\.2\.30)[^"']+/u);
+  assert.doesNotMatch(app, /\?v=(?!1\.2\.30)[^"']+/u);
+  assert.doesNotMatch(worker, /\?v=(?!1\.2\.30)[^"']+/u);
+  assert.doesNotMatch(manifest, /\?v=(?!1\.2\.30)[^"']+/u);
+  assert.doesNotMatch(chatView, /\?v=(?!1\.2\.30)[^"']+/u);
+  assert.match(worker, /const CACHE_NAME = "herd-rabbit-v1\.2\.30"/u);
 });
 
 test("every page, script and stylesheet under public asks for its assets at the package version", async () => {

@@ -1,10 +1,10 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.29";
-import { findScreenLinks } from "./terminal-links.js?v=1.2.29";
-import { createTouchScroller } from "./touch-scroll.js?v=1.2.29";
-import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.29";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.30";
+import { findScreenLinks } from "./terminal-links.js?v=1.2.30";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.30";
+import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.30";
 
 const RESIZE_DEBOUNCE_MS = 80;
 // herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
@@ -583,6 +583,16 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       if (!term) return;
       term.options.fontSize = size;
       fitNow();
+    },
+    // The last lines of the screen that hold text, for the page to tell whether
+    // a program asks for a password. Empty until a terminal is drawn.
+    screenText(lines = 8) {
+      if (!term) return { text: "", cols: 0 };
+      const buffer = term.buffer.active;
+      const rows = [];
+      for (let y = buffer.baseY; y < buffer.baseY + term.rows; y += 1) rows.push(buffer.getLine(y)?.translateToString(true) ?? "");
+      while (rows.length && rows.at(-1).trim() === "") rows.pop();
+      return { text: rows.slice(-lines).join("\n"), cols: term.cols };
     },
     // Fits again once the terminal is shown (the Terminal lens, with the key bar back).
     refit() { fitNow(); },
