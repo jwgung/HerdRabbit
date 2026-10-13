@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { decideSwipe } from "../public/swipe-dismiss.js";
+import { attachSwipeDismiss, decideSwipe, DRAG_CLICK_WINDOW } from "../public/swipe-dismiss.js";
 
 const box = { width: 360, height: 60 };
 
@@ -34,4 +34,68 @@ test("the in-app alert is wired for swiping", async () => {
   assert.match(css, /--swipe-x/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.app-alert\.leaving/);
   assert.match(css, /\.pane-title-text \{\s*align-self: baseline/, "the title text sets the header baseline");
+});
+
+// Just enough of an element for attachSwipeDismiss: listeners, classes, style.
+function fakeAlert() {
+  const listeners = new Map();
+  const classes = new Set();
+  const props = new Map();
+  return {
+    addEventListener(type, fn) { (listeners.get(type) ?? listeners.set(type, new Set()).get(type)).add(fn); },
+    removeEventListener(type, fn) { listeners.get(type)?.delete(fn); },
+    fire(type, event = {}) { for (const fn of [...(listeners.get(type) ?? [])]) fn(event); },
+    classList: { add: (...names) => names.forEach((n) => classes.add(n)), remove: (...names) => names.forEach((n) => classes.delete(n)) },
+    style: { setProperty: (k, v) => props.set(k, v), removeProperty: (k) => props.delete(k), opacity: "" },
+    setPointerCapture() {},
+    getBoundingClientRect: () => ({ width: 360, height: 60, bottom: 70 }),
+    classes,
+  };
+}
+
+function drag(element, dx, clock) {
+  const base = { pointerType: "touch", isPrimary: true, pointerId: 1, clientY: 20 };
+  element.fire("pointerdown", { ...base, clientX: 100 });
+  clock.t += 50;
+  element.fire("pointermove", { ...base, clientX: 100 + dx });
+  clock.t += 50;
+  element.fire("pointerup", { ...base, clientX: 100 + dx });
+}
+
+test("only the click right after a drag is swallowed", () => {
+  globalThis.window ??= { innerWidth: 400 };
+  const clock = { t: 0 };
+  const element = fakeAlert();
+  const swipe = attachSwipeDismiss(element, { onDismiss() {}, now: () => clock.t });
+  drag(element, 30, clock);
+  assert.equal(swipe.consumedClick(), true, "the drag's own click");
+  assert.equal(swipe.consumedClick(), false, "a second tap opens the pane");
+
+  drag(element, 30, clock);
+  clock.t += DRAG_CLICK_WINDOW + 1;
+  assert.equal(swipe.consumedClick(), false, "a drag that ended with no click does not eat a later tap");
+
+  drag(element, 30, clock);
+  swipe.reset();
+  assert.equal(swipe.consumedClick(), false, "a new alert forgets the old drag");
+});
+
+test("a new alert shown mid-leave is not hidden by the old swipe", async () => {
+  globalThis.window ??= { innerWidth: 400 };
+  const clock = { t: 0 };
+  const element = fakeAlert();
+  let dismissed = 0;
+  const swipe = attachSwipeDismiss(element, { onDismiss: () => dismissed++, now: () => clock.t });
+  drag(element, 200, clock);
+  assert.ok(element.classes.has("leaving"));
+  swipe.reset();
+  element.fire("transitionend");
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  assert.equal(dismissed, 0);
+
+  drag(element, 200, clock);
+  element.fire("transitionend");
+  element.fire("transitionend");
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  assert.equal(dismissed, 1, "a finished leave dismisses once");
 });

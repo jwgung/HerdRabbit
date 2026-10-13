@@ -8,6 +8,12 @@ export const FLICK_SPEED = 0.5;
 export const FLICK_MIN_DISTANCE = 24;
 // Movement under this is a tap, not a swipe.
 export const TAP_SLOP = 8;
+// The click a drag ends with arrives within this many milliseconds; a later
+// click is a fresh tap.
+export const DRAG_CLICK_WINDOW = 400;
+// The leave transition lasts 0.22s; this backstop finishes it if
+// `transitionend` never comes.
+const LEAVE_BACKSTOP = 400;
 
 // dx, dy: finger travel since touch start; vx, vy: release velocity (px/ms);
 // width, height: the alert's size. Down never dismisses: the alert sits at the
@@ -36,7 +42,10 @@ export function attachSwipeDismiss(element, { onDismiss, reducedMotion = () => f
   now = () => performance.now() } = {}) {
   let start = null;
   let samples = [];
-  let swiped = false;
+  // When the last drag ended, so its trailing click can be told apart.
+  let draggedAt = null;
+  // The leave animation under way, so a new alert can call it off.
+  let leaving = null;
 
   function apply(x, y) {
     element.style.setProperty("--swipe-x", `${x}px`);
@@ -44,6 +53,12 @@ export function attachSwipeDismiss(element, { onDismiss, reducedMotion = () => f
   }
 
   function reset() {
+    if (leaving) {
+      clearTimeout(leaving.timer);
+      element.removeEventListener("transitionend", leaving.complete);
+      leaving = null;
+    }
+    draggedAt = null;
     element.classList.remove("swiping", "leaving");
     element.style.removeProperty("--swipe-x");
     element.style.removeProperty("--swipe-y");
@@ -64,7 +79,7 @@ export function attachSwipeDismiss(element, { onDismiss, reducedMotion = () => f
     if (event.pointerType !== "touch" || !event.isPrimary) return;
     start = { x: event.clientX, y: event.clientY, id: event.pointerId, moved: false };
     samples = [{ x: event.clientX, y: event.clientY, t: now() }];
-    swiped = false;
+    draggedAt = null;
   });
 
   element.addEventListener("pointermove", (event) => {
@@ -74,7 +89,6 @@ export function attachSwipeDismiss(element, { onDismiss, reducedMotion = () => f
     if (!start.moved) {
       if (Math.hypot(dx, dy) < TAP_SLOP) return;
       start.moved = true;
-      swiped = true;
       element.classList.add("swiping");
       try { element.setPointerCapture(event.pointerId); } catch { /* best effort */ }
     }
@@ -91,6 +105,7 @@ export function attachSwipeDismiss(element, { onDismiss, reducedMotion = () => f
     const { vx, vy } = velocity();
     start = null;
     if (!moved) return;
+    draggedAt = now();
     element.classList.remove("swiping");
     const rect = element.getBoundingClientRect();
     const decision = cancelled
@@ -103,10 +118,15 @@ export function attachSwipeDismiss(element, { onDismiss, reducedMotion = () => f
     element.classList.add("leaving");
     apply(x, y);
     element.style.opacity = "0";
-    let done = false;
-    const complete = () => { if (done) return; done = true; reset(); onDismiss(); };
-    element.addEventListener("transitionend", complete, { once: true });
-    setTimeout(complete, 400);
+    const ending = { complete: null, timer: null };
+    ending.complete = () => {
+      if (leaving !== ending) return;
+      reset();
+      onDismiss();
+    };
+    ending.timer = setTimeout(ending.complete, LEAVE_BACKSTOP);
+    element.addEventListener("transitionend", ending.complete);
+    leaving = ending;
   }
 
   element.addEventListener("pointerup", (event) => finish(event, false));
@@ -115,8 +135,8 @@ export function attachSwipeDismiss(element, { onDismiss, reducedMotion = () => f
   return {
     // True once for the click that ends a drag.
     consumedClick() {
-      const was = swiped;
-      swiped = false;
+      const was = draggedAt !== null && now() - draggedAt <= DRAG_CLICK_WINDOW;
+      draggedAt = null;
       return was;
     },
     reset,

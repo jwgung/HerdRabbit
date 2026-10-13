@@ -591,7 +591,7 @@ export function paneTerminalTitle(pane) {
   const title = value.trim();
   if (UNTOLD_TITLES.has(title.toLowerCase())) return "";
   if (/^[^\s@]+@[^\s:]+(:|$)/u.test(title)) return "";
-  if (/^[~/]/u.test(title)) return "";
+  if (/^[~/]|^[A-Za-z]:[\\/]|^\\\\/u.test(title)) return "";
   return title;
 }
 
