@@ -275,8 +275,7 @@ Use the bell at the bottom of the sidebar to enable or disable notifications for
 
 - Titles use `project name · tab name`, led by the server name when more than one server is connected.
 - Only completion and input required are sent, as short status-only messages. An agent going idle or an unknown state sends nothing.
-- While a HerdRabbit window is in front, no system notification appears: the pane it shows stays quiet, and another pane's alert drops in at the top of the app with a short sound. Tap it to open that pane, or swipe it sideways or up to dismiss it; a short drag snaps back. The machine's `⋯` menu turns the sound off or on.
-- With notifications on, the same menu sends a test notification to every subscribed device.
+- While a HerdRabbit window is in front, no system notification appears: the pane it shows stays quiet, and another pane's alert drops in at the top of the app with a short sound. Tap it to open that pane, or swipe it sideways or up to dismiss it; a short drag snaps back.
 - Each state event is sent once, and a newer alert replaces the previous alert for the same session. Opening it launches or focuses the installed PWA and restores the targeted session.
 
 Background delivery uses standards-based Web Push; a Firebase project and FCM SDK are not required. On iPhone and iPad, install HerdRabbit on the Home Screen and allow notifications on iOS/iPadOS 16.4 or newer.
