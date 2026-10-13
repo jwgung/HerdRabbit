@@ -308,3 +308,24 @@ test("a request answered before its body is read has its socket closed, even if 
   clearInterval(trickle);
   assert.ok(Date.now() - started < 2_000);
 });
+
+test("a POST whose body was read in full keeps its connection for the next request", async (context) => {
+  const app = await startServer({ requestTimeoutMs: 10_000, uploadIdleMs: 10_000 });
+  context.after(() => closeServer(app.server));
+  const port = app.server.address().port;
+  const socket = connect(port, "127.0.0.1");
+  context.after(() => socket.destroy());
+  await once(socket, "connect");
+  let received = "";
+  socket.on("data", (chunk) => { received += chunk.toString("latin1"); });
+  const body = JSON.stringify({ password: "wrong" });
+  // the login route reads the whole body before it answers
+  socket.write(`POST /api/auth/login HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nOrigin: http://127.0.0.1:${port}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+  for (let tries = 0; tries < 100 && !/\r\n\r\n/u.test(received); tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.doesNotMatch(received.split("\r\n\r\n")[0], /^connection: close$/imu);
+  const first = received.length;
+  socket.write(`GET /api/auth/status HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n\r\n`);
+  for (let tries = 0; tries < 100 && !/HTTP\/1\.1 200/u.test(received.slice(first)); tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.match(received.slice(first), /^HTTP\/1\.1 200/u, "the same connection answers a second request");
+  assert.equal(socket.destroyed, false);
+});

@@ -698,7 +698,13 @@ export function createHerdrHttpServer({
     // Node would then keep the socket open to drain what is left, bounded only
     // by a keep-alive timer every byte resets, so a trickle would hold it
     // forever. Ask the client to close, and close it once the answer is out.
-    if (!request.complete) response.setHeader("Connection", "close");
+    // Decided when the headers go out (implicit headers go through writeHead
+    // too), so a request whose body was read in full keeps its connection.
+    const writeHead = response.writeHead;
+    response.writeHead = function (...args) {
+      if (!request.complete && !response.headersSent) response.setHeader("Connection", "close");
+      return writeHead.apply(this, args);
+    };
     response.once("finish", () => {
       if (!request.complete) request.socket.destroy();
     });
