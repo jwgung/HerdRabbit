@@ -32,6 +32,7 @@ import { ConversationError } from "./conversation/claude.mjs";
 import { ConversationMonitor } from "./conversation/monitor.mjs";
 import { ConversationService } from "./conversation/service.mjs";
 import { PromptService } from "./prompt/service.mjs";
+import { PendingInputs } from "./pending-input.mjs";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
 const SIMPLEWEBAUTHN_BROWSER_BUNDLE = fileURLToPath(new URL(
@@ -78,6 +79,8 @@ const STATIC_FILES = new Map([
   ["/chat/chat-activity.js", { path: `${PUBLIC_DIR}/chat/chat-activity.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/prompt-card.js", { path: `${PUBLIC_DIR}/chat/prompt-card.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/prompt-card.css", { path: `${PUBLIC_DIR}/chat/prompt-card.css`, type: "text/css; charset=utf-8" }],
+  ["/chat/pending-messages.js", { path: `${PUBLIC_DIR}/chat/pending-messages.js`, type: "text/javascript; charset=utf-8" }],
+  ["/chat/pending-messages.css", { path: `${PUBLIC_DIR}/chat/pending-messages.css`, type: "text/css; charset=utf-8" }],
   ["/chat-font-preference.js", { path: `${PUBLIC_DIR}/chat-font-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/vendor/simplewebauthn-browser.js", { path: SIMPLEWEBAUTHN_BROWSER_BUNDLE, type: "text/javascript; charset=utf-8" }],
   ["/theme.js", { path: `${PUBLIC_DIR}/theme.js`, type: "text/javascript; charset=utf-8" }],
@@ -575,6 +578,8 @@ export function createHerdrHttpServer({
   conversations = null,
   // Prompt cards (src/prompt/): a blocked pane's approval or question.
   prompts = null,
+  // Messages queued for a pane's next turn (src/pending-input.mjs).
+  pending = null,
   // How many links to other HerdRabbits an older version saved. Those are not
   // used any more; the page says once to add those PCs again with herdr machine.
   legacyServers = 0,
@@ -592,6 +597,17 @@ export function createHerdrHttpServer({
   const conversationService = conversations ?? new ConversationService({ herdr });
   const conversationMonitor = new ConversationMonitor({ resolve: (paneId) => conversationService.resolve(paneId) });
   const promptService = prompts ?? new PromptService({ herdr });
+  const pendingInputs = pending ?? new PendingInputs({ herdr });
+  {
+    // A queued message that reached its pane is a request like one typed.
+    const delivered = pendingInputs.onDelivered;
+    pendingInputs.onDelivered = (paneId, text) => {
+      delivered?.(paneId, text);
+      outputWatcher.input(paneId);
+      promptService.nudge(paneId);
+      notificationMonitor?.recordRequest(paneId, text);
+    };
+  }
 
   // A message sent while the pane asks for a password is that password: the
   // page keeps it out of its input history, and no request is recorded. A
@@ -1271,6 +1287,40 @@ export function createHerdrHttpServer({
         return;
       }
 
+      // Messages waiting for the pane's next turn: the list, a new one, and
+      // what can be done to one (cancel, edit, move, retry, send now).
+      const pendingMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/pending$/);
+      if (pendingMatch && method === "GET") {
+        sendJson(response, 200, { items: pendingInputs.list(decodePaneId(pendingMatch[1])), revision: pendingInputs.revision });
+        return;
+      }
+      if (pendingMatch && method === "POST") {
+        requireWriteAuthorization(request, csrfToken);
+        // 8000 characters may take three bytes each.
+        const body = await readJsonBody(request, Math.max(maxBodyBytes, 64 * 1024));
+        const paneId = decodePaneId(pendingMatch[1]);
+        const item = await pendingInputs.enqueue(paneId, body?.text);
+        sendJson(response, 200, { item, items: pendingInputs.list(paneId), revision: pendingInputs.revision });
+        return;
+      }
+      const pendingItemMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/pending\/([^/]+)$/);
+      if (pendingItemMatch && method === "POST") {
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, Math.max(maxBodyBytes, 64 * 1024));
+        const paneId = decodePaneId(pendingItemMatch[1]);
+        const id = decodePaneId(pendingItemMatch[2]);
+        const action = body?.action;
+        let outcome = {};
+        if (action === "cancel") outcome = pendingInputs.cancel(paneId, id);
+        else if (action === "edit") pendingInputs.edit(paneId, id, body.text);
+        else if (action === "up" || action === "down") pendingInputs.move(paneId, id, action === "up" ? -1 : 1);
+        else if (action === "retry") pendingInputs.retry(paneId, id);
+        else if (action === "send-now") await pendingInputs.sendNow(paneId, id);
+        else throw new HttpError(400, "invalid_action", "Unknown action.");
+        sendJson(response, 200, { ...outcome, items: pendingInputs.list(paneId), revision: pendingInputs.revision });
+        return;
+      }
+
       const textMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/text$/);
       if (method === "POST" && textMatch) {
         requireWriteAuthorization(request, csrfToken);
@@ -1419,13 +1469,21 @@ export function createHerdrHttpServer({
       return { secret };
     },
     watchOutput: (...args) => outputWatcher.watch(...args),
-    watchStatuses: typeof herdr.watchStatuses === "function" ? (...args) => herdr.watchStatuses(...args) : undefined,
+    // What a page hears of the statuses, the queue hears too: a pane that
+    // turns ready gets its next message without waiting for the next look.
+    watchStatuses: typeof herdr.watchStatuses === "function"
+      ? (paneIds, onStatus, onError) => herdr.watchStatuses(paneIds, (event) => {
+        pendingInputs.status(event.pane_id, event.agent_status);
+        onStatus(event);
+      }, onError)
+      : undefined,
     attachments,
     onRequest: (paneId, text) => notificationMonitor?.recordRequest(paneId, text),
     watchConversation: (paneId, listener) => conversationMonitor.watch(paneId, listener),
     watchPrompt: (paneId, listener) => promptService.watch(paneId, listener),
+    watchPending: (paneId, listener) => pendingInputs.watch(paneId, listener),
   });
-  server.once("close", () => { conversationMonitor.stop(); promptService.stop(); });
+  server.once("close", () => { conversationMonitor.stop(); promptService.stop(); pendingInputs.stop(); });
 
   return Object.freeze({ server, csrfToken, conversationMonitor });
 }
