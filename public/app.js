@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.34";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.34";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.35";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.35";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -49,7 +49,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.34";
+} from "./ui-model.js?v=1.2.35";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -60,45 +60,46 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.34";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.34";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.34";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.34";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.34";
+} from "./browse-preference.js?v=1.2.35";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.35";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.35";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.35";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.35";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.34";
-import { chatAgent } from "./lens-preference.js?v=1.2.34";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.34";
+} from "./chat-font-preference.js?v=1.2.35";
+import { chatAgent } from "./lens-preference.js?v=1.2.35";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.35";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.34";
+} from "./pane-preference.js?v=1.2.35";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.34";
+} from "./workspace-preference.js?v=1.2.35";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.34";
+} from "./terminal-preference.js?v=1.2.35";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.34";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.34";
+} from "./completion-preference.js?v=1.2.35";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.35";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.35";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.34";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.34";
+} from "./input-history-preference.js?v=1.2.35";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.35";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -114,16 +115,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.34";
+} from "./key-bar-preference.js?v=1.2.35";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.34";
+} from "./launch-session.js?v=1.2.35";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.34";
+} from "./push-notifications.js?v=1.2.35";
 
 function browserStorage() {
   try {
@@ -239,7 +240,12 @@ function acceptNotificationTarget(value) {
 const appAlert = document.querySelector("#app-alert");
 let appAlertTimer = null;
 let appAlertUrl = null;
+const appAlertSwipe = attachSwipeDismiss(appAlert, {
+  onDismiss: hideAppAlert,
+  reducedMotion: () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+});
 appAlert.addEventListener("click", () => {
+  if (appAlertSwipe.consumedClick()) return;
   hideAppAlert();
   if (appAlertUrl) acceptNotificationTarget(appAlertUrl);
 });
@@ -248,6 +254,7 @@ function showAppAlert({ title, body, url }) {
   document.querySelector("#app-alert-title").textContent = typeof title === "string" ? title : "HerdRabbit";
   document.querySelector("#app-alert-body").textContent = typeof body === "string" ? body : "";
   appAlertUrl = typeof url === "string" ? url : null;
+  appAlertSwipe.reset();
   appAlert.hidden = false;
   clearTimeout(appAlertTimer);
   appAlertTimer = setTimeout(hideAppAlert, 8_000);
@@ -1565,7 +1572,7 @@ function paneButton(pane, tab, workspace, { namesSession = false } = {}) {
 
   button.append(agentMark(kind));
 
-  const title = paneDisplayTitle(sessionName, pane, tabLabel || "Terminal");
+  const title = paneDisplayTitle(sessionName, pane, tabLabel || "Terminal", agent);
   const copy = createElement("span", { className: "pane-copy" });
   copy.append(createElement("strong", { className: "pane-title", text: title }));
   const subtitle = paneSubtitle(title, pane);
@@ -2675,7 +2682,7 @@ function renderPaneHeading(pane, tab, workspace) {
     tabLabel,
   ].filter(Boolean).join(" / ");
   // the program's mark says which agent it is; the title says which pane
-  const title = paneDisplayTitle("", pane, tabLabel || "Terminal");
+  const title = paneDisplayTitle("", pane, tabLabel || "Terminal", agent);
   elements.paneTitle.replaceChildren(agentMark(paneAgentKind(pane, agent)), createElement("span", { className: "pane-title-text", text: title }));
   elements.paneTitle.title = displayRecordLabel(agent, displayRecordLabel(pane, "Terminal"));
 }

@@ -118,7 +118,34 @@ try {
     assert.equal(await lens(), "chat");
     assert.equal(await page.locator("#terminal-xterm").isVisible(), false, "the terminal is hidden under the chat");
 
+    // The muted context and the bold title read as one line: their text baselines match.
+    const baselines = () => page.evaluate(async () => {
+      await document.fonts.ready;
+      const probe = document.createElement("canvas").getContext("2d");
+      const measure = (selector) => {
+        const element = document.querySelector(selector);
+        const node = [...element.childNodes].flatMap((child) => child.nodeType === 3 ? [child] : [...child.childNodes])
+          .find((child) => child.nodeType === 3 && child.textContent.trim());
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const rect = range.getBoundingClientRect();
+        const style = getComputedStyle(node.parentElement);
+        probe.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        return { baseline: rect.top + probe.measureText("Hg").fontBoundingBoxAscent, centre: rect.top + rect.height / 2 };
+      };
+      return { context: measure("#pane-context"), title: measure("#pane-title") };
+    });
     // CHAT_LENS_SCREENSHOTS=<folder> keeps a picture of the chat in both themes.
+    for (const theme of ["dark", "light"]) {
+      await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+      await page.waitForTimeout(300); // let the theme's colour transitions finish
+      const { context: ctx, title: ttl } = await baselines();
+      assert.ok(Math.abs(ctx.baseline - ttl.baseline) <= 1,
+        `${mobile ? "phone" : "desktop"} ${theme}: context baseline ${ctx.baseline} vs title ${ttl.baseline}`);
+      if (process.env.CHAT_LENS_SCREENSHOTS) {
+        await page.locator(".terminal-heading").screenshot({ path: join(process.env.CHAT_LENS_SCREENSHOTS, `header-${mobile ? "phone" : "desktop"}-${theme}.png`) });
+      }
+    }
     if (process.env.CHAT_LENS_SCREENSHOTS) {
       for (const theme of ["dark", "light"]) {
         await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);

@@ -816,4 +816,29 @@ test("a pane is titled by its session's name, else its folder, never by the agen
   assert.equal(paneDisplayTitle("", { cwd: "/w/api", agent: "claude" }), "api");
   assert.equal(paneDisplayTitle("", { agent: "claude" }, "Build"), "Build");
   assert.equal(paneDisplayTitle("", { agent: "claude" }), "Terminal");
+  assert.equal(
+    paneDisplayTitle("", { cwd: "/w/api", agent: "claude", terminal_title: "✳ fix-login", terminal_title_stripped: "fix-login" }),
+    "fix-login",
+  );
+  assert.equal(paneDisplayTitle("Release", { cwd: "/w/api", terminal_title_stripped: "fix-login" }), "Release");
+  for (const title of ["claude", "Claude Code", "Claude Code 2.0", "codex v0.4.1", "Antigravity", "codex", "bash", "isaac@box: ~/w/api", "isaac@box", "~/w/api", "/w/api", "C:\\work\\api", "C:/work/api", "\\\\server\\share\\api", "  "]) {
+    assert.equal(paneDisplayTitle("", { cwd: "/w/api", agent: "codex", terminal_title_stripped: title }), "api", title);
+  }
+  assert.equal(
+    paneDisplayTitle("", { cwd: "/w/api", agent: "claude", terminal_title_stripped: "claude-config-fix" }),
+    "claude-config-fix",
+    "a conversation named after the agent is still a conversation",
+  );
+  assert.equal(paneDisplayTitle("", { cwd: "/w/api", terminal_title_stripped: "vim" }), "api", "a plain shell keeps its folder");
+  assert.equal(
+    paneDisplayTitle("", { cwd: "/w/api", terminal_title_stripped: "fix-login" }, "Terminal", { agent: "claude" }),
+    "fix-login",
+    "the agent may be named only in its own record",
+  );
+  assert.equal(
+    paneDisplayTitle("", { cwd: "/w/api" }, "Terminal", { agent: "claude", terminal_title_stripped: "fix-login" }),
+    "fix-login",
+    "or carry the title itself",
+  );
+  assert.equal(paneDisplayTitle("", { cwd: "/w/api", agent: "bash", terminal_title_stripped: "npm run dev" }), "api");
 });
