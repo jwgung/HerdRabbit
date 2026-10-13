@@ -229,9 +229,30 @@ try {
     await shows("ready terminal");
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
     assert.equal(await lens(), "terminal", "the lens chosen last for the pane comes back");
+
+    // Five minutes in the chat lets the terminal go; back in Terminal it attaches again.
+    const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    await page.clock.install();
+    await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
+    await shows("ready terminal");
+    await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
+    await page.locator("#lens-chat").click();
+    const parkFrom = frames.length;
+    await page.clock.fastForward(4 * 60_000);
+    await settle(300);
+    assert.deepEqual(typesSince(parkFrom, ["detach"]), [], "the terminal stays attached before five minutes");
+    await page.clock.fastForward(60_000 + 1_000);
+    await settle(300);
+    assert.deepEqual(typesSince(parkFrom, ["detach"]), ["detach"], "after five minutes in the chat the terminal is let go");
+    const returnFrom = frames.length;
+    await page.locator("#lens-terminal").click();
+    await page.clock.fastForward(1_000);
+    await settle(300);
+    assert.deepEqual(typesSince(returnFrom, ["attach"]), ["attach"], "back in Terminal it attaches again");
+    await shows("ready terminal");
     assert.deepEqual(errors, []);
     console.log({ mobile, defaultLens: true, noReattachOnSwitch: true, fitOnce: true, draftKept: true, scrollKept: true, shortcut: true,
-      olderPages: true, liveUpdate: true, send: true, unavailable: true, remembered: true });
+      olderPages: true, liveUpdate: true, send: true, unavailable: true, remembered: true, parked: true });
     await context.close();
     // the next round reads the transcript as written by the first
     await writeFile(transcript, jsonl(Array.from({ length: 70 }, (_, n) => exchange(n)).flat()));
