@@ -511,9 +511,10 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
 
   // A resized composer or a raised keyboard shrinks the view without a scroll:
   // a reader at the end stays there.
-  if (typeof ResizeObserver === "function") {
-    new ResizeObserver(() => { if (visible && stick) scroller.scrollTop = scroller.scrollHeight; }).observe(scroller);
-  }
+  const resizes = typeof ResizeObserver === "function"
+    ? new ResizeObserver(() => { if (visible && stick) scroller.scrollTop = scroller.scrollHeight; })
+    : null;
+  resizes?.observe(scroller);
 
   root.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
@@ -605,6 +606,7 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
     destroy() {
       clearInterval(backstop);
       loader.stop();
+      resizes?.disconnect();
       root.remove();
     },
   };
@@ -721,7 +723,10 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
   connection.onConversation((message) => {
     const chat = chats.get(message.pane_id);
     if (!chat) return;
-    if (message.type === "conversation-changed") chat.refresh();
+    // Changed, or the server cannot watch it (too many watched, or no monitor):
+    // read it now either way; a conversation that is gone answers 404 and the
+    // pane falls back to its terminal.
+    chat.refresh();
   });
   // A new socket watches nothing: the chat reads what changed meanwhile.
   connection.onReconnect(() => { if (watched !== null) chats.get(watched)?.refresh(); });

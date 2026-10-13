@@ -69,5 +69,12 @@ test("the page wires the lens: selection, sending, Mod+J, and reads with If-None
 
 test("the chat is watched over the socket only while it is on screen", () => {
   assert.match(view, /watch\(lens === "chat" \? paneId : null\);/u);
-  assert.match(view, /if \(message\.type === "conversation-changed"\) chat\.refresh\(\);/u);
+});
+
+test("a dropped chat lets go of its resize observer, and any conversation message re-reads the chat", () => {
+  assert.match(view, /const resizes = typeof ResizeObserver === "function"/u);
+  assert.match(view, /destroy\(\) \{[^}]*resizes\?\.disconnect\(\);/su);
+  assert.doesNotMatch(view, /new ResizeObserver\([^)]*\)\.observe/u, "no observer is left without a handle");
+  assert.match(view, /connection\.onConversation\(\(message\) => \{[^}]*chat\.refresh\(\);/su);
+  assert.doesNotMatch(view, /message\.type === "conversation-changed"\) chat\.refresh/u);
 });
