@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.23";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.23";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.24";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.24";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -45,7 +45,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.23";
+} from "./ui-model.js?v=1.2.24";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -56,45 +56,53 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.23";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.23";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.23";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.23";
-import { isClaudePane } from "./lens-preference.js?v=1.2.23";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.23";
+} from "./browse-preference.js?v=1.2.24";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.24";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.24";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.24";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.24";
+import {
+  adjustedChatFontSize,
+  chatScale,
+  pinchedChatFontSize,
+  readChatFontSize,
+  writeChatFontSize,
+} from "./chat-font-preference.js?v=1.2.24";
+import { isClaudePane } from "./lens-preference.js?v=1.2.24";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.24";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.23";
+} from "./pane-preference.js?v=1.2.24";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.23";
+} from "./workspace-preference.js?v=1.2.24";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.23";
+} from "./terminal-preference.js?v=1.2.24";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.23";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.23";
+} from "./completion-preference.js?v=1.2.24";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.24";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.23";
+} from "./input-history-preference.js?v=1.2.24";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.23";
+} from "./launch-session.js?v=1.2.24";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.23";
+} from "./push-notifications.js?v=1.2.24";
 
 function browserStorage() {
   try {
@@ -310,6 +318,7 @@ const elements = {
   terminalHeld: document.querySelector("#terminal-held"),
   terminalStage: document.querySelector(".terminal-stage"),
   chatHost: document.querySelector("#chat-host"),
+  promptDock: document.querySelector("#prompt-dock"),
   lensSwitch: document.querySelector("#lens-switch"),
   lensChat: document.querySelector("#lens-chat"),
   lensTerminal: document.querySelector("#lens-terminal"),
@@ -2469,12 +2478,14 @@ function renderPaneHeading(pane, tab, workspace) {
     elements.paneContext.textContent = "Select a pane";
     elements.paneTitle.textContent = "Terminal";
     chatLens.select(null);
+    promptDock?.select(null);
     return;
   }
 
   const paneId = idOf(pane, "pane_id", "id");
   const agent = agentForPane(paneId);
   chatLens.select(paneId, { claude: isClaudePane(pane, agent), status: agentStatus(agent, pane) });
+  promptDock?.select(paneId, { status: agentStatus(agent, pane) });
   const workspaceLabel = displayRecordLabel(workspace, "Project");
   const tabLabel = displayTabLabel(tab);
 
@@ -2848,6 +2859,8 @@ function scheduleTerminalPark(lens, paneId) {
   }, TERMINAL_PARK_MS);
 }
 
+// Made right after the lens switch, which tells it the lens (below).
+let promptDock = null;
 const chatLens = createChatLens({
   stage: elements.terminalStage,
   host: elements.chatHost,
@@ -2863,6 +2876,11 @@ const chatLens = createChatLens({
   onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
   onLensChange: (lens, paneId) => {
     scheduleTerminalPark(lens, paneId);
+    // The key bar drives the terminal: the Chat lens hides it, and the
+    // terminal fits again once it is back.
+    elements.terminalPanel.dataset.lens = lens;
+    promptDock?.setLens(lens);
+    if (lens === "terminal") window.requestAnimationFrame(() => attachedTerminal.refit());
     // Typing must not go on into a terminal that is no longer on screen.
     if (lens === "chat" && elements.terminalXterm.contains(document.activeElement)) {
       if (usesTouchInputEnvironment()) document.activeElement.blur();
@@ -2874,6 +2892,62 @@ const chatLens = createChatLens({
     }
   },
 });
+
+// A blocked pane's prompt card: at the bottom of the Chat lens, and as a
+// banner over the Terminal lens (src/prompt/, public/chat/prompt-card.js).
+promptDock = createPromptDock({
+  dock: elements.promptDock,
+  connection: terminalStream,
+  getJson: (path) => api(path),
+  postJson: (path, body) => api(path, { method: "POST", body }),
+  showChat: () => chatLens.showChat(),
+  onAnswered: () => refreshAfterSubmission(),
+});
+promptDock.setLens(chatLens.lens);
+elements.terminalPanel.dataset.lens = chatLens.lens;
+
+// The Chat lens's text size, apart from the terminal's (chat-font-preference.js).
+let chatFontSize = readChatFontSize(panePreferenceStorage);
+let chatFontWheelDelta = 0;
+function applyChatFontSize(size, { save = true } = {}) {
+  const scroller = chatLens.chatFor(chatLens.paneId)?.root.querySelector(".chat-scroll");
+  // the reader keeps their place: at the end stays at the end, elsewhere the same share of the way down
+  const atEnd = scroller ? scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 48 : false;
+  const share = scroller && scroller.scrollHeight > 0 ? scroller.scrollTop / scroller.scrollHeight : 0;
+  chatFontSize = size;
+  elements.terminalStage.style.setProperty("--chat-scale", String(chatScale(size)));
+  elements.terminalStage.dataset.chatFontSize = String(size);
+  if (save) writeChatFontSize(panePreferenceStorage, size);
+  if (scroller) scroller.scrollTop = atEnd ? scroller.scrollHeight : share * scroller.scrollHeight;
+}
+applyChatFontSize(chatFontSize, { save: false });
+
+function overChat(target) {
+  return chatLens.lens === "chat" && target instanceof Node &&
+    (elements.chatHost.contains(target) || elements.promptDock.contains(target));
+}
+
+// Two fingers on the chat pinch its text size; one finger still scrolls it.
+let chatPinch = null;
+const touchSpread = (touches) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+elements.terminalStage.addEventListener("touchstart", (event) => {
+  if (event.touches.length === 2 && overChat(event.target)) {
+    chatPinch = { distance: touchSpread(event.touches), start: chatFontSize };
+  }
+}, { passive: true });
+elements.terminalStage.addEventListener("touchmove", (event) => {
+  if (!chatPinch || event.touches.length !== 2) return;
+  event.preventDefault();
+  const size = pinchedChatFontSize(chatPinch.start, chatPinch.distance, touchSpread(event.touches));
+  if (size !== chatFontSize) applyChatFontSize(size, { save: false });
+}, { passive: false });
+const endChatPinch = (event) => {
+  if (!chatPinch || event.touches.length >= 2) return;
+  if (chatFontSize !== chatPinch.start) writeChatFontSize(panePreferenceStorage, chatFontSize);
+  chatPinch = null;
+};
+elements.terminalStage.addEventListener("touchend", endChatPinch, { passive: true });
+elements.terminalStage.addEventListener("touchcancel", endChatPinch, { passive: true });
 
 // The message (loading, errors) stands in for the terminal until a pane is drawn.
 function showTerminalView(shown) {
@@ -2891,6 +2965,8 @@ elements.inputForm.addEventListener("submit", async (event) => {
   const submitButton = elements.inputForm.querySelector('button[type="submit"]');
   submitButton.disabled = true;
   setFeedback("Sending…");
+  // The Chat lens shows the message on its way and goes to the end at once.
+  chatLens.sent(paneId, text);
   try {
     if (text) {
       const sent = await sendText(text, paneId);
@@ -2905,8 +2981,8 @@ elements.inputForm.addEventListener("submit", async (event) => {
     resizeTerminalInput();
     setFeedback("");
     refreshAfterSubmission();
-    chatLens.sent(paneId);
   } catch (error) {
+    chatLens.unsent(paneId);
     setFeedback(error.message, true);
   } finally {
     submitButton.disabled = false;
@@ -4489,6 +4565,15 @@ elements.sidebarScrim.addEventListener("click", () => {
 elements.terminalPanel.addEventListener("wheel", (event) => {
   if ((!event.ctrlKey && !event.metaKey) || event.deltaY === 0) return;
   event.preventDefault();
+  // Over the Chat lens it sizes the chat's text, not the terminal's.
+  if (overChat(event.target)) {
+    if (chatFontWheelDelta !== 0 && Math.sign(chatFontWheelDelta) !== Math.sign(event.deltaY)) chatFontWheelDelta = 0;
+    chatFontWheelDelta += event.deltaY;
+    if (Math.abs(chatFontWheelDelta) < 40) return;
+    applyChatFontSize(adjustedChatFontSize(chatFontSize, chatFontWheelDelta < 0 ? "larger" : "smaller"));
+    chatFontWheelDelta = 0;
+    return;
+  }
   if (
     terminalFontWheelDelta !== 0 &&
     Math.sign(terminalFontWheelDelta) !== Math.sign(event.deltaY)

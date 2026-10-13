@@ -125,6 +125,13 @@ function validateReadFormat(format) {
   return format;
 }
 
+function validateReadSource(source) {
+  if (source !== "recent-unwrapped" && source !== "detection") {
+    throw new InputValidationError("Read source must be recent-unwrapped or detection");
+  }
+  return source;
+}
+
 function validateKeys(keys) {
   if (!Array.isArray(keys) || keys.length === 0 || keys.length > 8) {
     throw new InputValidationError("Provide between 1 and 8 keys");
@@ -285,17 +292,20 @@ export class HerdrClient {
     return this.#run(["tab", "close", safeTabId], { json: false });
   }
 
-  async readPane(paneId, { lines = 160, format = "ansi" } = {}) {
+  // `source` "detection" is the screen as herdr reads it for agent states:
+  // the live bottom of the pane, whatever the viewport is scrolled to.
+  async readPane(paneId, { lines = 160, format = "ansi", source = "recent-unwrapped" } = {}) {
     const safePaneId = validatePaneId(paneId);
     const safeLines = validateLines(lines);
     const safeFormat = validateReadFormat(format);
+    const safeSource = validateReadSource(source);
     return this.#run(
       [
         "pane",
         "read",
         safePaneId,
         "--source",
-        "recent-unwrapped",
+        safeSource,
         "--lines",
         String(safeLines),
         "--format",
@@ -405,5 +415,6 @@ export const validation = Object.freeze({
   validateText,
   validateLines,
   validateReadFormat,
+  validateReadSource,
   validateKeys,
 });

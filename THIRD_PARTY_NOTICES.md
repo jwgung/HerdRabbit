@@ -7,7 +7,9 @@ Parts of the terminal attachment (`src/pane-attachments.mjs`, `src/output-window
 `public/terminal-widths.js`), the Claude conversation reader (`src/conversation/claude.mjs`,
 `src/conversation/monitor.mjs`), the Chat lens (`public/chat/chat-view.js`, `public/chat/chat-view.css`,
 `public/chat/markdown.js`, `public/chat/diff.js`, `public/chat/work-blocks.js`,
-`public/chat/conversation-refresh.js`) and the xterm composition patch
+`public/chat/conversation-refresh.js`), the prompt cards (`src/prompt/claude.mjs`, `src/prompt/service.mjs`,
+`public/chat/prompt-card.js`, `public/chat/prompt-card.css`, and the Claude screens in
+`test/prompt-claude.test.mjs`) and the xterm composition patch
 (`vendor/xterm/xterm-5.5.0-ime.patch`, applied by `scripts/build-xterm.mjs`) are adapted from herdr-web-ui,
 https://github.com/devswha/herdr-web-ui
 

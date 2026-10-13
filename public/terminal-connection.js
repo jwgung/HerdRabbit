@@ -1,6 +1,7 @@
-import { outputTextForUpdate } from "./ui-model.js?v=1.2.23";
+import { outputTextForUpdate } from "./ui-model.js?v=1.2.24";
 
 const CONVERSATION_MESSAGES = new Set(["conversation-changed", "conversation-unavailable"]);
+const PROMPT_MESSAGES = new Set(["prompt", "prompt-unavailable"]);
 const ATTACH_MESSAGES = new Set(["pty-data", "input-ready", "attach-held", "attach-resumed", "pane-geometry",
   "attach-unavailable", "attach-error", "pty-exit", "pty-input-dropped"]);
 
@@ -26,6 +27,10 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
   // again on every new socket, and who hears their changes.
   const conversations = new Set();
   const conversationListeners = new Set();
+  // Panes whose prompt card this page hears of (the selected pane while it is
+  // blocked), sent again on every new socket, and who hears the cards.
+  const prompts = new Set();
+  const promptListeners = new Set();
   // Attach traffic is best effort: a socket that is reconnecting drops it, and
   // the reconnect attaches again from a clean screen.
   function transmitIfReady(message) {
@@ -43,7 +48,7 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
     socket.send(JSON.stringify(message));
   }
   function connect() {
-    if (suspended || socket || (!wanted && !attached && conversations.size === 0)) return;
+    if (suspended || socket || (!wanted && !attached && conversations.size === 0 && prompts.size === 0)) return;
     const current = new WebSocketImpl(url);
     socket = current;
     current.onopen = () => current.send(JSON.stringify({ type: "auth", ...credentials() }));
@@ -59,11 +64,14 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
           statusKey = JSON.stringify(statusIds);
           transmit({ type: "watch-statuses", paneIds: statusIds });
           for (const paneId of conversations) transmit({ type: "watch-conversation", paneId });
+          for (const paneId of prompts) transmit({ type: "watch-prompt", paneId });
           for (const listener of reconnectListeners) listener();
         } else if (ATTACH_MESSAGES.has(message.type)) {
           for (const listener of attachListeners) listener(message);
         } else if (CONVERSATION_MESSAGES.has(message.type)) {
           if (conversations.has(message.pane_id)) for (const listener of conversationListeners) listener(message);
+        } else if (PROMPT_MESSAGES.has(message.type)) {
+          if (prompts.has(message.pane_id)) for (const listener of promptListeners) listener(message);
         } else if (message.type === "status" && statusIds.includes(message.pane_id)) {
           onStatus(message);
         } else if (message.type === "statuses-ready") {
@@ -119,6 +127,18 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
     unwatchConversation(paneId) {
       if (!conversations.delete(paneId)) return;
       transmitIfReady({ type: "unwatch-conversation", paneId });
+    },
+    onPrompt(listener) { promptListeners.add(listener); },
+    // Hears the pane's prompt card ({ type: "prompt", pane_id, card }) until unwatched.
+    watchPrompt(paneId) {
+      if (prompts.has(paneId)) return;
+      prompts.add(paneId);
+      transmitIfReady({ type: "watch-prompt", paneId });
+      connect();
+    },
+    unwatchPrompt(paneId) {
+      if (!prompts.delete(paneId)) return;
+      transmitIfReady({ type: "unwatch-prompt", paneId });
     },
     attach(paneId, { cols, rows }) {
       attached = paneId;

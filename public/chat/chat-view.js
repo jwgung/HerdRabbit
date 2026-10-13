@@ -5,8 +5,8 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatView.tsx and
 // ChatView.css, rewritten as plain DOM code without React.
-import { renderMarkdown } from "./markdown.js?v=1.2.23";
-import { lineDiff } from "./diff.js?v=1.2.23";
+import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.24";
+import { lineDiff } from "./diff.js?v=1.2.24";
 import {
   formatWorkDuration,
   isCommandTool,
@@ -21,15 +21,16 @@ import {
   workStartsOpen,
   workSummary,
   workTitle,
-} from "./work-blocks.js?v=1.2.23";
-import { ConversationLoader } from "./conversation-refresh.js?v=1.2.23";
+} from "./work-blocks.js?v=1.2.24";
+import { ConversationLoader } from "./conversation-refresh.js?v=1.2.24";
+import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.24";
 import {
   chatMayBecomeAvailable,
   chatUnavailableText,
   chooseLens,
   readPaneLens,
   writePaneLens,
-} from "../lens-preference.js?v=1.2.23";
+} from "../lens-preference.js?v=1.2.24";
 
 // Scrolling this close to the top reads the page before it.
 const LOAD_OLDER_PX = 400;
@@ -57,6 +58,8 @@ function formatTime(ts) {
   const date = new Date(ts);
   return Number.isNaN(date.getTime()) ? null : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
+
+const COPIED_MS = 1_500;
 
 function formatCount(count) {
   return Number(count).toLocaleString("en-US");
@@ -104,6 +107,8 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
   const olderButton = element(document, "button", { className: "secondary-button chat-older", text: "Earlier messages", attrs: { type: "button", "data-action": "older" } });
   const beginning = element(document, "p", { className: "chat-endcap", text: "Beginning of conversation" });
   const turnsHost = element(document, "div", { className: "chat-turns" });
+  // The message just sent, until the transcript has it, and the working row.
+  const activity = element(document, "div", { className: "chat-activity" });
   const stateLine = element(document, "p", { className: "chat-state", attrs: { role: "status" } });
   const retryButton = element(document, "button", { className: "secondary-button chat-retry", text: "Try again", attrs: { type: "button", "data-action": "retry" } });
   const jumpButton = element(document, "button", { className: "chat-jump", text: "Jump to latest", attrs: { type: "button", "data-action": "jump" } });
@@ -111,7 +116,7 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
   beginning.hidden = true;
   retryButton.hidden = true;
   jumpButton.hidden = true;
-  transcript.append(olderButton, beginning, turnsHost, stateLine, retryButton);
+  transcript.append(olderButton, beginning, turnsHost, activity, stateLine, retryButton);
   scroller.append(transcript);
   root.append(scroller, jumpButton);
 
@@ -137,6 +142,13 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
   }
 
   let status = null;
+  // When the agent began working, as this page saw it, and how long a send
+  // alone keeps the working row up before any status answers it.
+  let workingSince = null;
+  let optimisticUntil = 0;
+  let pending = [];
+  let ticker = null;
+  let activityKey = null;
   let visible = false;
   let stick = true;
   let savedScrollTop = 0;
@@ -345,9 +357,47 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
   }
 
   function copyButton(text, label) {
-    const button = element(document, "button", { className: "chat-copy", text: "Copy", attrs: { type: "button", "data-action": "copy-text", "aria-label": label, title: label } });
+    const button = element(document, "button", { className: "chat-copy", attrs: { type: "button", "data-action": "copy-text", "aria-label": label, title: label } });
+    button.innerHTML = COPY_ICONS;
     button.dataset.copy = text;
     return button;
+  }
+
+  // --- the end of the chat: the message on its way, and the working row ---
+
+  function drawActivity() {
+    const now = Date.now();
+    pending = settlePending(pending, loader.history.turns, now);
+    const working = showsWorking({ status, optimisticUntil, now });
+    if (working && workingSince === null) workingSince = now;
+    if (!working && status !== "working") workingSince = null;
+    const text = working ? workingText(workingSince, now) : "";
+    const key = `${pending.map((item) => `${item.at}:${item.text}`).join("\n")}|${text}`;
+    if (key !== activityKey) {
+      activityKey = key;
+      const nodes = pending.map((item) => {
+        const article = element(document, "article", { className: "chat-turn chat-turn-user is-pending", attrs: { "aria-label": "Sending" } });
+        const bubble = element(document, "div", { className: "chat-bubble" });
+        bubble.append(element(document, "p", { className: "chat-pending-text", text: item.text }));
+        article.append(bubble, element(document, "div", { className: "chat-turn-meta", text: "Sending…" }));
+        return article;
+      });
+      if (working) {
+        const row = element(document, "p", { className: "chat-working", attrs: { role: "status" } });
+        row.append(element(document, "span", { className: "chat-working-dots", attrs: { "aria-hidden": "true" } }),
+          element(document, "span", { text }));
+        nodes.push(row);
+      }
+      activity.replaceChildren(...nodes);
+    }
+    // the time ticks while the row shows; a pending bubble is dropped on time
+    const ticking = visible && (working || pending.length > 0);
+    if (ticking && ticker === null) ticker = setInterval(() => { drawActivity(); keepAtEnd(); }, 1_000);
+    if (!ticking && ticker !== null) { clearInterval(ticker); ticker = null; }
+  }
+
+  function keepAtEnd() {
+    if (visible && stick) scroller.scrollTop = scroller.scrollHeight;
   }
 
   function timeElement(ts) {
@@ -461,6 +511,7 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
     stateLine.hidden = !message;
     stateLine.classList.toggle("is-error", Boolean(error));
     retryButton.hidden = !error;
+    drawActivity();
     if (!visible) return;
     if (anchor) scroller.scrollTop = anchor.top + (scroller.scrollHeight - anchor.height);
     else if (stick) scroller.scrollTop = scroller.scrollHeight;
@@ -498,9 +549,18 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
 
   // --- events ---------------------------------------------------------------
 
+  // Only the reader scrolling up lets go of the end. The view getting shorter
+  // under the reader (the prompt card, the keyboard, a taller composer) is no
+  // scroll of theirs: a scroll event that lands after it, before the end is
+  // caught up with, must not stop the following.
+  let lastTop = 0;
   scroller.addEventListener("scroll", () => {
     if (!visible) return;
-    stick = atBottom();
+    const top = scroller.scrollTop;
+    if (atBottom()) stick = true;
+    else if (top < lastTop - 1) stick = false;
+    lastTop = top;
+    if (stick && !atBottom()) scroller.scrollTop = scroller.scrollHeight;
     if (stick) jumpButton.hidden = true;
     else if (jumpButton.hidden) {
       jumpButton.textContent = "Jump to latest";
@@ -515,6 +575,15 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
     ? new ResizeObserver(() => { if (visible && stick) scroller.scrollTop = scroller.scrollHeight; })
     : null;
   resizes?.observe(scroller);
+
+  // A copy that worked shows a check on its button for a moment; one that
+  // failed says why in the page's feedback line.
+  function copied(button, ok) {
+    if (!ok) { onCopy(false); return; }
+    button.classList.add("is-copied");
+    clearTimeout(button.copiedTimer);
+    button.copiedTimer = setTimeout(() => button.classList.remove("is-copied"), COPIED_MS);
+  }
 
   root.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
@@ -531,10 +600,10 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
       case "retry": error = null; render({}); loader.refresh({ now: true }); break;
       case "jump": scrollToBottom(); break;
       case "view-terminal": onViewInTerminal(); break;
-      case "copy-text": void copyText(action.dataset.copy ?? "", document).then(onCopy); break;
+      case "copy-text": void copyText(action.dataset.copy ?? "", document).then((ok) => copied(action, ok)); break;
       case "copy-code": {
         const code = action.closest(".md-code")?.querySelector("pre")?.textContent ?? "";
-        void copyText(code, document).then(onCopy);
+        void copyText(code, document).then((ok) => copied(action, ok));
         break;
       }
       case "unfold-code": {
@@ -578,10 +647,32 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
       jumpButton.hidden = true;
       if (visible) scroller.scrollTop = scroller.scrollHeight;
     },
+    // A message the composer just sent: shown at the end as on its way, with
+    // the working row, until the transcript has it.
+    sent(text) {
+      const now = Date.now();
+      if (typeof text === "string" && text.trim()) pending = [...pending, pendingMessage(text, loader.history.turns, now)];
+      optimisticUntil = now + OPTIMISTIC_MS;
+      if (status !== "working") workingSince = now;
+      drawActivity();
+      stick = true;
+      jumpButton.hidden = true;
+      keepAtEnd();
+    },
+    // The send failed: nothing is on its way.
+    unsent() {
+      pending = pending.slice(0, -1);
+      optimisticUntil = 0;
+      drawActivity();
+    },
     setStatus(next) {
       if (next === status) return;
+      // a status that answers the send ends the guess
+      if (next !== null) optimisticUntil = 0;
+      if (next === "working" && status !== "working" && workingSince === null) workingSince = Date.now();
       status = next;
       if (loader.history.loaded) render({});
+      else { drawActivity(); keepAtEnd(); }
     },
     show() {
       if (visible) return;
@@ -592,6 +683,8 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
       else scroller.scrollTop = savedScrollTop;
       clearInterval(backstop);
       backstop = setInterval(() => loader.refresh(), BACKSTOP_MS);
+      drawActivity();
+      keepAtEnd();
     },
     hide() {
       if (!visible) return;
@@ -600,11 +693,14 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
       root.hidden = true;
       clearInterval(backstop);
       backstop = null;
+      clearInterval(ticker);
+      ticker = null;
     },
     get visible() { return visible; },
     get scrollTop() { return scroller.scrollTop; },
     destroy() {
       clearInterval(backstop);
+      clearInterval(ticker);
       loader.stop();
       resizes?.disconnect();
       root.remove();
@@ -752,13 +848,22 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
     setStatus(id, status) { chats.get(id)?.setStatus(status); },
     toggle() { setLens(lens === "chat" ? "terminal" : "chat"); },
     showTerminal() { setLens("terminal"); },
-    // A message went out from the composer: the chat follows it to the end.
-    sent(id) {
+    // Switches to the Chat lens; false when this pane has none.
+    showChat() {
+      if (paneId === null || !(claude && chatAvailable(paneId))) return false;
+      setLens("chat");
+      return lens === "chat";
+    },
+    get chatAvailable() { return paneId !== null && claude && chatAvailable(paneId); },
+    // A message went out from the composer: the chat shows it on its way and
+    // goes to the end, following what comes, wherever the reader had scrolled.
+    sent(id, text) {
       const chat = chats.get(id);
       if (!chat?.visible) return;
-      chat.follow();
+      chat.sent(text);
       chat.refresh({ now: true });
     },
+    unsent(id) { chats.get(id)?.unsent(); },
     get lens() { return lens; },
     get paneId() { return paneId; },
     chatFor: (id) => chats.get(id) ?? null,
