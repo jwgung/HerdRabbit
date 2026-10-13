@@ -1,5 +1,5 @@
 // Browser check of the sidebar's session rows: a program mark on the left, the
-// status at the far right, a folder line under the name, and a machine row with
+// status glyph at the far right, a folder line under the name, and a machine row with
 // a monitor, "Host" and a connection dot. Runs against a fake herdr on a desktop
 // and a phone layout. SIDEBAR_SCREENSHOTS=<folder> keeps pictures in both themes.
 import assert from "node:assert/strict";
@@ -10,11 +10,13 @@ import { createHerdrHttpServer } from "../src/http-server.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const ROWS = [
-  { id: "w1:p1", tab: "Release", agent: "claude", status: "working", cwd: "/work/release-api", kind: "claude", indicator: "spinner", sub: "release-api" },
-  { id: "w1:p2", tab: "Infra", agent: "claude", status: "blocked", cwd: "/work/infra", kind: "claude", indicator: "attention", sub: null },
-  { id: "w1:p3", tab: "Web dashboard", agent: "codex", status: "done", cwd: "/work/web", kind: "codex", indicator: "done", sub: "web" },
-  { id: "w1:p4", tab: "tests", agent: null, status: "idle", cwd: "/work/checkout-api", kind: "shell", indicator: null, sub: "checkout-api" },
-  { id: "w1:p5", tab: "Research", agent: "gemini", status: "unknown", cwd: null, kind: "other", indicator: null, sub: null },
+  { id: "w1:p1", tab: "Release", agent: "claude", status: "working", cwd: "/work/release-api", kind: "claude", glyph: "◐", sub: "release-api" },
+  { id: "w1:p2", tab: "Infra", agent: "claude", status: "blocked", cwd: "/work/infra", kind: "claude", glyph: "×", sub: null },
+  { id: "w1:p3", tab: "Web dashboard", agent: "codex", status: "done", cwd: "/work/web", kind: "codex", glyph: "✓", sub: "web" },
+  { id: "w1:p4", tab: "tests", agent: null, status: "idle", cwd: "/work/checkout-api", kind: "shell", glyph: "○", sub: "checkout-api" },
+  { id: "w1:p5", tab: "Research", agent: "gemini", status: "unknown", cwd: null, kind: "other", glyph: "·", sub: null },
+  { id: "w1:p6", tab: "Docs", agent: "agy", status: "idle", cwd: "/work/docs-site", kind: "agy", glyph: "○", sub: "docs-site" },
+  { id: "w1:p7", tab: "Parser", agent: "opencode", status: "working", cwd: "/work/parser-lib", kind: "opencode", glyph: "◐", sub: "parser-lib" },
 ];
 const snapshot = {
   focused_workspace_id: "w1", focused_tab_id: "w1:t1", focused_pane_id: "w1:p4",
@@ -74,15 +76,15 @@ try {
         return [id, {
           icon: button.querySelector(".agent-icon").getAttribute("class"),
           iconHidden: button.querySelector(".agent-icon").getAttribute("aria-hidden"),
-          indicator: button.querySelector(".pane-status").dataset.kind ?? null,
+          glyph: button.querySelector(".pane-status").textContent,
+          glyphColour: getComputedStyle(button.querySelector(".pane-status")).color,
           sub: button.querySelector(".pane-cwd")?.textContent ?? null,
           label: button.getAttribute("aria-label"),
           pressed: button.getAttribute("aria-pressed"),
           border: style.borderTopColor,
           background: style.backgroundColor,
           height: box.height,
-          statusAfterMenu: menu.right <= status.left + 1 && status.right <= box.right,
-          spin: getComputedStyle(button.querySelector(".pane-status"), "::before").animationName,
+          menuAfterStatus: status.right <= menu.left + 1 && menu.right <= box.right + 1,
         }];
       }));
       const machine = (id) => {
@@ -104,23 +106,20 @@ try {
       const got = seen.rows[row.id];
       assert.equal(got.icon, `agent-icon agent-icon-${row.kind}`, `${row.id} mark`);
       assert.equal(got.iconHidden, "true");
-      assert.equal(got.indicator, row.indicator, `${row.id} status`);
+      assert.equal(got.glyph, row.glyph, `${row.id} status glyph`);
       assert.equal(got.sub, row.sub, `${row.id} folder line`);
       if (row.status === "blocked") assert.match(got.label, /Needs your answer/u);
+      if (row.status === "working") assert.match(got.label, /Working/u);
       if (row.agent) assert.match(got.label, new RegExp(row.agent, "u"));
       assert.equal(got.border, "rgba(0, 0, 0, 0)", `${row.id} has no status border`);
       assert.ok(got.height >= 40, `${row.id} is a 40px touch target`);
-      assert.ok(got.statusAfterMenu, `${row.id} status after the menu`);
+      assert.ok(got.menuAfterStatus, `${row.id} menu at the far right, after the status`);
       assert.equal(got.pressed, String(row.id === "w1:p4"));
       assert.equal(got.background !== "rgba(0, 0, 0, 0)", row.id === "w1:p4", `${row.id} highlight only when selected`);
     }
-    assert.equal(seen.rows["w1:p1"].spin, "pane-spin", "the spinner turns");
-    // Held still when motion is reduced.
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    seen = await read();
-    assert.equal(seen.rows["w1:p1"].spin, "none");
-    assert.equal(seen.rows["w1:p2"].spin, "none");
-    await page.emulateMedia({ reducedMotion: "no-preference" });
+    // each state has its own colour, from the shared status rules
+    const colours = new Set(["w1:p1", "w1:p2", "w1:p3", "w1:p4"].map((id) => seen.rows[id].glyphColour));
+    assert.equal(colours.size, 4, "working, blocked, done and idle differ in colour");
 
     // This PC: a monitor, "Host" and a green dot. Another machine: the monitor
     // and a grey dot while it is not reached, without the "Host" label.
@@ -152,7 +151,7 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log("Sidebar rows (program mark, status at the right, folder line, machine row) on desktop and phone: passed");
+  console.log("Sidebar rows (program mark, status glyph at the right, folder line, machine row) on desktop and phone: passed");
 } finally {
   await browser.close();
   await new Promise((resolve) => server.close(resolve));

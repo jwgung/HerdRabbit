@@ -3,12 +3,12 @@
 // over the composer shows the queued messages in both lenses, each can be
 // edited, moved and cancelled, and the Chat lens shows them as queued
 // bubbles. When the agent is ready the head goes as one bracketed paste and
-// Enter, one per turn; Send now (the composer's button, or a row's) goes at
-// once. Runs on a phone and a desktop against an in-process fake herdr whose
+// Enter, one per turn; the one send button opens a menu (Queue for next turn, Send now);
+// Enter queues without it and Alt+Enter goes at once, like a row's Send now. Runs on a phone and a desktop against an in-process fake herdr whose
 // agent status the check flips, and a transcript in a temporary Claude
 // folder; nothing reaches a real herdr.
 //
-// PENDING_SCREENSHOTS=<folder> keeps pictures of the list in both themes.
+// PENDING_SCREENSHOTS=<folder> keeps pictures of the list and the open menu in both themes.
 import assert from "node:assert/strict";
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { once } from "node:events";
@@ -109,10 +109,19 @@ try {
     const waitRows = (texts) => page.waitForFunction((wanted) => JSON.stringify([...document.querySelectorAll("#pending-messages .pending-message-text")]
       .map((node) => node.textContent)) === JSON.stringify(wanted), texts, { timeout: 8_000 });
     const lens = () => page.locator(".terminal-stage").getAttribute("data-lens");
-    // A touch keyboard's Enter is a new line: the phone taps the button.
+    // A touch keyboard's Enter is a new line: the phone taps the button and
+    // picks "Queue for next turn" from its menu.
+    const menu = page.locator("#send-menu");
     const submit = async (text) => {
       await input.fill(text);
-      if (mobile) await sendButton.click(); else await input.press("Enter");
+      if (mobile) {
+        const queues = await sendButton.getAttribute("aria-haspopup") === "menu";
+        await sendButton.click();
+        if (queues) {
+          await menu.waitFor({ state: "visible" });
+          await page.locator("#send-menu-queue").click();
+        }
+      } else await input.press("Enter");
     };
     const shoot = async (name) => {
       if (!process.env.PENDING_SCREENSHOTS) return;
@@ -127,10 +136,14 @@ try {
     await page.waitForFunction(() => document.querySelector("#lens-chat")?.getAttribute("aria-disabled") === "false");
     if (await lens() !== "terminal") await page.locator("#lens-terminal").click();
 
-    // The agent works: Send becomes Queue, with Send now beside it.
+    // The agent works: still one send button, now offering a menu.
     await page.waitForFunction(() => document.querySelector(".send-button")?.dataset.mode === "queue");
-    assert.equal(await sendButton.getAttribute("aria-label"), "Queue");
-    assert.equal(await page.locator("#send-now-button").isVisible(), true);
+    assert.equal(await sendButton.getAttribute("aria-label"), "Send or queue…");
+    assert.equal(await sendButton.getAttribute("aria-haspopup"), "menu");
+    assert.equal(await sendButton.getAttribute("aria-expanded"), "false");
+    assert.equal(await page.locator("#input-form button[type=submit]:visible").count(), 1, "one send button only");
+    assert.equal(await page.locator("#send-now-button").count(), 0);
+    assert.equal(await menu.isVisible(), false);
     assert.equal(await list.isVisible(), false, "no list while nothing waits");
 
     // Two messages queued while it works: listed in order, nothing typed into the pane.
@@ -195,25 +208,82 @@ try {
 
     // Ready and nothing waiting: Send sends at once, as before.
     await page.waitForFunction(() => document.querySelector(".send-button")?.dataset.mode === "send", null, { timeout: 8_000 });
-    assert.equal(await page.locator("#send-now-button").isVisible(), false);
+    assert.equal(await sendButton.getAttribute("aria-haspopup"), null);
     await submit("straight in");
     await page.waitForFunction(() => document.querySelector("#terminal-input").value === "");
     assert.deepEqual(herdr.sent.at(-1), { paneId: "w1:p1", text: "straight in", submit: true });
 
-    // Busy again: Send now in the composer bypasses the queue.
+    // Busy again: the button's menu. Empty text still sends a bare Enter.
     herdr.status = "working";
     await page.waitForFunction(() => document.querySelector(".send-button")?.dataset.mode === "queue", null, { timeout: 8_000 });
+    const sentBefore = herdr.sent.length;
+    const items = menu.locator('[role="menuitem"]');
+    await input.fill("menu text");
+    await sendButton.click();
+    await menu.waitFor({ state: "visible" });
+    assert.equal(await sendButton.getAttribute("aria-expanded"), "true");
+    assert.deepEqual(await items.allTextContents().then((t) => t.map((x) => x.trim())), ["Queue for next turn", "Send now"]);
+    assert.equal(await menu.getAttribute("role"), "menu");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "send-menu-queue", "Queue is focused first");
+    const menuBox = await menu.boundingBox();
+    const buttonBox = await sendButton.boundingBox();
+    assert.ok(menuBox.y + menuBox.height <= buttonBox.y, "the menu opens above the button");
+    assert.ok(menuBox.x >= 0 && menuBox.x + menuBox.width <= page.viewportSize().width, "inside the viewport");
+    assert.equal(herdr.sent.length, sentBefore, "opening the menu sends nothing");
+    await shoot("menu");
+    // arrows move, Esc closes
+    await page.keyboard.press("ArrowDown");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "send-menu-now");
+    await page.keyboard.press("ArrowDown");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "send-menu-queue");
+    await page.keyboard.press("Escape");
+    assert.equal(await menu.isVisible(), false);
+    assert.equal(await sendButton.getAttribute("aria-expanded"), "false");
+    assert.equal(await input.inputValue(), "menu text", "Esc keeps the draft");
+    // clicking outside closes it too
+    await sendButton.click();
+    await menu.waitFor({ state: "visible" });
+    await page.locator(".input-composer").evaluate((node) => node.getBoundingClientRect());
+    await page.mouse.click(5, 5);
+    assert.equal(await menu.isVisible(), false);
+    // "Queue for next turn" queues
+    await sendButton.click();
+    await page.locator("#send-menu-queue").click();
+    await waitRows(["menu text"]);
+    assert.equal(await menu.isVisible(), false);
+    assert.equal(herdr.sent.length, sentBefore, "queued, not typed");
+    await rows.nth(0).locator('[data-pending-action="cancel"]').click();
+    await page.waitForFunction(() => document.querySelector("#pending-messages")?.hidden === true);
+    // "Send now" sends at once, past the queue
     await input.fill("urgent, now");
-    await page.locator("#send-now-button").click();
+    await sendButton.click();
+    await page.locator("#send-menu-now").click();
     await page.waitForFunction(() => document.querySelector("#terminal-input").value === "");
     assert.deepEqual(herdr.sent.at(-1), { paneId: "w1:p1", text: "urgent, now", submit: true });
     assert.equal(await list.isVisible(), false, "nothing was queued");
+    assert.equal(await menu.isVisible(), false);
+    // arrows and Enter pick: ArrowDown then Enter is Send now
+    await input.fill("keyboard pick");
+    await sendButton.focus();
+    await page.keyboard.press("Enter");
+    await menu.waitFor({ state: "visible" });
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.querySelector("#terminal-input").value === "");
+    assert.deepEqual(herdr.sent.at(-1), { paneId: "w1:p1", text: "keyboard pick", submit: true });
     if (!mobile) {
-      // Alt+Enter is the keyboard's Send now.
+      // Enter in the composer queues with no menu; Alt+Enter sends now.
+      await input.fill("enter queues");
+      await input.press("Enter");
+      await waitRows(["enter queues"]);
+      assert.equal(await menu.isVisible(), false, "Enter queues without the menu");
+      await rows.nth(0).locator('[data-pending-action="cancel"]').click();
+      await page.waitForFunction(() => document.querySelector("#pending-messages")?.hidden === true);
       await input.fill("alt enter");
       await input.press("Alt+Enter");
       await page.waitForFunction(() => document.querySelector("#terminal-input").value === "");
       assert.deepEqual(herdr.sent.at(-1), { paneId: "w1:p1", text: "alt enter", submit: true });
+      assert.equal(await menu.isVisible(), false);
     }
 
     // A queued row's Send now goes at once, while the agent still works.
@@ -237,7 +307,7 @@ try {
     assert.equal(overflow, false, "no sideways scroll");
     assert.deepEqual(errors, []);
     console.log({ mobile, queued: true, edited: true, reordered: true, cancelled: true, chatBubbles: true,
-      deliveredInOrder: true, turnGate: true, sendNow: true, rowSendNow: true, folded: true });
+      deliveredInOrder: true, turnGate: true, oneButton: true, menu: true, sendNow: true, rowSendNow: true, folded: true });
     await context.close();
   }
 } finally {

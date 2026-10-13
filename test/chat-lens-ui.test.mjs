@@ -27,8 +27,8 @@ const CHAT_FILES = [
 test("the pane header has a Chat / Terminal switch, and both lenses share the stage", () => {
   const heading = page.match(/<div class="terminal-heading">[\s\S]*?\n {8}<\/div>/u)?.[0] ?? "";
   assert.match(heading, /<div id="lens-switch" class="lens-switch" role="group" aria-label="Pane view" hidden>/u);
-  assert.match(heading, /<button id="lens-chat" type="button" aria-pressed="false" aria-disabled="true">Chat<\/button>/u);
-  assert.match(heading, /<button id="lens-terminal" type="button" aria-pressed="true">Terminal<\/button>/u);
+  assert.match(heading, /<button id="lens-chat" type="button" aria-pressed="false" aria-disabled="true">\s*<svg class="lens-icon" aria-hidden="true"[\s\S]*?<span class="lens-label">Chat<\/span>\s*<\/button>/u);
+  assert.match(heading, /<button id="lens-terminal" type="button" aria-pressed="true">\s*<svg class="lens-icon" aria-hidden="true"[\s\S]*?<span class="lens-label">Terminal<\/span>\s*<\/button>/u);
   const stage = page.match(/<div class="terminal-stage"[\s\S]*?<div id="terminal-held"/u)?.[0] ?? "";
   assert.match(stage, /data-lens="terminal"/u);
   assert.match(stage, /<div id="chat-host" class="chat-host"/u);
@@ -114,4 +114,9 @@ test("a failed send takes back only its own pending message, so a failed bare En
   assert.match(view, /unsent\(message\) \{\s*pending = pending\.filter\(\(item\) => item !== message\);/u);
   assert.match(view, /const message = typeof text === "string" && text\.trim\(\) \? pendingMessage\(/u);
   assert.doesNotMatch(view, /pending\.slice\(0, -1\)/u);
+});
+
+test("the lens buttons are icons, with their words beside them on wide windows and kept for screen readers on narrow ones", () => {
+  assert.match(styles, /@media \(max-width: 760px\) \{[\s\S]*?\.lens-label \{\s*position: absolute;[\s\S]*?clip-path: inset\(50%\);/u);
+  assert.doesNotMatch(styles, /\.lens-label \{[^}]*display: none/u, "the words stay readable to screen readers");
 });

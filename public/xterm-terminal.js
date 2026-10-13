@@ -1,10 +1,10 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.27";
-import { findScreenLinks } from "./terminal-links.js?v=1.2.27";
-import { createTouchScroller } from "./touch-scroll.js?v=1.2.27";
-import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.27";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.28";
+import { findScreenLinks } from "./terminal-links.js?v=1.2.28";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.28";
+import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.28";
 
 const RESIZE_DEBOUNCE_MS = 80;
 // herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
