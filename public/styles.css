@@ -688,7 +688,10 @@ body.sidebar-collapsed .terminal-panel {
   height: 16px;
 }
 
+/* The text, not the mark, gives the title its baseline, so the muted context
+   beside it sits level with it. */
 .pane-title-text {
+  align-self: baseline;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2232,7 +2235,9 @@ body.is-resizing-sidebar {
   z-index: 40;
   top: max(12px, env(safe-area-inset-top));
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(calc(-50% + var(--swipe-x, 0px)), var(--swipe-y, 0px));
+  /* The alert follows a finger, so the browser must not scroll under it. */
+  touch-action: none;
   width: min(420px, calc(100vw - 32px));
   padding: 12px 16px;
   display: grid;
@@ -2249,6 +2254,21 @@ body.is-resizing-sidebar {
 
 .app-alert[hidden] {
   display: none;
+}
+
+.app-alert.leaving {
+  transition: transform 0.22s ease-out, opacity 0.22s ease-out;
+}
+
+.app-alert:not(.swiping):not(.leaving) {
+  transition: transform 0.18s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-alert.leaving,
+  .app-alert:not(.swiping):not(.leaving) {
+    transition: none;
+  }
 }
 
 .app-alert span {

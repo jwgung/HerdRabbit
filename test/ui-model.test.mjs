@@ -816,4 +816,12 @@ test("a pane is titled by its session's name, else its folder, never by the agen
   assert.equal(paneDisplayTitle("", { cwd: "/w/api", agent: "claude" }), "api");
   assert.equal(paneDisplayTitle("", { agent: "claude" }, "Build"), "Build");
   assert.equal(paneDisplayTitle("", { agent: "claude" }), "Terminal");
+  assert.equal(
+    paneDisplayTitle("", { cwd: "/w/api", terminal_title: "✳ fix-login", terminal_title_stripped: "fix-login" }),
+    "fix-login",
+  );
+  assert.equal(paneDisplayTitle("Release", { cwd: "/w/api", terminal_title_stripped: "fix-login" }), "Release");
+  for (const title of ["claude", "Claude Code", "codex", "bash", "isaac@box: ~/w/api", "isaac@box", "~/w/api", "/w/api", "  "]) {
+    assert.equal(paneDisplayTitle("", { cwd: "/w/api", terminal_title_stripped: title }), "api", title);
+  }
 });

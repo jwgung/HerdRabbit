@@ -30,7 +30,8 @@ await page.evaluate(()=>{
 });
 await page.waitForFunction(()=>document.querySelector('#terminal-xterm').textContent.includes('w1:p1'));
 assert.equal(await page.evaluate(()=>window.stillSamePage),true,'worker activation must not reload the conversation');
-assert.equal(await page.locator('#terminal-input').inputValue(),'unsent draft');
+// drafts are kept per pane now, so the other pane starts empty and the first pane's draft returns with it
+assert.equal(await page.locator('#terminal-input').inputValue(),'');
 // Replay the observed zero-window case through an independent channel.
 await page.evaluate(() => {
  window.relay = new BroadcastChannel('herdr-notification-navigation');
@@ -51,7 +52,44 @@ await page.waitForFunction(async()=>{
  const response=await (await caches.open('herdr-notification-navigation-v1')).match('/applied');
  return response && (await response.json()).id==='relay-2';
 });
-console.log({mobile,broadcastTargetApplied:true,coldLaunchTargetRestored:true});
+if(mobile){
+ // An in-app alert follows a finger and is swiped away; a short swipe snaps back; a tap still opens its pane.
+ const cdp=await page.context().newCDPSession(page);
+ const touch=async(type,x,y)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:type==='touchEnd'?[]:[{x,y}]});
+ const showAlert=()=>page.evaluate(()=>navigator.serviceWorker.dispatchEvent(new MessageEvent('message',{data:{type:'query-viewing-pane',title:'Needs input',body:'deploy',paneId:'w2:p1',url:location.origin+'/?pane=w2%3Ap1'}})));
+ const alert=page.locator('#app-alert');
+ const swipe=async(dx,dy,steps=6,gap=0)=>{
+  const box=await alert.boundingBox();const x=box.x+box.width/2,y=box.y+box.height/2;
+  await touch('touchStart',x,y);
+  for(let i=1;i<=steps;i++){await touch('touchMove',x+dx*i/steps,y+dy*i/steps);if(gap)await page.waitForTimeout(gap);}
+  return [x+dx,y+dy];
+ };
+ await page.evaluate(()=>{window.__alertMsg=null;});
+ await showAlert();
+ if(!await alert.isVisible()){
+  // the page only shows the alert for a message it is in front for; fall back to the same call the page makes
+  throw new Error('in-app alert did not show');
+ }
+ let [ex,ey]=await swipe(30,0,6,30);
+ const shift=await page.evaluate(()=>getComputedStyle(document.querySelector('#app-alert')).getPropertyValue('--swipe-x'));
+ assert.equal(shift.trim(),'30px','the alert follows the finger');
+ await touch('touchEnd',ex,ey);
+ await page.waitForFunction(()=>!document.querySelector('#app-alert').style.getPropertyValue('--swipe-x'));
+ assert.equal(await alert.isVisible(),true,'a short swipe snaps back');
+ [ex,ey]=await swipe(-260,0,6,20);
+ await touch('touchEnd',ex,ey);
+ await alert.waitFor({state:'hidden'});
+ await showAlert();
+ [ex,ey]=await swipe(0,-40,4,20);
+ await touch('touchEnd',ex,ey);
+ await alert.waitFor({state:'hidden'});
+ await showAlert();
+ const box=await alert.boundingBox();
+ await page.touchscreen.tap(box.x+box.width/2,box.y+box.height/2);
+ await alert.waitFor({state:'hidden'});
+ await page.waitForFunction(()=>document.querySelector('#terminal-xterm').textContent.includes('w2:p1'));
+}
+console.log({mobile,broadcastTargetApplied:true,coldLaunchTargetRestored:true,alertSwipe:mobile});
 await page.close();
 }
 }finally{await browser.close();await new Promise(r=>server.close(r));}

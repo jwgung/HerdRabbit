@@ -65,6 +65,7 @@ const STATIC_FILES = new Map([
   ["/terminal-preference.js", { path: `${PUBLIC_DIR}/terminal-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/completion-preference.js", { path: `${PUBLIC_DIR}/completion-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/alert-preference.js", { path: `${PUBLIC_DIR}/alert-preference.js`, type: "text/javascript; charset=utf-8" }],
+  ["/swipe-dismiss.js", { path: `${PUBLIC_DIR}/swipe-dismiss.js`, type: "text/javascript; charset=utf-8" }],
   ["/input-history-preference.js", { path: `${PUBLIC_DIR}/input-history-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/composer-draft-preference.js", { path: `${PUBLIC_DIR}/composer-draft-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/secret-prompt.js", { path: `${PUBLIC_DIR}/secret-prompt.js`, type: "text/javascript; charset=utf-8" }],

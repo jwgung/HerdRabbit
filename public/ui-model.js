@@ -576,11 +576,30 @@ export function paneFolder(pane) {
   return cwd.trim().replace(/[\\/]+$/u, "").split(/[\\/]/u).pop() ?? "";
 }
 
+// Titles a program sets that say nothing the mark or the folder does not:
+// its own name, or a shell's default "user@host: ~/dir".
+const UNTOLD_TITLES = new Set([...SHELL_NAMES, "claude", "claude code", "codex", "opencode", "agy", "antigravity"]);
+
+// The title the pane's program gave its terminal (Claude names it after the
+// conversation), with Herdr's spinner already stripped; "" when it only names
+// the program, the user or the folder.
+export function paneTerminalTitle(pane) {
+  const value = [pane?.terminal_title_stripped, pane?.terminal_title].find(
+    (title) => typeof title === "string" && title.trim() !== "",
+  );
+  if (!value) return "";
+  const title = value.trim();
+  if (UNTOLD_TITLES.has(title.toLowerCase())) return "";
+  if (/^[^\s@]+@[^\s:]+(:|$)/u.test(title)) return "";
+  if (/^[~/]/u.test(title)) return "";
+  return title;
+}
+
 // What a pane is called where its program's mark already says which agent it
-// is: its session's name, else its folder, else `fallback`. The agent's name
-// would only repeat the mark.
+// is: its session's name, else the title its program gave it, else its folder,
+// else `fallback`. The agent's name would only repeat the mark.
 export function paneDisplayTitle(named, pane, fallback = "Terminal") {
-  return named || paneFolder(pane) || fallback;
+  return named || paneTerminalTitle(pane) || paneFolder(pane) || fallback;
 }
 
 // The line under a session's name: the folder it runs in, unless that only
