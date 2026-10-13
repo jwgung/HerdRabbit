@@ -84,6 +84,12 @@ export function paneAgent(snapshot, paneId) {
   return { claude, name, status: KNOWN_STATES.has(value) ? value : "unknown" };
 }
 
+// Ticks between reads of a non-blocked pane that has shown no menu for
+// `quiet` reads running: 1, then 2, then at most 4.
+function quietStride(quiet) {
+  return quiet < 3 ? 1 : quiet < 6 ? 2 : 4;
+}
+
 export class PromptService {
   constructor({ herdr, settleMs = 1_500, stepDelayMs = 30, lookMs = 50, pollMs = 1_000 }) {
     this.herdr = herdr;
@@ -228,7 +234,12 @@ export class PromptService {
 
   // Looks again soon: input went to the pane.
   nudge(paneId) {
-    if (this.watches.has(paneId)) this.#schedule(100);
+    const entry = this.watches.get(paneId);
+    if (!entry) return;
+    // input may have opened a menu: look at once and every tick again
+    entry.quiet = 0;
+    entry.skipped = Infinity;
+    this.#schedule(100);
   }
 
   stop() {
@@ -272,7 +283,17 @@ export class PromptService {
       for (const entry of [...this.watches.values()]) {
         const agent = paneAgent(snapshot, entry.paneId);
         if (agent) entry.missing = 0;
-        if (agent && (agent.status === "blocked" || readerName(agent))) reading.push({ entry, agent });
+        if (agent && agent.status === "blocked") { entry.quiet = 0; reading.push({ entry, agent }); }
+        else if (agent && readerName(agent)) {
+          // A Claude or Codex pane herdr does not call blocked may still wait
+          // on a menu, so it is read too -- but less often while nothing has
+          // shown: every tick, then every 2nd, then every 4th, until a card,
+          // a status change or input (a nudge) brings it back to every tick.
+          if (entry.lastStatus !== agent.status) entry.quiet = 0;
+          entry.lastStatus = agent.status;
+          entry.skipped = (entry.skipped ?? 0) + 1;
+          if (entry.skipped >= quietStride(entry.quiet ?? 0)) { entry.skipped = 0; reading.push({ entry, agent }); }
+        }
         else if (agent) this.#tell(entry, null);
         else if (!serverPending(snapshot, entry.paneId)) {
           // One snapshot without the pane is not the end of it (a tab moved,
@@ -284,6 +305,7 @@ export class PromptService {
       }
       await eachLimited(reading, READS_AT_ONCE, async ({ entry, agent }) => {
         const card = publicCard(await this.#readScreen(entry.paneId, agent).catch(() => null));
+        entry.quiet = card ? 0 : (entry.quiet ?? 0) + 1;
         this.#tell(entry, card);
       });
     } finally {

@@ -476,3 +476,26 @@ test("a herdr machine's Codex pane shows its approval card and takes the answer'
   assert.deepEqual(remote.answered, [{ paneId: "w1:p1", answer: "Yes, and don't ask again for commands that start with npm" }]);
   assert.deepEqual(local.sent, []);
 });
+
+test("a Claude pane that is not blocked and shows no menu is read less and less often, and input brings it back", async (context) => {
+  const keepAlive = setInterval(() => {}, 1_000);
+  context.after(() => clearInterval(keepAlive));
+  const herdr = fakePromptHerdr({
+    panes: [{ pane_id: "w5:p1", agent: "claude", agent_status: "done" }],
+    outputs: { "w5:p1": "All done.\n1. Wrote the file\n2. Ran the tests\n> " },
+  });
+  const prompts = new PromptService({ herdr, pollMs: 5 });
+  context.after(() => prompts.stop());
+  prompts.watch("w5:p1", () => {});
+  const readsOf = () => herdr.reads.filter((read) => read.paneId === "w5:p1").length;
+  for (let tries = 0; tries < 400 && herdr.snapshots < 40; tries += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  const looks = herdr.snapshots;
+  const reads = readsOf();
+  assert.ok(looks >= 40, `ticks ran (${looks})`);
+  assert.ok(reads < looks * 0.5, `a quiet pane is read on fewer than half the ticks (${reads} of ${looks})`);
+  // input may have opened a menu: the next tick reads it again
+  prompts.nudge("w5:p1");
+  const before = readsOf();
+  for (let tries = 0; tries < 100 && readsOf() === before; tries += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.ok(readsOf() > before, "read again right after input");
+});
