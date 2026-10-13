@@ -584,11 +584,12 @@ body.sidebar-collapsed .terminal-panel {
 }
 
 /* Centred on the first row: 40px tall, the menu 28px; at the far right, in
-   the row's right padding after the status. */
+   the row's right padding after the status, on the same line as every other
+   menu in the sidebar. */
 .session-action-menu {
   position: absolute;
   top: 6px;
-  right: 4px;
+  right: 0;
 }
 
 .tab-heading {
