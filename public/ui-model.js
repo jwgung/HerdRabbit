@@ -1,4 +1,11 @@
 export const HISTORY_PAGE_LINES = 200;
+const AGENT_STATUS_ICONS = Object.freeze({
+  blocked: "×",
+  working: "◐",
+  done: "✓",
+  idle: "○",
+  unknown: "·",
+});
 const KNOWN_AGENT_STATES = new Set(["idle", "working", "blocked", "done", "unknown"]);
 
 export function outputTextForUpdate(currentText, payload) {
@@ -547,20 +554,19 @@ export function paneAgentKind(pane, agent) {
   if (names.length === 0) return "shell";
   if (names.some((name) => name === "claude" || name.startsWith("claude"))) return "claude";
   if (names.some((name) => name === "codex" || name.startsWith("codex"))) return "codex";
+  if (names.some((name) => name === "agy" || name.startsWith("antigravity"))) return "agy";
+  if (names.some((name) => name === "opencode" || name.startsWith("opencode"))) return "opencode";
   return names.every((name) => SHELL_NAMES.has(name)) ? "shell" : "other";
 }
 
-// What sits at a session row's far right: a spinner while working, a pulsing
-// dot while the agent waits for an answer, a green dot once it is done, and
-// nothing for idle or unknown. `label` is the words for a screen reader.
-const STATUS_INDICATORS = Object.freeze({
-  working: { kind: "spinner", label: "Working" },
-  blocked: { kind: "attention", label: "Needs your answer" },
-  done: { kind: "done", label: "Done" },
-});
+// What sits left of a session row's menu: Herdr's own symbol for the status.
+// `agentStatusLabel` is the same status in words, for the row's label.
+export function agentStatusIcon(status) {
+  return AGENT_STATUS_ICONS[status] || AGENT_STATUS_ICONS.unknown;
+}
 
-export function paneStatusIndicator(status) {
-  return STATUS_INDICATORS[status] ?? null;
+export function agentStatusLabel(status) {
+  return status === "blocked" ? "Needs your answer" : status === "done" ? "Done" : status === "working" ? "Working" : status;
 }
 
 // The line under a session's name: the folder it runs in, unless that only

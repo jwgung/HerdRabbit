@@ -308,9 +308,13 @@ body.sidebar-collapsed .pane-button {
 body.sidebar-collapsed .pane-status {
   position: absolute;
   top: 5px;
-  right: 6px;
-  width: 10px;
-  height: 10px;
+  right: 5px;
+  width: 13px;
+  min-width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 11px;
 }
 
 /* The row: the program's mark, a name with the folder under it, then the
@@ -330,45 +334,8 @@ body.sidebar-collapsed .pane-status {
 
 .agent-icon { width: 18px; height: 18px; display: block; color: var(--text); }
 
-.pane-status { width: 14px; height: 14px; display: grid; place-items: center; justify-self: center; }
-
-.pane-status[data-kind="spinner"]::before {
-  content: "";
-  width: 12px;
-  height: 12px;
-  box-sizing: border-box;
-  border: 2px solid color-mix(in srgb, var(--muted) 35%, transparent);
-  border-top-color: var(--muted);
-  border-radius: 999px;
-  animation: pane-spin 0.9s linear infinite;
-}
-
-.pane-status[data-kind="attention"]::before,
-.pane-status[data-kind="done"]::before {
-  content: "";
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-}
-
-.pane-status[data-kind="attention"]::before {
-  background: var(--status-attention);
-  animation: pane-pulse 1.8s ease-in-out infinite;
-}
-
-.pane-status[data-kind="done"]::before { background: var(--status-ok); }
-
-@keyframes pane-spin { to { transform: rotate(360deg); } }
-
-@keyframes pane-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-attention) 55%, transparent); }
-  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-attention) 0%, transparent); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pane-status[data-kind="spinner"]::before { animation: none; border-top-color: var(--muted); border-right-color: var(--muted); }
-  .pane-status[data-kind="attention"]::before { animation: none; }
-}
+/* Herdr's own symbol for the status; its colour comes from .ui-status.state-*. */
+.pane-button .pane-status { width: 14px; min-width: 14px; height: 14px; justify-self: center; font-size: 15px; }
 
 body.sidebar-collapsed .pane-copy {
   display: none;

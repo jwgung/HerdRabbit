@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {
   agentStatus,
   paneAgentKind,
-  paneStatusIndicator,
+  agentStatusIcon,
+  agentStatusLabel,
   paneSubtitle,
   detectTouchInput,
   displayRecordLabel,
@@ -777,18 +778,24 @@ test("picks a program mark from the agent a pane names", () => {
   assert.equal(paneAgentKind({ agent_session: { agent: "claude" } }, null), "claude");
   assert.equal(paneAgentKind({ agent: "codex" }, null), "codex");
   assert.equal(paneAgentKind({}, { agent: "gemini" }), "other");
+  assert.equal(paneAgentKind({ agent: "agy" }, null), "agy");
+  assert.equal(paneAgentKind({}, { agent: "Antigravity" }), "agy");
+  assert.equal(paneAgentKind({ agent: "opencode" }, null), "opencode");
+  assert.equal(paneAgentKind({}, { agent: "OpenCode" }), "opencode");
   assert.equal(paneAgentKind({}, null), "shell");
   assert.equal(paneAgentKind({ agent: "bash" }, { name: "builder" }), "shell");
   assert.equal(paneAgentKind({ agent: "  " }, { agent: "" }), "shell");
 });
 
 test("chooses the status indicator at a row's far right", () => {
-  assert.deepEqual(paneStatusIndicator("working"), { kind: "spinner", label: "Working" });
-  assert.deepEqual(paneStatusIndicator("blocked"), { kind: "attention", label: "Needs your answer" });
-  assert.deepEqual(paneStatusIndicator("done"), { kind: "done", label: "Done" });
-  assert.equal(paneStatusIndicator("idle"), null);
-  assert.equal(paneStatusIndicator("unknown"), null);
-  assert.equal(paneStatusIndicator(undefined), null);
+  assert.equal(agentStatusIcon("blocked"), "×");
+  assert.equal(agentStatusIcon("working"), "◐");
+  assert.equal(agentStatusIcon("done"), "✓");
+  assert.equal(agentStatusIcon("idle"), "○");
+  assert.equal(agentStatusIcon("unknown"), "·");
+  assert.equal(agentStatusIcon(undefined), "·");
+  assert.equal(agentStatusLabel("blocked"), "Needs your answer");
+  assert.equal(agentStatusLabel("idle"), "idle");
 });
 
 test("a session's second line is its folder, unless unknown or the same as the name", () => {

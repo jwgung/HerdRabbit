@@ -22,17 +22,28 @@ test("each queued row says what it is waiting for", () => {
     "2 messages for the next turn · held until the failed one is retried or removed");
 });
 
-test("the list sits over the composer in both lenses, with Queue and Send now beside the text", async () => {
+test("the list sits over the composer in both lenses, and one send button that offers Queue or Send now", async () => {
   const page = await read("../public/index.html");
   const form = page.slice(page.indexOf('<form id="input-form"'), page.indexOf("</form>", page.indexOf('<form id="input-form"')));
   assert.match(form, /id="pending-messages"[^>]*hidden/u);
   assert.ok(form.indexOf('id="pending-messages"') < form.indexOf('class="input-composer"'), "the list comes before the composer row");
-  assert.match(form, /id="send-now-button"[^>]*type="submit"|type="submit"[^>]*\n?[^>]*id="send-now-button"/u);
+  assert.doesNotMatch(page, /send-now-button/u, "there is one send button, not two");
+  assert.equal((form.match(/type="submit"/gu) ?? []).length, 1);
+  assert.match(form, /id="send-menu"[^>]*role="menu"[^>]*hidden/u);
+  assert.match(form, /id="send-menu-queue"[^>]*role="menuitem"[\s\S]*Queue for next turn/u);
+  assert.match(form, /id="send-menu-now"[^>]*role="menuitem"[\s\S]*Send now/u);
   assert.match(page, /\/chat\/pending-messages\.css\?v=/u);
   const app = await read("../public/app.js");
   // Alt+Enter is the keyboard's send now; Enter and Ctrl+Enter keep their jobs
   assert.match(app, /event\.key === "Enter" && event\.altKey/u);
-  assert.match(app, /event\.submitter === elements\.sendNowButton/u);
+  assert.doesNotMatch(app, /sendNowButton/u);
+  // in queue mode the button opens the menu (aria-haspopup/expanded); Enter queues without it
+  assert.match(app, /setAttribute\("aria-haspopup", "menu"\)/u);
+  assert.match(app, /setAttribute\("aria-expanded", "true"\)/u);
+  assert.match(app, /if \(!composerQueues\(\) \|\| !elements\.terminalInput\.value\) return;\s*event\.preventDefault\(\);/u);
+  assert.match(app, /submitComposer\(\{ now: true \}\)/u);
+  assert.match(app, /event\.key === "Escape"[\s\S]{0,120}closeSendMenu\(\)/u);
+  assert.match(app, /"ArrowDown" \|\| event\.key === "ArrowUp"/u);
   const worker = await read("../public/sw.js");
   assert.match(worker, /"\/chat\/pending-messages\.js\?v=/u);
   assert.match(worker, /"\/chat\/pending-messages\.css\?v=/u);

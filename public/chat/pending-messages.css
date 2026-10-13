@@ -186,22 +186,37 @@
 
 /* --- the composer while the agent is busy ------------------------------- */
 
-.send-button[data-mode="queue"] .send-icon-now,
-.send-button:not([data-mode="queue"]) .send-icon-queue {
-  display: none;
+.input-composer {
+  position: relative;
 }
 
-.send-now-button {
-  height: var(--composer-row-height);
-  min-height: var(--composer-row-height);
-  flex: 0 0 auto;
-  padding: 0 10px;
-  border-radius: 9px;
-  font-size: 12px;
-  white-space: nowrap;
+/* while Send would queue, a small dot on the button says a menu follows */
+.send-button[data-mode="queue"] {
+  position: relative;
 }
 
-.send-now-button[hidden] {
+.send-button[data-mode="queue"]::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+}
+
+/* the ui-menu panel, opened upward from the send button */
+.send-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
+  right: 0;
+  width: 190px;
+  max-width: calc(100vw - 32px);
+}
+
+.send-menu[hidden] {
   display: none;
 }
 
@@ -254,9 +269,5 @@
 
   .pending-messages-list {
     max-height: 7.6em;
-  }
-
-  .send-now-button {
-    padding: 0 8px;
   }
 }

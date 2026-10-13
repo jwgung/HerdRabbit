@@ -50,7 +50,7 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 - Remember the selected pane and collapsed workspaces in the browser
 - Switch sidebar entries with `Ctrl+Tab`, `Ctrl+Shift+Tab`, or `Ctrl+1`–`Ctrl+9` when the browser forwards those shortcuts to the app
 - Restore terminal font size and the last 100 sent prompts per pane across app launches; use Up/Down in the composer to recall prompts
-- Mark each session in the sidebar with the program it runs (Claude, Codex, another agent, or a shell) and its status at the far right: a spinner while working, an amber pulsing dot when it needs your answer, a green dot when done and not yet viewed; collapsed projects still call out unviewed completions
+- Mark each session in the sidebar with the program it runs (Claude, Codex, another agent, or a shell) and its status at the far right: Herdr's own symbol for the status (`◐` working, `×` needs your answer, `✓` done and not yet viewed, `○` idle); collapsed projects still call out unviewed completions
 - Send status-only PWA notifications with the project and tab names when an agent needs input or finishes; while the app is in front, show them inside it instead
 - Install as a responsive PWA with light and dark themes
 - Resize terminal text with `Ctrl`/`Cmd` + wheel, trackpad zoom, or a two-finger mobile gesture
@@ -267,7 +267,7 @@ After the first successful password login, HerdRabbit offers to register a Passk
 
 Select an agent or pane in the sidebar to show its output. The last selected pane is stored in `localStorage` and restored on reload when it still exists. Browser storage is isolated by origin, so an HTTP LAN URL and a Tailscale HTTPS URL have separate preferences.
 
-Opening a session whose green dot marks an unviewed completion marks that completion as viewed and clears the dot in the current browser. A later completion has a new state sequence and shows the dot again.
+Opening a session whose `✓` marks an unviewed completion marks that completion as viewed and turns the `✓` into `○` in the current browser. A later completion has a new state sequence and shows `✓` again.
 
 ### Agent status notifications
 
@@ -300,7 +300,7 @@ Project and tab names may appear on the lock screen. Previous commands and reque
 
 A session shows the agent running in it until it is given a name. That is not a name: it changes when the agent does, and two sessions running the same agent read alike. Renaming one puts the name where the agent was, and moves the agent beside the status; a session with several panes keeps its name above the group instead of repeating it on each. Emptying the field takes the name back off and the session shows its agent again. Herdr has no unnamed tab -- `tab rename` insists on a label -- so clearing writes back the number the tab was born with, which the sidebar hides. Project renaming goes to Herdr's `workspace rename`, session renaming to `tab rename`, so both are the same operation a person at that machine would run.
 
-The status word (`idle`, `working`) is not spelled out beside a session. The mark at the far right already carries it (a spinner, an amber dot for a session waiting for your answer, a green dot for one that finished), and rows have no status-coloured border; the selected row is only tinted. A line under the name shows the folder the session runs in when that differs from the name. Hover a session, or read it with a screen reader, to get the status in words.
+The status word (`idle`, `working`) is not spelled out beside a session. The mark at the far right already carries it (`◐` working, `×` waiting for your answer, `✓` finished and not yet viewed, `○` idle, coloured per state), and rows have no status-coloured border; the selected row is only tinted. A line under the name shows the folder the session runs in when that differs from the name. Hover a session, or read it with a screen reader, to get the status in words.
 
 Run commands such as `cd`, `codex`, or `claude` inside a created shell. Creation uses Herdr's `--no-focus` option so it does not steal focus from the desktop Herdr client.
 
@@ -326,7 +326,7 @@ Pressing an option posts the card's id: the server reads the screen again, refus
 
 ### Queued messages
 
-While the selected pane's agent is working, or waiting on a prompt card, the send button becomes **Queue** and Enter queues the message for the next turn instead of typing it into the busy terminal. Queued messages are listed above the composer in both lenses (the Chat lens also shows them as "Queued" bubbles at the end of the conversation), where each can be edited while it waits, moved up or down, cancelled, or sent now. **Send now** beside the composer (or `Alt`+`Enter`) sends what is typed at once, as before. When the agent is idle or done, the server sends the first queued message as one bracketed paste followed by Enter, then waits until the agent has started on it (or 10 seconds pass) before the next one can go, so each message gets its own turn. Nothing is delivered while a prompt card is up or a password prompt is on screen, and an answer to a password prompt is never queued. The queue lives in the server's memory, so it survives a page reload and shows on every device, but not a service restart; at most 20 messages wait per pane. A message that fails to send is marked and holds the rest until it is retried or removed. Herdr machine panes work the same way.
+While the selected pane's agent is working, or waiting on a prompt card, the send button switches to queue mode and Enter queues the message for the next turn instead of typing it into the busy terminal. Queued messages are listed above the composer in both lenses (the Chat lens also shows them as "Queued" bubbles at the end of the conversation), where each can be edited while it waits, moved up or down, cancelled, or sent now. The send button then opens a small menu with **Queue for next turn** and **Send now**; `Enter` queues without the menu and `Alt`+`Enter` sends what is typed at once, as before. When the agent is idle or done, the server sends the first queued message as one bracketed paste followed by Enter, then waits until the agent has started on it (or 10 seconds pass) before the next one can go, so each message gets its own turn. Nothing is delivered while a prompt card is up or a password prompt is on screen, and an answer to a password prompt is never queued. The queue lives in the server's memory, so it survives a page reload and shows on every device, but not a service restart; at most 20 messages wait per pane. A message that fails to send is marked and holds the rest until it is retried or removed. Herdr machine panes work the same way.
 
 While the pane shows a password prompt (`[sudo] password for …:`, `Password:`, a passphrase or PIN), a message sent from the composer is not kept in its input history or in notification requests.
 

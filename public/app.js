@@ -34,7 +34,8 @@ import {
   sidebarPresentation,
   visibleAgentStatus,
   paneAgentKind,
-  paneStatusIndicator,
+  agentStatusIcon,
+  agentStatusLabel,
   paneSubtitle,
   openRenames,
   clearedTabLabel,
@@ -328,7 +329,7 @@ const elements = {
   quickKeys: document.querySelector(".quick-keys"),
   inputForm: document.querySelector("#input-form"),
   sendButton: document.querySelector("#input-form .send-button"),
-  sendNowButton: document.querySelector("#send-now-button"),
+  sendMenu: document.querySelector("#send-menu"),
   pendingMessages: document.querySelector("#pending-messages"),
   terminalInput: document.querySelector("#terminal-input"),
   actionFeedback: document.querySelector("#action-feedback"),
@@ -1396,7 +1397,10 @@ function workspaceHeading(group, workspace, workspaceLabel, children) {
 // shapes that suggest the program, not its published artwork.
 const AGENT_MARKS = Object.freeze({
   claude: { box: "#d9774f", strokes: ["M12 5v14M5 12h14M7.1 7.1l9.8 9.8M16.9 7.1l-9.8 9.8"], color: "#ffffff", width: 1.9 },
-  codex: { strokes: ["M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z", "M12 12V3M12 12l7.8 4.5M12 12l-7.8 4.5"], width: 1.5 },
+  // six rounded petals turned 60 degrees apart, overlapping into a knot
+  codex: { strokes: ["M12 2.6c2.3 0 3.6 2.3 3.6 4.7S14.2 12 12 12s-3.6-2.3-3.6-4.7S9.7 2.6 12 2.6z"], turns: 6, width: 1.4 },
+  agy: { strokes: ["M6.5 19.5L12 5l5.5 14.5", "M3.5 14c4-2.4 13-2.4 17 0"], width: 1.8 },
+  opencode: { strokes: ["M8.5 4.5h-4v15h4", "M15.5 4.5h4v15h-4", "M10.5 12h3"], width: 2.2 },
   other: { strokes: ["M12 3c.7 5 2 6.3 7 7-5 .7-6.3 2-7 7-.7-5-2-6.3-7-7 5-.7 6.3-2 7-7z", "M19 17v4M17 19h4"], width: 1.6 },
   shell: { strokes: ["M5 8l5 4-5 4", "M13 17h6"], width: 1.9 },
 });
@@ -1418,9 +1422,10 @@ function agentMark(kind) {
     rect.setAttribute("fill", mark.box);
     svg.append(rect);
   }
-  for (const d of mark.strokes) {
+  for (const d of mark.strokes) for (let turn = 0; turn < (mark.turns || 1); turn += 1) {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", d);
+    if (turn > 0) path.setAttribute("transform", `rotate(${(360 / mark.turns) * turn} 12 12)`);
     path.setAttribute("fill", "none");
     path.setAttribute("stroke", mark.color || "currentColor");
     path.setAttribute("stroke-width", String(mark.width));
@@ -1442,8 +1447,7 @@ function paneButton(pane, tab, workspace, { namesSession = false } = {}) {
   // is a detail that changes under you, so it steps back next to the status.
   const sessionName = namesSession ? tabLabel : "";
   const kind = paneAgentKind(pane, agent);
-  const indicator = paneStatusIndicator(currentAgentStatus);
-  const statusText = indicator?.label ?? currentAgentStatus;
+  const statusText = agentStatusLabel(currentAgentStatus);
   const button = createElement("button", { className: "pane-button" });
   button.type = "button";
   button.dataset.paneId = paneId;
@@ -1466,9 +1470,11 @@ function paneButton(pane, tab, workspace, { namesSession = false } = {}) {
   button.append(copy);
 
   // Always present, so the row's text and menu stay put whatever the status.
-  const status = createElement("span", { className: "pane-status" });
+  const status = createElement("span", {
+    className: `pane-status ui-status state-${currentAgentStatus}`,
+    text: agentStatusIcon(currentAgentStatus),
+  });
   status.setAttribute("aria-hidden", "true");
-  if (indicator) status.dataset.kind = indicator.kind;
   button.append(status);
 
   button.addEventListener("click", () => {
@@ -2982,8 +2988,9 @@ pendingMessages = createPendingMessages({
 });
 
 // While the selected pane's agent works or asks something (or messages
-// already wait), Send queues the message for the next turn, and Send now
-// (or Alt+Enter) types it into the pane at once.
+// already wait), Enter queues the message for the next turn, and Alt+Enter
+// types it into the pane at once. The send button opens a small menu with
+// both choices.
 function composerQueues() {
   if (!state.selectedPaneId || pendingMessages?.paneId !== state.selectedPaneId) return false;
   return shouldQueue({ status: selectedAgentStatus(), items: pendingMessages.items });
@@ -2995,11 +3002,74 @@ function renderComposerMode() {
   const mode = queue ? "queue" : "send";
   if (elements.sendButton.dataset.mode === mode) return;
   elements.sendButton.dataset.mode = mode;
-  const label = queue ? "Queue for the next turn" : "Send";
-  elements.sendButton.setAttribute("aria-label", queue ? "Queue" : "Send");
-  elements.sendButton.title = label;
-  elements.sendNowButton.hidden = !queue;
+  elements.sendButton.setAttribute("aria-label", queue ? "Send or queue…" : "Send");
+  elements.sendButton.title = queue ? "Send or queue for the next turn (Enter queues, Alt+Enter sends now)" : "Send";
+  if (queue) {
+    elements.sendButton.setAttribute("aria-haspopup", "menu");
+    elements.sendButton.setAttribute("aria-expanded", "false");
+  } else {
+    closeSendMenu({ restoreFocus: false });
+    elements.sendButton.removeAttribute("aria-haspopup");
+    elements.sendButton.removeAttribute("aria-expanded");
+  }
 }
+
+const sendMenuItems = () => [...elements.sendMenu.querySelectorAll('[role="menuitem"]')];
+function closeSendMenu({ restoreFocus = true } = {}) {
+  if (elements.sendMenu.hidden) return;
+  elements.sendMenu.hidden = true;
+  if (elements.sendButton.hasAttribute("aria-expanded")) elements.sendButton.setAttribute("aria-expanded", "false");
+  if (restoreFocus) elements.sendButton.focus();
+}
+function openSendMenu() {
+  elements.sendMenu.hidden = false;
+  elements.sendButton.setAttribute("aria-expanded", "true");
+  sendMenuItems()[0].focus();
+}
+// Submits the form as the send button, without a click (a click opens the menu).
+function submitComposer({ now = false } = {}) {
+  if (elements.sendButton.disabled) return;
+  sendNowRequested = now;
+  elements.inputForm.requestSubmit(elements.sendButton);
+}
+// In queue mode a click on the button with text to send asks which way;
+// without text (a bare Enter to the pane) it submits as before.
+elements.sendButton.addEventListener("click", (event) => {
+  if (!composerQueues() || !elements.terminalInput.value) return;
+  event.preventDefault();
+  if (elements.sendMenu.hidden) openSendMenu(); else closeSendMenu();
+});
+elements.sendMenu.addEventListener("click", (event) => {
+  const item = event.target instanceof Element ? event.target.closest('[role="menuitem"]') : null;
+  if (!item) return;
+  const now = item.id === "send-menu-now";
+  closeSendMenu({ restoreFocus: false });
+  elements.terminalInput.focus();
+  submitComposer({ now });
+});
+elements.sendMenu.addEventListener("keydown", (event) => {
+  const items = sendMenuItems();
+  const index = items.indexOf(document.activeElement);
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    items[(index + step + items.length) % items.length].focus();
+  } else if (event.key === "Home" || event.key === "End") {
+    event.preventDefault();
+    items[event.key === "Home" ? 0 : items.length - 1].focus();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    closeSendMenu();
+  } else if (event.key === "Tab") {
+    closeSendMenu({ restoreFocus: false });
+  }
+});
+document.addEventListener("pointerdown", (event) => {
+  if (elements.sendMenu.hidden || !(event.target instanceof Node)) return;
+  if (elements.sendMenu.contains(event.target) || elements.sendButton.contains(event.target)) return;
+  closeSendMenu({ restoreFocus: false });
+});
 renderComposerMode();
 
 // The Chat lens's text size, apart from the terminal's (chat-font-preference.js).
@@ -3093,7 +3163,7 @@ elements.inputForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = elements.terminalInput.value;
   const paneId = state.selectedPaneId;
-  const now = sendNowRequested || event.submitter === elements.sendNowButton;
+  const now = sendNowRequested;
   sendNowRequested = false;
   if (text && paneId && !now && composerQueues()) {
     await queueComposerText(paneId, text);
@@ -3163,8 +3233,7 @@ elements.terminalInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing &&
       selectedKeyModifiers.size === 0 && composerQueues()) {
     event.preventDefault();
-    sendNowRequested = true;
-    elements.sendButton.click();
+    submitComposer({ now: true });
     return;
   }
 
@@ -3177,7 +3246,7 @@ elements.terminalInput.addEventListener("keydown", (event) => {
   });
   if (action === "submit") {
     event.preventDefault();
-    elements.sendButton.click();
+    submitComposer();
   } else if (action === "newline") {
     event.preventDefault();
     const next = insertNewlineAtSelection(

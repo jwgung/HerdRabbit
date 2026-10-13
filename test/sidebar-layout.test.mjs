@@ -240,8 +240,10 @@ test("session rows carry no status border; the status is a mark at the far right
   assert.doesNotMatch(styles, /\.(pane-button|ui-nav-item)\)?\[data-status=/u);
   assert.doesNotMatch(styles, /completion-glow\)/u);
   assert.match(styles, /:is\(\.pane-button, \.ui-nav-item\)\[aria-pressed="true"\] \{\s*background: var\(--selected-surface\);\s*\}/u);
-  assert.match(styles, /\.pane-status\[data-kind="spinner"\]::before[\s\S]*?animation: pane-spin/u);
-  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{[^@]*pane-status\[data-kind="spinner"\][^@]*animation: none;[^@]*pane-status\[data-kind="attention"\][^@]*animation: none;/u);
+  // the status is Herdr's text symbol, coloured by the shared .ui-status.state-* rules
+  assert.match(app, /className: `pane-status ui-status state-\$\{currentAgentStatus\}`/u);
+  assert.match(app, /text: agentStatusIcon\(currentAgentStatus\)/u);
+  assert.doesNotMatch(styles, /pane-spin|pane-pulse|data-kind="spinner"/u);
   assert.match(
     styles,
     /\.workspace-group\.is-collapsed\[data-has-completion="true"\] > \.workspace-heading/,
