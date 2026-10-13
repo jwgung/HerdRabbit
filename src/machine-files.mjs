@@ -13,7 +13,7 @@ import { posix } from "node:path";
 import { PassThrough, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { InputValidationError } from "./herdr-client.mjs";
-import { FileAccessError, MAX_LISTED_ENTRIES, MAX_STREAM_BYTES, fileAccessError, validateBrowsePath } from "./file-browser.mjs";
+import { FileAccessError, MAX_LISTED_ENTRIES, UNKNOWN_SIZE_STREAM_BYTES, fileAccessError, validateBrowsePath } from "./file-browser.mjs";
 import { TEMPORARY_PREFIX, safeTransferName, splitExtension, validateTransferName } from "./file-store.mjs";
 import { parseByteRange } from "../public/file-preview.js";
 
@@ -292,7 +292,7 @@ function slots(max, busy) {
 export class MachineFiles {
   // `link` returns the machine's connection once it is up, and throws the
   // machine's own "offline" error until then.
-  constructor({ link, spawnProcess = spawn, maxBytes = 50 * 1024 * 1024, timeoutMs = COMMAND_TIMEOUT_MS, readIdleMs = READ_IDLE_MS }) {
+  constructor({ link, spawnProcess = spawn, maxBytes = Infinity, timeoutMs = COMMAND_TIMEOUT_MS, readIdleMs = READ_IDLE_MS }) {
     this.readIdleMs = readIdleMs;
     this.link = link;
     this.spawnProcess = spawnProcess;
@@ -531,7 +531,12 @@ export class MachineFiles {
     let idle = null;
     const watch = () => {
       clearTimeout(idle);
-      idle = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, this.readIdleMs);
+      idle = setTimeout(() => {
+        // Nothing arrives while the browser is the slow side (the buffer is
+        // full and ssh's output is paused); that is a moving transfer, not a hung read.
+        if (!ended && stream.writableNeedDrain) { watch(); return; }
+        try { child.kill("SIGKILL"); } catch {}
+      }, this.readIdleMs);
       idle.unref?.();
     };
     watch();
@@ -557,7 +562,7 @@ export class MachineFiles {
     return stream;
   }
 
-  async openFile(rawPath, { maxBytes = MAX_STREAM_BYTES, rangeHeader = null } = {}) {
+  async openFile(rawPath, { maxBytes = Infinity, rangeHeader = null } = {}) {
     const path = validateBrowsePath(rawPath);
     const link = this.#ready();
     const stats = await this.#size(link, path, true);
@@ -573,7 +578,7 @@ export class MachineFiles {
     }
     const slice = range
       ? { start: range.start, end: range.end }
-      : size === null ? { start: 0, end: maxBytes - 1 } : { start: 0, end: size - 1 };
+      : size === null ? { start: 0, end: Math.min(maxBytes, UNKNOWN_SIZE_STREAM_BYTES) - 1 } : { start: 0, end: size - 1 };
     // A file of unknown size (0) may end before the cap; any other read must
     // bring every byte it promised.
     const stream = await this.#read(link, path, slice.start, slice.end - slice.start + 1, true, size !== null);

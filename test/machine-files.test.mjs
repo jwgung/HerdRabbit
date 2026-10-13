@@ -419,3 +419,25 @@ test("a read that brings fewer bytes than it promised fails instead of ending sh
   assert.equal(opened.size, 10);
   await assert.rejects(text(opened.stream));
 });
+
+test("downloads and uploads have no size limit unless one is given", async () => {
+  const { home, files } = await setup();
+  assert.equal(files.maxBytes, Infinity);
+  await writeFile(join(home, "clip.bin"), "0123456789");
+  const whole = await files.openFile(join(home, "clip.bin"), { maxBytes: Infinity });
+  assert.equal(await text(whole.stream), "0123456789");
+  const saved = await files.saveUpload("many.bin", Readable.from([Buffer.alloc(1024 * 1024, 1)]), { bytes: 1024 * 1024 });
+  assert.equal(saved.size, 1024 * 1024);
+  const limited = (await setup({ maxBytes: 8 })).files;
+  await assert.rejects(limited.saveUpload("big.bin", Readable.from([Buffer.from("x".repeat(9))]), { bytes: 9 }), { message: /upload limit/u });
+});
+
+test("a file of unknown size is read to its end, bounded by the cap rather than by Infinity", async () => {
+  const { files } = await setup();
+  const unlimited = await files.openFile("/proc/self/status");
+  assert.equal(unlimited.size, null);
+  assert.equal(unlimited.length, null);
+  assert.ok((await text(unlimited.stream)).length > 0);
+  const limited = await files.openFile("/proc/self/status", { maxBytes: 5 });
+  assert.equal((await text(limited.stream)).length, 5);
+});

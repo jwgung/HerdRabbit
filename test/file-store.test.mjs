@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
-import { mkdtemp, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileStore, safeTransferName, validateTransferName } from "../src/file-store.mjs";
@@ -157,4 +157,17 @@ test("reports an empty uploads folder before anything is uploaded", async () => 
   const directory = join(await mkdtemp(join(tmpdir(), "herdrabbit-files-")), "absent");
   const store = new FileStore(directory);
   assert.deepEqual(await store.list(), []);
+});
+
+test("stores a file far past the old 50MB cap when no limit is set", async () => {
+  const { directory, store } = await createStore();
+  const chunk = Buffer.alloc(1024 * 1024, 7);
+  let remaining = 60;
+  const source = new Readable({ read() { this.push(remaining-- > 0 ? chunk : null); } });
+  try {
+    const saved = await store.save("huge.bin", source);
+    assert.equal(saved.size, 60 * 1024 * 1024);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

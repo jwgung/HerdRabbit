@@ -401,6 +401,8 @@ const elements = {
 const state = {
   csrfToken: "",
   pollIntervalMs: 1_000,
+  // From /api/bootstrap: the most one file may be, or null for no limit.
+  maxTransferBytes: null,
   snapshot: null,
   selectedPaneId: initialPanePreference,
   preferredPaneId: initialPanePreference,
@@ -3662,7 +3664,6 @@ elements.projectName.addEventListener("input", () => {
   elements.projectName.setCustomValidity("");
 });
 
-const TRANSFER_MAX_BYTES = 50 * 1024 * 1024;
 
 function setTransferFeedback(text, isError = false) {
   elements.transferDialogFeedback.textContent = text;
@@ -3966,8 +3967,9 @@ async function uploadFiles(files, { report = setFeedback } = {}) {
     for (const [index, file] of list.entries()) {
       const name = droppedFileName(file);
       report(list.length > 1 ? `Uploading ${index + 1} of ${list.length}: ${name}…` : `Uploading ${name}…`);
-      if (file.size > TRANSFER_MAX_BYTES) {
-        failed.push({ name, reason: `larger than ${formatTransferSize(TRANSFER_MAX_BYTES)}` });
+      // null: the server accepts any size.
+      if (state.maxTransferBytes !== null && file.size > state.maxTransferBytes) {
+        failed.push({ name, reason: `larger than ${formatTransferSize(state.maxTransferBytes)}` });
         continue;
       }
       try {
@@ -5215,6 +5217,7 @@ async function initializeApplication() {
   const bootstrap = await api("/api/bootstrap");
   state.csrfToken = bootstrap.csrfToken;
   state.pollIntervalMs = bootstrap.pollIntervalMs || state.pollIntervalMs;
+  state.maxTransferBytes = Number.isFinite(bootstrap.maxTransferBytes) && bootstrap.maxTransferBytes > 0 ? bootstrap.maxTransferBytes : null;
   state.pushPublicKey = typeof bootstrap.pushPublicKey === "string"
     ? bootstrap.pushPublicKey
     : null;

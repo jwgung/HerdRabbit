@@ -372,7 +372,7 @@ export class MachineClient {
 export class HerdrMachines {
   constructor({ binary = "herdr", directory, createBridge, read = (options) => readMachines(options),
     createLink = (machine, options) => new MachineLink(machine, options), run = execFileAsync, log = () => {}, refreshMs = 30_000,
-    maxTransferBytes = 50 * 1024 * 1024, createFiles = undefined, createAccounts = undefined }) {
+    maxTransferBytes = Infinity, createFiles = undefined, createAccounts = undefined }) {
     this.binary = binary;
     this.createFiles = createFiles;
     this.createAccounts = createAccounts;

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formerLeafRefusal, obsoleteSettingsWarning, parseAllowedHosts, parseHost, parsePort, readConfig } from "../src/config.mjs";
+import { formerLeafRefusal, obsoleteSettingsWarning, parseAllowedHosts, parseHost, parseMaxTransferBytes, parsePort, readConfig } from "../src/config.mjs";
 
 test("uses safe loopback defaults", () => {
   const config = readConfig({});
@@ -108,4 +108,17 @@ test("a former leaf without a password refuses to start", () => {
   assert.equal(formerLeafRefusal(leaf, true), null);
   assert.equal(formerLeafRefusal(readConfig({}), false), null);
   assert.equal(formerLeafRefusal(readConfig({ HERDR_WEB_ROLE: "hub" }), false), null);
+});
+
+test("has no transfer size limit unless HERDR_WEB_MAX_TRANSFER_MB sets one", () => {
+  assert.equal(readConfig({}).maxTransferBytes, Infinity);
+  assert.equal(readConfig({ HERDR_WEB_MAX_TRANSFER_MB: "" }).maxTransferBytes, Infinity);
+  assert.equal(readConfig({ HERDR_WEB_MAX_TRANSFER_MB: "50" }).maxTransferBytes, 50 * 1024 * 1024);
+  assert.equal(parseMaxTransferBytes(" 4096 "), 4096 * 1024 * 1024);
+});
+
+test("refuses a transfer limit that is not a positive whole number", () => {
+  for (const value of ["0", "-5", "1.5", "abc", "50MB", "1e3", "999999999999999"]) {
+    assert.throws(() => readConfig({ HERDR_WEB_MAX_TRANSFER_MB: value }), /HERDR_WEB_MAX_TRANSFER_MB/u, value);
+  }
 });

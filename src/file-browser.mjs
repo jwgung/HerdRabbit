@@ -7,7 +7,10 @@ const MAX_PATH_LENGTH = 4096;
 export const MAX_LISTED_ENTRIES = 2000;
 // A file that misreports its size (procfs, /proc/kcore) would otherwise stream
 // without end. Downloads past this are refused with the path shown instead.
-export const MAX_STREAM_BYTES = 1024 * 1024 * 1024;
+// Files have no size limit unless one is passed in. A file that reports size 0
+// (procfs, sysfs) may still hold content; those stream without a length, and
+// this bounds them so a file that lies about its size cannot stream forever.
+export const UNKNOWN_SIZE_STREAM_BYTES = 1024 * 1024 * 1024;
 
 export class FileAccessError extends Error {
   constructor(status, code, message) {
@@ -151,7 +154,7 @@ export async function directoryFingerprint(rawPath) {
 // reject anything that is not a regular file. O_NOFOLLOW is deliberately absent:
 // browsing has no directory boundary to protect, so refusing symlinks would
 // only break ordinary paths.
-export async function openFile(rawPath, { maxBytes = MAX_STREAM_BYTES, rangeHeader = null } = {}) {
+export async function openFile(rawPath, { maxBytes = Infinity, rangeHeader = null } = {}) {
   const path = validateBrowsePath(rawPath);
   const handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
   let stats;
@@ -188,7 +191,7 @@ export async function openFile(rawPath, { maxBytes = MAX_STREAM_BYTES, rangeHead
   }
   const slice = range
     ? { start: range.start, end: range.end }
-    : size === null ? { start: 0, end: maxBytes - 1 } : { start: 0, end: size - 1 };
+    : size === null ? { start: 0, end: Math.min(maxBytes, UNKNOWN_SIZE_STREAM_BYTES) - 1 } : { start: 0, end: size - 1 };
   const stream = handle.createReadStream(slice);
   // A handle-backed stream does not close the handle for us, and leaving it to
   // garbage collection is an error in current Node.
