@@ -1272,20 +1272,6 @@ test("counts wrong passwords by the caller Tailscale names, not for everyone", (
   assert.equal(attemptKey(request({ "tailscale-user-login": "owner@example.com" }, "192.168.0.9")), "address:192.168.0.9");
 });
 
-test("sends a test notification to every subscribed device, write-protected", async (context) => {
-  const sent = [];
-  const app = await startServer({ async snapshot() { return {}; } }, {
-    push: { publicKey: "key", async send(notification) { sent.push(notification); } },
-  });
-  context.after(() => closeServer(app.server));
-  const send = (headers) => fetch(`${app.baseUrl}/api/push/test`, { method: "POST", headers, body: "{}" });
-  assert.equal((await send({ "Content-Type": "application/json", Origin: app.baseUrl })).status, 403);
-  const response = await send({ "Content-Type": "application/json", Origin: app.baseUrl, "X-Herdr-CSRF": "fixed-test-token" });
-  assert.equal(response.status, 200);
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].data.paneId, undefined, "a test names no pane, so an open window does not swallow it");
-});
-
 test("Herdr machines are added, renamed, turned off and removed through write-protected routes", async (context) => {
   const calls = [];
   const machines = {

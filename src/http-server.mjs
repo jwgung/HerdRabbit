@@ -64,7 +64,6 @@ const STATIC_FILES = new Map([
   ["/workspace-preference.js", { path: `${PUBLIC_DIR}/workspace-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-preference.js", { path: `${PUBLIC_DIR}/terminal-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/completion-preference.js", { path: `${PUBLIC_DIR}/completion-preference.js`, type: "text/javascript; charset=utf-8" }],
-  ["/alert-preference.js", { path: `${PUBLIC_DIR}/alert-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/swipe-dismiss.js", { path: `${PUBLIC_DIR}/swipe-dismiss.js`, type: "text/javascript; charset=utf-8" }],
   ["/input-history-preference.js", { path: `${PUBLIC_DIR}/input-history-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/composer-draft-preference.js", { path: `${PUBLIC_DIR}/composer-draft-preference.js`, type: "text/javascript; charset=utf-8" }],
@@ -1146,19 +1145,6 @@ export function createHerdrHttpServer({
           // Bytes, or null when files may be any size.
           maxTransferBytes: Number.isFinite(maxTransferBytes) ? maxTransferBytes : null,
         });
-        return;
-      }
-
-      // Sent to every subscribed device, the asking one too, so each can see
-      // that alerts arrive. It names no pane, so no open window swallows it.
-      if (method === "POST" && url.pathname === "/api/push/test") {
-        if (!push) {
-          throw new HttpError(503, "push_unavailable", "Push notifications are unavailable");
-        }
-        requireWriteAuthorization(request, csrfToken);
-        await readJsonBody(request, maxBodyBytes);
-        await push.send({ title: "HerdRabbit", body: "Test notification. Alerts reach this device.", tag: "herd-rabbit:test", data: {} });
-        sendJson(response, 200, { ok: true });
         return;
       }
 

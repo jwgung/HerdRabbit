@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.35";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.35";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.36";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.36";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -49,7 +49,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.35";
+} from "./ui-model.js?v=1.2.36";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -60,46 +60,45 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.35";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.35";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.35";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.35";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.35";
+} from "./browse-preference.js?v=1.2.36";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.36";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.36";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.36";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.36";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.35";
-import { chatAgent } from "./lens-preference.js?v=1.2.35";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.35";
+} from "./chat-font-preference.js?v=1.2.36";
+import { chatAgent } from "./lens-preference.js?v=1.2.36";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.36";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.35";
+} from "./pane-preference.js?v=1.2.36";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.35";
+} from "./workspace-preference.js?v=1.2.36";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.35";
+} from "./terminal-preference.js?v=1.2.36";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.35";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.35";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.35";
+} from "./completion-preference.js?v=1.2.36";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.36";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.35";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.35";
+} from "./input-history-preference.js?v=1.2.36";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.36";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -115,16 +114,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.35";
+} from "./key-bar-preference.js?v=1.2.36";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.35";
+} from "./launch-session.js?v=1.2.36";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.35";
+} from "./push-notifications.js?v=1.2.36";
 
 function browserStorage() {
   try {
@@ -258,7 +257,7 @@ function showAppAlert({ title, body, url }) {
   appAlert.hidden = false;
   clearTimeout(appAlertTimer);
   appAlertTimer = setTimeout(hideAppAlert, 8_000);
-  if (readAlertSound(panePreferenceStorage)) playAlertSound();
+  playAlertSound();
 }
 
 function hideAppAlert() {
@@ -2302,23 +2301,6 @@ function serverActionMenu(server) {
       label: "Sign out",
       paths: ["M15 12H4", "M8 8l-4 4 4 4", "M12 4h7v16h-7"],
       onSelect: () => void signOut(),
-    });
-  }
-  if (server.id === "local" && state.pushSubscription !== null) {
-    actions.push({
-      label: "Send test notification",
-      paths: ["M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9", "M10 21h4"],
-      onSelect: () => void api("/api/push/test", { method: "POST", body: {} })
-        .then(() => setFeedback("Test notification sent."))
-        .catch((error) => setFeedback(`Could not send a test notification: ${error.message}`, true)),
-    });
-  }
-  if (server.id === "local") {
-    const on = readAlertSound(panePreferenceStorage);
-    actions.push({
-      label: on ? "Turn alert sound off" : "Turn alert sound on",
-      paths: on ? ["M11 5 6 9H2v6h4l5 4V5Z", "M15.5 8.5a5 5 0 0 1 0 7"] : ["M11 5 6 9H2v6h4l5 4V5Z", "M22 9l-6 6", "M16 9l6 6"],
-      onSelect: () => { writeAlertSound(panePreferenceStorage, !on); renderNavigation(); },
     });
   }
   // This machine is not a connection: there is nothing to rename or drop.
