@@ -333,6 +333,8 @@ const elements = {
   sidebarToggle: document.querySelector("#sidebar-toggle"),
   sidebarScrim: document.querySelector("#sidebar-scrim"),
   mobileSidebarOpen: document.querySelector("#mobile-sidebar-open"),
+  // The key bar's editor lives with the other settings at the foot of the sidebar.
+  keyBarSettings: document.querySelector("#key-bar-settings"),
   workspaceList: document.querySelector("#workspace-list"),
   paneContext: document.querySelector("#pane-context"),
   paneTitle: document.querySelector("#pane-title"),
@@ -3250,8 +3252,6 @@ elements.terminalInput.addEventListener("blur", () => {
 window.addEventListener("resize", resizeTerminalInput);
 
 let keyBarItems = readKeyBarItems(panePreferenceStorage);
-const EDIT_KEYS_ICON =
-  '<svg aria-hidden="true" viewBox="0 0 20 20" focusable="false"><path d="M3 14.5V17h2.5L15 7.5 12.5 5 3 14.5Z"/><path d="m11.5 6 2.5 2.5"/></svg>';
 
 function renderKeyBar() {
   const buttons = keyBarItems.map((item) => {
@@ -3270,14 +3270,7 @@ function renderKeyBar() {
     }
     return button;
   });
-  const edit = document.createElement("button");
-  edit.type = "button";
-  edit.className = "key-bar-edit";
-  edit.dataset.keyBarEdit = "";
-  edit.setAttribute("aria-label", "Edit keys");
-  edit.title = "Edit keys";
-  edit.innerHTML = EDIT_KEYS_ICON;
-  elements.quickKeys.replaceChildren(...buttons, edit);
+  elements.quickKeys.replaceChildren(...buttons);
   // A latched modifier whose button was removed would stay on unseen.
   for (const name of [...selectedKeyModifiers]) {
     if (!keyBarItems.some((item) => item.type === "modifier" && item.modifier === name)) {
@@ -3317,15 +3310,17 @@ async function sendCommandKey(key) {
 }
 
 // Keep the composer focused when using the screen keyboard with a mouse.
+elements.keyBarSettings.addEventListener("click", () => {
+  // on a phone the editor takes the screen; the sidebar it was opened from steps aside
+  if (!desktopMedia.matches) closeMobileSidebar();
+  openKeyBarDialog();
+});
+
 elements.quickKeys.addEventListener("mousedown", (event) => {
   if (event.target.closest("button")) event.preventDefault();
 });
 
 elements.quickKeys.addEventListener("click", (event) => {
-  if (event.target.closest("[data-key-bar-edit]")) {
-    openKeyBarDialog();
-    return;
-  }
   if (!state.authenticated || !state.selectedPaneId || keySendBusy) return;
   const modifier = event.target.closest("button[data-modifier]");
   if (modifier) {

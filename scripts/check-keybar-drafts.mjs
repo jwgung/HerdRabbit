@@ -67,7 +67,23 @@ try {
     page.on("pageerror", (error) => errors.push(error.message));
     const input = page.locator("#terminal-input");
     const bar = page.locator("#quick-keys");
-    const barLabels = () => bar.locator("button:not(.key-bar-edit)").allTextContents();
+    // On a phone the sidebar is closed: open it to reach its foot.
+    const openKeyEditor = async () => {
+      const settings = page.locator("#key-bar-settings");
+      const onScreen = () => settings.evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return box.width > 0 && box.left >= 0 && box.right <= window.innerWidth;
+      });
+      if (!(await onScreen())) {
+        await page.locator("#mobile-sidebar-open").click();
+        await page.waitForFunction(() => {
+          const box = document.querySelector("#key-bar-settings").getBoundingClientRect();
+          return box.left >= 0 && box.right <= window.innerWidth;
+        });
+      }
+      await settings.click();
+    };
+    const barLabels = () => bar.locator("button").allTextContents();
     const dialog = page.locator("#key-bar-dialog");
     const stored = (key) => page.evaluate((name) => localStorage.getItem(name), key);
     const shoot = async (name) => {
@@ -94,14 +110,15 @@ try {
 
     // The default bar is the old one, with an Edit keys control after it.
     assert.deepEqual(await barLabels(), DEFAULT_LABELS);
-    assert.equal(await bar.locator(".key-bar-edit").getAttribute("aria-label"), "Edit keys");
-    assert.equal(await bar.locator(".key-bar-edit").isVisible(), true);
+    // the editor opens from the foot of the sidebar; the bar holds only keys
+    assert.equal(await bar.locator("[data-key-bar-edit], .key-bar-edit").count(), 0);
+    assert.equal(await page.locator("#key-bar-settings").getAttribute("aria-label"), "Edit keys");
     const barBox = await bar.boundingBox();
     assert.ok(barBox.x + barBox.width <= (mobile ? 390 : 1280) + 1, "the bar fits the width");
     await page.locator('.pane-button[data-pane-id="w1:p1"], #mobile-sidebar-open').first().waitFor();
 
     // Open the window, add Ctrl+R, remove PgUp, move Enter first.
-    await bar.locator(".key-bar-edit").click();
+    await openKeyEditor();
     await dialog.waitFor({ state: "visible" });
     assert.equal(await dialog.locator(".key-bar-item").count(), 16);
     await shoot("window");
@@ -171,14 +188,14 @@ try {
 
     // Removing a latched modifier's button drops the latch.
     await bar.locator('[data-modifier="alt"]').click();
-    await bar.locator(".key-bar-edit").click();
+    await openKeyEditor();
     await dialog.locator('button[aria-label="Remove Alt"]').click();
     await page.locator("#key-bar-close").click();
     assert.equal(await bar.locator('[data-modifier="alt"]').count(), 0);
     assert.equal(await bar.locator('[aria-pressed="true"]').count(), 0);
 
     // Reset to default.
-    await bar.locator(".key-bar-edit").click();
+    await openKeyEditor();
     await page.locator("#key-bar-reset").click();
     assert.deepEqual(await barLabels(), DEFAULT_LABELS);
     assert.equal(await stored("herdrbridge-key-bar"), null);

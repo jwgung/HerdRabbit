@@ -16,11 +16,13 @@ test("the new files are served and cached for offline use", () => {
   assert.match(page, /href="\/key-bar\.css\?v=/u);
 });
 
-test("the key bar is drawn from the saved layout, with an Edit keys control", () => {
+test("the key bar is drawn from the saved layout; its Edit keys control sits at the foot of the sidebar", () => {
   assert.match(page, /<div class="quick-keys" id="quick-keys"[^>]*><\/div>/u, "the bar starts empty and is filled by the script");
   assert.match(page, /<dialog id="key-bar-dialog"/u);
   assert.match(app, /readKeyBarItems\(panePreferenceStorage\)/u);
-  assert.match(app, /aria-label", "Edit keys"/u);
+  assert.match(page, /<button\s+id="key-bar-settings"[^>]*aria-label="Edit keys"/u);
+  assert.match(app, /elements\.keyBarSettings\.addEventListener\("click", \(\) => \{[^}]*closeMobileSidebar\(\);\s*openKeyBarDialog\(\);/u);
+  assert.doesNotMatch(app, /key-bar-edit|EDIT_KEYS_ICON/u, "nothing of the editor is left in the bar itself");
   assert.match(app, /draggable = true/u, "rows drag on a desktop");
   assert.match(app, /"Move up"/u);
   assert.match(app, /"Move down"/u);
