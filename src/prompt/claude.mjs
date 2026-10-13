@@ -576,6 +576,9 @@ export function parseFallbackPrompt(screen) {
   const lines = text.replace(ANSI_RE, "").split(/\r?\n/);
   if (claudeListWaits(lines)) return null;
   const shown = lines.flatMap((line, index) => cleanLine(line) && !isDivider(line) ? [index] : []);
+  // a blank screen (one caught mid-redraw) is nothing to answer: Enter or Esc
+  // would land on whatever draws next
+  if (shown.length === 0) return null;
   const steady = steadyReader(shown.map((index) => cleanLine(lines[index])));
   const menu = fallbackMenu(lines, shown);
   if (menu) {

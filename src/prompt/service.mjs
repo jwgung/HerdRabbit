@@ -17,6 +17,9 @@ const SCREEN_LINES = 120;
 const KNOWN_STATES = new Set(["idle", "working", "blocked", "done", "unknown"]);
 // Panes one server watches at most (each blocked one costs a read a tick).
 const MAX_WATCHED_PANES = 16;
+// Every watch, panes gone from the snapshot included: those hold no place
+// among the 16 but cannot pile up without end either.
+const MAX_WATCHES = 64;
 // Blocked panes whose screens one tick reads at once.
 const READS_AT_ONCE = 4;
 // Ticks a watched pane may be missing from the snapshot before it is let go.
@@ -176,7 +179,7 @@ export class PromptService {
     let entry = this.watches.get(paneId);
     if (!entry) {
       const held = [...this.watches.values()].filter((watched) => (watched.missing ?? 0) < MISSING_TICKS).length;
-      if (held >= MAX_WATCHED_PANES) throw new HttpError(503, "busy", "Too many panes are watched.");
+      if (held >= MAX_WATCHED_PANES || this.watches.size >= MAX_WATCHES) throw new HttpError(503, "busy", "Too many panes are watched.");
       entry = { paneId, listeners: new Set(), known: undefined, card: null };
       this.watches.set(paneId, entry);
     }

@@ -470,3 +470,7 @@ test("the fallback card offers the screen's own keys and Enter / Esc", () => {
 test("no fallback card over Claude's model list, whose Enter would save a default", () => {
   assert.equal(parseFallbackPrompt(" Select model\n ❯ 1. Opus\n   2. Sonnet\n\n Enter to set as default · s to use this session only · Esc to cancel"), null);
 });
+
+test("a blank screen, caught mid-redraw, is no fallback card", () => {
+  for (const screen of ["", "\n\n   \n", "\u001b[2J\u001b[H\n\n"]) assert.equal(parseFallbackPrompt(screen), null, JSON.stringify(screen));
+});

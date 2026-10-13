@@ -300,6 +300,22 @@ test("a watched pane the snapshot does not have is let go and holds no place", a
   assert.equal(cards[0].id, CARD_ID);
 });
 
+test("panes gone from the snapshot cannot pile up watches without end", async (context) => {
+  const herdr = fakePromptHerdr(panes());
+  const prompts = new PromptService({ herdr, pollMs: 5 });
+  context.after(() => prompts.stop());
+  let refused = 0;
+  for (let round = 0; round < 8 && refused === 0; round += 1) {
+    for (let index = 0; index < 16; index += 1) {
+      try { prompts.watch(`w9:r${round}p${index}`, () => {}); } catch { refused += 1; }
+    }
+    const gone = () => [...prompts.watches.values()].every((entry) => (entry.missing ?? 0) >= 3);
+    for (let tries = 0; tries < 200 && !gone(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(refused > 0);
+  assert.ok(prompts.watches.size <= 64);
+});
+
 test("a pane missing from the snapshot for a while keeps its watch, and its card comes once it is back", async (context) => {
   const herdr = fakePromptHerdr(panes());
   const real = herdr.snapshot.bind(herdr);
