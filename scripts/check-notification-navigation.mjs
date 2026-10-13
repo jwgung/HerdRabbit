@@ -67,7 +67,7 @@ if(mobile){
  await page.evaluate(()=>{window.__alertMsg=null;});
  await showAlert();
  if(!await alert.isVisible()){
-  // the page only shows the alert for a message it is in front for; fall back to the same call the page makes
+  // the page shows the alert only when it is in front for the message
   throw new Error('in-app alert did not show');
  }
  let [ex,ey]=await swipe(30,0,6,30);
