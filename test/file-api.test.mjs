@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { request as httpRequest } from "node:http";
+import { connect } from "node:net";
 import { acceptUpload } from "../src/http-basics.mjs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -289,4 +290,21 @@ test("stays out of the way when no uploads folder is configured", async (context
 
   const response = await fetch(`http://127.0.0.1:${created.server.address().port}/api/files`);
   assert.equal(response.status, 404);
+});
+
+test("a request answered before its body is read has its socket closed, even if the body trickles", async (context) => {
+  const app = await startServer({ requestTimeoutMs: 10_000, uploadIdleMs: 10_000 });
+  context.after(() => closeServer(app.server));
+
+  const socket = connect(app.server.address().port, "127.0.0.1");
+  context.after(() => socket.destroy());
+  await once(socket, "connect");
+  socket.write(`POST /api/nothing-here HTTP/1.1\r\nHost: 127.0.0.1:${app.server.address().port}\r\nContent-Type: application/json\r\nContent-Length: 1000000\r\n\r\n`);
+  const trickle = setInterval(() => socket.write("x", () => {}), 20);
+  context.after(() => clearInterval(trickle));
+  socket.on("error", () => {});
+  const started = Date.now();
+  await new Promise((resolve) => socket.once("close", resolve));
+  clearInterval(trickle);
+  assert.ok(Date.now() - started < 2_000);
 });

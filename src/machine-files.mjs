@@ -20,6 +20,8 @@ import { parseByteRange } from "../public/file-preview.js";
 // The uploads folder sits where this machine keeps its own, under the remote $HOME.
 // How long a file read may send nothing before it is given up.
 const READ_IDLE_MS = 30_000;
+// How long a download may sit with the browser not taking any bytes before it is ended.
+const STALLED_CLIENT_MS = 10 * 60_000;
 const UPLOADS_UNDER_HOME = ".local/share/herdrabbit/files";
 const MAX_LISTING_OUTPUT = 16 * 1024 * 1024;
 const MAX_SMALL_OUTPUT = 64 * 1024;
@@ -292,8 +294,9 @@ function slots(max, busy) {
 export class MachineFiles {
   // `link` returns the machine's connection once it is up, and throws the
   // machine's own "offline" error until then.
-  constructor({ link, spawnProcess = spawn, maxBytes = Infinity, timeoutMs = COMMAND_TIMEOUT_MS, readIdleMs = READ_IDLE_MS }) {
+  constructor({ link, spawnProcess = spawn, maxBytes = Infinity, timeoutMs = COMMAND_TIMEOUT_MS, readIdleMs = READ_IDLE_MS, stalledClientMs = STALLED_CLIENT_MS }) {
     this.readIdleMs = readIdleMs;
+    this.stalledClientMs = stalledClientMs;
     this.link = link;
     this.spawnProcess = spawnProcess;
     this.maxBytes = maxBytes;
@@ -529,19 +532,29 @@ export class MachineFiles {
     // A read that stops sending (a hung network filesystem there) gives its
     // slot back instead of holding it until the browser gives up.
     let idle = null;
+    let stalledSince = null;
+    // The browser taking bytes lets the buffer drain, which is progress.
+    stream.on("drain", () => { stalledSince = null; });
     const watch = () => {
       clearTimeout(idle);
       idle = setTimeout(() => {
         // Nothing arrives while the browser is the slow side (the buffer is
-        // full and ssh's output is paused); that is a moving transfer, not a hung read.
-        if (!ended && stream.writableNeedDrain) { watch(); return; }
+        // full and ssh's output is paused); that is a moving transfer, not a
+        // hung read -- unless the browser has taken nothing for a long while.
+        if (!ended && stream.writableNeedDrain) {
+          const now = Date.now();
+          if (stalledSince === null) stalledSince = now;
+          if (now - stalledSince < this.stalledClientMs) { watch(); return; }
+          stream.destroy(failed());
+          return;
+        }
         try { child.kill("SIGKILL"); } catch {}
       }, this.readIdleMs);
       idle.unref?.();
     };
     watch();
     let received = 0;
-    child.stdout.on("data", (chunk) => { received += chunk.length; watch(); });
+    child.stdout.on("data", (chunk) => { received += chunk.length; stalledSince = null; watch(); });
     const finish = (code) => {
       if (ended) return;
       ended = true;

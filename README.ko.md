@@ -431,7 +431,7 @@ iOS에서 PWA를 독립 실행 모드로 쓰면 내려받은 파일이 저장되
 | `HERDR_WEB_HOST` | `127.0.0.1` | 바인딩할 주소. `127.0.0.1`, `0.0.0.0`, 또는 Tailscale 주소처럼 특정 인터페이스 하나. 주소 하나로 묶는 것이 가장 좁습니다 — 그 머신이 물려 있는 다른 모든 네트워크에서 서비스가 아예 보이지 않고, 그 주소는 요청 host로도 자동 허용됩니다. 이름은 listen 시점에 해석되므로 거부합니다. |
 | `HERDR_WEB_PORT` | `38787` | 1024–65535 범위의 수신 포트 |
 | `HERDR_WEB_ALLOWED_HOSTS` | 비어 있음 | 역방향 프록시와 Tailscale용 추가 Host 이름. 쉼표로 구분 |
-| `HERDR_WEB_MAX_TRANSFER_MB` | 설정 안 함(제한 없음) | 업로드·다운로드 1건의 최대 크기(MB, 양의 정수). 설정하지 않으면 제한 없음 |
+| `HERDR_WEB_MAX_TRANSFER_MB` | 설정 안 함(제한 없음) | 업로드·다운로드 1건의 최대 크기(MB, 양의 정수). 설정하지 않으면 제한 없음. 여럿이 쓰거나 디스크가 넉넉하지 않은 호스트에서는 제한을 두는 것을 권장합니다 |
 | `HERDR_WEB_AUTH_FILE` | `~/.config/herdr-bridge/auth.json` | 비밀번호 해시와 세션 서명 키를 저장한 인증 파일 |
 | `HERDR_WEB_PUSH_FILE` | `~/.config/herdr-bridge/push.json` | VAPID 키와 브라우저 Push 구독을 저장한 파일 |
 | `HERDR_WEB_AI_ACCOUNTS_DIR` | `~/.config/herdr-bridge/ai-accounts` | 저장한 Claude Code·Codex 로그인 |

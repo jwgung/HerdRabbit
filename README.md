@@ -411,7 +411,7 @@ Use the control at the bottom of the sidebar to switch between light and dark mo
 | `HERDR_WEB_HOST` | `127.0.0.1` | Any literal address to listen on: `127.0.0.1`, `0.0.0.0`, or one interface such as this host's Tailscale address. A single address is the tightest option -- the service is then absent from every other network the machine is on, and that address is accepted as a request host automatically. Names are refused, since they resolve at listen time. |
 | `HERDR_WEB_PORT` | `38787` | Listening port from 1024 through 65535 |
 | `HERDR_WEB_ALLOWED_HOSTS` | empty | Additional reverse-proxy or Tailscale hostnames, comma-separated |
-| `HERDR_WEB_MAX_TRANSFER_MB` | unset (no limit) | Largest single upload or download, in megabytes (a positive integer). Unset means no limit. |
+| `HERDR_WEB_MAX_TRANSFER_MB` | unset (no limit) | Largest single upload or download, in megabytes (a positive integer). Unset means no limit; on a shared or low-disk host, setting one is a good idea. |
 | `HERDR_WEB_AUTH_FILE` | `~/.config/herdr-bridge/auth.json` | Password hash and signing-secret file |
 | `HERDR_WEB_PUSH_FILE` | `~/.config/herdr-bridge/push.json` | VAPID keys and browser Push subscriptions |
 | `HERDR_WEB_AI_ACCOUNTS_DIR` | `~/.config/herdr-bridge/ai-accounts` | Saved Claude Code and Codex sign-ins |

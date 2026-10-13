@@ -694,6 +694,14 @@ export function createHerdrHttpServer({
       timer.unref?.();
     }
     response.once("close", () => { clearTimeout(timer); clearInterval(timer); });
+    // A route may answer before it reads the body (401, 403, 404, 411, 413...).
+    // Node would then keep the socket open to drain what is left, bounded only
+    // by a keep-alive timer every byte resets, so a trickle would hold it
+    // forever. Ask the client to close, and close it once the answer is out.
+    if (!request.complete) response.setHeader("Connection", "close");
+    response.once("finish", () => {
+      if (!request.complete) request.socket.destroy();
+    });
   }
 
   const server = createServer(async (request, response) => {

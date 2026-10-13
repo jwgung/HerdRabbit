@@ -441,3 +441,20 @@ test("a file of unknown size is read to its end, bounded by the cap rather than 
   const limited = await files.openFile("/proc/self/status", { maxBytes: 5 });
   assert.equal((await text(limited.stream)).length, 5);
 });
+
+test("a download whose browser stops reading is ended; one that reads slowly keeps going", async () => {
+  const { home, files } = await setup({ readIdleMs: 40, stalledClientMs: 400 });
+  await writeFile(join(home, "big.bin"), Buffer.alloc(256 * 1024, 3));
+  const stalled = await files.openFile(join(home, "big.bin"));
+  stalled.stream.on("error", () => {});
+  await new Promise((resolve) => stalled.stream.once("close", resolve));
+  assert.ok(stalled.stream.destroyed);
+
+  const slow = await files.openFile(join(home, "big.bin"));
+  let total = 0;
+  for await (const chunk of slow.stream) {
+    total += chunk.length;
+    await new Promise((resolve) => setTimeout(resolve, 15));
+  }
+  assert.equal(total, 256 * 1024);
+});
