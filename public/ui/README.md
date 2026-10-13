@@ -72,4 +72,4 @@ document.querySelector('#open').addEventListener('click', () => {
 :root[data-theme="light"] { --accent: #167454; }
 ```
 
-기존 HerdRabbit의 `pane-button`, `pane-copy`, `agent-marker`, `sidebar-action-*`, `navigator*`, `login-card`는 같은 규칙의 호환 이름입니다. 새 프로젝트는 `ui-*` 이름을 사용하세요. 앱 전용 레이아웃·터미널·인증·SSH·알림 동작은 이 폴더에 포함하지 않습니다. 앱의 `styles.css`는 공통 UI 뒤에 로드됩니다.
+기존 HerdRabbit의 `pane-button`, `pane-copy`, `sidebar-action-*`, `navigator*`, `login-card`는 같은 규칙의 호환 이름입니다. 새 프로젝트는 `ui-*` 이름을 사용하세요. 앱 전용 레이아웃·터미널·인증·SSH·알림 동작은 이 폴더에 포함하지 않습니다. 앱의 `styles.css`는 공통 UI 뒤에 로드됩니다.

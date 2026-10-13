@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   agentStatus,
-  agentStatusIcon,
   paneAgentKind,
   paneStatusIndicator,
   paneSubtitle,
@@ -402,14 +401,10 @@ test("uses real Herdr agent names without exposing internal pane ids", () => {
   assert.equal(displayRecordLabel({}, "터미널"), "터미널");
 });
 
-test("uses Herdr agent_status and native symbol indicators", () => {
+test("uses Herdr agent_status", () => {
   assert.equal(agentStatus({ agent_status: "working", state: "done" }), "working");
   assert.equal(agentStatus(null, { agent_status: "blocked" }), "blocked");
   assert.equal(agentStatus({ agent_status: "unexpected" }), "unknown");
-  assert.deepEqual(
-    ["blocked", "working", "done", "idle", "unknown"].map(agentStatusIcon),
-    ["×", "◐", "✓", "○", "·"],
-  );
 });
 
 test("derives accessible desktop and mobile sidebar states", () => {

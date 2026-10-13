@@ -49,7 +49,6 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 - Remember the selected pane and collapsed workspaces in the browser
 - Switch sidebar entries with `Ctrl+Tab`, `Ctrl+Shift+Tab`, or `Ctrl+1`–`Ctrl+9` when the browser forwards those shortcuts to the app
 - Restore terminal font size and the last 100 sent prompts per pane across app launches; use Up/Down in the composer to recall prompts
-- Show Herdr-native state symbols such as `×`, `◐`, `✓`, `○`, and `·`
 - Mark each session in the sidebar with the program it runs (Claude, Codex, another agent, or a shell) and its status at the far right: a spinner while working, an amber pulsing dot when it needs your answer, a green dot when done and not yet viewed; collapsed projects still call out unviewed completions
 - Send status-only PWA notifications with the project and tab names when an agent needs input or finishes; while the app is in front, show them inside it instead
 - Install as a responsive PWA with light and dark themes
@@ -267,7 +266,7 @@ After the first successful password login, HerdRabbit offers to register a Passk
 
 Select an agent or pane in the sidebar to show its output. The last selected pane is stored in `localStorage` and restored on reload when it still exists. Browser storage is isolated by origin, so an HTTP LAN URL and a Tailscale HTTPS URL have separate preferences.
 
-Opening a completed `✓` session marks that completion as viewed and changes it to idle `○` in the current browser. A later completion has a new state sequence and displays `✓` again.
+Opening a session whose green dot marks an unviewed completion marks that completion as viewed and clears the dot in the current browser. A later completion has a new state sequence and shows the dot again.
 
 ### Agent status notifications
 

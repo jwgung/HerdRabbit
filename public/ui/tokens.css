@@ -40,7 +40,6 @@
   --selected-surface: #16231d;
   --completion-surface: rgb(102 221 204 / 13%);
   --completion-surface-hover: rgb(102 221 204 / 18%);
-  --completion-glow: rgb(102 221 204 / 22%);
   --terminal-bg: #000000;
   --terminal-text: #d8e0e6;
   --input-text: #f0f4f7;
@@ -87,7 +86,6 @@
   --selected-surface: #e0f0e8;
   --completion-surface: rgb(13 108 91 / 11%);
   --completion-surface-hover: rgb(13 108 91 / 16%);
-  --completion-glow: rgb(13 108 91 / 18%);
   --terminal-bg: #000000;
   --terminal-text: #d8e0e6;
   --input-text: #17221d;

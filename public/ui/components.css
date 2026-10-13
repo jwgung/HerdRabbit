@@ -35,7 +35,7 @@
   background: var(--danger);
 }
 
-:is(.agent-marker, .ui-status) {
+.ui-status {
   width: 18px;
   min-width: 18px;
   display: inline-grid;
@@ -47,19 +47,19 @@
   line-height: 1;
 }
 
-:is(.agent-marker, .ui-status).state-idle {
+.ui-status.state-idle {
   color: var(--accent);
 }
 
-:is(.agent-marker, .ui-status).state-working {
+.ui-status.state-working {
   color: var(--working);
 }
 
-:is(.agent-marker, .ui-status).state-blocked {
+.ui-status.state-blocked {
   color: var(--danger);
 }
 
-:is(.agent-marker, .ui-status).state-done {
+.ui-status.state-done {
   color: var(--done);
 }
 

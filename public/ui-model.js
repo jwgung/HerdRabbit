@@ -1,12 +1,5 @@
 export const HISTORY_PAGE_LINES = 200;
 const KNOWN_AGENT_STATES = new Set(["idle", "working", "blocked", "done", "unknown"]);
-const AGENT_STATUS_ICONS = Object.freeze({
-  blocked: "×",
-  working: "◐",
-  done: "✓",
-  idle: "○",
-  unknown: "·",
-});
 
 export function outputTextForUpdate(currentText, payload) {
   if (payload?.update === "replace") {
@@ -540,10 +533,6 @@ export function visibleAgentStatus(agent, pane, acknowledgedCompletion = null) {
     return "idle";
   }
   return status;
-}
-
-export function agentStatusIcon(status) {
-  return AGENT_STATUS_ICONS[status] || AGENT_STATUS_ICONS.unknown;
 }
 
 // Which program mark a session row wears, by the agent a snapshot names.
