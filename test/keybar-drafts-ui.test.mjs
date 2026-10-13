@@ -42,7 +42,9 @@ test("drafts: saved on pane switch, cleared before a send, never kept for a pass
 });
 
 test("sign-out drops the drafts, and an unverifiable screen keeps a draft out of storage", () => {
-  assert.match(app, /function signedOut\(\) \{[^}]*composerDrafts\.clearAll\(\)/u);
+  // every way out of a sign-in (sign-out, expired session) goes through showLogin
+  assert.match(app, /function forgetComposerDrafts\(\) \{[^}]*composerDrafts\.clearAll\(\)/u);
+  assert.match(app, /function showLogin\(\) \{\s*forgetComposerDrafts\(\);/u);
   assert.match(app, /draftScreenIsSecret\(paneId, draftPaneId, attachedTerminal\.screenText\(8\)\)/u);
   assert.match(app, /composerDrafts\.set\(paneId, text, \{ memoryOnly: true \}\)/u, "a send that failed after leaving the pane is not written");
   assert.doesNotMatch(page, /key-bar-feedback/u);

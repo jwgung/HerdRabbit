@@ -529,6 +529,11 @@ test("screenText says whose screen it is and whether it can be trusted", () => {
   term().finishWrites();
   const screen = view.screenText(8);
   assert.deepEqual(screen, { paneId: "a", text: "$ sudo true\n[sudo] password for me:", cols: 100, fresh: true });
+  // more output on its way (it may be the prompt itself): not the screen yet
+  receive({ type: "pty-data", pane_id: "a", data: "more" });
+  assert.equal(view.screenText().fresh, false, "output still being drawn");
+  term().finishWrites();
+  assert.equal(view.screenText().fresh, true);
   // another pane: cleared again until its first frame is drawn
   view.show("b");
   assert.deepEqual([view.screenText().paneId, view.screenText().fresh], ["b", false]);

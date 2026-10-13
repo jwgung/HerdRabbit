@@ -512,6 +512,7 @@ async function dismissDeliveredNotifications() {
 }
 
 function showLogin() {
+  forgetComposerDrafts();
   terminalStream.pause();
   state.authenticated = false;
   document.body.classList.remove("auth-pending", "auth-ready");
@@ -1760,14 +1761,19 @@ async function signOut() {
 
 function signedOut() {
   state.launchToken = clearLaunchToken(launchSessionStorage);
-  // Unsent text is this browser's, for this sign-in: it goes with it.
+  showLogin();
+}
+
+// Unsent text belongs to the sign-in it was typed under: whichever way that
+// ends (signing out, an expired session, a revoked device), it goes with it,
+// so the next person to sign in on this browser does not get it back.
+function forgetComposerDrafts() {
   window.clearTimeout(draftSaveTimer);
   draftSaveTimer = null;
   composerDrafts.clearAll();
   draftBlocked.clear();
   clearComposer();
   draftPaneId = null;
-  showLogin();
 }
 
 // Passkeys. The server lists each one by name, dates and a handle; credential

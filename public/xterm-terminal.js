@@ -96,6 +96,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   // False from a screen clear until the first output of the new stream is drawn.
   let drawn = false;
   let drawingFrame = false;
+  // Writes handed to xterm and not drawn yet (pty data and mirror frames).
+  let writesInFlight = 0;
 
   function create() {
     term = new Terminal({
@@ -393,7 +395,9 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     switch (message.type) {
       case "pty-data": {
         const stream = generation;
+        writesInFlight += 1;
         term.write(message.data, () => {
+          writesInFlight -= 1;
           if (stream === generation) drawn = true;
           // Drawn after the page moved on to another pane or socket: that credit is not owed.
           if (message.flow && stream === generation) connection.acknowledge(message.pane_id, message.flow.stream_id, message.flow.offset);
@@ -508,7 +512,9 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     heldFrame = null;
     drawingFrame = true;
     const stream = generation;
+    writesInFlight += 1;
     term.write(frame, () => {
+      writesInFlight -= 1;
       if (stream === generation) drawn = true;
       drawingFrame = false;
       if (mirrored) drawHeldFrame();
@@ -602,7 +608,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       const rows = [];
       for (let y = buffer.baseY; y < buffer.baseY + term.rows; y += 1) rows.push(buffer.getLine(y)?.translateToString(true) ?? "");
       while (rows.length && rows.at(-1).trim() === "") rows.pop();
-      const fresh = shown !== null && !host.hidden && drawn && heldFrame === null && atBottom();
+      // output still being drawn may be the prompt itself: not yet the screen
+      const fresh = shown !== null && !host.hidden && drawn && heldFrame === null && !drawingFrame && writesInFlight === 0 && atBottom();
       return { paneId: shown, text: rows.slice(-lines).join("\n"), cols: term.cols, fresh };
     },
     // Fits again once the terminal is shown (the Terminal lens, with the key bar back).
