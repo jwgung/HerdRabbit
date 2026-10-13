@@ -145,6 +145,8 @@ export function machineTranscriptStore(serverId, files, { limits = REMOTE_LIMITS
 
 // Day folders a thread's file is looked for in, newest first, at most.
 const MAX_DAY_FOLDERS = 400;
+// How long a thread found in no day folder is not scanned for again.
+const MISSED_SCAN_MS = 15_000;
 // Threads of one directory a screen match compares, at most.
 const MAX_CWD_THREADS = 8;
 // Open files of one process looked at, at most.
@@ -165,6 +167,8 @@ export function localCodexFiles(home) {
   const sessions = join(home, "sessions");
   // thread id -> the file a folder scan found it in; checked again on every use
   const found = new Map();
+  // thread id -> until when only the newest day folders are looked in
+  const missed = new Map();
 
   // The canonical path of a rollout inside sessions/, or null: a link out of
   // the store, another kind of file, or one that is gone.
@@ -189,12 +193,14 @@ export function localCodexFiles(home) {
     if (versions.length === 0) return null;
     const module = await loadSqlite();
     if (!module?.DatabaseSync) return null;
+    let db = null;
     try {
-      const db = new module.DatabaseSync(join(home, versions[0].name), { readOnly: true });
+      db = new module.DatabaseSync(join(home, versions[0].name), { readOnly: true });
       const columns = new Set(db.prepare("SELECT name FROM pragma_table_info('threads')").all().map((row) => row.name));
       if (!columns.has("id") || !columns.has("rollout_path")) { db.close(); return null; }
       return { db, columns };
     } catch {
+      try { db?.close(); } catch { /* already unusable */ }
       return null;
     }
   }
@@ -203,17 +209,22 @@ export function localCodexFiles(home) {
     const known = found.get(thread);
     if (known !== undefined && await rollout(known) !== null) return known;
     found.delete(thread);
+    // a thread whose rollout is not written yet is looked for only in the
+    // newest day folders for a while, where a new rollout appears, not in
+    // every day folder again on each locate
+    const recentOnly = (missed.get(thread) ?? 0) > Date.now();
+    const dayLimit = recentOnly ? 2 : MAX_DAY_FOLDERS;
     const suffix = `-${thread}.jsonl`;
     const days = [];
     for (const year of (await names(sessions)).filter((name) => /^\d{4}$/u.test(name)).sort().reverse()) {
       for (const month of (await names(join(sessions, year))).filter((name) => /^\d{2}$/u.test(name)).sort().reverse()) {
         for (const day of (await names(join(sessions, year, month))).filter((name) => /^\d{2}$/u.test(name)).sort().reverse()) {
           days.push(join(sessions, year, month, day));
-          if (days.length >= MAX_DAY_FOLDERS) break;
+          if (days.length >= dayLimit) break;
         }
-        if (days.length >= MAX_DAY_FOLDERS) break;
+        if (days.length >= dayLimit) break;
       }
-      if (days.length >= MAX_DAY_FOLDERS) break;
+      if (days.length >= dayLimit) break;
     }
     for (const day of days) {
       const name = (await names(day)).filter((entry) => entry.startsWith("rollout-") && entry.endsWith(suffix)).sort().at(-1);
@@ -222,8 +233,11 @@ export function localCodexFiles(home) {
       if (path === null) continue;
       found.set(thread, path);
       if (found.size > 256) found.delete(found.keys().next().value);
+      missed.delete(thread);
       return path;
     }
+    if (!recentOnly) missed.set(thread, Date.now() + MISSED_SCAN_MS);
+    if (missed.size > 256) missed.delete(missed.keys().next().value);
     return null;
   }
 

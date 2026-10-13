@@ -302,6 +302,20 @@ test("finds a reported thread by its file name, the newest day first", async (co
   assert.equal(await locateCodexRollout(store, { session: { kind: "id", value: "not-a-thread" } }), null);
 });
 
+test("a thread not written yet is looked for in the newest day folders only, for a while", async (context) => {
+  forgetCodexState();
+  const home = await temp(context);
+  const store = localTranscriptStore({ configDir: join(home, "claude"), codexHome: home });
+  for (const day of ["01", "02", "03"]) await rolloutIn(home, OTHER, undefined, ["2026", "10", day]);
+  assert.equal(await locateCodexRollout(store, { session: { kind: "id", value: THREAD } }), null);
+  // written in an old day folder meanwhile: not scanned for again yet
+  await rolloutIn(home, THREAD, undefined, ["2026", "10", "01"]);
+  assert.equal(await locateCodexRollout(store, { session: { kind: "id", value: THREAD } }), null);
+  // a new rollout lands in the newest day: found at once
+  const path = await rolloutIn(home, THREAD, undefined, ["2026", "10", "03"]);
+  assert.equal(await locateCodexRollout(store, { session: { kind: "id", value: THREAD } }), path);
+});
+
 test("finds a reported thread through Codex's thread index, read only", async (context) => {
   let sqlite;
   try { sqlite = await import("node:sqlite"); } catch { context.skip("node:sqlite is not available"); return; }

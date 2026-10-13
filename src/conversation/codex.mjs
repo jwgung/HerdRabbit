@@ -64,10 +64,6 @@ function contentText(value, user = false) {
   }).join("\n");
 }
 
-// A tool call's output as Codex recorded it, as text.
-export function codexOutputText(value) {
-  return contentText(value);
-}
 
 // Memory citations are metadata unless the answer quotes them in Markdown code.
 export function withoutMemoryCitations(text) {
