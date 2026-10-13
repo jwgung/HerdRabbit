@@ -40,3 +40,12 @@ test("the list sits over the composer in both lenses, with Queue and Send now be
   assert.match(server, /\["\/chat\/pending-messages\.js"/u);
   assert.match(server, /\["\/chat\/pending-messages\.css"/u);
 });
+
+test("the list keeps the newest revision it heard, whether it came as an answer or a push", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../public/chat/pending-messages.js", import.meta.url), "utf8");
+  assert.match(source, /if \(Number\.isInteger\(at\)\) \{\s*if \(at < revision\) return;\s*revision = at;/u);
+  assert.match(source, /setItems\(payload\.items, \[\], payload\.revision\)/u);
+  assert.match(source, /setItems\(message\.items, message\.removed \?\? \[\], message\.revision\)/u);
+  assert.match(source, /paneId = next;\s*items = \[\];\s*revision = -1;/u);
+});

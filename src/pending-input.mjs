@@ -100,6 +100,9 @@ export class PendingInputs {
     this.onDelivered = onDelivered;
     // paneId -> { items, status, gate, busy, listeners }
     this.panes = new Map();
+    // Rises with every change to any list: a page keeps the newest it heard,
+    // whichever way (an answer or a push) it came.
+    this.revision = 0;
     this.timer = null;
     this.running = false;
     this.again = false;
@@ -135,7 +138,8 @@ export class PendingInputs {
   }
 
   #publish(pane, removed) {
-    const message = { items: pane.items.map(publicItem), ...(removed ? { removed } : {}) };
+    this.revision += 1;
+    const message = { items: pane.items.map(publicItem), revision: this.revision, ...(removed ? { removed } : {}) };
     for (const listener of pane.listeners) {
       try { listener(message); } catch { /* one page cannot stop the others */ }
     }
@@ -146,7 +150,7 @@ export class PendingInputs {
   watch(paneId, listener) {
     const pane = this.#pane(paneId, { create: true });
     pane.listeners.add(listener);
-    listener({ items: pane.items.map(publicItem) });
+    listener({ items: pane.items.map(publicItem), revision: this.revision });
     return () => {
       pane.listeners.delete(listener);
       this.#release(pane);
@@ -186,6 +190,9 @@ export class PendingInputs {
     pane.items.splice(pane.items.indexOf(item), 1);
     this.#publish(pane, [{ id, outcome: "discarded" }]);
     this.#release(pane);
+    // Its text may already sit in the pane's input (typed, the Enter failed):
+    // the page says so, since removing it here cannot take it back there.
+    return { typed: Boolean(item.pasted) };
   }
 
   edit(paneId, id, value) {
@@ -278,7 +285,11 @@ export class PendingInputs {
         pane.agent = agent?.name ?? null;
         pane.session = paneSession(snapshot, pane.paneId);
         this.#apply(pane, agent?.status ?? "unknown");
-        if (pane.gate && this.now() >= pane.gate.deadline) pane.gate = null;
+        if (pane.gate && this.now() >= pane.gate.deadline) {
+          pane.gate = null;
+          // nothing more to send there and nobody watching: the pane goes
+          this.#release(pane);
+        }
       }
       // Panes go on their own: one slow machine holds back only its panes.
       await Promise.allSettled(waiting.map((pane) => this.#next(pane)));
@@ -298,7 +309,7 @@ export class PendingInputs {
     // A failed message holds the queue until it is tried again or removed.
     if (pane.items.some((item) => item.state !== "queued")) return;
     const head = pane.items[0];
-    if (!head) return;
+    if (!head) { this.#release(pane); return; }
     // A retried message goes to the agent there now, if there is one.
     if (head.agent === null && pane.agent && pane.agent !== "unknown") {
       head.agent = pane.agent;

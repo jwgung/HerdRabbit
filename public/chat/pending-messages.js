@@ -52,6 +52,8 @@ export function createPendingMessages({ document = globalThis.document, host, co
   onChange = () => {}, onDelivered = () => {} }) {
   let paneId = null;
   let items = [];
+  // the newest list revision heard for this pane, by answer or push
+  let revision = -1;
   let editing = null;
   let draft = "";
   let error = null;
@@ -61,7 +63,12 @@ export function createPendingMessages({ document = globalThis.document, host, co
 
   const base = () => `/api/panes/${encodeURIComponent(paneId)}/pending`;
 
-  function setItems(next, removed = []) {
+  function setItems(next, removed = [], at = null) {
+    // an older list (an answer that arrived after a newer push) is not shown
+    if (Number.isInteger(at)) {
+      if (at < revision) return;
+      revision = at;
+    }
     items = Array.isArray(next) ? next : [];
     if (editing && !items.some((item) => item.id === editing && item.state === "queued")) { editing = null; draft = ""; }
     for (const id of [...busy]) if (!items.some((item) => item.id === id)) busy.delete(id);
@@ -140,9 +147,9 @@ export function createPendingMessages({ document = globalThis.document, host, co
       const payload = await postJson(`${base()}/${encodeURIComponent(id)}`, { action, ...body });
       if (pane === paneId && Array.isArray(payload?.items)) {
         busy.delete(id);
-        // a newer push may have come already: it is at least as new
-        if (action !== "send-now") setItems(payload.items);
+        if (action !== "send-now") setItems(payload.items, [], payload.revision);
         else render();
+        if (action === "cancel" && payload.typed) error = "Its text was already typed into the pane: clear it there before pressing Enter.";
       }
     } catch (failure) {
       if (pane !== paneId) return;
@@ -199,7 +206,7 @@ export function createPendingMessages({ document = globalThis.document, host, co
 
   connection.onPending((message) => {
     if (message.pane_id !== paneId) return;
-    if (message.type === "pending-messages") { setItems(message.items, message.removed ?? []); return; }
+    if (message.type === "pending-messages") { setItems(message.items, message.removed ?? [], message.revision); return; }
     // the server cannot watch it now: read it once
     void refresh();
   });
@@ -209,7 +216,7 @@ export function createPendingMessages({ document = globalThis.document, host, co
     const pane = paneId;
     try {
       const payload = await getJson(base());
-      if (pane === paneId) setItems(payload?.items ?? []);
+      if (pane === paneId) setItems(payload?.items ?? [], [], payload?.revision);
     } catch {
       // the next push brings it
     }
@@ -223,6 +230,7 @@ export function createPendingMessages({ document = globalThis.document, host, co
       if (paneId !== null) connection.unwatchPending(paneId);
       paneId = next;
       items = [];
+      revision = -1;
       editing = null;
       draft = "";
       error = null;

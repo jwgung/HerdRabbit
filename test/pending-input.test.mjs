@@ -388,10 +388,33 @@ test("a watcher hears the list at once, and a pane with nothing left is let go",
   await pending.enqueue("w1:p1", "kept");
   const heard = [];
   const stop = pending.watch("w1:p1", (message) => heard.push(message));
-  assert.deepEqual(heard, [{ items: [{ id: "m1", text: "kept", state: "queued" }] }]);
+  assert.deepEqual(heard, [{ items: [{ id: "m1", text: "kept", state: "queued" }], revision: 1 }]);
   stop();
-  pending.cancel("w1:p1", "m1");
+  assert.deepEqual(pending.cancel("w1:p1", "m1"), { typed: false });
   assert.equal(pending.panes.size, 0);
+  assert.ok(pending.revision > 1, "every change raises the revision");
+});
+
+test("a pane whose last message went, and whose gate passed, is let go when nobody watches", async (context) => {
+  const herdr = fakeHerdr({ "w1:p1": "idle", "w1:p2": "idle" });
+  const { pending, advance } = service(context, herdr);
+  await pending.enqueue("w1:p1", "one");
+  await pending.enqueue("w1:p2", "two");
+  await pending.tick();
+  assert.equal(pending.panes.size, 2, "the turn gates hold them for now");
+  advance(11_000);
+  await pending.tick();
+  assert.equal(pending.panes.size, 0);
+});
+
+test("removing a message whose text was typed but not submitted says so", async (context) => {
+  const herdr = fakeHerdr({ "w1:p1": "idle" });
+  const { pending } = service(context, herdr);
+  await pending.enqueue("w1:p1", "half sent");
+  herdr.failKeys = new Error("lost");
+  await pending.tick();
+  const [item] = pending.list("w1:p1");
+  assert.deepEqual(pending.cancel("w1:p1", item.id), { typed: true });
 });
 
 test("a herdr machine's pane is queued and delivered through the same client", async (context) => {

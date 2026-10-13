@@ -1291,7 +1291,7 @@ export function createHerdrHttpServer({
       // what can be done to one (cancel, edit, move, retry, send now).
       const pendingMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/pending$/);
       if (pendingMatch && method === "GET") {
-        sendJson(response, 200, { items: pendingInputs.list(decodePaneId(pendingMatch[1])) });
+        sendJson(response, 200, { items: pendingInputs.list(decodePaneId(pendingMatch[1])), revision: pendingInputs.revision });
         return;
       }
       if (pendingMatch && method === "POST") {
@@ -1300,7 +1300,7 @@ export function createHerdrHttpServer({
         const body = await readJsonBody(request, Math.max(maxBodyBytes, 64 * 1024));
         const paneId = decodePaneId(pendingMatch[1]);
         const item = await pendingInputs.enqueue(paneId, body?.text);
-        sendJson(response, 200, { item, items: pendingInputs.list(paneId) });
+        sendJson(response, 200, { item, items: pendingInputs.list(paneId), revision: pendingInputs.revision });
         return;
       }
       const pendingItemMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/pending\/([^/]+)$/);
@@ -1310,13 +1310,14 @@ export function createHerdrHttpServer({
         const paneId = decodePaneId(pendingItemMatch[1]);
         const id = decodePaneId(pendingItemMatch[2]);
         const action = body?.action;
-        if (action === "cancel") pendingInputs.cancel(paneId, id);
+        let outcome = {};
+        if (action === "cancel") outcome = pendingInputs.cancel(paneId, id);
         else if (action === "edit") pendingInputs.edit(paneId, id, body.text);
         else if (action === "up" || action === "down") pendingInputs.move(paneId, id, action === "up" ? -1 : 1);
         else if (action === "retry") pendingInputs.retry(paneId, id);
         else if (action === "send-now") await pendingInputs.sendNow(paneId, id);
         else throw new HttpError(400, "invalid_action", "Unknown action.");
-        sendJson(response, 200, { items: pendingInputs.list(paneId) });
+        sendJson(response, 200, { ...outcome, items: pendingInputs.list(paneId), revision: pendingInputs.revision });
         return;
       }
 
