@@ -122,6 +122,24 @@ test("the Enter goes only once the screen shows the cursor on the row the moves 
   assert.deepEqual(herdr.answered, []);
 });
 
+test("the option under the cursor is looked at again before its Enter", async (context) => {
+  const herdr = fakePromptHerdr(panes());
+  // the menu is answered in the terminal right after the server's first look
+  const readPane = herdr.readPane.bind(herdr);
+  let looks = 0;
+  herdr.readPane = async (...args) => {
+    const screen = await readPane(...args);
+    looks += 1;
+    if (looks === 1) herdr.menus["w1:p1"].command = "rm -rf build";
+    return screen;
+  };
+  const { answer } = await fixture(context, { herdr });
+  const result = await answer("w1:p1", { cardId: CARD_ID, option: 0 });
+  assert.equal(result.body.error.code, "prompt_changed");
+  assert.deepEqual(herdr.sent, []);
+  assert.deepEqual(herdr.answered, []);
+});
+
 test("a blocked pane no reader knows gets the fallback card, answered with its keys", async (context) => {
   const { get, answer, herdr } = await fixture(context);
   const { card } = (await get("w1:p3")).body;
@@ -265,19 +283,43 @@ test("one look takes one snapshot for every watched pane and reads only the bloc
 
 test("a watched pane the snapshot does not have is let go and holds no place", async (context) => {
   const herdr = fakePromptHerdr(panes());
-  const prompts = new PromptService({ herdr, pollMs: 60_000 });
+  const prompts = new PromptService({ herdr, pollMs: 5 });
   context.after(() => prompts.stop());
   const heard = [];
   for (let index = 0; index < 16; index += 1) prompts.watch(`w9:p${index}`, (card) => heard.push(card));
   assert.throws(() => prompts.watch("w1:p1", () => {}), /Too many panes/);
-  for (let tries = 0; tries < 100 && heard.length < 16; tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.deepEqual(heard, Array(16).fill(null));
+  // a few looks without them, not one, give the places back
+  for (let tries = 0; tries < 200 && prompts.watches.size > 0; tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.ok(herdr.snapshots >= 3);
+  assert.ok(heard.length >= 16 && heard.every((card) => card === null));
   assert.equal(prompts.watches.size, 0);
   assert.deepEqual(herdr.reads, []);
   const cards = [];
   prompts.watch("w1:p1", (card) => cards.push(card));
   for (let tries = 0; tries < 100 && cards.length === 0; tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(cards[0].id, CARD_ID);
+});
+
+test("a pane missing from one snapshot keeps its watch, and its card comes once it is back", async (context) => {
+  const herdr = fakePromptHerdr(panes());
+  const real = herdr.snapshot.bind(herdr);
+  let hide = 1;
+  herdr.snapshot = async () => {
+    const snapshot = await real();
+    if (hide > 0) {
+      hide -= 1;
+      snapshot.panes = snapshot.panes.filter((pane) => pane.pane_id !== "w1:p1");
+      snapshot.agents = snapshot.agents.filter((agent) => agent.pane_id !== "w1:p1");
+    }
+    return snapshot;
+  };
+  const prompts = new PromptService({ herdr, pollMs: 5 });
+  context.after(() => prompts.stop());
+  const cards = [];
+  prompts.watch("w1:p1", (card) => cards.push(card));
+  for (let tries = 0; tries < 200 && !cards.some((card) => card?.id === CARD_ID); tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.ok(cards.some((card) => card?.id === CARD_ID), "the card arrives after the pane is back");
+  assert.equal(prompts.watches.has("w1:p1"), true);
 });
 
 test("one look takes one snapshot of this PC and at most one of each herdr machine", async (context) => {

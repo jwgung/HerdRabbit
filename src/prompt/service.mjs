@@ -19,6 +19,8 @@ const KNOWN_STATES = new Set(["idle", "working", "blocked", "done", "unknown"]);
 const MAX_WATCHED_PANES = 16;
 // Blocked panes whose screens one tick reads at once.
 const READS_AT_ONCE = 4;
+// Ticks a watched pane may be missing from the snapshot before it is let go.
+const MISSING_TICKS = 3;
 
 const delay = (ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref?.(); });
 
@@ -133,10 +135,10 @@ export class PromptService {
         // prompt again with the cursor where the keys so far left it: the menu
         // answered in the terminal meanwhile, with another in its place, would
         // take it. Each tick of a multiple choice is looked at, and so is the
-        // → that ends it. Claude's unnumbered menus are looked at even before
-        // the first key. Once a typed answer is in, the row shows it and the
-        // rest goes as it is.
-        if (!move && !typed && verify && (sent || parsed.responder === "claude-confirm")
+        // → that ends it, and so is the first key when it already commits (the
+        // option under the cursor). Once a typed answer is in, the row shows it
+        // and the rest goes as it is.
+        if (!move && !typed && verify
             && !(await this.#onRow(paneId, parsed.promptKey ?? parsed.id, cursor))) {
           throw promptChanged();
         }
@@ -231,11 +233,16 @@ export class PromptService {
       const blocked = [];
       for (const entry of [...this.watches.values()]) {
         const agent = paneAgent(snapshot, entry.paneId);
+        if (agent) entry.missing = 0;
         if (agent?.status === "blocked") blocked.push({ entry, agent });
         else if (agent) this.#tell(entry, null);
         else if (!serverPending(snapshot, entry.paneId)) {
-          if (this.watches.get(entry.paneId) === entry) this.watches.delete(entry.paneId);
+          // One snapshot without the pane is not the end of it (a tab moved,
+          // a machine reconnecting): only a pane missing a few ticks running
+          // gives its slot back.
           this.#tell(entry, null);
+          entry.missing = (entry.missing ?? 0) + 1;
+          if (entry.missing >= MISSING_TICKS && this.watches.get(entry.paneId) === entry) this.watches.delete(entry.paneId);
         }
       }
       await eachLimited(blocked, READS_AT_ONCE, async ({ entry, agent }) => {
