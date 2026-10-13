@@ -569,8 +569,6 @@ export function agentStatusLabel(status) {
   return status === "blocked" ? "Needs your answer" : status === "done" ? "Done" : status === "working" ? "Working" : status;
 }
 
-// The line under a session's name: the folder it runs in, unless that only
-// repeats the name or is unknown.
 // The folder a pane works in, by its last name; "" when unknown.
 export function paneFolder(pane) {
   const cwd = [pane?.foreground_cwd, pane?.cwd].find((value) => typeof value === "string" && value.trim() !== "");
@@ -585,10 +583,10 @@ export function paneDisplayTitle(named, pane, fallback = "Terminal") {
   return named || paneFolder(pane) || fallback;
 }
 
+// The line under a session's name: the folder it runs in, unless that only
+// repeats the name or is unknown.
 export function paneSubtitle(title, pane) {
-  const cwd = [pane?.foreground_cwd, pane?.cwd].find((value) => typeof value === "string" && value.trim() !== "");
-  if (!cwd) return "";
-  const name = cwd.trim().replace(/[\\/]+$/u, "").split(/[\\/]/u).pop() ?? "";
+  const name = paneFolder(pane);
   if (name === "") return "";
   return name.toLowerCase() === String(title ?? "").trim().toLowerCase() ? "" : name;
 }
