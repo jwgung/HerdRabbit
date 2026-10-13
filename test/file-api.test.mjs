@@ -229,9 +229,10 @@ test("a slow upload outlasts the request timeout while it keeps sending", async 
 });
 
 test("an upload that goes quiet is dropped and leaves no file", async (context) => {
-  const app = await startServer({ maxTransferBytes: Infinity, requestTimeoutMs: 100, uploadIdleMs: 150 });
+  const app = await startServer({ maxTransferBytes: Infinity, requestTimeoutMs: 100, uploadIdleMs: 300 });
   context.after(() => closeServer(app.server));
 
+  const started = Date.now();
   const result = await trickle(app, {
     path: "/api/files/stalled.bin",
     headers: uploadHeaders({ Origin: app.baseUrl, "Content-Length": "8" }),
@@ -239,6 +240,8 @@ test("an upload that goes quiet is dropped and leaves no file", async (context) 
     gapMs: 10_000,
   });
   assert.ok(result.error, "the connection is cut");
+  // close to the idle period after the last byte, not up to twice it
+  assert.ok(Date.now() - started < 300 * 1.5, `cut after ${Date.now() - started}ms`);
   assert.deepEqual(await app.files.list(), []);
 });
 

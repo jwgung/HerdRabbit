@@ -679,11 +679,15 @@ export function createHerdrHttpServer({
       // Quiet for too long, not slow overall: a multi-GB file over a slow link
       // finishes. Bytes are counted on the socket because a data listener on
       // the request would start it flowing before the route reads the body.
+      // Looked at four times per idle period, so a stall ends close to
+      // uploadIdleMs after the last byte, not up to twice that.
       let seen = request.socket.bytesRead;
+      let lastProgress = Date.now();
       timer = setInterval(() => {
-        if (request.socket.bytesRead === seen) request.destroy();
-        else seen = request.socket.bytesRead;
-      }, uploadIdleMs);
+        const read = request.socket.bytesRead;
+        if (read !== seen) { seen = read; lastProgress = Date.now(); return; }
+        if (Date.now() - lastProgress >= uploadIdleMs) request.destroy();
+      }, Math.max(1, Math.floor(uploadIdleMs / 4)));
       timer.unref?.();
       // The body is in; what follows (a remote rename) has its own limit.
       request.once("end", () => clearInterval(timer));
