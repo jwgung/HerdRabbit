@@ -41,7 +41,6 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 - Read a Claude Code or Codex pane as a chat: its conversation as turns, the agent's tool calls folded under one "Worked for …" row, older turns loaded as you scroll up. A **Chat** / **Terminal** switch in the pane header (or `Ctrl`/`Cmd`+`J`) flips between the two without reconnecting anything
 - Answer what a blocked agent asks (tool approvals, questions, menus) with buttons on a card at the bottom of the chat, or from a banner over the terminal
 - Each pane keeps its own unsent draft, also across a reload
-- Queue messages for the next turn while the agent works: they wait over the composer and go one per turn, in order, when it is ready
 - Send text and shell commands, or use a two-row extra-key bar (Ctrl/Alt/Shift, Esc, Tab, Home/End, PgUp/PgDn, arrows, slash, minus and Enter by default; edit it with **Edit keys**). Select modifiers, then tap a key or type it on your keyboard (for example Ctrl → End or Ctrl → C). Modifiers clear after one send or when switching panes. Ordinary composer shortcuts remain local unless a screen modifier is selected.
 - Create shell workspaces and tabs, rename workspaces and sessions, and close tabs or workspaces after confirmation
 - View images, video, audio, Markdown and text in the browser instead of downloading them first
@@ -325,17 +324,13 @@ When herdr reports a pane blocked, the server reads the pane's screen and turns 
 
 Pressing an option posts the card's id: the server reads the screen again, refuses with `409 prompt_changed` if the prompt is no longer the one shown (the card then refreshes), sends the cursor moves, and sends the Enter only once the screen shows the cursor on the chosen row. Cards are pushed over the terminal socket only for the selected pane, and only while it is blocked. Herdr machine panes work the same way.
 
-### Queued messages
-
-While the selected pane's agent is working, or waiting on a prompt card, the send button switches to queue mode and Enter queues the message for the next turn instead of typing it into the busy terminal. Queued messages are listed above the composer in both lenses (the Chat lens also shows them as "Queued" bubbles at the end of the conversation), where each can be edited while it waits, moved up or down, cancelled, or sent now. The send button then opens a small menu with **Queue for next turn** and **Send now**; `Enter` queues without the menu and `Alt`+`Enter` sends what is typed at once, as before. When the agent is idle or done, the server sends the first queued message as one bracketed paste followed by Enter, then waits until the agent has started on it (or 10 seconds pass) before the next one can go, so each message gets its own turn. Nothing is delivered while a prompt card is up or a password prompt is on screen, and an answer to a password prompt is never queued. The queue lives in the server's memory, so it survives a page reload and shows on every device, but not a service restart; at most 20 messages wait per pane. A message that fails to send is marked and holds the rest until it is retried or removed. Herdr machine panes work the same way.
-
 While the pane shows a password prompt (`[sudo] password for …:`, `Password:`, a passphrase or PIN), a message sent from the composer is not kept in its input history or in notification requests.
 
 ### Extra keys and drafts
 
 The two-row key bar under the terminal can be edited. Tap the pencil at its end (**Edit keys**) to open a window where you can add keys from a list (named keys, F1-F12, and the Ctrl, Alt and Shift latches), remove them, and reorder them by dragging a row on a desktop or with each row's up and down buttons on a touch screen. **Custom combination** adds a chord such as `Ctrl`+`R`, `Ctrl`+`Shift`+`Z` or `Ctrl`+`Shift`+`F5` from a base key (or any single character) and the modifiers you pick; a saved combination always sends exactly that chord, while a plain key still takes the Shift, Ctrl and Alt you latched. The layout is saved in this browser, up to 40 keys, and applies at once; **Reset to default** brings back the original bar. The bar stays hidden in the Chat lens.
 
-Each pane keeps its own unsent composer text. Opening another pane saves what you typed and shows that pane's draft; a reload brings the drafts back (up to 30 panes, 8000 characters each, kept a week, stored in this browser). A draft is removed when its message is sent or queued. Text sent as a password answer, or refused from the queue because the pane asks for a password, is not kept as a draft.
+Each pane keeps its own unsent composer text. Opening another pane saves what you typed and shows that pane's draft; a reload brings the drafts back (up to 30 panes, 8000 characters each, kept a week, stored in this browser). A draft is removed when its message is sent. Text sent as a password answer is not kept as a draft.
 
 ### Input
 

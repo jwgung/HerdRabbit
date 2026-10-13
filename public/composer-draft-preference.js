@@ -1,8 +1,8 @@
 // Adapted from herdr-web-ui (MIT), src/lib/draft.ts and composerDraft.ts: each
 // pane keeps the message typed but not sent. The drafts live in memory and are
 // mirrored to localStorage, a bounded number of panes and a bounded size each.
-// Only unsent text goes here: whoever sends or queues a message clears it first.
-import { secretPrompt } from "./secret-prompt.js?v=1.2.30";
+// Only unsent text goes here: whoever sends a message clears it first.
+import { secretPrompt } from "./secret-prompt.js?v=1.2.31";
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "herdrbridge-composer-drafts";
 export const MAX_DRAFT_LENGTH = 8_000;
