@@ -156,6 +156,8 @@ export function createPromptDock({ document = globalThis.document, dock, connect
   function setCard(next, { keepError = false } = {}) {
     const changed = cardVersion(next ?? null) !== cardVersion(card);
     const moved = (next?.id ?? null) !== (card?.id ?? null);
+    // a prompt that went is answered: the same one asked again shows its banner again
+    if (moved && card) dismissed.delete(card.id);
     card = next ?? null;
     // an answer on its way ticks the card itself: its controls wait for it
     if (changed && !(view.pending && card)) {
@@ -314,10 +316,22 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     if (view.custom.trim()) void answer({ text: view.custom });
   });
 
+  // The server could not watch the pane (too many watched): read it now, and
+  // ask to watch it again in a while, as long as it is still the one wanted.
+  const REWATCH_MS = 5_000;
+  let rewatchTimer = null;
   connection.onPrompt((message) => {
     if (message.pane_id !== paneId) return;
-    if (message.type === "prompt") setCard(message.card ?? null);
-    else void refresh();
+    if (message.type === "prompt") { setCard(message.card ?? null); return; }
+    void refresh();
+    if (watched !== message.pane_id) return;
+    const id = watched;
+    watch(null);
+    clearTimeout(rewatchTimer);
+    rewatchTimer = setTimeout(() => {
+      rewatchTimer = null;
+      if (id === paneId && watched === null && shouldWatchPrompt(status)) watch(id);
+    }, REWATCH_MS);
   });
 
   return {

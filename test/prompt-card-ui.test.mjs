@@ -108,3 +108,11 @@ test("an answer that lands after the next prompt arrived keeps that prompt on sh
   const success = source.slice(source.indexOf("if (card && card.id !== answered.id)"));
   assert.ok(success.indexOf("return;") < success.indexOf("setCard(null);"), "the next prompt is kept, not cleared");
 });
+
+test("a dismissed banner comes back when the same prompt is asked again, and a refused watch is asked for again", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../public/chat/prompt-card.js", import.meta.url), "utf8");
+  assert.match(source, /if \(moved && card\) dismissed\.delete\(card\.id\);/u);
+  assert.match(source, /watch\(null\);\s*clearTimeout\(rewatchTimer\);\s*rewatchTimer = setTimeout\(/u);
+  assert.match(source, /if \(id === paneId && watched === null && shouldWatchPrompt\(status\)\) watch\(id\);/u);
+});
