@@ -830,5 +830,15 @@ test("a pane is titled by its session's name, else its folder, never by the agen
     "a conversation named after the agent is still a conversation",
   );
   assert.equal(paneDisplayTitle("", { cwd: "/w/api", terminal_title_stripped: "vim" }), "api", "a plain shell keeps its folder");
+  assert.equal(
+    paneDisplayTitle("", { cwd: "/w/api", terminal_title_stripped: "fix-login" }, "Terminal", { agent: "claude" }),
+    "fix-login",
+    "the agent may be named only in its own record",
+  );
+  assert.equal(
+    paneDisplayTitle("", { cwd: "/w/api" }, "Terminal", { agent: "claude", terminal_title_stripped: "fix-login" }),
+    "fix-login",
+    "or carry the title itself",
+  );
   assert.equal(paneDisplayTitle("", { cwd: "/w/api", agent: "bash", terminal_title_stripped: "npm run dev" }), "api");
 });

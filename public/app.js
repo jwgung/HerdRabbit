@@ -1572,7 +1572,7 @@ function paneButton(pane, tab, workspace, { namesSession = false } = {}) {
 
   button.append(agentMark(kind));
 
-  const title = paneDisplayTitle(sessionName, pane, tabLabel || "Terminal");
+  const title = paneDisplayTitle(sessionName, pane, tabLabel || "Terminal", agent);
   const copy = createElement("span", { className: "pane-copy" });
   copy.append(createElement("strong", { className: "pane-title", text: title }));
   const subtitle = paneSubtitle(title, pane);
@@ -2682,7 +2682,7 @@ function renderPaneHeading(pane, tab, workspace) {
     tabLabel,
   ].filter(Boolean).join(" / ");
   // the program's mark says which agent it is; the title says which pane
-  const title = paneDisplayTitle("", pane, tabLabel || "Terminal");
+  const title = paneDisplayTitle("", pane, tabLabel || "Terminal", agent);
   elements.paneTitle.replaceChildren(agentMark(paneAgentKind(pane, agent)), createElement("span", { className: "pane-title-text", text: title }));
   elements.paneTitle.title = displayRecordLabel(agent, displayRecordLabel(pane, "Terminal"));
 }

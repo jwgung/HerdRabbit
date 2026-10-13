@@ -608,9 +608,15 @@ function namesOnlyItsProgram(title) {
 // conversation), with Herdr's spinner already stripped; "" when it only names
 // the program, the user or the folder, and for a plain shell, whose title
 // changes with every command it runs.
-export function paneTerminalTitle(pane) {
-  if (paneAgentKind(pane) === "shell") return "";
-  const value = [pane?.terminal_title_stripped, pane?.terminal_title].find(
+// `agent` is the snapshot's agent record for the pane, when it has one apart.
+export function paneTerminalTitle(pane, agent) {
+  if (paneAgentKind(pane, agent) === "shell") return "";
+  const value = [
+    pane?.terminal_title_stripped,
+    agent?.terminal_title_stripped,
+    pane?.terminal_title,
+    agent?.terminal_title,
+  ].find(
     (title) => typeof title === "string" && title.trim() !== "",
   );
   if (!value) return "";
@@ -624,8 +630,8 @@ export function paneTerminalTitle(pane) {
 // What a pane is called where its program's mark already says which agent it
 // is: its session's name, else the title its program gave it, else its folder,
 // else `fallback`. The agent's name would only repeat the mark.
-export function paneDisplayTitle(named, pane, fallback = "Terminal") {
-  return named || paneTerminalTitle(pane) || paneFolder(pane) || fallback;
+export function paneDisplayTitle(named, pane, fallback = "Terminal", agent = null) {
+  return named || paneTerminalTitle(pane, agent) || paneFolder(pane) || fallback;
 }
 
 // The line under a session's name: the folder it runs in, unless that only
