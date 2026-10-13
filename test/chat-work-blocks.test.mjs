@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { lineDiff } from "../public/chat/diff.js";
 import {
+  commandText,
   formatWorkDuration,
   isLiveWorkTurn,
   splitTurn,
@@ -84,6 +85,16 @@ test("a known tool reads as a verb when its summary is the call's own command or
   assert.equal(toolVerb(tool("Grep", { pattern: "x" })), null, "an unknown tool keeps its name");
   assert.equal(toolVerb({ ...tool("Bash", { command: "ls" }), summary: "List files" }), null, "a description is not the object");
   assert.equal(toolVerb({ ...tool("Bash", { command: "ls" }), input: "{cut" }), null);
+});
+
+test("Codex's commands and patches read as verbs too", () => {
+  assert.equal(toolVerb(tool("exec_command", { cmd: "git status" })), "Ran");
+  assert.equal(toolVerb({ ...tool("shell", { command: ["bash", "-lc", "npm test"] }), summary: "npm test" }), "Ran");
+  assert.equal(toolVerb({ kind: "tool", name: "apply_patch", summary: "src/a.ts", input: "*** Begin Patch\n*** Update File: src/a.ts\n*** End Patch" }), "Edited");
+  assert.equal(toolVerb({ kind: "tool", name: "apply_patch", summary: "x", input: "not a patch" }), null);
+  assert.equal(commandText(["bash", "-lc", "make"]), "make");
+  assert.equal(commandText(["ls", "-la"]), "ls -la");
+  assert.equal(commandText([1]), undefined);
 });
 
 test("a TodoWrite call reads as its list", () => {

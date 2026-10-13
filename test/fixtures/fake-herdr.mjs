@@ -169,6 +169,13 @@ if (args[0] === "pane" && args[1] === "read") {
   process.exit(0);
 }
 
+if (args[0] === "pane" && args[1] === "process-info") {
+  const paneId = args[args.indexOf("--pane") + 1];
+  const known = state.processInfo?.[paneId];
+  success({ process_info: { pane_id: paneId, shell_pid: null, foreground_processes: [], ...known } });
+  process.exit(0);
+}
+
 if (args[0] === "pane" && args[1] === "send-text") {
   const paneId = args[2];
   const separatorIndex = args.indexOf("--");

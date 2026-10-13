@@ -1,4 +1,4 @@
-import { outputTextForUpdate } from "./ui-model.js?v=1.2.26";
+import { outputTextForUpdate } from "./ui-model.js?v=1.2.27";
 
 const CONVERSATION_MESSAGES = new Set(["conversation-changed", "conversation-unavailable"]);
 const PROMPT_MESSAGES = new Set(["prompt", "prompt-unavailable"]);
@@ -125,7 +125,7 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
     onAttach(listener) { attachListeners.add(listener); },
     onReconnect(listener) { reconnectListeners.add(listener); },
     onConversation(listener) { conversationListeners.add(listener); },
-    // Hears when the pane's Claude transcript changes, until unwatched.
+    // Hears when the pane's transcript (Claude's or Codex's) changes, until unwatched.
     watchConversation(paneId) {
       if (conversations.has(paneId)) return;
       conversations.add(paneId);

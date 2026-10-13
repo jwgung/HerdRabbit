@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
-import { claudeProjectDir, forgetConversationState } from "../src/conversation/claude.mjs";
+import { claudeProjectDir } from "../src/conversation/claude.mjs";
+import { forgetConversationState } from "../src/conversation/pages.mjs";
 import { ConversationMonitor } from "../src/conversation/monitor.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
@@ -113,9 +114,9 @@ test("409 history_changed for a cursor that no longer names this transcript", as
   }
 });
 
-test("a pane that is not Claude, or has no session, is conversation_unavailable with a reason", async (context) => {
+test("a pane of an agent the chat does not read, or with no session, is conversation_unavailable with a reason", async (context) => {
   const { get } = await fixture(context);
-  for (const [pane, reason] of [["w1:p2", "not_claude"], ["w1:p3", "no_session_id"], ["w9:p9", "pane_not_found"]]) {
+  for (const [pane, reason] of [["w1:p2", "not_supported_agent"], ["w1:p3", "no_session_id"], ["w9:p9", "pane_not_found"]]) {
     const response = await get(`/api/panes/${encodeURIComponent(pane)}/conversation`);
     assert.equal(response.status, 404);
     assert.deepEqual((await response.json()).error.details, { reason });
@@ -208,7 +209,7 @@ test("the monitor stats remote files more slowly, reports unavailability, and ru
   const remote = { remote: true, stat: async (path) => { stats.push(path); return { identity: "1-2", size: stats.length, mtimeMs: 1 }; } };
   const monitor = new ConversationMonitor({
     resolve: async (paneId) => {
-      if (paneId === "gone") { const { ConversationUnavailable } = await import("../src/conversation/claude.mjs"); throw new ConversationUnavailable("not_claude"); }
+      if (paneId === "gone") { const { ConversationUnavailable } = await import("../src/conversation/pages.mjs"); throw new ConversationUnavailable("not_supported_agent"); }
       return { serverId: "machine-1", store: remote, session: SESSION, path: "/h/.claude/projects/-w/x.jsonl" };
     },
     statIntervalMs: 5,

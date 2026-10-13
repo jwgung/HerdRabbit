@@ -2,7 +2,9 @@
 // (c) 2026 devswha), most of them captured live from Claude Code 2.1.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answerSteps, parseClaudePrompt, parseFallbackPrompt, publicCard } from "../src/prompt/claude.mjs";
+import { parseClaudePrompt } from "../src/prompt/claude.mjs";
+import { parseFallbackPrompt } from "../src/prompt/fallback.mjs";
+import { answerSteps, publicCard } from "../src/prompt/screen.mjs";
 import { indexAtColumn, stringWidth } from "../src/prompt/text-width.mjs";
 import { approvalScreen, questionScreen } from "./fixtures/claude-prompt.mjs";
 

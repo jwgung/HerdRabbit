@@ -378,3 +378,28 @@ test("one look takes one snapshot of this PC and at most one of each herdr machi
   assert.equal(heard.get("machine-lab!w1:p2"), null);
   assert.deepEqual(remote.reads.map((read) => read.paneId).sort(), ["w1:p1", "w1:p3"]);
 });
+
+test("a herdr machine's Codex pane shows its approval card and takes the answer's keys over its client", async (context) => {
+  const local = fakePromptHerdr(panes());
+  const remote = fakePromptHerdr({
+    panes: [{ pane_id: "w1:p1", agent: "codex", agent_status: "blocked" }],
+    menus: { "w1:p1": { agent: "codex", cursor: 0 } },
+  });
+  const machines = {
+    listed: true,
+    profiles: () => [{ id: "machine-lab", name: "lab", transport: "machine", enabled: true }],
+    client: () => remote,
+  };
+  const herdr = new MultiServerClient({ local, machines });
+  await herdr.snapshot();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const { get, answer } = await fixture(context, { herdr });
+  const { card } = (await get("machine-lab!w1:p1")).body;
+  assert.equal(card.agent, "codex");
+  assert.equal(card.kind, "approval");
+  assert.equal(card.title, "Would you like to run the following command?");
+  assert.equal((await answer("machine-lab!w1:p1", { cardId: card.id, option: 1 })).status, 200);
+  assert.deepEqual(remote.sent.map((item) => item.keys), [["down"], ["enter"]]);
+  assert.deepEqual(remote.answered, [{ paneId: "w1:p1", answer: "Yes, and don't ask again for commands that start with npm" }]);
+  assert.deepEqual(local.sent, []);
+});

@@ -1,3 +1,5 @@
+import { CODEX_APPROVAL_ROWS, codexApprovalScreen } from "./codex-prompt.mjs";
+
 // A Claude pane blocked on a tool approval, for the prompt card's tests and
 // browser check: the screen Claude Code 2.1 draws, a cursor that the keys
 // move, and every key and text that reached the pane.
@@ -46,7 +48,8 @@ export function questionScreen({ question = "Which datasets?", rows = QUESTION_R
 
 // An in-process herdr with panes, each either a menu or plain output.
 // `menus[paneId]` = { command, rows, cursor }; keys move it, Enter answers
-// it (the pane goes back to work), Esc dismisses it. `questions[paneId]` =
+// it (the pane goes back to work), Esc dismisses it; `agent: "codex"` draws it
+// as Codex's approval. `questions[paneId]` =
 // { question, rows, checked, cursor } is a multiple choice: Enter ticks or
 // unticks the row, → answers it with the ticked rows. `snapshots` counts the
 // snapshots asked for.
@@ -68,6 +71,7 @@ export function fakePromptHerdr({ panes, agents = [], menus = {}, outputs = {}, 
       herdr.reads.push({ paneId, ...options });
       const menu = menus[paneId];
       if (questions[paneId]) return questionScreen(questions[paneId]);
+      if (menu?.agent === "codex") return codexApprovalScreen(menu);
       return menu ? approvalScreen(menu) : outputs[paneId] ?? "$ ";
     },
     async sendKeys(paneId, keys) {
@@ -96,13 +100,13 @@ export function fakePromptHerdr({ panes, agents = [], menus = {}, outputs = {}, 
       const menu = menus[paneId];
       if (!menu) return;
       for (const key of keys) {
-        const rows = menu.rows ?? APPROVAL_ROWS;
+        const rows = menu.rows ?? (menu.agent === "codex" ? CODEX_APPROVAL_ROWS : APPROVAL_ROWS);
         if (key === "down") menu.cursor = Math.min(rows.length - 1, menu.cursor + 1);
         else if (key === "up") menu.cursor = Math.max(0, menu.cursor - 1);
         else if (key === "enter" || key === "esc") {
           answered.push({ paneId, answer: key === "enter" ? rows[menu.cursor] : "esc" });
           delete menus[paneId];
-          outputs[paneId] = `● ${key === "enter" ? "Running npm test" : "Cancelled"}\n`;
+          outputs[paneId] = `${menu.agent === "codex" ? "•" : "●"} ${key === "enter" ? "Running npm test" : "Cancelled"}\n`;
           const record = statusOf(paneId);
           if (record) record[("agent_status" in record) ? "agent_status" : "state"] = "working";
           break;

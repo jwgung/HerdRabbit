@@ -10,6 +10,7 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/PromptCard.tsx
 // and PromptCard.css, rewritten as plain DOM code without React.
+import { agentLabel } from "./chat-activity.js?v=1.2.27";
 
 // After an answer, the card is looked for once more this much later.
 const RECHECK_AFTER_ANSWER_MS = 1_500;
@@ -47,7 +48,7 @@ export function cardVersion(card) {
 
 export function bannerText(card) {
   if (!card) return "";
-  return card.fallback ? "This pane is waiting for input" : `Claude is asking: ${card.title}`;
+  return card.fallback ? "This pane is waiting for input" : `${agentLabel(card.agent)} is asking: ${card.title}`;
 }
 
 // What the dock shows: nothing, the card (Chat lens, or opened over the
@@ -69,7 +70,7 @@ function element(document, tag, { className, text, attrs } = {}) {
 
 function renderCard(document, card, view) {
   const section = element(document, "section", { className: `prompt-card${card.fallback ? " is-fallback" : ""}`,
-    attrs: { role: "region", "aria-label": card.fallback ? "Waiting for input" : "Claude is asking", "aria-busy": String(view.pending), "data-card-id": card.id } });
+    attrs: { role: "region", "aria-label": card.fallback ? "Waiting for input" : `${agentLabel(card.agent)} is asking`, "aria-busy": String(view.pending), "data-card-id": card.id } });
   const header = element(document, "header", { className: "prompt-card-header" });
   header.append(element(document, "h2", { text: card.title }));
   if (view.overlay) {

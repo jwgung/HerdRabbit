@@ -1,4 +1,5 @@
-// Which lens a pane shows: its Claude conversation as a chat, or its terminal.
+// Which lens a pane shows: its agent's conversation (Claude Code's or
+// Codex's) as a chat, or its terminal.
 // The last one chosen is kept per pane; a pane never chosen for opens in Chat
 // on a phone-sized or touch layout and in Terminal on a desktop.
 export const LENS_STORAGE_KEY = "herdrbridge-pane-lens";
@@ -53,20 +54,35 @@ export function chooseLens({ stored = null, chatAvailable = false, compact = fal
   return wanted === "chat" && !chatAvailable ? "terminal" : wanted;
 }
 
-// Whether a snapshot names this pane's agent as Claude Code. Only a Claude
-// pane has a conversation the server can read.
+// The agents whose conversation the server can read.
+export const CHAT_AGENTS = Object.freeze(["claude", "codex"]);
+
+function agentNames(pane, agent) {
+  return [pane?.agent, pane?.agent_session?.agent, agent?.agent]
+    .filter((name) => typeof name === "string" && name.trim()).map((name) => name.trim().toLowerCase());
+}
+
+// Whether a snapshot names this pane's agent as Claude Code.
 export function isClaudePane(pane, agent) {
-  const names = [pane?.agent, pane?.agent_session?.agent, agent?.agent];
-  return names.some((name) => typeof name === "string" && name.toLowerCase() === "claude");
+  return agentNames(pane, agent).includes("claude");
+}
+
+// The agent the snapshot names for this pane when the chat can read its
+// conversation ("claude" or "codex"), else null. The pane's own agent comes
+// first, as the server reads it.
+export function chatAgent(pane, agent) {
+  const [name] = agentNames(pane, agent);
+  return CHAT_AGENTS.includes(name) ? name : null;
 }
 
 // What the disabled Chat button says, by the reason the server gave.
 const UNAVAILABLE_TEXT = {
   pane_not_found: "Chat is unavailable: this pane is gone.",
   not_claude: "Chat is only for Claude Code panes.",
-  no_session_id: "Chat appears once Claude Code reports its session.",
+  not_supported_agent: "Chat is only for Claude Code and Codex panes.",
+  no_session_id: "Chat appears once the agent reports its session.",
   server_unavailable: "Chat is unavailable: the machine is not connected.",
-  transcript_missing: "Chat is unavailable: Claude's conversation file was not found.",
+  transcript_missing: "Chat is unavailable: the agent's conversation file was not found.",
 };
 
 export function chatUnavailableText(reason) {
@@ -75,5 +91,5 @@ export function chatUnavailableText(reason) {
 
 // Reasons that may change while the pane stays: worth asking again later.
 export function chatMayBecomeAvailable(reason) {
-  return reason !== "not_claude";
+  return reason !== "not_claude" && reason !== "not_supported_agent";
 }

@@ -155,6 +155,29 @@ done
 exit 0
 `;
 
+// Codex rollouts (conversation/codex.mjs), in the store an SSH command's
+// Codex would use. $1: a thread id (a UUID). The newest
+// sessions/YYYY/MM/DD/rollout-<time>-<thread>.jsonl, links left out.
+const LOCATE_CODEX_SCRIPT = `LC_ALL=C; export LC_ALL
+case "$CODEX_HOME" in /*) h=$CODEX_HOME ;; *) h=$HOME/.codex ;; esac
+[ -d "$h/sessions" ] || exit 0
+f=$(find "$h/sessions" -mindepth 4 -maxdepth 4 -type f -name "rollout-*-$1.jsonl" 2>/dev/null | sort | tail -n 1)
+[ -n "$f" ] && printf "%s\\0" "$f"
+exit 0
+`;
+
+// $1: a rollout path herdr reported. Its physical path when it is a file
+// (not a link) inside that store's sessions, else nothing.
+const CODEX_ROLLOUT_SCRIPT = `LC_ALL=C; export LC_ALL
+case "$CODEX_HOME" in /*) h=$CODEX_HOME ;; *) h=$HOME/.codex ;; esac
+r=$(cd -P -- "$h/sessions" 2>/dev/null && pwd -P) || exit 0
+d=$(cd -P -- "$(dirname -- "$1")" 2>/dev/null && pwd -P) || exit 0
+p=$d/$(basename -- "$1")
+if [ -L "$p" ] || [ ! -f "$p" ]; then exit 0; fi
+case "$p" in "$r"/*) printf "%s\\0" "$p" ;; esac
+exit 0
+`;
+
 // $1: a transcript. Its device, inode, size and time, or 64 when it is gone.
 const TRANSCRIPT_STAT_SCRIPT = `${PRELUDE}[ -e "$1" ] || exit 64
 [ -f "$1" ] || exit 67
@@ -702,6 +725,47 @@ export class MachineFiles {
     }
     if (!path.endsWith(`/${session}.jsonl`) || !Buffer.from(path, "utf8").equals(raw)) throw failed();
     return path;
+  }
+
+  // Where a Codex thread's rollout is on the machine, or null.
+  async locateCodexRollout(thread) {
+    if (typeof thread !== "string" || !TRANSCRIPT_SESSION.test(thread)) {
+      throw new FileAccessError(400, "invalid_path", "That rollout cannot be looked up on an SSH machine.");
+    }
+    const link = this.#ready();
+    const [raw] = fields(await this.#command(link, LOCATE_CODEX_SCRIPT, [thread]));
+    if (!raw) return null;
+    const path = raw.toString("utf8");
+    // what comes back is used as an argument again: it must be the file asked for
+    try {
+      transcriptPath(path);
+    } catch {
+      throw failed();
+    }
+    if (!path.endsWith(`-${thread}.jsonl`) || !Buffer.from(path, "utf8").equals(raw)) throw failed();
+    return path;
+  }
+
+  // The rollout herdr reported for a Codex pane, as its physical path when it
+  // lies in the machine's Codex sessions; null otherwise.
+  async codexRollout(path) {
+    let checked;
+    try {
+      checked = transcriptPath(path);
+    } catch {
+      return null;
+    }
+    const link = this.#ready();
+    const [raw] = fields(await this.#command(link, CODEX_ROLLOUT_SCRIPT, [checked]));
+    if (!raw) return null;
+    const physical = raw.toString("utf8");
+    try {
+      transcriptPath(physical);
+    } catch {
+      throw failed();
+    }
+    if (!Buffer.from(physical, "utf8").equals(raw)) throw failed();
+    return physical;
   }
 
   // A transcript's identity, size and time, or null when it is gone.

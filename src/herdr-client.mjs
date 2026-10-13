@@ -292,6 +292,13 @@ export class HerdrClient {
     return this.#run(["tab", "close", safeTabId], { json: false });
   }
 
+  // The pane's processes as herdr sees them (its shell and the foreground
+  // group, each with pid and argv): where a Codex pane's rollout is open.
+  async paneProcessInfo(paneId) {
+    const safePaneId = validatePaneId(paneId);
+    return this.#run(["pane", "process-info", "--pane", safePaneId]);
+  }
+
   // `source` "detection" is the screen as herdr reads it for agent states:
   // the live bottom of the pane, whatever the viewport is scrolled to.
   async readPane(paneId, { lines = 160, format = "ansi", source = "recent-unwrapped" } = {}) {

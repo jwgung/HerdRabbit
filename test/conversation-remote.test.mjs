@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MachineFiles, shellQuote } from "../src/machine-files.mjs";
-import { claudeProjectDir, forgetConversationState } from "../src/conversation/claude.mjs";
+import { claudeProjectDir } from "../src/conversation/claude.mjs";
+import { forgetCodexState } from "../src/conversation/codex.mjs";
+import { forgetConversationState } from "../src/conversation/pages.mjs";
 import { ConversationMonitor } from "../src/conversation/monitor.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { REMOTE_LIMITS, machineTranscriptStore } from "../src/conversation/stores.mjs";
@@ -21,7 +23,7 @@ function fakeSsh(home, env = {}) {
   const spawnProcess = (binary, args, options) => {
     assert.equal(binary, "ssh");
     commands.push(args.at(-1));
-    const child = spawn("sh", ["-c", args.at(-1)], { ...options, cwd: home, env: { ...process.env, CLAUDE_CONFIG_DIR: "", HOME: home, ...env } });
+    const child = spawn("sh", ["-c", args.at(-1)], { ...options, cwd: home, env: { ...process.env, CLAUDE_CONFIG_DIR: "", CODEX_HOME: "", HOME: home, ...env } });
     child.kill = () => { child.stdin?.destroy(); child.stdout?.destroy(); return true; };
     return child;
   };
@@ -159,4 +161,74 @@ test("a machine store's limits are the slower link's", () => {
   assert.equal(store.remote, true);
   assert.equal(store.key, SERVER);
   assert.ok(store.windowBytes <= 1024 * 1024);
+});
+
+// ---------------------------------------------------------------------------
+// Codex on a Herdr machine.
+
+const THREAD = "019da5c2-66fd-7021-b565-5e94406b028e";
+
+async function rolloutIn(codexHome, thread = THREAD, text = jsonl([
+  { type: "session_meta", payload: { id: thread, cwd: "/srv/app", source: "cli" } },
+  { type: "event_msg", payload: { type: "task_started" } },
+  { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "hello codex" }] } },
+  { type: "response_item", payload: { type: "function_call", call_id: "call_1", name: "exec_command", arguments: "{\"cmd\":\"ls\"}" } },
+  { type: "response_item", payload: { type: "function_call_output", call_id: "call_1", output: "a b" } },
+  { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: "hi" }] } },
+]), day = "2026/09/22") {
+  const folder = join(codexHome, "sessions", ...day.split("/"));
+  await mkdir(folder, { recursive: true });
+  const path = join(folder, `rollout-2026-09-22T01-00-00-${thread}.jsonl`);
+  await writeFile(path, text);
+  return path;
+}
+
+test("finds a remote Codex rollout by its thread, in the machine's CODEX_HOME", async (context) => {
+  const { home, files, commands } = await machine(context);
+  assert.equal(await files.locateCodexRollout(THREAD), null);
+  await rolloutIn(join(home, ".codex"), THREAD, undefined, "2026/09/01");
+  const newest = await rolloutIn(join(home, ".codex"), THREAD, undefined, "2026/10/01");
+  assert.equal(await files.locateCodexRollout(THREAD), newest);
+  assert.ok(commands.at(-1).endsWith(` herdrabbit ${shellQuote(THREAD)}`));
+  const elsewhere = await machine(context, (dir) => ({ CODEX_HOME: join(dir, "work-codex") }));
+  await rolloutIn(join(elsewhere.home, ".codex"));
+  const configured = await rolloutIn(join(elsewhere.home, "work-codex"));
+  assert.equal(await elsewhere.files.locateCodexRollout(THREAD), configured);
+  await assert.rejects(files.locateCodexRollout("$(touch pwned)"), { code: "invalid_path" });
+});
+
+test("takes a reported remote rollout only inside the machine's Codex sessions", async (context) => {
+  const { home, files, commands } = await machine(context);
+  const path = await rolloutIn(join(home, ".codex"));
+  assert.equal(await files.codexRollout(path), path);
+  assert.equal(await files.codexRollout(`${home}/.codex/sessions/2026/../2026/09/22/${path.split("/").at(-1)}`), path);
+  const outside = join(home, "elsewhere.jsonl");
+  await writeFile(outside, "{}\n");
+  assert.equal(await files.codexRollout(outside), null);
+  await symlink(outside, join(home, ".codex", "sessions", "2026", "09", "22", "link.jsonl"));
+  assert.equal(await files.codexRollout(join(home, ".codex", "sessions", "2026", "09", "22", "link.jsonl")), null);
+  const before = commands.length;
+  for (const value of ["relative.jsonl", "/tmp/new\nline.jsonl", "/tmp/x.txt", 42]) assert.equal(await files.codexRollout(value), null);
+  assert.equal(commands.length, before);
+});
+
+test("pages a herdr machine's Codex pane over SSH, by the thread or the path herdr reports", async (context) => {
+  forgetConversationState();
+  forgetCodexState();
+  const { home, files } = await machine(context);
+  const path = await rolloutIn(join(home, ".codex"));
+  const panes = [
+    { pane_id: `${SERVER}!w1:p1`, server_id: SERVER, agent: "codex", agent_session: { agent: "codex", kind: "id", value: THREAD }, cwd: "/srv/app" },
+    { pane_id: `${SERVER}!w1:p2`, server_id: SERVER, agent: "codex", agent_session: { agent: "codex", kind: "path", value: path }, cwd: "/srv/app" },
+    { pane_id: `${SERVER}!w1:p3`, server_id: SERVER, agent: "codex", agent_session: { agent: "codex", kind: "path", value: "/etc/passwd.jsonl" }, cwd: "/srv/app" },
+  ];
+  const herdr = { async snapshot() { return { panes }; }, fileClient: (serverId) => (serverId === SERVER ? files : null) };
+  const service = new ConversationService({ herdr, localStore: { key: "local" } });
+  for (const paneId of [`${SERVER}!w1:p1`, `${SERVER}!w1:p2`]) {
+    const page = await service.page(paneId);
+    assert.equal(page.source, "codex-transcript");
+    assert.deepEqual(page.turns.map((turn) => turn.parts.map((part) => part.text ?? part.summary)), [["hello codex"], ["ls", "hi"]]);
+  }
+  assert.deepEqual(await service.toolOutput(`${SERVER}!w1:p1`, "call_1"), { id: "call_1", output: "a b", output_size: 3, truncated: false });
+  await assert.rejects(service.page(`${SERVER}!w1:p3`), (error) => error.reason === "transcript_missing");
 });
