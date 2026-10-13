@@ -147,8 +147,8 @@ export function createPendingMessages({ document = globalThis.document, host, co
       const payload = await postJson(`${base()}/${encodeURIComponent(id)}`, { action, ...body });
       if (pane === paneId && Array.isArray(payload?.items)) {
         busy.delete(id);
-        if (action !== "send-now") setItems(payload.items, [], payload.revision);
-        else render();
+        // send-now too: with no push (socket down) its answer is the only news
+        setItems(payload.items, [], payload.revision);
         if (action === "cancel" && payload.typed) error = "Its text was already typed into the pane: clear it there before pressing Enter.";
       }
     } catch (failure) {

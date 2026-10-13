@@ -3076,7 +3076,8 @@ async function queueComposerText(paneId, text) {
   try {
     await pendingMessages.enqueue(paneId, text);
     if (paneKeepsInputHistory(paneId, snapshotRecords())) rememberSentInput(paneId, text);
-    clearComposer();
+    // only the draft that was queued: another pane's, typed meanwhile, stays
+    if (state.selectedPaneId === paneId && elements.terminalInput.value === text) clearComposer();
     setFeedback("");
   } catch (error) {
     setFeedback(error.message, true);

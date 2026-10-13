@@ -49,3 +49,12 @@ test("the list keeps the newest revision it heard, whether it came as an answer 
   assert.match(source, /setItems\(message\.items, message\.removed \?\? \[\], message\.revision\)/u);
   assert.match(source, /paneId = next;\s*items = \[\];\s*revision = -1;/u);
 });
+
+test("a send-now answer updates the list by itself, and a queued draft clears only if it is still the one on screen", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const list = await readFile(new URL("../public/chat/pending-messages.js", import.meta.url), "utf8");
+  const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  assert.doesNotMatch(list, /action !== "send-now"\) setItems/u);
+  assert.match(list, /setItems\(payload\.items, \[\], payload\.revision\);/u);
+  assert.match(app, /if \(state\.selectedPaneId === paneId && elements\.terminalInput\.value === text\) clearComposer\(\);/u);
+});
