@@ -169,12 +169,14 @@ export class PromptService {
 
   // Hears the pane's card (or null) whenever it appears, changes or goes,
   // shared by every page that watches the pane. Returns the call that stops.
-  // A pane the snapshot does not have is let go (told null once): it holds
-  // no place among the watched.
+  // A pane missing from the snapshot a few looks running is told null and
+  // holds no place among the watched, but stays watched: back again, its
+  // card comes to the pages still listening.
   watch(paneId, listener) {
     let entry = this.watches.get(paneId);
     if (!entry) {
-      if (this.watches.size >= MAX_WATCHED_PANES) throw new HttpError(503, "busy", "Too many panes are watched.");
+      const held = [...this.watches.values()].filter((watched) => (watched.missing ?? 0) < MISSING_TICKS).length;
+      if (held >= MAX_WATCHED_PANES) throw new HttpError(503, "busy", "Too many panes are watched.");
       entry = { paneId, listeners: new Set(), known: undefined, card: null };
       this.watches.set(paneId, entry);
     }
@@ -238,11 +240,10 @@ export class PromptService {
         else if (agent) this.#tell(entry, null);
         else if (!serverPending(snapshot, entry.paneId)) {
           // One snapshot without the pane is not the end of it (a tab moved,
-          // a machine reconnecting): only a pane missing a few ticks running
-          // gives its slot back.
+          // a machine reconnecting); a few running give its place back, and
+          // its listeners keep it until they stop watching.
           this.#tell(entry, null);
           entry.missing = (entry.missing ?? 0) + 1;
-          if (entry.missing >= MISSING_TICKS && this.watches.get(entry.paneId) === entry) this.watches.delete(entry.paneId);
         }
       }
       await eachLimited(blocked, READS_AT_ONCE, async ({ entry, agent }) => {

@@ -289,10 +289,10 @@ test("a watched pane the snapshot does not have is let go and holds no place", a
   for (let index = 0; index < 16; index += 1) prompts.watch(`w9:p${index}`, (card) => heard.push(card));
   assert.throws(() => prompts.watch("w1:p1", () => {}), /Too many panes/);
   // a few looks without them, not one, give the places back
-  for (let tries = 0; tries < 200 && prompts.watches.size > 0; tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.ok(herdr.snapshots >= 3);
+  const gone = () => [...prompts.watches.values()].every((entry) => (entry.missing ?? 0) >= 3);
+  for (let tries = 0; tries < 200 && !gone(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.ok(gone());
   assert.ok(heard.length >= 16 && heard.every((card) => card === null));
-  assert.equal(prompts.watches.size, 0);
   assert.deepEqual(herdr.reads, []);
   const cards = [];
   prompts.watch("w1:p1", (card) => cards.push(card));
@@ -300,10 +300,10 @@ test("a watched pane the snapshot does not have is let go and holds no place", a
   assert.equal(cards[0].id, CARD_ID);
 });
 
-test("a pane missing from one snapshot keeps its watch, and its card comes once it is back", async (context) => {
+test("a pane missing from the snapshot for a while keeps its watch, and its card comes once it is back", async (context) => {
   const herdr = fakePromptHerdr(panes());
   const real = herdr.snapshot.bind(herdr);
-  let hide = 1;
+  let hide = 6;
   herdr.snapshot = async () => {
     const snapshot = await real();
     if (hide > 0) {

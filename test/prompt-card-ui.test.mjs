@@ -100,3 +100,11 @@ test("the chat's text size is its own, remembered and bounded", () => {
   assert.equal(pinchedChatFontSize(14, 0, 10), 14);
   assert.equal(chatScale(21), 1.5);
 });
+
+test("an answer that lands after the next prompt arrived keeps that prompt on show", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../public/chat/prompt-card.js", import.meta.url), "utf8");
+  assert.match(source, /if \(card && card\.id !== answered\.id\) \{[^}]*view\.pending = false;[^}]*view\.selected = initialSelection\(card\);/su);
+  const success = source.slice(source.indexOf("if (card && card.id !== answered.id)"));
+  assert.ok(success.indexOf("return;") < success.indexOf("setCard(null);"), "the next prompt is kept, not cleared");
+});
