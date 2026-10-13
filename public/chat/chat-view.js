@@ -5,8 +5,8 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatView.tsx and
 // ChatView.css, rewritten as plain DOM code without React.
-import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.25";
-import { lineDiff } from "./diff.js?v=1.2.25";
+import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.26";
+import { lineDiff } from "./diff.js?v=1.2.26";
 import {
   formatWorkDuration,
   isCommandTool,
@@ -21,16 +21,16 @@ import {
   workStartsOpen,
   workSummary,
   workTitle,
-} from "./work-blocks.js?v=1.2.25";
-import { ConversationLoader } from "./conversation-refresh.js?v=1.2.25";
-import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.25";
+} from "./work-blocks.js?v=1.2.26";
+import { ConversationLoader } from "./conversation-refresh.js?v=1.2.26";
+import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.26";
 import {
   chatMayBecomeAvailable,
   chatUnavailableText,
   chooseLens,
   readPaneLens,
   writePaneLens,
-} from "../lens-preference.js?v=1.2.25";
+} from "../lens-preference.js?v=1.2.26";
 
 // Scrolling this close to the top reads the page before it.
 const LOAD_OLDER_PX = 400;
@@ -147,6 +147,8 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
   let workingSince = null;
   let optimisticUntil = 0;
   let pending = [];
+  // Messages queued for the next turn (public/chat/pending-messages.js).
+  let queued = [];
   let ticker = null;
   let activityKey = null;
   let visible = false;
@@ -372,7 +374,7 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
     if (working && workingSince === null) workingSince = now;
     if (!working && status !== "working") workingSince = null;
     const text = working ? workingText(workingSince, now) : "";
-    const key = `${pending.map((item) => `${item.at}:${item.text}`).join("\n")}|${text}`;
+    const key = `${pending.map((item) => `${item.at}:${item.text}`).join("\n")}|${text}|${JSON.stringify(queued)}`;
     if (key !== activityKey) {
       activityKey = key;
       const nodes = pending.map((item) => {
@@ -387,6 +389,15 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
         row.append(element(document, "span", { className: "chat-working-dots", attrs: { "aria-hidden": "true" } }),
           element(document, "span", { text }));
         nodes.push(row);
+      }
+      for (const item of queued) {
+        const label = item.state === "sending" ? "Sending…" : item.state === "failed" ? "Not sent" : "Queued";
+        const article = element(document, "article", { className: "chat-turn chat-turn-user is-queued",
+          attrs: { "aria-label": label, "data-state": item.state, "data-queued-id": item.id } });
+        const bubble = element(document, "div", { className: "chat-bubble" });
+        bubble.append(element(document, "p", { className: "chat-pending-text", text: item.text }));
+        article.append(bubble, element(document, "div", { className: "chat-turn-meta", text: label }));
+        nodes.push(article);
       }
       activity.replaceChildren(...nodes);
     }
@@ -675,6 +686,12 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
       if (stick) keepAtEnd();
       return message;
     },
+    // The messages queued for the next turn, shown after the working row.
+    setQueued(items) {
+      queued = (items ?? []).map((item) => ({ id: item.id, text: item.text, state: item.state }));
+      drawActivity();
+      if (stick) keepAtEnd();
+    },
     // The send failed: nothing is on its way.
     unsent(message) {
       pending = pending.filter((item) => item !== message);
@@ -735,6 +752,7 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
   storage, layout, connection, fetchJson, isViewablePath = () => false, onOpenPath = () => {}, onCopy = () => {},
   onLensChange = () => {} }) {
   const chats = new Map();
+  const queuedByPane = new Map();
   // paneId -> { state: "checking" | "available" | "unavailable", reason, checkedAt }
   const availability = new Map();
   let paneId = null;
@@ -766,6 +784,7 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
     });
     host.append(chat.root);
     chats.set(id, chat);
+    if (queuedByPane.has(id)) chat.setQueued(queuedByPane.get(id));
     while (chats.size > KEPT_CHATS) {
       const [oldest, dropped] = chats.entries().next().value;
       if (oldest === paneId) break;
@@ -881,6 +900,12 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
       return message;
     },
     unsent(id, message) { chats.get(id)?.unsent(message); },
+    // The pane's queued messages, kept for its chat even while hidden.
+    setQueued(id, items) {
+      if (id === null || id === undefined) return;
+      if (items?.length) queuedByPane.set(id, items); else queuedByPane.delete(id);
+      chats.get(id)?.setQueued(items ?? []);
+    },
     pend(id, text) { const chat = chats.get(id); return chat?.visible ? chat.pend(text) : null; },
     get lens() { return lens; },
     get paneId() { return paneId; },

@@ -9,7 +9,8 @@ Parts of the terminal attachment (`src/pane-attachments.mjs`, `src/output-window
 `public/chat/markdown.js`, `public/chat/diff.js`, `public/chat/work-blocks.js`,
 `public/chat/conversation-refresh.js`), the prompt cards (`src/prompt/claude.mjs`, `src/prompt/service.mjs`,
 `public/chat/prompt-card.js`, `public/chat/prompt-card.css`, and the Claude screens in
-`test/prompt-claude.test.mjs`) and the xterm composition patch
+`test/prompt-claude.test.mjs`), the messages queued for the next turn (`src/pending-input.mjs`,
+`public/chat/pending-messages.js`, `public/chat/pending-messages.css`) and the xterm composition patch
 (`vendor/xterm/xterm-5.5.0-ime.patch`, applied by `scripts/build-xterm.mjs`) are adapted from herdr-web-ui,
 https://github.com/devswha/herdr-web-ui
 

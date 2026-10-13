@@ -14,6 +14,8 @@ const userFacingSources = [
   "../public/chat/work-blocks.js",
   "../public/chat/conversation-refresh.js",
   "../public/chat/diff.js",
+  "../public/chat/pending-messages.js",
+  "../src/pending-input.mjs",
   "../src/agent-notifications.mjs",
   "../src/passkey-auth.mjs",
   "../src/http-server.mjs",
