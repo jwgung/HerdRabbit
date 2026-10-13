@@ -109,3 +109,45 @@ test("a page back from the background connects again for the pane it still shows
   assert.equal(sockets[1].sent.at(-1).type, "attach");
   connection.pause();
 });
+
+test("a watched conversation is asked for on every socket, and only its changes are heard", async () => {
+  const sockets = [];
+  class Socket {
+    static OPEN = 1;
+    readyState = 0;
+    bufferedAmount = 0;
+    sent = [];
+    constructor() { sockets.push(this); }
+    send(message) { this.sent.push(JSON.parse(message)); }
+    open() { this.readyState = 1; this.onopen(); }
+    receive(message) { this.onmessage({ data: JSON.stringify(message) }); }
+    close() { this.readyState = 3; this.onclose({ code: 1006 }); }
+  }
+  const connection = terminalConnection({ WebSocketImpl: Socket, url: "ws://localhost/api/terminal",
+    credentials: () => ({ csrf: "write", launchToken: "launch" }), onOutput() {}, onDisconnect() {}, onAuthenticationRequired() {} });
+  const heard = [];
+  connection.onConversation(message => heard.push(message));
+  // A chat alone opens the socket: no terminal needs to be attached.
+  connection.watchConversation("w1:p1");
+  connection.watchConversation("w1:p1");
+  assert.equal(sockets.length, 1);
+  sockets[0].open();
+  sockets[0].receive({ type: "ready" });
+  assert.deepEqual(sockets[0].sent.filter(message => message.type === "watch-conversation"), [{ type: "watch-conversation", paneId: "w1:p1" }]);
+  sockets[0].receive({ type: "conversation-changed", pane_id: "w1:p1", signature: "a" });
+  sockets[0].receive({ type: "conversation-changed", pane_id: "w9:p9", signature: "b" });
+  assert.deepEqual(heard.map(message => message.signature), ["a"]);
+
+  sockets[0].close();
+  await new Promise(resolve => setTimeout(resolve, 280));
+  sockets[1].open();
+  sockets[1].receive({ type: "ready" });
+  assert.deepEqual(sockets[1].sent.map(message => message.type), ["auth", "watch-statuses", "watch-conversation"]);
+  connection.unwatchConversation("w1:p1");
+  assert.deepEqual(sockets[1].sent.at(-1), { type: "unwatch-conversation", paneId: "w1:p1" });
+  sockets[1].receive({ type: "conversation-changed", pane_id: "w1:p1", signature: "c" });
+  assert.equal(heard.length, 1, "nothing is heard once unwatched");
+  connection.unwatchConversation("w1:p1");
+  assert.equal(sockets[1].sent.filter(message => message.type === "unwatch-conversation").length, 1);
+  connection.pause();
+});

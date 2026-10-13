@@ -1,5 +1,6 @@
-import { outputTextForUpdate } from "./ui-model.js?v=1.2.22";
+import { outputTextForUpdate } from "./ui-model.js?v=1.2.23";
 
+const CONVERSATION_MESSAGES = new Set(["conversation-changed", "conversation-unavailable"]);
 const ATTACH_MESSAGES = new Set(["pty-data", "input-ready", "attach-held", "attach-resumed", "pane-geometry",
   "attach-unavailable", "attach-error", "pty-exit", "pty-input-dropped"]);
 
@@ -21,6 +22,10 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
   let attached = null;
   const attachListeners = new Set();
   const reconnectListeners = new Set();
+  // Panes whose conversation this page watches (the Chat lens on screen), sent
+  // again on every new socket, and who hears their changes.
+  const conversations = new Set();
+  const conversationListeners = new Set();
   // Attach traffic is best effort: a socket that is reconnecting drops it, and
   // the reconnect attaches again from a clean screen.
   function transmitIfReady(message) {
@@ -38,7 +43,7 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
     socket.send(JSON.stringify(message));
   }
   function connect() {
-    if (suspended || socket || (!wanted && !attached)) return;
+    if (suspended || socket || (!wanted && !attached && conversations.size === 0)) return;
     const current = new WebSocketImpl(url);
     socket = current;
     current.onopen = () => current.send(JSON.stringify({ type: "auth", ...credentials() }));
@@ -53,9 +58,12 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
           if (wanted) transmit({ type: "watch", ...wanted });
           statusKey = JSON.stringify(statusIds);
           transmit({ type: "watch-statuses", paneIds: statusIds });
+          for (const paneId of conversations) transmit({ type: "watch-conversation", paneId });
           for (const listener of reconnectListeners) listener();
         } else if (ATTACH_MESSAGES.has(message.type)) {
           for (const listener of attachListeners) listener(message);
+        } else if (CONVERSATION_MESSAGES.has(message.type)) {
+          if (conversations.has(message.pane_id)) for (const listener of conversationListeners) listener(message);
         } else if (message.type === "status" && statusIds.includes(message.pane_id)) {
           onStatus(message);
         } else if (message.type === "statuses-ready") {
@@ -100,6 +108,18 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
   return {
     onAttach(listener) { attachListeners.add(listener); },
     onReconnect(listener) { reconnectListeners.add(listener); },
+    onConversation(listener) { conversationListeners.add(listener); },
+    // Hears when the pane's Claude transcript changes, until unwatched.
+    watchConversation(paneId) {
+      if (conversations.has(paneId)) return;
+      conversations.add(paneId);
+      transmitIfReady({ type: "watch-conversation", paneId });
+      connect();
+    },
+    unwatchConversation(paneId) {
+      if (!conversations.delete(paneId)) return;
+      transmitIfReady({ type: "unwatch-conversation", paneId });
+    },
     attach(paneId, { cols, rows }) {
       attached = paneId;
       suspended = false;
