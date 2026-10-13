@@ -24,3 +24,19 @@ test("uses the 1.2.29 release version for the PWA and all cached assets", () => 
   assert.doesNotMatch(chatView, /\?v=(?!1\.2\.29)[^"']+/u);
   assert.match(worker, /const CACHE_NAME = "herd-rabbit-v1\.2\.29"/u);
 });
+
+test("every page, script and stylesheet under public asks for its assets at the package version", async () => {
+  const { readdir } = await import("node:fs/promises");
+  const root = new URL("../public/", import.meta.url);
+  const files = (await readdir(root, { recursive: true }))
+    .filter((name) => /\.(?:m?js|html|css|webmanifest)$/u.test(name) && !name.startsWith("vendor/") && !name.startsWith("vendor\\"));
+  assert.ok(files.length > 20, "the public tree was read");
+  const stale = [];
+  for (const name of files) {
+    const text = await readFile(new URL(name, root), "utf8");
+    for (const match of text.matchAll(/\?v=([0-9][^"'`)\s]*)/gu)) {
+      if (match[1] !== packageJson.version) stale.push(`${name}: ?v=${match[1]}`);
+    }
+  }
+  assert.deepEqual(stale, [], "no asset is asked for at another version");
+});
