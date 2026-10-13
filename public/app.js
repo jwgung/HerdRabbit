@@ -3063,7 +3063,13 @@ function clearComposer() {
 
 // A message for the pane's next turn: kept by the server until the agent is
 // ready. One that would answer a password prompt is refused there.
+// Its paste marks take 12 of the pane's 8000 characters.
+const MAX_QUEUED_TEXT = 7988;
 async function queueComposerText(paneId, text) {
+  if (text.length > MAX_QUEUED_TEXT) {
+    setFeedback(`A queued message can be up to ${MAX_QUEUED_TEXT} characters. Shorten it, or use Send now.`, true);
+    return;
+  }
   const submitButton = elements.sendButton;
   submitButton.disabled = true;
   setFeedback("Queueing…");

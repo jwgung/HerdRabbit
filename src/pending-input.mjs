@@ -213,9 +213,13 @@ export class PendingInputs {
     if (item.state !== "failed") throw new HttpError(409, "pending_not_failed", "Only a message that failed can be tried again.");
     item.state = "queued";
     delete item.error;
-    // The user tries it again for whatever agent runs there when it goes.
-    item.agent = null;
-    item.session = null;
+    // The user tries it again for whatever agent runs there when it goes,
+    // unless its text is already typed there: then only the reader it was
+    // typed for may get the Enter.
+    if (!item.pasted) {
+      item.agent = null;
+      item.session = null;
+    }
     this.#publish(pane);
     this.#schedule(0);
   }
@@ -230,6 +234,7 @@ export class PendingInputs {
       const snapshot = await this.herdr.snapshot();
       const agent = paneAgent(snapshot, paneId);
       if (!agent) throw new HttpError(404, "pane_not_found", "This pane is gone.");
+      if (agent.name === "unknown") throw new HttpError(409, "no_agent", "No agent runs in this pane now: the text would reach a shell. Send it directly if you mean to.");
       if (item.agent !== null && !sameReader(item, { agent: agent.name, session: paneSession(snapshot, paneId) })) throw new HttpError(409, "agent_changed", "The program in this pane changed since this was queued. Send it directly if it still applies.");
       if (agent.status === "blocked") throw new HttpError(409, "pane_blocked", "The pane is asking something. Answer it first.");
       if (await this.asksForSecret(paneId)) throw new HttpError(409, "secret_prompt", "The pane is asking for a password. Answer it in the terminal first.");

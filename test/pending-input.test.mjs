@@ -122,7 +122,7 @@ test("a message never reaches a pane whose agent changed or exited: it waits as 
   const [item] = pending.list("w1:p1");
   assert.equal(item.state, "failed");
   assert.match(item.error, /changed/);
-  await assert.rejects(pending.sendNow("w1:p1", item.id), (error) => error.code === "agent_changed");
+  await assert.rejects(pending.sendNow("w1:p1", item.id), (error) => error.code === "no_agent");
 
   // another agent took the pane: still nothing until the user retries for it
   herdr.agents["w1:p1"] = "codex";
@@ -174,6 +174,38 @@ test("one slow pane does not hold back another pane's message", async (context) 
   release();
   await look;
   assert.ok(herdr.sent.some((item) => item.paneId === "w1:p1" && item.keys));
+});
+
+test("a retried message is never sent now into a pane with no agent", async (context) => {
+  const herdr = fakeHerdr();
+  const { pending } = service(context, herdr);
+  await pending.enqueue("w1:p1", "rm -rf build");
+  herdr.agents["w1:p1"] = null;
+  herdr.statuses["w1:p1"] = "idle";
+  await pending.tick();
+  const [item] = pending.list("w1:p1");
+  pending.retry("w1:p1", item.id);
+  await assert.rejects(pending.sendNow("w1:p1", item.id), (error) => error.code === "no_agent");
+  await pending.tick();
+  assert.deepEqual(herdr.sent, [], "nothing reached the shell");
+});
+
+test("a typed-but-not-submitted message gets its Enter only from the reader it was typed for", async (context) => {
+  const herdr = fakeHerdr({ "w1:p1": "idle" });
+  herdr.sessions["w1:p1"] = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
+  const { pending } = service(context, herdr);
+  await pending.enqueue("w1:p1", "hello");
+  herdr.failKeys = new Error("lost");
+  await pending.tick();
+  const pasted = herdr.sent.length;
+  herdr.failKeys = null;
+  herdr.sessions["w1:p1"] = "11111111-2222-4333-8444-555555555555";
+  const [item] = pending.list("w1:p1");
+  pending.retry("w1:p1", item.id);
+  await pending.tick();
+  assert.equal(herdr.sent.length, pasted, "no Enter for another session's input");
+  assert.equal(pending.list("w1:p1")[0].state, "failed");
+  await assert.rejects(pending.sendNow("w1:p1", item.id), (error) => error.code === "agent_changed");
 });
 
 test("a pane with no agent cannot queue", async (context) => {
