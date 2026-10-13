@@ -6,6 +6,7 @@ import {
   chatUnavailableText,
   chooseLens,
   defaultLens,
+  chatAgent,
   isClaudePane,
   readPaneLens,
   writePaneLens,
@@ -82,4 +83,16 @@ test("a Claude pane is known from the snapshot, and an unavailable chat says why
   }
   assert.equal(chatMayBecomeAvailable("no_session_id"), true);
   assert.equal(chatMayBecomeAvailable("not_claude"), false);
+});
+
+test("a Codex pane has a chat too; other agents do not", () => {
+  assert.equal(chatAgent({ agent: "claude" }), "claude");
+  assert.equal(chatAgent({ agent: "Codex" }), "codex");
+  assert.equal(chatAgent({ agent_session: { agent: "codex" } }), "codex");
+  assert.equal(chatAgent({}, { agent: "codex" }), "codex");
+  assert.equal(chatAgent({ agent: "gemini" }, { agent: "codex" }), null);
+  assert.equal(chatAgent(undefined, undefined), null);
+  assert.equal(chatUnavailableText("not_supported_agent"), "Chat is only for Claude Code and Codex panes.");
+  assert.equal(chatUnavailableText("no_session_id"), "Chat appears once the agent reports its session.");
+  assert.equal(chatMayBecomeAvailable("not_supported_agent"), false);
 });

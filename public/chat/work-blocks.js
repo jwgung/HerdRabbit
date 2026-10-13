@@ -6,7 +6,8 @@
 //
 // Ported from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/lib/workBlocks.ts,
-// src/lib/toolVerbs.ts and src/lib/todos.ts, reduced to Claude Code's tools.
+// src/lib/toolVerbs.ts and src/lib/todos.ts, reduced to Claude Code's and
+// Codex's tools.
 
 // { work: parts, answer: text parts }
 export function splitTurn(parts) {
@@ -89,22 +90,33 @@ export function workTitle({ live, status, duration }) {
 }
 
 // ---------------------------------------------------------------------------
-// Tool verbs: "Read src/a.ts", "Ran npm test". Only Claude Code's own tools,
-// by exact name; anything else (Grep, a web or MCP tool) keeps its name.
+// Tool verbs: "Read src/a.ts", "Ran npm test". Only Claude Code's and
+// Codex's own tools, by exact name; anything else (Grep, a web or MCP tool)
+// keeps its name.
 
 const VERB_OF = {
   read: "Read",
   edit: "Edited", multiedit: "Edited", notebookedit: "Edited",
   write: "Wrote",
   bash: "Ran",
+  // Codex
+  exec_command: "Ran", shell: "Ran", local_shell: "Ran",
 };
 
 const OBJECT_KEYS = {
   Read: ["file_path", "path"],
   Edited: ["file_path", "notebook_path", "path"],
   Wrote: ["file_path", "path"],
-  Ran: ["command"],
+  Ran: ["command", "cmd"],
 };
+
+// A command as a row names it: Codex's shell tool takes an argv, and
+// `bash -lc "<script>"` reads as its script.
+export function commandText(value) {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value) || value.length === 0 || !value.every((part) => typeof part === "string")) return undefined;
+  return value.length >= 3 && /^-\w*c$/u.test(value.at(-2)) ? value.at(-1) : value.join(" ");
+}
 
 // The server cuts a row's summary to this many characters.
 const SUMMARY_LENGTH = 120;
@@ -123,12 +135,15 @@ export function parseToolInput(input) {
 export function toolVerb(part) {
   const summary = String(part.summary ?? "");
   if (summary.trim().length === 0 || summary === part.name) return null;
+  // Codex's patch is its input whole; the server sums it up by the files it touches
+  if (String(part.name).toLowerCase() === "apply_patch") return String(part.input ?? "").trimStart().startsWith("*** Begin Patch") ? "Edited" : null;
   const verb = VERB_OF[String(part.name).toLowerCase()];
   if (verb === undefined) return null;
   const input = parseToolInput(part.input ?? "");
   if (input === null) return null;
-  const matches = OBJECT_KEYS[verb].some((key) => typeof input[key] === "string" &&
-    input[key].replace(/\s+/gu, " ").trim().slice(0, SUMMARY_LENGTH) === summary);
+  const said = (key) => (verb === "Ran" ? commandText(input[key]) : typeof input[key] === "string" ? input[key] : undefined);
+  const matches = OBJECT_KEYS[verb].some((key) => said(key) !== undefined &&
+    said(key).replace(/\s+/gu, " ").trim().slice(0, SUMMARY_LENGTH) === summary);
   return matches ? verb : null;
 }
 

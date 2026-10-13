@@ -215,12 +215,12 @@ try {
     await chat.locator('[data-action="view-terminal"]').first().click();
     assert.equal(await lens(), "terminal");
 
-    // A pane with no Claude: only the terminal, and the switch says why.
+    // A pane with neither Claude nor Codex: only the terminal, and the switch says why.
     if (mobile) await page.locator("[aria-label='Open sidebar']").first().click();
     await page.locator('[data-pane-id="w1:p2"]').first().click();
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "true");
     assert.equal(await lens(), "terminal");
-    assert.equal(await page.locator("#lens-chat").getAttribute("title"), "Chat is only for Claude Code panes.");
+    assert.equal(await page.locator("#lens-chat").getAttribute("title"), "Chat is only for Claude Code and Codex panes.");
     await page.locator("#lens-chat").click({ force: true });
     assert.equal(await lens(), "terminal");
 

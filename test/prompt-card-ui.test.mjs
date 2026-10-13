@@ -8,7 +8,7 @@ import {
 } from "../public/chat-font-preference.js";
 import { TERMINAL_FONT_SIZE_STORAGE_KEY } from "../public/terminal-preference.js";
 
-const card = { id: "abc123def456", title: "Bash command", options: [{ label: "Yes" }, { label: "No" }], customOptionIndex: null };
+const card = { id: "abc123def456", agent: "claude", title: "Bash command", options: [{ label: "Yes" }, { label: "No" }], customOptionIndex: null };
 
 test("only a blocked pane is watched for a card", () => {
   assert.equal(shouldWatchPrompt("blocked"), true);
@@ -48,6 +48,7 @@ test("the dock shows the card in the Chat lens, a banner over the terminal, the 
   assert.equal(dockMode({ card, lens: "terminal", dismissed: true }), "hidden");
   assert.equal(dockMode({ card, lens: "terminal", expanded: true }), "overlay");
   assert.equal(bannerText(card), "Claude is asking: Bash command");
+  assert.equal(bannerText({ ...card, agent: "codex", title: "Would you like to run the following command?" }), "Codex is asking: Would you like to run the following command?");
   assert.equal(bannerText({ ...card, fallback: true }), "This pane is waiting for input");
 });
 
@@ -63,6 +64,8 @@ test("the working row shows while the agent works, or briefly after a send, neve
   assert.equal(formatElapsed(3_780_000), "1h 3m");
   assert.equal(workingText(now - 72_000, now), "Claude is working · 1m 12s");
   assert.equal(workingText(null, now), "Claude is working");
+  assert.equal(workingText(now - 5_000, now, "codex"), "Codex is working · 5s");
+  assert.equal(workingText(null, now, "gemini"), "The agent is working");
 });
 
 test("a pending message waits until the transcript says it once more, or 30 s", () => {

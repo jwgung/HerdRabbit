@@ -4,12 +4,14 @@
 
 Parts of the terminal attachment (`src/pane-attachments.mjs`, `src/output-window.mjs`,
 `src/attach-output.mjs`, `src/secret-prompt.mjs`, `public/xterm-terminal.js`,
-`public/terminal-widths.js`), the Claude conversation reader (`src/conversation/claude.mjs`,
-`src/conversation/monitor.mjs`), the Chat lens (`public/chat/chat-view.js`, `public/chat/chat-view.css`,
-`public/chat/markdown.js`, `public/chat/diff.js`, `public/chat/work-blocks.js`,
-`public/chat/conversation-refresh.js`), the prompt cards (`src/prompt/claude.mjs`, `src/prompt/service.mjs`,
-`public/chat/prompt-card.js`, `public/chat/prompt-card.css`, and the Claude screens in
-`test/prompt-claude.test.mjs`), the messages queued for the next turn (`src/pending-input.mjs`,
+`public/terminal-widths.js`), the Claude and Codex conversation readers (`src/conversation/pages.mjs`,
+`src/conversation/claude.mjs`, `src/conversation/codex.mjs`, `src/conversation/monitor.mjs`, and the Codex
+rollout fixtures in `test/conversation-codex.test.mjs`), the Chat lens (`public/chat/chat-view.js`,
+`public/chat/chat-view.css`, `public/chat/markdown.js`, `public/chat/diff.js`, `public/chat/work-blocks.js`,
+`public/chat/conversation-refresh.js`), the prompt cards (`src/prompt/screen.mjs`, `src/prompt/claude.mjs`,
+`src/prompt/codex.mjs`, `src/prompt/fallback.mjs`, `src/prompt/service.mjs`, `public/chat/prompt-card.js`,
+`public/chat/prompt-card.css`, and the Claude and Codex screens in `test/prompt-claude.test.mjs`,
+`test/prompt-codex.test.mjs` and `test/fixtures/codex-prompt.mjs`), the messages queued for the next turn (`src/pending-input.mjs`,
 `public/chat/pending-messages.js`, `public/chat/pending-messages.css`) and the xterm composition patch
 (`vendor/xterm/xterm-5.5.0-ime.patch`, applied by `scripts/build-xterm.mjs`) are adapted from herdr-web-ui,
 https://github.com/devswha/herdr-web-ui

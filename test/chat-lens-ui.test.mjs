@@ -56,7 +56,7 @@ test("switching lenses only hides one: the terminal stays attached and xterm fit
 });
 
 test("the page wires the lens: selection, sending, Mod+J, and reads with If-None-Match", () => {
-  assert.match(app, /chatLens\.select\(paneId, \{ claude: isClaudePane\(pane, agent\), status: agentStatus\(agent, pane\) \}\);/u);
+  assert.match(app, /chatLens\.select\(paneId, \{ agent: chatAgent\(pane, agent\), status: agentStatus\(agent, pane\) \}\);/u);
   // shown on its way and followed to the end at once; taken back if the send fails
   assert.match(app, /chatLens\.sent\(paneId, null\);\s*let pending = null;\s*try \{/u);
   assert.match(app, /catch \(error\) \{\s*chatLens\.unsent\(paneId, pending\);/u);

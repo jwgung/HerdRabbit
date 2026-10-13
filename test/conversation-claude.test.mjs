@@ -7,18 +7,24 @@ import { chmod, mkdir, mkdtemp, rename, rm, writeFile, appendFile } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  HistoryChanged,
-  MAX_PAGE_PROMPTS,
-  TOOL_OUTPUT_PREVIEW_CHARS,
+  CLAUDE_TRANSCRIPT,
   claudeProjectDir,
-  forgetConversationState,
   locateClaudeTranscript,
   parseClaudeMetadata,
   parseClaudeTranscript,
-  transcriptPage,
-  transcriptToolOutput,
 } from "../src/conversation/claude.mjs";
+import {
+  HistoryChanged,
+  MAX_PAGE_PROMPTS,
+  TOOL_OUTPUT_PREVIEW_CHARS,
+  forgetConversationState,
+  transcriptPage as pageOf,
+  transcriptToolOutput as toolOutputOf,
+} from "../src/conversation/pages.mjs";
 import { defaultClaudeConfigDir, localTranscriptStore } from "../src/conversation/stores.mjs";
+
+const transcriptPage = (store, path, options) => pageOf(CLAUDE_TRANSCRIPT, store, path, options);
+const transcriptToolOutput = (store, path, toolId) => toolOutputOf(CLAUDE_TRANSCRIPT, store, path, toolId);
 
 const SESSION = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
 const jsonl = (entries) => `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;

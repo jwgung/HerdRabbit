@@ -10,7 +10,10 @@
 // cursor on the row the moves were for. A multiple choice's answer is several
 // such keys (a tick per option, then →): the screen is looked at before each.
 import { HttpError } from "../http-basics.mjs";
-import { InvalidAnswer, KEY, answerSteps, parseClaudePrompt, parseFallbackPrompt, publicCard, verifiesCursor } from "./claude.mjs";
+import { parseClaudePrompt } from "./claude.mjs";
+import { parseCodexPrompt } from "./codex.mjs";
+import { parseFallbackPrompt } from "./fallback.mjs";
+import { InvalidAnswer, KEY, answerSteps, publicCard, verifiesCursor } from "./screen.mjs";
 
 // The screen's bottom: enough for a long approval panel.
 const SCREEN_LINES = 120;
@@ -24,6 +27,9 @@ const MAX_WATCHES = 64;
 const READS_AT_ONCE = 4;
 // Ticks a watched pane may be missing from the snapshot before it is let go.
 const MISSING_TICKS = 3;
+
+// Each agent's own readers, by the name herdr gives it.
+const READERS = { claude: parseClaudePrompt, codex: parseCodexPrompt };
 
 const delay = (ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref?.(); });
 
@@ -92,8 +98,9 @@ export class PromptService {
   }
 
   // The card the pane shows now, with the reader's bookkeeping, or null. Only
-  // a pane herdr reports blocked is read: Claude's readers first, then the
-  // fallback card for any agent. A password prompt is never a card.
+  // a pane herdr reports blocked is read: its agent's readers first (Claude's
+  // or Codex's), then the fallback card for any agent. A password prompt is
+  // never a card.
   async read(paneId) {
     const agent = paneAgent(await this.herdr.snapshot(), paneId);
     if (!agent) throw new HttpError(404, "pane_not_found", "This pane is gone.");
@@ -103,7 +110,8 @@ export class PromptService {
   async #readBlocked(paneId, agent) {
     if (agent.status !== "blocked") return null;
     const screen = await this.herdr.readPane(paneId, { lines: SCREEN_LINES, format: "text", source: "detection" });
-    return (agent.claude ? parseClaudePrompt(screen) : null) ?? parseFallbackPrompt(screen, { agent: agent.claude ? "claude" : agent.name });
+    const name = agent.claude ? "claude" : agent.name;
+    return (READERS[name]?.(screen) ?? null) ?? parseFallbackPrompt(screen, { agent: name });
   }
 
   async card(paneId) {
@@ -140,6 +148,7 @@ export class PromptService {
     let cursor = parsed.selectedIndex;
     let sent = false;
     let typed = false;
+    let committed = false;
     try {
       for (const [index, step] of steps.entries()) {
         const move = step.keys?.every((key) => key === KEY.up || key === KEY.down) ?? false;
@@ -149,8 +158,9 @@ export class PromptService {
         // take it. Each tick of a multiple choice is looked at, and so is the
         // → that ends it, and so is the first key when it already commits (the
         // option under the cursor). Once a typed answer is in, the row shows it
-        // and the rest goes as it is.
-        if (!move && !typed && verify
+        // and the rest goes as it is; so does the rest of a single choice once
+        // its first key went (Codex's Tab opens a notes line under the menu).
+        if (!move && !typed && verify && (parsed.multiSelect || !committed)
             && !(await this.#onRow(paneId, parsed.promptKey ?? parsed.id, cursor))) {
           throw promptChanged();
         }
@@ -158,6 +168,7 @@ export class PromptService {
         else await this.herdr.sendText(paneId, step.text);
         sent = true;
         if (step.text !== undefined) typed = true;
+        if (!move) committed = true;
         if (move) {
           for (const key of step.keys) cursor = key === KEY.down ? cursor + 1 : Math.max(0, cursor - 1);
         }

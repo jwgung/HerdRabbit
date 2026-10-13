@@ -28,7 +28,7 @@ import { MAX_TEXT_PREVIEW_BYTES, inlineTypeFor, isMarkdown } from "../public/fil
 import { renderMarkdown } from "./markdown.mjs";
 import { secretPrompt } from "./secret-prompt.mjs";
 import { validMachineLabel, validMachineTarget } from "./herdr-machines.mjs";
-import { ConversationError } from "./conversation/claude.mjs";
+import { ConversationError } from "./conversation/pages.mjs";
 import { ConversationMonitor } from "./conversation/monitor.mjs";
 import { ConversationService } from "./conversation/service.mjs";
 import { PromptService } from "./prompt/service.mjs";
@@ -573,7 +573,7 @@ export function createHerdrHttpServer({
   aiAccounts = null,
   attachments = null,
   machines = null,
-  // A pane's Claude conversation (src/conversation/): this machine's
+  // A pane's Claude or Codex conversation (src/conversation/): this machine's
   // transcripts, and a Herdr machine's through its file client.
   conversations = null,
   // Prompt cards (src/prompt/): a blocked pane's approval or question.
@@ -1240,7 +1240,7 @@ export function createHerdrHttpServer({
         return;
       }
 
-      // A Claude pane's conversation, a page of turns at a time. The ETag is
+      // A Claude or Codex pane's conversation, a page of turns at a time. The ETag is
       // the answer's version: an unchanged poll costs no body.
       const conversationMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/conversation$/);
       if (method === "GET" && conversationMatch) {

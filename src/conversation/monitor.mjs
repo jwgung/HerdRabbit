@@ -1,4 +1,4 @@
-// Tells watchers when a pane's Claude transcript changed, without reading it:
+// Tells watchers when a pane's transcript (Claude's or Codex's) changed, without reading it:
 // a stat (identity, size, time) of the file every 250 ms on this machine and
 // every 1.5 s on a Herdr machine (one SSH command each), only while someone
 // watches the pane. The pane is looked up again every few seconds, so a new
@@ -7,7 +7,7 @@
 // Ported from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- server/conversation-monitor.ts.
 import { createHash, randomUUID } from "node:crypto";
-import { ConversationUnavailable } from "./claude.mjs";
+import { ConversationUnavailable } from "./pages.mjs";
 
 export const STAT_INTERVAL_MS = 250;
 export const REMOTE_STAT_INTERVAL_MS = 1_500;

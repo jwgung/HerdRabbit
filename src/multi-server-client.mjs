@@ -188,6 +188,12 @@ export class MultiServerClient {
   }
 
   readPane(id, options) { return this.invoke("readPane", id, [options]); }
+  // This machine's panes only: a Herdr machine's processes are not this one's to look into.
+  async paneProcessInfo(id) {
+    const { entry, id: localId } = this.target(id);
+    if (entry.profile.id !== "local" || typeof entry.client.paneProcessInfo !== "function") return null;
+    return entry.client.paneProcessInfo(localId);
+  }
   // This machine's panes and Herdr machines' all attach.
   terminalTarget(id, timeoutMs) {
     const { entry, id: localId } = this.target(id);

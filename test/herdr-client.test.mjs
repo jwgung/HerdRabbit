@@ -296,3 +296,13 @@ test("terminal ids with hyphens, dots or colons inside are taken as they are", a
     assert.equal((await client.terminalTarget("w1:p2")).terminalId, id);
   }
 });
+
+test("asks herdr for a pane's processes, by a validated pane id", async () => {
+  const info = { process_info: { pane_id: "w1:p2", shell_pid: 10, foreground_processes: [{ pid: 11, argv: ["codex"] }] } };
+  const fake = recordingRunner([{ stdout: JSON.stringify({ id: "cli:pane", result: info }), stderr: "" }]);
+  const client = new HerdrClient({ binary: "/opt/herdr", runner: fake.runner });
+  assert.deepEqual(await client.paneProcessInfo("w1:p2"), info);
+  assert.deepEqual(fake.calls[0].args, ["pane", "process-info", "--pane", "w1:p2"]);
+  await assert.rejects(client.paneProcessInfo("--current"), InputValidationError);
+  assert.equal(fake.calls.length, 1);
+});

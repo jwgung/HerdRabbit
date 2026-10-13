@@ -1,5 +1,5 @@
-// What the end of the Chat lens says while Claude works: a "Claude is
-// working" row with the time it has taken, and the message just sent shown as
+// What the end of the Chat lens says while the agent works: a "Claude is
+// working" (or "Codex is working") row with the time it has taken, and the message just sent shown as
 // a pending bubble until the transcript has it.
 
 // How long a sent message waits for the transcript before its bubble goes.
@@ -24,8 +24,15 @@ export function formatElapsed(ms) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-export function workingText(since, now = Date.now()) {
-  return since === null || since === undefined ? "Claude is working" : `Claude is working · ${formatElapsed(now - since)}`;
+// The name a row or card gives the agent herdr names.
+const AGENT_LABELS = { claude: "Claude", codex: "Codex" };
+export function agentLabel(agent) {
+  return AGENT_LABELS[String(agent ?? "").toLowerCase()] ?? "The agent";
+}
+
+export function workingText(since, now = Date.now(), agent = "claude") {
+  const working = `${agentLabel(agent)} is working`;
+  return since === null || since === undefined ? working : `${working} · ${formatElapsed(now - since)}`;
 }
 
 // A user turn's text as the composer would have sent it, for matching.

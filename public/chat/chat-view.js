@@ -1,14 +1,16 @@
-// The Chat lens: a Claude pane's conversation drawn as turns, beside the
+// The Chat lens: an agent pane's conversation (Claude Code's or Codex's)
+// drawn as turns, beside the
 // pane's terminal in the same place. Switching lenses only shows one and hides
 // the other: the terminal stays attached, and the chat keeps what it read.
 //
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatView.tsx and
 // ChatView.css, rewritten as plain DOM code without React.
-import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.26";
-import { lineDiff } from "./diff.js?v=1.2.26";
+import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.27";
+import { lineDiff } from "./diff.js?v=1.2.27";
 import {
   formatWorkDuration,
+  commandText,
   isCommandTool,
   isLiveWorkTurn,
   isTodoTool,
@@ -21,16 +23,16 @@ import {
   workStartsOpen,
   workSummary,
   workTitle,
-} from "./work-blocks.js?v=1.2.26";
-import { ConversationLoader } from "./conversation-refresh.js?v=1.2.26";
-import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.26";
+} from "./work-blocks.js?v=1.2.27";
+import { ConversationLoader } from "./conversation-refresh.js?v=1.2.27";
+import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.27";
 import {
   chatMayBecomeAvailable,
   chatUnavailableText,
   chooseLens,
   readPaneLens,
   writePaneLens,
-} from "../lens-preference.js?v=1.2.26";
+} from "../lens-preference.js?v=1.2.27";
 
 // Scrolling this close to the top reads the page before it.
 const LOAD_OLDER_PX = 400;
@@ -142,6 +144,8 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
   }
 
   let status = null;
+  // The agent the pane runs, for the working row's words.
+  let agent = "claude";
   // When the agent began working, as this page saw it, and how long a send
   // alone keeps the working row up before any status answers it.
   let workingSince = null;
@@ -248,8 +252,10 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
     if (input === null) { io.append(raw()); return io; }
     const text = (key) => (typeof input[key] === "string" ? input[key] : undefined);
     const path = text("file_path") ?? text("notebook_path") ?? text("path");
-    if (text("command") !== undefined) {
-      io.append(element(document, "pre", { text: text("command") }));
+    // Claude's Bash and Codex's exec_command (`cmd`) or shell (an argv)
+    const command = text("command") ?? text("cmd") ?? commandText(input.command);
+    if (command !== undefined) {
+      io.append(element(document, "pre", { text: command }));
       if (text("description")) io.append(element(document, "p", { className: "chat-tool-meta", text: text("description") }));
     } else if (text("old_string") !== undefined || text("new_string") !== undefined) {
       if (path) io.append(fileLine(path));
@@ -373,7 +379,7 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
     const working = showsWorking({ status, optimisticUntil, now });
     if (working && workingSince === null) workingSince = now;
     if (!working && status !== "working") workingSince = null;
-    const text = working ? workingText(workingSince, now) : "";
+    const text = working ? workingText(workingSince, now, agent) : "";
     const key = `${pending.map((item) => `${item.at}:${item.text}`).join("\n")}|${text}|${JSON.stringify(queued)}`;
     if (key !== activityKey) {
       activityKey = key;
@@ -698,6 +704,12 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
       optimisticUntil = 0;
       drawActivity();
     },
+    setAgent(next) {
+      if (!next || next === agent) return;
+      agent = next;
+      activityKey = null;
+      drawActivity();
+    },
     setStatus(next) {
       if (next === status) return;
       // a status that answers the send ends the guess
@@ -756,7 +768,8 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
   // paneId -> { state: "checking" | "available" | "unavailable", reason, checkedAt }
   const availability = new Map();
   let paneId = null;
-  let claude = false;
+  // the agent whose conversation the pane shown has ("claude", "codex"), or null
+  let agentName = null;
   let lens = "terminal";
   let watched = null;
   // The lens and pane last told to onLensChange.
@@ -802,7 +815,7 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
   }
 
   function unavailableReason(id) {
-    if (!claude) return "not_claude";
+    if (!agentName) return "not_supported_agent";
     return availability.get(id)?.reason ?? null;
   }
 
@@ -814,7 +827,7 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
   }
 
   function apply() {
-    const available = paneId !== null && claude && chatAvailable(paneId);
+    const available = paneId !== null && agentName !== null && chatAvailable(paneId);
     const { compact, touch } = layout();
     const next = paneId === null ? "terminal"
       : chooseLens({ stored: chosen.get(paneId) ?? readPaneLens(storage, paneId), chatAvailable: available, compact, touch });
@@ -839,7 +852,7 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
 
   function setLens(next) {
     if (paneId === null) return;
-    if (next === "chat" && !(claude && chatAvailable(paneId))) return;
+    if (next === "chat" && !(agentName !== null && chatAvailable(paneId))) return;
     chosen.set(paneId, next);
     writePaneLens(storage, paneId, next);
     apply();
@@ -863,14 +876,16 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
   connection.onReconnect(() => { if (watched !== null) chats.get(watched)?.refresh(); });
 
   return {
-    // The pane shown now, whether the snapshot names it a Claude pane, and its agent status.
-    select(nextPaneId, { claude: isClaude = false, status = null } = {}) {
+    // The pane shown now, the agent the snapshot names for it when the chat
+    // reads that agent ("claude", "codex"; `claude: true` is "claude"), and its status.
+    select(nextPaneId, { agent = null, claude = false, status = null } = {}) {
       paneId = nextPaneId ?? null;
-      claude = Boolean(isClaude);
-      if (paneId !== null && claude) {
+      agentName = typeof agent === "string" && agent ? agent : claude ? "claude" : null;
+      if (paneId !== null && agentName !== null) {
         const known = availability.get(paneId);
         const stale = known?.state === "unavailable" && chatMayBecomeAvailable(known.reason) && Date.now() - known.checkedAt > RECHECK_MS;
         const chat = chatFor(paneId);
+        chat.setAgent(agentName);
         chat.setStatus(status);
         if (!known || stale) {
           if (!known) availability.set(paneId, { state: "checking", reason: null, checkedAt: Date.now() });
@@ -885,11 +900,11 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
     showTerminal() { setLens("terminal"); },
     // Switches to the Chat lens; false when this pane has none.
     showChat() {
-      if (paneId === null || !(claude && chatAvailable(paneId))) return false;
+      if (paneId === null || !(agentName !== null && chatAvailable(paneId))) return false;
       setLens("chat");
       return lens === "chat";
     },
-    get chatAvailable() { return paneId !== null && claude && chatAvailable(paneId); },
+    get chatAvailable() { return paneId !== null && agentName !== null && chatAvailable(paneId); },
     // A message went out from the composer: the chat shows it on its way and
     // goes to the end, following what comes, wherever the reader had scrolled.
     sent(id, text) {
