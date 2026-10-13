@@ -136,7 +136,7 @@ try {
     // Two messages queued while it works: listed in order, nothing typed into the pane.
     await submit("first queued");
     await waitRows(["first queued"]);
-    assert.equal(await input.inputValue(), "", "the composer is cleared");
+    await page.waitForFunction(() => document.querySelector("#terminal-input").value === "", null, { timeout: 5_000 }); // "the composer is cleared": cleared once the queue answers
     await submit("second queued");
     await waitRows(["first queued", "second queued"]);
     assert.deepEqual(await rows.locator(".pending-message-badge").allTextContents(), ["Queued", "Queued"]);

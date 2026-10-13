@@ -16,10 +16,18 @@ function fakeHerdr(statuses = { "w1:p1": "working" }) {
     sent: [],
     snapshots: 0,
     failSend: null,
+    failKeys: null,
+    // pane -> agent session id, when herdr reports one
+    sessions: {},
+    // pane -> a promise its sends wait on (a slow machine)
+    slow: {},
     async snapshot() {
       herdr.snapshots += 1;
       return {
-        panes: Object.entries(herdr.statuses).map(([pane_id, agent_status]) => ({ pane_id, agent: pane_id in herdr.agents ? herdr.agents[pane_id] : "claude", agent_status })),
+        panes: Object.entries(herdr.statuses).map(([pane_id, agent_status]) => ({
+          pane_id, agent: pane_id in herdr.agents ? herdr.agents[pane_id] : "claude", agent_status,
+          ...(herdr.sessions[pane_id] ? { agent_session: { agent: "claude", kind: "id", value: herdr.sessions[pane_id] } } : {}),
+        })),
         agents: [],
       };
     },
@@ -28,10 +36,14 @@ function fakeHerdr(statuses = { "w1:p1": "working" }) {
       return herdr.screens[paneId] ?? "> ";
     },
     async sendText(paneId, text) {
+      if (herdr.slow[paneId]) await herdr.slow[paneId];
       if (herdr.failSend) throw herdr.failSend;
       herdr.sent.push({ paneId, text });
     },
-    async sendKeys(paneId, keys) { herdr.sent.push({ paneId, keys: [...keys] }); },
+    async sendKeys(paneId, keys) {
+      if (herdr.failKeys) throw herdr.failKeys;
+      herdr.sent.push({ paneId, keys: [...keys] });
+    },
   };
   return herdr;
 }
@@ -119,6 +131,49 @@ test("a message never reaches a pane whose agent changed or exited: it waits as 
   pending.retry("w1:p1", item.id);
   await pending.tick();
   assert.deepEqual(herdr.sent, pasted("w1:p1", "make test"));
+});
+
+test("a text typed but not submitted is not typed again: a retry only presses Enter", async (context) => {
+  const herdr = fakeHerdr({ "w1:p1": "idle" });
+  const { pending } = service(context, herdr);
+  await pending.enqueue("w1:p1", "hello");
+  herdr.failKeys = new Error("the machine went away");
+  await pending.tick();
+  const [item] = pending.list("w1:p1");
+  assert.equal(item.state, "failed");
+  assert.match(item.error, /^Typed but not submitted/);
+  assert.throws(() => pending.edit("w1:p1", item.id, "other"), (error) => error.code === "pending_not_queued");
+  herdr.failKeys = null;
+  pending.retry("w1:p1", item.id);
+  await pending.tick();
+  assert.deepEqual(herdr.sent, [{ paneId: "w1:p1", text: "\x1b[200~hello\x1b[201~" }, { paneId: "w1:p1", keys: ["enter"] }], "pasted once, Enter once");
+});
+
+test("a new session of the same agent does not get the old session's messages", async (context) => {
+  const herdr = fakeHerdr();
+  herdr.sessions["w1:p1"] = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
+  const { pending } = service(context, herdr);
+  await pending.enqueue("w1:p1", "continue the refactor");
+  herdr.sessions["w1:p1"] = "11111111-2222-4333-8444-555555555555";
+  herdr.statuses["w1:p1"] = "idle";
+  await pending.tick();
+  assert.deepEqual(herdr.sent, []);
+  assert.equal(pending.list("w1:p1")[0].state, "failed");
+});
+
+test("one slow pane does not hold back another pane's message", async (context) => {
+  const herdr = fakeHerdr({ "w1:p1": "idle", "w1:p2": "idle" });
+  let release;
+  herdr.slow["w1:p1"] = new Promise((resolve) => { release = resolve; });
+  const { pending } = service(context, herdr);
+  await pending.enqueue("w1:p1", "slow");
+  await pending.enqueue("w1:p2", "fast");
+  const look = pending.tick();
+  for (let tries = 0; tries < 50 && !herdr.sent.some((item) => item.paneId === "w1:p2" && item.keys); tries += 1) await Promise.resolve();
+  assert.ok(herdr.sent.some((item) => item.paneId === "w1:p2" && item.keys), "the fast pane's message went while the slow one waited");
+  release();
+  await look;
+  assert.ok(herdr.sent.some((item) => item.paneId === "w1:p1" && item.keys));
 });
 
 test("a pane with no agent cannot queue", async (context) => {

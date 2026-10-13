@@ -53,6 +53,21 @@ function publicItem(item) {
   return { id: item.id, text: item.text, state: item.state, ...(item.error ? { error: item.error } : {}) };
 }
 
+// The agent session herdr reports for a pane (Claude's session id and the
+// like): a new session of the same agent is a different reader.
+function paneSession(snapshot, paneId) {
+  const pane = (snapshot?.panes ?? []).find((item) => item.pane_id === paneId);
+  const agent = (snapshot?.agents ?? []).find((item) => item.pane_id === paneId);
+  const value = pane?.agent_session?.value ?? agent?.agent_session?.value;
+  return typeof value === "string" && value ? value : null;
+}
+
+// Whether a message queued for `item` may go to the pane as it is now.
+function sameReader(item, pane) {
+  if (item.agent !== pane.agent) return false;
+  return !item.session || !pane.session || item.session === pane.session;
+}
+
 export class PendingInputs {
   constructor({
     herdr,
@@ -144,7 +159,8 @@ export class PendingInputs {
     if ((existing?.items.length ?? 0) >= this.maxItems) {
       throw new HttpError(409, "pending_limit", `At most ${this.maxItems} messages can wait. Send or remove one first.`);
     }
-    const agent = paneAgent(await this.herdr.snapshot(), paneId);
+    const snapshot = await this.herdr.snapshot();
+    const agent = paneAgent(snapshot, paneId);
     if (!agent) throw new HttpError(404, "pane_not_found", "This pane is gone.");
     // A message waits for the agent it was written to: with no agent known,
     // the text could reach a shell as a command.
@@ -157,7 +173,7 @@ export class PendingInputs {
     if (pane.items.length >= this.maxItems) {
       throw new HttpError(409, "pending_limit", `At most ${this.maxItems} messages can wait. Send or remove one first.`);
     }
-    const item = { id: this.newId(), text, state: "queued", agent: agent.name };
+    const item = { id: this.newId(), text, state: "queued", agent: agent.name, session: paneSession(snapshot, paneId) };
     pane.items.push(item);
     this.#publish(pane);
     this.#schedule(0);
@@ -174,7 +190,7 @@ export class PendingInputs {
 
   edit(paneId, id, value) {
     const { pane, item } = this.#item(paneId, id);
-    if (item.state !== "queued") throw new HttpError(409, "pending_not_queued", "Only a message that still waits can be edited.");
+    if (item.state !== "queued" || item.pasted) throw new HttpError(409, "pending_not_queued", "Only a message that still waits can be edited.");
     item.text = validatePendingText(value);
     this.#publish(pane);
   }
@@ -199,6 +215,7 @@ export class PendingInputs {
     delete item.error;
     // The user tries it again for whatever agent runs there when it goes.
     item.agent = null;
+    item.session = null;
     this.#publish(pane);
     this.#schedule(0);
   }
@@ -210,9 +227,10 @@ export class PendingInputs {
     if (item.state === "sending" || pane.busy) throw new HttpError(409, "pending_sending", "A message is being sent. Try again in a moment.");
     pane.busy = true;
     try {
-      const agent = paneAgent(await this.herdr.snapshot(), paneId);
+      const snapshot = await this.herdr.snapshot();
+      const agent = paneAgent(snapshot, paneId);
       if (!agent) throw new HttpError(404, "pane_not_found", "This pane is gone.");
-      if (item.agent !== null && agent.name !== item.agent) throw new HttpError(409, "agent_changed", "The program in this pane changed since this was queued. Send it directly if it still applies.");
+      if (item.agent !== null && !sameReader(item, { agent: agent.name, session: paneSession(snapshot, paneId) })) throw new HttpError(409, "agent_changed", "The program in this pane changed since this was queued. Send it directly if it still applies.");
       if (agent.status === "blocked") throw new HttpError(409, "pane_blocked", "The pane is asking something. Answer it first.");
       if (await this.asksForSecret(paneId)) throw new HttpError(409, "secret_prompt", "The pane is asking for a password. Answer it in the terminal first.");
       if (!pane.items.includes(item) || item.state === "sending") throw notFound();
@@ -253,10 +271,12 @@ export class PendingInputs {
       for (const pane of waiting) {
         const agent = paneAgent(snapshot, pane.paneId);
         pane.agent = agent?.name ?? null;
+        pane.session = paneSession(snapshot, pane.paneId);
         this.#apply(pane, agent?.status ?? "unknown");
         if (pane.gate && this.now() >= pane.gate.deadline) pane.gate = null;
       }
-      for (const pane of waiting) await this.#next(pane);
+      // Panes go on their own: one slow machine holds back only its panes.
+      await Promise.allSettled(waiting.map((pane) => this.#next(pane)));
     } finally {
       this.running = false;
       this.#schedule(this.again ? 0 : this.pollMs);
@@ -275,10 +295,13 @@ export class PendingInputs {
     const head = pane.items[0];
     if (!head) return;
     // A retried message goes to the agent there now, if there is one.
-    if (head.agent === null && pane.agent && pane.agent !== "unknown") head.agent = pane.agent;
+    if (head.agent === null && pane.agent && pane.agent !== "unknown") {
+      head.agent = pane.agent;
+      head.session = pane.session ?? null;
+    }
     // The agent it was queued for is gone (exited to a shell, or another
     // program took the pane): the message waits for the user instead.
-    if (head.agent !== pane.agent) {
+    if (!sameReader(head, pane)) {
       head.state = "failed";
       head.error = "The program in this pane changed since this was queued.";
       this.#publish(pane);
@@ -303,12 +326,18 @@ export class PendingInputs {
     delete item.error;
     this.#publish(pane);
     try {
-      await this.herdr.sendText(pane.paneId, bracketedPaste(item.text));
-      if (this.enterDelayMs > 0) await delay(this.enterDelayMs);
+      // A text already pasted when its Enter failed is not pasted again: a
+      // retry only presses Enter, or the text would land twice.
+      if (!item.pasted) {
+        await this.herdr.sendText(pane.paneId, bracketedPaste(item.text));
+        item.pasted = true;
+        if (this.enterDelayMs > 0) await delay(this.enterDelayMs);
+      }
       await this.herdr.sendKeys(pane.paneId, ["enter"]);
     } catch (error) {
       item.state = "failed";
-      item.error = typeof error?.message === "string" && error.message ? error.message.slice(0, 300) : "The message could not be sent.";
+      const reason = typeof error?.message === "string" && error.message ? error.message.slice(0, 300) : "The message could not be sent.";
+      item.error = item.pasted ? `Typed but not submitted: ${reason}` : reason;
       this.#publish(pane);
       return false;
     }
