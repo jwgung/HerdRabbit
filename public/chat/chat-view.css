@@ -20,6 +20,10 @@
 .lens-switch button {
   min-width: 0;
   min-height: 30px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 0 12px;
   border: 0;
   border-radius: 6px;
@@ -27,6 +31,34 @@
   color: var(--muted);
   font-size: 13px;
   cursor: pointer;
+}
+
+.lens-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A narrow window shows the icons alone; the words stay for screen readers
+   and the tooltip. */
+@media (max-width: 760px) {
+  .lens-switch button {
+    padding: 0 9px;
+  }
+
+  .lens-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 
 .lens-switch button:hover {

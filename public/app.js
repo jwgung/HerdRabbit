@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.27";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.27";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.28";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.28";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -47,7 +47,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.27";
+} from "./ui-model.js?v=1.2.28";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -58,54 +58,54 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.27";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.27";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.27";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.27";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.27";
-import { createPendingMessages, shouldQueue } from "./chat/pending-messages.js?v=1.2.27";
+} from "./browse-preference.js?v=1.2.28";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.28";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.28";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.28";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.28";
+import { createPendingMessages, shouldQueue } from "./chat/pending-messages.js?v=1.2.28";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.27";
-import { chatAgent } from "./lens-preference.js?v=1.2.27";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.27";
+} from "./chat-font-preference.js?v=1.2.28";
+import { chatAgent } from "./lens-preference.js?v=1.2.28";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.28";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.27";
+} from "./pane-preference.js?v=1.2.28";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.27";
+} from "./workspace-preference.js?v=1.2.28";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.27";
+} from "./terminal-preference.js?v=1.2.28";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.27";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.27";
+} from "./completion-preference.js?v=1.2.28";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.28";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.27";
+} from "./input-history-preference.js?v=1.2.28";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.27";
+} from "./launch-session.js?v=1.2.28";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.27";
+} from "./push-notifications.js?v=1.2.28";
 
 function browserStorage() {
   try {

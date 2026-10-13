@@ -81,7 +81,7 @@ try {
           border: style.borderTopColor,
           background: style.backgroundColor,
           height: box.height,
-          statusAfterMenu: menu.right <= status.left + 1 && status.right <= box.right,
+          menuAfterStatus: status.right <= menu.left + 1 && menu.right <= box.right + 1,
           spin: getComputedStyle(button.querySelector(".pane-status"), "::before").animationName,
         }];
       }));
@@ -110,7 +110,7 @@ try {
       if (row.agent) assert.match(got.label, new RegExp(row.agent, "u"));
       assert.equal(got.border, "rgba(0, 0, 0, 0)", `${row.id} has no status border`);
       assert.ok(got.height >= 40, `${row.id} is a 40px touch target`);
-      assert.ok(got.statusAfterMenu, `${row.id} status after the menu`);
+      assert.ok(got.menuAfterStatus, `${row.id} menu at the far right, after the status`);
       assert.equal(got.pressed, String(row.id === "w1:p4"));
       assert.equal(got.background !== "rgba(0, 0, 0, 0)", row.id === "w1:p4", `${row.id} highlight only when selected`);
     }
