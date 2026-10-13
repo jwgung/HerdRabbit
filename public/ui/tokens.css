@@ -32,6 +32,8 @@
   --offline: #68727a;
   --online-glow: rgb(143 240 186 / 48%);
   --agent-unknown: #5c5c5c;
+  --status-ok: #6fd98f;
+  --status-attention: #ff9f43;
   --navigator-surface: #090c0f;
   --workspace-heading: #cbd5dc;
   --selected-border: #395446;
@@ -77,6 +79,8 @@
   --offline: #7e8d86;
   --online-glow: rgb(22 116 84 / 28%);
   --agent-unknown: #748079;
+  --status-ok: #1f8a4c;
+  --status-attention: #c2610c;
   --navigator-surface: rgb(248 251 249 / 94%);
   --workspace-heading: #34473e;
   --selected-border: #76a58f;

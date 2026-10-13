@@ -170,16 +170,16 @@ test("the path to type sits at the foot of Files, with its suggestions opening u
   assert.doesNotMatch(styles.match(/\.file-path-row \{[^}]*\}/u)[0], /overflow: hidden/u, "the row cannot clip the list it anchors");
 });
 
-test("on touch, Sessions rows are as short as rows in Files", () => {
-  const touch = styles.match(/@media \(hover: none\) \{\s*\.pane-button \{ padding-block: (\d+)px; \}\s*\.workspace-action \{ height: (\d+)px; \}\s*\.workspace-heading \{ min-height: (\d+)px; padding-block: 0; \}\s*\.herdr-session-heading \{ height: (\d+)px; \}\s*\.server-heading \{ padding-block: 0; \}\s*\.session-action-menu \{ margin-top: 0; \}\s*\}/u);
-  assert.ok(touch, "touch rows must be shortened");
+test("on touch, heading rows are as short as rows in Files and session rows stay easy to press", () => {
+  const touch = styles.match(/@media \(hover: none\) \{\s*\.workspace-action \{ height: (\d+)px; \}\s*\.workspace-heading \{ min-height: (\d+)px; padding-block: 0; \}\s*\.herdr-session-heading \{ height: (\d+)px; \}\s*\.server-heading \{ padding-block: 0; \}\s*\.session-action-menu \{ top: 8px; \}\s*\}/u);
+  assert.ok(touch, "touch heading rows must be shortened");
   const row = cssPixels(/\.browse-row \.transfer-row-actions button \{\s*width: \d+px;\s*height: (\d+)px;/u, "file row");
-  // A session button is its 18px marker, 1px borders and the padding.
-  assert.equal(18 + 2 + 2 * Number(touch[1]), row);
-  assert.deepEqual([touch[2], touch[3], touch[4]].map(Number), [row, row, row]);
+  assert.deepEqual([touch[1], touch[2], touch[3]].map(Number), [row, row, row]);
+  // A session row is a touch target: 40px at least, with or without a folder line.
+  assert.ok(cssPixels(/\.pane-button \{ min-height: (\d+)px;/u, "session row height") >= 40);
   // Later than the rules it shortens, or they would win.
   for (const rule of [/\.server-heading \{ display: flex;/u, /\.workspace-heading \{\s*min-width: 0;/u, /\.herdr-session-heading \{\s*min-width: 0;/u]) {
-    assert.ok(styles.search(rule) < styles.search(/@media \(hover: none\) \{\s*\.pane-button/u));
+    assert.ok(styles.search(rule) < styles.search(/@media \(hover: none\) \{\s*\.workspace-action \{ height/u));
   }
 });
 
@@ -233,15 +233,23 @@ test("keeps sidebar scrolling without visible scrollbars or horizontal overflow"
   );
 });
 
-test("emphasizes unread completions in session rows and collapsed projects", () => {
+test("session rows carry no status border; the status is a mark at the far right", () => {
   assert.match(app, /button\.dataset\.status = currentAgentStatus/);
   assert.match(app, /group\.dataset\.hasCompletion/);
-  assert.match(
-    styles,
-    /:is\(\.pane-button, \.ui-nav-item\)\[data-status="done"\] \{[\s\S]*?border-color:[\s\S]*?background:[\s\S]*?box-shadow:/,
-  );
+  // Nothing colours a row's border or glow by status; selection is a soft background.
+  assert.doesNotMatch(styles, /\.(pane-button|ui-nav-item)\)?\[data-status=/u);
+  assert.doesNotMatch(styles, /completion-glow\)/u);
+  assert.match(styles, /:is\(\.pane-button, \.ui-nav-item\)\[aria-pressed="true"\] \{\s*background: var\(--selected-surface\);\s*\}/u);
+  assert.match(styles, /\.pane-status\[data-kind="spinner"\]::before[\s\S]*?animation: pane-spin/u);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{[^@]*pane-status\[data-kind="spinner"\][^@]*animation: none;[^@]*pane-status\[data-kind="attention"\][^@]*animation: none;/u);
   assert.match(
     styles,
     /\.workspace-group\.is-collapsed\[data-has-completion="true"\] > \.workspace-heading/,
   );
+});
+
+test("machine rows show a monitor, a Host label for this PC and a connection dot", () => {
+  assert.match(app, /className: "server-role", text: "Host"/u);
+  assert.match(app, /className: "server-dot"/u);
+  assert.match(styles, /\.server-heading\.is-online \.server-dot \{ background: var\(--status-ok\); \}/u);
 });

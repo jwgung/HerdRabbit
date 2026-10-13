@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import {
   agentStatus,
   agentStatusIcon,
+  paneAgentKind,
+  paneStatusIndicator,
+  paneSubtitle,
   detectTouchInput,
   displayRecordLabel,
   displayTabLabel,
@@ -771,4 +774,33 @@ test("tells once that old leaf links have to be added again with herdr machine",
   assert.match(one, /^1 computer was connected/u);
   assert.match(one, /Re-add each PC with Add SSH machine \(herdr machine\)/u);
   assert.match(legacyServersNotice({ count: 3 }), /^3 computers were connected/u);
+});
+
+test("picks a program mark from the agent a pane names", () => {
+  assert.equal(paneAgentKind({}, { agent: "claude" }), "claude");
+  assert.equal(paneAgentKind({ agent: "Claude" }, undefined), "claude");
+  assert.equal(paneAgentKind({ agent_session: { agent: "claude" } }, null), "claude");
+  assert.equal(paneAgentKind({ agent: "codex" }, null), "codex");
+  assert.equal(paneAgentKind({}, { agent: "gemini" }), "other");
+  assert.equal(paneAgentKind({}, null), "shell");
+  assert.equal(paneAgentKind({ agent: "bash" }, { name: "builder" }), "shell");
+  assert.equal(paneAgentKind({ agent: "  " }, { agent: "" }), "shell");
+});
+
+test("chooses the status indicator at a row's far right", () => {
+  assert.deepEqual(paneStatusIndicator("working"), { kind: "spinner", label: "Working" });
+  assert.deepEqual(paneStatusIndicator("blocked"), { kind: "attention", label: "Needs your answer" });
+  assert.deepEqual(paneStatusIndicator("done"), { kind: "done", label: "Done" });
+  assert.equal(paneStatusIndicator("idle"), null);
+  assert.equal(paneStatusIndicator("unknown"), null);
+  assert.equal(paneStatusIndicator(undefined), null);
+});
+
+test("a session's second line is its folder, unless unknown or the same as the name", () => {
+  assert.equal(paneSubtitle("tests", { cwd: "/work/checkout-api" }), "checkout-api");
+  assert.equal(paneSubtitle("tests", { cwd: "/work/old", foreground_cwd: "/work/new/" }), "new");
+  assert.equal(paneSubtitle("Checkout-API", { cwd: "/work/checkout-api" }), "");
+  assert.equal(paneSubtitle("tests", {}), "");
+  assert.equal(paneSubtitle("tests", { cwd: "/" }), "");
+  assert.equal(paneSubtitle("tests", null), "");
 });

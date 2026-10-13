@@ -50,7 +50,7 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 - Switch sidebar entries with `Ctrl+Tab`, `Ctrl+Shift+Tab`, or `Ctrl+1`–`Ctrl+9` when the browser forwards those shortcuts to the app
 - Restore terminal font size and the last 100 sent prompts per pane across app launches; use Up/Down in the composer to recall prompts
 - Show Herdr-native state symbols such as `×`, `◐`, `✓`, `○`, and `·`
-- Emphasize unviewed completed sessions and their collapsed projects in the sidebar
+- Mark each session in the sidebar with the program it runs (Claude, Codex, another agent, or a shell) and its status at the far right: a spinner while working, an amber pulsing dot when it needs your answer, a green dot when done and not yet viewed; collapsed projects still call out unviewed completions
 - Send status-only PWA notifications with the project and tab names when an agent needs input or finishes; while the app is in front, show them inside it instead
 - Install as a responsive PWA with light and dark themes
 - Resize terminal text with `Ctrl`/`Cmd` + wheel, trackpad zoom, or a two-finger mobile gesture
@@ -300,7 +300,7 @@ Project and tab names may appear on the lock screen. Previous commands and reque
 
 A session shows the agent running in it until it is given a name. That is not a name: it changes when the agent does, and two sessions running the same agent read alike. Renaming one puts the name where the agent was, and moves the agent beside the status; a session with several panes keeps its name above the group instead of repeating it on each. Emptying the field takes the name back off and the session shows its agent again. Herdr has no unnamed tab -- `tab rename` insists on a label -- so clearing writes back the number the tab was born with, which the sidebar hides. Project renaming goes to Herdr's `workspace rename`, session renaming to `tab rename`, so both are the same operation a person at that machine would run.
 
-The status word (`idle`, `working`) is not spelled out beside a session. The marker already carries it, and a done or blocked session says so again in its border and glow. Hover a session, or read it with a screen reader, to get the status in words.
+The status word (`idle`, `working`) is not spelled out beside a session. The mark at the far right already carries it (a spinner, an amber dot for a session waiting for your answer, a green dot for one that finished), and rows have no status-coloured border; the selected row is only tinted. A line under the name shows the folder the session runs in when that differs from the name. Hover a session, or read it with a screen reader, to get the status in words.
 
 Run commands such as `cd`, `codex`, or `claude` inside a created shell. Creation uses Herdr's `--no-focus` option so it does not steal focus from the desktop Herdr client.
 
@@ -529,7 +529,7 @@ Add the current DNS hostname, without a scheme or port, to `HERDR_WEB_ALLOWED_HO
 
 ### This machine's icon turns red
 
-The machine icon on this machine's row in the sidebar turns red when this page cannot reach HerdRabbit, and hovering it shows why. A connected machine's icon says only whether HerdRabbit reaches that machine.
+The machine icon on this machine's row in the sidebar turns red when this page cannot reach HerdRabbit, and hovering it shows why. Every machine row also has a small dot: green while HerdRabbit reaches that machine, grey while it does not. This machine's row is labelled Host.
 
 ```bash
 systemctl --user status herdrabbit.service

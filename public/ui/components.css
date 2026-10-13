@@ -166,35 +166,7 @@
 }
 
 :is(.pane-button, .ui-nav-item)[aria-pressed="true"] {
-  border-color: var(--selected-border);
   background: var(--selected-surface);
-}
-
-:is(.pane-button, .ui-nav-item)[data-status="done"] {
-  border-color: var(--done);
-  background: var(--completion-surface);
-  box-shadow: 0 0 14px var(--completion-glow);
-}
-
-:is(.pane-button, .ui-nav-item)[data-status="done"]:hover {
-  background: var(--completion-surface-hover);
-}
-
-:is(.pane-button, .ui-nav-item)[data-status="done"] :is(.pane-copy, .ui-nav-copy) strong {
-  color: var(--done);
-}
-
-:is(.pane-button, .ui-nav-item)[data-status="blocked"] {
-  border-color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 13%, transparent);
-}
-
-:is(.pane-button, .ui-nav-item)[data-status="blocked"]:hover {
-  background: color-mix(in srgb, var(--danger) 18%, transparent);
-}
-
-:is(.pane-button, .ui-nav-item)[data-status="blocked"] :is(.pane-copy, .ui-nav-copy) strong {
-  color: var(--danger);
 }
 
 :is(.pane-copy, .ui-nav-copy) {
