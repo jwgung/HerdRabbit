@@ -807,7 +807,7 @@ function syncSettingsMenu() {
   menu.querySelector('[role="separator"]').hidden = !state.authRequired;
 }
 
-function syncThemeButton() {
+function syncThemeItem() {
   const currentTheme = window.herdrTheme?.current() || "dark";
   const nextTheme = currentTheme === "dark" ? "light" : "dark";
   const label = nextTheme === "light" ? "Switch to light mode" : "Switch to dark mode";
@@ -826,7 +826,7 @@ function supportsPushNotifications() {
   );
 }
 
-function renderNotificationButton() {
+function renderNotificationItem() {
   const supported = supportsPushNotifications();
   const presentation = pushButtonPresentation({
     supported,
@@ -844,11 +844,11 @@ async function serviceWorkerRegistration() {
 }
 
 async function syncPushSubscription() {
-  renderNotificationButton();
+  renderNotificationItem();
   const registration = await serviceWorkerRegistration();
   if (!registration) return;
   state.pushSubscription = await registration.pushManager.getSubscription();
-  renderNotificationButton();
+  renderNotificationItem();
   if (state.pushSubscription && Notification.permission === "granted") {
     await api("/api/push/subscriptions", {
       method: "POST",
@@ -860,7 +860,7 @@ async function syncPushSubscription() {
 async function togglePushNotifications() {
   if (state.pushBusy || !supportsPushNotifications()) return;
   state.pushBusy = true;
-  renderNotificationButton();
+  renderNotificationItem();
   setFeedback("");
   try {
     const registration = await serviceWorkerRegistration();
@@ -899,7 +899,7 @@ async function togglePushNotifications() {
     setFeedback(`Couldn't update notifications: ${error.message}`, true);
   } finally {
     state.pushBusy = false;
-    renderNotificationButton();
+    renderNotificationItem();
   }
 }
 
@@ -5001,7 +5001,7 @@ elements.filePath.addEventListener("keydown", (event) => {
 
 elements.filePath.addEventListener("blur", () => window.setTimeout(hideSuggestions, 120));
 
-window.addEventListener("herdr-theme-change", syncThemeButton);
+window.addEventListener("herdr-theme-change", syncThemeItem);
 
 elements.sidebarToggle.addEventListener("click", () => {
   markSidebarAnimating();
@@ -5277,7 +5277,7 @@ async function initializeApplication() {
     cleanUrl.searchParams.delete("pane");
     window.history.replaceState(null, "", cleanUrl);
   }
-  void syncPushSubscription().catch(() => renderNotificationButton());
+  void syncPushSubscription().catch(() => renderNotificationItem());
   void dismissDeliveredNotifications();
   focusComposer();
   if (!state.pollingStarted) {
@@ -5347,8 +5347,8 @@ async function start() {
     });
   }
   buildSettingsMenu();
-  syncThemeButton();
-  renderNotificationButton();
+  syncThemeItem();
+  renderNotificationItem();
   syncSidebar();
   resizeTerminalInput();
   if ("serviceWorker" in navigator) {
