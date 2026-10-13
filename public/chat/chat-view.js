@@ -659,6 +659,12 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
       jumpButton.hidden = true;
       keepAtEnd();
     },
+    // The message answered a password prompt: it never shows, though the
+    // pane still works on it.
+    withdraw() {
+      pending = pending.slice(0, -1);
+      drawActivity();
+    },
     // The send failed: nothing is on its way.
     unsent() {
       pending = pending.slice(0, -1);
@@ -864,6 +870,7 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
       chat.refresh({ now: true });
     },
     unsent(id) { chats.get(id)?.unsent(); },
+    withdraw(id) { chats.get(id)?.withdraw(); },
     get lens() { return lens; },
     get paneId() { return paneId; },
     chatFor: (id) => chats.get(id) ?? null,

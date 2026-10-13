@@ -166,6 +166,9 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
   assert.equal(question.options[0].description, "Occlusion benchmark.");
   assert.deepEqual(keys(answerSteps(question, { option: 2 })), ["down", "down", "enter"]);
   assert.deepEqual(keys(answerSteps(question, { text: "HOPE" })), ["down", "down", "down", "text:HOPE", "enter"]);
+  for (const text of ["HOPE\rnow", "a\nb", "\u001b[A", "stop\u0003", "x\u009b1"]) {
+    assert.throws(() => answerSteps(question, { text }), /control characters/, JSON.stringify(text));
+  }
   assert.throws(() => answerSteps(question, { option: 3 }), /valid option/);
 });
 

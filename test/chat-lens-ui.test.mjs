@@ -101,3 +101,8 @@ test("the prompt dock sits in the stage, so the card shares the lens and the ban
   assert.match(css, /\.prompt-dock\[data-mode="banner"\] \{\s*position: absolute;/u);
   assert.match(css, /\.prompt-dock\[data-mode="overlay"\] \{\s*position: absolute;/u);
 });
+
+test("an answer to a password prompt does not stay on show as a pending message", () => {
+  assert.match(app, /if \(sent\?\.secret\) chatLens\.withdraw\(paneId\);/u);
+  assert.match(view, /withdraw\(\) \{\s*pending = pending\.slice\(0, -1\);/u);
+});

@@ -2970,7 +2970,8 @@ elements.inputForm.addEventListener("submit", async (event) => {
   try {
     if (text) {
       const sent = await sendText(text, paneId);
-      // An answer to a password prompt is never kept.
+      // An answer to a password prompt is never kept, nor left on show in the chat.
+      if (sent?.secret) chatLens.withdraw(paneId);
       if (!sent?.secret && paneKeepsInputHistory(paneId, snapshotRecords())) rememberSentInput(paneId, text);
     } else {
       await sendKeys(["enter"], paneId);

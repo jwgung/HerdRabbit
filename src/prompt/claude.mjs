@@ -621,6 +621,8 @@ export function answerSteps(parsed, answer) {
     if (typeof answer.text !== "string") throw new InvalidAnswer("The answer text must be text.");
     const text = answer.text.trim();
     if (!text || text.length > 4_000 || parsed.customMenuIndex === null || parsed.multiSelect) throw new InvalidAnswer("This prompt does not take a typed answer.");
+    // a typed answer is one line of text: Esc, Enter or ^C inside it would steer the prompt past this card
+    if (/[\u0000-\u001f\u007f-\u009f]/u.test(text)) throw new InvalidAnswer("The answer cannot contain control characters.");
     if (parsed.customSteps) return parsed.customSteps(text);
     const navigation = navigationKeys(parsed.customMenuIndex - parsed.selectedIndex);
     return [
