@@ -73,6 +73,11 @@ test("only the click right after a drag is swallowed", () => {
   assert.equal(swipe.consumedClick(), false, "a second tap opens the pane");
 
   drag(element, 20, clock);
+  element.fire("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 2, clientX: 50, clientY: 20 });
+  element.fire("pointerup", { pointerType: "touch", isPrimary: true, pointerId: 2, clientX: 50, clientY: 20 });
+  assert.equal(swipe.consumedClick(), false, "a drag that brought no click does not eat the next real tap");
+
+  drag(element, 20, clock);
   clock.t += DRAG_CLICK_WINDOW + 1;
   assert.equal(swipe.consumedClick(), false, "a drag that ended with no click does not eat a later tap");
 

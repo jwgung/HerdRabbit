@@ -85,10 +85,11 @@ export function attachSwipeDismiss(element, { onDismiss, reducedMotion = () => f
   }
 
   element.addEventListener("pointerdown", (event) => {
+    // Any new press is a fresh tap, whatever the last drag left behind.
+    draggedAt = null;
     if (event.pointerType !== "touch" || !event.isPrimary) return;
     start = { x: event.clientX, y: event.clientY, id: event.pointerId, moved: false };
     samples = [{ x: event.clientX, y: event.clientY, t: now() }];
-    draggedAt = null;
   });
 
   element.addEventListener("pointermove", (event) => {

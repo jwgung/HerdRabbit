@@ -604,10 +604,12 @@ function namesOnlyItsProgram(title) {
   return rest.every((word) => word === "code" || word === "cli" || /^v?\d[\w.-]*$/u.test(word));
 }
 
-// The title the pane's program gave its terminal (Claude names it after the
+// The title the pane's agent gave its terminal (Claude names it after the
 // conversation), with Herdr's spinner already stripped; "" when it only names
-// the program, the user or the folder.
+// the program, the user or the folder, and for a plain shell, whose title
+// changes with every command it runs.
 export function paneTerminalTitle(pane) {
+  if (paneAgentKind(pane) === "shell") return "";
   const value = [pane?.terminal_title_stripped, pane?.terminal_title].find(
     (title) => typeof title === "string" && title.trim() !== "",
   );
