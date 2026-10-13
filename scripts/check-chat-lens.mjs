@@ -122,6 +122,7 @@ try {
     if (process.env.CHAT_LENS_SCREENSHOTS) {
       for (const theme of ["dark", "light"]) {
         await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+        await page.waitForTimeout(300); // let the theme's colour transitions finish
         await page.screenshot({ path: join(process.env.CHAT_LENS_SCREENSHOTS, `chat-${mobile ? "phone" : "desktop"}-${theme}.png`) });
       }
     }

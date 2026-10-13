@@ -571,6 +571,20 @@ export function agentStatusLabel(status) {
 
 // The line under a session's name: the folder it runs in, unless that only
 // repeats the name or is unknown.
+// The folder a pane works in, by its last name; "" when unknown.
+export function paneFolder(pane) {
+  const cwd = [pane?.foreground_cwd, pane?.cwd].find((value) => typeof value === "string" && value.trim() !== "");
+  if (!cwd) return "";
+  return cwd.trim().replace(/[\\/]+$/u, "").split(/[\\/]/u).pop() ?? "";
+}
+
+// What a pane is called where its program's mark already says which agent it
+// is: its session's name, else its folder, else `fallback`. The agent's name
+// would only repeat the mark.
+export function paneDisplayTitle(named, pane, fallback = "Terminal") {
+  return named || paneFolder(pane) || fallback;
+}
+
 export function paneSubtitle(title, pane) {
   const cwd = [pane?.foreground_cwd, pane?.cwd].find((value) => typeof value === "string" && value.trim() !== "");
   if (!cwd) return "";

@@ -36,6 +36,7 @@ import {
   paneAgentKind,
   agentStatusIcon,
   agentStatusLabel,
+  paneDisplayTitle,
   paneSubtitle,
   openRenames,
   clearedTabLabel,
@@ -1462,7 +1463,7 @@ function paneButton(pane, tab, workspace, { namesSession = false } = {}) {
 
   button.append(agentMark(kind));
 
-  const title = sessionName || agentLabel;
+  const title = paneDisplayTitle(sessionName, pane, tabLabel || "Terminal");
   const copy = createElement("span", { className: "pane-copy" });
   copy.append(createElement("strong", { className: "pane-title", text: title }));
   const subtitle = paneSubtitle(title, pane);
@@ -2533,6 +2534,7 @@ function renderPaneHeading(pane, tab, workspace) {
   if (!pane) {
     elements.paneContext.textContent = "Select a pane";
     elements.paneTitle.textContent = "Terminal";
+    elements.paneTitle.removeAttribute("title");
     chatLens.select(null);
     promptDock?.select(null);
     pendingMessages?.select(null);
@@ -2561,10 +2563,10 @@ function renderPaneHeading(pane, tab, workspace) {
     workspaceLabel,
     tabLabel,
   ].filter(Boolean).join(" / ");
-  elements.paneTitle.textContent = displayRecordLabel(
-    agent,
-    displayRecordLabel(pane, "Terminal"),
-  );
+  // the program's mark says which agent it is; the title says which pane
+  const title = paneDisplayTitle("", pane, tabLabel || "Terminal");
+  elements.paneTitle.replaceChildren(agentMark(paneAgentKind(pane, agent)), createElement("span", { className: "pane-title-text", text: title }));
+  elements.paneTitle.title = displayRecordLabel(agent, displayRecordLabel(pane, "Terminal"));
 }
 
 // An agent names files as it works -- "wrote src/api.mjs", "see ./docs/plan.md"

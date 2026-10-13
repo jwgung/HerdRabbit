@@ -674,8 +674,24 @@ body.sidebar-collapsed .terminal-panel {
 #pane-title {
   min-width: 0;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 16px;
   text-overflow: ellipsis;
+}
+
+#pane-title .agent-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+}
+
+.pane-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .theme-button,

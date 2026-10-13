@@ -806,3 +806,14 @@ test("a session's second line is its folder, unless unknown or the same as the n
   assert.equal(paneSubtitle("tests", { cwd: "/" }), "");
   assert.equal(paneSubtitle("tests", null), "");
 });
+
+test("a pane is titled by its session's name, else its folder, never by the agent its mark already shows", async () => {
+  const { paneDisplayTitle, paneFolder } = await import("../public/ui-model.js");
+  assert.equal(paneFolder({ cwd: "/home/me/work/api/" }), "api");
+  assert.equal(paneFolder({ foreground_cwd: "/srv/web", cwd: "/home/me" }), "web");
+  assert.equal(paneFolder({}), "");
+  assert.equal(paneDisplayTitle("Release", { cwd: "/w/api" }), "Release");
+  assert.equal(paneDisplayTitle("", { cwd: "/w/api", agent: "claude" }), "api");
+  assert.equal(paneDisplayTitle("", { agent: "claude" }, "Build"), "Build");
+  assert.equal(paneDisplayTitle("", { agent: "claude" }), "Terminal");
+});
