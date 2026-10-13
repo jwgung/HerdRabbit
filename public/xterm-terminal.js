@@ -1,10 +1,10 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.29";
-import { findScreenLinks } from "./terminal-links.js?v=1.2.29";
-import { createTouchScroller } from "./touch-scroll.js?v=1.2.29";
-import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.29";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.30";
+import { findScreenLinks } from "./terminal-links.js?v=1.2.30";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.30";
+import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.30";
 
 const RESIZE_DEBOUNCE_MS = 80;
 // herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
@@ -93,7 +93,11 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   // or while xterm is still drawing the one before: drawn once they are back
   // at the bottom and xterm is done, so frames never pile up in its queue.
   let heldFrame = null;
+  // False from a screen clear until the first output of the new stream is drawn.
+  let drawn = false;
   let drawingFrame = false;
+  // Writes handed to xterm and not drawn yet (pty data and mirror frames).
+  let writesInFlight = 0;
 
   function create() {
     term = new Terminal({
@@ -391,7 +395,10 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     switch (message.type) {
       case "pty-data": {
         const stream = generation;
+        writesInFlight += 1;
         term.write(message.data, () => {
+          writesInFlight -= 1;
+          if (stream === generation) drawn = true;
           // Drawn after the page moved on to another pane or socket: that credit is not owed.
           if (message.flow && stream === generation) connection.acknowledge(message.pane_id, message.flow.stream_id, message.flow.offset);
         });
@@ -446,6 +453,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   let generation = 0;
   function clearScreen() {
     generation += 1;
+    drawn = false;
     cancelPress();
     selecting = null;
     term?.clearSelection();
@@ -503,7 +511,11 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     const frame = heldFrame;
     heldFrame = null;
     drawingFrame = true;
+    const stream = generation;
+    writesInFlight += 1;
     term.write(frame, () => {
+      writesInFlight -= 1;
+      if (stream === generation) drawn = true;
       drawingFrame = false;
       if (mirrored) drawHeldFrame();
     });
@@ -583,6 +595,22 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       if (!term) return;
       term.options.fontSize = size;
       fitNow();
+    },
+    // The last lines of the screen that hold text, for the page to tell whether
+    // a program asks for a password. `paneId` is the pane the screen belongs
+    // to, and `fresh` is false whenever the text cannot be trusted to be that
+    // pane's current screen: no terminal yet, parked, the first frame of a new
+    // stream not drawn, or a frame held back because the reader scrolled up.
+    screenText(lines = 8) {
+      const shown = paneId ?? mirrored ?? null;
+      if (!term) return { paneId: shown, text: "", cols: 0, fresh: false };
+      const buffer = term.buffer.active;
+      const rows = [];
+      for (let y = buffer.baseY; y < buffer.baseY + term.rows; y += 1) rows.push(buffer.getLine(y)?.translateToString(true) ?? "");
+      while (rows.length && rows.at(-1).trim() === "") rows.pop();
+      // output still being drawn may be the prompt itself: not yet the screen
+      const fresh = shown !== null && !host.hidden && drawn && heldFrame === null && !drawingFrame && writesInFlight === 0 && atBottom();
+      return { paneId: shown, text: rows.slice(-lines).join("\n"), cols: term.cols, fresh };
     },
     // Fits again once the terminal is shown (the Terminal lens, with the key bar back).
     refit() { fitNow(); },

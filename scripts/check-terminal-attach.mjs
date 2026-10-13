@@ -9,6 +9,8 @@ import { PaneAttachments } from "../src/pane-attachments.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const snapshot = JSON.parse(await readFile(new URL("../test/fixtures/fake-state.template.json", import.meta.url), "utf8")).snapshot;
+// Busy panes queue what is sent; this check is about immediate sends, so every agent is idle.
+for (const agent of snapshot.agents) agent.state = "idle";
 const ptys = [];
 let held = false;
 let screenText = "screen text view\n$ ";

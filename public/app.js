@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.29";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.29";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.30";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.30";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -49,7 +49,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.29";
+} from "./ui-model.js?v=1.2.30";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -60,54 +60,71 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.29";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.29";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.29";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.29";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.29";
-import { createPendingMessages, shouldQueue } from "./chat/pending-messages.js?v=1.2.29";
+} from "./browse-preference.js?v=1.2.30";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.30";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.30";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.30";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.30";
+import { createPendingMessages, shouldQueue } from "./chat/pending-messages.js?v=1.2.30";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.29";
-import { chatAgent } from "./lens-preference.js?v=1.2.29";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.29";
+} from "./chat-font-preference.js?v=1.2.30";
+import { chatAgent } from "./lens-preference.js?v=1.2.30";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.30";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.29";
+} from "./pane-preference.js?v=1.2.30";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.29";
+} from "./workspace-preference.js?v=1.2.30";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.29";
+} from "./terminal-preference.js?v=1.2.30";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.29";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.29";
+} from "./completion-preference.js?v=1.2.30";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.30";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.29";
+} from "./input-history-preference.js?v=1.2.30";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.30";
+import {
+  DEFAULT_KEY_BAR_ITEMS,
+  KEY_BAR_ITEMS_MAX,
+  KEY_BAR_KEYS,
+  KEY_BAR_MODIFIERS,
+  addKeyBarItem,
+  customKeyBarItem,
+  keyBarItemId,
+  keyBarItemKey,
+  keyBarItemLabel,
+  moveKeyBarItem,
+  readKeyBarItems,
+  removeKeyBarItem,
+  resetKeyBarItems,
+  writeKeyBarItems,
+} from "./key-bar-preference.js?v=1.2.30";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.29";
+} from "./launch-session.js?v=1.2.30";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.29";
+} from "./push-notifications.js?v=1.2.30";
 
 function browserStorage() {
   try {
@@ -299,6 +316,11 @@ const initialAcknowledgedCompletions = readAcknowledgedCompletions(
   panePreferenceStorage,
 );
 const initialInputHistories = readInputHistories(panePreferenceStorage);
+// A draft is not stored unless the screen is known to be this pane's current
+// one and is not asking for a password: anything else fails closed.
+const composerDrafts = createComposerDrafts(panePreferenceStorage, Date.now,
+  (paneId) => draftScreenIsSecret(paneId, draftPaneId, attachedTerminal.screenText(8)),
+  (paneId) => draftScreenShowsPrompt(paneId, draftPaneId, attachedTerminal.screenText(8)));
 document.documentElement.style.setProperty(
   "--terminal-font-size",
   `${initialTerminalFontSize}px`,
@@ -490,6 +512,7 @@ async function dismissDeliveredNotifications() {
 }
 
 function showLogin() {
+  forgetComposerDrafts();
   terminalStream.pause();
   state.authenticated = false;
   document.body.classList.remove("auth-pending", "auth-ready");
@@ -841,6 +864,84 @@ function resetInputHistoryNavigation() {
   state.inputHistoryCursor = null;
   state.inputHistoryDraft = "";
 }
+
+// Each pane keeps the message typed but not sent. The textarea shows the
+// selected pane's; switching panes saves it and brings the other pane's back.
+// A draft is dropped before it is sent or queued, and a text the server calls
+// a password answer is never stored.
+let draftPaneId = null;
+let draftSaveTimer = null;
+const draftBlocked = new Set(); // panes whose composer text must not be stored
+const draftHeld = new Set(); // panes with a message on its way
+
+// While history is browsed the box shows an old message; the draft is the text
+// typed before browsing began.
+function composerDraftText() {
+  return state.inputHistoryCursor !== null ? state.inputHistoryDraft : elements.terminalInput.value;
+}
+
+function saveComposerDraft() {
+  window.clearTimeout(draftSaveTimer);
+  draftSaveTimer = null;
+  const paneId = draftPaneId;
+  if (!paneId || draftHeld.has(paneId)) return;
+  if (draftBlocked.has(paneId)) {
+    composerDrafts.clear(paneId);
+    return;
+  }
+  composerDrafts.set(paneId, composerDraftText());
+}
+
+function scheduleComposerDraftSave() {
+  if (!draftPaneId) return;
+  window.clearTimeout(draftSaveTimer);
+  draftSaveTimer = window.setTimeout(saveComposerDraft, 300);
+}
+
+// Called whenever the selected pane may have changed; does nothing when it has not.
+function syncComposerDraft() {
+  const paneId = state.selectedPaneId || null;
+  if (paneId === draftPaneId) return;
+  saveComposerDraft();
+  const leaving = draftPaneId;
+  draftBlocked.delete(leaving);
+  draftPaneId = paneId;
+  if (paneId) draftBlocked.delete(paneId);
+  resetInputHistoryNavigation();
+  const text = paneId ? composerDrafts.get(paneId) : "";
+  if (elements.terminalInput.value !== text) {
+    elements.terminalInput.value = text;
+    resizeTerminalInput();
+  }
+}
+
+// The message is about to go: nothing of it stays stored, so a closed page
+// mid-send leaves no copy. A failed send puts the draft back.
+function holdComposerDraft(paneId) {
+  window.clearTimeout(draftSaveTimer);
+  draftSaveTimer = null;
+  draftHeld.add(paneId);
+  composerDrafts.clear(paneId);
+}
+
+function releaseComposerDraft(paneId, { sent, text, secret = false }) {
+  draftHeld.delete(paneId);
+  if (sent) {
+    // A password answer keeps its pane blocked until the composer is cleared or left.
+    if (secret && draftPaneId === paneId && elements.terminalInput.value !== "") draftBlocked.add(paneId);
+    else draftBlocked.delete(paneId);
+    return;
+  }
+  if (draftPaneId === paneId) saveComposerDraft();
+  // The pane was left while the message was on its way and it did not go: its
+  // screen is not on show to be checked, so the text stays in memory only.
+  else if (!draftBlocked.has(paneId) && !composerDrafts.get(paneId)) composerDrafts.set(paneId, text, { memoryOnly: true });
+}
+
+window.addEventListener("pagehide", saveComposerDraft);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) saveComposerDraft();
+});
 
 function rememberSentInput(paneId, text) {
   const history = state.inputHistoryByPane.get(paneId) || [];
@@ -1481,6 +1582,7 @@ function paneButton(pane, tab, workspace, { namesSession = false } = {}) {
   button.addEventListener("click", () => {
     if (state.selectedPaneId !== paneId) resetInputHistoryNavigation();
     state.selectedPaneId = paneId;
+    syncComposerDraft();
     state.preferredPaneId = paneId;
     writePanePreference(panePreferenceStorage, paneId);
     acknowledgePaneCompletion(paneId);
@@ -1660,6 +1762,18 @@ async function signOut() {
 function signedOut() {
   state.launchToken = clearLaunchToken(launchSessionStorage);
   showLogin();
+}
+
+// Unsent text belongs to the sign-in it was typed under: whichever way that
+// ends (signing out, an expired session, a revoked device), it goes with it,
+// so the next person to sign in on this browser does not get it back.
+function forgetComposerDrafts() {
+  window.clearTimeout(draftSaveTimer);
+  draftSaveTimer = null;
+  composerDrafts.clearAll();
+  draftBlocked.clear();
+  clearComposer();
+  draftPaneId = null;
 }
 
 // Passkeys. The server lists each one by name, dates and a handle; credential
@@ -2629,6 +2743,7 @@ function choosePane() {
   )) {
     if (state.selectedPaneId !== pendingNotificationPaneId) resetInputHistoryNavigation();
     state.selectedPaneId = pendingNotificationPaneId;
+    syncComposerDraft();
     pendingNotificationPaneId = null;
     writePanePreference(panePreferenceStorage, state.selectedPaneId);
     const currentUrl = new URL(window.location.href);
@@ -2671,6 +2786,7 @@ function choosePane() {
     state.preferredPaneId = nextPaneId;
     writePanePreference(panePreferenceStorage, nextPaneId);
   }
+  syncComposerDraft();
 }
 
 const liveStatusUpdates = new Map();
@@ -3127,6 +3243,7 @@ function showTerminalView(shown) {
 document.querySelector("#terminal-take-over").addEventListener("click", () => attachedTerminal.takeOver());
 
 function clearComposer() {
+  if (draftPaneId) draftBlocked.delete(draftPaneId);
   elements.terminalInput.value = "";
   window.clearTimeout(terminalInputResizeTimer);
   terminalInputResizeTimer = null;
@@ -3145,15 +3262,21 @@ async function queueComposerText(paneId, text) {
   const submitButton = elements.sendButton;
   submitButton.disabled = true;
   setFeedback("Queueing…");
+  holdComposerDraft(paneId);
+  let queued = false;
   try {
     await pendingMessages.enqueue(paneId, text);
+    queued = true;
     if (paneKeepsInputHistory(paneId, snapshotRecords())) rememberSentInput(paneId, text);
     // only the draft that was queued: another pane's, typed meanwhile, stays
     if (state.selectedPaneId === paneId && elements.terminalInput.value === text) clearComposer();
     setFeedback("");
   } catch (error) {
+    // The server refuses a queued password answer: what was typed is not stored.
+    if (error?.code === "secret_prompt") draftBlocked.add(paneId);
     setFeedback(error.message, true);
   } finally {
+    releaseComposerDraft(paneId, { sent: queued, text });
     submitButton.disabled = false;
   }
 }
@@ -3176,24 +3299,31 @@ elements.inputForm.addEventListener("submit", async (event) => {
   setFeedback("Sending…");
   // The Chat lens shows the message on its way and goes to the end at once.
   // The text itself shows only once the server says it was no password answer.
+  let delivered = false;
+  let secret = false;
+  if (paneId) holdComposerDraft(paneId);
   chatLens.sent(paneId, null);
   let pending = null;
   try {
     if (text) {
       const sent = await sendText(text, paneId);
+      secret = sent?.secret === true;
       // An answer to a password prompt is never kept, nor left on show in the chat.
       if (!sent?.secret) pending = chatLens.pend(paneId, text);
       if (!sent?.secret && paneKeepsInputHistory(paneId, snapshotRecords())) rememberSentInput(paneId, text);
     } else {
       await sendKeys(["enter"], paneId);
     }
-    clearComposer();
+    delivered = true;
+    // Only the pane's own box: the message may have been sent from another pane's draft.
+    if (draftPaneId === paneId || !paneId) clearComposer();
     setFeedback("");
     refreshAfterSubmission();
   } catch (error) {
     chatLens.unsent(paneId, pending);
     setFeedback(error.message, true);
   } finally {
+    if (paneId) releaseComposerDraft(paneId, { sent: delivered, text, secret });
     submitButton.disabled = false;
   }
 });
@@ -3269,6 +3399,7 @@ elements.terminalInput.addEventListener("input", () => {
     scheduleTerminalInputResize();
   }
   if (state.inputHistoryCursor !== null) resetInputHistoryNavigation();
+  scheduleComposerDraftSave();
 });
 
 elements.terminalInput.addEventListener("blur", () => {
@@ -3276,6 +3407,44 @@ elements.terminalInput.addEventListener("blur", () => {
 });
 
 window.addEventListener("resize", resizeTerminalInput);
+
+let keyBarItems = readKeyBarItems(panePreferenceStorage);
+const EDIT_KEYS_ICON =
+  '<svg aria-hidden="true" viewBox="0 0 20 20" focusable="false"><path d="M3 14.5V17h2.5L15 7.5 12.5 5 3 14.5Z"/><path d="m11.5 6 2.5 2.5"/></svg>';
+
+function renderKeyBar() {
+  const buttons = keyBarItems.map((item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = keyBarItemLabel(item);
+    if (item.type === "modifier") {
+      button.dataset.modifier = item.modifier;
+      button.setAttribute("aria-pressed", "false");
+      button.title = "Combine with the next button or keyboard key";
+    } else {
+      button.dataset.key = item.key;
+      // A saved combination sends exactly its own chord, whatever is held.
+      if (item.modifiers) button.dataset.chord = item.modifiers.join("+");
+      if (item.modifiers) button.title = keyBarItemKey(item) || "";
+    }
+    return button;
+  });
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.className = "key-bar-edit";
+  edit.dataset.keyBarEdit = "";
+  edit.setAttribute("aria-label", "Edit keys");
+  edit.title = "Edit keys";
+  edit.innerHTML = EDIT_KEYS_ICON;
+  elements.quickKeys.replaceChildren(...buttons, edit);
+  // A latched modifier whose button was removed would stay on unseen.
+  for (const name of [...selectedKeyModifiers]) {
+    if (!keyBarItems.some((item) => item.type === "modifier" && item.modifier === name)) {
+      selectedKeyModifiers.delete(name);
+    }
+  }
+  renderKeyModifiers();
+}
 
 function renderKeyModifiers() {
   for (const button of elements.quickKeys.querySelectorAll("[data-modifier]")) {
@@ -3312,6 +3481,10 @@ elements.quickKeys.addEventListener("mousedown", (event) => {
 });
 
 elements.quickKeys.addEventListener("click", (event) => {
+  if (event.target.closest("[data-key-bar-edit]")) {
+    openKeyBarDialog();
+    return;
+  }
   if (!state.authenticated || !state.selectedPaneId || keySendBusy) return;
   const modifier = event.target.closest("button[data-modifier]");
   if (modifier) {
@@ -3325,10 +3498,12 @@ elements.quickKeys.addEventListener("click", (event) => {
   }
   const button = event.target.closest("button[data-key]");
   if (!button) return;
-  const modifiers = [...selectedKeyModifiers];
-  if (event.ctrlKey) modifiers.push("ctrl");
-  if (event.altKey) modifiers.push("alt");
-  if (event.shiftKey) modifiers.push("shift");
+  const modifiers = button.dataset.chord !== undefined ? button.dataset.chord.split("+") : [...selectedKeyModifiers];
+  if (button.dataset.chord === undefined) {
+    if (event.ctrlKey) modifiers.push("ctrl");
+    if (event.altKey) modifiers.push("alt");
+    if (event.shiftKey) modifiers.push("shift");
+  }
   void sendCommandKey(combinedTerminalKey(button.dataset.key, modifiers));
 });
 
@@ -3356,6 +3531,204 @@ elements.terminalInput.addEventListener("beforeinput", (event) => {
   event.preventDefault();
   void sendCommandKey(key);
 });
+
+// The "Edit keys" window: a list in bar order (drag a row on a desktop, or use
+// the arrows), a list of keys to add, and custom combinations. Every change is
+// saved and drawn on the bar at once.
+const keyBarDialog = {
+  root: document.querySelector("#key-bar-dialog"),
+  list: document.querySelector("#key-bar-list"),
+  empty: document.querySelector("#key-bar-empty"),
+  addSelect: document.querySelector("#key-bar-add-select"),
+  add: document.querySelector("#key-bar-add"),
+  comboKey: document.querySelector("#key-bar-combo-key"),
+  comboChar: document.querySelector("#key-bar-combo-char"),
+  comboPreview: document.querySelector("#key-bar-combo-preview"),
+  comboAdd: document.querySelector("#key-bar-combo-add"),
+};
+const KEY_BAR_CHARACTER = "character";
+const comboModifiers = new Set();
+let keyBarDragFrom = null;
+
+function setKeyBarItems(next) {
+  keyBarItems = next;
+  writeKeyBarItems(panePreferenceStorage, keyBarItems);
+  renderKeyBar();
+  renderKeyBarDialog();
+}
+
+function keyBarComboItem() {
+  const base = keyBarDialog.comboKey.value === KEY_BAR_CHARACTER ? keyBarDialog.comboChar.value : keyBarDialog.comboKey.value;
+  if (keyBarDialog.comboKey.value === KEY_BAR_CHARACTER && [...base].length !== 1) return { error: "Enter one character." };
+  const item = customKeyBarItem(base, [...comboModifiers]);
+  return item ? { item } : { error: "That is not a key the terminal can take." };
+}
+
+function renderKeyBarCombo() {
+  const character = keyBarDialog.comboKey.value === KEY_BAR_CHARACTER;
+  keyBarDialog.comboChar.hidden = !character;
+  for (const button of keyBarDialog.root.querySelectorAll("[data-combo-modifier]")) {
+    button.setAttribute("aria-pressed", String(comboModifiers.has(button.dataset.comboModifier)));
+  }
+  const { item, error } = keyBarComboItem();
+  const exists = item && keyBarItems.some((current) => keyBarItemId(current) === keyBarItemId(item));
+  keyBarDialog.comboPreview.textContent = item ? keyBarItemLabel(item) : error;
+  keyBarDialog.comboAdd.disabled = !item || exists || keyBarItems.length >= KEY_BAR_ITEMS_MAX;
+  keyBarDialog.comboAdd.title = exists ? "Already on the bar" : "";
+}
+
+function fillKeyBarSelects() {
+  const keyOption = (name) => {
+    const option = createElement("option", { text: keyBarItemLabel({ type: "key", key: name }) });
+    option.value = name;
+    return option;
+  };
+  const modifierOption = (name) => {
+    const option = createElement("option", { text: `${keyBarItemLabel({ type: "modifier", modifier: name })} (held for the next key)` });
+    option.value = `modifier:${name}`;
+    return option;
+  };
+  const chosen = keyBarDialog.addSelect.value;
+  const present = new Set(keyBarItems.map(keyBarItemId));
+  const options = [
+    ...KEY_BAR_MODIFIERS.filter((name) => !present.has(`modifier:${name}`)).map(modifierOption),
+    ...KEY_BAR_KEYS.filter((name) => !present.has(keyBarItemId({ type: "key", key: name }))).map(keyOption),
+  ];
+  if (!options.length) {
+    const none = createElement("option", { text: "All keys added" });
+    none.value = "";
+    options.push(none);
+  }
+  keyBarDialog.addSelect.replaceChildren(...options);
+  if (options.some((option) => option.value === chosen)) keyBarDialog.addSelect.value = chosen;
+  keyBarDialog.add.disabled = !keyBarDialog.addSelect.value || keyBarItems.length >= KEY_BAR_ITEMS_MAX;
+  if (!keyBarDialog.comboKey.options.length) {
+    const comboOptions = KEY_BAR_KEYS.map(keyOption);
+    const character = createElement("option", { text: "Single character" });
+    character.value = KEY_BAR_CHARACTER;
+    keyBarDialog.comboKey.replaceChildren(...comboOptions, character);
+    keyBarDialog.comboKey.value = KEY_BAR_CHARACTER;
+  }
+}
+
+function renderKeyBarDialog() {
+  fillKeyBarSelects();
+  keyBarDialog.empty.hidden = keyBarItems.length > 0;
+  const rows = keyBarItems.map((item, index) => {
+    const name = keyBarItemLabel(item);
+    const row = createElement("li", { className: "key-bar-item" });
+    row.draggable = true;
+    row.dataset.index = String(index);
+    row.append(
+      createElement("span", { className: "key-bar-cap", text: name }),
+      createElement("span", {
+        className: "key-bar-kind",
+        text: item.type === "modifier" ? "Held for the next key" : item.modifiers ? "Combination" : "",
+      }),
+    );
+    const actions = createElement("span", { className: "key-bar-item-actions" });
+    const action = (label, text, handler, disabled = false) => {
+      const button = createElement("button", { text });
+      button.type = "button";
+      button.disabled = disabled;
+      button.setAttribute("aria-label", `${label} ${name}`);
+      button.title = `${label} ${name}`;
+      button.addEventListener("click", handler);
+      return button;
+    };
+    actions.append(
+      action("Move up", "↑", () => setKeyBarItems(moveKeyBarItem(keyBarItems, index, index - 1)), index === 0),
+      action("Move down", "↓", () => setKeyBarItems(moveKeyBarItem(keyBarItems, index, index + 1)), index === keyBarItems.length - 1),
+      action("Remove", "×", () => setKeyBarItems(removeKeyBarItem(keyBarItems, index))),
+    );
+    row.append(actions);
+    return row;
+  });
+  keyBarDialog.list.replaceChildren(...rows);
+  renderKeyBarCombo();
+}
+
+function keyBarDropTarget(event) {
+  const row = event.target.closest?.(".key-bar-item");
+  if (!row || keyBarDragFrom === null) return null;
+  const rect = row.getBoundingClientRect();
+  return { row, index: Number(row.dataset.index), after: event.clientY > rect.top + rect.height / 2 };
+}
+
+function clearKeyBarDropMarks() {
+  for (const row of keyBarDialog.list.children) {
+    delete row.dataset.drop;
+    delete row.dataset.dragging;
+  }
+}
+
+keyBarDialog.list.addEventListener("dragstart", (event) => {
+  const row = event.target.closest?.(".key-bar-item");
+  if (!row) return;
+  keyBarDragFrom = Number(row.dataset.index);
+  row.dataset.dragging = "true";
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", String(keyBarDragFrom));
+});
+keyBarDialog.list.addEventListener("dragover", (event) => {
+  const target = keyBarDropTarget(event);
+  if (!target) return;
+  event.preventDefault();
+  for (const row of keyBarDialog.list.children) delete row.dataset.drop;
+  target.row.dataset.drop = target.after ? "after" : "before";
+});
+keyBarDialog.list.addEventListener("drop", (event) => {
+  const target = keyBarDropTarget(event);
+  if (!target) return;
+  event.preventDefault();
+  let to = target.index + (target.after ? 1 : 0);
+  if (keyBarDragFrom < to) to -= 1;
+  const from = keyBarDragFrom;
+  keyBarDragFrom = null;
+  clearKeyBarDropMarks();
+  setKeyBarItems(moveKeyBarItem(keyBarItems, from, to));
+});
+keyBarDialog.list.addEventListener("dragend", () => {
+  keyBarDragFrom = null;
+  clearKeyBarDropMarks();
+});
+
+keyBarDialog.add.addEventListener("click", () => {
+  const value = keyBarDialog.addSelect.value;
+  if (!value) return;
+  const item = value.startsWith("modifier:")
+    ? { type: "modifier", modifier: value.slice("modifier:".length) }
+    : { type: "key", key: value };
+  setKeyBarItems(addKeyBarItem(keyBarItems, item));
+});
+keyBarDialog.comboKey.addEventListener("change", renderKeyBarCombo);
+keyBarDialog.comboChar.addEventListener("input", renderKeyBarCombo);
+for (const button of keyBarDialog.root.querySelectorAll("[data-combo-modifier]")) {
+  button.addEventListener("click", () => {
+    const name = button.dataset.comboModifier;
+    if (comboModifiers.has(name)) comboModifiers.delete(name);
+    else comboModifiers.add(name);
+    renderKeyBarCombo();
+  });
+}
+keyBarDialog.comboAdd.addEventListener("click", () => {
+  const { item } = keyBarComboItem();
+  if (item) setKeyBarItems(addKeyBarItem(keyBarItems, item));
+});
+document.querySelector("#key-bar-reset").addEventListener("click", () => {
+  resetKeyBarItems(panePreferenceStorage);
+  keyBarItems = [...DEFAULT_KEY_BAR_ITEMS];
+  renderKeyBar();
+  renderKeyBarDialog();
+});
+document.querySelector("#key-bar-close").addEventListener("click", () => keyBarDialog.root.close());
+
+function openKeyBarDialog() {
+  renderKeyBarDialog();
+  keyBarDialog.root.showModal();
+}
+
+renderKeyBar();
 
 window.addEventListener("blur", clearKeyModifiers);
 
