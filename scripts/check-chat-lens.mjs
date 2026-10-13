@@ -184,6 +184,22 @@ try {
     assert.ok(returnReads.every((read) => /since=/u.test(read.url)), "the chat is not read again from scratch");
     assert.ok(returnReads.slice(1).every((read) => read.ifNoneMatch), "a read again asks If-None-Match");
 
+    // The window resized twice while the chat is up: the hidden terminal asks
+    // for no size then, and for its new size once when it is shown again.
+    const size = page.viewportSize();
+    const resizesBefore = frames.length;
+    await page.setViewportSize({ width: size.width - 60, height: size.height - 80 });
+    await page.waitForTimeout(250);
+    await page.setViewportSize({ width: size.width - 120, height: size.height - 160 });
+    await page.waitForTimeout(600);
+    assert.deepEqual(typesSince(resizesBefore, ["resize"]), [], "a hidden terminal asks for no size");
+    await page.locator("#lens-terminal").click();
+    await page.waitForTimeout(600);
+    assert.equal(typesSince(resizesBefore, ["resize"]).length, 1, "shown again, it fits once");
+    await page.locator("#lens-chat").click();
+    await page.setViewportSize(size);
+    await page.waitForTimeout(600);
+
     // A send from the chat goes the usual way; an append shows without a reload.
     await page.locator("#terminal-input").fill("hello from chat");
     await page.locator(".send-button").click();
@@ -214,7 +230,7 @@ try {
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
     assert.equal(await lens(), "terminal", "the lens chosen last for the pane comes back");
     assert.deepEqual(errors, []);
-    console.log({ mobile, defaultLens: true, noReattachOnSwitch: true, draftKept: true, scrollKept: true, shortcut: true,
+    console.log({ mobile, defaultLens: true, noReattachOnSwitch: true, fitOnce: true, draftKept: true, scrollKept: true, shortcut: true,
       olderPages: true, liveUpdate: true, send: true, unavailable: true, remembered: true });
     await context.close();
     // the next round reads the transcript as written by the first
