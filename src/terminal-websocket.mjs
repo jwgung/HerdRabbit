@@ -242,8 +242,8 @@ export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMes
           }
           let stop;
           try {
-            stop = watchPending(id, ({ items, removed }) => {
-              if (!stopped && valid()) send({ type: "pending-messages", pane_id: id, items, ...(removed ? { removed } : {}) });
+            stop = watchPending(id, ({ items, removed, revision }) => {
+              if (!stopped && valid()) send({ type: "pending-messages", pane_id: id, items, revision, ...(removed ? { removed } : {}) });
             });
           } catch {
             send({ type: "pending-unavailable", pane_id: id, code: "busy" });

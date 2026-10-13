@@ -65,7 +65,8 @@ function paneSession(snapshot, paneId) {
 // Whether a message queued for `item` may go to the pane as it is now.
 function sameReader(item, pane) {
   if (item.agent !== pane.agent) return false;
-  return !item.session || !pane.session || item.session === pane.session;
+  // a session noted at queueing must still be the one there, and be known
+  return !item.session || item.session === pane.session;
 }
 
 export class PendingInputs {

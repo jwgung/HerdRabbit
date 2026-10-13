@@ -161,6 +161,18 @@ test("a new session of the same agent does not get the old session's messages", 
   assert.equal(pending.list("w1:p1")[0].state, "failed");
 });
 
+test("a message noted for a session waits when herdr no longer says which session is there", async (context) => {
+  const herdr = fakeHerdr();
+  herdr.sessions["w1:p1"] = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
+  const { pending } = service(context, herdr);
+  await pending.enqueue("w1:p1", "next step");
+  delete herdr.sessions["w1:p1"];
+  herdr.statuses["w1:p1"] = "idle";
+  await pending.tick();
+  assert.deepEqual(herdr.sent, []);
+  assert.equal(pending.list("w1:p1")[0].state, "failed");
+});
+
 test("one slow pane does not hold back another pane's message", async (context) => {
   const herdr = fakeHerdr({ "w1:p1": "idle", "w1:p2": "idle" });
   let release;

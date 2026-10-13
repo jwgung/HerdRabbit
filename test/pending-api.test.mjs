@@ -160,7 +160,9 @@ test("watching pages hear the list on every change, and a new socket hears it wh
   const { post, socket, herdr } = await fixture(context);
   const first = await socket();
   first.ws.send(JSON.stringify({ type: "watch-pending", paneId: "w1:p1" }));
-  assert.deepEqual(await first.next((message) => message.type === "pending-messages"), { type: "pending-messages", pane_id: "w1:p1", items: [] });
+  const opening = await first.next((message) => message.type === "pending-messages");
+  assert.deepEqual({ ...opening, revision: undefined }, { type: "pending-messages", pane_id: "w1:p1", items: [], revision: undefined });
+  assert.ok(Number.isInteger(opening.revision), "every push carries the list revision");
   const second = await socket();
   second.ws.send(JSON.stringify({ type: "watch-pending", paneId: "w1:p1" }));
   await second.next((message) => message.type === "pending-messages");
@@ -168,6 +170,7 @@ test("watching pages hear the list on every change, and a new socket hears it wh
   for (const page of [first, second]) {
     const pushed = await page.next((message) => message.type === "pending-messages" && message.items.length === 1);
     assert.equal(pushed.items[0].text, "for both");
+    assert.ok(pushed.revision > opening.revision);
   }
   // a page that reconnects watches again and gets the whole list
   first.ws.terminate();

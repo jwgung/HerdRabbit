@@ -244,7 +244,7 @@ export function createPendingMessages({ document = globalThis.document, host, co
       const payload = await postJson(`/api/panes/${encodeURIComponent(pane)}/pending`, { text });
       if (pane === paneId && Array.isArray(payload?.items)) {
         error = null;
-        setItems(payload.items);
+        setItems(payload.items, [], payload.revision);
       }
       return payload?.item ?? null;
     },
