@@ -117,6 +117,14 @@ try {
       assert.equal(got.pressed, String(row.id === "w1:p4"));
       assert.equal(got.background !== "rgba(0, 0, 0, 0)", row.id === "w1:p4", `${row.id} highlight only when selected`);
     }
+    // Every "…" in the sidebar -- machine, project, tab and session rows --
+    // ends on the same vertical line.
+    const menuRights = await page.evaluate(() => [...document.querySelectorAll("#workspace-list .sidebar-action-menu > summary")]
+      .filter((summary) => summary.getClientRects().length > 0)
+      .map((summary) => ({ kind: summary.parentElement.className, right: Math.round(summary.getBoundingClientRect().right) })));
+    assert.ok(menuRights.length >= 4, "menus to compare");
+    const rights = new Set(menuRights.map((menu) => menu.right));
+    assert.equal(rights.size, 1, `every menu ends on one line: ${JSON.stringify(menuRights)}`);
     // each state has its own colour, from the shared status rules
     const colours = new Set(["w1:p1", "w1:p2", "w1:p3", "w1:p4"].map((id) => seen.rows[id].glyphColour));
     assert.equal(colours.size, 4, "working, blocked, done and idle differ in colour");
