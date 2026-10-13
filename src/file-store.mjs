@@ -86,7 +86,7 @@ function numberedName(name, attempt) {
 }
 
 export class FileStore {
-  constructor(directory, { maxBytes = 50 * 1024 * 1024 } = {}) {
+  constructor(directory, { maxBytes = Infinity } = {}) {
     this.directory = directory;
     this.maxBytes = maxBytes;
   }

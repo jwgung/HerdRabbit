@@ -201,3 +201,22 @@ test("directoryFingerprint detects file creation and deletion", async () => {
   assert.notEqual(afterRemove, afterAdd);
 });
 
+
+test("a file of unknown size streams up to the unknown-size cap, or a smaller limit", async () => {
+  const unlimited = await openFile("/proc/self/status");
+  assert.equal(unlimited.size, null);
+  assert.equal(unlimited.stream.readableHighWaterMark > 0, true);
+  unlimited.stream.destroy();
+  const limited = await openFile("/proc/self/status", { maxBytes: 5 });
+  const chunks = [];
+  for await (const chunk of limited.stream) chunks.push(chunk);
+  assert.equal(Buffer.concat(chunks).length, 5);
+});
+
+test("a sized file is not limited by default", async () => {
+  const directory = await scratch();
+  await writeFile(join(directory, "any.bin"), "0123456789");
+  const file = await openFile(join(directory, "any.bin"), { maxBytes: Infinity });
+  assert.equal(file.length, 10);
+  file.stream.destroy();
+});

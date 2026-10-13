@@ -419,3 +419,42 @@ test("a read that brings fewer bytes than it promised fails instead of ending sh
   assert.equal(opened.size, 10);
   await assert.rejects(text(opened.stream));
 });
+
+test("downloads and uploads have no size limit unless one is given", async () => {
+  const { home, files } = await setup();
+  assert.equal(files.maxBytes, Infinity);
+  await writeFile(join(home, "clip.bin"), "0123456789");
+  const whole = await files.openFile(join(home, "clip.bin"), { maxBytes: Infinity });
+  assert.equal(await text(whole.stream), "0123456789");
+  const saved = await files.saveUpload("many.bin", Readable.from([Buffer.alloc(1024 * 1024, 1)]), { bytes: 1024 * 1024 });
+  assert.equal(saved.size, 1024 * 1024);
+  const limited = (await setup({ maxBytes: 8 })).files;
+  await assert.rejects(limited.saveUpload("big.bin", Readable.from([Buffer.from("x".repeat(9))]), { bytes: 9 }), { message: /upload limit/u });
+});
+
+test("a file of unknown size is read to its end, bounded by the cap rather than by Infinity", async () => {
+  const { files } = await setup();
+  const unlimited = await files.openFile("/proc/self/status");
+  assert.equal(unlimited.size, null);
+  assert.equal(unlimited.length, null);
+  assert.ok((await text(unlimited.stream)).length > 0);
+  const limited = await files.openFile("/proc/self/status", { maxBytes: 5 });
+  assert.equal((await text(limited.stream)).length, 5);
+});
+
+test("a download whose browser stops reading is ended; one that reads slowly keeps going", async () => {
+  const { home, files } = await setup({ readIdleMs: 40, stalledClientMs: 400 });
+  await writeFile(join(home, "big.bin"), Buffer.alloc(256 * 1024, 3));
+  const stalled = await files.openFile(join(home, "big.bin"));
+  stalled.stream.on("error", () => {});
+  await new Promise((resolve) => stalled.stream.once("close", resolve));
+  assert.ok(stalled.stream.destroyed);
+
+  const slow = await files.openFile(join(home, "big.bin"));
+  let total = 0;
+  for await (const chunk of slow.stream) {
+    total += chunk.length;
+    await new Promise((resolve) => setTimeout(resolve, 15));
+  }
+  assert.equal(total, 256 * 1024);
+});

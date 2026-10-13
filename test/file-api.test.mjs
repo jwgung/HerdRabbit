@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { request as httpRequest } from "node:http";
+import { connect } from "node:net";
+import { acceptUpload } from "../src/http-basics.mjs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -184,9 +187,102 @@ test("gives uploads room to finish streaming", async (context) => {
   const app = await startServer();
   context.after(() => closeServer(app.server));
 
-  // A phone on a slow link needs far more than the 10s that suits JSON routes.
-  assert.equal(app.server.requestTimeout, 120_000);
+  // Node's whole-request timer is off; the server guards requests itself so
+  // only an upload may outlast it.
+  assert.equal(app.server.requestTimeout, 0);
   assert.equal(app.server.headersTimeout, 5_000);
+});
+
+function trickle(app, { path, headers, chunks, gapMs }) {
+  return new Promise((resolve) => {
+    const request = httpRequest(`${app.baseUrl}${path}`, { method: "POST", headers }, (response) => {
+      response.resume();
+      response.on("end", () => resolve({ status: response.statusCode }));
+    });
+    request.on("error", (error) => resolve({ error: error.code }));
+    let sent = 0;
+    const next = () => {
+      if (sent >= chunks) { if (chunks > 0) request.end(); return; }
+      sent += 1;
+      request.write("x");
+      setTimeout(next, gapMs);
+    };
+    next();
+  });
+}
+
+test("a slow upload outlasts the request timeout while it keeps sending", async (context) => {
+  const app = await startServer({ maxTransferBytes: Infinity, requestTimeoutMs: 100, uploadIdleMs: 400 });
+  context.after(() => closeServer(app.server));
+
+  // Eight bytes, one every 60ms: about 480ms in all, nearly five times the request timeout.
+  const started = Date.now();
+  const result = await trickle(app, {
+    path: "/api/files/slow.bin",
+    headers: uploadHeaders({ Origin: app.baseUrl, "Content-Length": "8" }),
+    chunks: 8,
+    gapMs: 60,
+  });
+  assert.equal(result.status, 201);
+  assert.ok(Date.now() - started > 400);
+  assert.equal((await app.files.list())[0].size, 8);
+});
+
+test("an upload that goes quiet is dropped and leaves no file", async (context) => {
+  const app = await startServer({ maxTransferBytes: Infinity, requestTimeoutMs: 100, uploadIdleMs: 300 });
+  context.after(() => closeServer(app.server));
+
+  const started = Date.now();
+  const result = await trickle(app, {
+    path: "/api/files/stalled.bin",
+    headers: uploadHeaders({ Origin: app.baseUrl, "Content-Length": "8" }),
+    chunks: 2,
+    gapMs: 10_000,
+  });
+  assert.ok(result.error, "the connection is cut");
+  // close to the idle period after the last byte, not up to twice it
+  assert.ok(Date.now() - started < 300 * 1.5, `cut after ${Date.now() - started}ms`);
+  assert.deepEqual(await app.files.list(), []);
+});
+
+test("other requests still have to arrive within the request timeout", async (context) => {
+  const app = await startServer({ requestTimeoutMs: 150, uploadIdleMs: 10_000 });
+  context.after(() => closeServer(app.server));
+
+  const result = await trickle(app, {
+    path: "/api/auth/login",
+    headers: { "Content-Type": "application/json", "Content-Length": "100", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl },
+    chunks: 2,
+    gapMs: 10_000,
+  });
+  assert.ok(result.error, "the connection is cut");
+});
+
+test("takes any size when no limit is set, and bootstrap says so", async (context) => {
+  const app = await startServer({ maxTransferBytes: Infinity });
+  context.after(() => closeServer(app.server));
+  assert.equal((await (await fetch(`${app.baseUrl}/api/bootstrap`)).json()).maxTransferBytes, null);
+
+  const accepted = await fetch(`${app.baseUrl}/api/files/ok.bin`, {
+    method: "POST",
+    headers: uploadHeaders({ Origin: app.baseUrl }),
+    body: "x".repeat(1000),
+  });
+  assert.equal(accepted.status, 201);
+});
+
+test("bootstrap reports a configured limit in bytes", async (context) => {
+  const app = await startServer({ maxTransferBytes: 8 });
+  context.after(() => closeServer(app.server));
+  assert.equal((await (await fetch(`${app.baseUrl}/api/bootstrap`)).json()).maxTransferBytes, 8);
+});
+
+test("acceptUpload compares the declared size only when there is a limit", () => {
+  const request = (length) => ({ headers: { "content-type": "application/octet-stream", "content-length": length } });
+  assert.equal(acceptUpload(request("99999999999999"), Infinity).headers["content-length"], "99999999999999");
+  assert.throws(() => acceptUpload(request("9"), 8), { status: 413 });
+  assert.doesNotThrow(() => acceptUpload(request("8"), 8));
+  assert.throws(() => acceptUpload({ headers: { "content-type": "application/octet-stream" } }, Infinity), { status: 411 });
 });
 
 test("stays out of the way when no uploads folder is configured", async (context) => {
@@ -197,4 +293,42 @@ test("stays out of the way when no uploads folder is configured", async (context
 
   const response = await fetch(`http://127.0.0.1:${created.server.address().port}/api/files`);
   assert.equal(response.status, 404);
+});
+
+test("a request answered before its body is read has its socket closed, even if the body trickles", async (context) => {
+  const app = await startServer({ requestTimeoutMs: 10_000, uploadIdleMs: 10_000 });
+  context.after(() => closeServer(app.server));
+
+  const socket = connect(app.server.address().port, "127.0.0.1");
+  context.after(() => socket.destroy());
+  await once(socket, "connect");
+  socket.write(`POST /api/nothing-here HTTP/1.1\r\nHost: 127.0.0.1:${app.server.address().port}\r\nContent-Type: application/json\r\nContent-Length: 1000000\r\n\r\n`);
+  const trickle = setInterval(() => socket.write("x", () => {}), 20);
+  context.after(() => clearInterval(trickle));
+  socket.on("error", () => {});
+  const started = Date.now();
+  await new Promise((resolve) => socket.once("close", resolve));
+  clearInterval(trickle);
+  assert.ok(Date.now() - started < 2_000);
+});
+
+test("a POST whose body was read in full keeps its connection for the next request", async (context) => {
+  const app = await startServer({ requestTimeoutMs: 10_000, uploadIdleMs: 10_000 });
+  context.after(() => closeServer(app.server));
+  const port = app.server.address().port;
+  const socket = connect(port, "127.0.0.1");
+  context.after(() => socket.destroy());
+  await once(socket, "connect");
+  let received = "";
+  socket.on("data", (chunk) => { received += chunk.toString("latin1"); });
+  const body = JSON.stringify({ password: "wrong" });
+  // the login route reads the whole body before it answers
+  socket.write(`POST /api/auth/login HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nOrigin: http://127.0.0.1:${port}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+  for (let tries = 0; tries < 100 && !/\r\n\r\n/u.test(received); tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.doesNotMatch(received.split("\r\n\r\n")[0], /^connection: close$/imu);
+  const first = received.length;
+  socket.write(`GET /api/auth/status HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n\r\n`);
+  for (let tries = 0; tries < 100 && !/HTTP\/1\.1 200/u.test(received.slice(first)); tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.match(received.slice(first), /^HTTP\/1\.1 200/u, "the same connection answers a second request");
+  assert.equal(socket.destroyed, false);
 });

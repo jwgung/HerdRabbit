@@ -519,11 +519,11 @@ async function browseDirectory(value, options, source) {
   }
 }
 
-async function openBrowsedFile(value, source, rangeHeader = null) {
+async function openBrowsedFile(value, source, rangeHeader = null, maxBytes = Infinity) {
   try {
     const file = source
-      ? await source.openFile(value, { rangeHeader })
-      : await openFile(value, { rangeHeader });
+      ? await source.openFile(value, { rangeHeader, maxBytes })
+      : await openFile(value, { rangeHeader, maxBytes });
     return { file, stream: file.stream };
   } catch (error) {
     return browseFailure(error);
@@ -584,7 +584,11 @@ export function createHerdrHttpServer({
   legacyServers = 0,
   csrfToken = randomBytes(32).toString("base64url"),
   maxBodyBytes = 16 * 1024,
-  maxTransferBytes = 50 * 1024 * 1024,
+  maxTransferBytes = Infinity,
+  // A request that is not an upload has this long to arrive in full; an
+  // upload may take as long as it keeps sending, going quiet for uploadIdleMs at most.
+  requestTimeoutMs = 120_000,
+  uploadIdleMs = 120_000,
   logger = console,
   passwordAttempts = new PasswordAttemptsByKey(),
   recheckAttempts = new PasswordAttemptsByKey(),
@@ -668,8 +672,51 @@ export function createHerdrHttpServer({
     [...allowedHosts].map((host) => String(host).toLowerCase()),
   );
   const outputRevisions = new OutputRevisions();
+  const UPLOAD_ROUTE = /^\/api\/files\/[^/?]+(?:\?|$)/;
+  function guardRequestTime(request, response) {
+    let timer;
+    if (request.method === "POST" && UPLOAD_ROUTE.test(request.url || "")) {
+      // Quiet for too long, not slow overall: a multi-GB file over a slow link
+      // finishes. Bytes are counted on the socket because a data listener on
+      // the request would start it flowing before the route reads the body.
+      // Looked at four times per idle period, so a stall ends close to
+      // uploadIdleMs after the last byte, not up to twice that.
+      let seen = request.socket.bytesRead;
+      let lastProgress = Date.now();
+      timer = setInterval(() => {
+        const read = request.socket.bytesRead;
+        if (read !== seen) { seen = read; lastProgress = Date.now(); return; }
+        if (Date.now() - lastProgress >= uploadIdleMs) request.destroy();
+      }, Math.max(1, Math.floor(uploadIdleMs / 4)));
+      timer.unref?.();
+      // The body is in; what follows (a remote rename) has its own limit.
+      request.once("end", () => clearInterval(timer));
+    } else {
+      // Anything else has requestTimeoutMs to arrive in full. Downloads send
+      // nothing in the request, so they are complete the moment they start.
+      timer = setTimeout(() => { if (!request.complete) request.destroy(); }, requestTimeoutMs);
+      timer.unref?.();
+    }
+    response.once("close", () => { clearTimeout(timer); clearInterval(timer); });
+    // A route may answer before it reads the body (401, 403, 404, 411, 413...).
+    // Node would then keep the socket open to drain what is left, bounded only
+    // by a keep-alive timer every byte resets, so a trickle would hold it
+    // forever. Ask the client to close, and close it once the answer is out.
+    // Decided when the headers go out (implicit headers go through writeHead
+    // too), so a request whose body was read in full keeps its connection.
+    const writeHead = response.writeHead;
+    response.writeHead = function (...args) {
+      if (!request.complete && !response.headersSent) response.setHeader("Connection", "close");
+      return writeHead.apply(this, args);
+    };
+    response.once("finish", () => {
+      if (!request.complete) request.socket.destroy();
+    });
+  }
+
   const server = createServer(async (request, response) => {
     applySecurityHeaders(response);
+    guardRequestTime(request, response);
 
     try {
       if (!hasValidHost(request, normalizedAllowedHosts)) {
@@ -754,13 +801,13 @@ export function createHerdrHttpServer({
           throw new HttpError(404, "unknown_server", "That server is no longer configured.");
         }
         if (!claim.inlineType) {
-          await sendDownload(response, await openBrowsedFile(claim.path, from));
+          await sendDownload(response, await openBrowsedFile(claim.path, from, null, maxTransferBytes));
           return;
         }
         // A rendered file is not sliced: what a range would name does not exist
         // until it has been rendered, so the whole of it is read either way.
         const range = claim.markdown ? null : request.headers.range ?? null;
-        const opened = await openBrowsedFile(claim.path, from, range);
+        const opened = await openBrowsedFile(claim.path, from, range, maxTransferBytes);
         await sendInline(response, {
           file: opened.file, type: claim.inlineType, markdown: claim.markdown,
         });
@@ -1095,6 +1142,8 @@ export function createHerdrHttpServer({
           // Whether SSH machines can be added here: not without a socket directory.
           machines: Boolean(machines),
           legacyServers,
+          // Bytes, or null when files may be any size.
+          maxTransferBytes: Number.isFinite(maxTransferBytes) ? maxTransferBytes : null,
         });
         return;
       }
@@ -1336,10 +1385,11 @@ export function createHerdrHttpServer({
     }
   });
 
-  // Uploads stream a whole file through one request, and requestTimeout covers
-  // the entire body, so the 10s that suits JSON routes would cut them off.
+  // Node's requestTimeout covers a request's whole body and cannot be set per
+  // route, so it is off and guardRequestTime applies the same limit to every
+  // request except an upload, which may run as long as it keeps sending.
   // headersTimeout keeps the slowloris defence on the header phase.
-  server.requestTimeout = 120_000;
+  server.requestTimeout = 0;
   server.headersTimeout = 5_000;
   server.keepAliveTimeout = 5_000;
 

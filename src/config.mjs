@@ -30,6 +30,17 @@ function parsePort(value) {
   return port;
 }
 
+// No limit is Infinity, so every comparison against it simply never trips.
+// HERDR_WEB_MAX_TRANSFER_MB sets one limit that applies to uploads and downloads.
+function parseMaxTransferBytes(value) {
+  if (value === undefined || value.trim() === "") return Infinity;
+  const megabytes = Number(value.trim());
+  if (!/^\d+$/.test(value.trim()) || !Number.isSafeInteger(megabytes * 1024 * 1024) || megabytes < 1) {
+    throw new Error("HERDR_WEB_MAX_TRANSFER_MB must be a positive whole number of megabytes");
+  }
+  return megabytes * 1024 * 1024;
+}
+
 function parseAllowedHosts(value) {
   if (value === undefined || value.trim() === "") return [];
   const hosts = value
@@ -88,7 +99,7 @@ export function readConfig(environment = process.env) {
     filesDir: defaultFilesDirectory(environment),
     commandTimeoutMs: 5_000,
     maxBodyBytes: 16 * 1024,
-    maxTransferBytes: 50 * 1024 * 1024,
+    maxTransferBytes: parseMaxTransferBytes(environment.HERDR_WEB_MAX_TRANSFER_MB),
     // Named by the startup warning, then ignored.
     obsoleteSettings: Object.freeze(obsolete.names),
     wasLeaf: obsolete.wasLeaf,
@@ -113,4 +124,4 @@ export function formerLeafRefusal({ wasLeaf = false } = {}, passwordRequired) {
   return "HerdRabbit is locked: this former leaf has no password, and leaf mode with its peer gate was removed. Run npm run install-service here to set it up again (it asks for a password), or npm run password and restart the service.";
 }
 
-export { parseAllowedHosts, parseHost, parsePort };
+export { parseAllowedHosts, parseMaxTransferBytes, parseHost, parsePort };

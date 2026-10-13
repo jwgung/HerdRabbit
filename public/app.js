@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.31";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.31";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.32";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.32";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -49,7 +49,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.31";
+} from "./ui-model.js?v=1.2.32";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -60,45 +60,45 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.31";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.31";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.31";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.31";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.31";
+} from "./browse-preference.js?v=1.2.32";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.32";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.32";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.32";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.32";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.31";
-import { chatAgent } from "./lens-preference.js?v=1.2.31";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.31";
+} from "./chat-font-preference.js?v=1.2.32";
+import { chatAgent } from "./lens-preference.js?v=1.2.32";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.32";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.31";
+} from "./pane-preference.js?v=1.2.32";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.31";
+} from "./workspace-preference.js?v=1.2.32";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.31";
+} from "./terminal-preference.js?v=1.2.32";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.31";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.31";
+} from "./completion-preference.js?v=1.2.32";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.32";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.31";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.31";
+} from "./input-history-preference.js?v=1.2.32";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.32";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -114,16 +114,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.31";
+} from "./key-bar-preference.js?v=1.2.32";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.31";
+} from "./launch-session.js?v=1.2.32";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.31";
+} from "./push-notifications.js?v=1.2.32";
 
 function browserStorage() {
   try {
@@ -401,6 +401,8 @@ const elements = {
 const state = {
   csrfToken: "",
   pollIntervalMs: 1_000,
+  // From /api/bootstrap: the most one file may be, or null for no limit.
+  maxTransferBytes: null,
   snapshot: null,
   selectedPaneId: initialPanePreference,
   preferredPaneId: initialPanePreference,
@@ -3662,7 +3664,6 @@ elements.projectName.addEventListener("input", () => {
   elements.projectName.setCustomValidity("");
 });
 
-const TRANSFER_MAX_BYTES = 50 * 1024 * 1024;
 
 function setTransferFeedback(text, isError = false) {
   elements.transferDialogFeedback.textContent = text;
@@ -3966,8 +3967,9 @@ async function uploadFiles(files, { report = setFeedback } = {}) {
     for (const [index, file] of list.entries()) {
       const name = droppedFileName(file);
       report(list.length > 1 ? `Uploading ${index + 1} of ${list.length}: ${name}…` : `Uploading ${name}…`);
-      if (file.size > TRANSFER_MAX_BYTES) {
-        failed.push({ name, reason: `larger than ${formatTransferSize(TRANSFER_MAX_BYTES)}` });
+      // null: the server accepts any size.
+      if (state.maxTransferBytes !== null && file.size > state.maxTransferBytes) {
+        failed.push({ name, reason: `larger than ${formatTransferSize(state.maxTransferBytes)}` });
         continue;
       }
       try {
@@ -5215,6 +5217,7 @@ async function initializeApplication() {
   const bootstrap = await api("/api/bootstrap");
   state.csrfToken = bootstrap.csrfToken;
   state.pollIntervalMs = bootstrap.pollIntervalMs || state.pollIntervalMs;
+  state.maxTransferBytes = Number.isFinite(bootstrap.maxTransferBytes) && bootstrap.maxTransferBytes > 0 ? bootstrap.maxTransferBytes : null;
   state.pushPublicKey = typeof bootstrap.pushPublicKey === "string"
     ? bootstrap.pushPublicKey
     : null;
