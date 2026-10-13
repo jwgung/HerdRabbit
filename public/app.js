@@ -99,7 +99,7 @@ import {
   readInputHistories,
   writeInputHistories,
 } from "./input-history-preference.js?v=1.2.30";
-import { createComposerDrafts, draftScreenIsSecret } from "./composer-draft-preference.js?v=1.2.30";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.30";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -318,8 +318,9 @@ const initialAcknowledgedCompletions = readAcknowledgedCompletions(
 const initialInputHistories = readInputHistories(panePreferenceStorage);
 // A draft is not stored unless the screen is known to be this pane's current
 // one and is not asking for a password: anything else fails closed.
-const composerDrafts = createComposerDrafts(panePreferenceStorage, Date.now, (paneId) =>
-  draftScreenIsSecret(paneId, draftPaneId, attachedTerminal.screenText(8)));
+const composerDrafts = createComposerDrafts(panePreferenceStorage, Date.now,
+  (paneId) => draftScreenIsSecret(paneId, draftPaneId, attachedTerminal.screenText(8)),
+  (paneId) => draftScreenShowsPrompt(paneId, draftPaneId, attachedTerminal.screenText(8)));
 document.documentElement.style.setProperty(
   "--terminal-font-size",
   `${initialTerminalFontSize}px`,

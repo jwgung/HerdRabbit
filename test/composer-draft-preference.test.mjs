@@ -7,6 +7,7 @@ import {
   MAX_DRAFT_PANES,
   createComposerDrafts,
   draftScreenIsSecret,
+  draftScreenShowsPrompt,
 } from "../public/composer-draft-preference.js";
 
 function memoryStorage(initial = {}) {
@@ -196,4 +197,35 @@ test("a text stored as fine is not pulled out by a later unreadable or prompting
   assert.equal(createComposerDrafts(storage).get("a"), "fine text");
   drafts.set("a", "fine text and a password");
   assert.equal(createComposerDrafts(storage).get("a"), "", "changed under a prompt: not written, old copy gone");
+});
+
+test("a text typed ahead of a password prompt is taken out of storage once a verified screen shows the prompt", () => {
+  const storage = memoryStorage();
+  let prompt = false;
+  let verified = true;
+  const drafts = createComposerDrafts(storage, () => 1_000, () => false, () => verified && prompt);
+  drafts.set("w1:p1", "hunter2");
+  assert.match(storage.getItem(COMPOSER_DRAFT_STORAGE_KEY) ?? "", /hunter2/u, "no prompt yet: a fine draft is kept");
+  // the screen cannot be read (the page unloading): the fine verdict stands
+  verified = false;
+  prompt = true;
+  drafts.set("w1:p1", "hunter2");
+  assert.match(storage.getItem(COMPOSER_DRAFT_STORAGE_KEY) ?? "", /hunter2/u);
+  // a verified screen shows the prompt now: the unchanged text becomes secret
+  verified = true;
+  drafts.set("w1:p1", "hunter2");
+  assert.doesNotMatch(storage.getItem(COMPOSER_DRAFT_STORAGE_KEY) ?? "", /hunter2/u);
+  assert.equal(drafts.get("w1:p1"), "hunter2", "kept in memory");
+  // and stays secret once the prompt is gone, while unchanged
+  prompt = false;
+  drafts.set("w1:p1", "hunter2");
+  assert.doesNotMatch(storage.getItem(COMPOSER_DRAFT_STORAGE_KEY) ?? "", /hunter2/u);
+});
+
+test("only a shown, fresh screen with a password prompt counts as showing one", () => {
+  const screen = (extra = {}) => ({ paneId: "w1:p1", text: "[sudo] password for me:", cols: 80, fresh: true, ...extra });
+  assert.equal(draftScreenShowsPrompt("w1:p1", "w1:p1", screen()), true);
+  assert.equal(draftScreenShowsPrompt("w1:p1", "w1:p1", screen({ fresh: false })), false);
+  assert.equal(draftScreenShowsPrompt("w1:p1", "w1:p2", screen()), false);
+  assert.equal(draftScreenShowsPrompt("w1:p1", "w1:p1", screen({ text: "$ ls" })), false);
 });

@@ -40,7 +40,10 @@ function loaded(storage, now) {
 // stored for the pane is removed. A text judged secret stays secret while it is
 // unchanged, even if the prompt leaves the screen, and a text judged fine stays
 // stored while unchanged; only a changed, cleared or sent text is judged again.
-export function createComposerDrafts(storage, now = Date.now, isSecret = () => false) {
+// `isSecret(paneId)`: the draft must not be written (fails closed).
+// `showsPrompt(paneId)`: a verified screen shows a password prompt now; it can
+// only make a kept text secret, never the other way.
+export function createComposerDrafts(storage, now = Date.now, isSecret = () => false, showsPrompt = () => false) {
   const entries = loaded(storage, now());
   const memoryOnly = new Map(); // pane id -> the text judged secret
 
@@ -73,12 +76,18 @@ export function createComposerDrafts(storage, now = Date.now, isSecret = () => f
     set(paneId, text, { memoryOnly: forced = false } = {}) {
       if (!validPaneId(paneId)) return false;
       if (typeof text !== "string" || text === "") return this.clear(paneId);
-      // An unchanged text keeps the verdict it already has, either way: it was
-      // judged when it was typed, and a later screen (a prompt appearing, or an
-      // unreadable one while the page unloads) does not change what it is.
+      // An unchanged text keeps a secret verdict. A fine one is looked at
+      // again only against a verified screen: a password prompt drawn after
+      // it was typed makes it secret (it may be the answer, typed ahead), while
+      // an unreadable screen (the page unloading) leaves it as it was.
       const unchanged = entries.get(paneId)?.text === text;
       let secret = forced;
-      if (!secret && unchanged) secret = memoryOnly.get(paneId) === text;
+      if (!secret && unchanged) {
+        secret = memoryOnly.get(paneId) === text;
+        if (!secret) {
+          try { secret = showsPrompt(paneId) === true; } catch { secret = false; }
+        }
+      }
       else if (!secret) {
         try { secret = isSecret(paneId) === true; } catch { secret = true; }
       }
@@ -109,6 +118,12 @@ export function createComposerDrafts(storage, now = Date.now, isSecret = () => f
 // draft of `paneId` must not be written: it is not the pane on show, the screen
 // is another pane's, missing, parked, not yet drawn or held back (not fresh), or
 // a password prompt is on it. Anything the page cannot verify fails closed.
+// True only when the shown, fresh screen of `paneId` has a password prompt.
+export function draftScreenShowsPrompt(paneId, shownPaneId, screen) {
+  if (!paneId || paneId !== shownPaneId || !screen || screen.paneId !== paneId || screen.fresh !== true) return false;
+  return secretPrompt(String(screen.text ?? ""), screen.cols || Infinity) !== null;
+}
+
 export function draftScreenIsSecret(paneId, shownPaneId, screen) {
   if (!paneId || paneId !== shownPaneId) return true;
   if (!screen || screen.paneId !== paneId || screen.fresh !== true) return true;
