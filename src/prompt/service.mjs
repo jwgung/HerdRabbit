@@ -77,6 +77,11 @@ export class PromptService {
     this.lookMs = lookMs;
     this.pollMs = pollMs;
     this.turns = new Map();
+    // paneId -> { answer, at }: the answer given last, refused again for a
+    // moment while the terminal may still show its card (a second tab, a
+    // retried POST); another option on the same card is a new answer
+    this.answered = new Map();
+    this.answeredMs = 3_000;
     this.watches = new Map();
     // One tick looks at every watched pane: a snapshot (one per server, the
     // client's own), then the screens of the blocked ones.
@@ -119,6 +124,9 @@ export class PromptService {
     if (!body || typeof body !== "object" || typeof body.cardId !== "string" || !body.cardId) {
       throw new HttpError(400, "invalid_answer", "cardId is required.");
     }
+    const given = JSON.stringify([body.cardId, body.option ?? null, body.options ?? null, body.text ?? null]);
+    const last = this.answered.get(paneId);
+    if (last && last.answer === given && Date.now() - last.at < this.answeredMs) throw promptChanged();
     const parsed = await this.read(paneId);
     if (!parsed || parsed.id !== body.cardId) throw promptChanged();
     let steps;
@@ -155,6 +163,7 @@ export class PromptService {
         }
         if (index < steps.length - 1) await delay(this.stepDelayMs);
       }
+      this.answered.set(paneId, { answer: given, at: Date.now() });
     } finally {
       this.nudge(paneId);
     }

@@ -102,6 +102,19 @@ test("an answer to a card that changed is a 409 prompt_changed, and nothing is s
   assert.equal((await answer("w1:p1", { cardId: CARD_ID })).status, 409);
 });
 
+test("the same card answered twice in a row (a second tab, a retried POST) goes once", async (context) => {
+  const { answer, herdr } = await fixture(context);
+  // the terminal still shows the answered menu when the second answer comes
+  const answeredBefore = herdr.answered.length;
+  const first = answer("w1:p1", { cardId: CARD_ID, option: 0 });
+  const second = answer("w1:p1", { cardId: CARD_ID, option: 0 });
+  assert.equal((await first).status, 200);
+  const repeat = await second;
+  assert.equal(repeat.status, 409);
+  assert.equal(repeat.body.error.code, "prompt_changed");
+  assert.equal(herdr.answered.length - answeredBefore, 1);
+});
+
 test("a malformed answer is refused before any key", async (context) => {
   const { answer, herdr } = await fixture(context);
   assert.equal((await answer("w1:p1", { cardId: CARD_ID, option: 7 })).body.error.code, "invalid_answer");
