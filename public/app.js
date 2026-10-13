@@ -2658,7 +2658,7 @@ function renderPaneHeading(pane, tab, workspace) {
   const paneId = idOf(pane, "pane_id", "id");
   const agent = agentForPane(paneId);
   chatLens.select(paneId, { agent: chatAgent(pane, agent), status: agentStatus(agent, pane) });
-  promptDock?.select(paneId, { agent: isClaudePane(pane, agent) ? "claude" : chatAgent(pane, agent), status: agentStatus(agent, pane) });
+  promptDock?.select(paneId, { agent: chatAgent(pane, agent), status: agentStatus(agent, pane) });
   const workspaceLabel = displayRecordLabel(workspace, "Project");
   const tabLabel = displayTabLabel(tab);
 

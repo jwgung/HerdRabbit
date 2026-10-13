@@ -126,3 +126,10 @@ test("a dismissed banner comes back when the same prompt is asked again, and a r
   assert.match(source, /watch\(null\);\s*clearTimeout\(rewatchTimer\);\s*rewatchTimer = setTimeout\(/u);
   assert.match(source, /if \(id === paneId && watched === null && shouldWatchPrompt\(status, agentName\)\) watch\(id\);/u);
 });
+
+test("the page tells the prompt dock which agent the pane runs, so Claude and Codex panes are watched at any status", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  assert.match(app, /promptDock\?\.select\(paneId, \{ agent: chatAgent\(pane, agent\), status: agentStatus\(agent, pane\) \}\);/u);
+  assert.match(app, /import \{ chatAgent \} from "\.\/lens-preference\.js/u);
+});
