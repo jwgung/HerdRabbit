@@ -41,7 +41,7 @@
 | 입력 | `ui-input` (텍스트 input, select) |
 | 상태 표시 | `ui-status state-idle`, `state-working`, `state-blocked`, `state-done` |
 | 탐색 항목 | `ui-nav-item` 안에 `ui-status`와 `ui-nav-copy`; 제목 strong, 보조 상태 small |
-| 선택·강조 | `aria-pressed="true"`, `data-status="done"` 또는 `"blocked"` |
+| 선택·강조 | `aria-pressed="true"` (배경만 강조) |
 | 메뉴 | `details.ui-menu` → summary → `.ui-menu-panel` → button.ui-menu-item |
 | 위험 작업 | 메뉴 항목에 `is-danger` |
 | 사이드바 | `ui-sidebar` 안에 `ui-sidebar-heading`, `ui-sidebar-content`, `ui-sidebar-footer` |
@@ -72,4 +72,4 @@ document.querySelector('#open').addEventListener('click', () => {
 :root[data-theme="light"] { --accent: #167454; }
 ```
 
-기존 HerdRabbit의 `pane-button`, `pane-copy`, `agent-marker`, `sidebar-action-*`, `navigator*`, `login-card`는 같은 규칙의 호환 이름입니다. 새 프로젝트는 `ui-*` 이름을 사용하세요. 앱 전용 레이아웃·터미널·인증·SSH·알림 동작은 이 폴더에 포함하지 않습니다. 앱의 `styles.css`는 공통 UI 뒤에 로드됩니다.
+기존 HerdRabbit의 `pane-button`, `pane-copy`, `sidebar-action-*`, `navigator*`, `login-card`는 같은 규칙의 호환 이름입니다. 새 프로젝트는 `ui-*` 이름을 사용하세요. 앱 전용 레이아웃·터미널·인증·SSH·알림 동작은 이 폴더에 포함하지 않습니다. 앱의 `styles.css`는 공통 UI 뒤에 로드됩니다.

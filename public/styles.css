@@ -298,19 +298,76 @@ body.sidebar-collapsed .pane-button {
   height: 42px;
   margin: 0 auto 4px;
   padding: 0 11px;
+  position: relative;
   grid-template-columns: 18px;
   gap: 0;
   justify-content: start;
 }
 
-/* The agent's name is the one word that tells two sessions apart at a glance,
-   so it carries a little more weight than what sits beside it. */
-.pane-copy strong.pane-agent {
-  font-weight: 700;
+/* In the rail the status is a small badge on the program's mark. */
+body.sidebar-collapsed .pane-status {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 10px;
+  height: 10px;
 }
 
-.pane-copy small.pane-agent {
-  font-weight: 600;
+/* The row: the program's mark, a name with the folder under it, and at the far
+   right the status. The menu is a sibling laid over the right padding, so the
+   status can sit after it; the copy keeps clear of both. */
+.pane-button { min-height: 40px; padding-block: 5px; grid-template-columns: 18px minmax(0, 1fr) 14px; }
+
+.pane-copy { display: grid; gap: 1px; margin-right: 30px; }
+
+.pane-copy strong.pane-title { font-weight: 600; line-height: 1.25; }
+
+.pane-copy small.pane-cwd {
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.agent-icon { width: 18px; height: 18px; display: block; color: var(--text); }
+
+.pane-status { width: 14px; height: 14px; display: grid; place-items: center; justify-self: center; }
+
+.pane-status[data-kind="spinner"]::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  border: 2px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  border-top-color: var(--muted);
+  border-radius: 999px;
+  animation: pane-spin 0.9s linear infinite;
+}
+
+.pane-status[data-kind="attention"]::before,
+.pane-status[data-kind="done"]::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.pane-status[data-kind="attention"]::before {
+  background: var(--status-attention);
+  animation: pane-pulse 1.8s ease-in-out infinite;
+}
+
+.pane-status[data-kind="done"]::before { background: var(--status-ok); }
+
+@keyframes pane-spin { to { transform: rotate(360deg); } }
+
+@keyframes pane-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-attention) 55%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-attention) 0%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pane-status[data-kind="spinner"]::before { animation: none; border-top-color: var(--muted); border-right-color: var(--muted); }
+  .pane-status[data-kind="attention"]::before { animation: none; }
 }
 
 body.sidebar-collapsed .pane-copy {
@@ -325,8 +382,7 @@ body.sidebar-collapsed .session-row {
   grid-template-columns: minmax(0, 1fr);
 }
 
-body.sidebar-collapsed.sidebar-animating .agent-marker {
-  font-size: 20px;
+body.sidebar-collapsed.sidebar-animating .agent-icon {
   animation: sidebar-rail-item-in var(--sidebar-motion) ease both;
 }
 
@@ -552,19 +608,20 @@ body.sidebar-collapsed .terminal-panel {
 }
 
 .session-row {
+  position: relative;
   min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
-  align-items: start;
-  gap: 4px;
 }
 
 .session-panes {
   min-width: 0;
 }
 
+/* Centred on the first row: 40px tall, the menu 28px. Right edge: the row's
+   border and padding, the status and the gap before it. */
 .session-action-menu {
-  margin-top: 4px;
+  position: absolute;
+  top: 6px;
+  right: 29px;
 }
 
 .tab-heading {
@@ -975,7 +1032,9 @@ body.sidebar-collapsed .terminal-panel {
 
 .server-heading { font-size: 12px; }
 
-.server-heading strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.server-heading strong { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
+
+.server-heading > .sidebar-action-menu { margin-left: auto; }
 
 .server-heading small { color: var(--muted); }
 
@@ -984,7 +1043,11 @@ body.sidebar-collapsed .terminal-panel {
    says whether it is reachable. */
 .server-heading .server-icon { flex: 0 0 16px; width: 16px; height: 16px; fill: none; stroke: var(--muted); stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 
-.server-heading.is-online .server-icon { stroke: var(--accent); }
+/* The dot says whether the machine is reached; the icon only turns red when
+   this page cannot reach HerdRabbit at all. */
+.server-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 999px; background: var(--offline); }
+
+.server-heading.is-online .server-dot { background: var(--status-ok); }
 
 .server-heading.is-error .server-icon { stroke: var(--danger); }
 
@@ -1017,17 +1080,17 @@ body.sidebar-collapsed :is(.server-heading, .server-empty) { display: none; }
    session marker right of the server's icon. */
 body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-children-inner) { padding-left: 0; }
 
-/* On touch every Sessions row is 26px tall, as a row in Files is: a machine
-   stood 48px, a project 32px and a session 38px, so only a few fit on a phone.
+/* On touch every heading row is 26px tall, as a row in Files is: a machine
+   stood 48px and a project 32px, so only a few fit on a phone. A session row
+   stays 40px or more: it is the thing pressed most, and a finger needs it.
    Buttons keep their 28px width, so arrows and markers stay where the tree's
    indent puts them. Placed after the rules it shortens so it wins. */
 @media (hover: none) {
-  .pane-button { padding-block: 3px; }
   .workspace-action { height: 26px; }
   .workspace-heading { min-height: 26px; padding-block: 0; }
   .herdr-session-heading { height: 26px; }
   .server-heading { padding-block: 0; }
-  .session-action-menu { margin-top: 0; }
+  .session-action-menu { top: 8px; }
 }
 
 /* Two columns so the labels line up and the values -- an address long enough

@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.24";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.24";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.25";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.25";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -7,7 +7,6 @@ import {
   HISTORY_PAGE_LINES,
   agentCompletionIdentity,
   agentStatus,
-  agentStatusIcon,
   detectTouchInput,
   displayRecordLabel,
   displayTabLabel,
@@ -34,6 +33,9 @@ import {
   keepsVanishedRemotePane,
   sidebarPresentation,
   visibleAgentStatus,
+  paneAgentKind,
+  paneStatusIndicator,
+  paneSubtitle,
   openRenames,
   clearedTabLabel,
   aiAccountNotice,
@@ -45,7 +47,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.24";
+} from "./ui-model.js?v=1.2.25";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -56,53 +58,53 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.24";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.24";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.24";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.24";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.24";
+} from "./browse-preference.js?v=1.2.25";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.25";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.25";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.25";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.25";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.24";
-import { isClaudePane } from "./lens-preference.js?v=1.2.24";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.24";
+} from "./chat-font-preference.js?v=1.2.25";
+import { isClaudePane } from "./lens-preference.js?v=1.2.25";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.25";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.24";
+} from "./pane-preference.js?v=1.2.25";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.24";
+} from "./workspace-preference.js?v=1.2.25";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.24";
+} from "./terminal-preference.js?v=1.2.25";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.24";
-import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.24";
+} from "./completion-preference.js?v=1.2.25";
+import { readAlertSound, writeAlertSound } from "./alert-preference.js?v=1.2.25";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.24";
+} from "./input-history-preference.js?v=1.2.25";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.24";
+} from "./launch-session.js?v=1.2.25";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.24";
+} from "./push-notifications.js?v=1.2.25";
 
 function browserStorage() {
   try {
@@ -1386,6 +1388,45 @@ function workspaceHeading(group, workspace, workspaceLabel, children) {
   return heading;
 }
 
+// Small marks drawn here for each kind of program a row can run: simple
+// shapes that suggest the program, not its published artwork.
+const AGENT_MARKS = Object.freeze({
+  claude: { box: "#d9774f", strokes: ["M12 5v14M5 12h14M7.1 7.1l9.8 9.8M16.9 7.1l-9.8 9.8"], color: "#ffffff", width: 1.9 },
+  codex: { strokes: ["M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z", "M12 12V3M12 12l7.8 4.5M12 12l-7.8 4.5"], width: 1.5 },
+  other: { strokes: ["M12 3c.7 5 2 6.3 7 7-5 .7-6.3 2-7 7-.7-5-2-6.3-7-7 5-.7 6.3-2 7-7z", "M19 17v4M17 19h4"], width: 1.6 },
+  shell: { strokes: ["M5 8l5 4-5 4", "M13 17h6"], width: 1.9 },
+});
+
+function agentMark(kind) {
+  const mark = AGENT_MARKS[kind] || AGENT_MARKS.shell;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  svg.setAttribute("class", `agent-icon agent-icon-${kind in AGENT_MARKS ? kind : "shell"}`);
+  if (mark.box) {
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", "1");
+    rect.setAttribute("y", "1");
+    rect.setAttribute("width", "22");
+    rect.setAttribute("height", "22");
+    rect.setAttribute("rx", "6");
+    rect.setAttribute("fill", mark.box);
+    svg.append(rect);
+  }
+  for (const d of mark.strokes) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", mark.color || "currentColor");
+    path.setAttribute("stroke-width", String(mark.width));
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    svg.append(path);
+  }
+  return svg;
+}
+
 function paneButton(pane, tab, workspace, { namesSession = false } = {}) {
   const paneId = idOf(pane, "pane_id", "id");
   const agent = agentForPane(paneId);
@@ -1396,6 +1437,9 @@ function paneButton(pane, tab, workspace, { namesSession = false } = {}) {
   // Once a session has a name, that name is what it is; the agent running in it
   // is a detail that changes under you, so it steps back next to the status.
   const sessionName = namesSession ? tabLabel : "";
+  const kind = paneAgentKind(pane, agent);
+  const indicator = paneStatusIndicator(currentAgentStatus);
+  const statusText = indicator?.label ?? currentAgentStatus;
   const button = createElement("button", { className: "pane-button" });
   button.type = "button";
   button.dataset.paneId = paneId;
@@ -1404,26 +1448,24 @@ function paneButton(pane, tab, workspace, { namesSession = false } = {}) {
 
   button.setAttribute(
     "aria-label",
-    `${agentLabel}, ${currentAgentStatus}, ${[workspaceLabel, tabLabel].filter(Boolean).join(" / ")}`,
+    `${agentLabel}, ${statusText}, ${[workspaceLabel, tabLabel].filter(Boolean).join(" / ")}`,
   );
-  button.title = `${agentStatusIcon(currentAgentStatus)} ${[sessionName, agentLabel].filter(Boolean).join(" · ")} · ${currentAgentStatus}`;
+  button.title = `${[sessionName, agentLabel].filter(Boolean).join(" · ")} · ${statusText}`;
 
-  const marker = createElement("span", {
-    className: `agent-marker state-${currentAgentStatus}`,
-    text: agentStatusIcon(currentAgentStatus),
-  });
-  marker.setAttribute("aria-hidden", "true");
-  button.append(marker);
+  button.append(agentMark(kind));
 
+  const title = sessionName || agentLabel;
   const copy = createElement("span", { className: "pane-copy" });
-  // The marker beside this already says the status, and the button says it
-  // again in its border and glow. Spelling it out was a third telling.
-  copy.append(createElement("strong", {
-    className: sessionName ? "" : "pane-agent",
-    text: sessionName || agentLabel,
-  }));
-  if (sessionName) copy.append(createElement("small", { className: "pane-agent", text: agentLabel }));
+  copy.append(createElement("strong", { className: "pane-title", text: title }));
+  const subtitle = paneSubtitle(title, pane);
+  if (subtitle) copy.append(createElement("small", { className: "pane-cwd", text: subtitle }));
   button.append(copy);
+
+  // Always present, so the row's text and menu stay put whatever the status.
+  const status = createElement("span", { className: "pane-status" });
+  status.setAttribute("aria-hidden", "true");
+  if (indicator) status.dataset.kind = indicator.kind;
+  button.append(status);
 
   button.addEventListener("click", () => {
     if (state.selectedPaneId !== paneId) resetInputHistoryNavigation();
@@ -2266,13 +2308,17 @@ function renderNavigation() {
       if (editingServer) heading.append(serverRenameForm(server));
       else {
         heading.append(createElement("strong", { text: server.name }));
-        // The dot already says "connected", in the one colour the sidebar uses
-        // for it. Words are kept for the states the colour cannot tell apart.
-        if (!server.available) {
+        // This PC is the host the page is served from; another machine keeps
+        // its words for the states a dot cannot tell apart.
+        if (server.id === "local") heading.append(createElement("small", { className: "server-role", text: "Host" }));
+        else if (!server.available) {
           heading.append(createElement("small", {
             text: server.status === "Connecting" ? "Connecting" : "Offline",
           }));
         }
+        const dot = createElement("span", { className: "server-dot" });
+        dot.setAttribute("aria-hidden", "true");
+        heading.append(dot);
         // A server is managed where it is seen. The dialog is for adding one.
         heading.append(serverActionMenu(server));
       }

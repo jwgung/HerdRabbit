@@ -1,12 +1,5 @@
 export const HISTORY_PAGE_LINES = 200;
 const KNOWN_AGENT_STATES = new Set(["idle", "working", "blocked", "done", "unknown"]);
-const AGENT_STATUS_ICONS = Object.freeze({
-  blocked: "×",
-  working: "◐",
-  done: "✓",
-  idle: "○",
-  unknown: "·",
-});
 
 export function outputTextForUpdate(currentText, payload) {
   if (payload?.update === "replace") {
@@ -542,8 +535,42 @@ export function visibleAgentStatus(agent, pane, acknowledgedCompletion = null) {
   return status;
 }
 
-export function agentStatusIcon(status) {
-  return AGENT_STATUS_ICONS[status] || AGENT_STATUS_ICONS.unknown;
+// Which program mark a session row wears, by the agent a snapshot names.
+// "shell" is a pane with no agent (or a plain shell); "other" is any agent
+// without a mark of its own.
+const SHELL_NAMES = new Set(["", "shell", "terminal", "bash", "zsh", "sh", "fish", "pwsh", "powershell", "nu"]);
+
+export function paneAgentKind(pane, agent) {
+  const names = [agent?.agent, agent?.display_agent, pane?.agent, pane?.display_agent, pane?.agent_session?.agent]
+    .filter((name) => typeof name === "string" && name.trim() !== "")
+    .map((name) => name.trim().toLowerCase());
+  if (names.length === 0) return "shell";
+  if (names.some((name) => name === "claude" || name.startsWith("claude"))) return "claude";
+  if (names.some((name) => name === "codex" || name.startsWith("codex"))) return "codex";
+  return names.every((name) => SHELL_NAMES.has(name)) ? "shell" : "other";
+}
+
+// What sits at a session row's far right: a spinner while working, a pulsing
+// dot while the agent waits for an answer, a green dot once it is done, and
+// nothing for idle or unknown. `label` is the words for a screen reader.
+const STATUS_INDICATORS = Object.freeze({
+  working: { kind: "spinner", label: "Working" },
+  blocked: { kind: "attention", label: "Needs your answer" },
+  done: { kind: "done", label: "Done" },
+});
+
+export function paneStatusIndicator(status) {
+  return STATUS_INDICATORS[status] ?? null;
+}
+
+// The line under a session's name: the folder it runs in, unless that only
+// repeats the name or is unknown.
+export function paneSubtitle(title, pane) {
+  const cwd = [pane?.foreground_cwd, pane?.cwd].find((value) => typeof value === "string" && value.trim() !== "");
+  if (!cwd) return "";
+  const name = cwd.trim().replace(/[\\/]+$/u, "").split(/[\\/]/u).pop() ?? "";
+  if (name === "") return "";
+  return name.toLowerCase() === String(title ?? "").trim().toLowerCase() ? "" : name;
 }
 
 // The server names sign-in projects with this prefix (src/http-server.mjs).
