@@ -2805,11 +2805,12 @@ async function openTerminalPath(raw) {
   const server = paneServerId(state.selectedPaneId) || "local";
   // A folder may well be called `docs.md`: one written out in full is asked
   // about before the viewer is opened on it. Anything picked meanwhile -- a
-  // folder, a machine, another link -- wins over this one.
-  const generation = revealGeneration;
+  // folder, a machine, another link, another pane -- wins over this one.
+  const generation = ++revealGeneration;
+  const paneId = state.selectedPaneId;
   const viewable = trimmed === resolved && previewFor(name) !== null
     && !(isFolderPath(raw) && await listsAsFolder(server, trimmed));
-  if (generation !== revealGeneration) return;
+  if (generation !== revealGeneration || paneId !== state.selectedPaneId) return;
   if (viewable) void viewFile(resolved, name, server);
   else void revealInFiles(trimmed, name, server);
 }
