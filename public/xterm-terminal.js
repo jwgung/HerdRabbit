@@ -155,7 +155,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     // it a plain Enter.
     term.attachCustomKeyEventHandler((event) => {
       if (!event.ctrlKey || event.altKey || event.metaKey) return true;
-      if (event.key === "Enter" && !event.shiftKey) {
+      // mid-composition the IME owns the key, as xterm itself leaves it
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
         if (event.type === "keydown") {
           event.preventDefault();
           type("\n");
