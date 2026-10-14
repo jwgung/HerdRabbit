@@ -78,8 +78,8 @@ test("tables, headings, quotes, rules and emphasis", () => {
 });
 
 test("file paths the viewer can show become buttons; others stay text", () => {
-  const isViewablePath = (path) => /\.(?:md|png)$/u.test(path);
-  const out = html("Wrote docs/plan.md and src/app.mjs, see `notes/a.png` and [the report](/out/REPORT.md#L3).", { isViewablePath });
+  const isLinkablePath = (path) => /\.(?:md|png)$/u.test(path);
+  const out = html("Wrote docs/plan.md and src/app.mjs, see `notes/a.png` and [the report](/out/REPORT.md#L3).", { isLinkablePath });
   assert.match(out, /<button type="button" class="md-file" data-path="docs\/plan\.md" title="Open docs\/plan\.md">docs\/plan\.md<\/button>/u);
   assert.doesNotMatch(out, /data-path="src\/app\.mjs"/u);
   assert.match(out, /class="md-file is-code" data-path="notes\/a\.png"[^>]*><code>notes\/a\.png<\/code><\/button>/u);
@@ -87,7 +87,7 @@ test("file paths the viewer can show become buttons; others stay text", () => {
   // with nothing to open them, a file link shows its path after the label
   assert.match(html("[report](/out/REPORT.md)"), /report \(<code>\/out\/REPORT\.md<\/code>\)/u);
   // a path cannot break out of its attribute
-  assert.doesNotMatch(html('`a"b/c.md`', { isViewablePath: () => true }), /data-path="a"b/u);
+  assert.doesNotMatch(html('`a"b/c.md`', { isLinkablePath: () => true }), /data-path="a"b/u);
   assert.deepEqual(splitFilePaths("v1.2.3 and and/or and src/x.ts"), ["v1.2.3 and and/or and ", { path: "src/x.ts" }]);
   assert.equal(codeIsFilePath("README.md"), true);
   assert.equal(codeIsFilePath("process.env"), false);

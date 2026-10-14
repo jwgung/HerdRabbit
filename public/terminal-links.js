@@ -112,8 +112,17 @@ function findUrls(text) {
   return nonOverlapping;
 }
 
-// Viewable paths in terminal text, as [start, end) string offsets.
-export function findTerminalPaths(text, isViewable) {
+// Whether a path's last segment reads as a file name: `name.ext`, with a name
+// before the dot and an extension of 1-10 letters and digits that holds a
+// letter. `.env` is a hidden name rather than an extension, and `v1.2` or
+// `10.0.0.1` are versions and addresses, so none of them count; neither does
+// a folder like `feat/settings-menu` or a fraction like `1/2`.
+export function isFileName(name) {
+  return /^[^.].*\.(?=[A-Za-z0-9]{1,10}$)[0-9]*[A-Za-z][A-Za-z0-9]*$/u.test(name);
+}
+
+// Linkable paths in terminal text, as [start, end) string offsets.
+export function findTerminalPaths(text, isLinkable) {
   const links = [];
   for (const match of text.matchAll(PATH_PATTERN)) {
     const raw = match[1];
@@ -122,7 +131,7 @@ export function findTerminalPaths(text, isViewable) {
 
     let label = raw;
     while (label && /[.,;:!?)\]}/]/u.test(label.at(-1))) label = label.slice(0, -1);
-    if (label && isViewable(label)) {
+    if (label && isLinkable(label)) {
       links.push({ start, end: start + label.length, path: label });
       continue;
     }
@@ -147,7 +156,7 @@ export function findTerminalPaths(text, isViewable) {
       let candidateLabel = candidate;
       while (candidateLabel && /[.,;:!?)\]}/]/u.test(candidateLabel.at(-1))) candidateLabel = candidateLabel.slice(0, -1);
 
-      if (candidateLabel && isViewable(candidateLabel)) {
+      if (candidateLabel && isLinkable(candidateLabel)) {
         const finalEnd = nextPos + trimmedCont.length;
         links.push({ start, end: finalEnd, path: candidateLabel });
         break;
@@ -172,7 +181,7 @@ export function findTerminalPaths(text, isViewable) {
 // starts in (and one past the end). They are read as one text, a row per
 // line, so an address an agent's output wrapped onto the next row is one
 // link. Each link comes back as the cells it covers on each row it touches.
-export function findScreenLinks(rows, { isViewablePath = () => false } = {}) {
+export function findScreenLinks(rows, { isLinkablePath = () => false } = {}) {
   const starts = [];
   let text = "";
   for (const row of rows) {
@@ -180,7 +189,7 @@ export function findScreenLinks(rows, { isViewablePath = () => false } = {}) {
     text += `${row.text}\n`;
   }
   const urls = findUrls(text).map((link) => ({ ...link, kind: "url", target: link.href }));
-  const paths = findTerminalPaths(text, isViewablePath)
+  const paths = findTerminalPaths(text, isLinkablePath)
     .filter((link) => !urls.some((url) => link.start < url.end && url.start < link.end))
     .map((link) => ({ ...link, kind: "path", target: link.path }));
   return [...urls, ...paths].map((link) => {

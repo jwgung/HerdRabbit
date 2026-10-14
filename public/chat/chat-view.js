@@ -6,8 +6,8 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatView.tsx and
 // ChatView.css, rewritten as plain DOM code without React.
-import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.37";
-import { lineDiff } from "./diff.js?v=1.2.37";
+import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.38";
+import { lineDiff } from "./diff.js?v=1.2.38";
 import {
   formatWorkDuration,
   commandText,
@@ -23,16 +23,16 @@ import {
   workStartsOpen,
   workSummary,
   workTitle,
-} from "./work-blocks.js?v=1.2.37";
-import { ConversationLoader } from "./conversation-refresh.js?v=1.2.37";
-import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.37";
+} from "./work-blocks.js?v=1.2.38";
+import { ConversationLoader } from "./conversation-refresh.js?v=1.2.38";
+import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.38";
 import {
   chatMayBecomeAvailable,
   chatUnavailableText,
   chooseLens,
   readPaneLens,
   writePaneLens,
-} from "../lens-preference.js?v=1.2.37";
+} from "../lens-preference.js?v=1.2.38";
 
 // Scrolling this close to the top reads the page before it.
 const LOAD_OLDER_PX = 400;
@@ -101,7 +101,7 @@ export function turnKeys(turns) {
 // ---------------------------------------------------------------------------
 // One pane's chat.
 
-function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPath, onViewInTerminal, onCopy, onAvailability }) {
+function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPath, onViewInTerminal, onCopy, onAvailability }) {
   const root = element(document, "div", { className: "chat-pane", attrs: { "data-pane-id": paneId } });
   root.hidden = true;
   const scroller = element(document, "div", { className: "chat-scroll", attrs: { role: "log", "aria-live": "polite", "aria-label": "Conversation", tabindex: "0" } });
@@ -194,13 +194,13 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
 
   const markdown = (text, className = "markdown") => {
     const node = element(document, "div", { className });
-    node.innerHTML = renderMarkdown(text, { isViewablePath });
+    node.innerHTML = renderMarkdown(text, { isLinkablePath });
     return node;
   };
 
   function fileLine(path, suffix = "") {
     const line = element(document, "p", { className: "chat-tool-file" });
-    if (isViewablePath(path)) {
+    if (isLinkablePath(path)) {
       const button = element(document, "button", { className: "md-file", text: path, attrs: { type: "button", "data-path": path, title: `Open ${path}` } });
       line.append(button);
     } else {
@@ -744,7 +744,7 @@ function createPaneChat({ paneId, document, fetchJson, isViewablePath, onOpenPat
 // { payload, etag } or { notModified: true }, and throws errors with status,
 // code and details. `layout()` answers { compact, touch }.
 export function createChatLens({ document = globalThis.document, stage, host, chatButton, terminalButton, group,
-  storage, layout, connection, fetchJson, isViewablePath = () => false, onOpenPath = () => {}, onCopy = () => {},
+  storage, layout, connection, fetchJson, isLinkablePath = () => false, onOpenPath = () => {}, onCopy = () => {},
   onLensChange = () => {} }) {
   const chats = new Map();
   // paneId -> { state: "checking" | "available" | "unavailable", reason, checkedAt }
@@ -768,7 +768,7 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
       return chat;
     }
     chat = createPaneChat({
-      paneId: id, document, fetchJson, isViewablePath, onOpenPath, onCopy,
+      paneId: id, document, fetchJson, isLinkablePath, onOpenPath, onCopy,
       onViewInTerminal: () => setLens("terminal"),
       onAvailability: ({ available, reason = null }) => {
         const before = availability.get(id);

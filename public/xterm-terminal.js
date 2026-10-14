@@ -1,10 +1,10 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.37";
-import { findScreenLinks } from "./terminal-links.js?v=1.2.37";
-import { createTouchScroller } from "./touch-scroll.js?v=1.2.37";
-import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.37";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.38";
+import { findScreenLinks } from "./terminal-links.js?v=1.2.38";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.38";
+import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.38";
 
 const RESIZE_DEBOUNCE_MS = 80;
 // herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
@@ -61,7 +61,7 @@ const MIRROR_SCROLLBACK = 1000;
 // pane cannot attach, so the page mirrors its polled screen instead.
 export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
   onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer"),
-  isViewablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {},
+  isLinkablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {},
   onCopy = () => {} }) {
   const { Terminal, FitAddon, UnicodeGraphemesAddon } = xterm;
   let term = null;
@@ -354,7 +354,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       const line = buffer.getLine(buffer.viewportY + y);
       rows.push(line ? rowText(line, term.cols) : { text: "", cells: [term.cols] });
     }
-    screenLinks = findScreenLinks(rows, { isViewablePath });
+    screenLinks = findScreenLinks(rows, { isLinkablePath });
     const screen = marks.parentElement;
     const cellWidth = screen ? screen.offsetWidth / term.cols : 0;
     const cellHeight = screen ? screen.offsetHeight / term.rows : 0;
