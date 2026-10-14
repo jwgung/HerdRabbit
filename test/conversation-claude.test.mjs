@@ -255,6 +255,19 @@ test("follows a background job the session opened, by the job's state file", asy
   assert.equal(await locateClaudeTranscript(store, SESSION, ["/w/app"]), started);
   assert.equal(await store.backgroundJobSession("../../x"), null);
   assert.equal(await store.backgroundJobSession("abcdef12"), null);
+  // a broken state file names nothing
+  await writeFile(join(configDir, "jobs", "d62fa238", "state.json"), "{ torn");
+  assert.equal(await store.backgroundJobSession("d62fa238"), null);
+  // two notices, the later job first; a job and a session naming each other end
+  const other = "abcdef12-1111-4111-8111-111111111111";
+  await writeFile(join(configDir, "jobs", "d62fa238", "state.json"), JSON.stringify({ sessionId: job }));
+  await mkdir(join(configDir, "jobs", "abcdef12"), { recursive: true });
+  await writeFile(join(configDir, "jobs", "abcdef12", "state.json"), JSON.stringify({ sessionId: other }));
+  const otherPath = join(projects, "-w-app", `${other}.jsonl`);
+  await writeFile(otherPath, jsonl([{ type: "system", subtype: "local_command", content: "(d62fa238)" }]));
+  await writeFile(started, jsonl([notice, { type: "system", subtype: "local_command", content: "running in the background (abcdef12) (abcdef12)" }]));
+  await writeFile(background, jsonl([user("bg"), { type: "continued-in", continuedInSessionId: SESSION }]));
+  assert.equal(await locateClaudeTranscript(store, SESSION, ["/w/app"]), background);
 });
 
 test("the scan fallback looks into a few projects at once and stops after a hit", async (context) => {
