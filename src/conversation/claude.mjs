@@ -38,10 +38,17 @@ export function claudeProjectDir(cwd) {
   return `${name.slice(0, MAX_PROJECT_NAME)}-${Math.abs(stringHash(cwd)).toString(36)}`;
 }
 
-// The session Claude continued in, when this transcript ends in a
-// `continued-in` record with no user or assistant turn after it. Only the
-// file's tail is read. A file that cannot be read names no continuation.
-async function continuedInSession(store, path) {
+// A background job Claude opened in this session, by the job's short id in
+// parentheses in a local command's notice ("Opening …, running in the
+// background (d62fa238)"). Only a job the store knows counts, so other short
+// ids in parentheses (a commit's) name nothing.
+const JOB_SHORT_ID = /\(([0-9a-f]{8})\)/gu;
+
+// Where this session went on, when it has no user or assistant turn after:
+// the session of a `continued-in` record, or a background job a local command
+// opened (the pane now shows that job). Oldest first; only the file's tail is
+// read. A file that cannot be read names nothing.
+async function continuations(store, path) {
   let text;
   try {
     const stat = await store.stat(path);
@@ -52,35 +59,44 @@ async function continuedInSession(store, path) {
   } catch {
     return null;
   }
-  let continued = null;
+  let found = [];
   for (const line of text.split("\n")) {
     if (!line.includes('"type"')) continue;
     try {
       const entry = JSON.parse(line);
-      if (entry?.type === "user" || entry?.type === "assistant") continued = null;
+      if (entry?.type === "user" || entry?.type === "assistant") found = [];
       else if (entry?.type === "continued-in" && typeof entry.continuedInSessionId === "string" && SESSION_ID.test(entry.continuedInSessionId)) {
-        continued = entry.continuedInSessionId;
+        found.push({ session: entry.continuedInSessionId });
+      } else if (entry?.type === "system" && entry.subtype === "local_command" && typeof entry.content === "string") {
+        for (const match of entry.content.matchAll(JOB_SHORT_ID)) found.push({ job: match[1] });
       }
     } catch { /* a torn tail line cannot name the active session */ }
   }
-  return continued;
+  return found;
 }
 
 // The transcript of `session` (a UUID): under the project of each cwd in
 // turn, else in whichever project holds it (store.locate does both), then
-// along Claude's continued-in chain to the file it writes now. Null when no
-// project holds it yet (a session that has not written its first message).
+// along where it went on (continued-in, an opened background job) to the file
+// written now: the latest of those that has a file. Null when no project holds
+// it yet (a session that has not written its first message).
 export async function locateClaudeTranscript(store, session, cwds = []) {
   if (typeof session !== "string" || !SESSION_ID.test(session)) return null;
   const dirs = [...new Set(cwds.filter((cwd) => typeof cwd === "string" && cwd.length > 0).map(claudeProjectDir))];
   const seen = new Set([session]);
   let path = await store.locate(session, dirs);
   while (path !== null) {
-    const next = await continuedInSession(store, path);
-    if (next === null || seen.has(next)) return path;
-    seen.add(next);
-    // a continuation whose file is not there keeps the transcript that named it
-    const nextPath = await store.locate(next, dirs);
+    let nextPath = null;
+    for (const next of (await continuations(store, path)).reverse()) {
+      const id = next.session ?? await store.backgroundJobSession?.(next.job) ?? null;
+      if (id === null || seen.has(id)) continue;
+      // one whose file is not there (yet) gives way to the one before it
+      nextPath = await store.locate(id, dirs);
+      if (nextPath !== null) {
+        seen.add(id);
+        break;
+      }
+    }
     if (nextPath === null) return path;
     path = nextPath;
   }
