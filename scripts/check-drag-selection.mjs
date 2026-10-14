@@ -51,7 +51,7 @@ const server = createServer(async (request, response) => {
 });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
-const browser = await chromium.launch();
+const browser = await chromium.launch({ args: ["--no-sandbox"] });
 try {
   const tab = await browser.newPage();
   const errors = [];

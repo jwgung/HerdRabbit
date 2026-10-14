@@ -607,6 +607,7 @@ sh ./update.sh
 
 ```bash
 npm run verify
+npm run check:browser   # 가짜 Herdr 대상 Playwright 점검 (먼저 `npx playwright install chromium`)
 ```
 
 개발 중 파일 변경을 감지해 서버를 다시 시작합니다.

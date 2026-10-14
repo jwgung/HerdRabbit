@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
 import { PaneAttachments } from "../src/pane-attachments.mjs";
@@ -197,13 +197,22 @@ test("a client that never acknowledges is dropped even though the paused pty wri
   await attachments.attach(desk, "p", { cols: 80, rows: 24 });
   herdr.spawns[0].emit("ready");
   await sleep(20);
-  herdr.spawns[0].emit("x".repeat(OUTPUT_HIGH_BYTES));
-  const { stream_id: streamId, offset } = desk.messages.at(-1).flow;
-  attachments.acknowledge(desk, "p", streamId, offset);
-  assert.equal(herdr.spawns[0].paused, true, "the phone is behind");
-  await sleep(OUTPUT_STALL_MS + 100);
-  assert.equal(phone.closed, 4002);
-  assert.equal(herdr.spawns[0].paused, false, "the desk gets output again");
+  // The stall clock is a timer and Date.now(); drive both by hand so a busy
+  // machine cannot make the wait too short.
+  mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  try {
+    herdr.spawns[0].emit("x".repeat(OUTPUT_HIGH_BYTES));
+    const { stream_id: streamId, offset } = desk.messages.at(-1).flow;
+    attachments.acknowledge(desk, "p", streamId, offset);
+    assert.equal(herdr.spawns[0].paused, true, "the phone is behind");
+    mock.timers.tick(OUTPUT_STALL_MS - 1);
+    assert.equal(phone.closed, false, "not yet");
+    mock.timers.tick(1);
+    assert.equal(phone.closed, 4002);
+    assert.equal(herdr.spawns[0].paused, false, "the desk gets output again");
+  } finally {
+    mock.timers.reset();
+  }
   attachments.close();
 });
 
