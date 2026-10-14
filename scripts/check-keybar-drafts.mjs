@@ -224,6 +224,34 @@ try {
       assert.deepEqual(keysSent(), ["ctrl+c"], `${composed ? "composed" : "plain"} letter with Ctrl`);
       assert.equal(await input.inputValue(), "half a draft", `${composed ? "composed" : "plain"} letter stayed in the draft`);
     }
+    // Ctrl takes one composed letter; the keyboard then starts afresh, and the
+    // next letter is ordinary typing again.
+    herdr.sent.length = 0;
+    await input.fill("half a draft");
+    await bar.locator('[data-modifier="ctrl"]').click();
+    await input.focus();
+    await cdp.send("Input.imeSetComposition", { text: "c", selectionStart: 1, selectionEnd: 1 });
+    await cdp.send("Input.imeSetComposition", { text: "a", selectionStart: 1, selectionEnd: 1 });
+    await cdp.send("Input.insertText", { text: "a" });
+    await page.waitForTimeout(200);
+    assert.deepEqual(keysSent(), ["ctrl+c"], "a composed letter with Ctrl, then another");
+    assert.equal(await input.inputValue(), "half a drafta", "the letter after the key was lost, or the key's stayed");
+
+    // A Korean syllable composed with Ctrl held is text, not a key.
+    herdr.sent.length = 0;
+    await input.fill("");
+    await bar.locator('[data-modifier="ctrl"]').click();
+    await input.focus();
+    await cdp.send("Input.imeSetComposition", { text: "ㄱ", selectionStart: 1, selectionEnd: 1 });
+    await cdp.send("Input.imeSetComposition", { text: "가", selectionStart: 1, selectionEnd: 1 });
+    await cdp.send("Input.insertText", { text: "가" });
+    await page.waitForTimeout(200);
+    assert.deepEqual(keysSent(), [], "a Korean syllable with Ctrl was sent as a key");
+    assert.equal(await input.inputValue(), "가");
+    assert.equal(await bar.locator('[data-modifier="ctrl"]').getAttribute("aria-pressed"), "true", "Ctrl is still held for the next key");
+    await bar.locator('[data-modifier="ctrl"]').click();
+    await input.fill("");
+
     // Without a held modifier a composed letter is ordinary typing.
     herdr.sent.length = 0;
     await input.fill("half a draft");

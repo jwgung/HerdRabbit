@@ -1,6 +1,7 @@
 // Browser check of typing on a phone. With the keyboard put away, a key-bar
 // tap lets go of the focused input, so the keyboard does not come back; with
-// it up, the input keeps focus. While the keyboard is up (the visible height shrinks) the page
+// it up, the input keeps focus. A shorter screen with nothing focused (a split
+// screen) is no keyboard, and the terminal fits it. While the keyboard is up (the visible height shrinks) the page
 // fits what is left, so the composer and key bar sit above the keyboard. The
 // terminal keeps its rows and shows its foot, and the pane is not resized
 // when the keyboard comes or goes. A desktop window made shorter still resizes
@@ -112,6 +113,18 @@ try {
     await page.waitForTimeout(500);
     assert.equal(await page.locator("#terminal-xterm").evaluate((host) => host.classList.contains("is-keyboard-open")), false);
     assert.deepEqual(lastSize(), before, `${where}: the size after the keyboard went`);
+
+    if (mobile) {
+      // A shorter screen with nothing being typed (a split screen) is no
+      // keyboard: the terminal fits it.
+      await page.evaluate(() => document.activeElement?.blur());
+      await page.setViewportSize({ width: 390, height: 480 });
+      await page.waitForTimeout(500);
+      assert.equal(await page.locator("#terminal-xterm").evaluate((host) => host.classList.contains("is-keyboard-open")), false, "a split screen taken for a keyboard");
+      assert.ok(lastSize()[1] < before[1], "a split screen did not resize the pane");
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.waitForTimeout(500);
+    }
 
     assert.deepEqual(errors, [], `page errors: ${errors.join("; ")}`);
     await context.close();

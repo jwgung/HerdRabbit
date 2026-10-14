@@ -3257,7 +3257,10 @@ if (window.visualViewport) {
     const width = Math.round(viewport.width);
     const unobstructed = Math.max(unobstructedHeights.get(width) ?? 0, viewport.height);
     unobstructedHeights.set(width, unobstructed);
-    const open = usesTouchInputEnvironment() && viewport.height < unobstructed - KEYBOARD_MIN_HEIGHT_PX;
+    // Only typing brings a keyboard: a split screen or a resized window with
+    // nothing focused is a smaller screen, which the terminal fits.
+    const typing = document.activeElement instanceof HTMLElement && document.activeElement.matches("input, textarea");
+    const open = usesTouchInputEnvironment() && typing && viewport.height < unobstructed - KEYBOARD_MIN_HEIGHT_PX;
     if (open) document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
     else document.documentElement.style.removeProperty("--app-height");
     phoneKeyboardOpen = open;
@@ -3824,10 +3827,10 @@ elements.terminalInput.addEventListener("input", (event) => {
   const input = elements.terminalInput;
   const before = modifierInputBefore;
   modifierInputBefore = null;
-  const committed = modifierComposition;
-  if (!event.isComposing) modifierComposition = null;
-  if (committed && input.value === committed.after) {
-    restoreComposer(committed);
+  // The composition that gave the key may still change or commit until it
+  // ends: whatever it writes is taken out again.
+  if (modifierComposition) {
+    restoreComposer(modifierComposition);
     return;
   }
   if (!before || !selectedKeyModifiers.size) return;
@@ -3837,11 +3840,19 @@ elements.terminalInput.addEventListener("input", (event) => {
   // Head and tail can overlap when the text was cut short, so check the length too.
   if (value.length < head.length + tail.length || !value.startsWith(head) || !value.endsWith(tail)) return;
   const added = value.slice(head.length, value.length - tail.length);
-  const key = [...added].length === 1 ? keyboardTerminalKey({ key: added }, [...selectedKeyModifiers]) : null;
+  // Only a letter, digit or sign: a Korean or Japanese keyboard composes a
+  // syllable through partial ones, and Ctrl with those means nothing here.
+  const key = /^[\x21-\x7e]$/u.test(added) ? keyboardTerminalKey({ key: added }, [...selectedKeyModifiers]) : null;
   if (!key) return;
   restoreComposer(before);
-  if (event.isComposing) modifierComposition = { ...before, after: value };
+  if (event.isComposing) modifierComposition = before;
   void sendCommandKey(key);
+});
+
+// A composition the key was taken from may end without a compositionend once
+// the composer was set back; the next one starts afresh.
+elements.terminalInput.addEventListener("compositionstart", () => {
+  modifierComposition = null;
 });
 
 elements.terminalInput.addEventListener("compositionend", () => {
