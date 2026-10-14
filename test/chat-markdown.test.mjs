@@ -10,6 +10,7 @@ import {
   splitFilePaths,
   webLikeHref,
 } from "../public/chat/markdown.js";
+import { namesPath } from "../public/path-links.js";
 
 const html = (source, options) => renderMarkdown(source, options);
 
@@ -103,7 +104,8 @@ test("pathological input stays fast and bounded", () => {
 });
 
 test("a folder written out in full becomes a button in prose and in code", () => {
-  const isLinkablePath = () => true;
+  // the page's own judge (app.js isLinkableTerminalPath) asks the same of a path's shape
+  const isLinkablePath = namesPath;
   const out = html("Cloned to /home/capalace/Git/doc-viewer. Build in `./build` and `../shared/`, not `/compact` or and/or src/foo.", { isLinkablePath });
   assert.match(out, /data-path="\/home\/capalace\/Git\/doc-viewer" title="Open [^"]*">\/home\/capalace\/Git\/doc-viewer<\/button>\./u);
   assert.match(out, /class="md-file is-code" data-path="\.\/build"/u);
