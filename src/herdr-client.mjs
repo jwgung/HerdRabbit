@@ -109,6 +109,7 @@ function validateInsertIndex(index) {
 // Find in a pane's whole history (herdr's copy-mode search, without entering
 // copy mode). Adapted from herdr-web-ui (MIT), server/herdr/client.ts paneFind
 // and the /api/pane/find checks in server/index.ts.
+// Same limit as public/terminal-find.js and the find input's maxlength.
 export const MAX_FIND_QUERY_LENGTH = 256;
 const MAX_HISTORY_ROW = 0xffff_ffff;
 const MAX_HISTORY_COL = 0xffff;

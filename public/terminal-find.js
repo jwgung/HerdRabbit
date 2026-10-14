@@ -4,6 +4,7 @@
 // What is on screen is xterm's to draw; this marks the query where it shows.
 // Behavior adapted from herdr-web-ui (MIT), src/components/FindBar.tsx.
 
+// Same limit as src/herdr-client.mjs and the input's maxlength in index.html.
 export const MAX_FIND_QUERY_LENGTH = 256;
 const DEBOUNCE_MS = 250;
 
@@ -208,8 +209,6 @@ export function createTerminalFind({
   render();
   return {
     get open() { return open; },
-    get result() { return result; },
-    get busy() { return busy; },
     // Opens the bar on `forPane`, its text selected to type over.
     show(forPane) {
       if (paneId !== forPane) {
