@@ -164,6 +164,21 @@ test("a split session is refused for another project without moving any pane, an
   assert.equal(fake.calls.some((args) => args[0] === "pane"), false);
 });
 
+test("a session moved whole stays moved when only the reorder fails, and says so", async (context) => {
+  const herdrSocket = await fakeHerdrSocket(context, () => ({ error: { code: "bad_index", message: "no such gap" } }));
+  const fake = recordingRunner((args) => {
+    if (args[0] === "api") return { result: { snapshot: twoProjects } };
+    if (args[0] === "session") return sessionList(herdrSocket.socketPath);
+    if (args[2] === "w1:p1") return moveResult({ from: "w1:p1", to: "w2:p3", tabId: "w2:t3", created: true });
+    throw new Error(`unexpected ${args.join(" ")}`);
+  });
+  const client = new HerdrClient({ runner: fake.runner });
+  assert.deepEqual(await client.moveTabToWorkspace("w1:t1", "w2", 0),
+    { tab_id: "w2:t3", panes: [{ from: "w1:p1", to: "w2:p3" }], reordered: false });
+  assert.equal(fake.calls.filter((args) => args[0] === "pane").length, 1, "no second move to undo it");
+  assert.equal(herdrSocket.requests.length, 1, "the reorder was tried once");
+});
+
 test("an unnamed session keeps Herdr's numbering, and one dropped last needs no reordering", async () => {
   const fake = recordingRunner((args) => {
     if (args[0] === "api") return { result: { snapshot: twoProjects } };
