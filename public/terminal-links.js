@@ -4,9 +4,7 @@
 // words are paths is path-links.js's to say, the same as in the chat; what is
 // the terminal's own is the screen: an address or a path cut at a row's end
 // goes on in the next row.
-import { findPaths, isFileName, linkableLabel, trimPunctuation } from "./path-links.js?v=1.2.41";
-
-export { isFileName, isFolderPath } from "./path-links.js?v=1.2.41";
+import { MAX_QUOTED, findPaths, isFileName, linkableLabel, trimPunctuation } from "./path-links.js?v=1.2.41";
 
 function trimUrlPunctuation(label) {
   let cleaned = label;
@@ -168,7 +166,7 @@ function closeQuoteAcrossRows(text, open) {
     const close = text.indexOf(quote, from);
     if (close !== -1 && (newline === -1 || close < newline)) {
       value += text.slice(from, close);
-      return value.length > 1024 ? null : { end: close, value };
+      return value.length > MAX_QUOTED ? null : { end: close, value };
     }
     if (newline === -1) return null;
     const row = text.slice(from, newline).replace(/\r$/u, "");

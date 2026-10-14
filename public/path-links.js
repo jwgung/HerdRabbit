@@ -95,7 +95,7 @@ export function isQuotablePath(value) {
 
 const QUOTES = "\"'`";
 // The longest quoted path looked for; longer quotes are left to the runs inside.
-const MAX_QUOTED = 1024;
+export const MAX_QUOTED = 1024;
 // A quote opens after a space, an opening bracket, `=` or `:`, or at the start,
 // and closes before a space, closing punctuation or the end -- so the apostrophe
 // in "it's" opens nothing.
@@ -139,7 +139,7 @@ const overlaps = (link, links) => links.some((found) => link.start < found.end &
 // left out; elsewhere a path ends at the first space.
 //
 // The terminal reads several screen rows as one text and passes two hooks for
-// what a wrapped row means there: `extendRun(text, run, own)` may carry a run
+// what a wrapped row means there: `extendRun(text, run, own, isLinkable)` may carry a run
 // onto the next row (and returns the link, or null), and `closeQuote(text,
 // open)` may find a quote's closer on a later row.
 export function findPaths(text, isLinkable = namesPath, { extendRun = null, closeQuote = sameLineQuote } = {}) {
