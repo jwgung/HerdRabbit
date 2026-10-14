@@ -53,6 +53,9 @@ export function tabMoveRequest(snapshot, { tabId, workspaceId, gap }) {
     if (isNoopGap(fromIndex, gap)) return null;
     return { tabId, body: { insertIndex: gap } };
   }
+  // Herdr carries one pane at a time, so a split session stays in its project.
+  const panes = Array.isArray(snapshot?.panes) ? snapshot.panes : [];
+  if (panes.filter((item) => idOf(item, "tab_id") === tabId).length > 1) return null;
   return { tabId, body: { workspaceId, insertIndex: gap } };
 }
 
@@ -194,6 +197,7 @@ export function attachSidebarDrag(list, {
     if (x < listBox.left - 24 || x > listBox.right + 24) return null;
     if (drag.kind === "tab") {
       const group = groupsIn(drag.scope).find((item) => {
+        if (drag.split && item.dataset.workspaceId !== drag.workspaceId) return false;
         const box = item.getBoundingClientRect();
         return y >= box.top && y <= box.bottom;
       });
@@ -261,6 +265,7 @@ export function attachSidebarDrag(list, {
       tabId: item.dataset.tabId ?? null,
       workspaceId: item.dataset.workspaceId,
       scope: item.dataset.dropScope,
+      split: item.dataset.split === "true",
       offsetX: press.x - box.left, offsetY: press.y - box.top,
       scroller: scrollParent(list), target: null, x: press.x, y: press.y, frame: 0,
     };

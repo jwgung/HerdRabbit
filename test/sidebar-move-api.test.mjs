@@ -126,51 +126,42 @@ const twoProjects = {
   ],
 };
 
-test("a session with two panes moves to another project as one tab, keeps its name and lands where it was dropped", async (context) => {
+test("a one-pane session moves to another project as a new tab, keeps its name and lands where it was dropped", async (context) => {
   const herdrSocket = await fakeHerdrSocket(context, () => ({ result: { type: "tab_list" } }));
   const fake = recordingRunner((args) => {
     if (args[0] === "api") return { result: { snapshot: twoProjects } };
     if (args[0] === "session") return sessionList(herdrSocket.socketPath);
-    if (args[2] === "w1:p2") return moveResult({ from: "w1:p2", to: "w2:p3", tabId: "w2:t3", created: true, label: "Release" });
-    if (args[2] === "w1:p5") return moveResult({ from: "w1:p5", to: "w2:p4", tabId: "w2:t3" });
+    if (args[2] === "w1:p1") return moveResult({ from: "w1:p1", to: "w2:p3", tabId: "w2:t3", created: true, label: "Release" });
     throw new Error(`unexpected ${args.join(" ")}`);
   });
   const client = new HerdrClient({ runner: fake.runner });
 
-  const moved = await client.moveTabToWorkspace("w1:t2", "w2", 1);
-  assert.deepEqual(moved, { tab_id: "w2:t3", panes: [{ from: "w1:p2", to: "w2:p3" }, { from: "w1:p5", to: "w2:p4" }] });
+  const moved = await client.moveTabToWorkspace("w1:t1", "w2", 1);
+  assert.deepEqual(moved, { tab_id: "w2:t3", panes: [{ from: "w1:p1", to: "w2:p3" }], reordered: true });
   assert.deepEqual(fake.calls.filter((args) => args[0] === "pane"), [
-    ["pane", "move", "w1:p2", "--new-tab", "--workspace", "w2", "--label=Release", "--no-focus"],
-    ["pane", "move", "w1:p5", "--tab", "w2:t3", "--split", "right", "--target-pane", "w2:p3", "--no-focus"],
+    ["pane", "move", "w1:p1", "--new-tab", "--workspace", "w2", "--no-focus"],
   ]);
   // The new tab opened at the end, after w2's two; it goes to gap 1.
   assert.deepEqual(herdrSocket.requests, [{ method: "tab.move", params: { tab_id: "w2:t3", insert_index: 1 } }]);
 });
 
-test("a move that fails halfway brings the panes already moved back to the session they left", async () => {
-  const fake = recordingRunner((args) => {
-    if (args[0] === "api") return { result: { snapshot: twoProjects } };
-    if (args[2] === "w1:p2") return moveResult({ from: "w1:p2", to: "w2:p3", tabId: "w2:t3", created: true, label: "Release" });
-    if (args[2] === "w1:p5") return new Error("herdr went away");
-    if (args[2] === "w2:p3") return moveResult({ from: "w2:p3", to: "w1:p6", tabId: "w1:t2" });
-    throw new Error(`unexpected ${args.join(" ")}`);
-  });
+test("a split session is refused for another project without moving any pane, and the page gets a 409", async (context) => {
+  const fake = recordingRunner(() => ({ result: { snapshot: twoProjects } }));
   const client = new HerdrClient({ runner: fake.runner });
-  await assert.rejects(client.moveTabToWorkspace("w1:t2", "w2", 1));
-  assert.deepEqual(fake.calls.filter((args) => args[0] === "pane").at(-1),
-    ["pane", "move", "w2:p3", "--tab", "w1:t2", "--split", "right", "--target-pane", "w1:p5", "--no-focus"]);
-});
+  await assert.rejects(client.moveTabToWorkspace("w1:t2", "w2", 1), (error) =>
+    error instanceof HerdrCommandError && error.code === "split_session" &&
+    error.message === "A split session can only be reordered within its project.");
+  assert.equal(fake.calls.some((args) => args[0] === "pane"), false, "no pane move");
 
-test("a session moved whole stays moved when only the reorder fails", async (context) => {
-  const herdrSocket = await fakeHerdrSocket(context, () => ({ error: { code: "bad", message: "no" } }));
-  const fake = recordingRunner((args) => {
-    if (args[0] === "api") return { result: { snapshot: twoProjects } };
-    if (args[0] === "session") return sessionList(herdrSocket.socketPath);
-    if (args[2] === "w1:p1") return moveResult({ from: "w1:p1", to: "w2:p3", tabId: "w2:t3", created: true });
-    throw new Error(`unexpected ${args.join(" ")}`);
+  const baseUrl = await startServer(context, new MultiServerClient({ local: client }));
+  const response = await fetch(`${baseUrl}/api/tabs/w1%3At2/move`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: baseUrl, "X-Herdr-CSRF": "fixed-test-token" },
+    body: JSON.stringify({ workspaceId: "w2", insertIndex: 1 }),
   });
-  const client = new HerdrClient({ runner: fake.runner });
-  assert.deepEqual(await client.moveTabToWorkspace("w1:t1", "w2", 0), { tab_id: "w2:t3", panes: [{ from: "w1:p1", to: "w2:p3" }] });
+  assert.equal(response.status, 409);
+  assert.match(JSON.stringify(await response.json()), /split_session/u);
+  assert.equal(fake.calls.some((args) => args[0] === "pane"), false);
 });
 
 test("an unnamed session keeps Herdr's numbering, and one dropped last needs no reordering", async () => {
@@ -180,7 +171,7 @@ test("an unnamed session keeps Herdr's numbering, and one dropped last needs no 
     throw new Error(`unexpected ${args.join(" ")}`);
   });
   const client = new HerdrClient({ runner: fake.runner });
-  assert.deepEqual(await client.moveTabToWorkspace("w1:t1", "w2", 2), { tab_id: "w2:t3", panes: [{ from: "w1:p1", to: "w2:p3" }] });
+  assert.deepEqual(await client.moveTabToWorkspace("w1:t1", "w2", 2), { tab_id: "w2:t3", panes: [{ from: "w1:p1", to: "w2:p3" }], reordered: true });
   assert.deepEqual(fake.calls.slice(1), [["pane", "move", "w1:p1", "--new-tab", "--workspace", "w2", "--no-focus"]]);
 });
 
@@ -188,7 +179,7 @@ test("moving to the project a session is already in only reorders it", async (co
   const herdrSocket = await fakeHerdrSocket(context, () => ({ result: { type: "tab_list" } }));
   const fake = recordingRunner((args) => (args[0] === "api" ? { result: { snapshot: twoProjects } } : sessionList(herdrSocket.socketPath)));
   const client = new HerdrClient({ runner: fake.runner });
-  assert.deepEqual(await client.moveTabToWorkspace("w1:t2", "w1", 0), { tab_id: "w1:t2", panes: [] });
+  assert.deepEqual(await client.moveTabToWorkspace("w1:t2", "w1", 0), { tab_id: "w1:t2", panes: [], reordered: true });
   assert.equal(fake.calls.some((args) => args[0] === "pane"), false);
   assert.deepEqual(herdrSocket.requests, [{ method: "tab.move", params: { tab_id: "w1:t2", insert_index: 0 } }]);
 });
@@ -210,7 +201,7 @@ test("the bridge moves within one Herdr session and gives the new ids back scope
   const bridge = new HerdrBridgeClient({ runner: fake.runner });
   const scope = sessionIds.sessionIdForName("default");
   assert.deepEqual(await bridge.moveTabToWorkspace(`${scope}~w1:t1`, `${scope}~w2`, 2), {
-    tab_id: `${scope}~w2:t3`, panes: [{ from: `${scope}~w1:p1`, to: `${scope}~w2:p3` }],
+    tab_id: `${scope}~w2:t3`, panes: [{ from: `${scope}~w1:p1`, to: `${scope}~w2:p3` }], reordered: true,
   });
   assert.deepEqual(fake.calls.at(-1), ["--session=default", "pane", "move", "w1:p1", "--new-tab", "--workspace", "w2", "--no-focus"]);
   const other = sessionIds.sessionIdForName("review");
@@ -306,7 +297,7 @@ test("the move routes need the write token and pass the drop on to Herdr", async
 
   const within = await post("/api/tabs/hs_x~w1%3At2/move", { insertIndex: 0 });
   assert.equal(within.status, 200);
-  assert.deepEqual((await within.json()).moved, { tab_id: "hs_x~w1:t2", panes: [] });
+  assert.deepEqual((await within.json()).moved, { tab_id: "hs_x~w1:t2", panes: [], reordered: true });
   const across = await post("/api/tabs/hs_x~w1%3At2/move", { workspaceId: "hs_x~w2", insertIndex: 1 });
   assert.equal(across.status, 200);
   const acrossBody = await across.json();

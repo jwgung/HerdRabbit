@@ -2626,6 +2626,8 @@ function renderNavigation() {
       const tabLabel = displayTabLabel(tab);
       const editingTab = state.editingTabId === tabId;
       const tabPanes = panes.filter((pane) => idOf(pane, "tab_id", "tabId") === tabId);
+      // A split session can be put in order within its project, not carried out.
+      if (tabPanes.length > 1) tabGroup.dataset.split = "true";
       // With one pane the pane is the session, so its name belongs in the
       // button. With several the name covers the group, and repeating it on
       // every button would say the same thing three times.
@@ -2768,8 +2770,10 @@ async function moveSidebarItem(request, pathFor, optimistic) {
   state.snapshot = optimistic();
   renderNavigation();
   let failed = false;
+  let reorderedFeedback = "";
   try {
     const payload = await api(pathFor(request), { method: "POST", body: request.body });
+    if (payload.moved?.reordered === false) reorderedFeedback = "Moved; it is at the end of the project.";
     // A session moved to another project brings its panes under new ids; the
     // one on screen is followed there.
     const followed = followMovedPane(state.selectedPaneId, payload.moved?.panes);
@@ -2783,7 +2787,8 @@ async function moveSidebarItem(request, pathFor, optimistic) {
   } finally {
     state.mutationBusy = false;
   }
-  // A move that failed halfway may still have changed something.
+  if (reorderedFeedback) setFeedback(reorderedFeedback);
+  // A failed move may still have changed something.
   if (failed) void refreshSnapshot();
 }
 

@@ -239,6 +239,7 @@ export class MultiServerClient {
     }
     const scope = (id) => entry.profile.id === "local" ? id : `${entry.profile.id}!${id}`;
     return {
+      ...result,
       tab_id: scope(result.tab_id),
       panes: result.panes.map(({ from, to }) => ({ from: scope(from), to: scope(to) })),
     };

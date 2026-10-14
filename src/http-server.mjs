@@ -328,7 +328,7 @@ function errorResponse(error) {
   }
   if (error instanceof HerdrCommandError) {
     return {
-      status: error.code === "herdr_timeout" ? 504 : 502,
+      status: error.code === "herdr_timeout" ? 504 : error.code === "split_session" ? 409 : 502,
       code: error.code,
       message: error.message,
     };
@@ -1234,14 +1234,14 @@ export function createHerdrHttpServer({
       }
 
       // Dragging in the sidebar. A session moves within its project, or to
-      // another project of the same machine and Herdr session; the panes it
-      // carries come back with their new ids so the page can keep its place.
+      // another project of the same machine and Herdr session (one pane only);
+      // the pane it carries comes back with their new ids so the page can keep its place.
       const tabMoveMatch = url.pathname.match(/^\/api\/tabs\/([^/]+)\/move$/);
       if (method === "POST" && tabMoveMatch) {
         requireWriteAuthorization(request, csrfToken);
         const body = await readJsonBody(request, maxBodyBytes);
         const tabId = decodePaneId(tabMoveMatch[1]);
-        let moved = { tab_id: tabId, panes: [] };
+        let moved = { tab_id: tabId, panes: [], reordered: true };
         if (body.workspaceId === undefined) await herdr.moveTab(tabId, body.insertIndex);
         else {
           if (typeof body.workspaceId !== "string") throw new InputValidationError("Invalid workspace id");

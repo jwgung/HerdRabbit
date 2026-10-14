@@ -1,6 +1,6 @@
 // Browser check of dragging in the sidebar, against an in-process fake herdr
 // that keeps its own order: a session reordered within its project, a session
-// with two panes carried to another project, a project reordered, no drop on
+// with one pane carried to another project (and one with two panes that is not), a project reordered, no drop on
 // another machine, a refused move put back, and on a phone a long press that
 // drags while a swipe still scrolls and a short tap still selects.
 // DRAG_SCREENSHOTS=<folder> keeps pictures taken mid-drag.
@@ -99,7 +99,7 @@ const herdr = {
     const peers = tabs.filter((item) => item.workspace_id === workspaceId);
     herdrState.tabs = place([...tabs, newTab], newTab, [...peers, newTab], peers.length);
     herdrState.tabs = place(herdrState.tabs, newTab, [...peers, newTab], insertIndex);
-    return { tab_id: newTab.tab_id, panes: moves };
+    return { tab_id: newTab.tab_id, panes: moves, reordered: true };
   },
 };
 
@@ -173,20 +173,33 @@ try {
     assert.equal(await page.locator('.pane-button[data-pane-id="w1:p5"]').getAttribute("aria-pressed"), "true",
       "the drag's trailing click did not select the dragged row");
 
-    // 2. Infra (two panes, one on screen) onto Docs, above Guide.
+    // 2. Infra has two panes: over Docs it is no drop target, nothing is asked
+    // and it stays where it was. Within its own project it still reorders.
+    const callsBeforeSplit = calls.length;
     source = await box(page, tabRow("w1:p2"));
     target = await box(page, tabRow("w2:p1"));
     during = await mouseDrag(page, { x: source.x + 60, y: source.y + 20 }, { x: target.x + 60, y: target.y + 4 });
+    assert.deepEqual(during.highlighted, [], "a split session does not light up another project");
+    assert.equal(during.line, null, "no line over another project");
+    await page.waitForTimeout(300);
+    assert.equal(calls.length, callsBeforeSplit, "nothing was asked of the server");
+    assert.deepEqual((await sidebar(page)).Platform, ["Infra", "Web", "Release"]);
+    assert.equal(await page.locator('.pane-button[data-pane-id="w1:p5"]').getAttribute("aria-pressed"), "true", "the view stays put");
+
+    // 2b. Release (one pane, the one on screen) onto Docs, above Guide.
+    await page.locator('.pane-button[data-pane-id="w1:p1"]').click();
+    await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w1:p1"]')?.getAttribute("aria-pressed") === "true");
+    source = await box(page, tabRow("w1:p1"));
+    target = await box(page, tabRow("w2:p1"));
+    during = await mouseDrag(page, { x: source.x + 60, y: source.y + 12 }, { x: target.x + 60, y: target.y + 4 });
     assert.deepEqual(during.highlighted, ["Docs"], "the project it would move to is highlighted");
     await page.waitForFunction(() => document.querySelector('.pane-button[aria-pressed="true"]')?.dataset.paneId?.startsWith("w2:"));
-    assert.deepEqual(callsNow().at(-1), ["moveTabToWorkspace", "w1:t2", "w2", 0]);
+    assert.deepEqual(callsNow().at(-1), ["moveTabToWorkspace", "w1:t1", "w2", 0]);
     const afterCross = await sidebar(page);
-    assert.deepEqual(afterCross.Platform, ["Web", "Release"]);
-    assert.equal(afterCross.Docs.length, 2);
-    assert.equal(afterCross.Docs[1], "Guide");
-    assert.equal(await page.locator(`${group("Docs")} .tab-group`).first().locator(".pane-button").count(), 2, "both panes came along as one session");
+    assert.deepEqual(afterCross.Platform, ["Infra", "Web"]);
+    assert.deepEqual(afterCross.Docs, ["Release", "Guide"]);
     const followed = await page.locator('.pane-button[aria-pressed="true"]').getAttribute("data-pane-id");
-    const moved = herdrState.panes.find((pane) => pane.cwd === "/work/infra/ops");
+    const moved = herdrState.panes.find((pane) => pane.cwd === "/work/release");
     assert.equal(followed, moved.pane_id, "the pane on screen is followed to its new id");
 
     // 3. Tools above Platform.
@@ -214,15 +227,15 @@ try {
     await mouseDrag(page, { x: source.x + 60, y: source.y + 12 }, { x: target.x + 60, y: target.y + target.height - 4 });
     await page.waitForFunction(() => document.querySelector("#action-feedback, [data-error='true']")?.textContent.includes("could not move"));
     assert.deepEqual(callsNow().at(-1), ["moveTabToWorkspace", "w1:t3", "w3", 1]);
-    assert.deepEqual((await sidebar(page)).Platform, ["Web", "Release"]);
+    assert.deepEqual((await sidebar(page)).Platform, ["Infra", "Web"]);
     assert.deepEqual((await sidebar(page)).Tools, ["Scripts"]);
 
     // 6. A plain click still selects.
-    await page.locator('.pane-button[data-pane-id="w1:p1"]').click();
-    await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w1:p1"]')?.getAttribute("aria-pressed") === "true");
+    await page.locator('.pane-button[data-pane-id="w1:p3"]').click();
+    await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w1:p3"]')?.getAttribute("aria-pressed") === "true");
     // The ⋯ menu still opens from a row without starting a drag.
-    await page.locator(`${tabRow("w1:p1")} .session-action-menu > summary`).click();
-    assert.ok(await page.locator(`${tabRow("w1:p1")} .sidebar-action-item`).first().isVisible());
+    await page.locator(`${tabRow("w1:p3")} .session-action-menu > summary`).click();
+    assert.ok(await page.locator(`${tabRow("w1:p3")} .sidebar-action-item`).first().isVisible());
     assert.equal(await page.locator(".sidebar-drag-ghost").count(), 0);
     await page.keyboard.press("Escape");
     assert.deepEqual(errors, []);

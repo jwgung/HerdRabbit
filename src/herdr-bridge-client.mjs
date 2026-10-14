@@ -258,7 +258,7 @@ export class HerdrBridgeClient {
     return this.#clientForSession(target.sessionName).moveWorkspace(target.localId, insertIndex);
   }
 
-  // Panes move between projects of one Herdr session only.
+  // A pane moves between projects of one Herdr session only.
   async moveTabToWorkspace(tabId, workspaceId, insertIndex) {
     const tab = this.#targetForScopedId(tabId, validation.validateTabId);
     const workspace = this.#targetForScopedId(workspaceId, validation.validateWorkspaceId);
@@ -269,6 +269,7 @@ export class HerdrBridgeClient {
       .moveTabToWorkspace(tab.localId, workspace.localId, insertIndex);
     const scope = (id) => scopedId(tab.sessionName, id);
     return {
+      ...result,
       tab_id: scope(result.tab_id),
       panes: result.panes.map(({ from, to }) => ({ from: scope(from), to: scope(to) })),
     };

@@ -348,10 +348,12 @@ export class HerdrClient {
   }
 
   // A session (tab) carried to another project of the same Herdr session.
-  // Herdr moves panes, not tabs: the first pane opens a new tab there under
-  // the session's name, the others follow into it side by side, and the tab
-  // left empty closes. A pane gets a new id in its new project, so the moves
-  // are returned for the page to follow the one it shows.
+  // Herdr moves panes, not tabs: the pane opens a new tab there under the
+  // session's name and the tab left empty closes. Only a session of one pane
+  // moves: carrying several one by one could fail halfway and split the
+  // session across two projects. The pane gets a new id, so the move is
+  // returned for the page to follow it. `reordered` is false when the session
+  // moved but could not be put at the dropped place and is last in the project.
   // insertIndex is the gap among the project's sessions as they are now.
   async moveTabToWorkspace(tabId, workspaceId, insertIndex) {
     const safeTabId = validateTabId(tabId);
@@ -362,60 +364,37 @@ export class HerdrClient {
     if (!tab) throw new HerdrCommandError("That session is no longer open", { code: "tab_not_found" });
     if (tab.workspace_id === safeWorkspaceId) {
       await this.moveTab(safeTabId, safeIndex);
-      return { tab_id: safeTabId, panes: [] };
+      return { tab_id: safeTabId, panes: [], reordered: true };
     }
     if (!(snapshot.workspaces ?? []).some((item) => item.workspace_id === safeWorkspaceId)) {
       throw new HerdrCommandError("That project is no longer open", { code: "workspace_not_found" });
     }
     const paneIds = (snapshot.panes ?? []).filter((item) => item.tab_id === safeTabId).map((item) => validatePaneId(item.pane_id));
     if (paneIds.length === 0) throw new HerdrCommandError("That session has no panes", { code: "tab_not_found" });
+    if (paneIds.length > 1) {
+      throw new HerdrCommandError("A split session can only be reordered within its project.", { code: "split_session" });
+    }
     const targetTabs = (snapshot.tabs ?? []).filter((item) => item.workspace_id === safeWorkspaceId).length;
     const label = carriedTabLabel(tab.label);
-    const moves = [];
-    let newTabId = null;
-    try {
-      for (const paneId of paneIds) {
-        const args = newTabId === null
-          ? ["pane", "move", paneId, "--new-tab", "--workspace", safeWorkspaceId, ...(label ? [`--label=${label}`] : []), "--no-focus"]
-          : ["pane", "move", paneId, "--tab", newTabId, "--split", "right", "--target-pane", moves.at(-1).to, "--no-focus"];
-        const result = await this.#run(args);
-        const moved = result?.move_result ?? result;
-        const to = moved?.pane?.pane_id;
-        const movedTab = moved?.created_tab?.tab_id ?? moved?.pane?.tab_id;
-        if (typeof to !== "string" || !PANE_ID_PATTERN.test(to) || typeof movedTab !== "string" || !TAB_ID_PATTERN.test(movedTab)) {
-          throw new HerdrCommandError("Herdr returned an unexpected move result", { code: "invalid_herdr_response" });
-        }
-        newTabId ??= movedTab;
-        moves.push({ from: paneId, to });
-      }
-    } catch (error) {
-      // Half a session in each project is worse than none moved: the panes
-      // already carried go back beside the ones still in the old tab, which
-      // is still open because they are there.
-      if (moves.length > 0) await this.#returnPanes(moves, safeTabId, paneIds[moves.length]);
-      throw error;
+    const result = await this.#run(
+      ["pane", "move", paneIds[0], "--new-tab", "--workspace", safeWorkspaceId, ...(label ? [`--label=${label}`] : []), "--no-focus"],
+    );
+    const moved = result?.move_result ?? result;
+    const to = moved?.pane?.pane_id;
+    const newTabId = moved?.created_tab?.tab_id ?? moved?.pane?.tab_id;
+    if (typeof to !== "string" || !PANE_ID_PATTERN.test(to) || typeof newTabId !== "string" || !TAB_ID_PATTERN.test(newTabId)) {
+      throw new HerdrCommandError("Herdr returned an unexpected move result", { code: "invalid_herdr_response" });
     }
-    // The new tab opened last; put it where it was dropped. The session has
-    // moved whole either way, so a failed reorder leaves it at the end.
+    // The new tab opened last; put it where it was dropped.
+    let reordered = true;
     if (safeIndex < targetTabs) {
       try {
         await this.moveTab(newTabId, safeIndex);
-      } catch { /* it stays last in the project */ }
+      } catch {
+        reordered = false;
+      }
     }
-    return { tab_id: newTabId, panes: moves };
-  }
-
-  // Best effort: a pane that cannot go back stays where it is, and the page
-  // reloads the snapshot to show where things are.
-  async #returnPanes(moves, tabId, besidePaneId) {
-    let beside = besidePaneId;
-    for (const { to } of moves) {
-      try {
-        const result = await this.#run(["pane", "move", to, "--tab", tabId, "--split", "right", "--target-pane", beside, "--no-focus"]);
-        const back = (result?.move_result ?? result)?.pane?.pane_id;
-        if (typeof back === "string" && PANE_ID_PATTERN.test(back)) beside = back;
-      } catch { /* left in the new project */ }
-    }
+    return { tab_id: newTabId, panes: [{ from: paneIds[0], to }], reordered };
   }
 
   // The pane's processes as herdr sees them (its shell and the foreground

@@ -75,10 +75,19 @@ test("a session reordered within its project asks for tab.move's gap", () => {
 
 test("a session dropped on another project names that project and its place there", () => {
   const state = snapshot();
-  assert.deepEqual(tabMoveRequest(state, { tabId: "w1:t2", workspaceId: "w2", gap: 1 }),
-    { tabId: "w1:t2", body: { workspaceId: "w2", insertIndex: 1 } });
-  assert.deepEqual(tabMoveRequest(state, { tabId: "w1:t2", workspaceId: "w3", gap: 0 }),
-    { tabId: "w1:t2", body: { workspaceId: "w3", insertIndex: 0 } });
+  assert.deepEqual(tabMoveRequest(state, { tabId: "w1:t1", workspaceId: "w2", gap: 1 }),
+    { tabId: "w1:t1", body: { workspaceId: "w2", insertIndex: 1 } });
+  assert.deepEqual(tabMoveRequest(state, { tabId: "w1:t3", workspaceId: "w3", gap: 0 }),
+    { tabId: "w1:t3", body: { workspaceId: "w3", insertIndex: 0 } });
+});
+
+test("a split session cannot be dropped on another project but can be reordered in its own", () => {
+  const state = snapshot(); // w1:t2 has two panes
+  assert.equal(tabMoveRequest(state, { tabId: "w1:t2", workspaceId: "w2", gap: 1 }), null);
+  assert.deepEqual(tabMoveRequest(state, { tabId: "w1:t2", workspaceId: "w1", gap: 0 }),
+    { tabId: "w1:t2", body: { insertIndex: 0 } });
+  assert.deepEqual(tabMoveRequest(state, { tabId: "w1:t1", workspaceId: "w2", gap: 0 }),
+    { tabId: "w1:t1", body: { workspaceId: "w2", insertIndex: 0 } }, "one pane still moves");
 });
 
 test("a session does not move to another machine or another Herdr session", () => {
