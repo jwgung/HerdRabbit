@@ -1,13 +1,10 @@
 // Agents name files constantly -- "wrote src/api.mjs", "see ./docs/plan.md" --
 // and on a phone the only way to look at one was to go find it in the tree. A
-// path that names something this app can show becomes a link to it.
-//
-// Only such paths. Terminal output is full of path-shaped words, and linking
-// every one of them would underline half the screen; requiring a name the
-// viewer recognises is what keeps `/usr/bin` and `node_modules/` plain.
-// Any run that holds a slash: `/abs/x.log`, `./rel/x.md`, `~/x.md`, and the
-// bare `src/api.mjs` an agent writes most often of all.
-const PATH_PATTERN = /(?:^|[\s'"`([<])([^\s'"`([<>:,;\x00-\x1f\x7f]*\/[^\s'"`)\]>:,;\x00-\x1f\x7f]+)/g;
+// path that names something this app can show becomes a link to it. Which
+// words are paths is path-links.js's to say, the same as in the chat; what is
+// the terminal's own is the screen: an address or a path cut at a row's end
+// goes on in the next row.
+import { MAX_QUOTED, findPaths, isFileName, linkableLabel, trimPunctuation } from "./path-links.js?v=1.2.41";
 
 function trimUrlPunctuation(label) {
   let cleaned = label;
@@ -112,105 +109,77 @@ function findUrls(text) {
   return nonOverlapping;
 }
 
-// Whether a path's last segment reads as a file name: `name.ext`, with a name
-// before the dot and an extension of 1-10 letters and digits that holds a
-// letter. `.env` is a hidden name rather than an extension, and `v1.2` or
-// `10.0.0.1` are versions and addresses, so none of them count; neither does
-// a folder like `feat/settings-menu` or a fraction like `1/2`.
-export function isFileName(name) {
-  return /^[^.].*\.(?=[A-Za-z0-9]{1,10}$)[0-9]*[A-Za-z][A-Za-z0-9]*$/u.test(name);
+// A path that stopped at the end of a screen row may go on in the next one.
+// Screen rows are padded to the terminal's width, so a newline right after the
+// last character means the row was full. A file name already complete (`a.md`)
+// is not extended; a folder is, when the longer path is one too
+// (`/home/me/doc-` + `viewer`).
+function extendRun(text, run, own, isLinkable) {
+  const { start, end, raw } = run;
+  const extendable = own === null || (!isFileName(own.replace(/\/+$/u, "").split("/").pop()));
+
+  let best = own === null ? null : { start, end: start + own.length, path: own };
+  if (extendable) {
+    let currentEnd = end;
+    let accumulated = raw;
+
+    while (currentEnd < text.length) {
+      const newlineMatch = text.slice(currentEnd).match(/^(\r?\n)([ \t]*)/);
+      if (!newlineMatch) break;
+      if (own !== null && newlineMatch[2]) break;
+
+      const nextPos = currentEnd + newlineMatch[0].length;
+      const contMatch = text.slice(nextPos).match(/^[^\s'"`)\]>:,;\x00-\x1f\x7f]+/);
+      if (!contMatch) break;
+
+      const rawCont = contMatch[0];
+      const trimmedCont = trimPunctuation(rawCont);
+      const candidate = linkableLabel(accumulated + trimmedCont, isLinkable);
+      if (candidate !== null) {
+        best = { start, end: nextPos + trimmedCont.length, path: candidate };
+        if (own === null) break;
+      }
+
+      accumulated += rawCont;
+      currentEnd = nextPos + rawCont.length;
+      // a continuation that itself ended in punctuation is the end of the path
+      if (own !== null && trimmedCont.length !== rawCont.length) break;
+    }
+  }
+  return best;
 }
 
-// A folder path an agent spells out in full: absolute (`/home/me/proj`) or
-// explicitly relative (`./build`, `../shared/`). Such a path says it is a path
-// whatever its last name looks like, so it needs no extension. A bare
-// `src/foo`, `feat/settings-menu` or `1/2` does not say so and stays plain
-// text, as does `//host/share` (half of a URL) and a lone `/word`, which in a
-// terminal is nearly always a slash command (`/compact`), not a folder.
-export function isFolderPath(raw) {
-  if (typeof raw !== "string" || raw.startsWith("//")) return false;
-  const relative = raw.startsWith("./") || raw.startsWith("../");
-  if (!relative && !raw.startsWith("/")) return false;
-  if (/[\x00-\x1f\x7f\s]/u.test(raw)) return false;
-  const segments = raw.replace(/\/+$/u, "").split("/").slice(1);
-  const last = segments.at(-1);
-  if (!last || last === "." || last === "..") return false;
-  // `/word` is one segment; `./word` and `../word` are explicit enough alone.
-  if (!relative && segments.length < 2) return false;
-  return !segments.includes("");
-}
+// The most screen rows one quoted path is followed across.
+const MAX_QUOTE_ROWS = 4;
 
-const TRAILING_PUNCTUATION = /[.,;:!?)\]}]/u;
-function trimPunctuation(value) {
-  let cleaned = value;
-  while (cleaned && TRAILING_PUNCTUATION.test(cleaned.at(-1))) cleaned = cleaned.slice(0, -1);
-  return cleaned;
-}
-
-// The path a run names, with a closing slash kept (it says "folder") when the
-// run is linkable that way and otherwise without it, or null.
-function linkableLabel(value, isLinkable) {
-  const label = trimPunctuation(value);
-  if (!label) return null;
-  if (isLinkable(label)) return label;
-  const bare = label.replace(/\/+$/u, "");
-  return bare !== label && bare && isLinkable(bare) ? bare : null;
+// A quoted path may wrap onto the next rows, its closing quote on a later one:
+// `cd "/home/me/my` | `folder"`. The rows are read back to back, without the
+// newlines between them. A row is only followed when it ends in the path, not
+// in the padding after it -- one space may be the one the row broke on, two
+// are padding -- and the next row starts at its edge.
+function closeQuoteAcrossRows(text, open) {
+  const quote = text[open];
+  let value = "";
+  let from = open + 1;
+  for (let rows = 0; rows < MAX_QUOTE_ROWS; rows += 1) {
+    const newline = text.indexOf("\n", from);
+    const close = text.indexOf(quote, from);
+    if (close !== -1 && (newline === -1 || close < newline)) {
+      value += text.slice(from, close);
+      return value.length > MAX_QUOTED ? null : { end: close, value };
+    }
+    if (newline === -1) return null;
+    const row = text.slice(from, newline).replace(/\r$/u, "");
+    if (row.endsWith("  ") || row === "" || /^\s/u.test(text.slice(newline + 1, newline + 2))) return null;
+    value += row;
+    from = newline + 1;
+  }
+  return null;
 }
 
 // Linkable paths in terminal text, as [start, end) string offsets.
 export function findTerminalPaths(text, isLinkable) {
-  const links = [];
-  for (const match of text.matchAll(PATH_PATTERN)) {
-    const raw = match[1];
-    const start = match.index + match[0].length - match[1].length;
-    const end = start + raw.length;
-
-    const own = linkableLabel(raw, isLinkable);
-    // A path that stopped at the end of a screen row may go on in the next
-    // one. Screen rows are padded to the terminal's width, so a newline right
-    // after the last character means the row was full. A file name already
-    // complete (`a.md`) is not extended; a folder is, when the longer path is
-    // one too (`/home/me/doc-` + `viewer`).
-    const extendable = own === null || (!isFileName(own.replace(/\/+$/u, "").split("/").pop()));
-
-    let best = own === null ? null : { start, end: start + own.length, path: own };
-    if (extendable) {
-      let currentEnd = end;
-      let accumulated = raw;
-
-      while (currentEnd < text.length) {
-        const newlineMatch = text.slice(currentEnd).match(/^(\r?\n)([ \t]*)/);
-        if (!newlineMatch) break;
-        if (own !== null && newlineMatch[2]) break;
-
-        const nextPos = currentEnd + newlineMatch[0].length;
-        const contMatch = text.slice(nextPos).match(/^[^\s'"`)\]>:,;\x00-\x1f\x7f]+/);
-        if (!contMatch) break;
-
-        const rawCont = contMatch[0];
-        const trimmedCont = trimPunctuation(rawCont);
-        const candidate = linkableLabel(accumulated + trimmedCont, isLinkable);
-        if (candidate !== null) {
-          best = { start, end: nextPos + trimmedCont.length, path: candidate };
-          if (own === null) break;
-        }
-
-        accumulated += rawCont;
-        currentEnd = nextPos + rawCont.length;
-        // a continuation that itself ended in punctuation is the end of the path
-        if (own !== null && trimmedCont.length !== rawCont.length) break;
-      }
-    }
-    if (best) links.push(best);
-  }
-
-  const nonOverlapping = [];
-  for (const link of links) {
-    if (!nonOverlapping.some((found) => link.start < found.end && found.start < link.end)) {
-      nonOverlapping.push(link);
-    }
-  }
-  return nonOverlapping;
+  return findPaths(text, isLinkable, { extendRun, closeQuote: closeQuoteAcrossRows });
 }
 
 // The links on a terminal screen, for drawing and tapping them in place.

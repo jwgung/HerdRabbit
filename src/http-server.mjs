@@ -48,6 +48,7 @@ const STATIC_FILES = new Map([
   ["/ui/examples.js", { path: `${PUBLIC_DIR}/ui/examples.js`, type: "text/javascript; charset=utf-8" }],
   ["/", { path: `${PUBLIC_DIR}/index.html`, type: "text/html; charset=utf-8" }],
   ["/app.js", { path: `${PUBLIC_DIR}/app.js`, type: "text/javascript; charset=utf-8" }],
+  ["/path-links.js", { path: `${PUBLIC_DIR}/path-links.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-links.js", { path: `${PUBLIC_DIR}/terminal-links.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-connection.js", { path: `${PUBLIC_DIR}/terminal-connection.js`, type: "text/javascript; charset=utf-8" }],
   ["/xterm-terminal.js", { path: `${PUBLIC_DIR}/xterm-terminal.js`, type: "text/javascript; charset=utf-8" }],

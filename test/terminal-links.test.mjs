@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { findScreenLinks, isFileName, isFolderPath } from "../public/terminal-links.js";
+import { findScreenLinks } from "../public/terminal-links.js";
+import { isFileName, isFolderPath } from "../public/path-links.js";
 
 // Screen rows as xterm-terminal.js reads them: plain text, one cell per character here.
 const rowsOf = (text) => text.split(/\r?\n/u).map((line) => ({
