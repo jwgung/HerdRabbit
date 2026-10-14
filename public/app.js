@@ -3249,6 +3249,7 @@ const attachedTerminal = createAttachedTerminal({
 // A keyboard takes far more than this; a browser's address bar folding away
 // takes less.
 const KEYBOARD_MIN_HEIGHT_PX = 120;
+let phoneKeyboardOpen = false;
 if (window.visualViewport) {
   const viewport = window.visualViewport;
   const unobstructedHeights = new Map();
@@ -3259,6 +3260,7 @@ if (window.visualViewport) {
     const open = usesTouchInputEnvironment() && viewport.height < unobstructed - KEYBOARD_MIN_HEIGHT_PX;
     if (open) document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
     else document.documentElement.style.removeProperty("--app-height");
+    phoneKeyboardOpen = open;
     attachedTerminal.setKeyboardOpen(open);
     // The browser may have scrolled the page to show the composer; the page
     // now fits, so it goes back to the top.
@@ -3731,6 +3733,15 @@ async function sendCommandKey(key) {
 // Keep the composer focused when using the screen keyboard with a mouse.
 elements.quickKeys.addEventListener("mousedown", (event) => {
   if (event.target.closest("button")) event.preventDefault();
+});
+
+// A phone keyboard put away leaves its input focused, and Android brings the
+// keyboard back as soon as the terminal answers a key. With the keyboard away,
+// a tap on the bar lets go of the input; with it up, typing carries on.
+elements.quickKeys.addEventListener("pointerdown", (event) => {
+  if (!event.target.closest("button") || !usesTouchInputEnvironment() || phoneKeyboardOpen) return;
+  const focused = document.activeElement;
+  if (focused instanceof HTMLElement && focused.matches("input, textarea")) focused.blur();
 });
 
 elements.quickKeys.addEventListener("click", (event) => {

@@ -1,5 +1,6 @@
-// Browser check of typing on a phone. A tap on the terminal asks for no
-// keyboard. While the keyboard is up (the visible height shrinks) the page
+// Browser check of typing on a phone. With the keyboard put away, a key-bar
+// tap lets go of the focused input, so the keyboard does not come back; with
+// it up, the input keeps focus. While the keyboard is up (the visible height shrinks) the page
 // fits what is left, so the composer and key bar sit above the keyboard. The
 // terminal keeps its rows and shows its foot, and the pane is not resized
 // when the keyboard comes or goes. A desktop window made shorter still resizes
@@ -69,10 +70,13 @@ try {
     const before = lastSize();
     const where = mobile ? "phone" : "desktop";
 
+    const focusedId = () => page.evaluate(() => document.activeElement?.id || document.activeElement?.tagName);
     if (mobile) {
-      // A tap on the terminal asks for no keyboard.
-      await page.locator("#terminal-xterm").tap();
-      assert.equal(await page.locator("#terminal-xterm textarea").getAttribute("inputmode"), "none", "a tap on the terminal raises the keyboard");
+      // The keyboard was put away but the composer kept focus: a key-bar tap
+      // lets go of it, so the keyboard is not brought back.
+      await page.locator("#terminal-input").focus();
+      await page.locator("#quick-keys button", { hasText: /^Esc$/u }).tap();
+      assert.notEqual(await focusedId(), "terminal-input", "a key-bar tap kept the put-away keyboard's input");
       if (shots) await page.screenshot({ path: join(shots, "keyboard-down.png") });
     }
 
@@ -94,6 +98,9 @@ try {
       assert.ok(Math.abs(layout.xtermBottom - layout.hostBottom) <= 2, `the terminal's foot is hidden: ${JSON.stringify(layout)}`);
       assert.ok(layout.composerBottom <= layout.height && layout.keysBottom <= layout.height, `the composer is under the keyboard: ${JSON.stringify(layout)}`);
       assert.equal(layout.scrollY, 0, "the page is scrolled");
+      // With the keyboard up, a key-bar tap leaves the typing where it was.
+      await page.locator("#quick-keys button", { hasText: /^Esc$/u }).tap();
+      assert.equal(await focusedId(), "terminal-input", "a key-bar tap dropped the open keyboard");
       if (shots) await page.screenshot({ path: join(shots, "keyboard-up.png") });
     } else {
       assert.equal(layout.open, false, "a shorter desktop window is no keyboard");

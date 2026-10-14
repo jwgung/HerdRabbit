@@ -291,10 +291,6 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     host.addEventListener("touchstart", (event) => {
       // The copy bar's buttons take their own taps.
       if (copyBar.contains(event.target)) return;
-      // A tap here scrolls, selects or opens a link; typing on a phone goes
-      // through the composer. xterm still focuses its input on a tap, so it
-      // asks for no keyboard. (A hardware keyboard still types.)
-      term.textarea?.setAttribute("inputmode", "none");
       follow(event.target);
       cancelPress();
       if (event.touches.length === 1) {
