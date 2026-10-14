@@ -356,6 +356,8 @@ export class MachineClient {
   close() {}
   async snapshot() { return this.#ready().snapshot(); }
   async readPane(...args) { return this.#ready().readPane(...args); }
+  async paneFind(...args) { return this.#ready().paneFind(...args); }
+  async paneReveal(...args) { return this.#ready().paneReveal(...args); }
   async sendText(...args) { return this.#ready().sendText(...args); }
   async sendKeys(...args) { return this.#ready().sendKeys(...args); }
   async watchStatuses(...args) { return this.#ready().watchStatuses(...args); }

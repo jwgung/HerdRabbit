@@ -55,6 +55,7 @@ const STATIC_FILES = new Map([
   ["/terminal-widths.js", { path: `${PUBLIC_DIR}/terminal-widths.js`, type: "text/javascript; charset=utf-8" }],
   ["/touch-scroll.js", { path: `${PUBLIC_DIR}/touch-scroll.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-selection.js", { path: `${PUBLIC_DIR}/terminal-selection.js`, type: "text/javascript; charset=utf-8" }],
+  ["/terminal-find.js", { path: `${PUBLIC_DIR}/terminal-find.js`, type: "text/javascript; charset=utf-8" }],
   ["/vendor/xterm.mjs", { path: `${PUBLIC_DIR}/vendor/xterm.mjs`, type: "text/javascript; charset=utf-8" }],
   ["/vendor/xterm.css", { path: `${PUBLIC_DIR}/vendor/xterm.css`, type: "text/css; charset=utf-8" }],
   ["/key-combinations.js", { path: `${PUBLIC_DIR}/key-combinations.js`, type: "text/javascript; charset=utf-8" }],
@@ -330,7 +331,8 @@ function errorResponse(error) {
   }
   if (error instanceof HerdrCommandError) {
     return {
-      status: error.code === "herdr_timeout" ? 504 : error.code === "split_session" ? 409 : 502,
+      status: error.code === "herdr_timeout" ? 504
+        : error.code === "split_session" || error.code === "stale_content" ? 409 : 502,
       code: error.code,
       message: error.message,
     };
@@ -1369,6 +1371,35 @@ export function createHerdrHttpServer({
         await herdr.sendKeys(decodePaneId(keysMatch[1]), body.keys);
         promptService.nudge(decodePaneId(keysMatch[1]));
         sendJson(response, 200, { ok: true });
+        return;
+      }
+
+      // Find in the pane's whole history. It moves nothing (the reveal below
+      // does); the CSRF check stays for consistency. A history that changed
+      // since the match before is a 409 stale_content; the page searches anew.
+      const findMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/find$/);
+      if (method === "POST" && findMatch) {
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, maxBodyBytes);
+        const find = validation.validateFindRequest({
+          query: body.query, direction: body.direction,
+          previous: body.previous, contentRevision: body.contentRevision,
+        });
+        sendJson(response, 200, await herdr.paneFind(decodePaneId(findMatch[1]), find));
+        return;
+      }
+
+      // Scrolls the pane's view, which every client of the pane shares, to a
+      // match a find gave. A history that changed since is a 409 stale_content.
+      const revealMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/reveal$/);
+      if (method === "POST" && revealMatch) {
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, maxBodyBytes);
+        const reveal = validation.validateRevealRequest({
+          match: body.match, contentRevision: body.contentRevision,
+          ...(body.coverRows === undefined ? {} : { coverRows: body.coverRows }),
+        });
+        sendJson(response, 200, await herdr.paneReveal(decodePaneId(revealMatch[1]), reveal));
         return;
       }
 
