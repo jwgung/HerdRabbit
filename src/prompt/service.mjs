@@ -10,8 +10,9 @@
 // (Enter, a typed answer) only once the screen shows the same card with the
 // cursor on the row the moves were for. A multiple choice's answer is several
 // such keys (a tick per option, then →): the screen is looked at before each.
+import { createHash } from "node:crypto";
 import { HttpError } from "../http-basics.mjs";
-import { parseClaudePrompt } from "./claude.mjs";
+import { fillClaudeCard, parseClaudePrompt } from "./claude.mjs";
 import { parseCodexPrompt } from "./codex.mjs";
 import { parseFallbackPrompt } from "./fallback.mjs";
 import { InvalidAnswer, KEY, answerSteps, publicCard, verifiesCursor } from "./screen.mjs";
@@ -57,8 +58,12 @@ function serverPending(snapshot, paneId) {
 }
 
 // What a watching page is told again for: another card, or other ticks.
+// The words count too: a card's whole words may come from the transcript a
+// moment after the menu shows.
 function cardVersion(card) {
-  return card ? `${card.id}:${(card.checked ?? []).join(",")}` : null;
+  if (!card) return null;
+  const words = createHash("sha256").update(JSON.stringify([card.question, card.body, card.options])).digest("base64url").slice(0, 16);
+  return `${card.id}:${(card.checked ?? []).join(",")}:${words}`;
 }
 
 async function eachLimited(items, limit, run) {
@@ -91,8 +96,12 @@ function quietStride(quiet) {
 }
 
 export class PromptService {
-  constructor({ herdr, settleMs = 1_500, stepDelayMs = 30, lookMs = 50, pollMs = 1_000 }) {
+  // `details(paneId, snapshot)`: the call a Claude pane's agent waits on, from
+  // its transcript, for the card's whole words (optional); `snapshot` is the
+  // herdr snapshot already in hand, when there is one.
+  constructor({ herdr, details = null, settleMs = 1_500, stepDelayMs = 30, lookMs = 50, pollMs = 1_000 }) {
     this.herdr = herdr;
+    this.details = details;
     this.settleMs = settleMs;
     this.stepDelayMs = stepDelayMs;
     this.lookMs = lookMs;
@@ -116,8 +125,8 @@ export class PromptService {
   // Claude or Codex pane is read whatever its status, by its agent's reader;
   // any other pane only while herdr reports it blocked. The fallback card (any
   // agent) is for blocked panes only. A password prompt is never a card.
-  async read(paneId) {
-    const agent = paneAgent(await this.herdr.snapshot(), paneId);
+  async read(paneId, snapshot = null) {
+    const agent = paneAgent(snapshot ?? await this.herdr.snapshot(), paneId);
     if (!agent) throw new HttpError(404, "pane_not_found", "This pane is gone.");
     return this.#readScreen(paneId, agent);
   }
@@ -133,7 +142,18 @@ export class PromptService {
   }
 
   async card(paneId) {
-    return publicCard(await this.read(paneId));
+    // one snapshot for the screen and the transcript both
+    const snapshot = await this.herdr.snapshot();
+    return this.#worded(paneId, publicCard(await this.read(paneId, snapshot)), snapshot);
+  }
+
+  // A Claude card's words, whole, from its transcript; the screen's when that
+  // cannot be read.
+  async #worded(paneId, card, snapshot = null) {
+    if (!card || card.agent !== "claude" || !this.details || (card.kind !== "plan" && card.kind !== "question")) return card;
+    let ask = null;
+    try { ask = await this.details(paneId, snapshot); } catch { /* the screen's words, then */ }
+    return fillClaudeCard(card, ask);
   }
 
   // Answers one pane at a time, in the order the answers came.
@@ -304,7 +324,7 @@ export class PromptService {
         }
       }
       await eachLimited(reading, READS_AT_ONCE, async ({ entry, agent }) => {
-        const card = publicCard(await this.#readScreen(entry.paneId, agent).catch(() => null));
+        const card = await this.#worded(entry.paneId, publicCard(await this.#readScreen(entry.paneId, agent).catch(() => null)), snapshot);
         entry.quiet = card ? 0 : (entry.quiet ?? 0) + 1;
         this.#tell(entry, card);
       });

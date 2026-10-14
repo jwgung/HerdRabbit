@@ -380,3 +380,53 @@ export function claudeListWaits(lines) {
   const tail = compactLines(lines.slice(-16));
   return CLAUDE_MODEL_GUARD_RE.test(tail) || CLAUDE_EFFORT_GUARD_RE.test(tail);
 }
+
+// ---------------------------------------------------------------------------
+// The card's words from what Claude asked, not from the terminal: there a long
+// plan scrolls away and a narrow pane cuts a question or an option short ("…").
+// Only words change: the card's id, rows and keys stay the screen's, so an
+// answer still goes by what the terminal shows. `ask` is the call Claude waits
+// on (conversation/claude.mjs pendingClaudeAsk), or null.
+
+const squash = (text) => String(text ?? "").replace(/\s+/gu, " ").trim();
+// What the terminal shows of `full`: all of it, or its start cut with "…".
+function shows(shown, full) {
+  const seen = squash(shown).replace(/\s*…$/u, "");
+  const whole = squash(full);
+  return seen.length > 0 && whole.startsWith(seen);
+}
+
+// What a card carries of the call's words, at most (characters): a plan to
+// read through, a question and its options to pick from.
+const MAX_PLAN = 64 * 1024;
+const MAX_LINE = 4 * 1024;
+const capped = (text, limit) => text.length > limit ? `${text.slice(0, limit)}…` : text;
+
+export function fillClaudeCard(card, ask) {
+  if (!card || card.agent !== "claude" || !ask) return card;
+  if (card.kind === "plan" && ask.name === "ExitPlanMode") {
+    const plan = typeof ask.input.plan === "string" ? ask.input.plan.trim() : "";
+    // the plan on screen ends as this one does: not one an earlier session left open
+    const last = String(card.body ?? "").split("\n").map(squash).filter(Boolean).at(-1);
+    if (!plan || (last && !squash(plan).includes(last.replace(/\s*…$/u, "")))) return card;
+    return { ...card, body: capped(plan, MAX_PLAN) };
+  }
+  if (card.kind !== "question" || ask.name !== "AskUserQuestion" || !Array.isArray(ask.input.questions)) return card;
+  const questions = ask.input.questions.filter((item) => item && typeof item.question === "string" && Array.isArray(item.options));
+  // the question on screen must be the call's: alike options ("Yes"/"No") say nothing
+  const asked = questions.find((item) => shows(card.question, item.question));
+  if (!asked) return card;
+  // Every option the call has must be the screen's at its place (the screen
+  // adds its own after them): one alike label ("Cancel") is not this question.
+  const expected = Math.min(card.options.length, asked.options.length);
+  let matched = 0;
+  const options = card.options.map((option, index) => {
+    const full = asked.options[index];
+    if (!full || typeof full.label !== "string" || !shows(option.label, full.label)) return option;
+    matched += 1;
+    const description = typeof full.description === "string" && full.description ? capped(full.description, MAX_LINE) : option.description;
+    return { label: capped(full.label, MAX_LINE), description };
+  });
+  if (expected === 0 || matched < expected) return card;
+  return { ...card, question: capped(asked.question, MAX_LINE), options };
+}
