@@ -11,7 +11,7 @@
 // cursor on the row the moves were for. A multiple choice's answer is several
 // such keys (a tick per option, then →): the screen is looked at before each.
 import { HttpError } from "../http-basics.mjs";
-import { parseClaudePrompt } from "./claude.mjs";
+import { fillClaudeCard, parseClaudePrompt } from "./claude.mjs";
 import { parseCodexPrompt } from "./codex.mjs";
 import { parseFallbackPrompt } from "./fallback.mjs";
 import { InvalidAnswer, KEY, answerSteps, publicCard, verifiesCursor } from "./screen.mjs";
@@ -91,8 +91,11 @@ function quietStride(quiet) {
 }
 
 export class PromptService {
-  constructor({ herdr, settleMs = 1_500, stepDelayMs = 30, lookMs = 50, pollMs = 1_000 }) {
+  // `details(paneId)`: the call a Claude pane's agent waits on, from its
+  // transcript, for the card's whole words (optional).
+  constructor({ herdr, details = null, settleMs = 1_500, stepDelayMs = 30, lookMs = 50, pollMs = 1_000 }) {
     this.herdr = herdr;
+    this.details = details;
     this.settleMs = settleMs;
     this.stepDelayMs = stepDelayMs;
     this.lookMs = lookMs;
@@ -133,7 +136,15 @@ export class PromptService {
   }
 
   async card(paneId) {
-    return publicCard(await this.read(paneId));
+    return this.#worded(paneId, publicCard(await this.read(paneId)));
+  }
+
+  // A Claude card's words, whole, from its transcript; the screen's when that
+  // cannot be read.
+  async #worded(paneId, card) {
+    if (!card || card.agent !== "claude" || !this.details || (card.kind !== "plan" && card.kind !== "question")) return card;
+    const ask = await Promise.resolve().then(() => this.details(paneId)).catch(() => null);
+    return fillClaudeCard(card, ask);
   }
 
   // Answers one pane at a time, in the order the answers came.
@@ -304,7 +315,7 @@ export class PromptService {
         }
       }
       await eachLimited(reading, READS_AT_ONCE, async ({ entry, agent }) => {
-        const card = publicCard(await this.#readScreen(entry.paneId, agent).catch(() => null));
+        const card = await this.#worded(entry.paneId, publicCard(await this.#readScreen(entry.paneId, agent).catch(() => null)));
         entry.quiet = card ? 0 : (entry.quiet ?? 0) + 1;
         this.#tell(entry, card);
       });

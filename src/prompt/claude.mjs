@@ -380,3 +380,38 @@ export function claudeListWaits(lines) {
   const tail = compactLines(lines.slice(-16));
   return CLAUDE_MODEL_GUARD_RE.test(tail) || CLAUDE_EFFORT_GUARD_RE.test(tail);
 }
+
+// ---------------------------------------------------------------------------
+// The card's words from what Claude asked, not from the terminal: there a long
+// plan scrolls away and a narrow pane cuts a question or an option short ("…").
+// Only words change: the card's id, rows and keys stay the screen's, so an
+// answer still goes by what the terminal shows. `ask` is the call Claude waits
+// on (conversation/claude.mjs pendingClaudeAsk), or null.
+
+const squash = (text) => String(text ?? "").replace(/\s+/gu, " ").trim();
+// What the terminal shows of `full`: all of it, or its start cut with "…".
+function shows(shown, full) {
+  const seen = squash(shown).replace(/\s*…$/u, "");
+  const whole = squash(full);
+  return seen.length > 0 && (whole === seen || whole.startsWith(seen));
+}
+
+export function fillClaudeCard(card, ask) {
+  if (!card || card.agent !== "claude" || !ask) return card;
+  if (card.kind === "plan" && ask.name === "ExitPlanMode") {
+    const plan = typeof ask.input.plan === "string" ? ask.input.plan.trim() : "";
+    return plan ? { ...card, body: plan } : card;
+  }
+  if (card.kind !== "question" || ask.name !== "AskUserQuestion" || !Array.isArray(ask.input.questions)) return card;
+  const questions = ask.input.questions.filter((item) => item && typeof item.question === "string" && Array.isArray(item.options));
+  const asked = questions.find((item) => shows(card.question, item.question))
+    ?? (questions.length === 1 ? questions[0] : null);
+  if (!asked) return card;
+  const options = card.options.map((option, index) => {
+    const full = asked.options[index];
+    if (!full || typeof full.label !== "string" || !shows(option.label, full.label)) return option;
+    return { label: full.label, description: typeof full.description === "string" && full.description ? full.description : option.description };
+  });
+  return { ...card, question: asked.question, options };
+}
+
