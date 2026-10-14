@@ -159,6 +159,15 @@ export function validateFindRequest({ query, direction, previous, contentRevisio
   return { query, direction, previous: range, contentRevision };
 }
 
+// What a reveal asks for: a match a find gave, and the revision it was found in.
+export function validateRevealRequest({ match, contentRevision } = {}) {
+  const range = textRange(match);
+  if (!range || !isCount(contentRevision)) {
+    throw new InputValidationError("The match needs two history cells and its revision");
+  }
+  return { match: range, contentRevision };
+}
+
 function scrollInfo(value) {
   if (value === null || typeof value !== "object") return null;
   const { offset_from_bottom: offset, max_offset_from_bottom: max, viewport_rows: rows } = value;
@@ -504,8 +513,8 @@ export class HerdrClient {
     return scrollInfo(result?.pane?.scroll);
   }
 
-  // Finds `query` in the pane's whole history and scrolls the pane's view,
-  // which every client of the pane shares, to the match. The first find starts
+  // Finds `query` in the pane's whole history; it moves nothing (paneReveal
+  // scrolls the view to the match). The first find starts
   // at the bottom of the view and goes `direction`; a next one steps from
   // `previous`, the match found last, as long as the history is still the
   // revision it was found in (stale_content otherwise). Herdr wraps round at
@@ -544,35 +553,38 @@ export class HerdrClient {
     const match = isCount(found.current) ? matches[found.current] ?? null : null;
     const ordinal = isCount(found.current_global) ? found.current_global : found.current;
     const foundRevision = isCount(found.content_revision) ? found.content_revision : revision;
-    let finalScroll = scroll;
-    if (match) {
-      // The view as it is now: the page may have been resized meanwhile.
-      const now = await this.#paneScroll(safePaneId);
-      finalScroll = now;
-      const offset = now ? findScrollOffset(now, match) : null;
-      if (now && offset !== now.offset_from_bottom) {
-        // Herdr refuses this if output or a reflow moved the history since the
-        // search, so the view never goes to a row that now holds something else.
-        try {
-          await this.#call("pane.copy_motion", {
-            pane_id: safePaneId, cursor: match.start, motion: "line_end", content_revision: foundRevision,
-          });
-        } catch (error) {
-          if (error?.code === "stale_content") throw staleContent(error);
-          throw error;
-        }
-        const scrolled = await this.#call("pane.scroll", { pane_id: safePaneId, offset_from_bottom: offset });
-        finalScroll = scrollInfo(scrolled?.pane?.scroll) ?? { ...now, offset_from_bottom: offset };
-      }
-    }
     return {
       total: found.total,
       current: match ? ordinal + 1 : null,
       match,
       matches,
       content_revision: foundRevision,
-      scroll: finalScroll,
+      scroll,
     };
+  }
+
+  // Scrolls the pane's view, which every client of the pane shares, to a match
+  // a find gave, unless it shows already. Herdr refuses this if output or a
+  // reflow moved the history since the find (stale_content), so the view never
+  // goes to a row that now holds something else. Answers the view as it is.
+  async paneReveal(paneId, request) {
+    const safePaneId = validatePaneId(paneId);
+    const { match, contentRevision } = validateRevealRequest(request);
+    // The view as it is now: the page may have been resized since the find.
+    const now = await this.#paneScroll(safePaneId);
+    if (!now) return { scroll: null };
+    const offset = findScrollOffset(now, match);
+    if (offset === now.offset_from_bottom) return { scroll: now };
+    try {
+      await this.#call("pane.copy_motion", {
+        pane_id: safePaneId, cursor: match.start, motion: "line_end", content_revision: contentRevision,
+      });
+    } catch (error) {
+      if (error?.code === "stale_content") throw staleContent(error);
+      throw error;
+    }
+    const scrolled = await this.#call("pane.scroll", { pane_id: safePaneId, offset_from_bottom: offset });
+    return { scroll: scrollInfo(scrolled?.pane?.scroll) ?? { ...now, offset_from_bottom: offset } };
   }
 
   // The pane's processes as herdr sees them (its shell and the foreground
@@ -709,4 +721,5 @@ export const validation = Object.freeze({
   validateReadSource,
   validateKeys,
   validateFindRequest,
+  validateRevealRequest,
 });

@@ -87,10 +87,10 @@ const socketClient = (socketPath) => new HerdrClient({
   socketPath, sessionName: "default", runner: async () => { throw new Error("no CLI call expected"); },
 });
 
-test("a first find starts at the bottom of the view and leaves a match already on screen where it is", async (context) => {
+test("a first find starts at the bottom of the view and moves nothing", async (context) => {
   const herdr = await fakeHerdrSocket(context, herdrPane());
   const answer = await socketClient(herdr.socketPath).paneFind("w1:p1", { query: "needle", direction: "backward" });
-  assert.deepEqual(herdr.requests.map((request) => request.method), ["pane.get", "pane.copy_motion", "pane.copy_search", "pane.get"]);
+  assert.deepEqual(herdr.requests.map((request) => request.method), ["pane.get", "pane.copy_motion", "pane.copy_search"]);
   // The view's rows are 168..207; the search starts at the end of its last row.
   assert.deepEqual(herdr.requests[1].params, { pane_id: "w1:p1", cursor: { row: 207, col: 0 }, motion: "line_end" });
   assert.deepEqual(herdr.requests[2].params, {
@@ -104,7 +104,7 @@ test("a first find starts at the bottom of the view and leaves a match already o
   assert.deepEqual(answer.scroll, { offset_from_bottom: 0, max_offset_from_bottom: 168, viewport_rows: 40 });
 });
 
-test("stepping past the last match scrolls the shared view so the match sits a third of the way down", async (context) => {
+test("stepping past the last match finds it without scrolling the shared view", async (context) => {
   const herdr = await fakeHerdrSocket(context, herdrPane());
   const client = socketClient(herdr.socketPath);
   const previous = { start: { row: 206, col: 0 }, end: { row: 206, col: 5 } };
@@ -115,29 +115,67 @@ test("stepping past the last match scrolls the shared view so the match sits a t
   });
   assert.deepEqual(answer.match, { start: { row: 155, col: 7 }, end: { row: 155, col: 12 } });
   assert.equal(answer.current, 6);
-  // The guard checks the match's row is still the same history before moving the view.
-  assert.deepEqual(herdr.requests.at(-2), {
-    method: "pane.copy_motion", params: { pane_id: "w1:p1", cursor: { row: 155, col: 7 }, motion: "line_end", content_revision: 382 },
-  });
-  // 168 - (155 - floor(40 / 3)) = 26
-  assert.deepEqual(herdr.requests.at(-1), { method: "pane.scroll", params: { pane_id: "w1:p1", offset_from_bottom: 26 } });
-  assert.deepEqual(answer.scroll, { offset_from_bottom: 26, max_offset_from_bottom: 168, viewport_rows: 40 });
+  assert.equal(herdr.requests.some((request) => request.method === "pane.scroll"), false);
+  assert.deepEqual(answer.scroll, { offset_from_bottom: 0, max_offset_from_bottom: 168, viewport_rows: 40 });
 });
 
-test("a history that changed since the last match is stale_content, and the view is not moved", async (context) => {
+test("a reveal scrolls the shared view so the match sits a third of the way down, after the history guard", async (context) => {
+  const herdr = await fakeHerdrSocket(context, herdrPane());
+  const match = { start: { row: 155, col: 7 }, end: { row: 155, col: 12 } };
+  const answer = await socketClient(herdr.socketPath).paneReveal("w1:p1", { match, contentRevision: 382 });
+  assert.deepEqual(herdr.requests, [
+    { method: "pane.get", params: { pane_id: "w1:p1" } },
+    { method: "pane.copy_motion", params: { pane_id: "w1:p1", cursor: { row: 155, col: 7 }, motion: "line_end", content_revision: 382 } },
+    // 168 - (155 - floor(40 / 3)) = 26
+    { method: "pane.scroll", params: { pane_id: "w1:p1", offset_from_bottom: 26 } },
+  ]);
+  assert.deepEqual(answer, { scroll: { offset_from_bottom: 26, max_offset_from_bottom: 168, viewport_rows: 40 } });
+});
+
+test("a reveal leaves a match already on screen where it is", async (context) => {
+  const herdr = await fakeHerdrSocket(context, herdrPane());
+  const match = { start: { row: 206, col: 7 }, end: { row: 206, col: 12 } };
+  const answer = await socketClient(herdr.socketPath).paneReveal("w1:p1", { match, contentRevision: 382 });
+  assert.deepEqual(herdr.requests.map((request) => request.method), ["pane.get"]);
+  assert.deepEqual(answer, { scroll: { offset_from_bottom: 0, max_offset_from_bottom: 168, viewport_rows: 40 } });
+});
+
+test("a reveal of a history that changed is stale_content, and the view is not moved", async (context) => {
+  const match = { start: { row: 155, col: 7 }, end: { row: 155, col: 12 } };
   const herdr = await fakeHerdrSocket(context, herdrPane({ revision: 400 }));
-  const client = socketClient(herdr.socketPath);
+  await assert.rejects(socketClient(herdr.socketPath).paneReveal("w1:p1", { match, contentRevision: 382 }), { code: "stale_content" });
+  assert.equal(herdr.requests.some((request) => request.method === "pane.scroll"), false);
+  const guarded = await fakeHerdrSocket(context, herdrPane({ staleGuard: true }));
+  await assert.rejects(socketClient(guarded.socketPath).paneReveal("w1:p1", { match, contentRevision: 382 }), { code: "stale_content" });
+  assert.equal(guarded.requests.some((request) => request.method === "pane.scroll"), false);
+});
+
+test("a stale step is refused by a find too, and nothing is scrolled", async (context) => {
+  const herdr = await fakeHerdrSocket(context, herdrPane({ revision: 400 }));
   const previous = { start: { row: 206, col: 0 }, end: { row: 206, col: 5 } };
-  await assert.rejects(client.paneFind("w1:p1", { query: "needle", direction: "forward", previous, contentRevision: 382 }),
+  await assert.rejects(socketClient(herdr.socketPath).paneFind("w1:p1", { query: "needle", direction: "forward", previous, contentRevision: 382 }),
     { code: "stale_content" });
   assert.deepEqual(herdr.requests.map((request) => request.method), ["pane.get", "pane.copy_motion"]);
+});
 
-  // Output landing between the search and the scroll is refused by herdr's guard.
-  const guarded = await fakeHerdrSocket(context, herdrPane({ staleGuard: true }));
-  await assert.rejects(socketClient(guarded.socketPath).paneFind("w1:p1", {
-    query: "needle", direction: "backward", previous, contentRevision: 382,
-  }), { code: "stale_content" });
-  assert.equal(guarded.requests.some((request) => request.method === "pane.scroll"), false);
+test("a bad reveal is refused before herdr is asked", async () => {
+  const calls = [];
+  const client = new HerdrClient({ runner: async (...args) => { calls.push(args); return { stdout: "{}" }; } });
+  const point = { row: 1, col: 2 };
+  for (const [paneId, request] of [
+    ["--help", { match: { start: point, end: point }, contentRevision: 1 }],
+    ["w1:p1", {}],
+    ["w1:p1", { match: null, contentRevision: 1 }],
+    ["w1:p1", { match: { start: point }, contentRevision: 1 }],
+    ["w1:p1", { match: { start: point, end: { row: -1, col: 0 } }, contentRevision: 1 }],
+    ["w1:p1", { match: { start: point, end: { row: 1, col: 70_000 } }, contentRevision: 1 }],
+    ["w1:p1", { match: { start: point, end: point } }],
+    ["w1:p1", { match: { start: point, end: point }, contentRevision: 1.5 }],
+    ["w1:p1", { match: { start: point, end: point }, contentRevision: "1" }],
+  ]) {
+    await assert.rejects(client.paneReveal(paneId, request), InputValidationError, JSON.stringify(request).slice(0, 60));
+  }
+  assert.deepEqual(calls, []);
 });
 
 test("no match answers with no current and leaves the view alone", async (context) => {
@@ -206,14 +244,27 @@ test("a session's pane is found through its own session, and a machine's through
     bridgeCalls.push([this.sessionName, paneId, request]);
     return { total: 0, current: null, match: null, matches: [], content_revision: 1, scroll: null };
   };
+  const originalReveal = HerdrClient.prototype.paneReveal;
+  const revealRequest = { match: { start: { row: 1, col: 0 }, end: { row: 1, col: 2 } }, contentRevision: 3 };
+  HerdrClient.prototype.paneReveal = async function paneReveal(paneId, request) {
+    bridgeCalls.push(["reveal", this.sessionName, paneId, request]);
+    return { scroll: null };
+  };
   try {
     await bridge.paneFind(`${scope}~w1:p2`, { query: "x", direction: "forward" });
     await assert.rejects(bridge.paneFind(`${sessionIds.sessionIdForName("review")}~w1:p2`, { query: "x", direction: "forward" }),
       InputValidationError, "a session that is not running");
+    assert.deepEqual(await bridge.paneReveal(`${scope}~w1:p2`, revealRequest), { scroll: null });
+    await assert.rejects(bridge.paneReveal(`${sessionIds.sessionIdForName("review")}~w1:p2`, revealRequest),
+      InputValidationError, "a session that is not running");
   } finally {
     HerdrClient.prototype.paneFind = original;
+    HerdrClient.prototype.paneReveal = originalReveal;
   }
-  assert.deepEqual(bridgeCalls, [["default", "w1:p2", { query: "x", direction: "forward" }]]);
+  assert.deepEqual(bridgeCalls, [
+    ["default", "w1:p2", { query: "x", direction: "forward" }],
+    ["reveal", "default", "w1:p2", revealRequest],
+  ]);
 
   const ID = "4c139ff50dfb4a0dcda27e728dc50ef9";
   const machines = new HerdrMachines({
@@ -223,6 +274,7 @@ test("a session's pane is found through its own session, and a machine's through
     createBridge: () => ({
       snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }),
       paneFind: async (...args) => { calls.push(["remote", ...args]); return { total: 3, current: 1 }; },
+      paneReveal: async (...args) => { calls.push(["remote reveal", ...args]); return { scroll: { remote: true } }; },
     }),
   });
   await machines.refresh();
@@ -231,12 +283,17 @@ test("a session's pane is found through its own session, and a machine's through
     local: {
       snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }),
       paneFind: async (...args) => { calls.push(["local", ...args]); return { total: 1, current: 1 }; },
+      paneReveal: async (...args) => { calls.push(["local reveal", ...args]); return { scroll: { remote: false } }; },
     },
   });
   const request = { query: "x", direction: "backward" };
   assert.deepEqual(await herdr.paneFind("machine-4c139ff50dfb!hs_x~w1:p2", request), { total: 3, current: 1 });
   assert.deepEqual(await herdr.paneFind("hs_x~w1:p2", request), { total: 1, current: 1 });
   assert.deepEqual(calls, [["remote", "hs_x~w1:p2", request], ["local", "hs_x~w1:p2", request]]);
+  const reveal = { match: { start: { row: 1, col: 0 }, end: { row: 1, col: 2 } }, contentRevision: 3 };
+  assert.deepEqual(await herdr.paneReveal("machine-4c139ff50dfb!hs_x~w1:p2", reveal), { scroll: { remote: true } });
+  assert.deepEqual(await herdr.paneReveal("hs_x~w1:p2", reveal), { scroll: { remote: false } });
+  assert.deepEqual(calls.slice(2), [["remote reveal", "hs_x~w1:p2", reveal], ["local reveal", "hs_x~w1:p2", reveal]]);
 });
 
 async function startServer(context, herdr) {
@@ -299,6 +356,47 @@ test("the find route needs the write token, checks what it is given and answers 
 
   stale = true;
   const conflict = await post({ query: "x", direction: "forward" });
+  assert.equal(conflict.status, 409);
+  assert.equal((await conflict.json()).error.code, "stale_content");
+});
+
+test("the reveal route needs the write token, checks what it is given and moves the view through herdr", async (context) => {
+  const calls = [];
+  let stale = false;
+  const herdr = {
+    async snapshot() { return { workspaces: [], tabs: [], panes: [] }; },
+    async paneReveal(...args) {
+      calls.push(args);
+      if (stale) throw new HerdrCommandError("The terminal changed while searching. Search again.", { code: "stale_content" });
+      return { scroll: { offset_from_bottom: 4, max_offset_from_bottom: 30, viewport_rows: 20 } };
+    },
+  };
+  const baseUrl = await startServer(context, herdr);
+  const post = (body, headers = {}) => fetch(`${baseUrl}/api/panes/hs_x~w1%3Ap2/reveal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: baseUrl, "X-Herdr-CSRF": "fixed-test-token", ...headers },
+    body: JSON.stringify(body),
+  });
+  const match = { start: { row: 9, col: 1 }, end: { row: 9, col: 4 } };
+  assert.equal((await post({ match, contentRevision: 4 }, { "X-Herdr-CSRF": "wrong" })).status, 403);
+  assert.equal((await post({ match, contentRevision: 4 }, { Origin: "https://evil.example" })).status, 403);
+  for (const body of [
+    {}, { match }, { contentRevision: 4 }, { match: null, contentRevision: 4 },
+    { match: { start: match.start }, contentRevision: 4 },
+    { match: { start: match.start, end: { row: 1.5, col: 0 } }, contentRevision: 4 },
+    { match, contentRevision: "4" }, { match, contentRevision: -1 },
+  ]) {
+    assert.equal((await post(body)).status, 400, JSON.stringify(body));
+  }
+  assert.deepEqual(calls, []);
+
+  const response = await post({ match: { ...match, extra: "dropped" }, contentRevision: 4 });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { scroll: { offset_from_bottom: 4, max_offset_from_bottom: 30, viewport_rows: 20 } });
+  assert.deepEqual(calls, [["hs_x~w1:p2", { match, contentRevision: 4 }]]);
+
+  stale = true;
+  const conflict = await post({ match, contentRevision: 4 });
   assert.equal(conflict.status, 409);
   assert.equal((await conflict.json()).error.code, "stale_content");
 });
@@ -551,4 +649,128 @@ test("a stale step for a query since changed is not retried for the old words", 
   for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.equal(bodies.filter((body) => body.query === "ab").length, 2, "no retry for ab");
   assert.equal(bodies.at(-1).query, "abc", "the new words are searched instead");
+});
+
+// A bar whose server answers when the test says, to change things mid-flight.
+function slowBar() {
+  const elements = {
+    form: new FakeElement(), input: new FakeElement(), count: new FakeElement(),
+    olderButton: new FakeElement(), newerButton: new FakeElement(), closeButton: new FakeElement(),
+  };
+  const searches = [];
+  const reveals = [];
+  const highlights = [];
+  const find = createTerminalFind({
+    ...elements,
+    search: (paneId, body) => new Promise((resolve, reject) => searches.push({ paneId, body, resolve, reject })),
+    reveal: (paneId, body) => new Promise((resolve, reject) => reveals.push({ paneId, body, resolve, reject })),
+    onHighlight: (marks) => highlights.push(marks),
+    setTimer: () => 1,
+    clearTimer: () => {},
+  });
+  const settle = async () => { for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
+  const type = (text) => {
+    elements.input.value = text;
+    elements.input.dispatchEvent(new Event("input"));
+  };
+  const answer = (extra = {}) => ({ total: 4, current: 2, match: matchAt(10, 0), matches: [], content_revision: 5, scroll: null, ...extra });
+  return { elements, find, searches, reveals, highlights, settle, type, answer };
+}
+
+test("a found match is revealed, and the view it ends in marks the match", async () => {
+  const bar = slowBar();
+  bar.find.show("w1:p1");
+  bar.type("x");
+  keydown(bar.elements.input, "Enter");
+  await bar.settle();
+  bar.searches[0].resolve(bar.answer());
+  await bar.settle();
+  assert.equal(bar.reveals.length, 1);
+  assert.deepEqual([bar.reveals[0].paneId, bar.reveals[0].body], ["w1:p1", { match: matchAt(10, 0), contentRevision: 5 }]);
+  assert.equal(bar.elements.count.textContent, "…", "still working until the view has moved");
+  bar.reveals[0].resolve({ scroll: { offset_from_bottom: 15, max_offset_from_bottom: 20, viewport_rows: 12 } });
+  await bar.settle();
+  assert.equal(bar.elements.count.textContent, "2/4");
+  // The view's top is history row 20 - 15 = 5: the match on row 10 is its sixth.
+  assert.deepEqual(bar.highlights.at(-1), { query: "x", current: { row: 5, col: 0 } });
+});
+
+test("no match, nothing to reveal", async () => {
+  const bar = slowBar();
+  bar.find.show("w1:p1");
+  bar.type("x");
+  keydown(bar.elements.input, "Enter");
+  await bar.settle();
+  bar.searches[0].resolve(bar.answer({ total: 0, current: null, match: null }));
+  await bar.settle();
+  assert.equal(bar.reveals.length, 0);
+  assert.equal(bar.elements.count.textContent, "No matches");
+});
+
+test("words changed, a closed bar or another pane while the find was out: the view is not scrolled", async () => {
+  for (const change of [
+    (bar) => bar.type("xy"),
+    (bar) => bar.type(""),
+    (bar) => keydown(bar.elements.input, "Escape"),
+    (bar) => bar.find.setPane("w1:p2"),
+  ]) {
+    const bar = slowBar();
+    bar.find.show("w1:p1");
+    bar.type("x");
+    keydown(bar.elements.input, "Enter");
+    await bar.settle();
+    change(bar);
+    bar.searches[0].resolve(bar.answer());
+    await bar.settle();
+    assert.equal(bar.reveals.length, 0, String(change));
+  }
+});
+
+test("things changing while the view is moving drop that answer", async () => {
+  const bar = slowBar();
+  bar.find.show("w1:p1");
+  bar.type("x");
+  keydown(bar.elements.input, "Enter");
+  await bar.settle();
+  bar.searches[0].resolve(bar.answer());
+  await bar.settle();
+  bar.type("xy");
+  bar.reveals[0].resolve({ scroll: { offset_from_bottom: 0, max_offset_from_bottom: 20, viewport_rows: 12 } });
+  await bar.settle();
+  assert.equal(bar.elements.count.textContent, "", "the answer for x is not shown for xy");
+  assert.deepEqual(bar.highlights.at(-1), { query: "xy", current: null });
+});
+
+test("a reveal that finds the history changed searches the words once more, then reveals that", async () => {
+  const bar = slowBar();
+  bar.find.show("w1:p1");
+  bar.type("x");
+  keydown(bar.elements.input, "Enter");
+  await bar.settle();
+  bar.searches[0].resolve(bar.answer());
+  await bar.settle();
+  bar.reveals[0].reject(Object.assign(new Error("changed"), { code: "stale_content" }));
+  await bar.settle();
+  assert.equal(bar.searches.length, 2);
+  assert.deepEqual(bar.searches[1].body, { query: "x", direction: "backward" });
+  bar.searches[1].resolve(bar.answer({ content_revision: 6, match: matchAt(12, 0) }));
+  await bar.settle();
+  assert.deepEqual(bar.reveals[1].body, { match: matchAt(12, 0), contentRevision: 6 });
+  bar.reveals[1].resolve({ scroll: null });
+  await bar.settle();
+  assert.equal(bar.elements.count.textContent, "2/4");
+
+  // A second stale in a row is a failure the bar shows, not a loop.
+  keydown(bar.elements.input, "Enter");
+  await bar.settle();
+  bar.searches[2].resolve(bar.answer());
+  await bar.settle();
+  bar.reveals[2].reject(Object.assign(new Error("changed"), { code: "stale_content" }));
+  await bar.settle();
+  bar.searches[3].resolve(bar.answer());
+  await bar.settle();
+  bar.reveals[3].reject(Object.assign(new Error("changed again"), { code: "stale_content" }));
+  await bar.settle();
+  assert.equal(bar.searches.length, 4);
+  assert.equal(bar.elements.count.textContent, "Search failed");
 });

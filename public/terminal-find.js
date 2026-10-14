@@ -1,6 +1,7 @@
 // Find in the terminal: a bar over the Terminal lens that searches the pane's
 // whole history on the server (herdr's copy-mode search, POST
-// /api/panes/:id/find) and lets herdr scroll the pane's view to each match.
+// /api/panes/:id/find), then, if the bar is still on the same pane and words,
+// has herdr scroll the pane's view to the match (POST /api/panes/:id/reveal).
 // What is on screen is xterm's to draw; this marks the query where it shows.
 // Behavior adapted from herdr-web-ui (MIT), src/components/FindBar.tsx.
 
@@ -84,12 +85,14 @@ export function isFindShortcut(event, mac) {
   return mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
 }
 
-// The bar's behavior. `search(paneId, body)` asks the server; `onHighlight`
+// The bar's behavior. `search(paneId, body)` asks the server, `reveal(paneId,
+// { match, contentRevision })` has it scroll the view to the match found (and
+// answers { scroll }); `onHighlight`
 // hears what to mark on screen ({ query, current } or null); `onClose` hears
 // the bar close (to give the terminal its focus back), `onError` a failed find.
 export function createTerminalFind({
   form, input, count, olderButton, newerButton, closeButton,
-  search, onHighlight = () => {}, onClose = () => {}, onOpen = () => {}, onError = () => {},
+  search, reveal = null, onHighlight = () => {}, onClose = () => {}, onOpen = () => {}, onError = () => {},
   debounceMs = DEBOUNCE_MS, setTimer = setTimeout, clearTimer = clearTimeout,
 }) {
   let paneId = null;
@@ -133,19 +136,35 @@ export function createTerminalFind({
     const forPane = paneId;
     const body = findRequestBody(query, fresh ? null : result, direction);
     try {
+      // The reader may have changed the words, left the pane or closed the bar
+      // while the server worked: then nothing is shown, and, above all, the
+      // shared view is not scrolled for a search nobody wants any more.
+      const current = () => forPane === paneId && open && input.value === query;
+      // Scrolls the shared view to the match. Once the request is out the
+      // server moves it whatever the reader does next; that window is the
+      // round trip only, and the answer is dropped if things changed.
+      const revealed = async (answer) => {
+        if (!reveal || !answer.match) return answer;
+        const moved = await reveal(forPane, { match: answer.match, contentRevision: answer.content_revision });
+        return moved?.scroll === undefined ? answer : { ...answer, scroll: moved.scroll };
+      };
       let answer;
       try {
         answer = await search(forPane, body);
+        if (!current()) return;
+        answer = await revealed(answer);
       } catch (cause) {
-        // Output moved the history since the last match: find again from
-        // where the view is now, the same way.
-        if (cause?.code !== "stale_content" || !body.previous) throw cause;
+        // Output moved the history since the last match (or since the find, for
+        // the reveal): find again from where the view is now, the same way.
+        if (cause?.code !== "stale_content" || (!body.previous && !answer)) throw cause;
         // A search the reader has since changed or left is not retried: it
         // would scroll the shared view for words nobody is looking for now.
-        if (forPane !== paneId || !open || input.value !== query) return;
+        if (!current()) return;
         answer = await search(forPane, findRequestBody(query, null, direction));
+        if (!current()) return;
+        answer = await revealed(answer);
       }
-      if (forPane === paneId && open && input.value === query) result = { ...answer, query };
+      if (current()) result = { ...answer, query };
     } catch (cause) {
       if (forPane === paneId && open) {
         result = null;

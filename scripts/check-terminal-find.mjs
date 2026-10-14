@@ -40,6 +40,7 @@ const attachments = new PaneAttachments({
 // Herdr's find, as the page sees it through the route: 17 matches, the
 // current one alternating between the two rows on screen.
 const finds = [];
+const reveals = [];
 let ordinal = 0;
 const herdr = {
   async snapshot() { return snapshot; },
@@ -52,13 +53,17 @@ const herdr = {
     ordinal = request.previous ? (request.direction === "backward" ? ordinal - 1 : ordinal + 1) : 3;
     const onRowOne = ordinal % 2 === 1;
     const match = onRowOne ? { start: { row: 101, col: 6 }, end: { row: 101, col: 11 } } : { start: { row: 103, col: 0 }, end: { row: 103, col: 5 } };
-    // herdr scrolled its view; the attach redraws the screen.
-    ptys.at(-1)?.options.onData(SCREEN);
     return {
       total: 17, current: ordinal, match, matches: [match], content_revision: 7,
       scroll: { offset_from_bottom: 20, max_offset_from_bottom: 120, viewport_rows: 30 },
     };
   },
+};
+herdr.paneReveal = async function paneReveal(paneId, request) {
+  reveals.push([paneId, request]);
+  // herdr scrolls its view; the attach redraws the screen.
+  ptys.at(-1)?.options.onData(SCREEN);
+  return { scroll: { offset_from_bottom: 20, max_offset_from_bottom: 120, viewport_rows: 30 } };
 };
 const { server } = createHerdrHttpServer({ herdr, attachments, logger: { info() {}, error() {} } });
 server.listen(0, "127.0.0.1");
@@ -71,6 +76,7 @@ try {
   for (const mobile of [false, true]) {
     ptys.length = 0;
     finds.length = 0;
+    reveals.length = 0;
     const page = await browser.newPage({ serviceWorkers: "block", hasTouch: mobile, isMobile: mobile,
       colorScheme: mobile ? "light" : "dark", viewport: { width: mobile ? 390 : 1280, height: 844 } });
     const errors = [];
@@ -98,6 +104,7 @@ try {
 
     await page.locator("#terminal-find-input").fill("needle");
     await page.waitForFunction(() => document.querySelector("#terminal-find-count").textContent === "3/17");
+    assert.deepEqual(reveals[0], ["w1:p1", { match: { start: { row: 101, col: 6 }, end: { row: 101, col: 11 } }, contentRevision: 7 }]);
     assert.deepEqual(finds[0], ["w1:p1", { query: "needle", direction: "backward", previous: null, contentRevision: null }]);
     // Both on-screen matches are marked, the current one apart.
     await page.waitForFunction(() => document.querySelectorAll(".terminal-find-marks span").length === 2 &&

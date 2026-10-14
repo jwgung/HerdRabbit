@@ -1374,8 +1374,8 @@ export function createHerdrHttpServer({
         return;
       }
 
-      // Find in the pane's whole history. A write: a match moves the pane's
-      // view, which every client of the pane shares. A history that changed
+      // Find in the pane's whole history. It moves nothing (the reveal below
+      // does); the CSRF check stays for consistency. A history that changed
       // since the match before is a 409 stale_content; the page searches anew.
       const findMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/find$/);
       if (method === "POST" && findMatch) {
@@ -1386,6 +1386,17 @@ export function createHerdrHttpServer({
           previous: body.previous, contentRevision: body.contentRevision,
         });
         sendJson(response, 200, await herdr.paneFind(decodePaneId(findMatch[1]), find));
+        return;
+      }
+
+      // Scrolls the pane's view, which every client of the pane shares, to a
+      // match a find gave. A history that changed since is a 409 stale_content.
+      const revealMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/reveal$/);
+      if (method === "POST" && revealMatch) {
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, maxBodyBytes);
+        const reveal = validation.validateRevealRequest({ match: body.match, contentRevision: body.contentRevision });
+        sendJson(response, 200, await herdr.paneReveal(decodePaneId(revealMatch[1]), reveal));
         return;
       }
 

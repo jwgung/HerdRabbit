@@ -3342,6 +3342,7 @@ terminalFind = createTerminalFind({
   newerButton: document.querySelector("#terminal-find-newer"),
   closeButton: document.querySelector("#terminal-find-close"),
   search: (paneId, body) => api(`/api/panes/${encodeURIComponent(paneId)}/find`, { method: "POST", body }),
+  reveal: (paneId, body) => api(`/api/panes/${encodeURIComponent(paneId)}/reveal`, { method: "POST", body }),
   onHighlight: (marks) => attachedTerminal.setFind(marks),
   onOpen: () => syncTerminalFind(),
   onClose: () => {
