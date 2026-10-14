@@ -112,12 +112,3 @@ test("links a file the viewer cannot show when it has an extension, and leaves f
   assert.deepEqual(found("saved /home/me/docviewer-release/docviewer-0.1.0-v10-testads.aab ok"), ["/home/me/docviewer-release/docviewer-0.1.0-v10-testads.aab"]);
   assert.deepEqual(found("on feat/settings-menu with 1/2 done in src/foo and /usr/bin/ and ./build/app.apk."), ["./build/app.apk"]);
 });
-
-test("a file link still waiting gives way to a folder or machine picked by hand", async () => {
-  const { readFile } = await import("node:fs/promises");
-  const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
-  assert.match(app, /async function loadBrowseFolder\(target, \{ refresh = false, reveal = false \} = \{\}\) \{\s+if \(!reveal\) revealGeneration \+= 1;/);
-  assert.match(app, /await loadBrowseFolder\(folder, \{ reveal: true \}\)/);
-  assert.match(app, /await selectBrowseServer\(server, folder, \{ reveal: true \}\)/);
-  assert.ok(app.indexOf("let revealGeneration") < app.indexOf("const browseState"), "declared before any load can run");
-});

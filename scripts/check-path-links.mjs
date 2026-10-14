@@ -208,6 +208,42 @@ try {
     console.log({ remotePane: true });
     await context.close();
   }
+
+  // A machine picked by hand while a file link still waits on a slow listing
+  // wins: the link gives way, and the picked machine's folder is what loads.
+  {
+    const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 844 } });
+    const page = await context.newPage();
+    await page.route("**/api/browse?*", async (route) => {
+      try {
+        const requested = new URL(route.request().url());
+        if (requested.searchParams.get("server") === "machine-lab") {
+          requested.searchParams.set("server", "local");
+          return await route.fulfill({ response: await route.fetch({ url: requested.href }) });
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+        await route.continue();
+      } catch { /* a request still in flight when the page closes */ }
+    });
+    await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
+    await page.waitForFunction(() => document.querySelectorAll(".terminal-link-marks span").length >= 3);
+    const box = await page.evaluate(() => {
+      const rect = document.querySelector(".terminal-link-marks span").getBoundingClientRect();
+      return { x: rect.left, y: rect.top, width: rect.width };
+    });
+    await page.mouse.click(box.x + Math.min(box.width / 2, 20), box.y - 4);
+    await page.locator("#file-server").waitFor({ state: "visible" });
+    await page.selectOption("#file-server", "machine-lab");
+    await page.waitForFunction(() => document.querySelector("#file-feedback").textContent !== "Loading…"
+      && document.querySelectorAll(".browse-row").length > 0, null, { timeout: 15_000 });
+    await page.waitForTimeout(4_000); // past the slow listing the link was waiting on
+    assert.equal(await page.locator("#file-server").inputValue(), "machine-lab", "the machine picked by hand stays");
+    assert.ok(await page.locator(".browse-row").count() > 0, "its folder is listed");
+    assert.equal(await page.locator('.browse-row[data-selected="true"]').count(), 0, "the link gave way");
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    console.log({ pickedByHand: true });
+    await context.close();
+  }
 } finally {
   await browser.close();
   attachments.close();

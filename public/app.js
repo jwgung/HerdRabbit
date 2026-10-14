@@ -4842,8 +4842,14 @@ function selectBrowseServer(id, target, { reveal = false } = {}) {
   return loadBrowseFolder(target ?? (readBrowsePath(browsePathStorage, browseState.server) || ""), { reveal });
 }
 
-elements.fileServer.addEventListener("change", () => {
-  void selectBrowseServer(elements.fileServer.value);
+// A machine picked by hand waits out a load still under way, which would turn
+// its own away, and a file link still waiting gives way to it.
+elements.fileServer.addEventListener("change", async () => {
+  const id = elements.fileServer.value;
+  revealGeneration += 1;
+  while (browseState.busy) await new Promise((resolve) => window.setTimeout(resolve, 50));
+  if (elements.fileServer.value !== id) return;
+  void selectBrowseServer(id);
 });
 
 // A file the viewer cannot show is still a file somebody named: take them to
