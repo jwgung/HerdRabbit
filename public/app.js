@@ -4872,7 +4872,17 @@ async function revealInFiles(filePath, name, server) {
   elements.fileServer.value = browseState.server;
   if (!loaded) return;
   await ensureUploadsPath();
-  const entry = browseState.loaded.get(browseState.root)?.entries.find((item) => item.name === name);
+  const listing = browseState.loaded.get(browseState.root);
+  let entry = listing?.entries.find((item) => item.name === name);
+  // A folder listed only in part may hold it past the cut: ask for it by name,
+  // and add it to the rows already shown.
+  if (!entry && listing?.truncated) {
+    try {
+      entry = (await fetchListing(browseState.root, { prefix: name })).entries.find((item) => item.name === name);
+    } catch { /* the note below still says it could not be found */ }
+    if (generation !== revealGeneration) return;
+    if (entry) listing.entries.push(entry);
+  }
   if (!entry) {
     setBrowseFeedback(`${name} is not in this folder.`);
     return;

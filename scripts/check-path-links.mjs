@@ -120,14 +120,30 @@ try {
     if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());
     await press(0);
     await page.waitForFunction((path) => document.querySelector('.browse-row[data-selected="true"]')?.dataset.path === path, target, { timeout: 15_000 });
-    await page.unroute("**/api/browse?*");
+    await page.unrouteAll({ behavior: "wait" });
+
+    // a folder listed only in part: the file past the cut is still found
+    await page.evaluate(() => { document.querySelector("#tab-sessions").click(); });
+    if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());
+    await page.route("**/api/browse?*", async (route) => {
+      const response = await route.fetch();
+      const listing = await response.json();
+      if (new URL(route.request().url()).searchParams.get("prefix")) return route.fulfill({ response, json: listing });
+      const cut = listing.entries.filter((item) => !item.name.endsWith(".aab"));
+      await route.fulfill({ response, json: { ...listing, entries: cut, truncated: true, total: listing.entries.length } });
+    });
+    const askedByName = page.waitForRequest((request) => new URL(request.url()).searchParams.get("prefix") === "docviewer-0.1.0-v10-testads.aab");
+    await press(0);
+    await askedByName;
+    await page.waitForFunction((path) => document.querySelector('.browse-row[data-selected="true"]')?.dataset.path === path, target, { timeout: 15_000 });
+    await page.unrouteAll({ behavior: "wait" });
 
     // a file the viewer can show still opens in it
     if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());
     await press(2);
     await page.locator("dialog[open]").first().waitFor({ state: "visible" });
     assert.deepEqual(errors, []);
-    console.log({ mobile, links: marks, filesTab: true, rowInView: true, missingNote: true, slowListing: true, previewKept: true });
+    console.log({ mobile, links: marks, filesTab: true, rowInView: true, missingNote: true, slowListing: true, pastTheCut: true, previewKept: true });
     await context.close();
   }
 } finally {
