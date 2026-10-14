@@ -159,6 +159,17 @@ try {
     const callsNow = () => structuredClone(calls);
 
     // 1. Release below Web, within Platform.
+    // The move is answered without a snapshot here: the page reads one itself
+    // once the move is over.
+    let snapshotsAfterMove = 0;
+    let moveAnswered = false;
+    await page.route("**/api/tabs/*/move", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      moveAnswered = true;
+      await route.fulfill({ response, json: { ...body, snapshot: null } });
+    });
+    page.on("request", (request) => { if (moveAnswered && new URL(request.url()).pathname === "/api/snapshot") snapshotsAfterMove += 1; });
     let source = await box(page, tabRow("w1:p1"));
     let target = await box(page, tabRow("w1:p3"));
     let during = await mouseDrag(page, { x: source.x + 60, y: source.y + 12 }, { x: target.x + 60, y: target.y + target.height - 4 },
@@ -169,6 +180,8 @@ try {
     await page.waitForFunction(() => document.querySelector('.workspace-group h3')?.textContent && !document.querySelector(".is-drag-source"));
     await page.waitForTimeout(300);
     assert.deepEqual(callsNow(), [["moveTab", "w1:t1", 3]]);
+    assert.ok(snapshotsAfterMove > 0, "a move answered without a snapshot is followed by one read");
+    await page.unroute("**/api/tabs/*/move");
     assert.deepEqual((await sidebar(page)).Platform, ["Infra", "Web", "Release"]);
     assert.equal(await page.locator('.pane-button[data-pane-id="w1:p5"]').getAttribute("aria-pressed"), "true",
       "the drag's trailing click did not select the dragged row");

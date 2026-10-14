@@ -2794,6 +2794,7 @@ async function moveSidebarItem(request, pathFor, optimistic) {
   state.snapshot = optimistic();
   renderNavigation();
   let failed = false;
+  let unread = false;
   let reorderedFeedback = "";
   try {
     const payload = await api(pathFor(request), { method: "POST", body: request.body });
@@ -2805,8 +2806,9 @@ async function moveSidebarItem(request, pathFor, optimistic) {
     if (followed !== state.selectedPaneId) writePanePreference(panePreferenceStorage, followed);
     if (payload.snapshot) adoptMutationSnapshot(payload.snapshot, followed !== state.selectedPaneId ? followed : null);
     else {
+      // read once the mutation is over: refreshSnapshot waits out a busy one
       if (followed !== state.selectedPaneId) state.selectedPaneId = followed;
-      void refreshSnapshot();
+      unread = true;
     }
   } catch (error) {
     failed = true;
@@ -2817,8 +2819,9 @@ async function moveSidebarItem(request, pathFor, optimistic) {
     state.mutationBusy = false;
   }
   if (reorderedFeedback) setFeedback(reorderedFeedback);
-  // A failed move may still have changed something.
-  if (failed) void refreshSnapshot();
+  // A failed move may still have changed something; a move answered without a
+  // snapshot is read now.
+  if (failed || unread) void refreshSnapshot();
 }
 
 function renderPaneHeading(pane, tab, workspace) {
