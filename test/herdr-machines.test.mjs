@@ -155,7 +155,10 @@ test("a machine is a server next to this one, and its panes attach", async () =>
     directory: "/run/x", createLink,
     read: async () => [{ id: ID, label: "lab", target: "me@lab", session: "default", enabled: true }],
     createBridge: () => ({
-      snapshot: async () => ({ herdr_sessions: [{ session_id: "hs_x", name: "default", running: true, available: true }], workspaces: [], tabs: [], agents: [],
+      snapshot: async () => ({ herdr_sessions: [
+        { session_id: "hs_a", name: "work", default: false, running: true, available: true },
+        { session_id: "hs_x", name: "default", default: true, running: true, available: true },
+      ], workspaces: [], tabs: [], agents: [],
         panes: [{ pane_id: "hs_x~w1:p1" }] }),
       terminalTarget: async (paneId) => ({ terminalId: `term for ${paneId}` }),
     }),
@@ -169,6 +172,10 @@ test("a machine is a server next to this one, and its panes attach", async () =>
   const snapshot = await herdr.snapshot();
   assert.deepEqual(snapshot.servers.map((server) => [server.id, server.transport, server.available]), [["local", "local", true], ["machine-4c139ff50dfb", "machine", true]]);
   assert.deepEqual(snapshot.panes.map((pane) => pane.pane_id), ["machine-4c139ff50dfb!hs_x~w1:p1"]);
+  // Only this machine's session is the page's default; the machine's own
+  // default is still known, for making a project there.
+  assert.deepEqual(snapshot.herdr_sessions.map((session) => [session.session_id, session.default, session.machine_default]),
+    [["machine-4c139ff50dfb!hs_a", false, false], ["machine-4c139ff50dfb!hs_x", false, true]]);
   assert.deepEqual(await herdr.terminalTarget("machine-4c139ff50dfb!hs_x~w1:p1"), { terminalId: "term for hs_x~w1:p1" });
   assert.equal(typeof herdr.fileClient("machine-4c139ff50dfb")?.listDirectory, "function", "files go over the SSH connection");
   assert.equal(typeof herdr.aiAccountsClient("machine-4c139ff50dfb")?.switch, "function", "accounts are managed on the machine");

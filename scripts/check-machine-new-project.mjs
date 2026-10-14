@@ -1,5 +1,7 @@
 // Browser check of where a project is made and of the sidebar footer. New
-// project sits in a machine's ⋯ menu and creates the project on that machine;
+// project sits in a machine's ⋯ menu and creates the project on that machine
+// (in the selected pane's Herdr session when it is there, else the machine's
+// default; the session picker lists that machine's sessions only);
 // the top + menu holds only Add SSH machine, so without SSH machines it is not
 // shown. The footer's uploads and settings buttons look alike, their icons
 // centred. Runs on a desktop and a phone against an in-process fake herdr.
@@ -11,9 +13,9 @@ import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
-const workspaces = [{ workspace_id: "w1", label: "Platform" }];
-const tabs = [{ tab_id: "w1:t1", workspace_id: "w1", label: "Shells" }];
-const panes = [{ pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Alpha", cwd: "/work/alpha" }];
+const workspaces = [{ workspace_id: "w1", label: "Platform", herdr_session_id: "hs_local", server_id: "local" }];
+const tabs = [{ tab_id: "w1:t1", workspace_id: "w1", label: "Shells", herdr_session_id: "hs_local" }];
+const panes = [{ pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Alpha", cwd: "/work/alpha", herdr_session_id: "hs_local", server_id: "local" }];
 const created = [];
 const herdr = {
   async snapshot() {
@@ -21,16 +23,25 @@ const herdr = {
       servers: [
         { id: "local", name: "workstation", available: true, status: "Connected" },
         { id: "laptop", name: "laptop", available: false, status: "Offline" },
+        { id: "lab", name: "lab", available: true, status: "Connected" },
+      ],
+      // As the multi-server client scopes them: only this machine's session is
+      // the page's default, each machine keeps its own as machine_default.
+      herdr_sessions: [
+        { session_id: "hs_local", name: "default", default: true, machine_default: true, running: true, available: true, server_id: "local", server_name: "workstation" },
+        { session_id: "lab!hs_work", name: "work", default: false, machine_default: false, running: true, available: true, server_id: "lab", server_name: "lab" },
+        { session_id: "lab!hs_main", name: "main", default: false, machine_default: true, running: true, available: true, server_id: "lab", server_name: "lab" },
       ],
       workspaces: [...workspaces], tabs: [...tabs], panes: [...panes], agents: [],
     };
   },
-  async createWorkspace(label) {
-    created.push(label);
+  async createWorkspace(label, herdrSessionId) {
+    created.push({ label, herdrSessionId });
     const n = workspaces.length + 1;
-    workspaces.push({ workspace_id: `w${n}`, label });
-    tabs.push({ tab_id: `w${n}:t1`, workspace_id: `w${n}`, label: "shell" });
-    panes.push({ pane_id: `w${n}:p1`, tab_id: `w${n}:t1`, workspace_id: `w${n}`, label: "shell", cwd: "/work" });
+    const server_id = herdrSessionId.startsWith("lab!") ? "lab" : "local";
+    workspaces.push({ workspace_id: `w${n}`, label, herdr_session_id: herdrSessionId, server_id });
+    tabs.push({ tab_id: `w${n}:t1`, workspace_id: `w${n}`, label: "shell", herdr_session_id: herdrSessionId });
+    panes.push({ pane_id: `w${n}:p1`, tab_id: `w${n}:t1`, workspace_id: `w${n}`, label: "shell", cwd: "/work", herdr_session_id: herdrSessionId, server_id });
   },
   async readPane() { return "$ "; },
   async sendText() {},
@@ -99,22 +110,38 @@ try {
       await page.waitForTimeout(400);
     }
 
-    // New project from this machine's ⋯ menu.
-    const heading = page.locator('.server-heading[data-server-id="local"]');
-    await heading.locator(".sidebar-action-menu > summary").click();
-    const item = heading.locator(".sidebar-action-item", { hasText: "New project" });
-    await item.waitFor({ state: "visible" });
-    if (shots) await page.screenshot({ path: join(shots, `machine-menu-${mobile ? "phone" : "desktop"}.png`) });
-    await item.click();
-    const dialog = page.locator("#project-dialog");
-    await dialog.waitFor({ state: "visible" });
-    const label = `Made ${mobile ? "phone" : "desktop"}`;
-    await page.locator("#project-name").fill(label);
-    await dialog.locator('button[type="submit"]').click();
-    await dialog.waitFor({ state: "hidden" });
-    assert.equal(created.at(-1), label, "the project was not created");
-    if (mobile) await page.locator("#mobile-sidebar-open").click().catch(() => {});
-    await page.locator(".workspace-group", { hasText: label }).first().waitFor({ state: "attached" });
+    // New project from a machine's ⋯ menu, made in that machine's session.
+    const makeOn = async (serverId, label, expectedSessions, expectedSession) => {
+      // Making a project closes the phone sidebar; it slides away first.
+      if (mobile) {
+        await page.waitForTimeout(400);
+        if (await page.locator("#mobile-sidebar-open").getAttribute("aria-expanded") !== "true") {
+          await page.locator("#mobile-sidebar-open").click();
+          await page.waitForTimeout(400);
+        }
+      }
+      const heading = page.locator(`.server-heading[data-server-id="${serverId}"]`);
+      await heading.locator(".sidebar-action-menu > summary").click();
+      const item = heading.locator(".sidebar-action-item", { hasText: "New project" });
+      await item.waitFor({ state: "visible" });
+      if (shots) await page.screenshot({ path: join(shots, `machine-menu-${serverId}-${mobile ? "phone" : "desktop"}.png`) });
+      await item.click();
+      const dialog = page.locator("#project-dialog");
+      await dialog.waitFor({ state: "visible" });
+      const picker = page.locator("#project-server-session");
+      assert.deepEqual(await picker.locator("option").evaluateAll((options) => options.map((option) => option.value)),
+        expectedSessions, `${serverId}: the session picker lists other machines' sessions`);
+      assert.equal(await picker.inputValue(), expectedSession, `${serverId}: the wrong session is picked`);
+      await page.locator("#project-name").fill(label);
+      await dialog.locator('button[type="submit"]').click();
+      await dialog.waitFor({ state: "hidden" });
+      assert.deepEqual(created.at(-1), { label, herdrSessionId: expectedSession }, `${serverId}: the project was not made there`);
+    };
+    const where = mobile ? "phone" : "desktop";
+    // The selected pane is on this machine, so its session is used here...
+    await makeOn("local", `Local ${where}`, ["hs_local"], "hs_local");
+    // ...and on another machine, that machine's own default, not its first.
+    await makeOn("lab", `Lab ${where}`, ["lab!hs_work", "lab!hs_main"], "lab!hs_main");
 
     assert.deepEqual(errors, [], `page errors: ${errors.join("; ")}`);
     await context.close();

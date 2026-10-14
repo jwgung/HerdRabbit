@@ -1171,7 +1171,7 @@ function herdrSessionForServer(serverId) {
     (session) => idOf(session, "session_id", "id") === selectedSessionId &&
       session.running === true && session.available === true,
   ) || herdrSessions.find(
-    (session) => session.default === true && session.running === true &&
+    (session) => session.machine_default === true && session.running === true &&
       session.available === true,
   ) || herdrSessions.find(
     (session) => session.running === true && session.available === true,
