@@ -1,6 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.46";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.46";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.46";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.47";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.47";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.47";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -50,7 +50,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.46";
+} from "./ui-model.js?v=1.2.47";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -61,42 +61,42 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.46";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.46";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.46";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.46";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.46";
-import { createChatFind } from "./chat/chat-find.js?v=1.2.46";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.46";
+} from "./browse-preference.js?v=1.2.47";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.47";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.47";
+import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.47";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.47";
+import { createChatFind } from "./chat/chat-find.js?v=1.2.47";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.47";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.46";
-import { chatAgent } from "./lens-preference.js?v=1.2.46";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.46";
+} from "./chat-font-preference.js?v=1.2.47";
+import { chatAgent } from "./lens-preference.js?v=1.2.47";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.47";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.46";
+} from "./pane-preference.js?v=1.2.47";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.46";
+} from "./workspace-preference.js?v=1.2.47";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.46";
+} from "./terminal-preference.js?v=1.2.47";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.46";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.46";
+} from "./completion-preference.js?v=1.2.47";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.47";
 import {
   attachSidebarDrag,
   dropScope,
@@ -105,14 +105,14 @@ import {
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.2.46";
-import { renamePaneKeys } from "./pane-rename.js?v=1.2.46";
-import { renamePaneLenses } from "./lens-preference.js?v=1.2.46";
+} from "./sidebar-drag.js?v=1.2.47";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.47";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.47";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.46";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.46";
+} from "./input-history-preference.js?v=1.2.47";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.47";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -128,16 +128,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.46";
+} from "./key-bar-preference.js?v=1.2.47";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.46";
+} from "./launch-session.js?v=1.2.47";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.46";
+} from "./push-notifications.js?v=1.2.47";
 
 function browserStorage() {
   try {
@@ -3743,14 +3743,58 @@ elements.terminalPanel.addEventListener("keydown", (event) => {
   if (!event.repeat) void sendCommandKey(key);
 }, { capture: true });
 
-// Mobile keyboards may emit beforeinput without a usable keydown event.
+// Mobile keyboards may emit beforeinput without a usable keydown event. Most
+// also compose even a single letter, which cannot be cancelled: then the held
+// modifier takes the one character the composer gained, and it is taken out.
+let modifierInputBefore = null;
+// The keyboard may still commit the letter it was composing once the
+// modifier has gone; that copy is taken out too.
+let modifierComposition = null;
 elements.terminalInput.addEventListener("beforeinput", (event) => {
-  if (!selectedKeyModifiers.size || event.isComposing || event.inputType !== "insertText") return;
-  if (typeof event.data !== "string" || event.data.length !== 1) return;
-  const key = keyboardTerminalKey({ key: event.data }, [...selectedKeyModifiers]);
-  if (!key || !event.cancelable) return;
-  event.preventDefault();
+  if (!selectedKeyModifiers.size) return;
+  if (!event.isComposing && event.inputType === "insertText" && event.cancelable &&
+      typeof event.data === "string" && event.data.length === 1) {
+    const key = keyboardTerminalKey({ key: event.data }, [...selectedKeyModifiers]);
+    if (key) {
+      event.preventDefault();
+      void sendCommandKey(key);
+      return;
+    }
+  }
+  const input = elements.terminalInput;
+  modifierInputBefore ??= { value: input.value, start: input.selectionStart, end: input.selectionEnd };
+});
+
+function restoreComposer(before) {
+  elements.terminalInput.value = before.value;
+  elements.terminalInput.setSelectionRange(before.start, before.end);
+}
+
+elements.terminalInput.addEventListener("input", (event) => {
+  const input = elements.terminalInput;
+  const consumed = modifierComposition;
+  if (consumed && input.value === consumed.after) {
+    restoreComposer(consumed);
+    return;
+  }
+  const before = modifierInputBefore;
+  modifierInputBefore = null;
+  if (!before || !selectedKeyModifiers.size) return;
+  const head = before.value.slice(0, before.start);
+  const tail = before.value.slice(before.end);
+  const { value } = input;
+  if (value.length < head.length + tail.length || !value.startsWith(head) || !value.endsWith(tail)) return;
+  const added = value.slice(head.length, value.length - tail.length);
+  const key = [...added].length === 1 ? keyboardTerminalKey({ key: added }, [...selectedKeyModifiers]) : null;
+  if (!key) return;
+  restoreComposer(before);
+  if (event.isComposing) modifierComposition = { ...before, after: value };
   void sendCommandKey(key);
+});
+
+elements.terminalInput.addEventListener("compositionend", () => {
+  // Some browsers commit after compositionend; let that input arrive first.
+  window.setTimeout(() => { modifierComposition = null; }, 0);
 });
 
 // The "Edit keys" window: a list in bar order (drag a row on a desktop, or use

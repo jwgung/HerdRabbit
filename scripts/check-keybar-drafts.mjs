@@ -189,6 +189,23 @@ try {
     assert.deepEqual(keysSent(), ["ctrl+r", "ctrl+shift+z", "ctrl+r", "esc", "shift+tab", "enter"]);
     assert.equal(await bar.locator('[aria-pressed="true"]').count(), 0, "latches are spent");
 
+    // A held Ctrl takes the next letter from a phone keyboard too, which composes
+    // it (Gboard) or types it plainly; the letter does not stay in the draft.
+    const cdp = await context.newCDPSession(page);
+    for (const composed of [true, false]) {
+      herdr.sent.length = 0;
+      await input.fill("half a draft");
+      await bar.locator('[data-modifier="ctrl"]').click();
+      await input.focus();
+      if (composed) await cdp.send("Input.imeSetComposition", { text: "c", selectionStart: 1, selectionEnd: 1 });
+      await cdp.send("Input.insertText", { text: "c" });
+      await page.waitForFunction(() => document.querySelector('#quick-keys [data-modifier="ctrl"]').getAttribute("aria-pressed") === "false");
+      await page.waitForTimeout(100);
+      assert.deepEqual(keysSent(), ["ctrl+c"], `${composed ? "composed" : "plain"} letter with Ctrl`);
+      assert.equal(await input.inputValue(), "half a draft", `${composed ? "composed" : "plain"} letter stayed in the draft`);
+    }
+    await input.fill("");
+
     // Removing a latched modifier's button drops the latch.
     await bar.locator('[data-modifier="alt"]').click();
     await openKeyEditor();
