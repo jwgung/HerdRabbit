@@ -160,12 +160,15 @@ export function validateFindRequest({ query, direction, previous, contentRevisio
 }
 
 // What a reveal asks for: a match a find gave, and the revision it was found in.
-export function validateRevealRequest({ match, contentRevision } = {}) {
+export function validateRevealRequest({ match, contentRevision, coverRows = DEFAULT_COVER_ROWS } = {}) {
   const range = textRange(match);
   if (!range || !isCount(contentRevision)) {
     throw new InputValidationError("The match needs two history cells and its revision");
   }
-  return { match: range, contentRevision };
+  if (!Number.isSafeInteger(coverRows) || coverRows < 0 || coverRows > MAX_COVER_ROWS) {
+    throw new InputValidationError(`coverRows must be a whole number from 0 to ${MAX_COVER_ROWS}`);
+  }
+  return { match: range, contentRevision, coverRows };
 }
 
 function scrollInfo(value) {
@@ -175,18 +178,21 @@ function scrollInfo(value) {
   return { offset_from_bottom: offset, max_offset_from_bottom: max, viewport_rows: rows };
 }
 
-// The page's find bar lies over the view's top rows: a match there is not seen.
-const FIND_BAR_ROWS = 3;
+// The page's find bar lies over the view's top rows: a match there is not
+// seen. The page measures how many and says so; this is for a page that
+// does not.
+const DEFAULT_COVER_ROWS = 3;
+const MAX_COVER_ROWS = 20;
 
 // Where to scroll so `match` shows: nowhere when it is on screen already,
 // clear of the find bar, otherwise with it a third of the way down, some lines
 // above it for context. History rows count from the top; the view is counted
 // from the bottom.
-export function findScrollOffset(scroll, match) {
+export function findScrollOffset(scroll, match, coverRows = DEFAULT_COVER_ROWS) {
   const max = scroll.max_offset_from_bottom;
   const rows = Math.max(1, scroll.viewport_rows);
   const top = max - scroll.offset_from_bottom;
-  const clear = Math.min(FIND_BAR_ROWS, rows - 1);
+  const clear = Math.min(coverRows, rows - 1);
   if (match.start.row >= top + clear && match.end.row < top + rows) return scroll.offset_from_bottom;
   const wantedTop = Math.min(max, Math.max(0, match.start.row - Math.floor(rows / 3)));
   return max - wantedTop;
@@ -569,11 +575,11 @@ export class HerdrClient {
   // goes to a row that now holds something else. Answers the view as it is.
   async paneReveal(paneId, request) {
     const safePaneId = validatePaneId(paneId);
-    const { match, contentRevision } = validateRevealRequest(request);
+    const { match, contentRevision, coverRows } = validateRevealRequest(request);
     // The view as it is now: the page may have been resized since the find.
     const now = await this.#paneScroll(safePaneId);
     if (!now) return { scroll: null };
-    const offset = findScrollOffset(now, match);
+    const offset = findScrollOffset(now, match, coverRows);
     // Checked even when the view need not move: a match the history has moved
     // away from must not be shown as the current one.
     try {

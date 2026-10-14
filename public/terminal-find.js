@@ -97,7 +97,8 @@ export function isFindShortcut(event, mac) {
 // the bar close (to give the terminal its focus back), `onError` a failed find.
 export function createTerminalFind({
   form, input, count, olderButton, newerButton, closeButton,
-  search, reveal = null, onHighlight = () => {}, onClose = () => {}, onOpen = () => {}, onError = () => {},
+  search, reveal = null, coverRows = () => undefined,
+  onHighlight = () => {}, onClose = () => {}, onOpen = () => {}, onError = () => {},
   debounceMs = DEBOUNCE_MS, setTimer = setTimeout, clearTimer = clearTimeout,
 }) {
   let paneId = null;
@@ -107,6 +108,9 @@ export function createTerminalFind({
   let error = null;
   let queued = null;
   let timer = null;
+  // Each opening of the bar is its own: an answer to a find from before a close
+  // is not taken for one asked after it, even for the same words.
+  let opening = 0;
 
   function render() {
     form.hidden = !open;
@@ -139,18 +143,23 @@ export function createTerminalFind({
     error = null;
     render();
     const forPane = paneId;
+    const forOpening = opening;
     const body = findRequestBody(query, fresh ? null : result, direction);
     try {
       // The reader may have changed the words, left the pane or closed the bar
       // while the server worked: then nothing is shown, and, above all, the
       // shared view is not scrolled for a search nobody wants any more.
-      const current = () => forPane === paneId && open && input.value === query;
+      const current = () => forPane === paneId && open && forOpening === opening && input.value === query;
       // Scrolls the shared view to the match. Once the request is out the
       // server moves it whatever the reader does next; that window is the
       // round trip only, and the answer is dropped if things changed.
       const revealed = async (answer) => {
         if (!reveal || !answer.match) return answer;
-        const moved = await reveal(forPane, { match: answer.match, contentRevision: answer.content_revision });
+        const cover = coverRows();
+        const moved = await reveal(forPane, {
+          match: answer.match, contentRevision: answer.content_revision,
+          ...(Number.isSafeInteger(cover) ? { coverRows: cover } : {}),
+        });
         return moved?.scroll === undefined ? answer : { ...answer, scroll: moved.scroll };
       };
       let answer;
@@ -189,6 +198,7 @@ export function createTerminalFind({
   function close() {
     if (!open) return;
     open = false;
+    opening += 1;
     clearTimer(timer);
     timer = null;
     queued = null;
@@ -244,6 +254,7 @@ export function createTerminalFind({
       }
       paneId = forPane;
       const wasOpen = open;
+      if (!wasOpen) opening += 1;
       open = true;
       render();
       input.focus();

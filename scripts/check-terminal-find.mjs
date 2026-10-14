@@ -104,7 +104,9 @@ try {
 
     await page.locator("#terminal-find-input").fill("needle");
     await page.waitForFunction(() => document.querySelector("#terminal-find-count").textContent === "3/17");
-    assert.deepEqual(reveals[0], ["w1:p1", { match: { start: { row: 101, col: 6 }, end: { row: 101, col: 11 } }, contentRevision: 7 }]);
+    const { coverRows, ...revealed } = reveals[0][1];
+    assert.deepEqual([reveals[0][0], revealed], ["w1:p1", { match: { start: { row: 101, col: 6 }, end: { row: 101, col: 11 } }, contentRevision: 7 }]);
+    assert.ok(Number.isInteger(coverRows) && coverRows >= 1 && coverRows <= 4, `the bar's measured cover: ${coverRows}`);
     assert.deepEqual(finds[0], ["w1:p1", { query: "needle", direction: "backward", previous: null, contentRevision: null }]);
     // Both on-screen matches are marked, the current one apart.
     await page.waitForFunction(() => document.querySelectorAll(".terminal-find-marks span").length === 2 &&

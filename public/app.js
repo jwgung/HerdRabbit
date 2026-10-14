@@ -3343,6 +3343,15 @@ terminalFind = createTerminalFind({
   closeButton: document.querySelector("#terminal-find-close"),
   search: (paneId, body) => api(`/api/panes/${encodeURIComponent(paneId)}/find`, { method: "POST", body }),
   reveal: (paneId, body) => api(`/api/panes/${encodeURIComponent(paneId)}/reveal`, { method: "POST", body }),
+  // How many terminal rows the bar lies over, measured, so a match is
+  // scrolled clear of it whatever the bar's size.
+  coverRows: () => {
+    const row = document.querySelector("#terminal-xterm .xterm-rows > div")?.getBoundingClientRect();
+    const screen = document.querySelector("#terminal-xterm .xterm-screen")?.getBoundingClientRect();
+    const bar = terminalFindForm.getBoundingClientRect();
+    if (!row || !screen || row.height <= 0 || terminalFindForm.hidden) return undefined;
+    return Math.max(0, Math.min(20, Math.ceil((bar.bottom - screen.top) / row.height)));
+  },
   onHighlight: (marks) => attachedTerminal.setFind(marks),
   onOpen: () => syncTerminalFind(),
   onClose: () => {

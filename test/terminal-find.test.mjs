@@ -400,7 +400,7 @@ test("the reveal route needs the write token, checks what it is given and moves 
   const response = await post({ match: { ...match, extra: "dropped" }, contentRevision: 4 });
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { scroll: { offset_from_bottom: 4, max_offset_from_bottom: 30, viewport_rows: 20 } });
-  assert.deepEqual(calls, [["hs_x~w1:p2", { match, contentRevision: 4 }]]);
+  assert.deepEqual(calls, [["hs_x~w1:p2", { match, contentRevision: 4, coverRows: 3 }]]);
 
   stale = true;
   const conflict = await post({ match, contentRevision: 4 });
@@ -782,4 +782,45 @@ test("a reveal that finds the history changed searches the words once more, then
   await bar.settle();
   assert.equal(bar.searches.length, 4);
   assert.equal(bar.elements.count.textContent, "Search failed");
+});
+
+test("the rows the bar covers come from the page, within bounds", async () => {
+  const scroll = { offset_from_bottom: 0, max_offset_from_bottom: 168, viewport_rows: 40 };
+  const at = (row) => ({ start: { row, col: 0 }, end: { row, col: 3 } });
+  assert.equal(findScrollOffset(scroll, at(169), 0), 0, "a bar over nothing hides nothing");
+  assert.notEqual(findScrollOffset(scroll, at(173), 6), 0, "a taller bar hides more rows");
+  const client = new HerdrClient({ runner: async () => { throw new Error("not asked"); } });
+  for (const coverRows of [-1, 21, 2.5, "3"]) {
+    await assert.rejects(client.paneReveal("w1:p1", { match: at(1), contentRevision: 1, coverRows }), InputValidationError);
+  }
+});
+
+test("an answer from before the bar closed is not shown, nor revealed, after it opens again on the same words", async () => {
+  const elements = {
+    form: new FakeElement(), input: new FakeElement(), count: new FakeElement(),
+    olderButton: new FakeElement(), newerButton: new FakeElement(), closeButton: new FakeElement(),
+  };
+  const pending = [];
+  const reveals = [];
+  const find = createTerminalFind({
+    ...elements,
+    search: () => new Promise((resolve) => pending.push(resolve)),
+    reveal: async (paneId, body) => { reveals.push(body); return { scroll: null }; },
+    coverRows: () => 4,
+    setTimer: (callback) => { queueMicrotask(callback); return 1; },
+    clearTimer: () => {},
+  });
+  find.show("w1:p1");
+  elements.input.value = "needle";
+  elements.input.dispatchEvent(new Event("input"));
+  await new Promise((resolve) => setImmediate(resolve));
+  keydown(elements.input, "Escape");
+  find.show("w1:p1");
+  for (let i = 0; i < 3; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  pending.shift()({ total: 1, current: 0, match: matchAt(3, 0), matches: [], content_revision: 1, scroll: null });
+  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(reveals.length, 0, "the old find does not scroll the shared view");
+  pending.shift()({ total: 1, current: 0, match: matchAt(3, 0), matches: [], content_revision: 1, scroll: null });
+  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(reveals, [{ match: matchAt(3, 0), contentRevision: 1, coverRows: 4 }], "the new one does, with the measured cover");
 });
