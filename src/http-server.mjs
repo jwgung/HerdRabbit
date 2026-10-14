@@ -1260,7 +1260,8 @@ export function createHerdrHttpServer({
         requireWriteAuthorization(request, csrfToken);
         const body = await readJsonBody(request, maxBodyBytes);
         await herdr.moveWorkspace(decodePaneId(workspaceMoveMatch[1]), body.insertIndex);
-        sendJson(response, 200, { snapshot: await herdr.snapshot() });
+        // Moved either way: an unreadable snapshot is reloaded by the page.
+        sendJson(response, 200, { snapshot: await herdr.snapshot().catch(() => null) });
         return;
       }
 

@@ -344,6 +344,22 @@ test("a move whose snapshot cannot be read afterwards still hands the page its n
   assert.equal(body.snapshot, null, "the page reloads it");
 });
 
+test("a project reorder whose snapshot cannot be read afterwards still answers that it moved", async (context) => {
+  let moved = false;
+  const herdr = {
+    async snapshot() { if (moved) throw new Error("herdr is busy"); return { workspaces: [], tabs: [], panes: [] }; },
+    async moveWorkspace() { moved = true; },
+  };
+  const baseUrl = await startServer(context, herdr);
+  const response = await fetch(`${baseUrl}/api/workspaces/hs_x~w2/move`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: baseUrl, "X-Herdr-CSRF": "fixed-test-token" },
+    body: JSON.stringify({ insertIndex: 0 }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).snapshot, null);
+});
+
 test("the move routes need the write token and pass the drop on to Herdr", async (context) => {
   const calls = [];
   const herdr = {

@@ -859,9 +859,17 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
 
   return {
     // A pane carried to another project has a new id: its lens choice follows.
+    // A chat is bound to the id it reads by, so the old one is let go and the
+    // new id reads its conversation afresh when it is shown.
     renamePanes(moves) {
       for (const [from, to] of paneRenames(moves)) {
         if (chosen.has(from)) { chosen.set(to, chosen.get(from)); chosen.delete(from); }
+        const old = chats.get(from);
+        if (old) { old.destroy(); chats.delete(from); }
+        availability.delete(from);
+        if (watched === from) { connection.unwatchConversation(from); watched = null; }
+        if (reported.paneId === from) reported = { ...reported, paneId: to };
+        if (paneId === from) paneId = to;
       }
     },
     // The pane shown now, the agent the snapshot names for it when the chat
