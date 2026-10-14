@@ -1248,7 +1248,10 @@ export function createHerdrHttpServer({
           if (typeof body.workspaceId !== "string") throw new InputValidationError("Invalid workspace id");
           moved = await herdr.moveTabToWorkspace(tabId, body.workspaceId, body.insertIndex);
         }
-        sendJson(response, 200, { moved, snapshot: await herdr.snapshot() });
+        // The move has happened; a snapshot that cannot be read now must not
+        // lose the new pane ids the page needs to follow it. It reloads.
+        const snapshot = await herdr.snapshot().catch(() => null);
+        sendJson(response, 200, { moved, snapshot });
         return;
       }
 

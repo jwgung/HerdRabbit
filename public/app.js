@@ -2803,7 +2803,11 @@ async function moveSidebarItem(request, pathFor, optimistic) {
     const followed = followMovedPane(state.selectedPaneId, payload.moved?.panes);
     followMovedPaneState(payload.moved?.panes);
     if (followed !== state.selectedPaneId) writePanePreference(panePreferenceStorage, followed);
-    adoptMutationSnapshot(payload.snapshot, followed !== state.selectedPaneId ? followed : null);
+    if (payload.snapshot) adoptMutationSnapshot(payload.snapshot, followed !== state.selectedPaneId ? followed : null);
+    else {
+      if (followed !== state.selectedPaneId) state.selectedPaneId = followed;
+      void refreshSnapshot();
+    }
   } catch (error) {
     failed = true;
     state.snapshot = before;

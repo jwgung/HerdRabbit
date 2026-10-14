@@ -320,6 +320,30 @@ async function startServer(context, herdr) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 
+test("a move whose snapshot cannot be read afterwards still hands the page its new pane ids", async (context) => {
+  let moved = false;
+  const herdr = {
+    async snapshot() {
+      if (moved) throw new Error("herdr is busy");
+      return { workspaces: [], tabs: [], panes: [] };
+    },
+    async moveTabToWorkspace() {
+      moved = true;
+      return { tab_id: "hs_x~w2:t3", panes: [{ from: "hs_x~w1:p2", to: "hs_x~w2:p3" }], reordered: true };
+    },
+  };
+  const baseUrl = await startServer(context, herdr);
+  const response = await fetch(`${baseUrl}/api/tabs/hs_x~w1%3At2/move`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: baseUrl, "X-Herdr-CSRF": "fixed-test-token" },
+    body: JSON.stringify({ workspaceId: "hs_x~w2", insertIndex: 1 }),
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body.moved.panes, [{ from: "hs_x~w1:p2", to: "hs_x~w2:p3" }]);
+  assert.equal(body.snapshot, null, "the page reloads it");
+});
+
 test("the move routes need the write token and pass the drop on to Herdr", async (context) => {
   const calls = [];
   const herdr = {
