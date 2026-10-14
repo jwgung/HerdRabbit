@@ -132,7 +132,7 @@ function stateOf(store) {
   return state;
 }
 const TAIL_BYTES = 256;
-function remember(map, key, value, limit) {
+export function remember(map, key, value, limit) {
   map.delete(key);
   map.set(key, value);
   if (map.size > limit) map.delete(map.keys().next().value);

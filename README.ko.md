@@ -420,7 +420,7 @@ iOS에서 PWA를 독립 실행 모드로 쓰면 내려받은 파일이 저장되
 
 ### 출력과 이전 기록
 
-터미널의 출력과 이전 기록은 Herdr의 화면 및 스크롤백에서만 가져오며 Claude JSONL 기록과 Codex rollout을 터미널에 섞지 않습니다. 그 기록은 Chat 화면만 따로 읽습니다. attach된 터미널에서는 휠이나 손가락으로 Herdr의 이전 기록을 스크롤하고, 비춰 보이는 패인은 현재 화면만 보여 줍니다. 설치·업데이트 시 Claude 전역 설정에 `tui: "default"`와 `env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1"`을 적용하고 기존 설정은 백업합니다. 실행 중인 Claude는 재시작 후 적용됩니다. HerdRabbit을 돌리는 머신마다 자기 설치·업데이트에서 적용되며, Herdr SSH 머신은 바꾸지 않습니다.
+터미널의 출력과 이전 기록은 Herdr의 화면 및 스크롤백에서만 가져오며 Claude JSONL 기록과 Codex rollout을 터미널에 섞지 않습니다. 그 기록은 Chat 화면이 따로 읽습니다(Claude 계획·질문 카드의 글도 거기서 가져옵니다). attach된 터미널에서는 휠이나 손가락으로 Herdr의 이전 기록을 스크롤하고, 비춰 보이는 패인은 현재 화면만 보여 줍니다. 설치·업데이트 시 Claude 전역 설정에 `tui: "default"`와 `env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1"`을 적용하고 기존 설정은 백업합니다. 실행 중인 Claude는 재시작 후 적용됩니다. HerdRabbit을 돌리는 머신마다 자기 설치·업데이트에서 적용되며, Herdr SSH 머신은 바꾸지 않습니다.
 
 현재 터미널의 입력·대화 전송·기능키와 화면 갱신은 `/api/terminal` WebSocket을 사용합니다. attach된 패인은 Herdr의 출력을 그대로 받고, 비춰 보이는 패인은 최초 화면 이후 변경된 부분만 받습니다. Herdr는 terminal attach 밖에서는 범용 화면 변경 구독을 제공하지 않아 서버가 변경을 감지합니다. 입력 직후·출력 변경 중에는 조회 완료 후 50ms, 조용할 때는 500ms 간격으로 확인하며 같은 패인·조회 범위의 구독은 공유합니다. 브라우저가 백그라운드로 가면 연결을 닫고 복귀 시 새 화면을 받습니다. 세션 상태는 Herdr의 `pane.agent_status_changed` 이벤트를 WebSocket으로 전달해 선택하지 않은 세션까지 갱신합니다. 프로젝트·세션 목록은 2초마다 HTTP로 조회하며, 상태 구독 연결 후에도 HTTP로 다시 동기화합니다. 상태 구독이 끊기면 HTTP 목록 조회로 보완하고 재구독합니다. 로그인·프로젝트·세션 관리는 HTTP를 유지합니다. 푸시 알림 동작은 유지합니다.
 

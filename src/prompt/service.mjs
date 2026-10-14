@@ -10,6 +10,7 @@
 // (Enter, a typed answer) only once the screen shows the same card with the
 // cursor on the row the moves were for. A multiple choice's answer is several
 // such keys (a tick per option, then →): the screen is looked at before each.
+import { createHash } from "node:crypto";
 import { HttpError } from "../http-basics.mjs";
 import { fillClaudeCard, parseClaudePrompt } from "./claude.mjs";
 import { parseCodexPrompt } from "./codex.mjs";
@@ -57,8 +58,12 @@ function serverPending(snapshot, paneId) {
 }
 
 // What a watching page is told again for: another card, or other ticks.
+// The words count too: a card's whole words may come from the transcript a
+// moment after the menu shows.
 function cardVersion(card) {
-  return card ? `${card.id}:${(card.checked ?? []).join(",")}` : null;
+  if (!card) return null;
+  const words = createHash("sha256").update(JSON.stringify([card.question, card.body, card.options])).digest("base64url").slice(0, 16);
+  return `${card.id}:${(card.checked ?? []).join(",")}:${words}`;
 }
 
 async function eachLimited(items, limit, run) {
@@ -143,7 +148,8 @@ export class PromptService {
   // cannot be read.
   async #worded(paneId, card) {
     if (!card || card.agent !== "claude" || !this.details || (card.kind !== "plan" && card.kind !== "question")) return card;
-    const ask = await Promise.resolve().then(() => this.details(paneId)).catch(() => null);
+    let ask = null;
+    try { ask = await this.details(paneId); } catch { /* the screen's words, then */ }
     return fillClaudeCard(card, ask);
   }
 

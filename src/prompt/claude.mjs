@@ -393,25 +393,38 @@ const squash = (text) => String(text ?? "").replace(/\s+/gu, " ").trim();
 function shows(shown, full) {
   const seen = squash(shown).replace(/\s*…$/u, "");
   const whole = squash(full);
-  return seen.length > 0 && (whole === seen || whole.startsWith(seen));
+  return seen.length > 0 && whole.startsWith(seen);
 }
+
+// What a card carries of the call's words, at most (characters): a plan to
+// read through, a question and its options to pick from.
+const MAX_PLAN = 64 * 1024;
+const MAX_LINE = 4 * 1024;
+const capped = (text, limit) => text.length > limit ? `${text.slice(0, limit)}…` : text;
 
 export function fillClaudeCard(card, ask) {
   if (!card || card.agent !== "claude" || !ask) return card;
   if (card.kind === "plan" && ask.name === "ExitPlanMode") {
     const plan = typeof ask.input.plan === "string" ? ask.input.plan.trim() : "";
-    return plan ? { ...card, body: plan } : card;
+    // the plan on screen ends as this one does: not one an earlier session left open
+    const last = String(card.body ?? "").split("\n").map(squash).filter(Boolean).at(-1);
+    if (!plan || (last && !squash(plan).includes(last.replace(/\s*…$/u, "")))) return card;
+    return { ...card, body: capped(plan, MAX_PLAN) };
   }
   if (card.kind !== "question" || ask.name !== "AskUserQuestion" || !Array.isArray(ask.input.questions)) return card;
   const questions = ask.input.questions.filter((item) => item && typeof item.question === "string" && Array.isArray(item.options));
   const asked = questions.find((item) => shows(card.question, item.question))
     ?? (questions.length === 1 ? questions[0] : null);
   if (!asked) return card;
+  let matched = 0;
   const options = card.options.map((option, index) => {
     const full = asked.options[index];
     if (!full || typeof full.label !== "string" || !shows(option.label, full.label)) return option;
-    return { label: full.label, description: typeof full.description === "string" && full.description ? full.description : option.description };
+    matched += 1;
+    const description = typeof full.description === "string" && full.description ? capped(full.description, MAX_LINE) : option.description;
+    return { label: capped(full.label, MAX_LINE), description };
   });
-  return { ...card, question: asked.question, options };
+  // no option the screen shows is this call's: another question altogether
+  if (matched === 0) return card;
+  return { ...card, question: capped(asked.question, MAX_LINE), options };
 }
-

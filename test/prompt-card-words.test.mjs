@@ -120,3 +120,32 @@ test("the prompt service fills the card from the pane's transcript, and answers 
   context.after(() => failing.stop());
   assert.match((await failing.card("w1:p1")).body, /^\s*- step 58/u);
 });
+
+test("a plan or question an earlier session left open does not fill another card", () => {
+  const plan = publicCard(parseClaudePrompt(planScreen));
+  assert.deepEqual(fillClaudeCard(plan, { name: "ExitPlanMode", input: { plan: "# Something else\n\nAnother ending." } }), plan);
+  const question = publicCard(parseClaudePrompt(questionScreen));
+  const stranger = { questions: [{ question: "Pick a colour?", options: [{ label: "Red" }, { label: "Blue" }] }] };
+  assert.deepEqual(fillClaudeCard(question, { name: "AskUserQuestion", input: stranger }), question);
+  // of several questions, the one the screen shows
+  const several = { questions: [stranger.questions[0], QUESTION.questions[0]] };
+  assert.equal(fillClaudeCard(question, { name: "AskUserQuestion", input: several }).options[0].label, QUESTION.questions[0].options[0].label);
+});
+
+test("a watching page is told again once the transcript gives the card its whole words", async (context) => {
+  let ask = null;
+  const herdr = {
+    async snapshot() { return { panes: [{ pane_id: "w1:p1", agent: "claude", agent_status: "blocked" }] }; },
+    async readPane() { return planScreen; },
+  };
+  const prompts = new PromptService({ herdr, pollMs: 20, details: async () => ask });
+  context.after(() => prompts.stop());
+  const heard = [];
+  prompts.watch("w1:p1", (card) => heard.push(card));
+  for (let tries = 0; tries < 100 && heard.length < 1; tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.match(heard[0].body, /step 58/u);
+  ask = { name: "ExitPlanMode", input: { plan: PLAN } };
+  for (let tries = 0; tries < 100 && heard.length < 2; tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(heard[1]?.body, PLAN);
+  assert.equal(heard[1].id, heard[0].id);
+});
