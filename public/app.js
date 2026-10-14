@@ -4297,6 +4297,10 @@ elements.transferDialog.addEventListener("close", () => {
 
 // Only folders that were opened have been fetched, so the tree keeps a listing
 // per visited path rather than one nested structure.
+// Only the last file link pressed is taken to. One still waiting gives way to
+// a later link, and to any folder or machine picked by hand meanwhile.
+let revealGeneration = 0;
+
 const browseState = {
   // null means "follow the session being viewed", which is where an upload
   // used to go. Picking a machine in the Files tab pins it for both browsing
@@ -4572,7 +4576,8 @@ async function toggleBrowseFolder(path) {
 }
 
 // Says whether the folder is now the one on show.
-async function loadBrowseFolder(target, { refresh = false } = {}) {
+async function loadBrowseFolder(target, { refresh = false, reveal = false } = {}) {
+  if (!reveal) revealGeneration += 1;
   if (browseState.busy) return false;
   browseState.busy = true;
   window.clearTimeout(browseState.clearDiffTimer);
@@ -4822,7 +4827,7 @@ async function openFilePanel() {
 
 // Points the Files tab at another machine and loads `target` there. An empty
 // target asks that machine where its home is.
-function selectBrowseServer(id, target) {
+function selectBrowseServer(id, target, { reveal = false } = {}) {
   browseState.server = id;
   writeFileServer(browsePathStorage, browseState.server);
   syncAttachAvailability();
@@ -4834,16 +4839,12 @@ function selectBrowseServer(id, target) {
   browseState.loaded.clear();
   browseState.expanded.clear();
   completion.entries = [];
-  return loadBrowseFolder(target ?? (readBrowsePath(browsePathStorage, browseState.server) || ""));
+  return loadBrowseFolder(target ?? (readBrowsePath(browsePathStorage, browseState.server) || ""), { reveal });
 }
 
 elements.fileServer.addEventListener("change", () => {
   void selectBrowseServer(elements.fileServer.value);
 });
-
-// Only the last file link pressed is taken to; an earlier one still waiting
-// gives way.
-let revealGeneration = 0;
 
 // A file the viewer cannot show is still a file somebody named: take them to
 // it in the Files tab, in its own folder, with its row selected and in view.
@@ -4864,8 +4865,8 @@ async function revealInFiles(filePath, name, server) {
       if (generation !== revealGeneration) return;
     }
     loaded = server === browseState.server
-      ? await loadBrowseFolder(folder)
-      : await selectBrowseServer(server, folder);
+      ? await loadBrowseFolder(folder, { reveal: true })
+      : await selectBrowseServer(server, folder, { reveal: true });
     if (generation !== revealGeneration) return;
     if (loaded || !browseState.busy) break;
   }
