@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { findScreenLinks } from "../public/terminal-links.js";
+import { findScreenLinks, isFileName } from "../public/terminal-links.js";
 
 // Screen rows as xterm-terminal.js reads them: plain text, one cell per character here.
 const rowsOf = (text) => text.split(/\r?\n/u).map((line) => ({
@@ -26,7 +26,7 @@ test("keeps executable schemes, HTML, and incomplete URLs as text", () => {
 });
 
 const viewable = (raw) => /\.(?:md|png|log|mjs|js)$/u.test(raw);
-const paths = (text) => [...new Set(targets(text, "path", { isViewablePath: viewable }))];
+const paths = (text) => [...new Set(targets(text, "path", { isLinkablePath: viewable }))];
 
 test("links the files an agent names, in the forms it names them", () => {
   // "wrote src/api.mjs" is how this gets written far more often than with a
@@ -90,9 +90,25 @@ test("finds the links on a terminal screen, an address wrapped onto the next row
     row("열기 https://example.com/a/very/long/"),
     row("path/to/page 그리고 ./docs/plan.md"),
     row("/usr/bin is not linked"),
-  ], { isViewablePath: (path) => path.endsWith(".md") });
+  ], { isLinkablePath: (path) => path.endsWith(".md") });
   assert.deepEqual(links, [
     { kind: "url", target: "https://example.com/a/very/long/path/to/page", segments: [{ row: 0, start: 5, end: 37 }, { row: 1, start: 0, end: 12 }] },
     { kind: "path", target: "./docs/plan.md", segments: [{ row: 1, start: 20, end: 34 }] },
   ]);
+});
+
+test("a file name is a name, a dot and a short extension that holds a letter", () => {
+  for (const name of ["docviewer-0.1.0-v10-testads.aab", "a.b", "archive.tar.gz", "x.7z", "photo.JPG", "app.mp4"]) {
+    assert.equal(isFileName(name), true, name);
+  }
+  for (const name of ["", "settings-menu", "1", "2", ".env", ".gitignore", "v1.2", "10.0.0.1", "0.1.0", "foo.", "foo.bar_baz", "foo.waytoolongext", "foo.a-b"]) {
+    assert.equal(isFileName(name), false, name);
+  }
+});
+
+test("links a file the viewer cannot show when it has an extension, and leaves folders and fractions alone", () => {
+  const linkable = (raw) => viewable(raw) || isFileName(raw.split("/").pop());
+  const found = (text) => targets(text, "path", { isLinkablePath: linkable });
+  assert.deepEqual(found("saved /home/me/docviewer-release/docviewer-0.1.0-v10-testads.aab ok"), ["/home/me/docviewer-release/docviewer-0.1.0-v10-testads.aab"]);
+  assert.deepEqual(found("on feat/settings-menu with 1/2 done in src/foo and /usr/bin/ and ./build/app.apk."), ["./build/app.apk"]);
 });

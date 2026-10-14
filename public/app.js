@@ -1,5 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.37";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.37";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.38";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.38";
+import { isFileName } from "./terminal-links.js?v=1.2.38";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -49,7 +50,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.37";
+} from "./ui-model.js?v=1.2.38";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -60,45 +61,45 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.37";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.37";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.37";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.37";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.37";
+} from "./browse-preference.js?v=1.2.38";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.38";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.38";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.38";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.38";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.37";
-import { chatAgent } from "./lens-preference.js?v=1.2.37";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.37";
+} from "./chat-font-preference.js?v=1.2.38";
+import { chatAgent } from "./lens-preference.js?v=1.2.38";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.38";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.37";
+} from "./pane-preference.js?v=1.2.38";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.37";
+} from "./workspace-preference.js?v=1.2.38";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.37";
+} from "./terminal-preference.js?v=1.2.38";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.37";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.37";
+} from "./completion-preference.js?v=1.2.38";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.38";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.37";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.37";
+} from "./input-history-preference.js?v=1.2.38";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.38";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -114,16 +115,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.37";
+} from "./key-bar-preference.js?v=1.2.38";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.37";
+} from "./launch-session.js?v=1.2.38";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.37";
+} from "./push-notifications.js?v=1.2.38";
 
 function browserStorage() {
   try {
@@ -2759,7 +2760,8 @@ function renderPaneHeading(pane, tab, workspace) {
 
 // An agent names files as it works -- "wrote src/api.mjs", "see ./docs/plan.md"
 // -- and on a phone the only way to look at one was to go find it in the tree.
-// A named file that this app can show becomes a link to it.
+// A named file that this app can show becomes a link that opens it; any other
+// name that ends in an extension becomes a link that shows it in the Files tab.
 //
 // Relative names are resolved against the pane's own directory, because that is
 // what the agent writing them meant. `~` is not resolved: that home belongs to
@@ -2776,15 +2778,18 @@ function resolveTerminalPath(raw) {
   return `${base.replace(/\/+$/u, "")}/${raw.replace(/^\.\//u, "")}`;
 }
 
-function isViewableTerminalPath(raw) {
-  return previewFor(raw.split("/").pop()) !== null && resolveTerminalPath(raw) !== null;
+function isLinkableTerminalPath(raw) {
+  const name = raw.split("/").pop();
+  return (previewFor(name) !== null || isFileName(name)) && resolveTerminalPath(raw) !== null;
 }
 
 function openTerminalPath(raw) {
   const resolved = resolveTerminalPath(raw);
   if (!resolved) return;
   const name = resolved.split("/").pop();
-  void viewFile(resolved, name, paneServerId(state.selectedPaneId) || "local");
+  const server = paneServerId(state.selectedPaneId) || "local";
+  if (previewFor(name) !== null) void viewFile(resolved, name, server);
+  else void revealInFiles(resolved, name, server);
 }
 
 function showTerminalMessage(message) {
@@ -3062,7 +3067,7 @@ const attachedTerminal = createAttachedTerminal({
     elements.terminalHeld.hidden = !held;
     if (dropped) setFeedback("Typing did not reach the terminal while it reconnected. Check the screen before typing again.", true);
   },
-  isViewablePath: isViewableTerminalPath,
+  isLinkablePath: isLinkableTerminalPath,
   onPath: openTerminalPath,
   onFontSizeChange: applyTerminalFontSize,
   onRetry: (paneId) => { if (paneId === state.selectedPaneId) void refreshTerminal(); },
@@ -3123,7 +3128,7 @@ const chatLens = createChatLens({
   layout: () => ({ compact: !desktopMedia.matches, touch: usesTouchInputEnvironment() }),
   connection: terminalStream,
   fetchJson: conversationRequest,
-  isViewablePath: isViewableTerminalPath,
+  isLinkablePath: isLinkableTerminalPath,
   onOpenPath: openTerminalPath,
   onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
   onLensChange: (lens, paneId) => {
@@ -4353,6 +4358,7 @@ function browseActionButton({ label, paths, danger = false, run }) {
 
 function browseRow({ entry, depth, expanded }) {
   const row = createElement("div", { className: "transfer-row browse-row" });
+  row.tabIndex = -1;
   row.style.setProperty("--depth", String(depth));
   row.dataset.path = entry.path;
   if (browseState.addedPaths?.has(entry.path)) {
@@ -4565,8 +4571,9 @@ async function toggleBrowseFolder(path) {
   children.classList.remove("is-collapsed");
 }
 
+// Says whether the folder is now the one on show.
 async function loadBrowseFolder(target, { refresh = false } = {}) {
-  if (browseState.busy) return;
+  if (browseState.busy) return false;
   browseState.busy = true;
   window.clearTimeout(browseState.clearDiffTimer);
   browseState.clearDiffTimer = null;
@@ -4581,8 +4588,10 @@ async function loadBrowseFolder(target, { refresh = false } = {}) {
     writeBrowsePath(browsePathStorage, listing.path, browseState.server);
     renderBrowseTree();
     setBrowseFeedback(listing.truncated ? `Showing the first ${listing.entries.length} of ${listing.total}.` : "");
+    return true;
   } catch (error) {
     setBrowseFeedback(error.message, true);
+    return false;
   } finally {
     browseState.busy = false;
   }
@@ -4811,8 +4820,10 @@ async function openFilePanel() {
   await loadBrowseFolder(remembered || uploads || "/");
 }
 
-elements.fileServer.addEventListener("change", () => {
-  browseState.server = elements.fileServer.value;
+// Points the Files tab at another machine and loads `target` there. An empty
+// target asks that machine where its home is.
+function selectBrowseServer(id, target) {
+  browseState.server = id;
   writeFileServer(browsePathStorage, browseState.server);
   syncAttachAvailability();
   browseState.uploads = null;
@@ -4823,18 +4834,52 @@ elements.fileServer.addEventListener("change", () => {
   browseState.loaded.clear();
   browseState.expanded.clear();
   completion.entries = [];
-  // An empty target asks the server where its home is.
-  void loadBrowseFolder(readBrowsePath(browsePathStorage, browseState.server) || "");
+  return loadBrowseFolder(target ?? (readBrowsePath(browsePathStorage, browseState.server) || ""));
+}
+
+elements.fileServer.addEventListener("change", () => {
+  void selectBrowseServer(elements.fileServer.value);
 });
 
-function showNavigatorTab(tab) {
+// A file the viewer cannot show is still a file somebody named: take them to
+// it in the Files tab, in its own folder, with its row selected and in view.
+async function revealInFiles(filePath, name, server) {
+  const folder = filePath.slice(0, filePath.lastIndexOf("/")) || "/";
+  if (desktopMedia.matches) state.desktopSidebarCollapsed = false;
+  else state.mobileSidebarOpen = true;
+  syncSidebar();
+  showNavigatorTab("files", { load: false });
+  refreshServerChoices();
+  // a load already under way would turn this one away
+  for (let waited = 0; browseState.busy && waited < 3_000; waited += 50) {
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+  }
+  const loaded = server === browseState.server
+    ? await loadBrowseFolder(folder)
+    : await selectBrowseServer(server, folder);
+  elements.fileServer.value = browseState.server;
+  if (!loaded) return;
+  await ensureUploadsPath();
+  const entry = browseState.loaded.get(browseState.root)?.entries.find((item) => item.name === name);
+  if (!entry) {
+    setBrowseFeedback(`${name} is not in this folder.`);
+    return;
+  }
+  browseState.selected = entry.path;
+  renderBrowseTree();
+  const row = browseRowElement(entry.path);
+  row?.scrollIntoView({ block: "center" });
+  row?.focus({ preventScroll: true });
+}
+
+function showNavigatorTab(tab, { load = true } = {}) {
   const files = tab === "files";
   elements.tabSessions.setAttribute("aria-selected", String(!files));
   elements.tabFiles.setAttribute("aria-selected", String(files));
   elements.workspaceList.hidden = files;
   elements.filePanel.hidden = !files;
   writeNavigatorTab(browsePathStorage, tab);
-  if (files) {
+  if (files && load) {
     if (browseState.root) void refreshBrowseFolder({ silent: true });
     else void openFilePanel();
   }

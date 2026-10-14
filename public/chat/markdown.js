@@ -415,7 +415,7 @@ export function parseMarkdown(source, depth = 0) {
 }
 
 // ---------------------------------------------------------------------------
-// HTML. `isViewablePath(path)` says which file paths the page can open: they
+// HTML. `isLinkablePath(path)` says which file paths the page can open or show: they
 // become buttons carrying the path in `data-path`, for the chat to open.
 
 function fileButton(path, label, code) {
@@ -423,20 +423,20 @@ function fileButton(path, label, code) {
 }
 
 function inlineHtml(nodes, options, interactive = true) {
-  const viewable = interactive ? options.isViewablePath : () => false;
+  const linkable = interactive ? options.isLinkablePath : () => false;
   return nodes.map((node) => {
     switch (node.type) {
       case "text":
-        return splitFilePaths(node.value).map((part) => (typeof part === "string" || !viewable(part.path)
+        return splitFilePaths(node.value).map((part) => (typeof part === "string" || !linkable(part.path)
           ? escapeHtml(typeof part === "string" ? part : part.path)
           : fileButton(part.path, escapeHtml(part.path), false))).join("");
       case "code": {
         const file = fileUriPath(node.value);
-        if (file !== null && viewable(file)) return fileButton(file, `<code>${escapeHtml(node.value)}</code>`, true);
+        if (file !== null && linkable(file)) return fileButton(file, `<code>${escapeHtml(node.value)}</code>`, true);
         if (interactive && /^https?:\/\/\S+$/iu.test(node.value) && safeMarkdownHref(node.value) !== null) {
           return `<a class="md-code-link" href="${escapeHtml(node.value)}" target="_blank" rel="noopener noreferrer"><code>${escapeHtml(node.value)}</code></a>`;
         }
-        if (codeIsFilePath(node.value) && viewable(node.value)) return fileButton(node.value, `<code>${escapeHtml(node.value)}</code>`, true);
+        if (codeIsFilePath(node.value) && linkable(node.value)) return fileButton(node.value, `<code>${escapeHtml(node.value)}</code>`, true);
         return `<code>${escapeHtml(node.value)}</code>`;
       }
       case "math": return `<code class="md-math">${escapeHtml(`\\(${node.value}\\)`)}</code>`;
@@ -451,7 +451,7 @@ function inlineHtml(nodes, options, interactive = true) {
       }
       case "file": {
         const label = inlineHtml(node.children, options, false);
-        return viewable(node.path) ? fileButton(node.path, label, false) : `${label} (<code>${escapeHtml(node.path)}</code>)`;
+        return linkable(node.path) ? fileButton(node.path, label, false) : `${label} (<code>${escapeHtml(node.path)}</code>)`;
       }
       default: return "";
     }
@@ -505,6 +505,6 @@ function blocksHtml(blocks, options) {
   }).join("");
 }
 
-export function renderMarkdown(source, { isViewablePath = () => false } = {}) {
-  return blocksHtml(parseMarkdown(source), { isViewablePath });
+export function renderMarkdown(source, { isLinkablePath = () => false } = {}) {
+  return blocksHtml(parseMarkdown(source), { isLinkablePath });
 }
