@@ -108,7 +108,7 @@ try {
     }, { paneId, text }, { timeout: 5_000 });
 
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
-    await page.locator(".pane-button, #mobile-sidebar-open").first().waitFor({ state: "visible" });
+    await page.locator(".pane-button:visible, #mobile-sidebar-open:visible").first().waitFor({ state: "visible" });
     await page.waitForFunction(() => document.querySelector("#quick-keys button"));
 
     // The default bar is the old one, with an Edit keys control after it.
