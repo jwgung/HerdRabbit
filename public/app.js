@@ -1167,8 +1167,8 @@ function syncCreateProjectAvailability() {
   elements.createProject.disabled = newProjectHerdrSession() === null;
 }
 
-// The Herdr session a new project on `serverId` opens in: the selected pane's,
-// when it is on that machine, else the machine's default.
+// The running Herdr session to use on `serverId`: the selected pane's, when it
+// is on that machine, else the machine's default.
 function herdrSessionForServer(serverId) {
   const { herdrSessions: all, panes } = snapshotRecords();
   if (all.length === 0) {

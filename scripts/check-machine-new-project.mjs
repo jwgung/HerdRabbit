@@ -17,6 +17,7 @@ const workspaces = [{ workspace_id: "w1", label: "Platform", herdr_session_id: "
 const tabs = [{ tab_id: "w1:t1", workspace_id: "w1", label: "Shells", herdr_session_id: "hs_local" }];
 const panes = [{ pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Alpha", cwd: "/work/alpha", herdr_session_id: "hs_local", server_id: "local" }];
 const created = [];
+let sessionsDown = false;
 const herdr = {
   async snapshot() {
     return {
@@ -28,9 +29,9 @@ const herdr = {
       // As the multi-server client scopes them: only this machine's session is
       // the page's default, each machine keeps its own as machine_default.
       herdr_sessions: [
-        { session_id: "hs_local", name: "default", default: true, machine_default: true, running: true, available: true, server_id: "local", server_name: "workstation" },
-        { session_id: "lab!hs_work", name: "work", default: false, machine_default: false, running: true, available: true, server_id: "lab", server_name: "lab" },
-        { session_id: "lab!hs_main", name: "main", default: false, machine_default: true, running: true, available: true, server_id: "lab", server_name: "lab" },
+        { session_id: "hs_local", name: "default", default: true, machine_default: true, running: !sessionsDown, available: true, server_id: "local", server_name: "workstation" },
+        { session_id: "lab!hs_work", name: "work", default: false, machine_default: false, running: !sessionsDown, available: true, server_id: "lab", server_name: "lab" },
+        { session_id: "lab!hs_main", name: "main", default: false, machine_default: true, running: !sessionsDown, available: true, server_id: "lab", server_name: "lab" },
       ],
       workspaces: [...workspaces], tabs: [...tabs], panes: [...panes], agents: [],
     };
@@ -144,6 +145,16 @@ try {
     assert.deepEqual(errors, [], `page errors: ${errors.join("; ")}`);
     await context.close();
   }
+  // With no Herdr session running anywhere there is nowhere to make one.
+  sessionsDown = true;
+  const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 844 } });
+  const page = await context.newPage();
+  await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
+  await page.locator(".pane-button").first().waitFor({ state: "visible" });
+  await page.locator("#add-menu > summary").click();
+  await page.locator("#create-project").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#create-project").isDisabled(), true, "New project is offered with no running session");
+  await context.close();
   console.log("new project from the + menu and the footer look: ok");
 } finally {
   await browser.close();
