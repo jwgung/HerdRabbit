@@ -1,14 +1,6 @@
-/* The "Edit keys" control at the foot of the sidebar and its settings dialog. Colors come
+/* The "Edit keys" settings dialog. Colors come
    from the app's tokens (public/ui/tokens.css), so both themes follow. Layout
    adapted from herdr-web-ui (MIT), src/components/KeyBarSettings.css. */
-
-.key-bar-settings svg {
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
-}
 
 .key-bar-dialog {
   width: min(460px, calc(100vw - 32px));

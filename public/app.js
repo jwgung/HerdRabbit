@@ -1,5 +1,5 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.36";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.36";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.37";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.37";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -49,7 +49,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.36";
+} from "./ui-model.js?v=1.2.37";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -60,45 +60,45 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.36";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.36";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.36";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.36";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.36";
+} from "./browse-preference.js?v=1.2.37";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.37";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.37";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.37";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.37";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.36";
-import { chatAgent } from "./lens-preference.js?v=1.2.36";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.36";
+} from "./chat-font-preference.js?v=1.2.37";
+import { chatAgent } from "./lens-preference.js?v=1.2.37";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.37";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.36";
+} from "./pane-preference.js?v=1.2.37";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.36";
+} from "./workspace-preference.js?v=1.2.37";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.36";
+} from "./terminal-preference.js?v=1.2.37";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.36";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.36";
+} from "./completion-preference.js?v=1.2.37";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.37";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.36";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.36";
+} from "./input-history-preference.js?v=1.2.37";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.37";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -114,16 +114,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.36";
+} from "./key-bar-preference.js?v=1.2.37";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.36";
+} from "./launch-session.js?v=1.2.37";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.36";
+} from "./push-notifications.js?v=1.2.37";
 
 function browserStorage() {
   try {
@@ -340,12 +340,10 @@ const elements = {
   sidebarScrim: document.querySelector("#sidebar-scrim"),
   mobileSidebarOpen: document.querySelector("#mobile-sidebar-open"),
   // The key bar's editor lives with the other settings at the foot of the sidebar.
-  keyBarSettings: document.querySelector("#key-bar-settings"),
+  navigatorFooter: document.querySelector(".navigator-footer"),
   workspaceList: document.querySelector("#workspace-list"),
   paneContext: document.querySelector("#pane-context"),
   paneTitle: document.querySelector("#pane-title"),
-  notificationToggle: document.querySelector("#notification-toggle"),
-  themeToggle: document.querySelector("#theme-toggle"),
   terminalPanel: document.querySelector(".terminal-panel"),
   terminalMessage: document.querySelector("#terminal-message"),
   terminalXterm: document.querySelector("#terminal-xterm"),
@@ -718,13 +716,104 @@ function setFeedback(text, isError = false) {
   elements.actionFeedback.dataset.error = String(isError);
 }
 
-function syncThemeButton() {
+const SUN_ICON = [
+  "M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z",
+  "M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4",
+];
+const MOON_ICON = ["M20.2 15.1A8.5 8.5 0 0 1 8.9 3.8 8.5 8.5 0 1 0 20.2 15.1Z"];
+const BELL_ICON = ["M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8h18c0-1-3-1-3-8Z", "M10 20h4"];
+const GEAR_ICON = [
+  "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
+  "M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z",
+];
+
+// The ⚙ menu at the foot of the sidebar: what belongs to this browser rather
+// than to a machine. Its items are built once and updated in place, so the
+// menu can stay open while the theme or the permission changes under it.
+const settingsMenu = {
+  details: null,
+  themeLabel: "Switch to light mode",
+  themeIcon: SUN_ICON,
+  push: null,
+};
+
+function buildSettingsMenu() {
+  settingsMenu.details = sidebarActionMenu({
+    id: "settings",
+    label: "Settings",
+    className: "settings-menu",
+    summaryClass: "settings-button",
+    icon: GEAR_ICON,
+    iconClass: "settings-icon",
+    // The menu opens upward from the footer; the top layer keeps it from being
+    // cut off by the sidebar.
+    escapesOverflow: true,
+    actions: [
+      { key: "notifications", label: "Notifications", paths: BELL_ICON, onSelect: () => void togglePushNotifications() },
+      { key: "theme", label: "Theme", paths: SUN_ICON, onSelect: () => window.herdrTheme?.set(window.herdrTheme.current() === "dark" ? "light" : "dark") },
+      {
+        key: "keys",
+        label: "Edit keys",
+        paths: ["M2.5 6h19v12h-19z", "M6 9.5h.01M9 9.5h.01M12 9.5h.01M15 9.5h.01M18 9.5h.01M6 12.5h.01M18 12.5h.01M8.5 15h7"],
+        onSelect: () => {
+          // on a phone the editor takes the screen; the sidebar it was opened from steps aside
+          if (!desktopMedia.matches) closeMobileSidebar();
+          openKeyBarDialog();
+        },
+      },
+      { separator: true, key: "separator" },
+      {
+        key: "passkeys",
+        label: "Passkeys",
+        paths: ["M8 15a4 4 0 1 1 3.9-5H21v3h-2v2h-3v-2h-4.1A4 4 0 0 1 8 15Z", "M8 11h.01"],
+        onSelect: () => void showPasskeys(),
+      },
+      {
+        key: "sessions",
+        label: "Signed-in devices",
+        paths: ["M4 5h16v10H4z", "M8 19h8", "M12 15v4"],
+        onSelect: () => void showSessions(),
+      },
+    ],
+  });
+  elements.navigatorFooter.append(settingsMenu.details);
+  syncSettingsMenu();
+}
+
+function syncSettingsMenu() {
+  const menu = settingsMenu.details;
+  if (!menu) return;
+  const item = (key) => menu.querySelector(`[data-action="${key}"]`);
+  const setLabel = (button, text, icon) => {
+    button.querySelector("span").textContent = text;
+    if (icon) button.querySelector("svg").replaceWith(createIcon(icon));
+  };
+  const push = settingsMenu.push;
+  const notifications = item("notifications");
+  notifications.hidden = !push || push.hidden;
+  if (push && !push.hidden) {
+    const status = push.state === "enabled" ? "On" : push.state === "denied" ? "Blocked" : "Off";
+    setLabel(notifications, `Notifications: ${status}`);
+    notifications.disabled = push.disabled;
+    notifications.title = push.label;
+    notifications.setAttribute("aria-label", push.label);
+  }
+  const theme = item("theme");
+  setLabel(theme, settingsMenu.themeLabel, settingsMenu.themeIcon);
+  // Sign-in belongs to the HerdRabbit the browser is talking to; a linked
+  // machine has none. Removing needs no WebAuthn, so a browser without it still
+  // gets the list: that is how a lost device's passkey is taken off elsewhere.
+  for (const key of ["passkeys", "sessions"]) item(key).hidden = !state.authRequired;
+  menu.querySelector('[role="separator"]').hidden = !state.authRequired;
+}
+
+function syncThemeItem() {
   const currentTheme = window.herdrTheme?.current() || "dark";
   const nextTheme = currentTheme === "dark" ? "light" : "dark";
   const label = nextTheme === "light" ? "Switch to light mode" : "Switch to dark mode";
-  elements.themeToggle.dataset.nextTheme = nextTheme;
-  elements.themeToggle.setAttribute("aria-label", label);
-  elements.themeToggle.title = label;
+  settingsMenu.themeLabel = label;
+  settingsMenu.themeIcon = nextTheme === "light" ? SUN_ICON : MOON_ICON;
+  syncSettingsMenu();
 }
 
 function supportsPushNotifications() {
@@ -737,7 +826,7 @@ function supportsPushNotifications() {
   );
 }
 
-function renderNotificationButton() {
+function renderNotificationItem() {
   const supported = supportsPushNotifications();
   const presentation = pushButtonPresentation({
     supported,
@@ -745,15 +834,8 @@ function renderNotificationButton() {
     subscribed: state.pushSubscription !== null,
     busy: state.pushBusy,
   });
-  elements.notificationToggle.hidden = presentation.hidden;
-  elements.notificationToggle.disabled = presentation.disabled;
-  elements.notificationToggle.dataset.state = presentation.state;
-  elements.notificationToggle.setAttribute(
-    "aria-pressed",
-    String(presentation.pressed),
-  );
-  elements.notificationToggle.setAttribute("aria-label", presentation.label);
-  elements.notificationToggle.title = presentation.label;
+  settingsMenu.push = presentation;
+  syncSettingsMenu();
 }
 
 async function serviceWorkerRegistration() {
@@ -762,11 +844,11 @@ async function serviceWorkerRegistration() {
 }
 
 async function syncPushSubscription() {
-  renderNotificationButton();
+  renderNotificationItem();
   const registration = await serviceWorkerRegistration();
   if (!registration) return;
   state.pushSubscription = await registration.pushManager.getSubscription();
-  renderNotificationButton();
+  renderNotificationItem();
   if (state.pushSubscription && Notification.permission === "granted") {
     await api("/api/push/subscriptions", {
       method: "POST",
@@ -778,7 +860,7 @@ async function syncPushSubscription() {
 async function togglePushNotifications() {
   if (state.pushBusy || !supportsPushNotifications()) return;
   state.pushBusy = true;
-  renderNotificationButton();
+  renderNotificationItem();
   setFeedback("");
   try {
     const registration = await serviceWorkerRegistration();
@@ -817,7 +899,7 @@ async function togglePushNotifications() {
     setFeedback(`Couldn't update notifications: ${error.message}`, true);
   } finally {
     state.pushBusy = false;
-    renderNotificationButton();
+    renderNotificationItem();
   }
 }
 
@@ -1159,16 +1241,21 @@ function placeFloatingMenu(popover, summary) {
   popover.style.top = `${top}px`;
 }
 
-function sidebarActionMenu({ id, label, actions, className = "", escapesOverflow = false }) {
+function sidebarActionMenu({
+  id, label, actions, className = "", escapesOverflow = false,
+  icon = ["M6 12h.01M12 12h.01M18 12h.01"], iconClass = "more-icon", summaryClass = "",
+}) {
   const details = createElement("details", {
     className: `sidebar-action-menu ${className}`.trim(),
   });
   details.dataset.menuId = id;
   details.open = state.openActionMenuId === id;
-  const summary = createElement("summary", { className: "workspace-action" });
+  const summary = createElement("summary", {
+    className: `workspace-action ${summaryClass}`.trim(),
+  });
   summary.setAttribute("aria-label", label);
   summary.title = label;
-  summary.append(createIcon(["M6 12h.01M12 12h.01M18 12h.01"], "more-icon"));
+  summary.append(createIcon(icon, iconClass));
   const popover = createElement("div", {
     className: "sidebar-action-popover",
   });
@@ -1186,11 +1273,18 @@ function sidebarActionMenu({ id, label, actions, className = "", escapesOverflow
   }
 
   for (const action of actions) {
+    if (action.separator) {
+      const rule = createElement("div", { className: "sidebar-action-separator" });
+      rule.setAttribute("role", "separator");
+      popover.append(rule);
+      continue;
+    }
     const button = createElement("button", {
       className: `sidebar-action-item ${action.danger ? "is-danger" : ""}`.trim(),
     });
     button.type = "button";
     button.setAttribute("role", "menuitem");
+    if (action.key) button.dataset.action = action.key;
     button.append(
       createIcon(action.paths),
       createElement("span", { text: action.label }),
@@ -1691,6 +1785,19 @@ const sessionsDialog = document.querySelector("#sessions-dialog");
 const sessionsList = document.querySelector("#sessions-list");
 const sessionsFeedback = document.querySelector("#sessions-feedback");
 document.querySelector("#sessions-close").addEventListener("click", () => sessionsDialog.close());
+// Even when the server cannot be told, this window forgets its launch token,
+// so it is signed out here either way.
+async function signOutThisDevice() {
+  await api("/api/auth/logout", { method: "POST", body: {} }).catch(() => {});
+  sessionsDialog.close();
+  signedOut();
+}
+
+// A sign-in from before the list existed has no row to sign out from, so the
+// dialog offers this device on its own.
+const sessionsEndThis = document.querySelector("#sessions-end-this");
+sessionsEndThis.addEventListener("click", () => void sessionsAction(signOutThisDevice));
+
 document.querySelector("#sessions-end-all").addEventListener("click", () => {
   if (!window.confirm("Sign out every browser, this one included?")) return;
   void sessionsAction(async () => {
@@ -1731,9 +1838,7 @@ function sessionRow(session) {
   end.type = "button";
   end.addEventListener("click", () => void sessionsAction(async () => {
     if (session.current) {
-      await api("/api/auth/logout", { method: "POST", body: {} });
-      sessionsDialog.close();
-      signedOut();
+      await signOutThisDevice();
       return;
     }
     await api("/api/auth/sessions/end", { method: "POST", body: { id: session.id } });
@@ -1745,8 +1850,16 @@ function sessionRow(session) {
 }
 
 async function loadSessions() {
-  const { sessions } = await api("/api/auth/sessions");
+  let sessions;
+  try {
+    ({ sessions } = await api("/api/auth/sessions"));
+  } catch (error) {
+    // Without the list there is no row to sign out from; this device still can.
+    sessionsEndThis.hidden = false;
+    throw error;
+  }
   const items = array(sessions);
+  sessionsEndThis.hidden = items.some((session) => session?.current);
   sessionsList.replaceChildren(...(items.length > 0
     ? items.map(sessionRow)
     : [createElement("li", { className: "passkey-empty", text: "Only sign-ins made since this list started are shown." })]));
@@ -1755,15 +1868,9 @@ async function loadSessions() {
 async function showSessions() {
   setSessionsFeedback("");
   sessionsList.replaceChildren();
+  sessionsEndThis.hidden = true;
   sessionsDialog.showModal();
   await sessionsAction(loadSessions);
-}
-
-// Even when the server cannot be told, this window forgets its launch token,
-// so it is signed out here either way.
-async function signOut() {
-  await api("/api/auth/logout", { method: "POST", body: {} }).catch(() => {});
-  signedOut();
 }
 
 function signedOut() {
@@ -2284,25 +2391,6 @@ function serverActionMenu(server) {
       onSelect: () => showAiAccounts(server),
     },
   ];
-  // Sign-in belongs to the HerdRabbit the browser is talking to; a linked
-  // machine has none.
-  // Removing needs no WebAuthn, so a browser without it still gets the list:
-  // that is how a lost device's passkey is taken off from another one.
-  if (server.id === "local" && state.authRequired) {
-    actions.push({
-      label: "Passkeys",
-      paths: ["M8 15a4 4 0 1 1 3.9-5H21v3h-2v2h-3v-2h-4.1A4 4 0 0 1 8 15Z", "M8 11h.01"],
-      onSelect: () => void showPasskeys(),
-    }, {
-      label: "Signed-in devices",
-      paths: ["M4 5h16v10H4z", "M8 19h8", "M12 15v4"],
-      onSelect: () => void showSessions(),
-    }, {
-      label: "Sign out",
-      paths: ["M15 12H4", "M8 8l-4 4 4 4", "M12 4h7v16h-7"],
-      onSelect: () => void signOut(),
-    });
-  }
   // This machine is not a connection: there is nothing to rename or drop.
   if (server.id === "local") {
     return sidebarActionMenu({
@@ -3299,12 +3387,6 @@ async function sendCommandKey(key) {
 }
 
 // Keep the composer focused when using the screen keyboard with a mouse.
-elements.keyBarSettings.addEventListener("click", () => {
-  // on a phone the editor takes the screen; the sidebar it was opened from steps aside
-  if (!desktopMedia.matches) closeMobileSidebar();
-  openKeyBarDialog();
-});
-
 elements.quickKeys.addEventListener("mousedown", (event) => {
   if (event.target.closest("button")) event.preventDefault();
 });
@@ -4939,16 +5021,7 @@ elements.filePath.addEventListener("keydown", (event) => {
 
 elements.filePath.addEventListener("blur", () => window.setTimeout(hideSuggestions, 120));
 
-elements.themeToggle.addEventListener("click", () => {
-  const currentTheme = window.herdrTheme?.current() || "dark";
-  window.herdrTheme?.set(currentTheme === "dark" ? "light" : "dark");
-});
-
-elements.notificationToggle.addEventListener("click", () => {
-  void togglePushNotifications();
-});
-
-window.addEventListener("herdr-theme-change", syncThemeButton);
+window.addEventListener("herdr-theme-change", syncThemeItem);
 
 elements.sidebarToggle.addEventListener("click", () => {
   markSidebarAnimating();
@@ -5048,6 +5121,12 @@ document.addEventListener("keydown", (event) => {
   if (activateLensShortcut(event)) return;
   if (activatePaneShortcut(event)) return;
   if (event.key !== "Escape") return;
+  // The settings menu answers Escape on its own; the sidebar stays as it is.
+  if (settingsMenu.details?.open) {
+    settingsMenu.details.open = false;
+    settingsMenu.details.querySelector("summary").focus();
+    return;
+  }
   document.querySelector("#add-menu").open = false;
   state.openActionMenuId = null;
   for (const menu of elements.workspaceList.querySelectorAll(
@@ -5218,7 +5297,7 @@ async function initializeApplication() {
     cleanUrl.searchParams.delete("pane");
     window.history.replaceState(null, "", cleanUrl);
   }
-  void syncPushSubscription().catch(() => renderNotificationButton());
+  void syncPushSubscription().catch(() => renderNotificationItem());
   void dismissDeliveredNotifications();
   focusComposer();
   if (!state.pollingStarted) {
@@ -5287,8 +5366,9 @@ async function start() {
       if (launch.targetURL) acceptNotificationTarget(launch.targetURL);
     });
   }
-  syncThemeButton();
-  renderNotificationButton();
+  buildSettingsMenu();
+  syncThemeItem();
+  renderNotificationItem();
   syncSidebar();
   resizeTerminalInput();
   if ("serviceWorker" in navigator) {
@@ -5308,6 +5388,7 @@ async function start() {
     const authStatus = await api("/api/auth/status", { csrf: false });
     state.passkeyAvailable = authStatus.passkeyAvailable === true;
     state.authRequired = authStatus.required === true;
+    syncSettingsMenu();
     if (authStatus.required && !authStatus.authenticated) {
       showLogin();
       return;

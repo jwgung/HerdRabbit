@@ -69,19 +69,22 @@ try {
     const bar = page.locator("#quick-keys");
     // On a phone the sidebar is closed: open it to reach its foot.
     const openKeyEditor = async () => {
-      const settings = page.locator("#key-bar-settings");
+      const settings = page.locator(".settings-button");
       const onScreen = () => settings.evaluate((node) => {
         const box = node.getBoundingClientRect();
         return box.width > 0 && box.left >= 0 && box.right <= window.innerWidth;
       });
+      await page.waitForTimeout(400); // a sidebar that was closing has settled
       if (!(await onScreen())) {
         await page.locator("#mobile-sidebar-open").click();
         await page.waitForFunction(() => {
-          const box = document.querySelector("#key-bar-settings").getBoundingClientRect();
+          const box = document.querySelector(".settings-button").getBoundingClientRect();
           return box.left >= 0 && box.right <= window.innerWidth;
         });
       }
+      await page.waitForTimeout(400); // and one that was opening
       await settings.click();
+      await page.locator('.settings-menu [data-action="keys"]').click();
     };
     const barLabels = () => bar.locator("button").allTextContents();
     const dialog = page.locator("#key-bar-dialog");
@@ -112,7 +115,7 @@ try {
     assert.deepEqual(await barLabels(), DEFAULT_LABELS);
     // the editor opens from the foot of the sidebar; the bar holds only keys
     assert.equal(await bar.locator("[data-key-bar-edit], .key-bar-edit").count(), 0);
-    assert.equal(await page.locator("#key-bar-settings").getAttribute("aria-label"), "Edit keys");
+    assert.equal(await page.locator(".settings-button").getAttribute("aria-label"), "Settings");
     const barBox = await bar.boundingBox();
     assert.ok(barBox.x + barBox.width <= (mobile ? 390 : 1280) + 1, "the bar fits the width");
     await page.locator('.pane-button[data-pane-id="w1:p1"], #mobile-sidebar-open').first().waitFor();

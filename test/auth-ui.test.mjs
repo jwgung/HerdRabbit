@@ -76,8 +76,22 @@ test("manages passkeys from this machine's menu only, with the password again", 
   assert.match(page, /id="passkey-dialog-password"[^>]*type="password"/);
   assert.match(
     app,
-    /if \(server\.id === "local" && state\.authRequired\) \{\s+actions\.push\(\{\s+label: "Passkeys",/,
+    /key: "passkeys",\s+label: "Passkeys",/,
   );
+  // Both sign-in items follow the sign-in being on; the machine menu has none of them.
+  assert.match(app, /for \(const key of \["passkeys", "sessions"\]\) item\(key\)\.hidden = !state\.authRequired;/);
+  const machineMenu = app.slice(app.indexOf("function serverActionMenu"), app.indexOf("// This machine is not a connection"));
+  assert.doesNotMatch(machineMenu, /Passkeys|Signed-in devices|Sign out/);
+  assert.doesNotMatch(app, /function signOut\(/);
+  // A sign-in from before the device list has no row of its own to sign out,
+  // so the list offers this device apart whenever no row is it.
+  assert.match(page, /id="sessions-end-this"[^>]*hidden/);
+  assert.match(app, /sessionsEndThis\.hidden = items\.some\(\(session\) => session\?\.current\);/);
+  assert.match(app, /catch \(error\) \{\s+\/\/ Without the list[^\n]*\n\s+sessionsEndThis\.hidden = false;/, "a list that fails to load still offers this device");
+  // Either way out of this device signs it out here even when the server cannot be told.
+  assert.match(app, /async function signOutThisDevice\(\) \{\s+await api\("\/api\/auth\/logout", \{ method: "POST", body: \{\} \}\)\.catch\(\(\) => \{\}\);\s+sessionsDialog\.close\(\);\s+signedOut\(\);/);
+  assert.match(app, /sessionsEndThis\.addEventListener\("click", \(\) => void sessionsAction\(signOutThisDevice\)\);/);
+  assert.match(app, /if \(session\.current\) \{\s+await signOutThisDevice\(\);/);
   // Without WebAuthn the list still opens, to remove; only adding is hidden.
   assert.match(app, /querySelector\("#passkeys-add"\)\.hidden = !supportsPasskeys\(\);/);
   // Escape cannot close either dialog under a running ceremony.

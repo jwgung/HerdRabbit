@@ -33,9 +33,9 @@ test("this machine's dot says whether the page is connected, instead of a footer
   // With the footer dot gone the rail has no footer at all; its height goes to
   // the sessions.
   assert.match(styles, /body\.sidebar-collapsed \.navigator-footer \{\s*display: none;\s*\}/u);
-  // And the footer buttons stay together rather than spreading to both ends.
+  // The footer's two controls sit at opposite ends: uploads at the start, settings at the end.
   assert.match(styles, /:is\(\.navigator-footer, \.ui-sidebar-footer\) \{[^}]*justify-content: space-between;/u);
-  assert.match(styles, /\.navigator \.navigator-footer \{\s*grid-row: 4;\s*justify-content: flex-start;\s*\}/u);
+  assert.match(styles, /\.navigator \.navigator-footer \{\s*grid-row: 4;\s*justify-content: space-between;\s*\}/u);
 });
 
 test("slides the collapsed sidebar by its own width, not a fixed distance", () => {
