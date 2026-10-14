@@ -252,6 +252,21 @@ try {
     await bar.locator('[data-modifier="ctrl"]').click();
     await input.fill("");
 
+    // A pasted letter with Ctrl held is text, not a key.
+    herdr.sent.length = 0;
+    await input.fill("");
+    await bar.locator('[data-modifier="ctrl"]').click();
+    await input.evaluate((field) => {
+      field.dispatchEvent(new InputEvent("beforeinput", { inputType: "insertFromPaste", data: "c", bubbles: true, cancelable: true }));
+      field.value = "c";
+      field.dispatchEvent(new InputEvent("input", { inputType: "insertFromPaste", data: "c", bubbles: true }));
+    });
+    await page.waitForTimeout(200);
+    assert.deepEqual(keysSent(), [], "a pasted letter with Ctrl was sent as a key");
+    assert.equal(await input.inputValue(), "c");
+    await bar.locator('[data-modifier="ctrl"]').click();
+    await input.fill("");
+
     // Without a held modifier a composed letter is ordinary typing.
     herdr.sent.length = 0;
     await input.fill("half a draft");

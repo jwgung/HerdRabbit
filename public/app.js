@@ -3814,6 +3814,8 @@ elements.terminalInput.addEventListener("beforeinput", (event) => {
       return;
     }
   }
+  // Only typing takes the modifier: a pasted letter stays text.
+  if (event.inputType !== "insertText" && event.inputType !== "insertCompositionText") return;
   const input = elements.terminalInput;
   modifierInputBefore ??= { value: input.value, start: input.selectionStart, end: input.selectionEnd };
 });
