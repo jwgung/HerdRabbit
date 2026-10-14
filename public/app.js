@@ -4872,6 +4872,7 @@ async function revealInFiles(filePath, name, server) {
   elements.fileServer.value = browseState.server;
   if (!loaded) return;
   await ensureUploadsPath();
+  if (generation !== revealGeneration) return;
   const listing = browseState.loaded.get(browseState.root);
   let entry = listing?.entries.find((item) => item.name === name);
   // A folder listed only in part may hold it past the cut: ask for it by name,

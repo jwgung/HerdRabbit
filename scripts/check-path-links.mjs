@@ -26,10 +26,22 @@ await writeFile(notes, "# notes");
 
 const snapshot = {
   focused_workspace_id: "w1", focused_tab_id: "w1:t1", focused_pane_id: "w1:p1",
-  servers: [{ id: "local", name: "workstation", available: true, status: "Connected" }],
-  workspaces: [{ workspace_id: "w1", label: "Platform", server_id: "local" }],
-  tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "Release" }],
-  panes: [{ pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Release", cwd: root }],
+  servers: [
+    { id: "local", name: "workstation", available: true, status: "Connected" },
+    { id: "machine-lab", name: "lab", available: true, status: "Connected" },
+  ],
+  workspaces: [
+    { workspace_id: "w1", label: "Platform", server_id: "local" },
+    { workspace_id: "machine-lab!w2", label: "Lab", server_id: "machine-lab" },
+  ],
+  tabs: [
+    { tab_id: "w1:t1", workspace_id: "w1", label: "Release" },
+    { tab_id: "machine-lab!w2:t1", workspace_id: "machine-lab!w2", label: "Remote" },
+  ],
+  panes: [
+    { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Release", cwd: root },
+    { pane_id: "machine-lab!w2:p1", tab_id: "machine-lab!w2:t1", workspace_id: "machine-lab!w2", label: "Remote", cwd: root },
+  ],
   agents: [],
 };
 const output = `\x1b[?1049hbuilt ${target}\r\nmissing ${missing}\r\nviewer ${notes}\r\nbranch feat/settings-menu 1/2\r\n$ `;
@@ -120,23 +132,45 @@ try {
     if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());
     await press(0);
     await page.waitForFunction((path) => document.querySelector('.browse-row[data-selected="true"]')?.dataset.path === path, target, { timeout: 15_000 });
-    await page.unrouteAll({ behavior: "wait" });
+    await page.unrouteAll({ behavior: "ignoreErrors" });
 
-    // a folder listed only in part: the file past the cut is still found
-    await page.evaluate(() => { document.querySelector("#tab-sessions").click(); });
-    if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());
-    await page.route("**/api/browse?*", async (route) => {
-      const response = await route.fetch();
-      const listing = await response.json();
-      if (new URL(route.request().url()).searchParams.get("prefix")) return route.fulfill({ response, json: listing });
-      const cut = listing.entries.filter((item) => !item.name.endsWith(".aab"));
-      await route.fulfill({ response, json: { ...listing, entries: cut, truncated: true, total: listing.entries.length } });
-    });
-    const askedByName = page.waitForRequest((request) => new URL(request.url()).searchParams.get("prefix") === "docviewer-0.1.0-v10-testads.aab");
-    await press(0);
-    await askedByName;
-    await page.waitForFunction((path) => document.querySelector('.browse-row[data-selected="true"]')?.dataset.path === path, target, { timeout: 15_000 });
-    await page.unrouteAll({ behavior: "wait" });
+    // a folder listed only in part: the file past the cut is still found. A
+    // fresh page, so no row is still selected and no held request lingers.
+    {
+      const cutContext = await browser.newContext({
+        serviceWorkers: "block", hasTouch: mobile, isMobile: mobile, colorScheme: "dark",
+        viewport: { width: mobile ? 390 : 1280, height: 844 },
+      });
+      const cutPage = await cutContext.newPage();
+      let askedByName = false;
+      await cutPage.route("**/api/browse?*", async (route) => {
+        try {
+          const requested = new URL(route.request().url());
+          const response = await route.fetch();
+          const listing = await response.json();
+          if (requested.searchParams.get("prefix") === "docviewer-0.1.0-v10-testads.aab") {
+            askedByName = true;
+            return await route.fulfill({ response, json: listing });
+          }
+          const cut = listing.entries.filter((item) => !item.name.endsWith(".aab"));
+          await route.fulfill({ response, json: { ...listing, entries: cut, truncated: true, total: listing.entries.length } });
+        } catch { /* a request still in flight when the page closes */ }
+      });
+      await cutPage.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
+      await cutPage.waitForFunction(() => document.querySelectorAll(".terminal-link-marks span").length >= 3);
+      assert.equal(await cutPage.locator('.browse-row[data-selected="true"]').count(), 0, "nothing is selected before the press");
+      const box = await cutPage.evaluate(() => {
+        const edge = document.querySelector("#terminal-xterm .xterm-screen").getBoundingClientRect().left;
+        const rect = [...document.querySelectorAll(".terminal-link-marks span")]
+          .map((span) => span.getBoundingClientRect()).find((item) => item.left > edge + 1);
+        return { x: rect.left, y: rect.top, width: rect.width };
+      });
+      await cutPage.mouse.click(box.x + Math.min(box.width / 2, 20), box.y - 4);
+      await cutPage.waitForFunction((path) => document.querySelector('.browse-row[data-selected="true"]')?.dataset.path === path, target, { timeout: 30_000 });
+      assert.equal(askedByName, true, "the file past the cut was asked for by name");
+      await cutPage.unrouteAll({ behavior: "ignoreErrors" });
+      await cutContext.close();
+    }
 
     // a file the viewer can show still opens in it
     if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());
@@ -144,6 +178,34 @@ try {
     await page.locator("dialog[open]").first().waitFor({ state: "visible" });
     assert.deepEqual(errors, []);
     console.log({ mobile, links: marks, filesTab: true, rowInView: true, missingNote: true, slowListing: true, pastTheCut: true, previewKept: true });
+    await context.close();
+  }
+  // A remote pane's link opens that machine's files, not this one's. The lab's
+  // listings are this machine's folder, answered under the lab's name.
+  {
+    const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 844 } });
+    const page = await context.newPage();
+    const asked = [];
+    await page.route("**/api/browse?*", async (route) => {
+      const requested = new URL(route.request().url());
+      asked.push(requested.searchParams.get("server"));
+      if (requested.searchParams.get("server") !== "machine-lab") return route.continue();
+      requested.searchParams.set("server", "local");
+      const response = await route.fetch({ url: requested.href });
+      await route.fulfill({ response });
+    });
+    await page.goto(`${url}/?pane=${encodeURIComponent("machine-lab!w2:p1")}`);
+    await page.waitForFunction(() => document.querySelectorAll(".terminal-link-marks span").length >= 3);
+    const box = await page.evaluate(() => {
+      const rect = document.querySelector(".terminal-link-marks span").getBoundingClientRect();
+      return { x: rect.left, y: rect.top, width: rect.width };
+    });
+    await page.mouse.click(box.x + Math.min(box.width / 2, 20), box.y - 4);
+    await page.waitForFunction((path) => document.querySelector('.browse-row[data-selected="true"]')?.dataset.path === path, target, { timeout: 15_000 });
+    assert.equal(await page.locator("#file-server").inputValue(), "machine-lab", "the lab's files are open");
+    assert.ok(asked.includes("machine-lab"), "the listing was asked of the lab");
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    console.log({ remotePane: true });
     await context.close();
   }
 } finally {
