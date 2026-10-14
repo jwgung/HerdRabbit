@@ -3725,6 +3725,15 @@ elements.quickKeys.addEventListener("click", (event) => {
     if (event.altKey) modifiers.push("alt");
     if (event.shiftKey) modifiers.push("shift");
   }
+  // PgUp and PgDn page through the history, as a finger or the wheel does: a
+  // shell or Claude Code does nothing with the keys. Held Shift sends the plain
+  // key instead, for a program that pages itself (less, vim).
+  const page = button.dataset.chord === undefined ? { pageup: -1, pagedown: 1 }[button.dataset.key] : undefined;
+  if (page && modifiers.length === 0 && attachedTerminal.scrollPage(page)) return;
+  if (page && modifiers.length === 1 && modifiers[0] === "shift") {
+    void sendCommandKey(button.dataset.key);
+    return;
+  }
   void sendCommandKey(combinedTerminalKey(button.dataset.key, modifiers));
 });
 

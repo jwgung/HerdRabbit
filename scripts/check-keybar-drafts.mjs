@@ -2,7 +2,8 @@
 // Keys: the bar is edited in the "Edit keys" window (a custom Ctrl+R added, PgUp
 // removed, Enter moved first -- dragged on a desktop, arrow buttons on a
 // phone), draws again at once, survives a reload, a saved combination sends its
-// own chord to the pane while the Shift/Ctrl/Alt latches keep working (a held
+// own chord to the pane while the Shift/Ctrl/Alt latches keep working, PgDn
+// pages the history unless Shift is held (a held
 // Ctrl also takes a letter from a phone keyboard, composed or plain, without
 // leaving it in the draft), removing a latched modifier's button drops it, and
 // "Reset to default" brings the old bar back. Drafts: text typed in one pane
@@ -190,6 +191,23 @@ try {
     await page.waitForTimeout(200);
     assert.deepEqual(keysSent(), ["ctrl+r", "ctrl+shift+z", "ctrl+r", "esc", "shift+tab", "enter"]);
     assert.equal(await bar.locator('[aria-pressed="true"]').count(), 0, "latches are spent");
+
+    // PgDn pages the history as the wheel does, sending no key; with Shift held
+    // the plain key goes to the program.
+    herdr.sent.length = 0;
+    await page.evaluate(() => {
+      window.wheelNotches = 0;
+      document.addEventListener("wheel", () => { window.wheelNotches += 1; }, { capture: true });
+    });
+    await bar.locator("button", { hasText: /^PgDn$/u }).click();
+    await page.waitForTimeout(200);
+    assert.deepEqual(keysSent(), [], "PgDn sent a key instead of paging");
+    assert.ok(await page.evaluate(() => window.wheelNotches) > 1, "PgDn did not page the history");
+    await bar.locator('[data-modifier="shift"]').click();
+    await bar.locator("button", { hasText: /^PgDn$/u }).click();
+    await page.waitForFunction(() => document.querySelector('#quick-keys [aria-pressed="true"]') === null);
+    await page.waitForTimeout(100);
+    assert.deepEqual(keysSent(), ["pagedown"], "Shift+PgDn is the plain key");
 
     // A held Ctrl takes the next letter from a phone keyboard too, which composes
     // it (Gboard) or types it plainly; the letter does not stay in the draft.
