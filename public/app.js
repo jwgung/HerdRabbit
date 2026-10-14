@@ -2825,12 +2825,12 @@ async function moveSidebarItem(request, pathFor, optimistic) {
     // one on screen is followed there.
     const followed = followMovedPane(state.selectedPaneId, payload.moved?.panes);
     followMovedPaneState(payload.moved?.panes);
-    const followedMove = followed !== state.selectedPaneId;
-    if (followedMove) writePanePreference(panePreferenceStorage, followed);
-    if (payload.snapshot) adoptMutationSnapshot(payload.snapshot, followedMove ? followed : null);
+    const paneMoved = followed !== state.selectedPaneId;
+    if (paneMoved) writePanePreference(panePreferenceStorage, followed);
+    if (payload.snapshot) adoptMutationSnapshot(payload.snapshot, paneMoved ? followed : null);
     else {
       // read once the mutation is over: refreshSnapshot waits out a busy one
-      if (followedMove) state.selectedPaneId = followed;
+      if (paneMoved) state.selectedPaneId = followed;
       unread = true;
     }
   } catch (error) {
