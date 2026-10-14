@@ -5,11 +5,14 @@ import { validation } from "./herdr-client.mjs";
 import { LINK_PROTOCOL } from "./leaf-protocol.mjs";
 import { directoryFingerprint, fileAccessError, listDirectory, openFile } from "./file-browser.mjs";
 import { validateTransferName } from "./file-store.mjs";
+import { defaultProtectedPaths } from "./protected-paths.mjs";
 
 // Undici tears a response down after five idle minutes, and a quiet terminal
 // easily goes that long, so the stream says something well before then.
 const HEARTBEAT_MS = 15_000;
 const MAX_WATCHED_PANES = 512;
+// Status streams open at once. A hub keeps one per page watching this PC.
+export const MAX_STATUS_STREAMS = 16;
 const AI_ACCOUNT_ROUTE = aiAccountRoute("/api/link/ai-accounts");
 
 
@@ -56,7 +59,16 @@ async function sendFile(response, file) {
 // `client` is the leaf's own Herdr client, never its MultiServerClient. That is
 // what makes "a leaf reports only its own sessions" structural: it does not
 // hold anyone else's to report.
-export function leafLinkRoutes({ client, files = null, aiAccounts = null, version, herdrVersion = () => null, serverName = "", maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024 }) {
+// `protectedPaths` is what the file browser never opens: sign-in keys and
+// HerdRabbit's own settings (src/protected-paths.mjs). A hub is held to it
+// exactly as a person browsing this PC's own page is.
+export function leafLinkRoutes({
+  client, files = null, aiAccounts = null, version, herdrVersion = () => null, serverName = "",
+  maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024, protectedPaths = defaultProtectedPaths(),
+  maxStatusStreams = MAX_STATUS_STREAMS,
+}) {
+  let openStreams = 0;
+
   function hello() {
     return {
       product: "herdrabbit",
@@ -78,11 +90,20 @@ export function leafLinkRoutes({ client, files = null, aiAccounts = null, versio
     if (typeof client.watchStatuses !== "function") {
       throw new HttpError(501, "statuses_unsupported", "This server cannot report agent status.");
     }
+    if (openStreams >= maxStatusStreams) {
+      throw new HttpError(429, "too_many_streams", "Too many status streams are open. Try again shortly.");
+    }
+    openStreams += 1;
 
     let stop = null;
     let closed = false;
     const write = (text) => { if (!closed) response.write(text); };
+    let counted = true;
+    const release = () => {
+      if (counted) { counted = false; openStreams -= 1; }
+    };
     const finish = () => {
+      release();
       if (closed) return;
       closed = true;
       clearInterval(beat);
@@ -121,6 +142,7 @@ export function leafLinkRoutes({ client, files = null, aiAccounts = null, versio
       // the hub can read as one rather than a stream that opened and died.
       clearInterval(beat);
       closed = true;
+      release();
       response.end(`event: error\ndata: ${JSON.stringify({ message: String(error?.message || "Status stream failed") })}\n\n`);
       return;
     }
@@ -178,19 +200,21 @@ export function leafLinkRoutes({ client, files = null, aiAccounts = null, versio
       const prefix = url.searchParams.get("prefix") || "";
       if (prefix.length > 255) throw new HttpError(400, "invalid_input", "That name is too long.");
       const target = url.searchParams.get("path") || homedir();
-      sendJson(response, 200, await browsing(() => listDirectory(target, { prefix })));
+      sendJson(response, 200, await browsing(() => listDirectory(target, { prefix, guard: protectedPaths })));
       return true;
     }
 
     if (url.pathname === "/api/link/browse/fingerprint" && method === "GET") {
       const target = url.searchParams.get("path") || homedir();
-      sendJson(response, 200, { fingerprint: await browsing(() => directoryFingerprint(target)) });
+      sendJson(response, 200, { fingerprint: await browsing(() => directoryFingerprint(target, { guard: protectedPaths })) });
       return true;
     }
 
     if (url.pathname === "/api/link/browse/file" && method === "GET") {
       const file = await browsing(() => openFile(url.searchParams.get("path"), {
         rangeHeader: request.headers.range ?? null,
+        maxBytes: maxTransferBytes,
+        guard: protectedPaths,
       }));
       await sendFile(response, file);
       return true;

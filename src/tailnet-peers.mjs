@@ -1,12 +1,14 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { DEFAULT_PEER_PORT, checkLeafCompatibility } from "./leaf-protocol.mjs";
+import { DEFAULT_PEER_PORT, checkLeafCompatibility, readLimitedText } from "./leaf-protocol.mjs";
 
 const run = promisify(execFile);
 
 // Probing every peer costs one request each, so keep them short and bounded.
 const PROBE_TIMEOUT_MS = 1_500;
 const MAX_PEERS = 32;
+// A hello is a few hundred bytes; a machine that says more is not HerdRabbit.
+const MAX_HELLO_BYTES = 16 * 1024;
 
 // Discovery asks the default Connect PC port only. A PC on another port
 // announces itself (src/leaf-announce.mjs) -- guessing a range would turn one
@@ -57,16 +59,31 @@ export async function tailnetLoginOf(address, execute = run) {
 // What a machine is, from this hub's point of view. The reasons matter as much
 // as the verdict: "installed but does not accept you" and "nothing there" send
 // a person to completely different places.
-async function probe(peer, { hubVersion, port, fetchImpl }) {
+//
+// The clock covers the whole answer, not just its headers, and the answer is
+// read no further than a hello could be: whatever is on that port may not be
+// HerdRabbit at all, and may never stop talking.
+async function probe(peer, { hubVersion, port, fetchImpl, timeoutMs = PROBE_TIMEOUT_MS }) {
   const address = `http://${peer.address}:${port}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  timer.unref?.();
+  try {
+    return await answer(peer, address, hubVersion, fetchImpl, controller);
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
+}
+
+async function answer(peer, address, hubVersion, fetchImpl, controller) {
   let response;
   try {
-    response = await fetchImpl(`${address}/api/link/hello`, {
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-    });
+    response = await fetchImpl(`${address}/api/link/hello`, { signal: controller.signal });
   } catch {
     return { ...peer, address, state: "absent", reason: "No HerdRabbit answered on this machine." };
   }
+  if (!response.ok) await response.body?.cancel().catch(() => {});
   if (response.status === 401 || response.status === 403) {
     return {
       ...peer,
@@ -79,7 +96,7 @@ async function probe(peer, { hubVersion, port, fetchImpl }) {
     return { ...peer, address, state: "absent", reason: `That address answered with ${response.status}.` };
   }
   let hello = null;
-  try { hello = await response.json(); } catch { /* handled by the check below */ }
+  try { hello = JSON.parse(await readLimitedText(response, MAX_HELLO_BYTES)); } catch { /* handled by the check below */ }
   const verdict = checkLeafCompatibility({ hubVersion, serverName: `"${peer.name}"` }, hello);
   return verdict.ok
     ? { ...peer, address, state: "ready", version: verdict.version }
@@ -90,6 +107,7 @@ export async function discoverLeaves({
   hubVersion,
   port = DEFAULT_PEER_PORT,
   fetchImpl = globalThis.fetch,
+  probeTimeoutMs = PROBE_TIMEOUT_MS,
   execute = run,
   known = [],
   announced = [],
@@ -105,7 +123,7 @@ export async function discoverLeaves({
     if (!peer.online) {
       return { ...peer, address: `http://${peer.address}:${port}`, state: "offline", reason: "This machine is offline." };
     }
-    return probe(peer, { hubVersion, port, fetchImpl });
+    return probe(peer, { hubVersion, port, fetchImpl, timeoutMs: probeTimeoutMs });
   });
 
   // A machine that announced itself is on a port no scan would have tried --
@@ -113,7 +131,7 @@ export async function discoverLeaves({
   const claims = announced.map(async (claim) => {
     const host = new URL(claim.address).hostname;
     const peer = { name: byName.get(host) ? `${byName.get(host)} (${new URL(claim.address).port})` : claim.name, address: host };
-    return probe(peer, { hubVersion, port: new URL(claim.address).port || port, fetchImpl });
+    return probe(peer, { hubVersion, port: new URL(claim.address).port || port, fetchImpl, timeoutMs: probeTimeoutMs });
   });
 
   const found = await Promise.all([...probes, ...claims]);

@@ -1893,6 +1893,10 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   line-height: 1.2;
 }
 
+.browse-row.is-locked .transfer-name {
+  color: var(--muted);
+}
+
 .browse-row.is-removed {
   opacity: 0.55;
   background: color-mix(in srgb, var(--danger) 8%, transparent);

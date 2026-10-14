@@ -93,3 +93,36 @@ export function normalizeLeafSnapshot(value) {
   }
   return normalized;
 }
+
+export class ResponseTooLarge extends Error {
+  constructor(limit) {
+    super(`The answer was larger than ${limit} bytes.`);
+    this.name = "ResponseTooLarge";
+  }
+}
+
+// A peer's answer, read no further than `limit` bytes. What another PC says is
+// not trusted to end, so the count is kept as it arrives and the read is
+// cancelled the moment it goes past -- whatever Content-Length claimed.
+export async function readLimitedText(response, limit) {
+  if (!response.body) return "";
+  const declared = Number(response.headers?.get?.("content-length"));
+  if (Number.isFinite(declared) && declared > limit) {
+    await response.body.cancel().catch(() => {});
+    throw new ResponseTooLarge(limit);
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel().catch(() => {});
+      throw new ResponseTooLarge(limit);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}

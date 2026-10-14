@@ -345,3 +345,93 @@ test("what a connected PC cannot do yet is refused with a reason, not a crash", 
   await assert.rejects(() => herdr.paneFind(`${LINK_ID}!${PANE}`, { query: "x" }), { code: "link_unsupported" });
   assert.equal(await herdr.paneProcessInfo(`${LINK_ID}!${PANE}`), null);
 });
+
+// A peer that has been allowed is still not trusted to stop talking: these
+// stand in for one that sends forever, or sends its headers and then trickles.
+function endlessBody(onCancel = () => {}) {
+  return new ReadableStream({
+    pull(controller) { controller.enqueue(new Uint8Array(256 * 1024).fill(32)); },
+    cancel() { onCancel(); },
+  });
+}
+
+function tricklingBody(signal) {
+  return new ReadableStream({
+    async pull(controller) {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      if (signal?.aborted) { controller.error(signal.reason); return; }
+      controller.enqueue(new TextEncoder().encode(" "));
+    },
+  });
+}
+
+function peerClient(fetchImpl, options = {}) {
+  return new LeafLinkClient({
+    profile: { name: "Dev box", transport: "link", address: "http://100.64.0.2:38788" },
+    hubVersion: HUB_VERSION,
+    fetchImpl,
+    timeouts: { read: 300, snapshot: 300, write: 300 },
+    ...options,
+  });
+}
+
+test("an answer that never ends is cut off at the hub's limit, not read to the end", async () => {
+  let cancelled = 0;
+  const client = peerClient(async () => new Response(endlessBody(() => { cancelled += 1; }), { status: 200 }));
+  await assert.rejects(() => client.readPane("p1"), (error) => {
+    assert.equal(error.code, "leaf_error");
+    assert.match(error.message, /more than this hub will read/u);
+    return true;
+  });
+  await assert.rejects(() => client.listDirectory("/srv"), /more than this hub will read/u);
+  // A refusal is only ever a short JSON error.
+  const failing = peerClient(async () => new Response(endlessBody(() => { cancelled += 1; }), { status: 500 }));
+  await assert.rejects(() => failing.listDirectory("/srv"), (error) => {
+    assert.equal(error.status, 500);
+    assert.equal(error.code, "leaf_error");
+    return true;
+  });
+  assert.equal(cancelled, 3);
+});
+
+test("an answer whose body trickles is given up on the same clock as its headers", async () => {
+  const fetchImpl = async (url, { signal }) => new Response(tricklingBody(signal), { status: 200 });
+  const client = peerClient(fetchImpl);
+  const started = Date.now();
+  await assert.rejects(() => client.snapshot(), (error) => {
+    assert.equal(error.code, "leaf_timeout");
+    return true;
+  });
+  await assert.rejects(() => client.listDirectory("/srv"), { code: "leaf_timeout" });
+  await assert.rejects(() => client.directoryFingerprint("/srv"), { code: "leaf_timeout" });
+  assert.ok(Date.now() - started < 3_000);
+  client.close();
+});
+
+test("a file sent past this PC's transfer limit, or past what it declared, fails instead of ending whole", async () => {
+  const readAll = async (stream) => {
+    let total = 0;
+    for await (const chunk of stream) total += chunk.length;
+    return total;
+  };
+  // No length said, and no end.
+  const unsized = peerClient(async () => new Response(endlessBody(), { status: 200 }), { maxTransferBytes: 1024 * 1024 });
+  const opened = await unsized.openFile("/srv/endless");
+  await assert.rejects(() => readAll(opened.stream), { code: "leaf_error" });
+  const upload = await unsized.openUpload("endless.bin");
+  await assert.rejects(() => readAll(upload.stream), { code: "leaf_error" });
+
+  // A length said, and more sent.
+  const liar = peerClient(async () => new Response(new TextEncoder().encode("0123456789abcdef"), {
+    status: 200, headers: { "content-length": "4" },
+  }));
+  await assert.rejects(async () => readAll((await liar.openFile("/srv/short")).stream), { code: "leaf_error" });
+
+  // An upload that says it is larger than this PC takes is refused up front.
+  const large = peerClient(async () => new Response("x".repeat(64), { status: 200, headers: { "content-length": "64" } }), { maxTransferBytes: 10 });
+  await assert.rejects(() => large.openUpload("big.bin"), { status: 413, code: "file_too_large" });
+
+  // An honest file still arrives whole.
+  const honest = peerClient(async () => new Response("hello", { status: 200, headers: { "content-length": "5" } }), { maxTransferBytes: 1024 });
+  assert.equal(await readAll((await honest.openFile("/srv/hello")).stream), 5);
+});

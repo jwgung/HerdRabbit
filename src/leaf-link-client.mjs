@@ -1,12 +1,14 @@
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { HerdrCommandError } from "./herdr-client.mjs";
-import { FileAccessError } from "./file-browser.mjs";
-import { LINK_PROTOCOL, checkLeafCompatibility, normalizeLeafSnapshot } from "./leaf-protocol.mjs";
+import { FileAccessError, UNKNOWN_SIZE_STREAM_BYTES } from "./file-browser.mjs";
+import { LINK_PROTOCOL, ResponseTooLarge, checkLeafCompatibility, normalizeLeafSnapshot, readLimitedText } from "./leaf-protocol.mjs";
 import { AiAccountError } from "./ai-accounts.mjs";
 import { subscribeLeafStatuses } from "./leaf-status-stream.mjs";
 
 const TIMEOUTS = { hello: 5_000, snapshot: 8_000, read: 6_000, write: 6_000 };
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+// A refusal is a short JSON error; nothing a leaf says about one needs more.
+const MAX_ERROR_BYTES = 64 * 1024;
 
 function linkError(code, message, cause) {
   return new HerdrCommandError(message, { code, cause });
@@ -67,19 +69,44 @@ function accountDetails(details) {
 
 // `Content-Range: bytes <start>-<end>/<size>` is where a partial answer keeps
 // both numbers the caller needs: how much came back, and how big the file is.
-function leafFile(response, path) {
+//
+// The bytes are counted as they pass: a leaf may not send more than it said,
+// nor more than `maxBytes`, nor -- saying nothing -- more than a file of
+// unknown size may be. One that does is cut off with an error, so the
+// download fails rather than ends looking whole.
+function leafFile(response, path, maxBytes = Infinity) {
   const named = response.headers.get("x-herdr-file-name");
   const length = response.headers.get("content-length");
   const served = /^bytes (\d+)-(\d+)\/(\d+)$/u.exec(response.headers.get("content-range") ?? "");
   const range = served ? { start: Number(served[1]), end: Number(served[2]) } : null;
+  const declared = length === null ? null : Number(length);
+  const limit = Math.min(maxBytes, Number.isFinite(declared) ? declared : UNKNOWN_SIZE_STREAM_BYTES);
+  let name = String(path).split("/").pop();
+  if (named) {
+    try { name = decodeURIComponent(named); } catch { /* keep the name from the path */ }
+  }
   return {
-    name: named ? decodeURIComponent(named) : String(path).split("/").pop(),
+    name,
     path,
-    size: served ? Number(served[3]) : length === null ? null : Number(length),
+    size: served ? Number(served[3]) : declared,
     range,
-    length: length === null ? null : Number(length),
-    stream: Readable.fromWeb(response.body),
+    length: declared,
+    stream: Readable.fromWeb(response.body).pipe(capped(limit)),
   };
+}
+
+function capped(limit) {
+  let seen = 0;
+  return new Transform({
+    transform(chunk, encoding, callback) {
+      seen += chunk.length;
+      if (seen > limit) {
+        callback(new FileAccessError(502, "leaf_error", "The connected PC sent more of that file than it should have."));
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
 }
 
 // The hub's half of a link: this PC asking another PC's Connect PC port. It is constructed synchronously because
@@ -91,8 +118,10 @@ export class LeafLinkClient {
   // too, so Details can show both sides' versions.
   #remote = null;
 
-  constructor({ profile, hubVersion, fetchImpl = globalThis.fetch, subscribe = subscribeLeafStatuses }) {
+  constructor({ profile, hubVersion, fetchImpl = globalThis.fetch, subscribe = subscribeLeafStatuses, maxTransferBytes = Infinity, timeouts = TIMEOUTS }) {
     this.profile = profile;
+    this.maxTransferBytes = maxTransferBytes;
+    this.timeouts = { ...TIMEOUTS, ...timeouts };
     this.address = profile.address;
     this.hubVersion = hubVersion;
     this.fetchImpl = fetchImpl;
@@ -110,30 +139,53 @@ export class LeafLinkClient {
     };
   }
 
-  async #request(path, { method = "GET", body, timeoutMs = TIMEOUTS.read, accountErrors = false } = {}) {
+  // One call to the leaf. The clock runs until `done` is called -- after the
+  // body is read, for an answer that is read whole -- so a leaf that answers
+  // its headers and then trickles cannot hold a request open for good.
+  async #open(path, { method = "GET", body, headers = {}, timeoutMs, duplex }) {
     const controller = new AbortController();
     this.controllers.add(controller);
-    const timer = setTimeout(() => controller.abort(new Error("timeout")), timeoutMs);
+    const timer = setTimeout(() => controller.abort(new DOMException("The leaf did not answer in time.", "TimeoutError")), timeoutMs);
     timer.unref?.();
-    let response;
-    try {
-      response = await this.fetchImpl(`${this.address}${path}`, {
-        method,
-        headers: body === undefined ? {} : { "content-type": "application/json" },
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } catch (error) {
-      throw transportError(error, this.address);
-    } finally {
+    const done = () => {
       clearTimeout(timer);
       this.controllers.delete(controller);
+    };
+    try {
+      const response = await this.fetchImpl(`${this.address}${path}`, {
+        method, headers, body, duplex, signal: controller.signal,
+      });
+      return { response, done, abort: () => controller.abort() };
+    } catch (error) {
+      done();
+      throw transportError(error, this.address);
     }
+  }
 
-    const text = await response.text();
-    if (text.length > MAX_RESPONSE_BYTES) {
-      throw linkError("leaf_error", `HerdRabbit at ${this.address} sent more than this hub will read.`);
+  // An answer read whole, never past `limit` bytes, within the call's clock.
+  async #readBody({ response, done, abort }, limit) {
+    try {
+      return await readLimitedText(response, limit);
+    } catch (error) {
+      abort();
+      if (error instanceof ResponseTooLarge) {
+        throw linkError("leaf_error", `HerdRabbit at ${this.address} sent more than this hub will read.`);
+      }
+      throw transportError(error, this.address);
+    } finally {
+      done();
     }
+  }
+
+  async #request(path, { method = "GET", body, timeoutMs = this.timeouts.read, accountErrors = false } = {}) {
+    const call = await this.#open(path, {
+      method,
+      headers: body === undefined ? {} : { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      timeoutMs,
+    });
+    const response = call.response;
+    const text = await this.#readBody(call, MAX_RESPONSE_BYTES);
     let payload = null;
     try { payload = JSON.parse(text); } catch { /* handled below */ }
 
@@ -188,7 +240,7 @@ export class LeafLinkClient {
   async snapshot() {
     // The handshake rides along, so an incompatible leaf is caught on the same
     // poll that would have merged its records.
-    const body = await this.#request("/api/link/snapshot", { timeoutMs: TIMEOUTS.snapshot });
+    const body = await this.#request("/api/link/snapshot", { timeoutMs: this.timeouts.snapshot });
     this.#verify(body.hello);
     return normalizeLeafSnapshot(body.snapshot);
   }
@@ -201,7 +253,7 @@ export class LeafLinkClient {
 
   async sendText(paneId, text, { submit = false } = {}) {
     return this.#request(`/api/link/panes/${encodeURIComponent(paneId)}/text`, {
-      method: "POST", body: { text, submit }, timeoutMs: TIMEOUTS.write,
+      method: "POST", body: { text, submit }, timeoutMs: this.timeouts.write,
     });
   }
 
@@ -220,7 +272,7 @@ export class LeafLinkClient {
 
   async sendKeys(paneId, keys) {
     return this.#request(`/api/link/panes/${encodeURIComponent(paneId)}/keys`, {
-      method: "POST", body: { keys }, timeoutMs: TIMEOUTS.write,
+      method: "POST", body: { keys }, timeoutMs: this.timeouts.write,
     });
   }
 
@@ -238,53 +290,53 @@ export class LeafLinkClient {
 
   // Files. The leaf answers these with its own local browser, so nothing here
   // needs to know how to read a disk -- only how to ask.
-  async #fileRequest(path, { method = "GET", body, headers = {}, timeoutMs = TIMEOUTS.read } = {}) {
-    const controller = new AbortController();
-    this.controllers.add(controller);
-    const timer = setTimeout(() => controller.abort(new Error("timeout")), timeoutMs);
-    timer.unref?.();
-    let response;
-    try {
-      response = await this.fetchImpl(`${this.address}${path}`, {
-        method,
-        body,
-        headers,
-        duplex: body === undefined ? undefined : "half",
-        signal: controller.signal,
-      });
-    } catch (error) {
-      throw transportError(error, this.address);
-    } finally {
-      clearTimeout(timer);
-      this.controllers.delete(controller);
-    }
+  //
+  // `stream`: the body is a file, handed on as it arrives, so the clock stops
+  // at the headers and the bytes are bounded by leafFile instead. Otherwise
+  // the body is JSON and is read here, whole and bounded, on the clock.
+  async #fileRequest(path, { method = "GET", body, headers = {}, timeoutMs = this.timeouts.read, stream = false } = {}) {
+    const call = await this.#open(path, {
+      method, body, headers, timeoutMs, duplex: body === undefined ? undefined : "half",
+    });
+    const { response } = call;
     if (!response.ok) {
       let payload = null;
-      try { payload = JSON.parse(await response.text()); } catch { /* keep the status */ }
+      try { payload = JSON.parse(await this.#readBody(call, MAX_ERROR_BYTES)); } catch { /* keep the status */ }
       // The leaf already decided what this is; passing its status through keeps
       // "no such folder" from arriving as a generic failure.
+      const code = typeof payload?.error?.code === "string" && /^[a-z_]{1,64}$/u.test(payload.error.code)
+        ? payload.error.code : "leaf_error";
       throw new FileAccessError(
         response.status,
-        payload?.error?.code || "leaf_error",
+        code,
         readable(payload?.error?.message) || `HerdRabbit at ${this.address} returned ${response.status}.`,
       );
     }
-    return response;
+    if (stream) {
+      call.done();
+      return response;
+    }
+    const text = await this.#readBody(call, MAX_RESPONSE_BYTES);
+    // A delete answers 204 with nothing at all.
+    if (text === "") return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new FileAccessError(502, "leaf_error", `HerdRabbit at ${this.address} sent an answer this hub cannot read.`);
+    }
   }
 
   async listDirectory(path, { prefix = "" } = {}) {
     const query = new URLSearchParams();
     if (path) query.set("path", path);
     if (prefix) query.set("prefix", prefix);
-    const response = await this.#fileRequest(`/api/link/browse?${query}`);
-    return response.json();
+    return this.#fileRequest(`/api/link/browse?${query}`);
   }
 
   async directoryFingerprint(path) {
     const query = new URLSearchParams();
     if (path) query.set("path", path);
-    const response = await this.#fileRequest(`/api/link/browse/fingerprint?${query}`);
-    const { fingerprint } = await response.json();
+    const { fingerprint } = await this.#fileRequest(`/api/link/browse/fingerprint?${query}`);
     return fingerprint;
   }
 
@@ -292,12 +344,12 @@ export class LeafLinkClient {
     return (await this.listDirectory(null)).path;
   }
 
-  async openFile(path, { rangeHeader = null, maxBytes = Infinity } = {}) {
+  async openFile(path, { rangeHeader = null, maxBytes = this.maxTransferBytes } = {}) {
     const response = await this.#fileRequest(
       `/api/link/browse/file?path=${encodeURIComponent(path)}`,
-      rangeHeader ? { headers: { range: rangeHeader } } : undefined,
+      { headers: rangeHeader ? { range: rangeHeader } : {}, stream: true },
     );
-    const file = leafFile(response, path);
+    const file = leafFile(response, path, maxBytes);
     // The same limit a file on this PC is held to, checked before any byte is passed on.
     if (file.size !== null && file.size > maxBytes) {
       file.stream.destroy();
@@ -315,24 +367,29 @@ export class LeafLinkClient {
   }
 
   async #uploads() {
-    return (await this.#fileRequest("/api/link/files")).json();
+    return this.#fileRequest("/api/link/files");
   }
 
   async openUpload(name) {
-    const response = await this.#fileRequest(`/api/link/files/${encodeURIComponent(name)}`);
-    return leafFile(response, name);
+    const response = await this.#fileRequest(`/api/link/files/${encodeURIComponent(name)}`, { stream: true });
+    const file = leafFile(response, name, this.maxTransferBytes);
+    if (file.size !== null && file.size > this.maxTransferBytes) {
+      file.stream.destroy();
+      throw new FileAccessError(413, "file_too_large", "That file is too large to download here.");
+    }
+    return file;
   }
 
   // The declared size travels with the body: the leaf refuses an upload it
   // cannot size, the same way this hub refuses one from a browser.
   async saveUpload(name, source, { bytes } = {}) {
-    const response = await this.#fileRequest(`/api/link/files/${encodeURIComponent(name)}`, {
+    const answer = await this.#fileRequest(`/api/link/files/${encodeURIComponent(name)}`, {
       method: "POST",
       body: Readable.toWeb(source),
       headers: { "content-type": "application/octet-stream", "content-length": String(bytes ?? 0) },
       timeoutMs: 120_000,
     });
-    return (await response.json()).file;
+    return answer.file;
   }
 
   async removeUpload(name) {
@@ -348,7 +405,7 @@ export class LeafLinkClient {
   // so its validation is what decides -- this side only carries the request.
   async createWorkspace(label, herdrSessionId) {
     const body = herdrSessionId === undefined ? { label } : { label, herdrSessionId };
-    return this.#request("/api/link/workspaces", { method: "POST", body, timeoutMs: TIMEOUTS.write });
+    return this.#request("/api/link/workspaces", { method: "POST", body, timeoutMs: this.timeouts.write });
   }
 
   async renameWorkspace(workspaceId, label) {
@@ -386,13 +443,13 @@ export class LeafLinkClient {
 
   async #tab(tabId, action, body) {
     return this.#request(`/api/link/tabs/${encodeURIComponent(tabId)}/${action}`, {
-      method: "POST", body, timeoutMs: TIMEOUTS.write,
+      method: "POST", body, timeoutMs: this.timeouts.write,
     });
   }
 
   async #workspace(workspaceId, action, body) {
     return this.#request(`/api/link/workspaces/${encodeURIComponent(workspaceId)}/${action}`, {
-      method: "POST", body, timeoutMs: TIMEOUTS.write,
+      method: "POST", body, timeoutMs: this.timeouts.write,
     });
   }
 
@@ -400,7 +457,7 @@ export class LeafLinkClient {
   // hub's routes do not care which machine they are talking to.
   aiAccounts() {
     const post = (path, body) => this.#request(`/api/link/ai-accounts${path}`, {
-      method: "POST", body, timeoutMs: TIMEOUTS.write, accountErrors: true,
+      method: "POST", body, timeoutMs: this.timeouts.write, accountErrors: true,
     });
     return {
       list: () => this.#request("/api/link/ai-accounts", { accountErrors: true }),

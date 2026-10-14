@@ -167,3 +167,18 @@ test("forgets an address a look proved is not there", () => {
   assert.deepEqual(registry.list().map((entry) => entry.address), ["http://100.64.0.3:30001"]);
   assert.equal(saved.length, 1, "the file is rewritten only when something went");
 });
+
+test("a version is cut to a version's length, and saying the same thing again writes nothing", () => {
+  let writes = 0;
+  const registry = announcementRegistry({ save: () => { writes += 1; } });
+  registry.record(claim({ version: "9".repeat(500) }));
+  assert.equal(registry.list()[0].version.length, 40);
+  assert.equal(writes, 1);
+  // Every few minutes a machine repeats itself; the disk hears only a change.
+  registry.record(claim({ version: "9".repeat(500) }));
+  registry.record(claim({ version: "9".repeat(500) }));
+  assert.equal(writes, 1);
+  registry.record(claim({ version: "1.5.0" }));
+  assert.equal(writes, 2);
+  assert.equal(registry.list()[0].version, "1.5.0");
+});

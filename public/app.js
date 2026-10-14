@@ -4764,7 +4764,11 @@ function browseActionButton({ label, paths, danger = false, run }) {
 }
 
 function browseRow({ entry, depth, expanded }) {
+  // Sign-in keys and HerdRabbit's own settings are listed by name only: the
+  // server never opens them, so neither does the tree.
+  const locked = entry.locked === true;
   const row = createElement("div", { className: "transfer-row browse-row" });
+  if (locked) row.classList.add("is-locked");
   row.tabIndex = -1;
   row.style.setProperty("--depth", String(depth));
   row.dataset.path = entry.path;
@@ -4780,7 +4784,7 @@ function browseRow({ entry, depth, expanded }) {
   for (let level = 0; level < depth; level += 1) {
     lead.append(createElement("span", { className: "browse-indent" }));
   }
-  if (entry.kind === "directory" && !entry.broken && !entry.removed) {
+  if (entry.kind === "directory" && !entry.broken && !entry.removed && !locked) {
     const twisty = createElement("button", { className: "browse-twisty" });
     twisty.type = "button";
     twisty.dataset.name = entry.name;
@@ -4808,6 +4812,8 @@ function browseRow({ entry, depth, expanded }) {
   lead.append(copy);
   if (entry.removed) {
     row.title = `${entry.name} (removed)`;
+  } else if (locked) {
+    row.title = `${entry.name}\nHerdRabbit does not open sign-in keys or its own settings.`;
   } else if (entry.modifiedAt) {
     const size = entry.kind === "directory" ? "" : `${formatTransferSize(entry.size ?? 0)} · `;
     row.title = `${entry.name}\n${size}${new Date(entry.modifiedAt).toLocaleString()}`;
@@ -4815,20 +4821,22 @@ function browseRow({ entry, depth, expanded }) {
 
   if (entry.broken) {
     lead.append(createElement("span", { className: "transfer-meta", text: "broken" }));
+  } else if (locked) {
+    lead.append(createElement("span", { className: "transfer-meta", text: "locked" }));
   }
 
   const actions = createElement("div", { className: "transfer-row-actions" });
   if (!entry.removed) {
     // Expanding shows a folder in place; this re-roots the tree there, so a deep
     // path stops costing a column of indentation.
-    if (entry.kind === "directory" && !entry.broken) {
+    if (entry.kind === "directory" && !entry.broken && !locked) {
       actions.append(browseActionButton({
         label: `Open ${entry.name} as the root`,
         paths: ["M4 12h13", "M13 7l5 5-5 5", "M20 5v14"],
         run: () => void loadBrowseFolder(entry.path),
       }));
     }
-    if (entry.kind === "file" && entry.readable !== false) {
+    if (entry.kind === "file" && entry.readable !== false && !locked) {
       // Reading a log or checking a screenshot is most of what a file in this
       // tree is opened for, and downloading it to a phone to do that is a detour.
       if (canView(entry.name, entry.size)) {
@@ -4854,7 +4862,7 @@ function browseRow({ entry, depth, expanded }) {
         other.dataset.selected = "false";
       }
       row.dataset.selected = "true";
-      if (entry.kind === "directory" && !entry.broken) void toggleBrowseFolder(entry.path);
+      if (entry.kind === "directory" && !entry.broken && !locked) void toggleBrowseFolder(entry.path);
     });
   }
 
@@ -5320,7 +5328,7 @@ async function revealInFiles(filePath, name, server) {
     setBrowseFeedback(`${name} is not in this folder.`);
     return;
   }
-  if (entry.kind === "directory" && !entry.broken) {
+  if (entry.kind === "directory" && !entry.broken && !entry.locked) {
     browseState.selected = null;
     await open(entry.path, false);
     return;

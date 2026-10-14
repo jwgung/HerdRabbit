@@ -29,7 +29,7 @@ const fetchImpl = async (url) => {
   const address = new URL(url).hostname;
   const answer = answers[address];
   if (answer === "refuse-connection") throw new Error("ECONNREFUSED");
-  return { ok: answer.status === 200, status: answer.status, json: async () => answer.body };
+  return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { "content-type": "application/json" } });
 };
 
 function stateOf(candidates, name) {
@@ -70,7 +70,7 @@ test("marks a machine that is already registered", async () => {
 });
 
 test("a PC on another app version but the same link protocol is ready to connect", async () => {
-  const answering = async () => ({ ok: true, status: 200, json: async () => ({ product: "herdrabbit", version: "9.0.0", link_protocol: 1, scope: "local" }) });
+  const answering = async () => new Response(JSON.stringify({ product: "herdrabbit", version: "9.0.0", link_protocol: 1, scope: "local" }), { status: 200 });
   const { candidates } = await discoverLeaves({ hubVersion: HUB_VERSION, execute, fetchImpl: answering });
   assert.equal(stateOf(candidates, "ready-box"), "ready");
   assert.equal(candidates.find((candidate) => candidate.name === "ready-box").version, "9.0.0");
@@ -94,4 +94,47 @@ test("reports plainly when there is no tailnet to read", async () => {
     execute: async () => { throw new Error("tailscale: not found"); },
   });
   assert.deepEqual(found, { available: false, self: null, candidates: [] });
+});
+
+test("a machine that never stops answering, or answers too slowly, is not taken for HerdRabbit", async () => {
+  const hello = JSON.stringify({ product: "herdrabbit", version: HUB_VERSION, link_protocol: 1, scope: "local" });
+  let cancelled = 0;
+  const endless = () => new Response(new ReadableStream({
+    pull(controller) { controller.enqueue(new Uint8Array(64 * 1024).fill(32)); },
+    cancel() { cancelled += 1; },
+  }), { status: 200 });
+  // Its headers come at once; the body a byte at a time, slower than the clock.
+  const slow = (signal) => new Response(new ReadableStream({
+    async pull(controller) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (signal.aborted) { controller.error(signal.reason); return; }
+      controller.enqueue(new TextEncoder().encode(" "));
+    },
+  }), { status: 200 });
+  const peers = {
+    BackendState: "Running",
+    Self: { DNSName: "hub.tailnet.ts.net.", TailscaleIPs: ["100.64.0.1"] },
+    Peer: {
+      a: { DNSName: "endless.tailnet.ts.net.", TailscaleIPs: ["100.64.0.2"], Online: true },
+      b: { DNSName: "slow.tailnet.ts.net.", TailscaleIPs: ["100.64.0.3"], Online: true },
+      c: { DNSName: "ready.tailnet.ts.net.", TailscaleIPs: ["100.64.0.4"], Online: true },
+    },
+  };
+  const started = Date.now();
+  const result = await discoverLeaves({
+    hubVersion: HUB_VERSION,
+    execute: async () => ({ stdout: JSON.stringify(peers) }),
+    probeTimeoutMs: 300,
+    fetchImpl: async (url, { signal }) => {
+      const host = new URL(url).hostname;
+      if (host === "100.64.0.2") return endless();
+      if (host === "100.64.0.3") return slow(signal);
+      return new Response(hello, { status: 200 });
+    },
+  });
+  assert.ok(Date.now() - started < 3_000, "the clock covers the body too");
+  assert.equal(stateOf(result.candidates, "endless"), "incompatible");
+  assert.equal(stateOf(result.candidates, "slow"), "incompatible");
+  assert.equal(stateOf(result.candidates, "ready"), "ready");
+  assert.equal(cancelled, 1, "the endless answer is cut off, not read to the end");
 });

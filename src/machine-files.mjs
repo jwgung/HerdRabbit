@@ -13,7 +13,8 @@ import { posix } from "node:path";
 import { PassThrough, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { InputValidationError } from "./herdr-client.mjs";
-import { FileAccessError, MAX_LISTED_ENTRIES, UNKNOWN_SIZE_STREAM_BYTES, fileAccessError, validateBrowsePath } from "./file-browser.mjs";
+import { FileAccessError, MAX_LISTED_ENTRIES, UNKNOWN_SIZE_STREAM_BYTES, fileAccessError, protectedPathError, validateBrowsePath } from "./file-browser.mjs";
+import { credentialRules, protectedPaths } from "./protected-paths.mjs";
 import { TEMPORARY_PREFIX, safeTransferName, splitExtension, validateTransferName } from "./file-store.mjs";
 import { parseByteRange } from "../public/file-preview.js";
 
@@ -79,12 +80,20 @@ done
 const HOME_SCRIPT = `printf "%s" "$HOME"
 `;
 
-// $1: a path; $2: "follow" or "nofollow" (an upload is never a link). Its size.
+// $1: a path; $2: "follow" or "nofollow" (an upload is never a link). Its
+// size, then its real path, which is what is checked against the protected ones.
 const STAT_SCRIPT = `${PRELUDE}if [ "$2" = nofollow ] && [ -L "$1" ]; then exit 64; fi
 [ -e "$1" ] || exit 64
 [ -f "$1" ] || exit 67
 [ -r "$1" ] || exit 66
 find -L "$1" -maxdepth 0 -printf "%s\\0"
+readlink -zf -- "$1" || exit 68
+`;
+
+// Each argument's real path, as far as it exists: where the machine's keys
+// and settings really are.
+const RESOLVE_SCRIPT = `LC_ALL=C; export LC_ALL
+readlink -zm -- "$@" || exit 68
 `;
 
 // $1: a path; $2: "+<first byte, from 1>"; $3: how many bytes; $4 as above.
@@ -302,6 +311,7 @@ export class MachineFiles {
     this.maxBytes = maxBytes;
     this.timeoutMs = timeoutMs;
     this.homes = new WeakMap();
+    this.guards = new WeakMap();
     this.commands = slots(MAX_COMMANDS, () => new FileAccessError(429, "browse_busy", "Too many folders are being read on that machine. Try again."));
     this.streams = slots(MAX_STREAMS, () => new FileAccessError(429, "too_many_downloads", "Too many files are moving to or from that machine. Try again."));
   }
@@ -404,6 +414,22 @@ export class MachineFiles {
     return resolved;
   }
 
+  // What the file browser never opens on that machine: its SSH and GPG keys,
+  // its AI CLIs' sign-ins and any HerdRabbit settings under its home -- the
+  // same list as here, at the default places (src/protected-paths.mjs). Real
+  // paths are asked for once per connection.
+  async #protected(link) {
+    if (this.guards.has(link)) return this.guards.get(link);
+    const home = await this.#home(link);
+    const guard = protectedPaths(credentialRules({ home }), async (paths) => {
+      const real = fields(await this.#command(link, RESOLVE_SCRIPT, paths)).map((part) => part.toString("utf8"));
+      return new Map(paths.map((path, index) => [path, real[index]?.startsWith("/") ? real[index] : path]));
+    });
+    const matcher = await guard.matcher();
+    this.guards.set(link, matcher);
+    return matcher;
+  }
+
   async listDirectory(rawPath, { limit = MAX_LISTED_ENTRIES, prefix = "" } = {}) {
     const link = this.#ready();
     // No path is the machine's home.
@@ -436,6 +462,8 @@ export class MachineFiles {
       }
     }
     if (!directory?.startsWith("/")) throw failed();
+    const isProtected = await this.#protected(link);
+    if (isProtected(directory)) throw protectedPathError();
 
     const all = lstats.map((record) => ({ ...decodeName(record.raw), record }));
     const wanted = prefix === ""
@@ -449,6 +477,9 @@ export class MachineFiles {
       const entry = { name, path: posix.resolve(directory, name), hidden: name.startsWith("."), readable };
       if (record.type !== "l") {
         const kind = kindOf(record.type);
+        // As file-browser.mjs: named, and nothing more. A link's target is
+        // not known here; opening it is refused by its real path instead.
+        if (isProtected(entry.path)) return { ...entry, kind, readable: false, locked: true };
         return { ...entry, kind, size: kind === "file" ? record.size : null, modifiedAt: isoTime(record.time) };
       }
       const target = targets.get(record.raw.toString("latin1"));
@@ -479,7 +510,7 @@ export class MachineFiles {
   async directoryFingerprints(rawPaths) {
     const link = this.#ready();
     const result = new Map();
-    const valid = [];
+    let valid = [];
     for (const raw of rawPaths) {
       try {
         valid.push([raw, validateBrowsePath(raw)]);
@@ -487,6 +518,10 @@ export class MachineFiles {
         result.set(raw, null);
       }
     }
+    if (valid.length === 0) return result;
+    const isProtected = await this.#protected(link);
+    for (const [raw, path] of valid) if (isProtected(path)) result.set(raw, null);
+    valid = valid.filter(([raw]) => !result.has(raw));
     if (valid.length === 0) return result;
     const parts = fields(await this.#command(link, FINGERPRINT_SCRIPT, valid.map(([, path]) => path)));
     valid.forEach(([raw], index) => {
@@ -503,10 +538,15 @@ export class MachineFiles {
   }
 
   async #size(link, path, follow) {
+    return (await this.#stat(link, path, follow)).size;
+  }
+
+  async #stat(link, path, follow) {
     const output = fields(await this.#command(link, STAT_SCRIPT, [path, follow ? "follow" : "nofollow"]));
     const size = Number(output[0]?.toString("latin1"));
-    if (!Number.isSafeInteger(size) || size < 0) throw failed();
-    return size;
+    const real = output[1]?.toString("utf8");
+    if (!Number.isSafeInteger(size) || size < 0 || !real?.startsWith("/")) throw failed();
+    return { size, real };
   }
 
   // The bytes of one file, read as they are sent. The stream ends cleanly only
@@ -578,7 +618,8 @@ export class MachineFiles {
   async openFile(rawPath, { maxBytes = Infinity, rangeHeader = null } = {}) {
     const path = validateBrowsePath(rawPath);
     const link = this.#ready();
-    const stats = await this.#size(link, path, true);
+    const { size: stats, real } = await this.#stat(link, path, true);
+    if ((await this.#protected(link))(real)) throw protectedPathError();
     if (stats > maxBytes) throw new FileAccessError(413, "file_too_large", "That file is too large to download here.");
     // As file-browser.mjs: a size of 0 may be a file that does not know its
     // own length, so it streams without one, capped.

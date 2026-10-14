@@ -9,6 +9,7 @@
 // about trusting what it says.
 
 const MAX_ANNOUNCEMENTS = 32;
+const MAX_VERSION_LENGTH = 40;
 
 // Once a machine has said where it is, that is worth keeping: it does not stop
 // being true because the hub restarted or the leaf went quiet for a while. A
@@ -49,15 +50,22 @@ export function announcementRegistry({ now = () => Date.now(), initial = [], sav
       if (typeof name !== "string" || name === "" || name.length > 80) {
         return { ok: false, reason: "name" };
       }
-      if (!entries.has(parsed.origin) && entries.size >= MAX_ANNOUNCEMENTS) evictOldest();
-      entries.set(parsed.origin, {
+      const entry = {
         name: name.trim(),
         address: parsed.origin,
-        version: typeof version === "string" ? version : null,
+        // Shown in a dialog beside the name, so no longer than a version is.
+        version: typeof version === "string" ? version.slice(0, MAX_VERSION_LENGTH) : null,
         protocol: Number.isInteger(protocol) ? protocol : null,
         at: now(),
-      });
-      persist();
+      };
+      const previous = entries.get(parsed.origin);
+      // A machine says the same thing every few minutes; only what changed
+      // is worth a write. When it last spoke is kept in memory either way.
+      const unchanged = previous && previous.name === entry.name &&
+        previous.version === entry.version && previous.protocol === entry.protocol;
+      if (!previous && entries.size >= MAX_ANNOUNCEMENTS) evictOldest();
+      entries.set(parsed.origin, entry);
+      if (!unchanged) persist();
       return { ok: true };
     },
 

@@ -6,7 +6,7 @@ import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { leafLinkRoutes } from "../src/link-server.mjs";
 import { PasswordAuth, createPasswordConfiguration } from "../src/password-auth.mjs";
 import { PEER_ADDRESS_HEADER, PEER_LOGIN_HEADER, PeerIdentity } from "../src/peer-identity.mjs";
-import { createPeerServer } from "../src/peer-server.mjs";
+import { MAX_PEER_CONNECTIONS, createPeerServer } from "../src/peer-server.mjs";
 
 const herdr = {
   async snapshot() { return { herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }; },
@@ -117,4 +117,136 @@ test("a page with a password keeps its login whatever a Connect PC port allows",
   assert.equal((await forged.json()).error.code, "authentication_required");
   const session = await signedIn(base);
   assert.equal((await fetch(`${base}/api/snapshot`, { headers: session })).status, 200);
+});
+
+// A request with headers fetch would not let a caller set: Host, as a page
+// on a rebound name would send it, and the headers a browser adds.
+function raw(base, path, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const req = request(`${base}${path}`, { headers });
+    req.on("response", (response) => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => { body += chunk; });
+      response.on("end", () => resolve({ status: response.statusCode, body: body ? JSON.parse(body) : null }));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+test("a request that names this port by any other host is refused before anything else", async (context) => {
+  const base = await peerPort(context, new PeerIdentity({ addresses: ["127.0.0.1"] }));
+  const port = new URL(base).port;
+  assert.equal((await raw(base, "/api/link/hello", { Host: `127.0.0.1:${port}` })).status, 200);
+  // DNS rebinding: a page on the attacker's name, resolving here, from a
+  // browser on an allowed device. The socket address is allowed; the name is not.
+  for (const host of [`evil.example:${port}`, `localhost:${port}`, "127.0.0.1", `127.0.0.1:${Number(port) + 1}`, `127.0.0.1:${port}.evil.example`]) {
+    const answer = await raw(base, "/api/link/hello", { Host: host });
+    assert.equal(answer.status, 421, host);
+    assert.equal(answer.body.error.code, "wrong_host", host);
+  }
+  // Even a path that is not served at all is refused for the name first.
+  assert.equal((await raw(base, "/", { Host: `evil.example:${port}` })).status, 421);
+});
+
+test("a browser is refused even on the right host; a server's fetch is not", async (context) => {
+  const base = await peerPort(context, new PeerIdentity({ addresses: ["127.0.0.1"] }));
+  // What Node's fetch sends, Sec-Fetch-Mode included, is a server.
+  const fromHub = await fetch(`${base}/api/link/hello`);
+  assert.equal(fromHub.status, 200);
+  for (const headers of [
+    { Origin: "http://evil.example" },
+    { Origin: base },
+    { Origin: "null" },
+    { "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty" },
+    { "Sec-Fetch-Dest": "document" },
+    { "Sec-Fetch-User": "?1" },
+  ]) {
+    const answer = await raw(base, "/api/link/hello", headers);
+    assert.equal(answer.status, 403, JSON.stringify(headers));
+    assert.equal(answer.body.error.code, "browser_refused", JSON.stringify(headers));
+  }
+  const write = await fetch(`${base}/api/link/panes/p1/text`, {
+    method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify({ text: "ls" }),
+  });
+  assert.equal(write.status, 403);
+});
+
+test("this PC's own tailnet name is accepted as well as its address", async (context) => {
+  const base = await listen(context, createPeerServer({
+    peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
+    link: leafLinkRoutes({ client: herdr, version: "1.2.46" }),
+    hostNames: () => ["desk.tail1234.ts.net"],
+    logger: { error() {} },
+  }));
+  const port = new URL(base).port;
+  assert.equal((await raw(base, "/api/link/hello", { Host: `Desk.tail1234.ts.net:${port}` })).status, 200);
+  assert.equal((await raw(base, "/api/link/hello", { Host: `desk.tail1234.ts.net.evil.example:${port}` })).status, 421);
+});
+
+test("on IPv6 the host is the bracketed address, as a hub's fetch sends it", async (context) => {
+  const server = createPeerServer({
+    peer: new PeerIdentity({ addresses: ["::1"] }),
+    link: leafLinkRoutes({ client: herdr, version: "1.2.46" }),
+    logger: { error() {} },
+  });
+  try {
+    server.listen(0, "::1");
+    await once(server, "listening");
+  } catch {
+    context.skip("no IPv6 loopback here");
+    return;
+  }
+  context.after(() => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }));
+  const base = `http://[::1]:${server.address().port}`;
+  assert.equal((await fetch(`${base}/api/link/hello`)).status, 200);
+  assert.equal((await raw(base, "/api/link/hello", { Host: `::1:${server.address().port}` })).status, 421);
+});
+
+test("the port bounds how long a request may take to arrive and how many sockets it holds", () => {
+  const server = createPeerServer({ peer: new PeerIdentity(), link: async () => false, logger: { error() {} } });
+  assert.equal(server.headersTimeout, 5_000);
+  assert.ok(server.requestTimeout > 0 && server.requestTimeout >= server.headersTimeout);
+  assert.equal(server.maxConnections, MAX_PEER_CONNECTIONS);
+});
+
+test("status streams beyond the limit are refused until one closes", async (context) => {
+  const stops = [];
+  const watching = {
+    ...herdr,
+    async watchStatuses() { const stop = () => {}; stops.push(stop); return stop; },
+  };
+  const base = await listen(context, createPeerServer({
+    peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
+    link: leafLinkRoutes({ client: watching, version: "1.2.46", maxStatusStreams: 2 }),
+    logger: { error() {} },
+  }));
+  const open = async () => {
+    const controller = new AbortController();
+    const response = await fetch(`${base}/api/link/statuses`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paneIds: ["p1"] }), signal: controller.signal,
+    });
+    return { response, close: () => controller.abort() };
+  };
+  const first = await open();
+  const second = await open();
+  assert.equal(first.response.status, 200);
+  assert.equal(second.response.status, 200);
+  const third = await open();
+  assert.equal(third.response.status, 429);
+  assert.equal((await third.response.json()).error.code, "too_many_streams");
+  first.close();
+  await first.response.body?.cancel().catch(() => {});
+  let fourth;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    fourth = await open();
+    if (fourth.response.status === 200) break;
+    await fourth.response.body?.cancel().catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(fourth.response.status, 200);
+  second.close();
+  fourth.close();
 });

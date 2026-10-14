@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  formerLeafRefusal, legacyLeafWarning, parseAllowedHosts, parseHost, parseHubUrl, parseMaxTransferBytes,
+  formerLeafRefusal, hostPort, legacyLeafWarning, parseAllowedHosts, parseHost, parseHubUrl, parseMaxTransferBytes,
   parsePeerAddresses, parsePeerHost, parsePeerLogins, parsePeerPort, parsePort, parseRole, readConfig,
 } from "../src/config.mjs";
 
@@ -154,4 +154,29 @@ test("refuses a transfer limit that is not a positive whole number", () => {
   for (const value of ["0", "-5", "1.5", "abc", "50MB", "1e3", "999999999999999"]) {
     assert.throws(() => readConfig({ HERDR_WEB_MAX_TRANSFER_MB: value }), /HERDR_WEB_MAX_TRANSFER_MB/u, value);
   }
+});
+
+test("the Connect PC port listens only on a tailnet address, however the address is spelled", () => {
+  // Every spelling of "every interface", and any address outside Tailscale's ranges.
+  for (const value of ["::0", "0:0:0:0:0:0:0:0", "0::0", "::ffff:0.0.0.0", "::ffff:0:0", "0.0.0.0",
+    "192.168.1.10", "10.0.0.2", "172.17.0.1", "100.128.0.1", "100.63.255.255", "fe80::1", "fd7a:115c:a1e1::1", "2001:db8::1"]) {
+    assert.throws(() => parsePeerHost(value), /HERDR_WEB_PEER_HOST must be this PC's tailnet address/u, value);
+  }
+  assert.equal(parsePeerHost("100.64.0.2"), "100.64.0.2");
+  assert.equal(parsePeerHost("100.127.255.254"), "100.127.255.254");
+  assert.equal(parsePeerHost("FD7A:115C:A1E0:0:0:0:0:1"), "fd7a:115c:a1e0::1", "kept in the spelling a Host header carries");
+  assert.equal(parsePeerHost("::ffff:100.64.0.2"), "100.64.0.2");
+  // Loopback reaches nothing but this PC, so trying it out here is allowed.
+  assert.equal(parsePeerHost("127.0.0.1"), "127.0.0.1");
+  assert.equal(parsePeerHost("::1"), "::1");
+});
+
+test("a former leaf on a LAN address does not start answering the LAN", () => {
+  assert.throws(() => readConfig({ HERDR_WEB_ROLE: "leaf", HERDR_WEB_HOST: "192.168.1.10" }), /HERDR_WEB_PEER_HOST/u);
+  assert.equal(readConfig({ HERDR_WEB_ROLE: "leaf", HERDR_WEB_HOST: "::0" }).peerHost, null);
+});
+
+test("an IPv6 address is bracketed wherever it is written with a port", () => {
+  assert.equal(hostPort("fd7a:115c:a1e0::1", 38_788), "[fd7a:115c:a1e0::1]:38788");
+  assert.equal(hostPort("100.64.0.2", 38_788), "100.64.0.2:38788");
 });

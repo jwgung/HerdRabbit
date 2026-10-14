@@ -23,7 +23,8 @@ import {
 import { terminalOutputWatcher } from "./terminal-output-watch.mjs";
 import { PushValidationError } from "./web-push-service.mjs";
 import { validateTransferName } from "./file-store.mjs";
-import { FileAccessError, fileAccessError, listDirectory, openFile, validateBrowsePath, directoryFingerprint } from "./file-browser.mjs";
+import { FileAccessError, fileAccessError, listDirectory, openFile, validateBrowsePath, directoryFingerprint, refuseProtected } from "./file-browser.mjs";
+import { defaultProtectedPaths } from "./protected-paths.mjs";
 import { MAX_TEXT_PREVIEW_BYTES, inlineTypeFor, isMarkdown } from "../public/file-preview.js";
 import { renderMarkdown } from "./markdown.mjs";
 import { secretPrompt } from "./secret-prompt.mjs";
@@ -518,20 +519,20 @@ function browsePath(value) {
   }
 }
 
-async function browseDirectory(value, options, source) {
+async function browseDirectory(value, options, source, guard) {
   try {
     if (source) return await source.listDirectory(value, options);
-    return await listDirectory(browsePath(value), options);
+    return await listDirectory(browsePath(value), { ...options, guard });
   } catch (error) {
     return browseFailure(error);
   }
 }
 
-async function openBrowsedFile(value, source, rangeHeader = null, maxBytes = Infinity) {
+async function openBrowsedFile(value, source, rangeHeader = null, maxBytes = Infinity, guard = defaultProtectedPaths()) {
   try {
     const file = source
       ? await source.openFile(value, { rangeHeader, maxBytes })
-      : await openFile(value, { rangeHeader, maxBytes });
+      : await openFile(value, { rangeHeader, maxBytes, guard });
     return { file, stream: file.stream };
   } catch (error) {
     return browseFailure(error);
@@ -597,6 +598,9 @@ export function createHerdrHttpServer({
   csrfToken = randomBytes(32).toString("base64url"),
   maxBodyBytes = 16 * 1024,
   maxTransferBytes = Infinity,
+  // Sign-in keys and HerdRabbit's own settings, which the file browser here
+  // never opens (src/protected-paths.mjs).
+  protectedPaths = defaultProtectedPaths(),
   // A request that is not an upload has this long to arrive in full; an
   // upload may take as long as it keeps sending, going quiet for uploadIdleMs at most.
   requestTimeoutMs = 120_000,
@@ -841,13 +845,13 @@ export function createHerdrHttpServer({
           throw new HttpError(404, "unknown_server", "That server is no longer configured.");
         }
         if (!claim.inlineType) {
-          await sendDownload(response, await openBrowsedFile(claim.path, from, null, maxTransferBytes));
+          await sendDownload(response, await openBrowsedFile(claim.path, from, null, maxTransferBytes, protectedPaths));
           return;
         }
         // A rendered file is not sliced: what a range would name does not exist
         // until it has been rendered, so the whole of it is read either way.
         const range = claim.markdown ? null : request.headers.range ?? null;
-        const opened = await openBrowsedFile(claim.path, from, range, maxTransferBytes);
+        const opened = await openBrowsedFile(claim.path, from, range, maxTransferBytes, protectedPaths);
         await sendInline(response, {
           file: opened.file, type: claim.inlineType, markdown: claim.markdown,
         });
@@ -1033,7 +1037,7 @@ export function createHerdrHttpServer({
           // thread budget -- and one that stops answering cannot exhaust it.
           const listing = source
             ? await browseDirectory(target, { prefix }, source)
-            : await withDirectorySlot(() => browseDirectory(target, { prefix }));
+            : await withDirectorySlot(() => browseDirectory(target, { prefix }, null, protectedPaths));
           sendJson(response, 200, { ...listing, server: serverId });
           return;
         }
@@ -1074,7 +1078,7 @@ export function createHerdrHttpServer({
                 ? await (typeof source.directoryFingerprint === "function"
                   ? source.directoryFingerprint(path)
                   : null)
-                : await directoryFingerprint(browsePath(path));
+                : await directoryFingerprint(browsePath(path), { guard: protectedPaths });
               if (current === null || current !== knownEtag) {
                 changed.push(path);
               }
@@ -1090,6 +1094,9 @@ export function createHerdrHttpServer({
           const body = await readJsonBody(request, maxBodyBytes);
           const { serverId, source } = fileSource(body.server);
           const filePath = source ? String(body.path) : browsePath(body.path);
+          // Refused here rather than when the link is followed: a download
+          // link that fails opens as a broken download, not as a reason.
+          if (!source) await refuseProtected(filePath, protectedPaths).catch(browseFailure);
           // Which door this link opens is decided here, on a request that
           // carried the CSRF token, from the name alone. A file with no viewable
           // type gets no view link at all rather than a downgraded one.

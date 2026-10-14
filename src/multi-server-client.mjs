@@ -33,7 +33,9 @@ export class MultiServerClient {
     // PCs connected with Connect PC (servers.json, src/server-profiles.mjs):
     // another HerdRabbit, asked over its Connect PC port.
     profiles = null,
-    remoteFactory = (profile) => new LeafLinkClient({ profile, hubVersion }),
+    // A file a connected PC sends is held to the same limit as one here.
+    maxTransferBytes = Infinity,
+    remoteFactory = (profile) => new LeafLinkClient({ profile, hubVersion, maxTransferBytes }),
     // Herdr's own SSH machines (src/herdr-machines.mjs), listed beside them.
     machines = null,
   }) {

@@ -1,6 +1,6 @@
 import { defaultAuthFilePath } from "./password-auth.mjs";
 import { defaultPushFilePath } from "./web-push-service.mjs";
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DEFAULT_PEER_PORT } from "./leaf-protocol.mjs";
@@ -67,22 +67,64 @@ function defaultFilesDirectory(environment) {
   return join(dataHome, "herdrabbit", "files");
 }
 
+// One spelling per address, so "0:0:0:0:0:0:0:0", "::0" and "::" are the same
+// address everywhere they are compared -- and the same text a Host header
+// carries for it.
+export function canonicalAddress(host) {
+  const value = String(host ?? "").trim().toLowerCase();
+  if (isIP(value) !== 6) return value;
+  const canonical = new URL(`http://[${value}]/`).hostname.slice(1, -1);
+  // An IPv4 address written as IPv6 is that IPv4 address.
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/u.exec(canonical);
+  if (!mapped) return canonical;
+  const high = Number.parseInt(mapped[1], 16);
+  const low = Number.parseInt(mapped[2], 16);
+  return `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`;
+}
+
+// What a listening address looks like in a URL and in a Host header.
+export function hostPort(host, port) {
+  return isIP(host) === 6 ? `[${host}]:${port}` : `${host}:${port}`;
+}
+
+const LOOPBACK = new BlockList();
+LOOPBACK.addSubnet("127.0.0.0", 8, "ipv4");
+LOOPBACK.addAddress("::1", "ipv6");
+
+// Tailscale hands out addresses from these two ranges and no others.
+const TAILNET = new BlockList();
+TAILNET.addSubnet("100.64.0.0", 10, "ipv4");
+TAILNET.addSubnet("fd7a:115c:a1e0::", 48, "ipv6");
+
+function inRange(list, host) {
+  const canonical = canonicalAddress(host);
+  const family = isIP(canonical);
+  return family !== 0 && list.check(canonical, family === 6 ? "ipv6" : "ipv4");
+}
+
 function isLoopbackHost(host) {
-  return host === "::1" || host.startsWith("127.");
+  return inRange(LOOPBACK, host);
 }
 
 function isEveryInterface(host) {
-  return host === "0.0.0.0" || host === "::";
+  const canonical = canonicalAddress(host);
+  return canonical === "0.0.0.0" || canonical === "::";
+}
+
+export function isTailnetAddress(host) {
+  return inRange(TAILNET, host);
 }
 
 // The Connect PC port listens on one address, this PC's tailnet address, so
 // the caller's address comes off the socket. Every interface would put it on
-// the LAN and every container bridge, where a source address proves nothing.
+// the LAN and every container bridge, where a source address proves nothing,
+// and so would a LAN address: only Tailscale's own ranges are taken. Loopback
+// is taken too -- nothing but this PC reaches it -- for trying it out here.
 function parsePeerHost(value) {
   if (value === undefined || value.trim() === "") return null;
-  const host = value.trim();
-  if (isIP(host) === 0 || isEveryInterface(host)) {
-    throw new Error("HERDR_WEB_PEER_HOST must be this PC's tailnet address, such as 100.64.0.2");
+  const host = canonicalAddress(value);
+  if (isIP(host) === 0 || !(isTailnetAddress(host) || isLoopbackHost(host))) {
+    throw new Error("HERDR_WEB_PEER_HOST must be this PC's tailnet address (100.64.0.0/10 or fd7a:115c:a1e0::/48), such as 100.64.0.2");
   }
   return host;
 }
@@ -157,7 +199,7 @@ function peerSettings(environment, host, port) {
   let pageHost = host;
   if (role === "leaf") {
     if (peerHost === null && !isLoopbackHost(host) && !isEveryInterface(host)) {
-      peerHost = host;
+      peerHost = parsePeerHost(host);
       peerPort = parsePeerPort(environment.HERDR_WEB_PEER_PORT, port);
     }
     pageHost = "127.0.0.1";
@@ -176,22 +218,34 @@ function peerSettings(environment, host, port) {
   };
 }
 
+// Where HerdRabbit keeps what it remembers: the password hash, push keys, the
+// connected PCs and the saved AI sign-ins. The file browser refuses all of it
+// (src/protected-paths.mjs), so this is the one place that says where it is.
+export function dataPaths(environment = process.env) {
+  const authFile = defaultAuthFilePath(environment);
+  return {
+    authFile,
+    // PCs connected with Connect PC.
+    serversFile: environment.HERDR_WEB_SERVERS_FILE
+      ? resolve(environment.HERDR_WEB_SERVERS_FILE)
+      : join(dirname(authFile), "servers.json"),
+    // Where PCs that announced themselves said they are.
+    announcementsFile: join(dirname(authFile), "announced.json"),
+    // Saved AI CLI sign-ins sit with the other credentials, not with uploads.
+    aiAccountsDir: environment.HERDR_WEB_AI_ACCOUNTS_DIR
+      ? resolve(environment.HERDR_WEB_AI_ACCOUNTS_DIR)
+      : join(dirname(authFile), "ai-accounts"),
+    pushFile: defaultPushFilePath(environment),
+  };
+}
+
 export function readConfig(environment = process.env) {
   const port = parsePort(environment.HERDR_WEB_PORT);
   const peer = peerSettings(environment, parseHost(environment.HERDR_WEB_HOST), port);
   return Object.freeze({
     port,
     herdrBin: environment.HERDR_BIN || "herdr",
-    authFile: defaultAuthFilePath(environment),
-    // PCs connected with Connect PC.
-    serversFile: environment.HERDR_WEB_SERVERS_FILE || join(dirname(defaultAuthFilePath(environment)), "servers.json"),
-    // Where PCs that announced themselves said they are.
-    announcementsFile: join(dirname(defaultAuthFilePath(environment)), "announced.json"),
-    // Saved AI CLI sign-ins sit with the other credentials, not with uploads.
-    aiAccountsDir: environment.HERDR_WEB_AI_ACCOUNTS_DIR
-      ? resolve(environment.HERDR_WEB_AI_ACCOUNTS_DIR)
-      : join(dirname(defaultAuthFilePath(environment)), "ai-accounts"),
-    pushFile: defaultPushFilePath(environment),
+    ...dataPaths(environment),
     extraAllowedHosts: parseAllowedHosts(environment.HERDR_WEB_ALLOWED_HOSTS),
     filesDir: defaultFilesDirectory(environment),
     commandTimeoutMs: 5_000,
