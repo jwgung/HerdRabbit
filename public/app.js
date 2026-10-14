@@ -3244,20 +3244,19 @@ const attachedTerminal = createAttachedTerminal({
 // A phone keyboard takes the bottom of the screen. The page shrinks to what is
 // still visible, so the composer and key bar sit just above the keyboard
 // instead of under it, and the terminal keeps its size and shows its foot.
-// The tallest height seen at this width is the screen without a keyboard; a
-// new width is a turned phone (or a pinch zoom), which starts over.
+// The tallest height seen at a width is the screen without a keyboard; each
+// width (a phone held upright or turned) keeps its own.
+// A keyboard takes far more than this; a browser's address bar folding away
+// takes less.
 const KEYBOARD_MIN_HEIGHT_PX = 120;
 if (window.visualViewport) {
   const viewport = window.visualViewport;
-  let width = 0;
-  let tallest = 0;
+  const unobstructedHeights = new Map();
   const followKeyboard = () => {
-    if (Math.abs(viewport.width - width) > 1) {
-      width = viewport.width;
-      tallest = 0;
-    }
-    tallest = Math.max(tallest, viewport.height);
-    const open = usesTouchInputEnvironment() && viewport.height < tallest - KEYBOARD_MIN_HEIGHT_PX;
+    const width = Math.round(viewport.width);
+    const unobstructed = Math.max(unobstructedHeights.get(width) ?? 0, viewport.height);
+    unobstructedHeights.set(width, unobstructed);
+    const open = usesTouchInputEnvironment() && viewport.height < unobstructed - KEYBOARD_MIN_HEIGHT_PX;
     if (open) document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
     else document.documentElement.style.removeProperty("--app-height");
     attachedTerminal.setKeyboardOpen(open);

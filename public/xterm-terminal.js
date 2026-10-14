@@ -671,9 +671,11 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     // While a phone keyboard is up the terminal does not fit to the smaller
     // frame; it shows its foot instead, and fits again once the keyboard goes.
     setKeyboardOpen(open) {
+      // Never fitted (hidden until now): there is no size to keep yet.
+      if (open && fullHeight === 0) open = false;
       if (open === keyboardOpen) return;
       keyboardOpen = open;
-      if (open && fullHeight > 0) host.style.setProperty("--terminal-full-height", `${fullHeight}px`);
+      if (open) host.style.setProperty("--terminal-full-height", `${fullHeight}px`);
       else host.style.removeProperty("--terminal-full-height");
       host.classList.toggle("is-keyboard-open", open);
       if (!open) fitNow();
