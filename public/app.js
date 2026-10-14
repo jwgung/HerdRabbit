@@ -2785,14 +2785,29 @@ function isLinkableTerminalPath(raw) {
   return (previewFor(name) !== null || isFileName(name) || isFolderPath(raw)) && resolveTerminalPath(raw) !== null;
 }
 
-function openTerminalPath(raw) {
+// Whether `path` on `server` lists as a folder. A file, or nothing there,
+// does not.
+async function listsAsFolder(server, path) {
+  try {
+    await transferRequest(`/api/browse?server=${encodeURIComponent(server)}&path=${encodeURIComponent(path)}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function openTerminalPath(raw) {
   const resolved = resolveTerminalPath(raw);
   if (!resolved) return;
   // a closing slash says "folder"; the name is the last one before it
   const trimmed = resolved.replace(/\/+$/u, "") || "/";
   const name = trimmed.split("/").pop();
   const server = paneServerId(state.selectedPaneId) || "local";
-  if (trimmed === resolved && previewFor(name) !== null) void viewFile(resolved, name, server);
+  // A folder may well be called `docs.md`: one written out in full is asked
+  // about before the viewer is opened on it.
+  const viewable = trimmed === resolved && previewFor(name) !== null
+    && !(isFolderPath(raw) && await listsAsFolder(server, trimmed));
+  if (viewable) void viewFile(resolved, name, server);
   else void revealInFiles(trimmed, name, server);
 }
 
