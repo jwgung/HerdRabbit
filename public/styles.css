@@ -2091,8 +2091,8 @@ body.is-resizing-sidebar {
   grid-template-rows: auto minmax(0, 1fr) auto auto;
 }
 
-/* Both footer controls are the same square; the settings button is the summary
-   of a menu, so it carries the menu's border-on-open look. */
+/* Both footer controls are the same square and look alike: the settings button
+   is a menu summary, so it repeats the uploads button's ghost look by hand. */
 .uploads-button,
 .settings-button {
   width: 34px;
@@ -2100,14 +2100,23 @@ body.is-resizing-sidebar {
   height: 34px;
   min-height: 30px;
   flex: 0 0 34px;
-  padding: 5px 9px;
+  /* No side padding: the 20px icon would not fit beside it and would sit off
+     to one side. The grid centres it instead. */
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
   color: var(--control-text);
 }
 
 .settings-button {
   border-color: var(--line);
   border-radius: var(--radius-sm);
-  background: var(--surface-raised);
+  background: transparent;
+}
+
+.settings-button:hover {
+  border-color: var(--hover-line);
+  background: var(--hover-surface);
 }
 
 .uploads-button svg,

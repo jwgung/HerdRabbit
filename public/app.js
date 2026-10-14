@@ -1,6 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.45";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.45";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.45";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.46";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.46";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.46";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -50,7 +50,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.45";
+} from "./ui-model.js?v=1.2.46";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -61,42 +61,42 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.45";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.45";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.45";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.45";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.45";
-import { createChatFind } from "./chat/chat-find.js?v=1.2.45";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.45";
+} from "./browse-preference.js?v=1.2.46";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.46";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.46";
+import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.46";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.46";
+import { createChatFind } from "./chat/chat-find.js?v=1.2.46";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.46";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.45";
-import { chatAgent } from "./lens-preference.js?v=1.2.45";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.45";
+} from "./chat-font-preference.js?v=1.2.46";
+import { chatAgent } from "./lens-preference.js?v=1.2.46";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.46";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.45";
+} from "./pane-preference.js?v=1.2.46";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.45";
+} from "./workspace-preference.js?v=1.2.46";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.45";
+} from "./terminal-preference.js?v=1.2.46";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.45";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.45";
+} from "./completion-preference.js?v=1.2.46";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.46";
 import {
   attachSidebarDrag,
   dropScope,
@@ -105,14 +105,14 @@ import {
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.2.45";
-import { renamePaneKeys } from "./pane-rename.js?v=1.2.45";
-import { renamePaneLenses } from "./lens-preference.js?v=1.2.45";
+} from "./sidebar-drag.js?v=1.2.46";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.46";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.46";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.45";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.45";
+} from "./input-history-preference.js?v=1.2.46";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.46";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -128,16 +128,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.45";
+} from "./key-bar-preference.js?v=1.2.46";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.45";
+} from "./launch-session.js?v=1.2.46";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.45";
+} from "./push-notifications.js?v=1.2.46";
 
 function browserStorage() {
   try {
@@ -349,7 +349,6 @@ const elements = {
   shell: document.querySelector(".shell"),
   navigator: document.querySelector("#navigator"),
   navigatorContent: document.querySelector("#navigator-content"),
-  createProject: document.querySelector("#create-project"),
   sidebarToggle: document.querySelector("#sidebar-toggle"),
   sidebarScrim: document.querySelector("#sidebar-scrim"),
   mobileSidebarOpen: document.querySelector("#mobile-sidebar-open"),
@@ -1150,11 +1149,16 @@ function snapshotRecords() {
   };
 }
 
-function selectedHerdrSession() {
-  const { herdrSessions, panes } = snapshotRecords();
-  if (herdrSessions.length === 0) {
-    return { session_id: null, name: "default", running: true, available: true };
+// The Herdr session a new project on `serverId` opens in: the selected pane's,
+// when it is on that machine, else the machine's default.
+function herdrSessionForServer(serverId) {
+  const { herdrSessions: all, panes } = snapshotRecords();
+  if (all.length === 0) {
+    return serverId === "local"
+      ? { session_id: null, name: "default", running: true, available: true }
+      : null;
   }
+  const herdrSessions = all.filter((session) => (session.server_id || "local") === serverId);
   const selectedPane = panes.find(
     (pane) => idOf(pane, "pane_id", "id") === state.selectedPaneId,
   );
@@ -1167,15 +1171,11 @@ function selectedHerdrSession() {
     (session) => idOf(session, "session_id", "id") === selectedSessionId &&
       session.running === true && session.available === true,
   ) || herdrSessions.find(
-    (session) => session.default === true && session.running === true &&
+    (session) => session.machine_default === true && session.running === true &&
       session.available === true,
   ) || herdrSessions.find(
     (session) => session.running === true && session.available === true,
   ) || null;
-}
-
-function syncCreateProjectAvailability() {
-  elements.createProject.disabled = selectedHerdrSession() === null;
 }
 
 function agentForPane(paneId) {
@@ -1369,7 +1369,6 @@ function adoptMutationSnapshot(snapshot, preferredPaneId = null) {
     state.preferredPaneId = preferredPaneId;
   }
   choosePane();
-  syncCreateProjectAvailability();
   renderNavigation();
   const selected = selectedRecords();
   renderPaneHeading(selected.pane, selected.tab, selected.workspace);
@@ -2414,7 +2413,14 @@ document.querySelector("#ai-accounts-login-cancel")
   .addEventListener("click", () => void aiAccountsAction(cancelAiLogin));
 
 function serverActionMenu(server) {
+  // A project is made on a machine, so it is offered on that machine's row.
+  const newProject = herdrSessionForServer(server.id) ? [{
+    label: "New project",
+    paths: ["M12 5v14M5 12h14"],
+    onSelect: () => openCreateProject(server.id),
+  }] : [];
   const actions = [
+    ...newProject,
     {
       label: "Details",
       paths: ["M12 8h.01", "M11 12h1v4h1", "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"],
@@ -3077,7 +3083,6 @@ async function refreshSnapshot() {
     choosePane();
     pruneAcknowledgedCompletions();
     if (state.selectedPaneId) acknowledgePaneCompletion(state.selectedPaneId);
-    syncCreateProjectAvailability();
     if (!renameIsOpen()) renderNavigation();
     const selected = selectedRecords();
     renderPaneHeading(selected.pane, selected.tab, selected.workspace);
@@ -3948,29 +3953,30 @@ renderKeyBar();
 
 window.addEventListener("blur", clearKeyModifiers);
 
-elements.createProject.addEventListener("click", () => {
-  document.querySelector("#add-menu").open = false;
+function openCreateProject(serverId) {
   if (state.mutationBusy) return;
-  const herdrSession = selectedHerdrSession();
+  const herdrSession = herdrSessionForServer(serverId);
   if (!herdrSession) return;
   state.createProjectSessionId = idOf(herdrSession, "session_id", "id") || null;
   const select = document.querySelector("#project-server-session");
   select.replaceChildren();
-  for (const session of snapshotRecords().herdrSessions.filter((item) => item.running && item.available)) {
+  // Only this machine's sessions: the row it was opened from chose the machine.
+  for (const session of snapshotRecords().herdrSessions.filter((item) =>
+    item.running && item.available && (item.server_id || "local") === serverId)) {
     const option = createElement("option", { text: `${session.server_name || "Local"} / ${session.name}` });
     option.value = idOf(session, "session_id", "id");
     select.append(option);
   }
   select.value = state.createProjectSessionId || "";
   select.disabled = select.options.length < 2;
-  elements.projectSessionContext.textContent = snapshotRecords().herdrSessions.length > 1
+  elements.projectSessionContext.textContent = select.options.length > 1
     ? `A default shell will open in Herdr session “${herdrSession.name}”.`
     : "A default shell will open.";
   elements.projectDialogFeedback.textContent = "";
   elements.projectDialogFeedback.dataset.error = "false";
   elements.projectDialog.showModal();
   window.requestAnimationFrame(() => elements.projectName.focus());
-});
+}
 
 elements.projectDialogCancel.addEventListener("click", () => {
   if (!state.mutationBusy) elements.projectDialog.close();
@@ -5690,7 +5696,8 @@ async function initializeApplication() {
   state.pushPublicKey = typeof bootstrap.pushPublicKey === "string"
     ? bootstrap.pushPublicKey
     : null;
-  document.querySelector("#add-machine").hidden = bootstrap.machines !== true;
+  // Adding a machine is the + menu's only item, so without it there is no menu.
+  document.querySelector("#add-menu").hidden = bootstrap.machines !== true;
   showApplication();
   showLegacyServersNotice(bootstrap.legacyServers);
   browseState.pinnedServer = readFileServer(browsePathStorage);
