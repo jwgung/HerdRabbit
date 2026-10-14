@@ -69,6 +69,17 @@ test("marks a machine that is already registered", async () => {
   assert.equal(stateOf(candidates, "ready-box"), "added");
 });
 
+test("a saved announcement that is not an address is left out, not the whole search", async () => {
+  const { candidates } = await discoverLeaves({
+    hubVersion: HUB_VERSION, execute, fetchImpl,
+    announced: [{ name: "broken", address: "not a url" }, { name: "odd", address: "file:///etc/passwd" }, { name: "second", address: "http://100.64.0.2:30002" }],
+  });
+  assert.equal(stateOf(candidates, "ready-box"), "ready");
+  assert.equal(stateOf(candidates, "broken"), undefined);
+  assert.equal(stateOf(candidates, "odd"), undefined);
+  assert.ok(candidates.some((candidate) => candidate.address === "http://100.64.0.2:30002"), "a good claim is still probed");
+});
+
 test("a PC on another app version but the same link protocol is ready to connect", async () => {
   const answering = async () => new Response(JSON.stringify({ product: "herdrabbit", version: "9.0.0", link_protocol: 1, scope: "local" }), { status: 200 });
   const { candidates } = await discoverLeaves({ hubVersion: HUB_VERSION, execute, fetchImpl: answering });

@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { HttpError, sendJson } from "./http-basics.mjs";
 import { PeerRejected } from "./peer-identity.mjs";
-import { errorResponse } from "./http-server.mjs";
+import { errorResponse } from "./error-response.mjs";
 import { hostPort } from "./config.mjs";
 
 // How many sockets the port holds open at once. A hub keeps a few: its polls,

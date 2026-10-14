@@ -183,10 +183,14 @@ const peerServer = config.peerHost ? createPeerServer({
 // Says where the Connect PC port is, to the PC that should connect to it.
 let announcer = { stop() {} };
 
+// Either listener failing stops the whole service, so systemd sees the failure
+// and restarts it, instead of a page without its Connect PC port running on --
+// or a Connect PC port without its page.
 function listenFailed(port) {
   return (error) => {
     console.error(error.code === "EADDRINUSE" ? `Port ${port} is already in use.` : `Server failed: ${error.message}`);
     process.exitCode = 1;
+    void shutdown().finally(() => process.exit(1));
   };
 }
 

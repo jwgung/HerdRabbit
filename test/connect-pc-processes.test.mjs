@@ -154,3 +154,24 @@ test("one HerdRabbit connects to another's Connect PC port, and each keeps its o
   const output = await (await fetch(`${laptopPage}/api/panes/${encodeURIComponent(remotePane.pane_id)}/output?lines=20`)).json();
   assert.match(output.output, /desk project screen/u);
 });
+
+test("a Connect PC port that cannot open stops the whole HerdRabbit, page and all", { timeout: 30_000 }, async (context) => {
+  const root = await mkdtemp(join(tmpdir(), "herdrabbit-connect-pc-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const pagePort = await freePort();
+  // Something else already holds the Connect PC port.
+  const holder = createServer();
+  holder.listen(0, "127.0.0.1");
+  await once(holder, "listening");
+  context.after(() => new Promise((resolve) => holder.close(resolve)));
+  const { child, output } = await startHerdRabbit(context, root, "desk", {
+    HERDR_WEB_PORT: String(pagePort),
+    HERDR_WEB_PEER_HOST: "127.0.0.1",
+    HERDR_WEB_PEER_PORT: String(holder.address().port),
+    HERDR_WEB_PEER_ADDRESSES: "127.0.0.1",
+  });
+  const [code] = await once(child, "exit");
+  assert.equal(code, 1, output.join(""));
+  assert.match(output.join(""), /already in use/u);
+  await assert.rejects(() => fetch(`http://127.0.0.1:${pagePort}/`), "the page is not left running");
+});

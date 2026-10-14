@@ -159,7 +159,8 @@ function parsePeerLogins(value) {
 
 function parsePeerAddresses(value) {
   if (value === undefined || value.trim() === "") return [];
-  const addresses = value.split(",").map((address) => address.trim().toLowerCase()).filter(Boolean);
+  // One spelling per address, the one a socket reports: fd7a:115c:a1e0:0::9 is fd7a:115c:a1e0::9.
+  const addresses = value.split(",").map((address) => canonicalAddress(address)).filter(Boolean);
   // Only a tailnet address proves a device; loopback is this PC's own, for trying it out here.
   for (const address of addresses) {
     if (isIP(address) === 0 || !(isTailnetAddress(address) || isLoopbackHost(address))) {

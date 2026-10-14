@@ -129,10 +129,14 @@ export async function discoverLeaves({
 
   // A machine that announced itself is on a port no scan would have tried --
   // a second account on a machine that already has one, most often.
-  const claims = announced.map(async (claim) => {
-    const host = new URL(claim.address).hostname;
-    const peer = { name: byName.get(host) ? `${byName.get(host)} (${new URL(claim.address).port})` : claim.name, address: host };
-    return probe(peer, { hubVersion, port: new URL(claim.address).port || port, fetchImpl, timeoutMs: probeTimeoutMs });
+  // A saved claim whose address no longer reads as one is left out, not the whole search.
+  const claims = announced.flatMap((claim) => {
+    let url;
+    try { url = new URL(claim?.address); } catch { return []; }
+    if (url.protocol !== "http:") return [];
+    const host = url.hostname;
+    const peer = { name: byName.get(host) ? `${byName.get(host)} (${url.port})` : claim.name, address: host };
+    return [probe(peer, { hubVersion, port: url.port || port, fetchImpl, timeoutMs: probeTimeoutMs })];
   });
 
   const found = await Promise.all([...probes, ...claims]);

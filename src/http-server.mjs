@@ -5,34 +5,31 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   InputValidationError,
-  HerdrCommandError,
   ALLOWED_KEYS,
   MAX_PANE_READ_LINES,
   validation,
 } from "./herdr-client.mjs";
 import { PasswordAttemptsByKey, PasswordAuth } from "./password-auth.mjs";
-import { PasskeyError, browserLabel, passkeyLabel } from "./passkey-auth.mjs";
+import { browserLabel, passkeyLabel } from "./passkey-auth.mjs";
 import { OutputRevisions } from "./output-revisions.mjs";
 import { attachTerminalWebSocket } from "./terminal-websocket.mjs";
 import { HttpError, acceptUpload, aiAccountRoute, decodePaneId, readJsonBody, sendJson } from "./http-basics.mjs";
-import { AiAccountError } from "./ai-accounts.mjs";
 import {
   PEER_ADDRESS_HEADER, PEER_LOGIN_HEADER,
   isLoopbackSocket, nearestForwardedAddress, normalizeLogin, socketAddress,
 } from "./peer-identity.mjs";
 import { terminalOutputWatcher } from "./terminal-output-watch.mjs";
-import { PushValidationError } from "./web-push-service.mjs";
 import { validateTransferName } from "./file-store.mjs";
-import { FileAccessError, fileAccessError, listDirectory, openFile, validateBrowsePath, directoryFingerprint, refuseProtected } from "./file-browser.mjs";
+import { fileAccessError, listDirectory, openFile, validateBrowsePath, directoryFingerprint, refuseProtected } from "./file-browser.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 import { MAX_TEXT_PREVIEW_BYTES, inlineTypeFor, isMarkdown } from "../public/file-preview.js";
 import { renderMarkdown } from "./markdown.mjs";
 import { secretPrompt } from "./secret-prompt.mjs";
 import { validMachineLabel, validMachineTarget } from "./herdr-machines.mjs";
 import { validateServerProfile } from "./server-profiles.mjs";
-import { ConversationError } from "./conversation/pages.mjs";
 import { ConversationMonitor } from "./conversation/monitor.mjs";
 import { ConversationService } from "./conversation/service.mjs";
+import { errorResponse } from "./error-response.mjs";
 import { PromptService } from "./prompt/service.mjs";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
@@ -302,47 +299,6 @@ export function outputWindow(output, requestedLines) {
     returnedLines: visibleRows.length,
     hasMore,
   };
-}
-
-export function errorResponse(error) {
-  if (error instanceof HttpError) {
-    return { status: error.status, code: error.code, message: error.message };
-  }
-  // File and SFTP failures already carry a status; without this they would
-  // surface as 500s from the paths that throw outside a route's own handling.
-  if (error instanceof FileAccessError) {
-    return { status: error.status, code: error.code, message: error.message };
-  }
-  if (error instanceof InputValidationError) {
-    return { status: 400, code: "invalid_input", message: error.message };
-  }
-  if (error instanceof PushValidationError) {
-    return { status: 400, code: "invalid_push_subscription", message: error.message };
-  }
-  if (error instanceof PasskeyError) {
-    return { status: error.status, code: error.code, message: error.message };
-  }
-  // Messages and details are written by the account manager itself and name
-  // no credential; details only ever lists the panes a switch would affect.
-  if (error instanceof AiAccountError) {
-    return { status: error.status, code: error.code, message: error.message, details: error.details };
-  }
-  // A conversation that cannot be shown says why (details.reason) for the
-  // page to word it; a stale cursor is a 409 the page reloads on.
-  if (error instanceof ConversationError) {
-    return { status: error.status, code: error.code, message: error.message, details: error.details };
-  }
-  if (error instanceof HerdrCommandError) {
-    return {
-      status: error.code === "herdr_timeout" ? 504
-        : error.code === "split_session" || error.code === "stale_content" ? 409
-          : error.code === "link_unsupported" ? 501 : 502,
-      code: error.code,
-      message: error.message,
-    };
-  }
-
-  return { status: 500, code: "internal_error", message: "Internal server error" };
 }
 
 // Unlike readJsonBody, an oversized upload cannot be drained: the point of the
