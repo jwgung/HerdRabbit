@@ -4,7 +4,7 @@
 // words are paths is path-links.js's to say, the same as in the chat; what is
 // the terminal's own is the screen: an address or a path cut at a row's end
 // goes on in the next row.
-import { MAX_QUOTED, findPaths, isFileName, linkableLabel, trimPunctuation } from "./path-links.js?v=1.2.42";
+import { MAX_QUOTED, findPaths, isFileName, linkableLabel, trimPunctuation, trimTrailingSlashes } from "./path-links.js?v=1.2.43";
 
 function trimUrlPunctuation(label) {
   let cleaned = label;
@@ -116,37 +116,41 @@ function findUrls(text) {
 // (`/home/me/doc-` + `viewer`).
 function extendRun(text, run, own, isLinkable) {
   const { start, end, raw } = run;
-  const extendable = own === null || (!isFileName(own.replace(/\/+$/u, "").split("/").pop()));
-
   let best = own === null ? null : { start, end: start + own.length, path: own };
-  if (extendable) {
-    let currentEnd = end;
-    let accumulated = raw;
+  // a complete file name stays as it is
+  if (own !== null && isFileName(trimTrailingSlashes(own).split("/").pop())) return best;
 
-    while (currentEnd < text.length) {
-      const newlineMatch = text.slice(currentEnd).match(/^(\r?\n)([ \t]*)/);
-      if (!newlineMatch) break;
-      if (own !== null && newlineMatch[2]) break;
+  let currentEnd = end;
+  let accumulated = raw;
+  for (;;) {
+    const next = nextRowStart(text, currentEnd, own !== null);
+    if (next === null) break;
+    const contMatch = text.slice(next).match(/^[^\s'"`)\]>:,;\x00-\x1f\x7f]+/);
+    if (!contMatch) break;
 
-      const nextPos = currentEnd + newlineMatch[0].length;
-      const contMatch = text.slice(nextPos).match(/^[^\s'"`)\]>:,;\x00-\x1f\x7f]+/);
-      if (!contMatch) break;
-
-      const rawCont = contMatch[0];
-      const trimmedCont = trimPunctuation(rawCont);
-      const candidate = linkableLabel(accumulated + trimmedCont, isLinkable);
-      if (candidate !== null) {
-        best = { start, end: nextPos + trimmedCont.length, path: candidate };
-        if (own === null) break;
-      }
-
-      accumulated += rawCont;
-      currentEnd = nextPos + rawCont.length;
-      // a continuation that itself ended in punctuation is the end of the path
-      if (own !== null && trimmedCont.length !== rawCont.length) break;
+    const rawCont = contMatch[0];
+    const trimmedCont = trimPunctuation(rawCont);
+    const candidate = linkableLabel(accumulated + trimmedCont, isLinkable);
+    if (candidate !== null) {
+      best = { start, end: next + trimmedCont.length, path: candidate };
+      if (own === null) break;
     }
+
+    accumulated += rawCont;
+    currentEnd = next + rawCont.length;
+    // a continuation that itself ended in punctuation is the end of the path
+    if (own !== null && trimmedCont.length !== rawCont.length) break;
   }
   return best;
+}
+
+// Where the next screen row's text starts when a newline follows `at`, or null.
+// A path that is already linkable only goes on at the row's very edge, not past
+// indentation.
+function nextRowStart(text, at, alreadyLinkable) {
+  const newline = text.slice(at).match(/^(\r?\n)([ \t]*)/);
+  if (!newline || (alreadyLinkable && newline[2])) return null;
+  return at + newline[0].length;
 }
 
 // The most screen rows one quoted path is followed across.

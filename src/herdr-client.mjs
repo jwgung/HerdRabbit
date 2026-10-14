@@ -117,6 +117,32 @@ function carriedTabLabel(label) {
   }
 }
 
+// A move result with its ids put through `scope` (a session or machine
+// prefix), for callers that hand the page scoped ids.
+export function mapMovedIds(result, scope) {
+  return {
+    ...result,
+    tab_id: scope(result.tab_id),
+    panes: result.panes.map(({ from, to }) => ({ from: scope(from), to: scope(to) })),
+  };
+}
+
+// `herdr pane move` arguments that lift a pane into a new tab of a project.
+function paneMoveArgs(paneId, workspaceId, label) {
+  return ["pane", "move", paneId, "--new-tab", "--workspace", workspaceId, ...(label ? [`--label=${label}`] : []), "--no-focus"];
+}
+
+// The pane and tab Herdr made from a pane move, as { paneId, tabId }.
+function movedPaneIds(result) {
+  const moved = result?.move_result ?? result;
+  const paneId = moved?.pane?.pane_id;
+  const tabId = moved?.created_tab?.tab_id ?? moved?.pane?.tab_id;
+  if (typeof paneId !== "string" || !PANE_ID_PATTERN.test(paneId) || typeof tabId !== "string" || !TAB_ID_PATTERN.test(tabId)) {
+    throw new HerdrCommandError("Herdr returned an unexpected move result", { code: "invalid_herdr_response" });
+  }
+  return { paneId, tabId };
+}
+
 function validateText(text) {
   if (typeof text !== "string" || text.length === 0) {
     throw new InputValidationError("Text must not be empty");
@@ -376,15 +402,9 @@ export class HerdrClient {
     }
     const targetTabs = (snapshot.tabs ?? []).filter((item) => item.workspace_id === safeWorkspaceId).length;
     const label = carriedTabLabel(tab.label);
-    const result = await this.#run(
-      ["pane", "move", paneIds[0], "--new-tab", "--workspace", safeWorkspaceId, ...(label ? [`--label=${label}`] : []), "--no-focus"],
+    const { paneId: to, tabId: newTabId } = movedPaneIds(
+      await this.#run(paneMoveArgs(paneIds[0], safeWorkspaceId, label)),
     );
-    const moved = result?.move_result ?? result;
-    const to = moved?.pane?.pane_id;
-    const newTabId = moved?.created_tab?.tab_id ?? moved?.pane?.tab_id;
-    if (typeof to !== "string" || !PANE_ID_PATTERN.test(to) || typeof newTabId !== "string" || !TAB_ID_PATTERN.test(newTabId)) {
-      throw new HerdrCommandError("Herdr returned an unexpected move result", { code: "invalid_herdr_response" });
-    }
     // The new tab opened last; put it where it was dropped.
     let reordered = true;
     if (safeIndex < targetTabs) {

@@ -1,4 +1,4 @@
-import { createConnection } from "node:net";
+import { connectHerdrSocket, createLineBuffer, whenConnected } from "./herdr-socket.mjs";
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 let nextRequest = 0;
@@ -10,7 +10,7 @@ export function callHerdrSocket({ socketPath, method, params, openSocket, timeou
   const id = `herdrabbit-${process.pid}-${++nextRequest}`;
   return new Promise((resolve, reject) => {
     let socket = null;
-    let buffer = "";
+    const buffer = createLineBuffer();
     // Counted in bytes as they arrive, not in the decoded string's characters.
     let received = 0;
     let settled = false;
@@ -23,24 +23,20 @@ export function callHerdrSocket({ socketPath, method, params, openSocket, timeou
       else resolve(result);
     };
     const timer = setTimeout(() => finish(wrapError({ code: "herdr_timeout", message: "Herdr command timed out" })), timeoutMs);
-    Promise.resolve(openSocket ? openSocket(socketPath) : createConnection(socketPath)).then((opened) => {
+    Promise.resolve(connectHerdrSocket(socketPath, openSocket)).then((opened) => {
       socket = opened;
       if (settled) { socket.destroy(); return; }
       socket.setEncoding("utf8");
       socket.on("error", () => finish(wrapError({ code: "server_unavailable", message: "Herdr socket is unavailable" })));
       socket.on("close", () => finish(wrapError({ code: "herdr_command_failed", message: "Herdr command failed" })));
       socket.on("data", (chunk) => {
-        buffer += chunk;
+        buffer.append(chunk);
         received += Buffer.byteLength(chunk, "utf8");
         if (received > MAX_RESPONSE_BYTES) {
           finish(wrapError({ code: "invalid_herdr_response", message: "Herdr returned too much" }));
           return;
         }
-        let boundary;
-        while ((boundary = buffer.indexOf("\n")) >= 0) {
-          const line = buffer.slice(0, boundary);
-          buffer = buffer.slice(boundary + 1);
-          if (!line) continue;
+        for (const line of buffer.lines()) {
           let message;
           try {
             message = JSON.parse(line);
@@ -60,8 +56,7 @@ export function callHerdrSocket({ socketPath, method, params, openSocket, timeou
         }
       });
       const send = () => socket.write(`${JSON.stringify({ id, method, params })}\n`);
-      if (socket.connecting) socket.once("connect", send);
-      else send();
+      whenConnected(socket, send);
     }, () => finish(wrapError({ code: "server_unavailable", message: "Herdr socket is unavailable" })));
   });
 }

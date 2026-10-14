@@ -14,15 +14,21 @@ export const DRAG_CLICK_WINDOW = 400;
 // The leave transition lasts 0.22s; this backstop finishes it if
 // `transitionend` never comes.
 const LEAVE_BACKSTOP = 400;
+// Release speed is measured over the last stretch of the drag only, so a
+// pause before letting go reads as slow.
+const VELOCITY_WINDOW_MS = 100;
+// How far past the screen's top edge an upward-thrown alert travels, so its
+// shadow is gone too.
+const OFFSCREEN_MARGIN = 24;
 
 // dx, dy: finger travel since touch start; vx, vy: release velocity (px/ms);
 // width, height: the alert's size. Down never dismisses: the alert sits at the
 // top, so only sideways and up leave.
-export function decideSwipe({ dx = 0, dy = 0, vx = 0, vy = 0, width, height, up = true } = {}) {
+export function decideSwipe({ dx = 0, dy = 0, vx = 0, vy = 0, width, height } = {}) {
   const w = width > 0 ? width : 1;
   const h = height > 0 ? height : 1;
   const sideways = Math.abs(dx) >= Math.abs(dy);
-  if (sideways || !up) {
+  if (sideways) {
     const far = Math.abs(dx) >= w * DISMISS_FRACTION;
     const flick = Math.abs(vx) >= FLICK_SPEED && Math.abs(dx) >= FLICK_MIN_DISTANCE && Math.sign(vx) === Math.sign(dx);
     if (far || flick) return { dismiss: true, direction: dx < 0 ? "left" : "right" };
@@ -32,6 +38,14 @@ export function decideSwipe({ dx = 0, dy = 0, vx = 0, vy = 0, width, height, up 
   const flick = vy <= -FLICK_SPEED && -dy >= FLICK_MIN_DISTANCE;
   if (far || flick) return { dismiss: true, direction: "up" };
   return { dismiss: false, direction: null };
+}
+
+// Where a dismissed alert ends up: off the side it was thrown toward, or off
+// the top. `dy` is already clamped to upward travel.
+function leaveTarget(direction, rect, dx, dy) {
+  if (direction === "left") return { x: -window.innerWidth, y: dy };
+  if (direction === "right") return { x: window.innerWidth, y: dy };
+  return { x: dx, y: -(rect.bottom + OFFSCREEN_MARGIN) };
 }
 
 // Wires touch swipes onto `element`. The element must position itself with
@@ -76,7 +90,7 @@ export function attachSwipeDismiss(element, { onDismiss, reducedMotion = () => f
 
   function velocity() {
     const t = now();
-    const recent = samples.filter((s) => t - s.t <= 100);
+    const recent = samples.filter((s) => t - s.t <= VELOCITY_WINDOW_MS);
     if (recent.length < 2) return { vx: 0, vy: 0 };
     const a = recent[0];
     const b = recent[recent.length - 1];
@@ -111,7 +125,8 @@ export function attachSwipeDismiss(element, { onDismiss, reducedMotion = () => f
     if (!start || event.pointerId !== start.id) return;
     const { moved } = start;
     const dx = event.clientX - start.x;
-    const dy = event.clientY - start.y;
+    // Down is resisted, so only upward travel counts.
+    const dy = Math.min(0, event.clientY - start.y);
     const { vx, vy } = velocity();
     start = null;
     if (!moved) return;
@@ -120,10 +135,9 @@ export function attachSwipeDismiss(element, { onDismiss, reducedMotion = () => f
     const rect = element.getBoundingClientRect();
     const decision = cancelled
       ? { dismiss: false }
-      : decideSwipe({ dx, dy: Math.min(0, dy), vx, vy, width: rect.width, height: rect.height });
+      : decideSwipe({ dx, dy, vx, vy, width: rect.width, height: rect.height });
     if (!decision.dismiss) { settle(); return; }
-    const x = decision.direction === "left" ? -window.innerWidth : decision.direction === "right" ? window.innerWidth : dx;
-    const y = decision.direction === "up" ? -(rect.bottom + 24) : Math.min(0, dy);
+    const { x, y } = leaveTarget(decision.direction, rect, dx, dy);
     if (reducedMotion()) { settle(); onDismiss(); return; }
     element.classList.add("leaving");
     apply(x, y);

@@ -3,6 +3,7 @@ import {
   HerdrClient,
   HerdrCommandError,
   InputValidationError,
+  mapMovedIds,
   validation,
 } from "./herdr-client.mjs";
 
@@ -267,12 +268,7 @@ export class HerdrBridgeClient {
     }
     const result = await this.#clientForSession(tab.sessionName)
       .moveTabToWorkspace(tab.localId, workspace.localId, insertIndex);
-    const scope = (id) => scopedId(tab.sessionName, id);
-    return {
-      ...result,
-      tab_id: scope(result.tab_id),
-      panes: result.panes.map(({ from, to }) => ({ from: scope(from), to: scope(to) })),
-    };
+    return mapMovedIds(result, (id) => scopedId(tab.sessionName, id));
   }
 
   async readPane(paneId, options) {
