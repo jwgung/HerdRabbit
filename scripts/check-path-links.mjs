@@ -4,7 +4,9 @@
 // name with no extension (`feat/settings-menu`) stays plain text, and a file
 // that is not in its folder leaves a short note. A folder written out in full
 // (absolute, or starting with ./) is a link too and opens the Files tab inside
-// it; an extensionless file path is selected in its parent instead. Runs against a fake herdr.
+// it; an extensionless file path is selected in its parent instead. A folder
+// with a space, named in quotes, is one link (wrapped onto the next row on the
+// phone) and opens that folder. Runs against a fake herdr.
 // PATHLINK_SCREENSHOTS=<folder> keeps pictures of the phone.
 import assert from "node:assert/strict";
 import { once } from "node:events";
@@ -34,6 +36,10 @@ await writeFile(plain, "z");
 const dottedFolder = join(release, "bundle.md");
 await mkdir(dottedFolder);
 await writeFile(join(dottedFolder, "inside-bundle.txt"), "w");
+// a folder with a space in its name, named in quotes: the whole quoted path is one link
+const spaced = join(release, "my folder");
+await mkdir(spaced);
+await writeFile(join(spaced, "spaced-file.txt"), "v");
 
 const snapshot = {
   focused_workspace_id: "w1", focused_tab_id: "w1:t1", focused_pane_id: "w1:p1",
@@ -55,7 +61,7 @@ const snapshot = {
   ],
   agents: [],
 };
-const output = `\x1b[?1049hbuilt ${target}\r\nmissing ${missing}\r\nviewer ${notes}\r\nbranch feat/settings-menu 1/2\r\nfolder ${release}\r\nrel ./docviewer-release/inner-folder\r\nplain ${plain}\r\ndotted ${dottedFolder}\r\ncmd /compact src/foo\r\n$ `;
+const output = `\x1b[?1049hbuilt ${target}\r\nmissing ${missing}\r\nviewer ${notes}\r\nbranch feat/settings-menu 1/2\r\nfolder ${release}\r\nrel ./docviewer-release/inner-folder\r\nplain ${plain}\r\ndotted ${dottedFolder}\r\nquoted cd "${spaced}"\r\ncmd /compact src/foo\r\n$ `;
 const attachments = new PaneAttachments({
   log: () => {},
   options: { holdMs: 5, heldRetryMs: 60_000, relookupForMs: 200 },
@@ -101,7 +107,7 @@ try {
       return boxes.filter((box) => box.left > edge + 1).map((box) => ({ x: box.left, y: box.top, width: box.width }));
     });
     const marks = starts.length;
-    assert.equal(marks, 7, "the .aab, the missing .aab, the .md, the two folders, the extensionless file and the folder named like a file are links; the branch, the fraction and the slash command are not");
+    assert.equal(marks, 8, "the .aab, the missing .aab, the .md, the two folders, the extensionless file, the folder named like a file and the quoted folder with a space are links; the branch, the fraction and the slash command are not");
     if (shots && mobile) await page.screenshot({ path: join(shots, "phone-dark-terminal-links.png") });
 
     // the underline marks sit under each link: press just above one
@@ -137,7 +143,7 @@ try {
     assert.equal(await page.locator("#file-path").inputValue(), release);
 
     // a folder: the absolute one opens, and the ./ one too -- Files shows what is inside it
-    for (const [index, folder, child] of [[3, release, "notes.md"], [4, inner, "inner-file.txt"], [6, dottedFolder, "inside-bundle.txt"]]) {
+    for (const [index, folder, child] of [[3, release, "notes.md"], [4, inner, "inner-file.txt"], [6, dottedFolder, "inside-bundle.txt"], [7, spaced, "spaced-file.txt"]]) {
       await page.evaluate(() => { document.querySelector("#tab-sessions").click(); });
       if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());
       await press(index);
@@ -216,7 +222,7 @@ try {
     await press(2);
     await page.locator("dialog[open]").first().waitFor({ state: "visible" });
     assert.deepEqual(errors, []);
-    console.log({ mobile, links: marks, filesTab: true, folders: true, extensionless: true, rowInView: true, missingNote: true, slowListing: true, pastTheCut: true, previewKept: true });
+    console.log({ mobile, links: marks, filesTab: true, folders: true, quotedSpaced: true, extensionless: true, rowInView: true, missingNote: true, slowListing: true, pastTheCut: true, previewKept: true });
     await context.close();
   }
   // A remote pane's link opens that machine's files, not this one's. The lab's

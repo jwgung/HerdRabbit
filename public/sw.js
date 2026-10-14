@@ -70,6 +70,7 @@ const APP_SHELL = [
   "/terminal-preference.js?v=1.2.42",
   "/completion-preference.js?v=1.2.42",
   "/swipe-dismiss.js?v=1.2.42",
+  "/path-links.js?v=1.2.42",
   "/sidebar-drag.js?v=1.2.42",
   "/pane-rename.js?v=1.2.42",
   "/input-history-preference.js?v=1.2.42",

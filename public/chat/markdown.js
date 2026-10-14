@@ -10,6 +10,8 @@
 // as an HTML string builder. HTML blocks (markdownHtml.ts) are left out: an
 // agent's text keeps them as text.
 
+import { findPaths, isFileName, isQuotablePath, namesPath } from "../path-links.js?v=1.2.42";
+
 // ---------------------------------------------------------------------------
 // Escaping and addresses.
 
@@ -80,38 +82,32 @@ export function trimUrl(url) {
 }
 
 // ---------------------------------------------------------------------------
-// File paths in prose ("saved to docs/demo.mp4"): a bare path needs a folder
-// and an extension, so "and/or" stays text; a code span need only be a name.
+// File paths in prose ("saved to docs/demo.mp4") are found by path-links.js,
+// the same finder the terminal uses, so the chat and the terminal link the same
+// words. A code span is one thing: the whole span is a path or it is not, and
+// there a bare file name is enough (`app.js`), as is a path with spaces
+// (`/home/me/my folder`) -- the backticks quote it.
 
-// A folder written out in full needs no extension: `/home/me/proj`, `./build`,
-// `../shared/`. An absolute one has at least two names, so `/compact` and
-// `and /or` stay text -- the same rule as isFolderPath in terminal-links.js.
-const FILE_PATH = String.raw`(?:~\/|\.{1,2}\/|\/)?(?:[\w@.+-]+\/)+[\w@+-][\w@.+-]*\.[A-Za-z0-9]{1,8}`;
-const FOLDER_PATH = String.raw`(?:\.{1,2}\/(?:[\w@.+-]+\/)*|\/(?:[\w@.+-]+\/)+)[\w@+-](?:[\w@.+-]*[\w@+-])?\/?`;
-const BARE_PATH = new RegExp(String.raw`(?<![\w/.@~-])(?<!\+(?!~))(${FILE_PATH}|${FOLDER_PATH})(?![\w/])`, "gu");
-// In a code span a bare file name is enough: `app.js`.
-const CODE_FILE = String.raw`(?:~\/|\.{1,2}\/|\/)?(?:[\w@.+-]+\/)*[\w@+-][\w@.+-]*\.[A-Za-z0-9]{1,8}`;
-const CODE_PATH = new RegExp(`^(?:${CODE_FILE}|${FOLDER_PATH})$`, "u");
 const CODE_NAME = /^(?:process\.(?:env|argv|cwd|exit|platform|stdout|stderr|stdin)(?:\.\w+)?|Math\.(?:random|floor|ceil|round|max|min|abs|pow|sqrt|trunc|sign)|JSON\.(?:parse|stringify)|console\.(?:log|error|warn|info|debug)|Object\.(?:keys|values|entries|assign|freeze)|Array\.(?:from|isArray)|Promise\.(?:all|race|any|allSettled|resolve|reject)|Number\.(?:isFinite|isInteger|parseInt|parseFloat)|os\.(?:path|environ|getcwd|getenv)|sys\.(?:argv|path|exit|stdout|stderr)|window\.(?:location|history|open)|document\.(?:body|title|cookie))$/u;
 
-export function splitFilePaths(text) {
+// Text and the paths in it, in order: strings and { path } parts.
+export function splitFilePaths(text, isLinkable = namesPath) {
   const parts = [];
   let offset = 0;
-  for (const match of text.matchAll(BARE_PATH)) {
-    const index = match.index ?? 0;
-    // a version number or a domain is not a path: one of its segments must hold a letter
-    if (!/[A-Za-z]/u.test(match[1].replace(/\.[A-Za-z0-9]{1,8}$/u, ""))) continue;
-    if (index > offset) parts.push(text.slice(offset, index));
-    parts.push({ path: match[1] });
-    offset = index + match[0].length;
+  for (const link of findPaths(text, isLinkable)) {
+    if (link.start > offset) parts.push(text.slice(offset, link.start));
+    parts.push({ path: link.path });
+    offset = link.end;
   }
   if (offset < text.length) parts.push(text.slice(offset));
   return parts;
 }
 
 export function codeIsFilePath(code) {
-  return CODE_PATH.test(code) && !(!code.includes("/") && CODE_NAME.test(code)) &&
-    /[A-Za-z]/u.test(code.replace(/\.[A-Za-z0-9]{1,8}$/u, "")) && !/^\d+(?:\.\d+)+$/u.test(code);
+  if (/\s/u.test(code)) return isQuotablePath(code) && namesPath(code);
+  if (code.includes("/")) return namesPath(code);
+  // a name alone: a file name, but not `process.env` or a version
+  return isFileName(code) && !CODE_NAME.test(code) && /[A-Za-z]/u.test(code.replace(/\.[A-Za-z0-9]{1,10}$/u, ""));
 }
 
 // ---------------------------------------------------------------------------
@@ -434,8 +430,8 @@ function inlineHtml(nodes, options, interactive = true) {
   return nodes.map((node) => {
     switch (node.type) {
       case "text":
-        return splitFilePaths(node.value).map((part) => (typeof part === "string" || !linkable(part.path)
-          ? escapeHtml(typeof part === "string" ? part : part.path)
+        return splitFilePaths(node.value, linkable).map((part) => (typeof part === "string"
+          ? escapeHtml(part)
           : fileButton(part.path, escapeHtml(part.path), false))).join("");
       case "code": {
         const file = fileUriPath(node.value);

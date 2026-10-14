@@ -1,6 +1,6 @@
 import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.42";
 import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.42";
-import { isFileName, isFolderPath } from "./terminal-links.js?v=1.2.42";
+import { isFileName, isFolderPath } from "./path-links.js?v=1.2.42";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
