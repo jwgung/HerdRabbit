@@ -206,6 +206,26 @@ try {
       assert.deepEqual(keysSent(), ["ctrl+c"], `${composed ? "composed" : "plain"} letter with Ctrl`);
       assert.equal(await input.inputValue(), "half a draft", `${composed ? "composed" : "plain"} letter stayed in the draft`);
     }
+    // Without a held modifier a composed letter is ordinary typing.
+    herdr.sent.length = 0;
+    await input.fill("half a draft");
+    await input.focus();
+    await cdp.send("Input.imeSetComposition", { text: "c", selectionStart: 1, selectionEnd: 1 });
+    await cdp.send("Input.insertText", { text: "c" });
+    await page.waitForTimeout(200);
+    assert.deepEqual(keysSent(), [], "a composed letter without a modifier was sent as a key");
+    assert.equal(await input.inputValue(), "half a draftc", "a composed letter without a modifier was lost");
+    // Alt takes a composed letter the same way.
+    herdr.sent.length = 0;
+    await input.fill("");
+    await bar.locator('[data-modifier="alt"]').click();
+    await input.focus();
+    await cdp.send("Input.imeSetComposition", { text: "b", selectionStart: 1, selectionEnd: 1 });
+    await cdp.send("Input.insertText", { text: "b" });
+    await page.waitForFunction(() => document.querySelector('#quick-keys [data-modifier="alt"]').getAttribute("aria-pressed") === "false");
+    await page.waitForTimeout(100);
+    assert.deepEqual(keysSent(), ["alt+b"], "composed letter with Alt");
+    assert.equal(await input.inputValue(), "", "composed letter with Alt stayed in the draft");
     await input.fill("");
 
     // Removing a latched modifier's button drops the latch.
