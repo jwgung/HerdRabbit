@@ -290,7 +290,7 @@ Project and tab names may appear on the lock screen. Previous commands and reque
 
 ### Projects and sessions
 
-- Use the top `+` action to create a named workspace with a default shell.
+- Use a machine's `⋯` menu → **New project** to create a named workspace with a default shell on that machine.
 - Use a project's `⋯` menu to rename it, add a shell session, or close the project.
 - Use a session's `⋯` menu to rename it or close that Herdr tab.
 - Collapse or expand a project's child sessions with the arrow beside its name.

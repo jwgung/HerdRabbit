@@ -10,18 +10,18 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>HerdRabbit</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <script src="/theme.js?v=1.2.45"></script>
+    <script src="/theme.js?v=1.2.46"></script>
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/rabbit-outline-32-v33.png" />
     <link rel="icon" type="image/svg+xml" href="/icons/rabbit-outline-v33.svg" />
     <link rel="apple-touch-icon" href="/icons/rabbit-outline-app-180-v35.png" />
     <link rel="stylesheet" href="/ui/ui.css" />
-    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.45" />
-    <link rel="stylesheet" href="/styles.css?v=1.2.45" />
-    <link rel="stylesheet" href="/chat/chat-view.css?v=1.2.45" />
-    <link rel="stylesheet" href="/chat/prompt-card.css?v=1.2.45" />
-    <link rel="stylesheet" href="/key-bar.css?v=1.2.45" />
-    <script src="/vendor/simplewebauthn-browser.js?v=1.2.45"></script>
-    <script type="module" src="/app.js?v=1.2.45"></script>
+    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.46" />
+    <link rel="stylesheet" href="/styles.css?v=1.2.46" />
+    <link rel="stylesheet" href="/chat/chat-view.css?v=1.2.46" />
+    <link rel="stylesheet" href="/chat/prompt-card.css?v=1.2.46" />
+    <link rel="stylesheet" href="/key-bar.css?v=1.2.46" />
+    <script src="/vendor/simplewebauthn-browser.js?v=1.2.46"></script>
+    <script type="module" src="/app.js?v=1.2.46"></script>
   </head>
   <body class="auth-pending">
     <main class="shell">
@@ -41,7 +41,7 @@
             </svg>
           </button>
           <div class="navigator-heading-actions">
-            <details id="add-menu" class="sidebar-action-menu">
+            <details id="add-menu" class="sidebar-action-menu" hidden>
             <summary
               class="icon-button navigator-create-project"
               aria-label="Add"
@@ -52,8 +52,7 @@
               </svg>
             </summary>
             <div class="sidebar-action-popover" role="menu">
-              <button id="create-project" class="sidebar-action-item" type="button" role="menuitem">New project</button>
-              <button id="add-machine" class="sidebar-action-item" type="button" role="menuitem" hidden>Add SSH machine</button>
+              <button id="add-machine" class="sidebar-action-item" type="button" role="menuitem">Add SSH machine</button>
             </div>
             </details>
           </div>
