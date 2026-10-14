@@ -10,6 +10,9 @@
 import { MAX_FIND_QUERY_LENGTH, findIsCaseSensitive, foldForFind } from "../terminal-find.js?v=1.2.45";
 
 const DEBOUNCE_MS = 150;
+// A reader this close to the bottom of the chat is "at the bottom": a new find
+// starts from the last match.
+const AT_BOTTOM_PX = 48;
 // Past this many matches the rest are neither marked nor counted ("1000+").
 export const MAX_CHAT_MATCHES = 1000;
 
@@ -86,8 +89,11 @@ export function markMatches(root, query, { document = globalThis.document, limit
   let capped = false;
   for (const run of textRuns(root)) {
     if (matches.length >= limit) {
-      capped = capped || run.length > 0 && findInText(run.map((node) => node.data).join(""), query).length > 0;
-      if (capped) break;
+      // Full: all that is left to learn is whether any match was left out.
+      if (findInText(run.map((node) => node.data).join(""), query).length > 0) {
+        capped = true;
+        break;
+      }
       continue;
     }
     const text = run.map((node) => node.data).join("");
@@ -184,8 +190,10 @@ export function createChatFind({
     form.hidden = !open;
     count.textContent = chatFindCountText({ query, total: matches.length, index, capped });
     const none = matches.length === 0;
-    olderButton.disabled = none && !input.value;
-    newerButton.disabled = none && !input.value;
+    // Stepping needs words to step through.
+    const stuck = none && !input.value;
+    olderButton.disabled = stuck;
+    newerButton.disabled = stuck;
     const older = open && chat ? chat.older() : { more: false, state: "idle" };
     more.hidden = !older.more;
     moreButton.disabled = older.state === "loading";
@@ -237,7 +245,7 @@ export function createChatFind({
   function startIndex() {
     const scroller = chat?.scroller;
     const view = scroller?.getBoundingClientRect?.();
-    if (!view || scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 48) return matches.length - 1;
+    if (!view || scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - AT_BOTTOM_PX) return matches.length - 1;
     for (let at = matches.length - 1; at >= 0; at -= 1) {
       const box = matches[at][0].getBoundingClientRect?.();
       if (!box || box.top <= view.bottom) return at;
