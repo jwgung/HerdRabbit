@@ -65,6 +65,7 @@ const STATIC_FILES = new Map([
   ["/terminal-preference.js", { path: `${PUBLIC_DIR}/terminal-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/completion-preference.js", { path: `${PUBLIC_DIR}/completion-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/swipe-dismiss.js", { path: `${PUBLIC_DIR}/swipe-dismiss.js`, type: "text/javascript; charset=utf-8" }],
+  ["/sidebar-drag.js", { path: `${PUBLIC_DIR}/sidebar-drag.js`, type: "text/javascript; charset=utf-8" }],
   ["/input-history-preference.js", { path: `${PUBLIC_DIR}/input-history-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/composer-draft-preference.js", { path: `${PUBLIC_DIR}/composer-draft-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/secret-prompt.js", { path: `${PUBLIC_DIR}/secret-prompt.js`, type: "text/javascript; charset=utf-8" }],
@@ -1229,6 +1230,33 @@ export function createHerdrHttpServer({
         const body = await readJsonBody(request, maxBodyBytes);
         await herdr.renameTab(decodePaneId(tabRenameMatch[1]), body.label);
         sendJson(response, 200, { ok: true });
+        return;
+      }
+
+      // Dragging in the sidebar. A session moves within its project, or to
+      // another project of the same machine and Herdr session; the panes it
+      // carries come back with their new ids so the page can keep its place.
+      const tabMoveMatch = url.pathname.match(/^\/api\/tabs\/([^/]+)\/move$/);
+      if (method === "POST" && tabMoveMatch) {
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, maxBodyBytes);
+        const tabId = decodePaneId(tabMoveMatch[1]);
+        let moved = { tab_id: tabId, panes: [] };
+        if (body.workspaceId === undefined) await herdr.moveTab(tabId, body.insertIndex);
+        else {
+          if (typeof body.workspaceId !== "string") throw new InputValidationError("Invalid workspace id");
+          moved = await herdr.moveTabToWorkspace(tabId, body.workspaceId, body.insertIndex);
+        }
+        sendJson(response, 200, { moved, snapshot: await herdr.snapshot() });
+        return;
+      }
+
+      const workspaceMoveMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/move$/);
+      if (method === "POST" && workspaceMoveMatch) {
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, maxBodyBytes);
+        await herdr.moveWorkspace(decodePaneId(workspaceMoveMatch[1]), body.insertIndex);
+        sendJson(response, 200, { snapshot: await herdr.snapshot() });
         return;
       }
 

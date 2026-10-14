@@ -1,6 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.40";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.40";
-import { isFileName, isFolderPath } from "./terminal-links.js?v=1.2.40";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.42";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.42";
+import { isFileName, isFolderPath } from "./terminal-links.js?v=1.2.42";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -50,7 +50,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.40";
+} from "./ui-model.js?v=1.2.42";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -61,45 +61,54 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.40";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.40";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.40";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.40";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.40";
+} from "./browse-preference.js?v=1.2.42";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.42";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.42";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.42";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.42";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.40";
-import { chatAgent } from "./lens-preference.js?v=1.2.40";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.40";
+} from "./chat-font-preference.js?v=1.2.42";
+import { chatAgent } from "./lens-preference.js?v=1.2.42";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.42";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.40";
+} from "./pane-preference.js?v=1.2.42";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.40";
+} from "./workspace-preference.js?v=1.2.42";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.40";
+} from "./terminal-preference.js?v=1.2.42";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.40";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.40";
+} from "./completion-preference.js?v=1.2.42";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.42";
+import {
+  attachSidebarDrag,
+  dropScope,
+  followMovedPane,
+  movedTabSnapshot,
+  movedWorkspaceSnapshot,
+  tabMoveRequest,
+  workspaceMoveRequest,
+} from "./sidebar-drag.js?v=1.2.42";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.40";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.40";
+} from "./input-history-preference.js?v=1.2.42";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.42";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -115,16 +124,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.40";
+} from "./key-bar-preference.js?v=1.2.42";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.40";
+} from "./launch-session.js?v=1.2.42";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.40";
+} from "./push-notifications.js?v=1.2.42";
 
 function browserStorage() {
   try {
@@ -449,6 +458,25 @@ const state = {
   // The pane whose terminal was let go while its chat stayed on screen.
   terminalParked: null,
 };
+
+// Dragging in the sidebar: what was dropped shows where it landed at once,
+// and goes back with a word if Herdr refuses.
+let navigationRedrawHeld = false;
+const sidebarDrag = attachSidebarDrag(elements.workspaceList, {
+  canStart: () => !state.mutationBusy && !renameIsOpen() &&
+    !document.body.classList.contains("sidebar-collapsed"),
+  onEnd: () => { if (navigationRedrawHeld) renderNavigation(); },
+  onDropTab: (drop) => void moveSidebarItem(
+    tabMoveRequest(state.snapshot, drop),
+    (request) => `/api/tabs/${encodeURIComponent(request.tabId)}/move`,
+    () => movedTabSnapshot(state.snapshot, drop),
+  ),
+  onDropWorkspace: (drop) => void moveSidebarItem(
+    workspaceMoveRequest(state.snapshot, drop),
+    (request) => `/api/workspaces/${encodeURIComponent(request.workspaceId)}/move`,
+    () => movedWorkspaceSnapshot(state.snapshot, drop),
+  ),
+});
 
 const desktopMedia = window.matchMedia("(min-width: 761px)");
 const primaryTouchMedia = window.matchMedia("(pointer: coarse) and (hover: none)");
@@ -2490,6 +2518,12 @@ function renameIsOpen() {
 }
 
 function renderNavigation() {
+  // A row being held or dragged stays where it is; the redraw waits for the drop.
+  if (sidebarDrag.isActive()) {
+    navigationRedrawHeld = true;
+    return;
+  }
+  navigationRedrawHeld = false;
   const { servers, herdrSessions, workspaces, tabs, panes } = snapshotRecords();
   elements.workspaceList.replaceChildren();
   // Shown even for this machine alone: its row is where the machine is managed,
@@ -2551,6 +2585,8 @@ function renderNavigation() {
   const appendWorkspace = (parent, workspace) => {
     const workspaceId = idOf(workspace, "workspace_id", "id");
     const group = createElement("section", { className: "workspace-group" });
+    group.dataset.workspaceId = workspaceId;
+    group.dataset.dropScope = dropScope(workspace);
     const workspaceLabel = displayRecordLabel(workspace, "Project");
     const workspaceTabs = tabs.filter(
       (tab) => idOf(tab, "workspace_id", "workspaceId") === workspaceId,
@@ -2584,6 +2620,9 @@ function renderNavigation() {
     for (const tab of workspaceTabs) {
       const tabId = idOf(tab, "tab_id", "id");
       const tabGroup = createElement("div", { className: "tab-group" });
+      tabGroup.dataset.tabId = tabId;
+      tabGroup.dataset.workspaceId = workspaceId;
+      tabGroup.dataset.dropScope = group.dataset.dropScope;
       const tabLabel = displayTabLabel(tab);
       const editingTab = state.editingTabId === tabId;
       const tabPanes = panes.filter((pane) => idOf(pane, "tab_id", "tabId") === tabId);
@@ -2719,6 +2758,33 @@ function renderNavigation() {
   for (const workspace of workspaces) {
     appendWorkspace(serverGroups.get(workspace.server_id) || elements.workspaceList, workspace);
   }
+}
+
+async function moveSidebarItem(request, pathFor, optimistic) {
+  if (!request || state.mutationBusy) return;
+  const before = state.snapshot;
+  state.mutationBusy = true;
+  setFeedback("");
+  state.snapshot = optimistic();
+  renderNavigation();
+  let failed = false;
+  try {
+    const payload = await api(pathFor(request), { method: "POST", body: request.body });
+    // A session moved to another project brings its panes under new ids; the
+    // one on screen is followed there.
+    const followed = followMovedPane(state.selectedPaneId, payload.moved?.panes);
+    if (followed !== state.selectedPaneId) writePanePreference(panePreferenceStorage, followed);
+    adoptMutationSnapshot(payload.snapshot, followed !== state.selectedPaneId ? followed : null);
+  } catch (error) {
+    failed = true;
+    state.snapshot = before;
+    renderNavigation();
+    setFeedback(error.message, true);
+  } finally {
+    state.mutationBusy = false;
+  }
+  // A move that failed halfway may still have changed something.
+  if (failed) void refreshSnapshot();
 }
 
 function renderPaneHeading(pane, tab, workspace) {

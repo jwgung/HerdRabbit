@@ -366,6 +366,9 @@ export class MachineClient {
   async createTab(...args) { return this.#ready().createTab(...args); }
   async renameTab(...args) { return this.#ready().renameTab(...args); }
   async closeTab(...args) { return this.#ready().closeTab(...args); }
+  async moveTab(...args) { return this.#ready().moveTab(...args); }
+  async moveWorkspace(...args) { return this.#ready().moveWorkspace(...args); }
+  async moveTabToWorkspace(...args) { return this.#ready().moveTabToWorkspace(...args); }
 }
 
 // Every machine in Herdr's list; the enabled ones kept connected.

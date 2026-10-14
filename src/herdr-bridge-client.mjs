@@ -248,6 +248,32 @@ export class HerdrBridgeClient {
     return this.#clientForSession(target.sessionName).closeTab(target.localId);
   }
 
+  async moveTab(tabId, insertIndex) {
+    const target = this.#targetForScopedId(tabId, validation.validateTabId);
+    return this.#clientForSession(target.sessionName).moveTab(target.localId, insertIndex);
+  }
+
+  async moveWorkspace(workspaceId, insertIndex) {
+    const target = this.#targetForScopedId(workspaceId, validation.validateWorkspaceId);
+    return this.#clientForSession(target.sessionName).moveWorkspace(target.localId, insertIndex);
+  }
+
+  // Panes move between projects of one Herdr session only.
+  async moveTabToWorkspace(tabId, workspaceId, insertIndex) {
+    const tab = this.#targetForScopedId(tabId, validation.validateTabId);
+    const workspace = this.#targetForScopedId(workspaceId, validation.validateWorkspaceId);
+    if (tab.sessionName !== workspace.sessionName) {
+      throw new InputValidationError("A session can only move to a project in the same Herdr session");
+    }
+    const result = await this.#clientForSession(tab.sessionName)
+      .moveTabToWorkspace(tab.localId, workspace.localId, insertIndex);
+    const scope = (id) => scopedId(tab.sessionName, id);
+    return {
+      tab_id: scope(result.tab_id),
+      panes: result.panes.map(({ from, to }) => ({ from: scope(from), to: scope(to) })),
+    };
+  }
+
   async readPane(paneId, options) {
     const target = this.#targetForScopedId(paneId, validation.validatePaneId);
     return this.#clientForSession(target.sessionName).readPane(target.localId, options);

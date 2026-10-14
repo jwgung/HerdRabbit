@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { Buffer } from "node:buffer";
 import { promisify } from "node:util";
 import { subscribeHerdrStatuses } from "./herdr-status-stream.mjs";
+import { callHerdrSocket } from "./herdr-rpc.mjs";
 
 const execFileAsync = promisify(execFile);
 // Herdr IDs may contain letters (for example wB:p1). Require the exact end
@@ -14,6 +15,9 @@ const MAX_TEXT_LENGTH = 8_000;
 const MAX_WORKSPACE_LABEL_LENGTH = 120;
 const MAX_HERDR_SESSION_NAME_LENGTH = 240;
 export const MAX_PANE_READ_LINES = 100_001;
+// More projects or sessions than anyone keeps open; Herdr refuses an index
+// past its own list anyway.
+const MAX_INSERT_INDEX = 10_000;
 
 export const ALLOWED_KEYS = Object.freeze([...TERMINAL_KEYS, "ctrl+c", "shift+tab"]);
 
@@ -93,6 +97,24 @@ function validateWorkspaceLabel(label) {
 
 function validateTabLabel(label) {
   return validateLabel(label, "Session");
+}
+
+function validateInsertIndex(index) {
+  if (!Number.isInteger(index) || index < 0 || index > MAX_INSERT_INDEX) {
+    throw new InputValidationError("Invalid position");
+  }
+  return index;
+}
+
+// Herdr numbers an unnamed tab by its place; a number is no name to carry
+// over to another project (displayTabLabel hides it the same way).
+function carriedTabLabel(label) {
+  if (typeof label !== "string" || /^\d+$/u.test(label.trim())) return null;
+  try {
+    return validateTabLabel(label);
+  } catch {
+    return null;
+  }
 }
 
 function validateText(text) {
@@ -292,6 +314,84 @@ export class HerdrClient {
     return this.#run(["tab", "close", safeTabId], { json: false });
   }
 
+  // The socket of the session this client speaks for: the forwarded one of
+  // another machine, or the one `session list` names here.
+  async #sessionSocket() {
+    if (this.socketPath) return this.socketPath;
+    const sessions = await this.listSessions();
+    const session = sessions.find(item => item.name === (this.sessionName || "default") && item.running);
+    if (!session?.socket_path) throw new HerdrCommandError("Herdr socket is unavailable", { code: "server_unavailable" });
+    return session.socket_path;
+  }
+
+  // Socket API methods the CLI has no command for.
+  async #call(method, params) {
+    const socketPath = await this.#sessionSocket();
+    return callHerdrSocket({
+      socketPath, method, params, openSocket: this.runner.openSocket, timeoutMs: this.timeoutMs,
+      wrapError: ({ code, message }) => new HerdrCommandError(message, { code }),
+    });
+  }
+
+  // insert_index is a gap in the list as it is now, the moving one included:
+  // 0 puts it first, the list's length puts it last.
+  async moveTab(tabId, insertIndex) {
+    const safeTabId = validateTabId(tabId);
+    const safeIndex = validateInsertIndex(insertIndex);
+    return this.#call("tab.move", { tab_id: safeTabId, insert_index: safeIndex });
+  }
+
+  async moveWorkspace(workspaceId, insertIndex) {
+    const safeWorkspaceId = validateWorkspaceId(workspaceId);
+    const safeIndex = validateInsertIndex(insertIndex);
+    return this.#call("workspace.move", { workspace_id: safeWorkspaceId, insert_index: safeIndex });
+  }
+
+  // A session (tab) carried to another project of the same Herdr session.
+  // Herdr moves panes, not tabs: the first pane opens a new tab there under
+  // the session's name, the others follow into it side by side, and the tab
+  // left empty closes. A pane gets a new id in its new project, so the moves
+  // are returned for the page to follow the one it shows.
+  // insertIndex is the gap among the project's sessions as they are now.
+  async moveTabToWorkspace(tabId, workspaceId, insertIndex) {
+    const safeTabId = validateTabId(tabId);
+    const safeWorkspaceId = validateWorkspaceId(workspaceId);
+    const safeIndex = validateInsertIndex(insertIndex);
+    const snapshot = await this.snapshot();
+    const tab = (snapshot?.tabs ?? []).find((item) => item.tab_id === safeTabId);
+    if (!tab) throw new HerdrCommandError("That session is no longer open", { code: "tab_not_found" });
+    if (tab.workspace_id === safeWorkspaceId) {
+      await this.moveTab(safeTabId, safeIndex);
+      return { tab_id: safeTabId, panes: [] };
+    }
+    if (!(snapshot.workspaces ?? []).some((item) => item.workspace_id === safeWorkspaceId)) {
+      throw new HerdrCommandError("That project is no longer open", { code: "workspace_not_found" });
+    }
+    const paneIds = (snapshot.panes ?? []).filter((item) => item.tab_id === safeTabId).map((item) => validatePaneId(item.pane_id));
+    if (paneIds.length === 0) throw new HerdrCommandError("That session has no panes", { code: "tab_not_found" });
+    const targetTabs = (snapshot.tabs ?? []).filter((item) => item.workspace_id === safeWorkspaceId).length;
+    const label = carriedTabLabel(tab.label);
+    const moves = [];
+    let newTabId = null;
+    for (const paneId of paneIds) {
+      const args = newTabId === null
+        ? ["pane", "move", paneId, "--new-tab", "--workspace", safeWorkspaceId, ...(label ? [`--label=${label}`] : []), "--no-focus"]
+        : ["pane", "move", paneId, "--tab", newTabId, "--split", "right", "--target-pane", moves.at(-1).to, "--no-focus"];
+      const result = await this.#run(args);
+      const moved = result?.move_result ?? result;
+      const to = moved?.pane?.pane_id;
+      const movedTab = moved?.created_tab?.tab_id ?? moved?.pane?.tab_id;
+      if (typeof to !== "string" || !PANE_ID_PATTERN.test(to) || typeof movedTab !== "string" || !TAB_ID_PATTERN.test(movedTab)) {
+        throw new HerdrCommandError("Herdr returned an unexpected move result", { code: "invalid_herdr_response" });
+      }
+      newTabId ??= movedTab;
+      moves.push({ from: paneId, to });
+    }
+    // The new tab opened last; put it where it was dropped.
+    if (safeIndex < targetTabs) await this.moveTab(newTabId, safeIndex);
+    return { tab_id: newTabId, panes: moves };
+  }
+
   // The pane's processes as herdr sees them (its shell and the foreground
   // group, each with pid and argv): where a Codex pane's rollout is open.
   async paneProcessInfo(paneId) {
@@ -419,6 +519,7 @@ export const validation = Object.freeze({
   validateWorkspaceId,
   validateTabId,
   validateWorkspaceLabel,
+  validateInsertIndex,
   validateText,
   validateLines,
   validateReadFormat,

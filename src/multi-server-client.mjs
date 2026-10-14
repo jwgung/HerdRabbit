@@ -222,6 +222,27 @@ export class MultiServerClient {
   createTab(id) { return this.invoke("createTab", id, [], true); }
   renameTab(id, label) { return this.invoke("renameTab", id, [label], true); }
   closeTab(id) { return this.invoke("closeTab", id, [], true); }
+  moveTab(id, insertIndex) { return this.invoke("moveTab", id, [insertIndex], true); }
+  moveWorkspace(id, insertIndex) { return this.invoke("moveWorkspace", id, [insertIndex], true); }
+  // Only within one server: a pane cannot cross to another machine.
+  async moveTabToWorkspace(tabId, workspaceId, insertIndex) {
+    const tab = this.target(tabId);
+    const workspace = this.target(workspaceId);
+    if (tab.entry !== workspace.entry) {
+      throw new InputValidationError("A session can only move to a project on the same machine");
+    }
+    const { entry } = tab;
+    const result = await entry.client.moveTabToWorkspace(tab.id, workspace.id, insertIndex);
+    if (entry.profile.id !== "local") {
+      if (entry.pending) await entry.pending;
+      await this.refresh(entry);
+    }
+    const scope = (id) => entry.profile.id === "local" ? id : `${entry.profile.id}!${id}`;
+    return {
+      tab_id: scope(result.tab_id),
+      panes: result.panes.map(({ from, to }) => ({ from: scope(from), to: scope(to) })),
+    };
+  }
   async createWorkspace(label, sessionId) {
     if (!sessionId) return this.local.createWorkspace(label);
     const { entry, id } = this.target(sessionId);
