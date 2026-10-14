@@ -1,8 +1,10 @@
 // Browser check of where a project is made and of the sidebar footer. New
-// project sits in the top + menu, opened on the selected pane's Herdr session,
+// project sits in the top + menu, opened on the selected pane's Herdr session
+// (a remote pane's own, or its machine's default while that one is stopped),
 // and its picker lists every machine's running sessions, so a project can be
-// made on another machine too; a machine's ⋯ menu does not offer it. Add SSH
-// machine shows in the + menu only where SSH machines are available. The
+// made on another machine too; a machine's ⋯ menu does not offer it, and with
+// no session running it is off. Add SSH machine shows in the + menu only where
+// SSH machines are available. The
 // footer's uploads and settings buttons look alike, their icons centred. Runs
 // on a desktop and a phone against an in-process fake herdr.
 //
@@ -13,11 +15,21 @@ import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
-const workspaces = [{ workspace_id: "w1", label: "Platform", herdr_session_id: "hs_local", server_id: "local" }];
-const tabs = [{ tab_id: "w1:t1", workspace_id: "w1", label: "Shells", herdr_session_id: "hs_local" }];
-const panes = [{ pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Alpha", cwd: "/work/alpha", herdr_session_id: "hs_local", server_id: "local" }];
+const workspaces = [
+  { workspace_id: "w1", label: "Platform", herdr_session_id: "hs_local", server_id: "local" },
+  { workspace_id: "lab:w1", label: "Bench", herdr_session_id: "lab!hs_work", server_id: "lab" },
+];
+const tabs = [
+  { tab_id: "w1:t1", workspace_id: "w1", label: "Shells", herdr_session_id: "hs_local" },
+  { tab_id: "lab:w1:t1", workspace_id: "lab:w1", label: "Bench", herdr_session_id: "lab!hs_work" },
+];
+const panes = [
+  { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Alpha", cwd: "/work/alpha", herdr_session_id: "hs_local", server_id: "local" },
+  { pane_id: "lab:w1:p1", tab_id: "lab:w1:t1", workspace_id: "lab:w1", label: "Bench", cwd: "/work/bench", herdr_session_id: "lab!hs_work", server_id: "lab" },
+];
 const created = [];
 let sessionsDown = false;
+let labWorkDown = false;
 const herdr = {
   async snapshot() {
     return {
@@ -30,7 +42,7 @@ const herdr = {
       // the page's default, each machine keeps its own as machine_default.
       herdr_sessions: [
         { session_id: "hs_local", name: "default", default: true, machine_default: true, running: !sessionsDown, available: true, server_id: "local", server_name: "workstation" },
-        { session_id: "lab!hs_work", name: "work", default: false, machine_default: false, running: !sessionsDown, available: true, server_id: "lab", server_name: "lab" },
+        { session_id: "lab!hs_work", name: "work", default: false, machine_default: false, running: !sessionsDown && !labWorkDown, available: true, server_id: "lab", server_name: "lab" },
         { session_id: "lab!hs_main", name: "main", default: false, machine_default: true, running: !sessionsDown, available: true, server_id: "lab", server_name: "lab" },
       ],
       workspaces: [...workspaces], tabs: [...tabs], panes: [...panes], agents: [],
@@ -52,6 +64,11 @@ const { server } = createHerdrHttpServer({ herdr, logger: { info() {}, error() {
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
 const url = `http://127.0.0.1:${server.address().port}`;
+// The same herdr where SSH machines can be added.
+const { server: withMachines } = createHerdrHttpServer({ herdr, machines: { machineIdFor: () => null }, logger: { info() {}, error() {} } });
+withMachines.listen(0, "127.0.0.1");
+await once(withMachines, "listening");
+const machinesUrl = `http://127.0.0.1:${withMachines.address().port}`;
 const browser = await chromium.launch({ args: ["--no-sandbox"] });
 const shots = process.env.NEW_PROJECT_SHOTS;
 
@@ -145,10 +162,35 @@ try {
     assert.deepEqual(errors, [], `page errors: ${errors.join("; ")}`);
     await context.close();
   }
-  // With no Herdr session running anywhere there is nowhere to make one.
-  sessionsDown = true;
   const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 844 } });
   const page = await context.newPage();
+  const pickedFor = async (paneId) => {
+    await page.goto(`${url}/?pane=${encodeURIComponent(paneId)}`);
+    await page.locator(".pane-button").first().waitFor({ state: "visible" });
+    await page.locator("#add-menu > summary").click();
+    await page.locator("#create-project").click();
+    await page.locator("#project-dialog").waitFor({ state: "visible" });
+    const picked = await page.locator("#project-server-session").inputValue();
+    await page.keyboard.press("Escape");
+    return picked;
+  };
+  // A pane on another machine: its own session, and while that one is
+  // stopped, that machine's default rather than this machine's.
+  assert.equal(await pickedFor("lab:w1:p1"), "lab!hs_work", "a remote pane's session is not picked first");
+  labWorkDown = true;
+  assert.equal(await pickedFor("lab:w1:p1"), "lab!hs_main", "a remote pane's stopped session does not fall to its machine's default");
+  labWorkDown = false;
+
+  // Where SSH machines can be added, the + menu offers that too.
+  await page.goto(`${machinesUrl}/?pane=${encodeURIComponent("w1:p1")}`);
+  await page.locator(".pane-button").first().waitFor({ state: "visible" });
+  await page.locator("#add-menu > summary").click();
+  await page.locator("#add-machine").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#create-project").isVisible(), true, "New project is gone beside Add SSH machine");
+  await page.keyboard.press("Escape");
+
+  // With no Herdr session running anywhere there is nowhere to make one.
+  sessionsDown = true;
   await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
   await page.locator(".pane-button").first().waitFor({ state: "visible" });
   await page.locator("#add-menu > summary").click();
@@ -159,4 +201,5 @@ try {
 } finally {
   await browser.close();
   server.close();
+  withMachines.close();
 }
