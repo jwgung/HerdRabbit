@@ -140,7 +140,6 @@ export function isFolderPath(raw) {
   return !segments.includes("");
 }
 
-// Linkable paths in terminal text, as [start, end) string offsets.
 const TRAILING_PUNCTUATION = /[.,;:!?)\]}]/u;
 function trimPunctuation(value) {
   let cleaned = value;
@@ -158,6 +157,7 @@ function linkableLabel(value, isLinkable) {
   return bare !== label && bare && isLinkable(bare) ? bare : null;
 }
 
+// Linkable paths in terminal text, as [start, end) string offsets.
 export function findTerminalPaths(text, isLinkable) {
   const links = [];
   for (const match of text.matchAll(PATH_PATTERN)) {

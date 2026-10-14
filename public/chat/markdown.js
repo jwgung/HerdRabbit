@@ -85,7 +85,7 @@ export function trimUrl(url) {
 
 // A folder written out in full needs no extension: `/home/me/proj`, `./build`,
 // `../shared/`. An absolute one has at least two names, so `/compact` and
-// `and /or` stay text.
+// `and /or` stay text -- the same rule as isFolderPath in terminal-links.js.
 const FILE_PATH = String.raw`(?:~\/|\.{1,2}\/|\/)?(?:[\w@.+-]+\/)+[\w@+-][\w@.+-]*\.[A-Za-z0-9]{1,8}`;
 const FOLDER_PATH = String.raw`(?:\.{1,2}\/(?:[\w@.+-]+\/)*|\/(?:[\w@.+-]+\/)+)[\w@+-](?:[\w@.+-]*[\w@+-])?\/?`;
 const BARE_PATH = new RegExp(String.raw`(?<![\w/.@~-])(?<!\+(?!~))(${FILE_PATH}|${FOLDER_PATH})(?![\w/])`, "gu");
