@@ -517,6 +517,7 @@ The Service Worker reloads the page once when it activates a new app shell. Manu
 
 ```bash
 npm run verify
+npm run check:browser   # Playwright checks against a fake Herdr (needs `npx playwright install chromium`)
 npm run dev
 ```
 

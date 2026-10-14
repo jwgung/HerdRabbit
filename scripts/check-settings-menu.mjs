@@ -51,7 +51,7 @@ try {
         });
       }
       await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
-      await page.locator(".pane-button, #mobile-sidebar-open").first().waitFor({ state: "visible" });
+      await page.locator(".pane-button:visible, #mobile-sidebar-open:visible").first().waitFor({ state: "visible" });
       if (mobile) await page.locator("#mobile-sidebar-open").click();
       const button = page.locator(".settings-button");
       const menu = page.locator(".settings-menu .sidebar-action-popover");
