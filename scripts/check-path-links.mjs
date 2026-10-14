@@ -107,12 +107,27 @@ try {
     await page.waitForFunction(() => document.querySelector("#file-feedback").textContent.includes("is not in this folder"));
     assert.equal(await page.locator("#file-path").inputValue(), release);
 
+    // a slow listing already loading does not turn the link away: hold every
+    // listing past the old 3 second wait, start one, then press the link
+    await page.evaluate(() => { document.querySelector("#tab-sessions").click(); });
+    if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());
+    await page.route("**/api/browse?*", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 3_500));
+      await route.continue();
+    });
+    await page.evaluate(() => { document.querySelector("#tab-files").click(); document.querySelector("#file-refresh").click(); });
+    await page.evaluate(() => { document.querySelector("#tab-sessions").click(); });
+    if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());
+    await press(0);
+    await page.waitForFunction((path) => document.querySelector('.browse-row[data-selected="true"]')?.dataset.path === path, target, { timeout: 15_000 });
+    await page.unroute("**/api/browse?*");
+
     // a file the viewer can show still opens in it
     if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());
     await press(2);
     await page.locator("dialog[open]").first().waitFor({ state: "visible" });
     assert.deepEqual(errors, []);
-    console.log({ mobile, links: marks, filesTab: true, rowInView: true, missingNote: true, previewKept: true });
+    console.log({ mobile, links: marks, filesTab: true, rowInView: true, missingNote: true, slowListing: true, previewKept: true });
     await context.close();
   }
 } finally {

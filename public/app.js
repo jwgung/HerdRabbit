@@ -4841,22 +4841,34 @@ elements.fileServer.addEventListener("change", () => {
   void selectBrowseServer(elements.fileServer.value);
 });
 
+// Only the last file link pressed is taken to; an earlier one still waiting
+// gives way.
+let revealGeneration = 0;
+
 // A file the viewer cannot show is still a file somebody named: take them to
 // it in the Files tab, in its own folder, with its row selected and in view.
 async function revealInFiles(filePath, name, server) {
+  const generation = ++revealGeneration;
   const folder = filePath.slice(0, filePath.lastIndexOf("/")) || "/";
   if (desktopMedia.matches) state.desktopSidebarCollapsed = false;
   else state.mobileSidebarOpen = true;
   syncSidebar();
   showNavigatorTab("files", { load: false });
   refreshServerChoices();
-  // a load already under way would turn this one away
-  for (let waited = 0; browseState.busy && waited < 3_000; waited += 50) {
-    await new Promise((resolve) => window.setTimeout(resolve, 50));
+  // A load already under way would turn this one away, however slow the
+  // machine it is reading: wait it out, and go again if another slipped in.
+  let loaded = false;
+  for (;;) {
+    while (browseState.busy) {
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+      if (generation !== revealGeneration) return;
+    }
+    loaded = server === browseState.server
+      ? await loadBrowseFolder(folder)
+      : await selectBrowseServer(server, folder);
+    if (generation !== revealGeneration) return;
+    if (loaded || !browseState.busy) break;
   }
-  const loaded = server === browseState.server
-    ? await loadBrowseFolder(folder)
-    : await selectBrowseServer(server, folder);
   elements.fileServer.value = browseState.server;
   if (!loaded) return;
   await ensureUploadsPath();
