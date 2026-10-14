@@ -1,10 +1,10 @@
 // Browser check of where a project is made and of the sidebar footer. New
-// project sits in a machine's ⋯ menu and creates the project on that machine
-// (in the selected pane's Herdr session when it is there, else the machine's
-// default; the session picker lists that machine's sessions only);
-// the top + menu holds only Add SSH machine, so without SSH machines it is not
-// shown. The footer's uploads and settings buttons look alike, their icons
-// centred. Runs on a desktop and a phone against an in-process fake herdr.
+// project sits in the top + menu, opened on the selected pane's Herdr session,
+// and its picker lists every machine's running sessions, so a project can be
+// made on another machine too; a machine's ⋯ menu does not offer it. Add SSH
+// machine shows in the + menu only where SSH machines are available. The
+// footer's uploads and settings buttons look alike, their icons centred. Runs
+// on a desktop and a phone against an in-process fake herdr.
 //
 // NEW_PROJECT_SHOTS=<folder> keeps pictures of the footer and the open menu.
 import assert from "node:assert/strict";
@@ -92,27 +92,30 @@ try {
     }
     if (shots) await page.locator(".navigator-footer").screenshot({ path: join(shots, `footer-${mobile ? "phone" : "desktop"}.png`) });
 
-    // Without SSH machines the + menu has nothing to offer.
-    assert.equal(await page.locator("#add-menu").isVisible(), false, "+ menu shows with nothing in it");
-    assert.equal(await page.locator("#create-project").count(), 0, "New project is still in the + menu");
-
-    // A machine with no running Herdr session has nowhere to make one.
-    const offline = page.locator('.server-heading[data-server-id="laptop"]');
-    await offline.locator(".sidebar-action-menu > summary").click();
-    await offline.locator(".sidebar-action-item", { hasText: "Details" }).waitFor({ state: "visible" });
-    assert.equal(await offline.locator(".sidebar-action-item", { hasText: "New project" }).count(), 0,
-      "an offline machine offers New project");
-    // Escape also closes the phone sidebar, which slides away.
+    // Without SSH machines the + menu still offers New project, and not Add SSH machine.
+    assert.equal(await page.locator("#add-menu").isVisible(), true, "+ menu is hidden");
+    await page.locator("#add-menu > summary").click();
+    await page.locator("#create-project").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#add-machine").isVisible(), false, "Add SSH machine shows without SSH machines");
+    if (shots) await page.screenshot({ path: join(shots, `plus-menu-${mobile ? "phone" : "desktop"}.png`) });
     await page.keyboard.press("Escape");
-    if (mobile) {
-      await page.waitForTimeout(400);
+    if (mobile) await page.waitForTimeout(400);
+
+    // A machine's ⋯ menu does not make projects.
+    if (mobile && await page.locator("#mobile-sidebar-open").getAttribute("aria-expanded") !== "true") {
       await page.locator("#mobile-sidebar-open").click();
       await page.waitForTimeout(400);
     }
+    const local = page.locator('.server-heading[data-server-id="local"]');
+    await local.locator(".sidebar-action-menu > summary").click();
+    await local.locator(".sidebar-action-item", { hasText: "Details" }).waitFor({ state: "visible" });
+    assert.equal(await local.locator(".sidebar-action-item", { hasText: "New project" }).count(), 0,
+      "a machine's menu offers New project");
+    await page.keyboard.press("Escape");
 
-    // New project from a machine's ⋯ menu, made in that machine's session.
-    const makeOn = async (serverId, label, expectedSessions, expectedSession) => {
-      // Making a project closes the phone sidebar; it slides away first.
+    // New project from the + menu: the selected pane's session first, every
+    // machine's running sessions to pick from.
+    const makeFromPlus = async (label, pick) => {
       if (mobile) {
         await page.waitForTimeout(400);
         if (await page.locator("#mobile-sidebar-open").getAttribute("aria-expanded") !== "true") {
@@ -120,33 +123,28 @@ try {
           await page.waitForTimeout(400);
         }
       }
-      const heading = page.locator(`.server-heading[data-server-id="${serverId}"]`);
-      await heading.locator(".sidebar-action-menu > summary").click();
-      const item = heading.locator(".sidebar-action-item", { hasText: "New project" });
-      await item.waitFor({ state: "visible" });
-      if (shots) await page.screenshot({ path: join(shots, `machine-menu-${serverId}-${mobile ? "phone" : "desktop"}.png`) });
-      await item.click();
+      await page.locator("#add-menu > summary").click();
+      await page.locator("#create-project").click();
       const dialog = page.locator("#project-dialog");
       await dialog.waitFor({ state: "visible" });
       const picker = page.locator("#project-server-session");
       assert.deepEqual(await picker.locator("option").evaluateAll((options) => options.map((option) => option.value)),
-        expectedSessions, `${serverId}: the session picker lists other machines' sessions`);
-      assert.equal(await picker.inputValue(), expectedSession, `${serverId}: the wrong session is picked`);
+        ["hs_local", "lab!hs_work", "lab!hs_main"], "the session picker misses a machine's sessions");
+      assert.equal(await picker.inputValue(), "hs_local", "the selected pane's session is not picked first");
+      if (pick) await picker.selectOption(pick);
       await page.locator("#project-name").fill(label);
       await dialog.locator('button[type="submit"]').click();
       await dialog.waitFor({ state: "hidden" });
-      assert.deepEqual(created.at(-1), { label, herdrSessionId: expectedSession }, `${serverId}: the project was not made there`);
+      assert.deepEqual(created.at(-1), { label, herdrSessionId: pick ?? "hs_local" }, `${label}: the project was not made there`);
     };
     const where = mobile ? "phone" : "desktop";
-    // The selected pane is on this machine, so its session is used here...
-    await makeOn("local", `Local ${where}`, ["hs_local"], "hs_local");
-    // ...and on another machine, that machine's own default, not its first.
-    await makeOn("lab", `Lab ${where}`, ["lab!hs_work", "lab!hs_main"], "lab!hs_main");
+    await makeFromPlus(`Local ${where}`, null);
+    await makeFromPlus(`Lab ${where}`, "lab!hs_main");
 
     assert.deepEqual(errors, [], `page errors: ${errors.join("; ")}`);
     await context.close();
   }
-  console.log("new project from the machine menu and the footer look: ok");
+  console.log("new project from the + menu and the footer look: ok");
 } finally {
   await browser.close();
   server.close();
