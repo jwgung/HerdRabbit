@@ -2,20 +2,24 @@
 // machine's over its SSH connection (machine-files.mjs). Both answer the same
 // calls, so pages.mjs, claude.mjs and codex.mjs read either the same way:
 //   locate(session, projectDirs) -> a Claude transcript's path | null
+//   backgroundJobSession(short)  -> the session of Claude's background job
+//                                   with that short id | null (optional)
 //   stat(path)                   -> { identity, size, mtimeMs } | null
 //   read(path, start, length)    -> Buffer (at most `length` bytes)
 //   codex                        -> where Codex rollouts are (codex.mjs's
 //                                   locateCodexRollout lists the calls)
 // plus the limits a page read keeps to on that store.
-import { open, readdir, readlink, realpath, stat } from "node:fs/promises";
+import { open, readFile, readdir, readlink, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
-import { SESSION_ID } from "./claude.mjs";
+import { JOB_SHORT_ID, SESSION_ID } from "./claude.mjs";
 import { THREAD_ID } from "./codex.mjs";
 
 const MiB = 1024 * 1024;
 // How many project folders a scan looks into at once.
 const SCAN_CONCURRENCY = 8;
+// A background job's state file is a few kilobytes; a larger one is not read.
+const MAX_JOB_STATE_BYTES = 256 * 1024;
 
 // This machine: the newest page reads up to 4 MiB, an older page widens to
 // 16 MiB for one long turn, a tool's output is looked for in the last 64 MiB.
@@ -91,6 +95,24 @@ export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), cod
       }
       if (failure) throw failure;
       return null;
+    },
+    // Claude keeps each background job's state in jobs/<short id>/state.json,
+    // the job's whole session id among it.
+    async backgroundJobSession(short) {
+      if (typeof short !== "string" || !JOB_SHORT_ID.test(short)) return null;
+      const path = join(configDir, "jobs", short, "state.json");
+      let text;
+      try {
+        const info = await stat(path);
+        if (!info.isFile() || info.size > MAX_JOB_STATE_BYTES) return null;
+        text = await readFile(path, "utf8");
+      } catch (error) {
+        if (absent(error)) return null;
+        throw error;
+      }
+      let session;
+      try { session = JSON.parse(text)?.sessionId; } catch { return null; }
+      return typeof session === "string" && SESSION_ID.test(session) && session.startsWith(short) ? session : null;
     },
     async stat(path) {
       try {
