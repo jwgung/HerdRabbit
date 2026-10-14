@@ -786,6 +786,159 @@ body.sidebar-collapsed .terminal-panel {
   opacity: 0.85;
 }
 
+/* Find matches on screen: a tint behind every one, the current one stronger
+   and outlined. Under the link underlines, never in the way of a tap. The
+   terminal is black in both themes, so the tint is the same in both. */
+.terminal-find-marks {
+  --find-mark: #ffc799;
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.terminal-find-marks span {
+  position: absolute;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--find-mark) 30%, transparent);
+}
+
+.terminal-find-marks span.is-current {
+  background: color-mix(in srgb, var(--find-mark) 60%, transparent);
+  outline: 1px solid var(--find-mark);
+}
+
+/* The find bar, over the terminal's top right corner; on a phone, across it. */
+.terminal-find {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 12;
+  width: min(420px, calc(100% - 16px));
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.3);
+}
+
+.terminal-find[hidden],
+.terminal-panel[data-lens="chat"] .terminal-find {
+  display: none;
+}
+
+.terminal-find-icon,
+.terminal-find button svg,
+.terminal-find-open svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.terminal-find-icon {
+  color: var(--muted);
+}
+
+.terminal-find input {
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 32px;
+  padding: 0 6px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--input-text, var(--text));
+  font: inherit;
+  font-size: 14px;
+}
+
+/* The bar has its own close button; the search field's clear button would be a second. */
+.terminal-find input::-webkit-search-cancel-button {
+  display: none;
+  -webkit-appearance: none;
+}
+
+.terminal-find-count {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.terminal-find-count[data-error="true"] {
+  color: var(--danger);
+}
+
+.terminal-find button {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.terminal-find button:hover:not(:disabled) {
+  background: var(--hover-surface);
+}
+
+.terminal-find button:disabled {
+  color: var(--offline);
+  cursor: default;
+}
+
+/* The find bar sits where the copy bar would: the copy bar steps below it. */
+.terminal-stage:has(.terminal-find:not([hidden])) .terminal-copy-bar {
+  top: 54px;
+}
+
+.terminal-find-open {
+  flex: 0 0 auto;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.terminal-find-open[hidden] {
+  display: none;
+}
+
+.terminal-find-open[aria-expanded="true"] {
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.terminal-find-open[aria-disabled="true"] {
+  color: var(--offline);
+  cursor: not-allowed;
+}
+
+@media (hover: none) {
+  .terminal-find input {
+    font-size: 16px;
+  }
+
+  .terminal-find button {
+    width: 36px;
+    height: 36px;
+  }
+}
+
 /* Copy for a selection, over the terminal's top right corner. */
 .terminal-copy-bar {
   position: absolute;

@@ -1,10 +1,11 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.43";
-import { findScreenLinks } from "./terminal-links.js?v=1.2.43";
-import { createTouchScroller } from "./touch-scroll.js?v=1.2.43";
-import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.43";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.44";
+import { findScreenLinks } from "./terminal-links.js?v=1.2.44";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.44";
+import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.44";
+import { findOccurrences } from "./terminal-find.js?v=1.2.44";
 
 const RESIZE_DEBOUNCE_MS = 80;
 // herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
@@ -62,7 +63,7 @@ const MIRROR_SCROLLBACK = 1000;
 export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
   onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer"),
   isLinkablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {},
-  onCopy = () => {} }) {
+  onCopy = () => {}, onViewMoved = () => {} }) {
   const { Terminal, FitAddon, UnicodeGraphemesAddon } = xterm;
   let term = null;
   // The finger scroll; a glide stops when the pane changes or goes away.
@@ -145,8 +146,15 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     if (screen) {
       marks = screen.ownerDocument.createElement("div");
       marks.className = "terminal-link-marks";
-      screen.append(marks);
+      findMarks = screen.ownerDocument.createElement("div");
+      findMarks.className = "terminal-find-marks";
+      screen.append(findMarks, marks);
     }
+    // The reader moving the view (the wheel, or a finger, which becomes the
+    // wheel) leaves a found match's place on screen unknown.
+    host.addEventListener("wheel", (event) => {
+      if (!event.ctrlKey && !event.metaKey && event.deltaY !== 0) onViewMoved();
+    }, { capture: true, passive: true });
     term.onRender(scheduleLinks);
     term.onResize(scheduleLinks);
     // Ctrl+V pastes through the browser (xterm brackets it); Ctrl+C copies a selection.
@@ -223,6 +231,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     host.addEventListener("contextmenu", (event) => { if (selecting || term.hasSelection()) event.preventDefault(); });
     const type = (data) => {
       if (!paneId || !ready || held) return;
+      onViewMoved();
       // A socket that dropped has not told this pane yet: say the typing was lost.
       if (!connection.ptyInput(paneId, data)) {
         ready = false;
@@ -348,6 +357,10 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   // The links on screen now, and their underlines, redrawn once per frame at most.
   let screenLinks = [];
   let marks = null;
+  // What the find bar looks for, marked wherever it shows on screen, and the
+  // screen cell of herdr's current match, marked apart.
+  let findMarks = null;
+  let find = null;
   let linksFrame = null;
   function scheduleLinks() {
     if (!marks || linksFrame !== null) return;
@@ -369,6 +382,15 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     const screen = marks.parentElement;
     const cellWidth = screen ? screen.offsetWidth / term.cols : 0;
     const cellHeight = screen ? screen.offsetHeight / term.rows : 0;
+    findMarks.replaceChildren(...(find ? findOccurrences(rows, find.query, find.current) : []).map((found) => {
+      const mark = findMarks.ownerDocument.createElement("span");
+      if (found.current) mark.className = "is-current";
+      mark.style.left = `${found.start * cellWidth}px`;
+      mark.style.top = `${found.row * cellHeight}px`;
+      mark.style.width = `${(found.end - found.start) * cellWidth}px`;
+      mark.style.height = `${cellHeight}px`;
+      return mark;
+    }));
     marks.replaceChildren(...screenLinks.flatMap((link) => link.segments.map((segment) => {
       const mark = marks.ownerDocument.createElement("span");
       mark.style.left = `${segment.start * cellWidth}px`;
@@ -625,5 +647,12 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     },
     // Fits again once the terminal is shown (the Terminal lens, with the key bar back).
     refit() { fitNow(); },
+    // Marks `query` where it shows, and the match at `current` ({ row, col }
+    // on screen) apart; null clears the marks.
+    setFind(next) {
+      find = next && next.query ? { query: next.query, current: next.current ?? null } : null;
+      scheduleLinks();
+    },
+    focus() { term?.focus(); },
   };
 }

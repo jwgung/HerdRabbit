@@ -199,6 +199,8 @@ export class MultiServerClient {
     const { entry, id: localId } = this.target(id);
     return entry.client.terminalTarget(localId, timeoutMs);
   }
+  // The answer names no ids, only history cells: nothing to put a prefix on.
+  paneFind(id, request) { return this.invoke("paneFind", id, [request]); }
   sendText(id, text, options) { return this.invoke("sendText", id, [text, options]); }
   sendKeys(id, keys) { return this.invoke("sendKeys", id, [keys]); }
   async watchStatuses(paneIds, onStatus, onError) {

@@ -106,6 +106,86 @@ function validateInsertIndex(index) {
   return index;
 }
 
+// Find in a pane's whole history (herdr's copy-mode search, without entering
+// copy mode). Adapted from herdr-web-ui (MIT), server/herdr/client.ts paneFind
+// and the /api/pane/find checks in server/index.ts.
+export const MAX_FIND_QUERY_LENGTH = 256;
+const MAX_HISTORY_ROW = 0xffff_ffff;
+const MAX_HISTORY_COL = 0xffff;
+// Herdr answers with at most 1024 matches around the current one.
+const MAX_FIND_MATCHES = 1024;
+
+function isCount(value, max = Number.MAX_SAFE_INTEGER) {
+  return Number.isSafeInteger(value) && value >= 0 && value <= max;
+}
+
+function validTextPoint(point) {
+  return point !== null && typeof point === "object" &&
+    isCount(point.row, MAX_HISTORY_ROW) && isCount(point.col, MAX_HISTORY_COL);
+}
+
+function textRange(range) {
+  if (range === null || typeof range !== "object" || !validTextPoint(range.start) || !validTextPoint(range.end)) return null;
+  return { start: { row: range.start.row, col: range.start.col }, end: { row: range.end.row, col: range.end.col } };
+}
+
+// What a find asks for: literal text (herdr matches it case-insensitively
+// unless it holds a capital), which way from where the view is, and the match
+// found last with the history revision it was found in, to step past it.
+export function validateFindRequest({ query, direction, previous, contentRevision } = {}) {
+  if (typeof query !== "string" || query.length === 0) {
+    throw new InputValidationError("Search text must not be empty");
+  }
+  if (query.length > MAX_FIND_QUERY_LENGTH) {
+    throw new InputValidationError(`Search text must be at most ${MAX_FIND_QUERY_LENGTH} characters`);
+  }
+  if (/[\u0000-\u001f\u007f]/u.test(query)) {
+    throw new InputValidationError("Search text must not contain control characters");
+  }
+  if (direction !== "forward" && direction !== "backward") {
+    throw new InputValidationError("Direction must be forward or backward");
+  }
+  if (previous === undefined || previous === null) {
+    if (contentRevision !== undefined && contentRevision !== null) {
+      throw new InputValidationError("A revision comes with the previous match");
+    }
+    return { query, direction, previous: null, contentRevision: null };
+  }
+  const range = textRange(previous);
+  if (!range || !isCount(contentRevision)) {
+    throw new InputValidationError("The previous match needs two history cells and its revision");
+  }
+  return { query, direction, previous: range, contentRevision };
+}
+
+function scrollInfo(value) {
+  if (value === null || typeof value !== "object") return null;
+  const { offset_from_bottom: offset, max_offset_from_bottom: max, viewport_rows: rows } = value;
+  if (!isCount(offset) || !isCount(max) || !isCount(rows)) return null;
+  return { offset_from_bottom: offset, max_offset_from_bottom: max, viewport_rows: rows };
+}
+
+// The page's find bar lies over the view's top rows: a match there is not seen.
+const FIND_BAR_ROWS = 3;
+
+// Where to scroll so `match` shows: nowhere when it is on screen already,
+// clear of the find bar, otherwise with it a third of the way down, some lines
+// above it for context. History rows count from the top; the view is counted
+// from the bottom.
+export function findScrollOffset(scroll, match) {
+  const max = scroll.max_offset_from_bottom;
+  const rows = Math.max(1, scroll.viewport_rows);
+  const top = max - scroll.offset_from_bottom;
+  const clear = Math.min(FIND_BAR_ROWS, rows - 1);
+  if (match.start.row >= top + clear && match.end.row < top + rows) return scroll.offset_from_bottom;
+  const wantedTop = Math.min(max, Math.max(0, match.start.row - Math.floor(rows / 3)));
+  return max - wantedTop;
+}
+
+function staleContent(cause) {
+  return new HerdrCommandError("The terminal changed while searching. Search again.", { code: "stale_content", cause });
+}
+
 // Herdr numbers an unnamed tab by its place; a number is no name to carry
 // over to another project (displayTabLabel hides it the same way).
 function carriedTabLabel(label) {
@@ -417,6 +497,83 @@ export class HerdrClient {
     return { tab_id: newTabId, panes: [{ from: paneIds[0], to }], reordered };
   }
 
+  // Where the pane's shared view sits in its history; null when herdr says nothing.
+  async #paneScroll(paneId) {
+    const result = await this.#call("pane.get", { pane_id: paneId });
+    return scrollInfo(result?.pane?.scroll);
+  }
+
+  // Finds `query` in the pane's whole history and scrolls the pane's view,
+  // which every client of the pane shares, to the match. The first find starts
+  // at the bottom of the view and goes `direction`; a next one steps from
+  // `previous`, the match found last, as long as the history is still the
+  // revision it was found in (stale_content otherwise). Herdr wraps round at
+  // either end. `current` counts from 1; `matches` are the ones herdr gives
+  // around it, end cells included.
+  async paneFind(paneId, request) {
+    const safePaneId = validatePaneId(paneId);
+    const { query, direction, previous, contentRevision } = validateFindRequest(request);
+    const unexpected = () => new HerdrCommandError("Herdr returned an unexpected search answer", { code: "invalid_herdr_response" });
+    const scroll = await this.#paneScroll(safePaneId);
+    const top = scroll ? scroll.max_offset_from_bottom - scroll.offset_from_bottom : 0;
+    const bottom = scroll ? top + Math.max(0, scroll.viewport_rows - 1) : 0;
+    // pane.read's revision is not the one copy_search wants; copy_motion gives
+    // it without entering copy mode or moving anyone's cursor.
+    const motion = await this.#call("pane.copy_motion", {
+      pane_id: safePaneId, cursor: { row: bottom, col: 0 }, motion: "line_end",
+    });
+    const revision = motion?.content_revision;
+    if (!isCount(revision) || !validTextPoint(motion?.cursor)) throw unexpected();
+    if (previous && contentRevision !== revision) throw staleContent();
+    let found;
+    try {
+      found = await this.#call("pane.copy_search", {
+        pane_id: safePaneId, query, direction,
+        cursor: previous?.start ?? (direction === "backward" ? motion.cursor : { row: top, col: 0 }),
+        content_revision: revision,
+        ...(previous ? { previous } : {}),
+      });
+    } catch (error) {
+      if (error?.code === "stale_content") throw staleContent(error);
+      throw error;
+    }
+    if (!isCount(found?.total) || !Array.isArray(found?.matches)) throw unexpected();
+    const matches = found.matches.slice(0, MAX_FIND_MATCHES).map(textRange);
+    if (matches.includes(null)) throw unexpected();
+    const match = isCount(found.current) ? matches[found.current] ?? null : null;
+    const ordinal = isCount(found.current_global) ? found.current_global : found.current;
+    const foundRevision = isCount(found.content_revision) ? found.content_revision : revision;
+    let finalScroll = scroll;
+    if (match) {
+      // The view as it is now: the page may have been resized meanwhile.
+      const now = await this.#paneScroll(safePaneId);
+      finalScroll = now;
+      const offset = now ? findScrollOffset(now, match) : null;
+      if (now && offset !== now.offset_from_bottom) {
+        // Herdr refuses this if output or a reflow moved the history since the
+        // search, so the view never goes to a row that now holds something else.
+        try {
+          await this.#call("pane.copy_motion", {
+            pane_id: safePaneId, cursor: match.start, motion: "line_end", content_revision: foundRevision,
+          });
+        } catch (error) {
+          if (error?.code === "stale_content") throw staleContent(error);
+          throw error;
+        }
+        const scrolled = await this.#call("pane.scroll", { pane_id: safePaneId, offset_from_bottom: offset });
+        finalScroll = scrollInfo(scrolled?.pane?.scroll) ?? { ...now, offset_from_bottom: offset };
+      }
+    }
+    return {
+      total: found.total,
+      current: match ? ordinal + 1 : null,
+      match,
+      matches,
+      content_revision: foundRevision,
+      scroll: finalScroll,
+    };
+  }
+
   // The pane's processes as herdr sees them (its shell and the foreground
   // group, each with pid and argv): where a Codex pane's rollout is open.
   async paneProcessInfo(paneId) {
@@ -550,4 +707,5 @@ export const validation = Object.freeze({
   validateReadFormat,
   validateReadSource,
   validateKeys,
+  validateFindRequest,
 });
