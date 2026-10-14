@@ -338,6 +338,8 @@ Click or tap an attached terminal and type: text, Tab, arrows, Enter, and Ctrl c
 
 `Ctrl`+`F` (`Cmd`+`F` on a Mac) over the Terminal view, or the magnifier in the pane header, opens **Find in terminal**: it searches the pane's whole Herdr history (Herdr's own copy-mode search, a capital letter makes it case-sensitive), shows "3/17", and scrolls the pane's view to the match, for every client of that pane. `Enter` steps to an older match and `Shift`+`Enter` to a newer one; matches on screen are tinted, and `Esc` closes the bar where the view is. From the composer or any other text field `Ctrl`+`F` stays the browser's, and a mirrored pane has no find. Find uses Herdr's copy-mode search over its socket API and was checked on Herdr 0.9.3; on an older Herdr that lacks it the bar says the search failed, with Herdr's reason, and the rest of HerdRabbit works as before.
 
+Over the Chat view the same shortcut and magnifier open **Find in conversation**: it searches the messages already loaded on the page (what is drawn, including open work blocks; work folded shut is not searched), marks every match, shows "3/17", and scrolls the current one to the middle of the view, unfolding a folded code block for it. `Enter` steps up and `Shift`+`Enter` down, `Esc` takes the marks away. While earlier messages are not loaded the bar says so, with a button that loads them.
+
 | Action | Key or control |
 | --- | --- |
 | Send input in a mouse-oriented environment | `Enter` |

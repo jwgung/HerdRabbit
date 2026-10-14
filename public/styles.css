@@ -827,8 +827,47 @@ body.sidebar-collapsed .terminal-panel {
 }
 
 .terminal-find[hidden],
-.terminal-panel[data-lens="chat"] .terminal-find {
+.terminal-panel[data-lens="chat"] .terminal-find:not(.chat-find),
+.terminal-panel[data-lens="terminal"] .chat-find {
   display: none;
+}
+
+/* The same bar over the Chat lens, with a second line when earlier messages
+   are not loaded (and so not searched). */
+.chat-find {
+  flex-wrap: wrap;
+}
+
+/* The field takes what the buttons leave, so they stay on its line. */
+.terminal-find.chat-find input {
+  flex-basis: 0;
+}
+
+.chat-find-more {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 2px 0 2px;
+  padding: 4px 0 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chat-find-more[hidden] {
+  display: none;
+}
+
+.terminal-find .chat-find-load {
+  width: auto;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+  font: inherit;
+  font-size: 12px;
 }
 
 .terminal-find-icon,

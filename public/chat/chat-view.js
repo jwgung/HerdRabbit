@@ -6,8 +6,8 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatView.tsx and
 // ChatView.css, rewritten as plain DOM code without React.
-import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.44";
-import { lineDiff } from "./diff.js?v=1.2.44";
+import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.45";
+import { lineDiff } from "./diff.js?v=1.2.45";
 import {
   formatWorkDuration,
   commandText,
@@ -23,17 +23,17 @@ import {
   workStartsOpen,
   workSummary,
   workTitle,
-} from "./work-blocks.js?v=1.2.44";
-import { paneRenames } from "../pane-rename.js?v=1.2.44";
-import { ConversationLoader } from "./conversation-refresh.js?v=1.2.44";
-import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.44";
+} from "./work-blocks.js?v=1.2.45";
+import { paneRenames } from "../pane-rename.js?v=1.2.45";
+import { ConversationLoader } from "./conversation-refresh.js?v=1.2.45";
+import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.45";
 import {
   chatMayBecomeAvailable,
   chatUnavailableText,
   chooseLens,
   readPaneLens,
   writePaneLens,
-} from "../lens-preference.js?v=1.2.44";
+} from "../lens-preference.js?v=1.2.45";
 
 // Scrolling this close to the top reads the page before it.
 const LOAD_OLDER_PX = 400;
@@ -102,7 +102,7 @@ export function turnKeys(turns) {
 // ---------------------------------------------------------------------------
 // One pane's chat.
 
-function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPath, onViewInTerminal, onCopy, onAvailability }) {
+function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPath, onViewInTerminal, onCopy, onAvailability, onDrawn = () => {} }) {
   const root = element(document, "div", { className: "chat-pane", attrs: { "data-pane-id": paneId } });
   root.hidden = true;
   const scroller = element(document, "div", { className: "chat-scroll", attrs: { role: "log", "aria-live": "polite", "aria-label": "Conversation", tabindex: "0" } });
@@ -519,6 +519,8 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     stateLine.classList.toggle("is-error", Boolean(error));
     retryButton.hidden = !error;
     drawActivity();
+    // the find bar marks the turns again when they changed (chat-find.js)
+    onDrawn({ turns: changed });
     if (!visible) return;
     if (anchor) scroller.scrollTop = anchor.top + (scroller.scrollHeight - anchor.height);
     else if (stick) scroller.scrollTop = scroller.scrollHeight;
@@ -530,6 +532,7 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     const node = turnElement(known.turn, key, known.live);
     known.node.replaceWith(node);
     known.node = node;
+    onDrawn({ turns: true });
   }
 
   async function loadWholeOutput(toolId) {
@@ -646,6 +649,12 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     paneId,
     root,
     loader,
+    // What find in the conversation searches (chat-find.js): the drawn turns,
+    // the view they scroll in, and the pages before them not read yet.
+    findRoot: turnsHost,
+    scroller,
+    older: () => ({ more: typeof loader.history.olderCursor === "string", state: olderState }),
+    loadOlder: () => loadOlder(),
     // Reads the newest page (on first use, on a change, on a send).
     refresh({ now = false } = {}) { loader.refresh({ now }); },
     // Back to the end, and following it (a message was just sent).
@@ -746,7 +755,7 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
 // code and details. `layout()` answers { compact, touch }.
 export function createChatLens({ document = globalThis.document, stage, host, chatButton, terminalButton, group,
   storage, layout, connection, fetchJson, isLinkablePath = () => false, onOpenPath = () => {}, onCopy = () => {},
-  onLensChange = () => {} }) {
+  onLensChange = () => {}, onChatDrawn = () => {} }) {
   const chats = new Map();
   // paneId -> { state: "checking" | "available" | "unavailable", reason, checkedAt }
   const availability = new Map();
@@ -771,6 +780,7 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
     chat = createPaneChat({
       paneId: id, document, fetchJson, isLinkablePath, onOpenPath, onCopy,
       onViewInTerminal: () => setLens("terminal"),
+      onDrawn: (drawn) => onChatDrawn(chat, drawn),
       onAvailability: ({ available, reason = null }) => {
         const before = availability.get(id);
         availability.set(id, available ? { state: "available", reason: null, checkedAt: Date.now() }

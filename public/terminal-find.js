@@ -15,6 +15,20 @@ export function findIsCaseSensitive(query) {
   return /\p{Lu}/u.test(query);
 }
 
+// Text as a find compares it: as it is when the query has a capital, in lower
+// case otherwise. Letter by letter, so one letter whose lower case is longer
+// (İ) stays as it is instead of shifting every index after it: an index in the
+// folded text is the same index in the text.
+export function foldForFind(text, sensitive) {
+  if (sensitive) return text;
+  let folded = "";
+  for (const letter of text) {
+    const lower = letter.toLowerCase();
+    folded += lower.length === letter.length ? lower : letter;
+  }
+  return folded;
+}
+
 // Where `query` shows in the screen rows (as xterm-terminal.js reads them: the
 // text and the cell each character starts in), as { row, start, end, current }
 // in cells, end excluded. `current` is the cell herdr's current match starts
@@ -23,17 +37,7 @@ export function findIsCaseSensitive(query) {
 export function findOccurrences(rows, query, current = null) {
   if (typeof query !== "string" || query.length === 0) return [];
   const sensitive = findIsCaseSensitive(query);
-  // Letter by letter, so one letter whose lower case is longer (İ) stays as it
-  // is instead of shifting every index after it or leaving the row unfolded.
-  const fold = (text) => {
-    if (sensitive) return text;
-    let folded = "";
-    for (const letter of text) {
-      const lower = letter.toLowerCase();
-      folded += lower.length === letter.length ? lower : letter;
-    }
-    return folded;
-  };
+  const fold = (text) => foldForFind(text, sensitive);
   const needle = fold(query);
   const found = [];
   rows.forEach((row, index) => {
