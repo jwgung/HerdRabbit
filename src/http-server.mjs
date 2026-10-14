@@ -28,6 +28,7 @@ import { MAX_TEXT_PREVIEW_BYTES, inlineTypeFor, isMarkdown } from "../public/fil
 import { renderMarkdown } from "./markdown.mjs";
 import { secretPrompt } from "./secret-prompt.mjs";
 import { validMachineLabel, validMachineTarget } from "./herdr-machines.mjs";
+import { validateServerProfile } from "./server-profiles.mjs";
 import { ConversationError } from "./conversation/pages.mjs";
 import { ConversationMonitor } from "./conversation/monitor.mjs";
 import { ConversationService } from "./conversation/service.mjs";
@@ -302,7 +303,7 @@ export function outputWindow(output, requestedLines) {
   };
 }
 
-function errorResponse(error) {
+export function errorResponse(error) {
   if (error instanceof HttpError) {
     return { status: error.status, code: error.code, message: error.message };
   }
@@ -333,7 +334,8 @@ function errorResponse(error) {
   if (error instanceof HerdrCommandError) {
     return {
       status: error.code === "herdr_timeout" ? 504
-        : error.code === "split_session" || error.code === "stale_content" ? 409 : 502,
+        : error.code === "split_session" || error.code === "stale_content" ? 409
+          : error.code === "link_unsupported" ? 501 : 502,
       code: error.code,
       message: error.message,
     };
@@ -585,9 +587,13 @@ export function createHerdrHttpServer({
   conversations = null,
   // Prompt cards (src/prompt/): a blocked pane's approval or question.
   prompts = null,
-  // How many links to other HerdRabbits an older version saved. Those are not
-  // used any more; the page says once to add those PCs again with herdr machine.
-  legacyServers = 0,
+  // PCs connected with Connect PC (src/server-profiles.mjs), the tailnet look
+  // that finds them (`discover`), and what PCs announced about themselves.
+  profiles = null,
+  discover = null,
+  announcements = null,
+  // This PC's own Connect PC port, { address, allowed }, or null when closed.
+  connectPc = null,
   csrfToken = randomBytes(32).toString("base64url"),
   maxBodyBytes = 16 * 1024,
   maxTransferBytes = Infinity,
@@ -736,6 +742,34 @@ export function createHerdrHttpServer({
         return;
       }
 
+      // Another PC saying where its Connect PC port is. It has no session here,
+      // so this sits ahead of the gate like the download ticket does. What it
+      // can do is bounded on purpose: it adds a row to a list a person still
+      // has to choose from, and choosing probes the address itself.
+      if (method === "POST" && url.pathname === "/api/announce") {
+        if (!announcements) throw new HttpError(404, "not_found", "Not found");
+        const from = nearestForwardedAddress(request.headers[PEER_ADDRESS_HEADER]);
+        const login = normalizeLogin(request.headers[PEER_LOGIN_HEADER]);
+        // Both come from Tailscale Serve, which is the only thing that can
+        // reach this socket from the tailnet; without them the caller is not
+        // on it. Only this PC's own tailnet account may announce.
+        if (!isLoopbackSocket(request) || from === null || login === null ||
+            login !== announcements.ownerLogin()) {
+          throw new HttpError(403, "announce_rejected", "Announcements are only accepted from your tailnet.");
+        }
+        const body = await readJsonBody(request, maxBodyBytes);
+        const recorded = announcements.record({
+          from,
+          name: body.name,
+          address: body.address,
+          version: body.version,
+          protocol: body.link_protocol,
+        });
+        if (!recorded.ok) throw new HttpError(400, "invalid_input", "That announcement was not usable.");
+        sendJson(response, 202, { ok: true });
+        return;
+      }
+
       if (method === "GET" && url.pathname === "/api/auth/status") {
         sendJson(response, 200, {
           required: auth.required,
@@ -833,6 +867,39 @@ export function createHerdrHttpServer({
 
       // Herdr's own SSH machines: added, renamed, turned off and removed with
       // `herdr machine`, so the sidebar and Herdr's TUI list the same ones.
+      // Connect PC: other PCs running HerdRabbit, reached on their Connect PC port.
+      if (profiles && url.pathname.startsWith("/api/servers")) {
+        const match = url.pathname.match(/^\/api\/servers(?:\/(link_[a-f0-9-]{36}|test|discover))?$/u);
+        if (!match) throw new HttpError(404, "not_found", "Server route not found");
+        const id = match[1];
+        if (method === "GET" && !id) {
+          sendJson(response, 200, { profiles: profiles.list() });
+          return;
+        }
+        requireWriteAuthorization(request, csrfToken);
+        if (method === "POST" && id === "discover") {
+          if (!discover) {
+            throw new HttpError(501, "discovery_unavailable", "This PC cannot list its tailnet.");
+          }
+          sendJson(response, 200, await discover(profiles.list().map((item) => item.address)));
+          return;
+        }
+        if (method === "POST" && id === "test") {
+          const profile = validateServerProfile(await readJsonBody(request, maxBodyBytes));
+          sendJson(response, 200, await herdr.testProfile(profile));
+          return;
+        }
+        if ((method === "POST" && !id) || (method === "PUT" && id && id !== "test" && id !== "discover")) {
+          sendJson(response, 200, { profiles: await profiles.save(await readJsonBody(request, maxBodyBytes), id) });
+          return;
+        }
+        if (method === "DELETE" && id && id !== "test" && id !== "discover") {
+          sendJson(response, 200, { profiles: await profiles.remove(id) });
+          return;
+        }
+        throw new HttpError(405, "method_not_allowed", "Method not allowed");
+      }
+
       if (machines && url.pathname.startsWith("/api/machines")) {
         const match = url.pathname.match(/^\/api\/machines(?:\/(machine-[0-9a-f]{12})(\/disable|\/enable)?)?$/u);
         if (!match) throw new HttpError(404, "not_found", "Machine route not found");
@@ -1147,7 +1214,10 @@ export function createHerdrHttpServer({
           pushPublicKey: push?.publicKey || null,
           // Whether SSH machines can be added here: not without a socket directory.
           machines: Boolean(machines),
-          legacyServers,
+          // Whether other PCs can be connected here (Connect PC), and this
+          // PC's own Connect PC port for Details.
+          servers: Boolean(profiles),
+          connectPc,
           // Bytes, or null when files may be any size.
           maxTransferBytes: Number.isFinite(maxTransferBytes) ? maxTransferBytes : null,
         });

@@ -1,5 +1,7 @@
-import { InputValidationError, mapMovedIds } from "./herdr-client.mjs";
+import { HerdrCommandError, InputValidationError, mapMovedIds } from "./herdr-client.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported } from "./herdr-version.mjs";
+import { LeafLinkClient } from "./leaf-link-client.mjs";
+import { LINK_PROTOCOL } from "./leaf-protocol.mjs";
 
 const isMachine = (profile) => profile?.transport === "machine";
 
@@ -20,7 +22,7 @@ function scope(snapshot, server) {
 // Only messages we wrote ourselves are safe to show; anything else could be a
 // remote command's output arriving through an error.
 export function serverStatusFor(error) {
-  return error?.code?.startsWith("machine_")
+  return error?.code?.startsWith("leaf_") || error?.code?.startsWith("machine_")
     ? error.message
     : "Could not reach Herdr on this PC. Check that it is running there.";
 }
@@ -28,9 +30,15 @@ export function serverStatusFor(error) {
 export class MultiServerClient {
   constructor({
     local, hubVersion, machineName = () => null, herdrVersion = () => null,
-    // Herdr's own SSH machines (src/herdr-machines.mjs): every other PC.
+    // PCs connected with Connect PC (servers.json, src/server-profiles.mjs):
+    // another HerdRabbit, asked over its Connect PC port.
+    profiles = null,
+    remoteFactory = (profile) => new LeafLinkClient({ profile, hubVersion }),
+    // Herdr's own SSH machines (src/herdr-machines.mjs), listed beside them.
     machines = null,
   }) {
+    this.profiles = profiles;
+    this.remoteFactory = remoteFactory;
     this.machines = machines;
     // A machine whose connection just came up or went down is asked again at
     // once, not at its next poll.
@@ -48,12 +56,13 @@ export class MultiServerClient {
 
   clientFor(profile) {
     if (profile.id === "local") return this.local;
-    return this.machines.client(profile);
+    return isMachine(profile) ? this.machines.client(profile) : this.remoteFactory(profile);
   }
 
   syncEntries() {
     const profiles = [
       { id: "local", name: "Local" },
+      ...(this.profiles?.connectionProfiles?.() ?? this.profiles?.list?.() ?? []),
       ...(this.machines?.profiles() ?? []),
     ];
     for (const id of this.entries.keys()) {
@@ -127,15 +136,20 @@ export class MultiServerClient {
       ...Object.fromEntries(collections.map((key) => [key, snapshots.flatMap((snapshot) => snapshot[key])])),
       // Address and version travel with the server so the sidebar can say what
       // a machine is without asking again.
-      // This PC is this HerdRabbit, so it answers for its own version too.
+      // This PC is this HerdRabbit, so it answers for its own version and
+      // link protocol too; a connected PC reports what its handshake said,
+      // even when the protocols differ and it is shown offline.
       servers: entries.map(({ profile, available, status, connecting, client }) => ({
         // Connecting: not reached yet, but still trying; a page waits for its panes.
         id: profile.id, name: profile.name, available, status, connecting: !available && connecting,
-        transport: profile.id === "local" ? "local" : profile.transport,
+        transport: profile.id === "local" ? "local" : profile.transport ?? "link",
         ...(isMachine(profile) ? { enabled: profile.enabled !== false } : {}),
         address: profile.address ?? null,
         machine: this.machineName(profile) ?? null,
         version: profile.id === "local" ? this.hubVersion : client?.info?.().version ?? null,
+        ...(profile.id === "local" || !isMachine(profile)
+          ? { link_protocol: profile.id === "local" ? LINK_PROTOCOL : client?.info?.().protocol ?? null }
+          : {}),
         ...this.herdrFields(profile.id === "local" ? this.herdrVersion() : client?.info?.().herdrVersion ?? null),
       })),
     };
@@ -156,7 +170,39 @@ export class MultiServerClient {
     this.syncEntries();
     const entry = serverId === "local" ? null : this.entries.get(serverId);
     if (!entry) return null;
-    return entry.client.files?.() ?? null;
+    // A connected PC answers for its own files over its Connect PC port.
+    return isMachine(entry.profile) ? entry.client.files?.() ?? null : entry.client;
+  }
+
+  // "local", "link" (Connect PC) or "machine" (Herdr SSH machine), or null for
+  // a server that is not configured.
+  serverTransport(serverId) {
+    if (serverId === "local") return "local";
+    this.syncEntries();
+    const entry = this.entries.get(serverId);
+    return entry ? entry.profile.transport ?? "link" : null;
+  }
+
+  // Connect PC's "Test connection": one snapshot through a client of its own.
+  async testProfile(profile) {
+    const client = this.remoteFactory(profile);
+    try {
+      const snapshot = await client.snapshot();
+      if (snapshot.herdr_sessions.some((session) => session.running && !session.available)) {
+        throw new InputValidationError("Connected to HerdRabbit, but a running Herdr session could not be read.");
+      }
+      const info = client.info?.() ?? {};
+      return {
+        ok: true,
+        transport: "link",
+        version: info.version ?? null,
+        link_protocol: info.protocol ?? null,
+        sessions: snapshot.herdr_sessions.length,
+        panes: snapshot.panes.length,
+      };
+    } finally {
+      client.close?.();
+    }
   }
 
   // Account routes address a server the same way: a Herdr SSH machine runs
@@ -179,6 +225,9 @@ export class MultiServerClient {
 
   async invoke(method, targetId, args, mutation = false) {
     const { entry, id } = this.target(targetId);
+    if (typeof entry.client[method] !== "function") {
+      throw new HerdrCommandError("That is not available for this PC yet.", { code: "link_unsupported" });
+    }
     const result = await entry.client[method](id, ...args);
     if (mutation && entry.profile.id !== "local") {
       if (entry.pending) await entry.pending;
@@ -194,7 +243,8 @@ export class MultiServerClient {
     if (entry.profile.id !== "local" || typeof entry.client.paneProcessInfo !== "function") return null;
     return entry.client.paneProcessInfo(localId);
   }
-  // This machine's panes and Herdr machines' all attach.
+  // This machine's panes and Herdr machines' attach; a connected PC's client
+  // refuses (attach_unsupported), and the page mirrors its screen instead.
   terminalTarget(id, timeoutMs) {
     const { entry, id: localId } = this.target(id);
     return entry.client.terminalTarget(localId, timeoutMs);

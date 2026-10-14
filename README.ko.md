@@ -39,7 +39,7 @@ Tailscale이 설치되어 실행 중이면 [한 줄 자동 설치](#한-줄-자�
 
 - 기존 Herdr 워크스페이스, 탭, 패인 및 에이전트 상태 조회
 - 현재 OS 사용자에게 등록된 여러 Herdr 영구 세션을 한 화면에서 조회
-- 이 머신과 Herdr SSH 머신의 모든 패인을 Herdr가 그리는 화면 그대로 표시(실제 `herdr terminal attach` + xterm.js). 전체 화면 TUI·커서·색이 같습니다. attach할 수 없는 패인은 같은 터미널에 읽기 전용으로 비춰 보여 줌
+- 이 머신과 Herdr SSH 머신의 모든 패인을 Herdr가 그리는 화면 그대로 표시(실제 `herdr terminal attach` + xterm.js). 전체 화면 TUI·커서·색이 같습니다. attach할 수 없는 패인(지금은 Connect PC로 붙인 PC의 패인 전부)은 같은 터미널에 읽기 전용으로 비춰 보여 줌
 - Claude Code·Codex 패인을 채팅으로 읽기: 대화를 턴 단위로 보여 주고, 에이전트의 도구 호출은 "Worked for …" 한 줄 아래로 접으며, 위로 스크롤하면 이전 턴을 불러옵니다. 패인 머리글의 **Chat** / **Terminal** 전환(또는 `Ctrl`/`Cmd`+`J`)으로 아무것도 다시 연결하지 않고 오갑니다
 - 멈춰서 묻는 에이전트(도구 승인, 질문, 메뉴)에 채팅 맨 아래 카드의 버튼으로, 또는 터미널 위 배너에서 답하기
 - 패인마다 보내지 않은 초안을 따로 기억하고, 새로고침해도 유지합니다
@@ -51,7 +51,7 @@ Tailscale이 설치되어 실행 중이면 [한 줄 자동 설치](#한-줄-자�
 - 확인 후 세션 또는 프로젝트 종료
 - 프로젝트와 세션 이름 변경
 - 이미지·동영상·오디오·마크다운·텍스트를 내려받지 않고 브라우저에서 바로 보기
-- 이 머신을 포함한 모든 머신을 사이드바 줄에서 관리: 이름과 버전 확인, Herdr SSH 머신은 이름 변경·끄기·제거
+- 이 머신을 포함한 모든 머신을 사이드바 줄에서 관리: 이름과 버전 확인, Connect PC로 붙인 PC는 이름 변경·끊기(포트를 옮긴 PC는 새 주소 찾기), Herdr SSH 머신은 이름 변경·끄기·제거
 - 같은 행에서 머신이 쓰는 Claude Code·Codex 계정을 다시 로그인하지 않고 전환
 - 공용 업로드 폴더를 통한 기기와 Herdr 머신 사이의 파일 전송: 입력창 옆 첨부 버튼으로 업로드, 저장된 경로를 입력창에 삽입, 저장된 파일 다운로드 및 삭제
 - 프로젝트별 하위 세션 접기와 접힘 상태 저장
@@ -95,17 +95,43 @@ Files 탭과 업로드 대화상자도 이 머신들에서 동작합니다. File
 
 머신의 `⋯` 메뉴에 있는 **AI accounts**도 이 머신에서와 똑같이 Claude Code와 Codex 로그인을 전환하며, 모든 일은 그 머신 안에서 일어납니다. 호출할 때마다 HerdRabbit 자신의 계정 코드를 고정된 텍스트로 같은 SSH 연결을 통해 그 머신의 Node.js에 보내 그곳에서 실행합니다. 로그인은 그 머신 홈의 `~/.config/herdr-bridge/ai-accounts`(그 머신의 `XDG_CONFIG_HOME`이 있으면 그 아래)에 저장되고(폴더 0700, 파일 0600, 그 머신에 HerdRabbit을 설치하면 쓰는 위치와 같음, 여기의 `HERDR_WEB_AI_ACCOUNTS_DIR`는 그 머신에 적용되지 않음), 전환은 그 머신 안에서만 파일을 복사하며, **Add account**는 그 머신의 Herdr 세션에 로그인 프로젝트를 엽니다. 인증 파일은 이 머신으로 읽어 오지도, 머신 사이에 복사하지도 않습니다. 돌아오는 것은 누구 계정인지(이메일, 조직, 요금제, 로그인 만료)뿐입니다. 전환하기 전에 그 머신의 패인에서 실행 중인 에이전트를 먼저 확인합니다. 그 머신에 Node.js 22 이상이 SSH 명령이 받는 PATH에(또는 `~/.nvm`이나 fnm 아래에) 있어야 하고, 한 번에 하나의 변경만 돌도록 `flock`(util-linux, 보통의 Linux에 있음)도 있어야 합니다. 없으면 AI accounts가 그 이유를 보여 줍니다. 여기서 20초를 넘겨 실패로 보인 변경도 그 머신에서는 끝까지 진행될 수 있고, 다음 변경은 그것을 기다립니다.
 
+### HerdRabbit이 도는 다른 PC (Connect PC)
+
+모든 PC는 같은 HerdRabbit을 돌립니다. [빠른 시작](#빠른-시작)으로 설치하면 PC마다 자기 화면과 로그인이 `127.0.0.1` + Tailscale Serve 뒤에 생깁니다. 여기에 더해 PC는 다른 PC를 위한 **Connect PC 포트**를 열 수 있습니다. 그러면 다른 PC의 HerdRabbit이 이 PC의 세션을 자기 화면에 함께 보여 줍니다. 방향은 한쪽입니다. A가 B를 붙이면 B는 A 화면에만 보이고, B는 그와 상관없이 자기 화면과 로그인을 그대로 가집니다.
+
+**붙을 PC(B)에서:** Connect PC 포트를 열고 붙을 수 있는 PC를 정합니다. B에서 `npm run install-service`를 다시 실행해 "다른 PC가 이 PC에 붙을 수 있게 열까요?"에 답하고 tailnet 목록에서 허용할 PC를 고르거나, 직접 설정합니다.
+
+| 변수 | 의미 |
+| --- | --- |
+| `HERDR_WEB_PEER_HOST` | 이 PC의 tailnet 주소(예: `100.64.0.2`). 설정하면 Connect PC 포트가 열리고, 기본값(설정 안 함)이면 닫혀 있습니다. `0.0.0.0`은 받지 않습니다. |
+| `HERDR_WEB_PEER_PORT` | 그 포트. 기본 `38788`. tailnet 주소의 화면 포트는 Tailscale Serve가 쓰므로 같은 포트를 쓸 수 없습니다. |
+| `HERDR_WEB_PEER_ADDRESSES` | 붙을 수 있는 PC의 tailnet 주소, 쉼표로 구분. |
+| `HERDR_WEB_PEER_LOGINS` | 붙을 수 있는 tailnet 계정, 쉼표로 구분. 요청한 주소의 계정을 `tailscale whois`로 확인합니다. 두 목록을 함께 쓰면 둘 다 맞아야 합니다. |
+| `HERDR_WEB_HUB` | 선택. 이 PC를 붙일 PC의 화면 주소(예: `https://laptop.tailnet.ts.net:38787`). 그 PC에 이 PC의 Connect PC 포트가 어디인지 알립니다. 기본 포트가 아닐 때만 필요합니다. |
+
+허용 목록이 둘 다 비어 있으면 포트는 아무도 받지 않습니다.
+
+**붙이는 PC(A)에서:** 사이드바 위 **+ → Connect PC**를 엽니다. tailnet의 PC를 나열하고 각각 어떤 상태인지 보여 줍니다: 연결 가능, 이미 추가됨, HerdRabbit은 있지만 이 PC를 허용하지 않음, 연결 규약이 다름, 붙을 것이 없음(Connect PC 포트 없음 또는 꺼짐 — 개수로만 접어 둠). 연결 가능한 PC를 고르거나 **Enter an address**를 펼쳐 Connect PC 주소(`http://100.64.0.2:38788`)를 직접 넣습니다. **Test connection**이 지금 입력한 값으로 성공해야 **Save**가 켜집니다. 양쪽 어디에도 이름과 주소 말고는 저장하지 않습니다. B는 요청이 들어온 주소로 A를 알아보므로 키나 비밀번호가 없습니다. 붙인 PC는 `~/.config/herdr-bridge/servers.json`(권한 `0600`, 또는 `HERDR_WEB_SERVERS_FILE`)에 저장되고, A를 쓰는 모든 브라우저가 함께 씁니다.
+
+찾기는 기본 포트만 확인합니다. 다른 포트의 PC(같은 PC의 두 번째 계정 등)는 `HERDR_WEB_HUB`가 A를 가리키면 스스로 알리고, A는 찾은 PC 옆에 함께 보여 줍니다. 알림은 목록에 한 줄을 더할 뿐이고, 추가는 여전히 사람이 고르며 고를 때 그 주소를 다시 확인합니다. PC는 자기 자신만, 그리고 내 tailnet 계정에서만 알릴 수 있습니다. 알린 내용은 `~/.config/herdr-bridge/announced.json`에 남고, 확인해 보니 비어 있는 주소는 지우며, 개수에 상한이 있습니다.
+
+**버전.** 두 PC는 **연결 규약(connection protocol)** 번호가 같으면 연결됩니다. 이 번호는 주고받는 내용이 바뀔 때만 바뀌므로 HerdRabbit 버전은 달라도 되고, 두 버전은 Details에 함께 보입니다. 연결 규약이 다른 PC는 offline으로 표시하고, 상태와 Details에 두 PC의 연결 규약과 HerdRabbit 버전을 함께 적어 어느 쪽을 업데이트할지 알 수 있게 합니다.
+
+붙인 PC의 줄 메뉴에는 **Details**(종류, 주소, 이 PC와 나란히 본 HerdRabbit 버전, 연결 규약, Herdr 버전), **AI accounts**, **Rename**, **Disconnect**가 있고, offline인 동안에는 **Find new address**가 생깁니다. 포트를 옮긴 PC도 tailnet 주소는 그대로이므로 다시 찾아보고 다른 포트에서 답하면 주소를 바꿔 둡니다. 이 PC 자신의 Details에는 Connect PC 주소와 허용한 PC 수가 나옵니다.
+
+지금 붙인 PC로 되는 것: 프로젝트·세션·패인 목록과 에이전트 상태(B에서 스트림으로 받음), 패인에 텍스트·키 보내기, B에서 프로젝트·세션 만들기·이름 바꾸기·닫기·끌어서 순서 바꾸기, Files 탭과 업로드(B의 디스크), 경로 링크로 B의 파일 열기, 질문 카드로 B의 에이전트에 답하기, **AI accounts**로 B의 로그인을 B에서 전환. 아직 안 되는 것: 터미널은 실제 attach가 아니라 화면을 비춘 읽기 전용 사본이라 그 패인에서는 터미널 **찾기**가 꺼져 있고, **Chat**은 붙인 PC에서는 아직 쓸 수 없다고 안내합니다.
+
+위의 Herdr SSH 머신은 붙인 PC와 함께 그대로 동작하며, 둘 다 같은 사이드바에 나옵니다.
+
 ### 모든 머신을 한 사이드바에
 
 모든 머신이 **머신 → Herdr 세션 → 프로젝트 → 탭/패인**으로 함께 표시되고, 패인을 고르면 그 머신에 입력이 가고 출력이 읽힙니다. 머신마다 따로 갱신하고 실패하면 재시도 간격을 늘리므로, 닿지 않는 머신이 로컬 데이터를 지연시키지 않습니다. 장애 중에도 마지막으로 알려진 패인은 남고 그 머신은 offline으로 표시됩니다. 프로젝트/세션 선택에 그 머신의 세션이 나타나고, 거기서 프로젝트와 탭을 만들고 이름을 바꾸고 닫을 수 있습니다.
 
 머신은 보이는 자리에서 관리하고, 모든 머신에 줄이 있습니다. 이 머신 하나뿐이어도 마찬가지입니다. `⋯` 메뉴에서 **Details**로 머신 이름, 이 머신에서 답하는 HerdRabbit 버전, 그 머신의 Herdr 버전(0.9.0보다 낮으면 표시하고, 이 머신은 서버 시작 로그에도 경고), 그 머신이 내주는 Herdr 세션과 패인 수를 보고, **AI accounts**를 엽니다. 브라우저 전체에 걸린 설정(**Passkeys**, **Signed-in devices** 포함)은 여기가 아니라 사이드바 아래의 ⚙ 설정 메뉴에 있습니다. 머신이 연결되지 않을 때 가장 먼저 볼 것이 Details입니다.
 
-### 이전 버전에서 연결한 컴퓨터
+### 이전 버전에서 leaf로 설치한 PC
 
-이전 버전은 다른 PC에 HerdRabbit을 "leaf" 모드로 하나 더 설치하고 **+ → Connect Server**로 연결했습니다. 그 방식은 없어졌습니다. 이제 원격 PC는 Herdr SSH 머신이고, 거기에는 HerdRabbit을 설치하지 않습니다. 이전 버전이 `~/.config/herdr-bridge/servers.json`(또는 `HERDR_WEB_SERVERS_FILE`)에 저장한 연결은 더 이상 표시하지 않습니다. 파일은 그대로 두고, 브라우저마다 한 번 몇 개였는지 알려 줍니다. 그 PC들은 **+ → Add SSH machine**(또는 `herdr machine add`)으로 다시 추가하세요.
-
-leaf로 설치했던 PC는 leaf 설정(`HERDR_WEB_ROLE`, `HERDR_WEB_PEER_LOGINS`, `HERDR_WEB_PEER_ADDRESSES`, `HERDR_WEB_HUB`)을 무시하고 경고를 한 줄 남기며, `127.0.0.1`에서만 듣습니다. leaf에는 원래 비밀번호가 없었고 그 대신이던 peer 검사도 없어졌습니다. 그래서 비밀번호가 없으면 HerdRabbit을 열지 않습니다. 서비스는 켜진 채로 남아 업데이트가 되돌려지지 않지만, 모든 요청에 비밀번호를 설정하라는 503 응답만 돌려주므로 Tailscale Serve 뒤에서 열린 채로 남지 않습니다. 이 버전부터 `update.sh`는 leaf를 만나면 아무것도 바꾸기 전에 멈추고 같은 절차를 알려 줍니다. 그 PC에서 `npm run install-service`를 다시 실행해 비밀번호가 있는 일반 HerdRabbit으로 설치하거나, Herdr SSH 머신으로만 쓴다면 그 서비스를 멈추세요.
+이전 버전도 같은 방식으로 PC를 붙였지만, 붙는 PC를 "leaf"라 부르고 자기 화면 없이 허브에만 답하게 했습니다(`HERDR_WEB_ROLE=leaf`). 그런 유닛은 계속 동작합니다. leaf의 주소와 포트가 그대로 Connect PC 포트가 되므로 그 PC를 저장해 둔 허브는 계속 연결되고, `127.0.0.1`에 자기 화면이 생깁니다. leaf에는 비밀번호가 없었으므로, 비밀번호를 정할 때까지 그 화면은 비밀번호를 설정하라는 503 응답만 돌려줍니다(Connect PC 포트는 그대로). 그 PC에서 `npm run install-service`를 실행하면 비밀번호가 있는 일반 유닛으로 다시 쓰고, Connect PC 포트와 허용한 PC를 유지할지 묻습니다. 설치 스크립트는 이때 포트를 화면 포트(이후 Tailscale Serve가 쓰는 포트)에서 옮기므로, 허브에서 **Find new address**를 한 번 누르세요. `tailscale serve` 뒤 loopback에 있던 leaf는 그 방식으로 더 이상 닿지 않으니 위처럼 Connect PC 포트를 여세요.
 
 ## 구조
 
@@ -435,6 +461,8 @@ iOS에서 PWA를 독립 실행 모드로 쓰면 내려받은 파일이 저장되
 | `HERDR_WEB_HOST` | `127.0.0.1` | 바인딩할 주소. `127.0.0.1`, `0.0.0.0`, 또는 Tailscale 주소처럼 특정 인터페이스 하나. 주소 하나로 묶는 것이 가장 좁습니다 — 그 머신이 물려 있는 다른 모든 네트워크에서 서비스가 아예 보이지 않고, 그 주소는 요청 host로도 자동 허용됩니다. 이름은 listen 시점에 해석되므로 거부합니다. |
 | `HERDR_WEB_PORT` | `38787` | 1024–65535 범위의 수신 포트 |
 | `HERDR_WEB_ALLOWED_HOSTS` | 비어 있음 | 역방향 프록시와 Tailscale용 추가 Host 이름. 쉼표로 구분 |
+| `HERDR_WEB_PEER_HOST`, `HERDR_WEB_PEER_PORT`, `HERDR_WEB_PEER_ADDRESSES`, `HERDR_WEB_PEER_LOGINS`, `HERDR_WEB_HUB` | 설정 안 함, 포트 `38788` | Connect PC 포트와 붙을 수 있는 PC. [HerdRabbit이 도는 다른 PC](#herdrabbit이-도는-다른-pc-connect-pc) 참고. `HERDR_WEB_PEER_HOST`를 설정해야 열리고, 허용 목록이 둘 다 비어 있으면 아무도 받지 않습니다. |
+| `HERDR_WEB_SERVERS_FILE` | `~/.config/herdr-bridge/servers.json` | Connect PC로 붙인 PC 목록 |
 | `HERDR_WEB_MAX_TRANSFER_MB` | 설정 안 함(제한 없음) | 업로드·다운로드 1건의 최대 크기(MB, 양의 정수). 설정하지 않으면 제한 없음. 여럿이 쓰거나 디스크가 넉넉하지 않은 호스트에서는 제한을 두는 것을 권장합니다 |
 | `HERDR_WEB_AUTH_FILE` | `~/.config/herdr-bridge/auth.json` | 비밀번호 해시와 세션 서명 키를 저장한 인증 파일 |
 | `HERDR_WEB_PUSH_FILE` | `~/.config/herdr-bridge/push.json` | VAPID 키와 브라우저 Push 구독을 저장한 파일 |
@@ -677,7 +705,7 @@ tailscale serve status
 ## 보안 경계
 
 - 기본 바인딩은 `127.0.0.1`입니다.
-- HerdRabbit 로그인 비밀번호는 `scrypt` 해시로만 저장하며 인증 설정 파일은 해당 OS 사용자만 읽을 수 있습니다. Herdr SSH 머신에는 사용자의 SSH 키로 접속하며, HerdRabbit은 그 자격증명을 저장하지 않습니다.
+- HerdRabbit 로그인 비밀번호는 `scrypt` 해시로만 저장하며 인증 설정 파일은 해당 OS 사용자만 읽을 수 있습니다. Herdr SSH 머신에는 사용자의 SSH 키로 접속하며, HerdRabbit은 그 자격증명을 저장하지 않습니다. 붙인 PC도 자격증명을 갖지 않습니다. PC는 요청이 들어온 tailnet 주소로 서로를 알아봅니다.
 - Passkey 개인키와 생체 정보는 HerdRabbit으로 전달되지 않고 공개 credential 정보만 저장합니다.
 - 로그인 쿠키에는 `HttpOnly`, `SameSite=Strict`를 적용하고 HTTPS에서는 `Secure`도 적용합니다.
 - 비밀번호 변경과 해제 시 서비스를 재시작해 기존 세션과 등록된 Passkey를 무효화합니다.
@@ -695,6 +723,9 @@ tailscale serve status
 - 쓰기는 이 머신의 업로드 폴더에만 닿습니다. 비밀번호 해시와 VAPID 키가 있는 설정 디렉터리 바깥에 둡니다. 업로드와 삭제는 그 폴더 밖의 경로를 지정할 수 없습니다. URL로 들어온 이름은 교정하지 않고 거부하며, 대상은 경로를 조합하지 않고 디렉터리 목록에서 가져옵니다.
 - 탐색은 읽기 전용이며 **이 머신에서 서비스 계정이 읽을 수 있는 모든 경로**에 닿습니다. 경로 허용 목록을 두지 않고 OS 파일 권한을 경계로 삼습니다. 여기에는 `~/.ssh`, `~/.config/herdr-bridge/` 파일들, `/proc/self/environ`이 포함됩니다. 인증된 클라이언트는 이미 터미널 패인으로 그 계정의 임의 명령을 실행할 수 있으므로 권한 상승은 아니지만, HerdRabbit을 root나 공용 계정으로 실행하지 말아야 할 이유가 하나 더 늘어납니다.
 - 어떤 머신도 다른 머신의 자격증명을 쥐지 않습니다. 각자 자기 HerdRabbit과 자기 Herdr를 돌리므로, 하나가 뚫려도 나머지가 함께 넘어가지 않습니다.
+- **Connect PC 포트**는 화면과 따로 듣는 별도 리스너입니다. `/api/link/`만 응답하고 화면·로그인·브라우저 API는 내주지 않으며, 화면 쪽에는 `/api/link/` 경로가 아예 없습니다. 그래서 붙은 PC가 화면 세션을 쓸 수 없고, 브라우저 세션으로 Connect PC API에 들어올 수도 없습니다. PC는 소켓의 주소로(그리고 `HERDR_WEB_PEER_LOGINS`가 있으면 그 주소를 `tailscale whois`로 확인한 계정으로) 들어오며, 쿠키·비밀번호·헤더로는 들어올 수 없습니다. 허용 목록이 비어 있으면 아무도 들어오지 못합니다.
+- Connect PC 포트는 `tailscale serve` 뒤가 아니라 tailnet 주소에 직접 엽니다. 이쪽이 더 안전합니다. 요청한 주소는 커널이 WireGuard로 인증된 상대에게서 정하므로, 이 PC든 다른 곳이든 어떤 프로세스도 허용된 PC인 척할 수 없습니다. Serve 뒤에 두면 증명이 헤더가 되는데, 그것은 Serve만 그 소켓에 닿을 때만 성립하고 **이 PC의 아무 프로세스나, 어느 사용자로든 그 헤더를 위조할 수 있습니다.** tailnet 안에서는 WireGuard가 이미 암호화하므로 평문 HTTP로 충분합니다. HTTPS는 service worker와 passkey가 보안 컨텍스트를 요구하는 화면에만 필요합니다.
+- 허용한 PC는 이 PC 화면에 앉은 사람이 할 수 있는 일을 할 수 있습니다: 터미널(텍스트·키), 서비스 계정이 읽을 수 있는 파일, AI 계정 전환. 내 PC만 허용하세요. `HERDR_WEB_PEER_LOGINS`만 쓰면 그 계정의 모든 기기가 들어오므로, 기기까지 좁히려면 `HERDR_WEB_PEER_ADDRESSES`를 함께 쓰세요.
 - 이 방식의 파일 읽기는 어떤 패인 기록에도 흔적을 남기지 않고, Herdr 세션이 하나도 없어도 동작하며, 회선 속도로 전송됩니다. 터미널을 통한 복사에는 없는 성질입니다.
 - 일반 파일만 제공합니다. 디렉터리, 장치 파일, FIFO는 논블로킹으로 연 뒤 거부하므로 named pipe가 서버를 멈추게 할 수 없습니다. 파일은 항상 `attachment`와 `application/octet-stream`으로 제공하며, 다운로드는 기본적으로 크기 제한이 없습니다(`HERDR_WEB_MAX_TRANSFER_MB`로 제한 가능). 크기를 0으로 보고하는 파일(procfs, sysfs)은 길이 없이 스트리밍하며 1GB에서 끊습니다.
 - 다운로드는 30초 후 만료되는 1회용 티켓으로 받으므로 파일 경로가 URL에 남지 않습니다. 다만 디렉터리 경로와 대상 서버는 탐색 요청 URL에 실리므로 HerdRabbit 앞단의 역방향 프록시 로그에는 기록됩니다.

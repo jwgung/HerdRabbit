@@ -70,6 +70,12 @@ export class ConversationService {
     return store;
   }
 
+  // A PC connected with Connect PC has no transcript store over its link yet;
+  // anything else without one is a machine that is not connected.
+  #noStore(serverId) {
+    return new ConversationUnavailable(this.herdr.serverTransport?.(serverId) === "link" ? "linked_pc" : "server_unavailable");
+  }
+
   // The pane's transcript: { paneId, serverId, agent, format, store, session,
   // path }, path null while the session has written nothing. Throws
   // ConversationUnavailable.
@@ -91,7 +97,7 @@ export class ConversationService {
       const session = own && (own.kind === undefined || own.kind === "id") ? own.value : null;
       if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
       const store = this.#store(serverId);
-      if (!store) throw new ConversationUnavailable("server_unavailable");
+      if (!store) throw this.#noStore(serverId);
       const found = await this.#located(`claude\0${serverId}\0${session}\0${cwds.join("\0")}`,
         () => locateClaudeTranscript(store, session, cwds));
       return { paneId, serverId, agent, format, store, session, path: found.value, key: found.key };
@@ -101,7 +107,7 @@ export class ConversationService {
 
   async #resolveCodex(paneId, { serverId, agent, format, own, cwds }) {
     const store = this.#store(serverId);
-    if (!store) throw new ConversationUnavailable("server_unavailable");
+    if (!store) throw this.#noStore(serverId);
     const session = own && typeof own.value === "string" && own.value.length <= 4096
       ? { kind: own.kind, value: own.value } : null;
     const thread = session && (session.kind === undefined || session.kind === "id") && THREAD_ID.test(session.value) ? session.value : null;

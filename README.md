@@ -37,14 +37,14 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 
 - Browse the current OS user's Herdr persistent sessions, workspaces, tabs, panes, and agent states
 - Aggregate multiple Herdr persistent sessions without local ID collisions
-- Show every pane as Herdr itself draws it (a real `herdr terminal attach` in xterm.js), on this machine and on Herdr SSH machines, so full-screen TUIs, the cursor and colors match; a pane that cannot attach is mirrored read-only in the same terminal
+- Show every pane as Herdr itself draws it (a real `herdr terminal attach` in xterm.js), on this machine and on Herdr SSH machines, so full-screen TUIs, the cursor and colors match; a pane that cannot attach (for now, every pane of a PC added with Connect PC) is mirrored read-only in the same terminal
 - Read a Claude Code or Codex pane as a chat: its conversation as turns, the agent's tool calls folded under one "Worked for …" row, older turns loaded as you scroll up. A **Chat** / **Terminal** switch in the pane header (or `Ctrl`/`Cmd`+`J`) flips between the two without reconnecting anything
 - Answer what an agent asks (tool approvals, questions, menus) with buttons on a card at the bottom of the chat, or from a banner over the terminal
 - Each pane keeps its own unsent draft, also across a reload
 - Send text and shell commands, or use a two-row extra-key bar (Ctrl/Alt/Shift, Esc, Tab, Home/End, PgUp/PgDn, arrows, slash, minus and Enter by default; edit it with **Edit keys**). Select modifiers, then tap a key or type it on your keyboard (for example Ctrl → End or Ctrl → C). Modifiers clear after one send or when switching panes. Ordinary composer shortcuts remain local unless a screen modifier is selected.
 - Create shell workspaces and tabs, rename workspaces and sessions, and close tabs or workspaces after confirmation
 - View images, video, audio, Markdown and text in the browser instead of downloading them first
-- Manage every machine from its row in the sidebar, this one included: read its name and versions, and for a Herdr SSH machine rename it, turn it off or remove it
+- Manage every machine from its row in the sidebar, this one included: read its name and versions, rename or disconnect a PC added with Connect PC (or find it again after it moved port), and rename, turn off or remove a Herdr SSH machine
 - Switch the Claude Code or Codex account a machine uses without signing in again, from the same row
 - Move files between the browsing device and the Herdr machine through a shared uploads folder: upload from the composer's attach button, paste the stored path into the composer, and download or delete stored files
 - Remember the selected pane and collapsed workspaces in the browser
@@ -86,17 +86,43 @@ The Files tab and the uploads dialog work for these machines too: pick the machi
 
 **AI accounts** in the machine's `⋯` menu switches its Claude Code and Codex sign-ins the same way as on this machine, and everything happens on that machine: each call sends HerdRabbit's own account code, as fixed text, to the machine's Node.js over the same SSH connection and runs it there. Sign-ins are saved in `~/.config/herdr-bridge/ai-accounts` in that machine's home, or under its own `XDG_CONFIG_HOME` (0700 folders, 0600 files, where a HerdRabbit installed there would keep them; `HERDR_WEB_AI_ACCOUNTS_DIR` here does not apply there), a switch copies files only within that machine, and **Add account** opens the sign-in project in one of the machine's Herdr sessions. No credential file is read back to this machine or copied between machines; what comes back is whose account it is (email, organization, plan, sign-in expiry). A switch checks the machine's own panes for running agents first. It needs Node.js 22 or newer on the machine, on the PATH an SSH command gets (or under `~/.nvm` or fnm), and `flock` (util-linux, on any ordinary Linux) so that only one change runs there at a time; without them, AI accounts shows why instead. A change that outlasts its 20-second wait here may still finish on the machine; the next one waits for it.
 
+### Other PCs running HerdRabbit (Connect PC)
+
+Every PC runs the same HerdRabbit: its own page and login, on `127.0.0.1` behind Tailscale Serve, as installed by the [quick install](#quick-install). A PC can also open a **Connect PC port** for other PCs: that lets another PC's HerdRabbit show this PC's sessions on its own page. It is one-way -- if A connects to B, B shows up on A's page, not the other way round -- and B keeps its own page and login either way.
+
+**On the PC being connected to (B):** open its Connect PC port and say which PCs may use it. Re-run `npm run install-service` there and answer the Connect PC question ("다른 PC가 이 PC에 붙을 수 있게 열까요?"), then pick the allowed PCs from the tailnet list; or set it by hand:
+
+| Variable | Meaning |
+| --- | --- |
+| `HERDR_WEB_PEER_HOST` | This PC's tailnet address (for example `100.64.0.2`). Setting it opens the Connect PC port; unset (the default) keeps it closed. Never `0.0.0.0`. |
+| `HERDR_WEB_PEER_PORT` | Its port, `38788` by default. It cannot share the page's port on the tailnet address, which Tailscale Serve holds. |
+| `HERDR_WEB_PEER_ADDRESSES` | Tailnet addresses of the PCs allowed to connect, comma-separated. |
+| `HERDR_WEB_PEER_LOGINS` | Tailnet accounts allowed to connect, comma-separated, looked up for each caller's address with `tailscale whois`. With both lists set, a caller has to match both. |
+| `HERDR_WEB_HUB` | Optional: the page of the PC that should connect, such as `https://laptop.tailnet.ts.net:38787`. This PC then tells it where its Connect PC port is, which matters only on a port other than the default. |
+
+With both allowed lists empty, the port refuses everyone.
+
+**On the PC that connects (A):** use **+ → Connect PC** at the top of the sidebar. The dialog lists the PCs on your tailnet and says what each one is: ready, already added, running HerdRabbit but not allowing this PC, on another connection protocol, or with nothing to connect to (no Connect PC port, or offline -- these fold away behind a count). Pick a ready one, or open **Enter an address** and type its Connect PC address (`http://100.64.0.2:38788`). **Save** stays disabled until **Test connection** succeeds for what is in the form. Nothing is stored on either side but the name and address: B recognises A by the address its requests arrive from, so there is no key or password to keep anywhere. Connected PCs are kept in `~/.config/herdr-bridge/servers.json` (mode `0600`, or `HERDR_WEB_SERVERS_FILE`) and shared by every browser using A.
+
+A scan only tries the default port. A PC on another port -- a second account on the same PC, say -- announces itself instead when `HERDR_WEB_HUB` names A, and A lists it beside what it found. An announcement only puts a row in the list; adding it is still a choice, and choosing still probes the address. A PC may announce only itself, and only from your own tailnet account. What was announced is kept in `~/.config/herdr-bridge/announced.json`; an address a look proves empty is dropped, and the list is capped.
+
+**Versions.** Two PCs connect when they speak the same **connection protocol**, a number that changes only when what they exchange does; their HerdRabbit versions may differ, and Details shows both. A PC on another protocol is shown offline, and its status and Details name both PCs' protocol and HerdRabbit version, so you can tell which one to update.
+
+A connected PC's row menu has **Details** (kind, address, its HerdRabbit version beside this PC's, connection protocol, Herdr version), **AI accounts**, **Rename**, **Disconnect**, and, while it is offline, **Find new address**: a PC that moved to another port keeps its tailnet address, so this looks again and repoints the entry if it answers elsewhere. This PC's own Details shows its Connect PC address and how many PCs it allows.
+
+What a connected PC does today: its projects, sessions and panes are listed with their agent status (streamed from B), text and keys reach its panes, projects and sessions are created, renamed, closed and dragged into order on B, the Files tab and uploads use B's own disk, path links open B's files, prompt cards answer B's agents, and **AI accounts** switches B's sign-ins on B. Not yet: its terminal is a read-only mirror of its screen rather than a real attach, so **Find** in the terminal is off for its panes, and **Chat** says it is not available for a connected PC.
+
+Herdr SSH machines (above) keep working beside connected PCs; both are listed in the same sidebar.
+
 ### Every machine in one sidebar
 
 All machines appear together as **machine → Herdr session → project → tab/pane**; selecting a pane sends input and reads output on that machine. Each machine refreshes on its own, with slower retries after a failure, so an unreachable one does not hold up local data; its last-known panes stay visible while it is marked offline. A machine's sessions appear in the project/session picker, and projects and tabs can be created, renamed and closed there.
 
 A machine is managed where it is seen, and every machine has a row -- this one too, even when it is the only one. Its `⋯` menu opens **Details** -- the machine's name, the HerdRabbit version answering for this machine, its Herdr version (marked when it is older than 0.9.0; this machine also logs that at startup), and how many Herdr sessions and panes it contributes -- and **AI accounts**. Browser-wide settings (including **Passkeys** and **Signed-in devices**) are in the ⚙ menu at the foot of the sidebar, not here. Details are the first thing worth reading when a machine will not connect.
 
-### Computers linked by an older version
+### PCs installed as a leaf by an older version
 
-Earlier versions linked another PC by installing a second HerdRabbit on it in "leaf" mode and adding it with **+ → Connect Server**. That mode is gone: remote PCs are Herdr SSH machines now, with nothing of HerdRabbit installed on them. Links saved by an older version in `~/.config/herdr-bridge/servers.json` (or `HERDR_WEB_SERVERS_FILE`) are no longer shown. The file is left as it is, and the page says once, in each browser, how many there were: re-add each of those PCs with **+ → Add SSH machine** (or `herdr machine add`).
-
-A PC that was installed as a leaf ignores its leaf settings (`HERDR_WEB_ROLE`, `HERDR_WEB_PEER_LOGINS`, `HERDR_WEB_PEER_ADDRESSES`, `HERDR_WEB_HUB`) with one warning and listens on `127.0.0.1` only. A leaf never had a password and its peer gate is gone, so without a password it does not serve HerdRabbit at all: it stays up (an update does not roll back), and every request gets only a 503 saying to set a password, so it is not left open behind Tailscale Serve. `update.sh` from this version on stops on a leaf before changing anything and prints the same steps. Run `npm run install-service` there to set it up again as an ordinary HerdRabbit with a password, or stop its service if it is only reached as a Herdr SSH machine.
+Older versions connected PCs the same way but called the connected PC a "leaf": it had no page of its own and answered only its hub (`HERDR_WEB_ROLE=leaf`). Such a unit keeps working: its leaf address and port become its Connect PC port, so the hub that saved it still connects, and it gains a page on `127.0.0.1`. A leaf never had a password, so until it has one that page answers only a 503 saying to set it (the Connect PC port is unaffected). Run `npm run install-service` there to write an ordinary unit with a password; it offers to keep the Connect PC port and its allowed PC. The installer moves the port off the page's port, which Tailscale Serve then holds, so use **Find new address** on the hub afterwards. A leaf that sat on loopback behind `tailscale serve` cannot be reached that way any more; open a Connect PC port for it as above.
 
 ## Architecture
 
@@ -415,6 +441,8 @@ Use the control at the bottom of the sidebar to switch between light and dark mo
 | `HERDR_WEB_HOST` | `127.0.0.1` | Any literal address to listen on: `127.0.0.1`, `0.0.0.0`, or one interface such as this host's Tailscale address. A single address is the tightest option -- the service is then absent from every other network the machine is on, and that address is accepted as a request host automatically. Names are refused, since they resolve at listen time. |
 | `HERDR_WEB_PORT` | `38787` | Listening port from 1024 through 65535 |
 | `HERDR_WEB_ALLOWED_HOSTS` | empty | Additional reverse-proxy or Tailscale hostnames, comma-separated |
+| `HERDR_WEB_PEER_HOST`, `HERDR_WEB_PEER_PORT`, `HERDR_WEB_PEER_ADDRESSES`, `HERDR_WEB_PEER_LOGINS`, `HERDR_WEB_HUB` | unset; port `38788` | The Connect PC port and who may use it; see [Other PCs running HerdRabbit](#other-pcs-running-herdrabbit-connect-pc). Closed unless `HERDR_WEB_PEER_HOST` is set, and refusing everyone while both allowed lists are empty. |
+| `HERDR_WEB_SERVERS_FILE` | `~/.config/herdr-bridge/servers.json` | PCs added with Connect PC |
 | `HERDR_WEB_MAX_TRANSFER_MB` | unset (no limit) | Largest single upload or download, in megabytes (a positive integer). Unset means no limit; on a shared or low-disk host, setting one is a good idea. |
 | `HERDR_WEB_AUTH_FILE` | `~/.config/herdr-bridge/auth.json` | Password hash and signing-secret file |
 | `HERDR_WEB_PUSH_FILE` | `~/.config/herdr-bridge/push.json` | VAPID keys and browser Push subscriptions |
@@ -584,7 +612,7 @@ Close every tab or installed PWA window and reopen it. If necessary, clear site 
 
 - The default listener is `127.0.0.1`.
 - This remains a personal single-user tool even when the repository is public.
-- HerdRabbit login passwords are stored only as `scrypt` hashes in a mode-`0600` file. Herdr SSH machines are reached with your own SSH keys; HerdRabbit stores no credential for them.
+- HerdRabbit login passwords are stored only as `scrypt` hashes in a mode-`0600` file. Herdr SSH machines are reached with your own SSH keys; HerdRabbit stores no credential for them. Connected PCs hold no credential either: a PC recognises another by the tailnet address its requests arrive from.
 - Passkey private keys and biometric data never reach HerdRabbit; only public credential data is stored.
 - Protected APIs require both a signed `HttpOnly` cookie and a separate signed current-window token.
 - HTTPS cookies use `Secure`; all login cookies use `SameSite=Strict`.
@@ -600,7 +628,10 @@ Close every tab or installed PWA window and reopen it. If necessary, clear site 
 - The Service Worker caches only static app-shell files, never API responses or terminal output.
 - Writes reach only this machine's uploads folder, which sits outside the configuration directory holding the password hash and VAPID keys. Upload and delete cannot address a path outside it: names from the URL are rejected rather than repaired, and the target is taken from the directory listing rather than a composed path.
 - Browsing is read-only and reaches **every path the service account can read on this machine**. There is no path allow-list; the OS file permissions are the boundary. That includes `~/.ssh`, `~/.config/herdr-bridge/`, and `/proc/self/environ`. This is not an escalation, because an authenticated client can already run arbitrary commands as that account through a terminal pane — but it is a further reason not to run HerdRabbit as root or as a shared account.
-- No machine holds another's credentials. Each runs its own Herdr, and an SSH machine's sign-ins and files stay on it.
+- No machine holds another's credentials. Each runs its own Herdr, and an SSH machine's or connected PC's sign-ins and files stay on it.
+- The **Connect PC port** is a listener of its own, apart from the page. It serves only `/api/link/`, never the page, the login or the browser API, and the page serves no `/api/link/` route at all, so a connected PC cannot use a page session and a browser session cannot reach the Connect PC API. A PC is let in by the address on its socket (and, with `HERDR_WEB_PEER_LOGINS`, by the tailnet account `tailscale whois` gives for it), never by a cookie, password or header; with an empty allowed list nobody is.
+- The Connect PC port listens directly on the tailnet address rather than behind `tailscale serve`, and that is the stronger shape: the caller's address is set by the kernel from a WireGuard-authenticated peer, so no process -- on this PC or elsewhere -- can claim to be an allowed PC. Behind Serve the proof would be a header, which only holds while Serve is the one thing that can reach the socket, and **any local process, as any user, could forge it**. It is plain HTTP inside the tailnet, which WireGuard already encrypts; HTTPS matters only for the page, where service workers and passkeys need a secure context.
+- An allowed PC gets what a person at this PC's page would: its terminals (text and keys), files the service account can read, and its AI account switches. Allow only your own PCs. `HERDR_WEB_PEER_LOGINS` alone admits every device that account owns; add `HERDR_WEB_PEER_ADDRESSES` to narrow it to devices.
 - Reading a file this way leaves no trace in any pane's history, works with no Herdr session running at all, and streams at link speed. Terminal-borne copying does none of those things.
 - Regular files only. Directories, devices, and FIFOs are refused after the file is opened non-blocking, so a named pipe cannot stall the server. Files are served as `attachment` with `application/octet-stream`. Downloads have no size limit by default; `HERDR_WEB_MAX_TRANSFER_MB` sets one. A file that reports a size of 0 (procfs, sysfs) streams without a length and is cut off at 1GB.
 - Downloads are fetched through a single-use ticket that expires in 30 seconds, so no file path appears in a URL. Directory paths and the server they belong to do appear in the browse request URL and will be recorded by any reverse proxy in front of HerdRabbit.

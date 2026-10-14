@@ -46,7 +46,7 @@ function requestWithHost(url, host) {
   });
 }
 
-test("the leaf link routes are gone", async (context) => {
+test("the page never serves the Connect PC API, and has no Connect PC routes without saved PCs", async (context) => {
   const herdr = { async snapshot() { return { workspaces: [], tabs: [], panes: [], agents: [] }; } };
   const app = await startServer(herdr);
   context.after(() => closeServer(app.server));
@@ -58,8 +58,9 @@ test("the leaf link routes are gone", async (context) => {
     ["POST", "/api/servers/discover"],
     ["DELETE", "/api/servers/link_11111111-1111-1111-1111-111111111111"],
     ["POST", "/api/announce"],
+    ["GET", "/api/link/hello"],
     ["GET", "/api/link/snapshot"],
-    ["POST", "/api/link/hello"],
+    ["POST", "/api/link/panes/x/text"],
   ]) {
     const response = await fetch(`${app.baseUrl}${path}`, {
       method, headers: method === "GET" ? {} : write, body: method === "GET" ? undefined : "{}",
@@ -68,14 +69,18 @@ test("the leaf link routes are gone", async (context) => {
   }
 });
 
-test("the page hears once how many old leaf links were saved", async (context) => {
+test("the page says whether other PCs can be connected, and where this PC's Connect PC port is", async (context) => {
   const herdr = { async snapshot() { return { workspaces: [], tabs: [], panes: [], agents: [] }; } };
   const without = await startServer(herdr);
   context.after(() => closeServer(without.server));
-  assert.equal((await (await fetch(`${without.baseUrl}/api/bootstrap`)).json()).legacyServers, 0);
-  const saved = await startServer(herdr, { legacyServers: 2 });
-  context.after(() => closeServer(saved.server));
-  assert.equal((await (await fetch(`${saved.baseUrl}/api/bootstrap`)).json()).legacyServers, 2);
+  const plain = await (await fetch(`${without.baseUrl}/api/bootstrap`)).json();
+  assert.deepEqual([plain.servers, plain.connectPc], [false, null]);
+  assert.equal("legacyServers" in plain, false);
+  const connectPc = { address: "http://100.64.0.2:38788", allowed: 1 };
+  const open = await startServer(herdr, { profiles: { list: () => [] }, connectPc });
+  context.after(() => closeServer(open.server));
+  const bootstrap = await (await fetch(`${open.baseUrl}/api/bootstrap`)).json();
+  assert.deepEqual([bootstrap.servers, bootstrap.connectPc], [true, connectPc]);
 });
 
 test("serves the UI and read-only API with hardened headers", async (context) => {

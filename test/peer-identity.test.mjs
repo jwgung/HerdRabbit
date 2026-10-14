@@ -2,15 +2,67 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as peerIdentity from "../src/peer-identity.mjs";
 
-const { isLoopbackSocket, nearestForwardedAddress, normalizeLogin, socketAddress } = peerIdentity;
+const { PeerIdentity, PeerRejected, isLoopbackSocket, nearestForwardedAddress, normalizeLogin, socketAddress } = peerIdentity;
 const OWNER = "owner@example.com";
 const HUB = "100.101.171.95";
 
-test("the leaf gate is gone; only the caller helpers remain", () => {
-  assert.equal("PeerIdentity" in peerIdentity, false);
-  assert.equal("PeerRejected" in peerIdentity, false);
+test("still names the headers Tailscale Serve stamps on", () => {
   assert.equal(peerIdentity.PEER_LOGIN_HEADER, "tailscale-user-login");
   assert.equal(peerIdentity.PEER_ADDRESS_HEADER, "x-forwarded-for");
+});
+
+const from = (address, headers = {}) => ({ socket: { remoteAddress: address }, headers });
+
+async function refusal(identity, request) {
+  try {
+    await identity.authorize(request);
+  } catch (error) {
+    assert.ok(error instanceof PeerRejected);
+    return error.code;
+  }
+  return null;
+}
+
+test("an empty allowed list lets nobody in", async () => {
+  const identity = new PeerIdentity();
+  assert.equal(identity.configured, false);
+  for (const address of [HUB, "127.0.0.1", "::1"]) {
+    assert.equal(await refusal(identity, from(address)), "peer_not_allowed", address);
+  }
+});
+
+test("a device is let in by the address on its socket, never by a header", async () => {
+  const identity = new PeerIdentity({ addresses: [HUB] });
+  assert.deepEqual(await identity.authorize(from(`::ffff:${HUB}`)), { address: HUB, login: null });
+  assert.equal(await refusal(identity, from("100.64.0.9")), "peer_address_rejected");
+  // Serve's headers mean nothing on this port: anyone can write them.
+  assert.equal(await refusal(identity, from("127.0.0.1", {
+    [peerIdentity.PEER_ADDRESS_HEADER]: HUB, [peerIdentity.PEER_LOGIN_HEADER]: OWNER,
+  })), "peer_address_rejected");
+  assert.equal(await refusal(identity, { socket: {}, headers: {} }), "peer_transport_rejected");
+});
+
+test("an account is looked up for the socket's address, and a failed lookup refuses", async () => {
+  const lookups = [];
+  const logins = { [HUB]: "Owner@Example.com", "100.64.0.9": "someone@else" };
+  const identity = new PeerIdentity({
+    logins: [OWNER],
+    loginOf: async (address) => { lookups.push(address); if (address === "100.64.0.7") throw new Error("no tailscale"); return logins[address] ?? null; },
+  });
+  assert.deepEqual(await identity.authorize(from(HUB, { [peerIdentity.PEER_LOGIN_HEADER]: "forged@example" })), { address: HUB, login: OWNER });
+  assert.equal(await refusal(identity, from("100.64.0.9", { [peerIdentity.PEER_LOGIN_HEADER]: OWNER })), "peer_identity_rejected");
+  assert.equal(await refusal(identity, from("100.64.0.7")), "peer_identity_rejected");
+  assert.equal(await refusal(identity, from("100.64.0.8")), "peer_identity_rejected");
+  await identity.authorize(from(HUB));
+  assert.equal(lookups.filter((address) => address === HUB).length, 1, "a known answer is reused briefly");
+});
+
+test("with both lists a caller has to match both", async () => {
+  const identity = new PeerIdentity({ addresses: [HUB], logins: [OWNER], loginOf: async () => "someone@else" });
+  assert.equal(await refusal(identity, from(HUB)), "peer_identity_rejected");
+  const right = new PeerIdentity({ addresses: [HUB], logins: [OWNER], loginOf: async () => OWNER });
+  assert.equal(await refusal(right, from("100.64.0.9")), "peer_address_rejected");
+  assert.deepEqual(await right.authorize(from(HUB)), { address: HUB, login: OWNER });
 });
 
 test("a second forged identity header cannot smuggle the real one in", () => {

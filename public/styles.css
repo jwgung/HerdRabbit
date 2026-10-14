@@ -1166,6 +1166,116 @@ body.sidebar-collapsed .terminal-panel {
 
 .server-heading { font-size: 12px; }
 
+/* Connect PC: the tailnet's PCs, picked rather than typed. */
+.server-discovery { display: grid; gap: 6px; }
+
+.server-discovery-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* One bordered list; four rows before it scrolls, so a long tailnet still
+   leaves the form visible. */
+.server-candidates {
+  display: grid;
+  gap: 0;
+  max-height: 232px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.server-candidate {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.server-candidate:first-child { border-top: 0; }
+
+.server-candidates > .dialog-feedback { margin: 0; padding: 9px 11px; }
+
+.server-candidate-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.server-candidate.is-ready .server-candidate-dot { background: var(--accent); }
+
+.server-candidate-identity { min-width: 0; display: grid; gap: 1px; }
+
+.server-candidate-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.server-candidate-identity small,
+.server-candidate-state {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.server-candidate-identity small { font-family: var(--mono); overflow-wrap: anywhere; }
+
+.server-candidate-state { white-space: nowrap; }
+
+/* A PC that cannot be added is still listed, so the reason is visible. */
+.server-candidate:disabled { opacity: 0.55; }
+
+.server-candidate:not(:disabled):hover { background: var(--hover-surface); }
+
+.server-candidate.is-ready .server-candidate-state { color: var(--accent); }
+
+.server-candidate.is-chosen { background: var(--hover-surface); box-shadow: inset 3px 0 0 var(--accent); }
+
+.server-refresh {
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 30px;
+}
+
+.server-refresh svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.server-manual summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+
+.server-manual > .server-field { margin-top: 8px; }
+
+/* The dialog is two .dialog-form blocks; their padding would meet as 40px. */
+#servers-dialog > .dialog-form:first-child { padding-bottom: 0; }
+
+#servers-dialog > #server-form { padding-top: 12px; }
+
+#servers-dialog { max-height: 90dvh; overflow-y: auto; }
+
+#servers-dialog .dialog-actions { flex-wrap: wrap; }
+
+.server-chosen[hidden] { display: none; }
+
+.server-chosen { display: grid; gap: 6px; }
+
 .server-heading strong { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
 
 .server-heading > .sidebar-action-menu { margin-left: auto; }

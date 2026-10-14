@@ -190,13 +190,25 @@ test("a machine that is turned off stays listed as off, with nothing to reach", 
   await assert.rejects(herdr.readPane("machine-4c139ff50dfb!hs_x~w1:p1", {}), { code: "machine_offline" });
 });
 
-test("an id saved for a removed leaf link is no longer a server", async () => {
-  // servers.json is not read as servers any more, so such a pane is simply gone.
+test("a connected PC is listed beside the Herdr machines, each by its own transport", async () => {
+  const machines = new HerdrMachines({
+    directory: "/run/x", createLink: (machine) => ({ machine, state: "connecting", error: null, start() {}, async stop() {} }), createBridge: () => ({}),
+    read: async () => [{ id: ID, label: "lab", target: "me@lab", session: "default", enabled: true }],
+  });
+  await machines.refresh();
   const local = { snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) };
-  const herdr = new MultiServerClient({ local, profiles: { list: () => [{ id: "link_00000000-0000-0000-0000-000000000000", name: "old", address: "http://x" }] } });
+  const linked = { id: "link_00000000-0000-0000-0000-000000000000", name: "desk", transport: "link", address: "http://100.64.0.2:38788" };
+  const herdr = new MultiServerClient({
+    local, machines, profiles: { list: () => [linked] },
+    remoteFactory: () => ({ snapshot: () => new Promise(() => {}), info: () => ({ version: null, protocol: null }) }),
+  });
   const { servers } = await herdr.snapshot();
-  assert.deepEqual(servers.map((server) => server.id), ["local"]);
-  assert.throws(() => herdr.terminalTarget("link_00000000-0000-0000-0000-000000000000!hs_x~w1:p1"), /no longer configured/u);
+  assert.deepEqual(servers.map((server) => [server.id, server.transport]), [
+    ["local", "local"], [linked.id, "link"], ["machine-4c139ff50dfb", "machine"],
+  ]);
+  assert.equal(herdr.serverTransport(linked.id), "link");
+  assert.equal(herdr.serverTransport("machine-4c139ff50dfb"), "machine");
+  assert.equal(herdr.serverTransport("link_11111111-1111-1111-1111-111111111111"), null);
 });
 
 test("a machine without a connection refuses every call the same way, and does not stop other servers' statuses", async () => {

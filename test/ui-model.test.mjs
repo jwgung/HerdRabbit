@@ -35,7 +35,6 @@ import {
   uploadSummary,
   waitsForRemotePane,
   keepsVanishedRemotePane,
-  legacyServersNotice,
 } from "../public/ui-model.js";
 
 test("cycles through panes with Ctrl+Tab and Ctrl+Shift+Tab", () => {
@@ -759,17 +758,6 @@ test("the pane on screen stays while its server comes back, and gives way once i
   assert.equal(keepsVanishedRemotePane(pane, [], with_({ available: true, enabled: true })), false, "connected, and the pane is gone");
   assert.equal(keepsVanishedRemotePane(pane, [{ pane_id: pane }], with_({ available: false })), false, "still listed");
   assert.equal(keepsVanishedRemotePane("hs_x~w1:p1", [], []), false, "a local pane");
-});
-
-test("tells once that old leaf links have to be added again with herdr machine", () => {
-  assert.equal(legacyServersNotice({ count: 0 }), null);
-  assert.equal(legacyServersNotice({}), null);
-  assert.equal(legacyServersNotice({ count: 2, seen: true }), null, "shown once per browser");
-  assert.equal(legacyServersNotice({ count: "2" }), null);
-  const one = legacyServersNotice({ count: 1 });
-  assert.match(one, /^1 computer was connected/u);
-  assert.match(one, /Re-add each PC with Add SSH machine \(herdr machine\)/u);
-  assert.match(legacyServersNotice({ count: 3 }), /^3 computers were connected/u);
 });
 
 test("picks a program mark from the agent a pane names", () => {
