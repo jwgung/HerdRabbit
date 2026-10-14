@@ -96,8 +96,9 @@ function quietStride(quiet) {
 }
 
 export class PromptService {
-  // `details(paneId)`: the call a Claude pane's agent waits on, from its
-  // transcript, for the card's whole words (optional).
+  // `details(paneId, snapshot)`: the call a Claude pane's agent waits on, from
+  // its transcript, for the card's whole words (optional); `snapshot` is the
+  // herdr snapshot already in hand, when there is one.
   constructor({ herdr, details = null, settleMs = 1_500, stepDelayMs = 30, lookMs = 50, pollMs = 1_000 }) {
     this.herdr = herdr;
     this.details = details;
@@ -146,10 +147,10 @@ export class PromptService {
 
   // A Claude card's words, whole, from its transcript; the screen's when that
   // cannot be read.
-  async #worded(paneId, card) {
+  async #worded(paneId, card, snapshot = null) {
     if (!card || card.agent !== "claude" || !this.details || (card.kind !== "plan" && card.kind !== "question")) return card;
     let ask = null;
-    try { ask = await this.details(paneId); } catch { /* the screen's words, then */ }
+    try { ask = await this.details(paneId, snapshot); } catch { /* the screen's words, then */ }
     return fillClaudeCard(card, ask);
   }
 
@@ -321,7 +322,7 @@ export class PromptService {
         }
       }
       await eachLimited(reading, READS_AT_ONCE, async ({ entry, agent }) => {
-        const card = await this.#worded(entry.paneId, publicCard(await this.#readScreen(entry.paneId, agent).catch(() => null)));
+        const card = await this.#worded(entry.paneId, publicCard(await this.#readScreen(entry.paneId, agent).catch(() => null)), snapshot);
         entry.quiet = card ? 0 : (entry.quiet ?? 0) + 1;
         this.#tell(entry, card);
       });

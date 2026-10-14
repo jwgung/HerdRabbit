@@ -89,9 +89,10 @@ test("a plan card shows the whole plan, and a question card the whole question a
   assert.deepEqual(fillClaudeCard(question, { name: "AskUserQuestion", input: other }), question);
   assert.deepEqual(fillClaudeCard(plan, { name: "AskUserQuestion", input: QUESTION }), plan);
   assert.deepEqual(fillClaudeCard(question, null), question);
-  // an option the screen shows as something else keeps the screen's words
+  // one option the screen shows as something else: another question, all the
+  // screen's words stay, the alike ones too
   const moved = { questions: [{ ...QUESTION.questions[0], options: [{ label: "Postgres", description: "x" }, QUESTION.questions[0].options[1]] }] };
-  assert.equal(fillClaudeCard(question, { name: "AskUserQuestion", input: moved }).options[0].label, question.options[0].label);
+  assert.deepEqual(fillClaudeCard(question, { name: "AskUserQuestion", input: moved }), question);
 });
 
 test("the prompt service fills the card from the pane's transcript, and answers by the screen", async (context) => {
@@ -107,12 +108,15 @@ test("the prompt service fills the card from the pane's transcript, and answers 
     async readPane() { return planScreen; },
   };
   const conversations = new ConversationService({ herdr, localStore: localTranscriptStore({ configDir }) });
-  const prompts = new PromptService({ herdr, details: (paneId) => conversations.pendingAsk(paneId) });
+  const prompts = new PromptService({ herdr, details: (paneId, snapshot) => conversations.pendingAsk(paneId, snapshot) });
   context.after(() => prompts.stop());
   const card = await prompts.card("w1:p1");
   assert.equal(card.kind, "plan");
   assert.equal(card.body, PLAN);
   assert.equal(card.id, parseClaudePrompt(planScreen).id);
+  // a snapshot in hand is used, herdr is not asked again
+  const blind = new ConversationService({ herdr: { async snapshot() { throw new Error("asked again"); } }, localStore: localTranscriptStore({ configDir }) });
+  assert.equal((await blind.pendingAsk("w1:p1", await herdr.snapshot()))?.input.plan, PLAN);
   // a transcript that cannot say leaves the screen's words
   await writeFile(join(project, `${SESSION}.jsonl`), jsonl([call("t1", "ExitPlanMode", { plan: PLAN }), result("t1")]));
   assert.match((await prompts.card("w1:p1")).body, /^\s*- step 58/u);
@@ -138,7 +142,9 @@ test("a watching page is told again once the transcript gives the card its whole
     async snapshot() { return { panes: [{ pane_id: "w1:p1", agent: "claude", agent_status: "blocked" }] }; },
     async readPane() { return planScreen; },
   };
-  const prompts = new PromptService({ herdr, pollMs: 20, details: async () => ask });
+  // the watch hands over the snapshot it took, so the transcript's lookup does not ask herdr again
+  const handed = [];
+  const prompts = new PromptService({ herdr, pollMs: 20, details: async (paneId, snapshot) => { handed.push(snapshot); return ask; } });
   context.after(() => prompts.stop());
   const heard = [];
   prompts.watch("w1:p1", (card) => heard.push(card));
@@ -148,4 +154,5 @@ test("a watching page is told again once the transcript gives the card its whole
   for (let tries = 0; tries < 100 && heard.length < 2; tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(heard[1]?.body, PLAN);
   assert.equal(heard[1].id, heard[0].id);
+  assert.ok(handed.length > 0 && handed.every((snapshot) => snapshot?.panes?.[0]?.pane_id === "w1:p1"));
 });

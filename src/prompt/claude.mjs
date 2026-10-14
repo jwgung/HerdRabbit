@@ -416,6 +416,9 @@ export function fillClaudeCard(card, ask) {
   const asked = questions.find((item) => shows(card.question, item.question))
     ?? (questions.length === 1 ? questions[0] : null);
   if (!asked) return card;
+  // Every option the call has must be the screen's at its place (the screen
+  // adds its own after them): one alike label ("Cancel") is not this question.
+  const expected = Math.min(card.options.length, asked.options.length);
   let matched = 0;
   const options = card.options.map((option, index) => {
     const full = asked.options[index];
@@ -424,7 +427,6 @@ export function fillClaudeCard(card, ask) {
     const description = typeof full.description === "string" && full.description ? capped(full.description, MAX_LINE) : option.description;
     return { label: capped(full.label, MAX_LINE), description };
   });
-  // no option the screen shows is this call's: another question altogether
-  if (matched === 0) return card;
+  if (expected === 0 || matched < expected) return card;
   return { ...card, question: capped(asked.question, MAX_LINE), options };
 }

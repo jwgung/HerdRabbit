@@ -69,9 +69,11 @@ export class ConversationService {
   // The plan or question a Claude pane's agent waits on, from its transcript's
   // tail: { name, input } or null. A pane that is not Claude's, or whose
   // transcript cannot be read, has none. Read again only when the file changed.
-  async pendingAsk(paneId) {
+  // `snapshot`: a herdr snapshot already in hand, so a watch looking at many
+  // panes asks herdr once.
+  async pendingAsk(paneId, snapshot = null) {
     try {
-      const found = await this.resolve(paneId);
+      const found = await this.resolve(paneId, snapshot);
       if (found.agent !== "claude" || !found.path) return null;
       const stat = await found.store.stat(found.path);
       if (!stat) return null;
@@ -99,10 +101,10 @@ export class ConversationService {
 
   // The pane's transcript: { paneId, serverId, agent, format, store, session,
   // path }, path null while the session has written nothing. Throws
-  // ConversationUnavailable.
-  async resolve(paneId) {
+  // ConversationUnavailable. `given` is a snapshot already in hand.
+  async resolve(paneId, given = null) {
     if (typeof paneId !== "string" || !paneId || paneId.length > 512) throw new ConversationUnavailable("pane_not_found");
-    const snapshot = await this.herdr.snapshot();
+    const snapshot = given ?? await this.herdr.snapshot();
     const pane = (snapshot?.panes ?? []).find((candidate) => candidate?.pane_id === paneId);
     if (!pane) throw new ConversationUnavailable("pane_not_found");
     const agent = paneAgentName(pane);
