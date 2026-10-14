@@ -413,8 +413,8 @@ export function fillClaudeCard(card, ask) {
   }
   if (card.kind !== "question" || ask.name !== "AskUserQuestion" || !Array.isArray(ask.input.questions)) return card;
   const questions = ask.input.questions.filter((item) => item && typeof item.question === "string" && Array.isArray(item.options));
-  const asked = questions.find((item) => shows(card.question, item.question))
-    ?? (questions.length === 1 ? questions[0] : null);
+  // the question on screen must be the call's: alike options ("Yes"/"No") say nothing
+  const asked = questions.find((item) => shows(card.question, item.question));
   if (!asked) return card;
   // Every option the call has must be the screen's at its place (the screen
   // adds its own after them): one alike label ("Cancel") is not this question.

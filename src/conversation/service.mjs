@@ -77,7 +77,7 @@ export class ConversationService {
       if (found.agent !== "claude" || !found.path) return null;
       const stat = await found.store.stat(found.path);
       if (!stat) return null;
-      const key = `${found.path}\0${stat.identity}\0${stat.size}\0${stat.mtimeMs}`;
+      const key = `${found.serverId}\0${found.path}\0${stat.identity}\0${stat.size}\0${stat.mtimeMs}`;
       const known = this.asks.get(paneId);
       if (known?.key === key) return known.ask;
       const ask = pendingClaudeAsk(await readTail(found.store, found.path, stat, ASK_TAIL_BYTES));

@@ -93,6 +93,9 @@ test("a plan card shows the whole plan, and a question card the whole question a
   // screen's words stay, the alike ones too
   const moved = { questions: [{ ...QUESTION.questions[0], options: [{ label: "Postgres", description: "x" }, QUESTION.questions[0].options[1]] }] };
   assert.deepEqual(fillClaudeCard(question, { name: "AskUserQuestion", input: moved }), question);
+  // a lone question left open with the same options is still another question
+  const alike = { questions: [{ question: "Something else entirely?", options: QUESTION.questions[0].options }] };
+  assert.deepEqual(fillClaudeCard(question, { name: "AskUserQuestion", input: alike }), question);
 });
 
 test("the prompt service fills the card from the pane's transcript, and answers by the screen", async (context) => {
@@ -101,8 +104,10 @@ test("the prompt service fills the card from the pane's transcript, and answers 
   const project = join(configDir, "projects", claudeProjectDir("/work/app"));
   await mkdir(project, { recursive: true });
   await writeFile(join(project, `${SESSION}.jsonl`), jsonl([call("t1", "ExitPlanMode", { plan: PLAN })]));
+  let snapshots = 0;
   const herdr = {
     async snapshot() {
+      snapshots += 1;
       return { panes: [{ pane_id: "w1:p1", cwd: "/work/app", agent: "claude", agent_status: "blocked", agent_session: { agent: "claude", kind: "id", value: SESSION } }] };
     },
     async readPane() { return planScreen; },
@@ -111,6 +116,7 @@ test("the prompt service fills the card from the pane's transcript, and answers 
   const prompts = new PromptService({ herdr, details: (paneId, snapshot) => conversations.pendingAsk(paneId, snapshot) });
   context.after(() => prompts.stop());
   const card = await prompts.card("w1:p1");
+  assert.equal(snapshots, 1, "the screen and the transcript are looked up in one snapshot");
   assert.equal(card.kind, "plan");
   assert.equal(card.body, PLAN);
   assert.equal(card.id, parseClaudePrompt(planScreen).id);

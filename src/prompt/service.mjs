@@ -125,8 +125,8 @@ export class PromptService {
   // Claude or Codex pane is read whatever its status, by its agent's reader;
   // any other pane only while herdr reports it blocked. The fallback card (any
   // agent) is for blocked panes only. A password prompt is never a card.
-  async read(paneId) {
-    const agent = paneAgent(await this.herdr.snapshot(), paneId);
+  async read(paneId, snapshot = null) {
+    const agent = paneAgent(snapshot ?? await this.herdr.snapshot(), paneId);
     if (!agent) throw new HttpError(404, "pane_not_found", "This pane is gone.");
     return this.#readScreen(paneId, agent);
   }
@@ -142,7 +142,9 @@ export class PromptService {
   }
 
   async card(paneId) {
-    return this.#worded(paneId, publicCard(await this.read(paneId)));
+    // one snapshot for the screen and the transcript both
+    const snapshot = await this.herdr.snapshot();
+    return this.#worded(paneId, publicCard(await this.read(paneId, snapshot)), snapshot);
   }
 
   // A Claude card's words, whole, from its transcript; the screen's when that
