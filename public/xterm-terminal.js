@@ -1,10 +1,10 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.39";
-import { findScreenLinks } from "./terminal-links.js?v=1.2.39";
-import { createTouchScroller } from "./touch-scroll.js?v=1.2.39";
-import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.39";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.40";
+import { findScreenLinks } from "./terminal-links.js?v=1.2.40";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.40";
+import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.40";
 
 const RESIZE_DEBOUNCE_MS = 80;
 // herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
@@ -150,8 +150,18 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     term.onRender(scheduleLinks);
     term.onResize(scheduleLinks);
     // Ctrl+V pastes through the browser (xterm brackets it); Ctrl+C copies a selection.
+    // Ctrl+Enter is a line feed, Ctrl+J, as a native terminal gives it: a new
+    // line in Claude Code and Codex rather than sending. xterm alone would make
+    // it a plain Enter.
     term.attachCustomKeyEventHandler((event) => {
       if (!event.ctrlKey || event.altKey || event.metaKey) return true;
+      if (event.key === "Enter" && !event.shiftKey) {
+        if (event.type === "keydown") {
+          event.preventDefault();
+          type("\n");
+        }
+        return false;
+      }
       const key = event.key.toLowerCase();
       if (key === "v") return false;
       if (key === "c" && term.hasSelection()) {

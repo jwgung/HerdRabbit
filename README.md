@@ -333,7 +333,7 @@ Each pane keeps its own unsent composer text. Opening another pane saves what yo
 
 ### Input
 
-Click or tap an attached terminal and type: text, Tab, arrows, Enter, and Ctrl combinations go to the current pane immediately, including shell and agent completion menus. Dragging over the terminal selects text instead of sending mouse clicks to the program; a **Copy** button appears over the selection, and `Ctrl`+`C` copies it too. On a phone, hold a finger still for half a second, then drag to select; a short drag still scrolls. The composer below is the draft-and-submit way in, and the only one for a mirrored pane.
+Click or tap an attached terminal and type: text, Tab, arrows, Enter, and Ctrl combinations go to the current pane immediately, including shell and agent completion menus. `Ctrl+Enter` in the terminal sends a line feed (`Ctrl+J`), as a native terminal does, so Claude Code and Codex start a new line instead of sending. Dragging over the terminal selects text instead of sending mouse clicks to the program; a **Copy** button appears over the selection, and `Ctrl`+`C` copies it too. On a phone, hold a finger still for half a second, then drag to select; a short drag still scrolls. The composer below is the draft-and-submit way in, and the only one for a mirrored pane.
 
 | Action | Key or control |
 | --- | --- |
