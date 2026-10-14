@@ -3772,17 +3772,19 @@ function restoreComposer(before) {
 
 elements.terminalInput.addEventListener("input", (event) => {
   const input = elements.terminalInput;
-  const consumed = modifierComposition;
-  if (consumed && input.value === consumed.after) {
-    restoreComposer(consumed);
-    return;
-  }
   const before = modifierInputBefore;
   modifierInputBefore = null;
+  const committed = modifierComposition;
+  if (!event.isComposing) modifierComposition = null;
+  if (committed && input.value === committed.after) {
+    restoreComposer(committed);
+    return;
+  }
   if (!before || !selectedKeyModifiers.size) return;
   const head = before.value.slice(0, before.start);
   const tail = before.value.slice(before.end);
   const { value } = input;
+  // Head and tail can overlap when the text was cut short, so check the length too.
   if (value.length < head.length + tail.length || !value.startsWith(head) || !value.endsWith(tail)) return;
   const added = value.slice(head.length, value.length - tail.length);
   const key = [...added].length === 1 ? keyboardTerminalKey({ key: added }, [...selectedKeyModifiers]) : null;
@@ -3794,7 +3796,16 @@ elements.terminalInput.addEventListener("input", (event) => {
 
 elements.terminalInput.addEventListener("compositionend", () => {
   // Some browsers commit after compositionend; let that input arrive first.
-  window.setTimeout(() => { modifierComposition = null; }, 0);
+  window.setTimeout(() => {
+    modifierComposition = null;
+    modifierInputBefore = null;
+  }, 0);
+});
+
+// A composition cut short by leaving the composer leaves nothing to take out.
+elements.terminalInput.addEventListener("blur", () => {
+  modifierComposition = null;
+  modifierInputBefore = null;
 });
 
 // The "Edit keys" window: a list in bar order (drag a row on a desktop, or use

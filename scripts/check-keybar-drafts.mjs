@@ -2,7 +2,9 @@
 // Keys: the bar is edited in the "Edit keys" window (a custom Ctrl+R added, PgUp
 // removed, Enter moved first -- dragged on a desktop, arrow buttons on a
 // phone), draws again at once, survives a reload, a saved combination sends its
-// own chord to the pane while the Shift/Ctrl/Alt latches keep working, and
+// own chord to the pane while the Shift/Ctrl/Alt latches keep working (a held
+// Ctrl also takes a letter from a phone keyboard, composed or plain, without
+// leaving it in the draft), removing a latched modifier's button drops it, and
 // "Reset to default" brings the old bar back. Drafts: text typed in one pane
 // is kept when another is opened and when the page is reloaded, goes when the
 // message is sent, and a password answer leaves no copy. Runs on a phone and a
