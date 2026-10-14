@@ -83,8 +83,15 @@ export function trimUrl(url) {
 // File paths in prose ("saved to docs/demo.mp4"): a bare path needs a folder
 // and an extension, so "and/or" stays text; a code span need only be a name.
 
-const BARE_PATH = /(?<![\w/.@~-])(?<!\+(?!~))((?:~\/|\.{1,2}\/|\/)?(?:[\w@.+-]+\/)+[\w@+-][\w@.+-]*\.[A-Za-z0-9]{1,8})(?![\w/])/gu;
-const CODE_PATH = /^(?:~\/|\.{1,2}\/|\/)?(?:[\w@.+-]+\/)*[\w@+-][\w@.+-]*\.[A-Za-z0-9]{1,8}$/u;
+// A folder written out in full needs no extension: `/home/me/proj`, `./build`,
+// `../shared/`. An absolute one has at least two names, so `/compact` and
+// `and /or` stay text.
+const FILE_PATH = String.raw`(?:~\/|\.{1,2}\/|\/)?(?:[\w@.+-]+\/)+[\w@+-][\w@.+-]*\.[A-Za-z0-9]{1,8}`;
+const FOLDER_PATH = String.raw`(?:\.{1,2}\/(?:[\w@.+-]+\/)*|\/(?:[\w@.+-]+\/)+)[\w@+-](?:[\w@.+-]*[\w@+-])?\/?`;
+const BARE_PATH = new RegExp(String.raw`(?<![\w/.@~-])(?<!\+(?!~))(${FILE_PATH}|${FOLDER_PATH})(?![\w/])`, "gu");
+// In a code span a bare file name is enough: `app.js`.
+const CODE_FILE = String.raw`(?:~\/|\.{1,2}\/|\/)?(?:[\w@.+-]+\/)*[\w@+-][\w@.+-]*\.[A-Za-z0-9]{1,8}`;
+const CODE_PATH = new RegExp(`^(?:${CODE_FILE}|${FOLDER_PATH})$`, "u");
 const CODE_NAME = /^(?:process\.(?:env|argv|cwd|exit|platform|stdout|stderr|stdin)(?:\.\w+)?|Math\.(?:random|floor|ceil|round|max|min|abs|pow|sqrt|trunc|sign)|JSON\.(?:parse|stringify)|console\.(?:log|error|warn|info|debug)|Object\.(?:keys|values|entries|assign|freeze)|Array\.(?:from|isArray)|Promise\.(?:all|race|any|allSettled|resolve|reject)|Number\.(?:isFinite|isInteger|parseInt|parseFloat)|os\.(?:path|environ|getcwd|getenv)|sys\.(?:argv|path|exit|stdout|stderr)|window\.(?:location|history|open)|document\.(?:body|title|cookie))$/u;
 
 export function splitFilePaths(text) {

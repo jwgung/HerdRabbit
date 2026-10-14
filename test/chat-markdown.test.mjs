@@ -101,3 +101,17 @@ test("pathological input stays fast and bounded", () => {
   html("*".repeat(20_000));
   assert.ok(Date.now() - started < 2_000);
 });
+
+test("a folder written out in full becomes a button in prose and in code", () => {
+  const isLinkablePath = () => true;
+  const out = html("Cloned to /home/capalace/Git/doc-viewer. Build in `./build` and `../shared/`, not `/compact` or and/or src/foo.", { isLinkablePath });
+  assert.match(out, /data-path="\/home\/capalace\/Git\/doc-viewer" title="Open [^"]*">\/home\/capalace\/Git\/doc-viewer<\/button>\./u);
+  assert.match(out, /class="md-file is-code" data-path="\.\/build"/u);
+  assert.match(out, /class="md-file is-code" data-path="\.\.\/shared\/"/u);
+  assert.doesNotMatch(out, /data-path="\/compact"/u);
+  assert.doesNotMatch(out, /data-path="src\/foo"/u);
+  assert.deepEqual(splitFilePaths("in ./build, /usr/bin/ and https://x.example/a/b and 12/05/2024"), ["in ", { path: "./build" }, ", ", { path: "/usr/bin/" }, " and https://x.example/a/b and 12/05/2024"]);
+  assert.equal(codeIsFilePath("/home/me/proj"), true);
+  assert.equal(codeIsFilePath("/compact"), false);
+  assert.equal(codeIsFilePath("src/foo"), false);
+});
