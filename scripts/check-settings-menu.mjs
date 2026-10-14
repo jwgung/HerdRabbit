@@ -146,6 +146,42 @@ try {
           await page.locator(dialog).waitFor({ state: "hidden" });
         }
       }
+      if (full && !mobile) {
+        // Signing this device out ends here even when the server cannot be told:
+        // from the button the list offers when it fails to load, and from the
+        // row marked as this device.
+        await page.route("**/api/auth/logout", (route) => route.fulfill({ status: 500, json: { error: "down" } }));
+        const signedOutHere = async () => {
+          await page.locator("#login-screen").waitFor({ state: "visible" });
+          await page.locator("#sessions-dialog").waitFor({ state: "hidden" });
+        };
+        const reopen = async () => {
+          await page.evaluate(() => {
+            document.querySelector("#login-screen").hidden = true;
+            document.body.classList.remove("auth-required");
+            document.querySelector(".app-shell, #app-shell, main")?.removeAttribute("inert");
+            document.querySelectorAll("[inert]").forEach((node) => { node.inert = false; });
+          });
+          await button.click();
+          await page.locator('.settings-menu [data-action="sessions"]').click();
+          await page.locator("#sessions-dialog").waitFor({ state: "visible" });
+        };
+        await page.route("**/api/auth/sessions", (route) => route.fulfill({ status: 500, json: { error: "down" } }));
+        await reopen();
+        await page.locator("#sessions-end-this").waitFor({ state: "visible" });
+        await page.locator("#sessions-end-this").click();
+        await signedOutHere();
+
+        await page.unroute("**/api/auth/sessions");
+        await page.route("**/api/auth/sessions", (route) => route.fulfill({ json: { sessions: [
+          { id: "s1", agent: "Chrome on Linux", current: true, createdAt: 1_700_000_000, lastUsedAt: 1_700_000_000 },
+        ] } }));
+        await reopen();
+        await page.locator("#sessions-list .passkey-row").first().waitFor({ state: "visible" });
+        assert.equal(await page.locator("#sessions-end-this").isHidden(), true, "the row covers this device");
+        await page.locator("#sessions-list .passkey-row button").first().click();
+        await signedOutHere();
+      }
       assert.deepEqual(errors, [], "no script errors");
       await context.close();
       console.log(`ok: ${mobile ? "phone" : "desktop"} ${scenario}`);

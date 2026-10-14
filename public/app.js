@@ -1850,7 +1850,14 @@ function sessionRow(session) {
 }
 
 async function loadSessions() {
-  const { sessions } = await api("/api/auth/sessions");
+  let sessions;
+  try {
+    ({ sessions } = await api("/api/auth/sessions"));
+  } catch (error) {
+    // Without the list there is no row to sign out from; this device still can.
+    sessionsEndThis.hidden = false;
+    throw error;
+  }
   const items = array(sessions);
   sessionsEndThis.hidden = items.some((session) => session?.current);
   sessionsList.replaceChildren(...(items.length > 0

@@ -87,6 +87,7 @@ test("manages passkeys from this machine's menu only, with the password again", 
   // so the list offers this device apart whenever no row is it.
   assert.match(page, /id="sessions-end-this"[^>]*hidden/);
   assert.match(app, /sessionsEndThis\.hidden = items\.some\(\(session\) => session\?\.current\);/);
+  assert.match(app, /catch \(error\) \{\s+\/\/ Without the list[^\n]*\n\s+sessionsEndThis\.hidden = false;/, "a list that fails to load still offers this device");
   // Either way out of this device signs it out here even when the server cannot be told.
   assert.match(app, /async function signOutThisDevice\(\) \{\s+await api\("\/api\/auth\/logout", \{ method: "POST", body: \{\} \}\)\.catch\(\(\) => \{\}\);\s+sessionsDialog\.close\(\);\s+signedOut\(\);/);
   assert.match(app, /sessionsEndThis\.addEventListener\("click", \(\) => void sessionsAction\(signOutThisDevice\)\);/);
