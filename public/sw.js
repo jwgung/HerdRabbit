@@ -71,6 +71,7 @@ const APP_SHELL = [
   "/completion-preference.js?v=1.2.42",
   "/swipe-dismiss.js?v=1.2.42",
   "/sidebar-drag.js?v=1.2.42",
+  "/pane-rename.js?v=1.2.42",
   "/input-history-preference.js?v=1.2.42",
   "/composer-draft-preference.js?v=1.2.42",
   "/secret-prompt.js?v=1.2.42",

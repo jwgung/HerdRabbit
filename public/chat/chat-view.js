@@ -24,6 +24,7 @@ import {
   workSummary,
   workTitle,
 } from "./work-blocks.js?v=1.2.42";
+import { paneRenames } from "../pane-rename.js?v=1.2.42";
 import { ConversationLoader } from "./conversation-refresh.js?v=1.2.42";
 import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.42";
 import {
@@ -857,6 +858,12 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
   connection.onReconnect(() => { if (watched !== null) chats.get(watched)?.refresh(); });
 
   return {
+    // A pane carried to another project has a new id: its lens choice follows.
+    renamePanes(moves) {
+      for (const [from, to] of paneRenames(moves)) {
+        if (chosen.has(from)) { chosen.set(to, chosen.get(from)); chosen.delete(from); }
+      }
+    },
     // The pane shown now, the agent the snapshot names for it when the chat
     // reads that agent ("claude", "codex"; `claude: true` is "claude"), and its status.
     select(nextPaneId, { agent = null, claude = false, status = null } = {}) {

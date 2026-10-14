@@ -175,6 +175,42 @@ test("an unnamed session keeps Herdr's numbering, and one dropped last needs no 
   assert.deepEqual(fake.calls.slice(1), [["pane", "move", "w1:p1", "--new-tab", "--workspace", "w2", "--no-focus"]]);
 });
 
+// One-pane sessions with the names a person might give them.
+const namedTabs = [
+  ["Release", "Release"],
+  ["Fix the login bug", "Fix the login bug"],
+  ["  padded name  ", "padded name"],
+  ["--help me", "--help me"],
+  ["한글 이름", "한글 이름"],
+  ["12", null], // Herdr's own numbering is no name
+  ["bad\u0007name", null], // control characters are not allowed in a name
+  ["", null],
+  ["x".repeat(500), null], // longer than a name may be
+];
+const namedProjects = {
+  workspaces: [{ workspace_id: "w1" }, { workspace_id: "w2" }],
+  tabs: namedTabs.map(([label], index) => ({ tab_id: `w1:t${index + 1}`, workspace_id: "w1", label })),
+  panes: namedTabs.map((_, index) => ({ pane_id: `w1:p${index + 1}`, tab_id: `w1:t${index + 1}`, workspace_id: "w1" })),
+};
+
+test("a named one-pane session keeps its name as one --label token; a name Herdr cannot take is left to Herdr", async () => {
+  for (const [index, [label, carried]] of namedTabs.entries()) {
+    const fake = recordingRunner((args) => {
+      if (args[0] === "api") return { result: { snapshot: namedProjects } };
+      return moveResult({ from: `w1:p${index + 1}`, to: "w2:p3", tabId: "w2:t3", created: true });
+    });
+    const client = new HerdrClient({ runner: fake.runner });
+    await client.moveTabToWorkspace(`w1:t${index + 1}`, "w2", 99);
+    const [move] = fake.calls.filter((args) => args[0] === "pane");
+    assert.deepEqual(
+      move,
+      ["pane", "move", `w1:p${index + 1}`, "--new-tab", "--workspace", "w2", ...(carried ? [`--label=${carried}`] : []), "--no-focus"],
+      JSON.stringify(label).slice(0, 40),
+    );
+    if (carried) assert.equal(move.filter((arg) => arg.startsWith("--label")).length, 1, "one token, spaces and all");
+  }
+});
+
 test("moving to the project a session is already in only reorders it", async (context) => {
   const herdrSocket = await fakeHerdrSocket(context, () => ({ result: { type: "tab_list" } }));
   const fake = recordingRunner((args) => (args[0] === "api" ? { result: { snapshot: twoProjects } } : sessionList(herdrSocket.socketPath)));

@@ -189,6 +189,8 @@ try {
     // 2b. Release (one pane, the one on screen) onto Docs, above Guide.
     await page.locator('.pane-button[data-pane-id="w1:p1"]').click();
     await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w1:p1"]')?.getAttribute("aria-pressed") === "true");
+    const unsentDraft = "half-written message before the move";
+    await page.locator("#terminal-input").fill(unsentDraft);
     source = await box(page, tabRow("w1:p1"));
     target = await box(page, tabRow("w2:p1"));
     during = await mouseDrag(page, { x: source.x + 60, y: source.y + 12 }, { x: target.x + 60, y: target.y + 4 });
@@ -201,6 +203,11 @@ try {
     const followed = await page.locator('.pane-button[aria-pressed="true"]').getAttribute("data-pane-id");
     const moved = herdrState.panes.find((pane) => pane.cwd === "/work/release");
     assert.equal(followed, moved.pane_id, "the pane on screen is followed to its new id");
+    assert.equal(await page.locator("#terminal-input").inputValue(), unsentDraft, "the unsent text stays in the box");
+    await page.waitForTimeout(500);
+    assert.equal(await page.locator("#terminal-input").inputValue(), unsentDraft, "and stays after the view settles");
+    const storedDrafts = await page.evaluate(() => localStorage.getItem("herdrbridge-composer-drafts") || "");
+    assert.ok(!storedDrafts.includes('"w1:p1"'), "no draft is left under the old id");
 
     // 3. Tools above Platform.
     source = await box(page, `${group("Tools")} > .workspace-heading h3`);

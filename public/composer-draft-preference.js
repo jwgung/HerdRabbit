@@ -3,6 +3,7 @@
 // mirrored to localStorage, a bounded number of panes and a bounded size each.
 // Only unsent text goes here: whoever sends a message clears it first.
 import { secretPrompt } from "./secret-prompt.js?v=1.2.42";
+import { paneRenames } from "./pane-rename.js?v=1.2.42";
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "herdrbridge-composer-drafts";
 export const MAX_DRAFT_LENGTH = 8_000;
@@ -100,6 +101,22 @@ export function createComposerDrafts(storage, now = Date.now, isSecret = () => f
     clear(paneId) {
       memoryOnly.delete(paneId);
       if (!entries.delete(paneId)) return true;
+      return persist();
+    },
+    // A pane carried to another project has a new id: its draft follows, and
+    // keeps its verdict (a secret one stays out of storage).
+    rename(moves) {
+      const renames = paneRenames(moves);
+      const keep = [...renames.entries()].filter(([from, to]) => entries.has(from) && validPaneId(to));
+      if (keep.length === 0) return true;
+      const taken = keep.map(([from, to]) => [to, entries.get(from), memoryOnly.get(from)]);
+      for (const [from] of keep) { entries.delete(from); memoryOnly.delete(from); }
+      for (const [to, record, secret] of taken) {
+        entries.delete(to);
+        memoryOnly.delete(to);
+        entries.set(to, record);
+        if (secret !== undefined) memoryOnly.set(to, secret);
+      }
       return persist();
     },
     // Sign-out: nothing of any pane stays, in memory or in storage.

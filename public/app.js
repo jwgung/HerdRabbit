@@ -104,6 +104,8 @@ import {
   tabMoveRequest,
   workspaceMoveRequest,
 } from "./sidebar-drag.js?v=1.2.42";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.42";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.42";
 import {
   readInputHistories,
   writeInputHistories,
@@ -2762,6 +2764,28 @@ function renderNavigation() {
   }
 }
 
+// What the page keeps under a pane's id goes with the pane to its new id: the
+// unsent draft (and its secret verdict), the blocked/held marks, the message
+// history, the chosen lens and the acknowledged completion.
+function followMovedPaneState(moves) {
+  if (!Array.isArray(moves) || moves.length === 0) return;
+  saveComposerDraft();
+  composerDrafts.rename(moves);
+  for (const set of [draftBlocked, draftHeld]) {
+    const kept = [...set];
+    set.clear();
+    for (const id of kept) set.add(followMovedPane(id, moves));
+  }
+  // The pane on screen keeps its composer: the text stays, only the key changes.
+  if (draftPaneId) draftPaneId = followMovedPane(draftPaneId, moves);
+  state.inputHistoryByPane = renamePaneKeys(state.inputHistoryByPane, moves);
+  writeInputHistories(panePreferenceStorage, state.inputHistoryByPane);
+  state.acknowledgedCompletions = renamePaneKeys(state.acknowledgedCompletions, moves);
+  writeAcknowledgedCompletions(panePreferenceStorage, state.acknowledgedCompletions);
+  renamePaneLenses(panePreferenceStorage, moves);
+  chatLens.renamePanes(moves);
+}
+
 async function moveSidebarItem(request, pathFor, optimistic) {
   if (!request || state.mutationBusy) return;
   const before = state.snapshot;
@@ -2777,6 +2801,7 @@ async function moveSidebarItem(request, pathFor, optimistic) {
     // A session moved to another project brings its panes under new ids; the
     // one on screen is followed there.
     const followed = followMovedPane(state.selectedPaneId, payload.moved?.panes);
+    followMovedPaneState(payload.moved?.panes);
     if (followed !== state.selectedPaneId) writePanePreference(panePreferenceStorage, followed);
     adoptMutationSnapshot(payload.snapshot, followed !== state.selectedPaneId ? followed : null);
   } catch (error) {

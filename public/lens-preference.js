@@ -42,6 +42,25 @@ export function writePaneLens(storage, paneId, lens) {
   }
 }
 
+// A pane carried to another project has a new id: its choice follows.
+export function renamePaneLenses(storage, moves) {
+  if (!storage) return false;
+  try {
+    const all = readAll(storage);
+    const moved = [];
+    for (const move of Array.isArray(moves) ? moves : []) {
+      if (validPaneId(move?.to) && move.from !== move.to && all.has(move.from)) moved.push([move.to, all.get(move.from)]);
+    }
+    if (moved.length === 0) return true;
+    for (const move of moves) all.delete(move?.from);
+    for (const [to, lens] of moved) { all.delete(to); all.set(to, lens); }
+    storage.setItem(LENS_STORAGE_KEY, JSON.stringify(Object.fromEntries(all)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // A phone (narrow) or touch layout reads the chat first; a desktop the terminal.
 export function defaultLens({ compact = false, touch = false } = {}) {
   return compact || touch ? "chat" : "terminal";
