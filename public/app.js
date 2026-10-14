@@ -1785,15 +1785,18 @@ const sessionsDialog = document.querySelector("#sessions-dialog");
 const sessionsList = document.querySelector("#sessions-list");
 const sessionsFeedback = document.querySelector("#sessions-feedback");
 document.querySelector("#sessions-close").addEventListener("click", () => sessionsDialog.close());
-// A sign-in from before the list existed has no row to sign out from, so the
-// dialog offers this device on its own. Even when the server cannot be told,
-// this window forgets its launch token, so it is signed out here either way.
-const sessionsEndThis = document.querySelector("#sessions-end-this");
-sessionsEndThis.addEventListener("click", () => void sessionsAction(async () => {
+// Even when the server cannot be told, this window forgets its launch token,
+// so it is signed out here either way.
+async function signOutThisDevice() {
   await api("/api/auth/logout", { method: "POST", body: {} }).catch(() => {});
   sessionsDialog.close();
   signedOut();
-}));
+}
+
+// A sign-in from before the list existed has no row to sign out from, so the
+// dialog offers this device on its own.
+const sessionsEndThis = document.querySelector("#sessions-end-this");
+sessionsEndThis.addEventListener("click", () => void sessionsAction(signOutThisDevice));
 
 document.querySelector("#sessions-end-all").addEventListener("click", () => {
   if (!window.confirm("Sign out every browser, this one included?")) return;
@@ -1835,9 +1838,7 @@ function sessionRow(session) {
   end.type = "button";
   end.addEventListener("click", () => void sessionsAction(async () => {
     if (session.current) {
-      await api("/api/auth/logout", { method: "POST", body: {} });
-      sessionsDialog.close();
-      signedOut();
+      await signOutThisDevice();
       return;
     }
     await api("/api/auth/sessions/end", { method: "POST", body: { id: session.id } });

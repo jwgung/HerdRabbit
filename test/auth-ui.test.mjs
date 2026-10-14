@@ -87,7 +87,10 @@ test("manages passkeys from this machine's menu only, with the password again", 
   // so the list offers this device apart whenever no row is it.
   assert.match(page, /id="sessions-end-this"[^>]*hidden/);
   assert.match(app, /sessionsEndThis\.hidden = items\.some\(\(session\) => session\?\.current\);/);
-  assert.match(app, /sessionsEndThis\.addEventListener\("click", \(\) => void sessionsAction\(async \(\) => \{\s+await api\("\/api\/auth\/logout"[\s\S]*?signedOut\(\);/);
+  // Either way out of this device signs it out here even when the server cannot be told.
+  assert.match(app, /async function signOutThisDevice\(\) \{\s+await api\("\/api\/auth\/logout", \{ method: "POST", body: \{\} \}\)\.catch\(\(\) => \{\}\);\s+sessionsDialog\.close\(\);\s+signedOut\(\);/);
+  assert.match(app, /sessionsEndThis\.addEventListener\("click", \(\) => void sessionsAction\(signOutThisDevice\)\);/);
+  assert.match(app, /if \(session\.current\) \{\s+await signOutThisDevice\(\);/);
   // Without WebAuthn the list still opens, to remove; only adding is hidden.
   assert.match(app, /querySelector\("#passkeys-add"\)\.hidden = !supportsPasskeys\(\);/);
   // Escape cannot close either dialog under a running ceremony.
