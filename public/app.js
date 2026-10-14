@@ -3241,6 +3241,34 @@ const attachedTerminal = createAttachedTerminal({
   onViewMoved: () => terminalFind?.forgetPlace(),
 });
 
+// A phone keyboard takes the bottom of the screen. The page shrinks to what is
+// still visible, so the composer and key bar sit just above the keyboard
+// instead of under it, and the terminal keeps its size and shows its foot.
+// The tallest height seen at this width is the screen without a keyboard; a
+// new width is a turned phone (or a pinch zoom), which starts over.
+const KEYBOARD_MIN_HEIGHT_PX = 120;
+if (window.visualViewport) {
+  const viewport = window.visualViewport;
+  let width = 0;
+  let tallest = 0;
+  const followKeyboard = () => {
+    if (Math.abs(viewport.width - width) > 1) {
+      width = viewport.width;
+      tallest = 0;
+    }
+    tallest = Math.max(tallest, viewport.height);
+    const open = usesTouchInputEnvironment() && viewport.height < tallest - KEYBOARD_MIN_HEIGHT_PX;
+    if (open) document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
+    else document.documentElement.style.removeProperty("--app-height");
+    attachedTerminal.setKeyboardOpen(open);
+    // The browser may have scrolled the page to show the composer; the page
+    // now fits, so it goes back to the top.
+    if (open && window.scrollY) window.scrollTo(0, 0);
+  };
+  viewport.addEventListener("resize", followKeyboard);
+  followKeyboard();
+}
+
 // A conversation page or tool output for the Chat lens. The answer's ETag
 // comes back as If-None-Match, so an unchanged page costs no body (a 304).
 async function conversationRequest(path, { etag } = {}) {

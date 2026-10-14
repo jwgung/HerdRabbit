@@ -99,6 +99,9 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   let drawingFrame = false;
   // Writes handed to xterm and not drawn yet (pty data and mirror frames).
   let writesInFlight = 0;
+  // A phone keyboard is up, and the frame's height when it last fitted.
+  let keyboardOpen = false;
+  let fullHeight = 0;
 
   function create() {
     term = new Terminal({
@@ -288,6 +291,10 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     host.addEventListener("touchstart", (event) => {
       // The copy bar's buttons take their own taps.
       if (copyBar.contains(event.target)) return;
+      // A tap here scrolls, selects or opens a link; typing on a phone goes
+      // through the composer. xterm still focuses its input on a tap, so it
+      // asks for no keyboard. (A hardware keyboard still types.)
+      term.textarea?.setAttribute("inputmode", "none");
       follow(event.target);
       cancelPress();
       if (event.touches.length === 1) {
@@ -406,6 +413,10 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
 
   function fitNow() {
     if (!term || host.hidden || host.clientWidth === 0 || host.clientHeight === 0) return;
+    // A phone keyboard only covers the screen for a while: the pane keeps its
+    // size, so herdr and every other screen on it are not resized each time.
+    if (keyboardOpen) return;
+    fullHeight = host.clientHeight;
     if (owner) { fit.fit(); return; }
     // Not this page's grid to change: it only says what it would want, for
     // when it takes the size over by typing.
@@ -657,6 +668,16 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       scheduleLinks();
     },
     focus() { term?.focus(); },
+    // While a phone keyboard is up the terminal does not fit to the smaller
+    // frame; it shows its foot instead, and fits again once the keyboard goes.
+    setKeyboardOpen(open) {
+      if (open === keyboardOpen) return;
+      keyboardOpen = open;
+      if (open && fullHeight > 0) host.style.setProperty("--terminal-full-height", `${fullHeight}px`);
+      else host.style.removeProperty("--terminal-full-height");
+      host.classList.toggle("is-keyboard-open", open);
+      if (!open) fitNow();
+    },
     // Scrolls herdr's history of the attached pane by a screen, up for -1.
     // False when no pane is attached: a mirror shows its current screen only.
     scrollPage(direction) {
