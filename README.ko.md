@@ -338,7 +338,7 @@ Claude Code나 Codex가 돌고 있는 패인은 채팅으로도 읽을 수 있�
 
 ### 질문 카드
 
-선택한 Claude나 Codex 패인은 herdr가 어떤 상태로 알리든(메뉴가 떠 있어도 blocked로 알리지 않을 때가 있습니다) 서버가 그 화면을 읽어 화면에 뜬 메뉴를 카드로 만듭니다. 일반 출력은, 답변 속 번호 목록이라도 카드가 되지 않습니다. Claude Code의 도구 승인(Yes / Yes, and don't ask again / No), 계획 승인, AskUserQuestion 메뉴(하나 고르기, 여러 개 고르기, 직접 입력), 여러 답을 한 번에 보내기 전 확인, 폴더 신뢰 확인 같은 번호 없는 메뉴를 읽고, Codex의 승인(명령 실행, 편집 적용, 폴더 신뢰. "No, and tell Codex what to do differently"는 Esc로 답함), plan 모드 질문(선택지, 또는 "None of the above"의 메모로 직접 입력), 일하는 동안 대기열에 넣은 질문, "Press enter to continue" 메뉴도 읽습니다. herdr가 패인을 blocked로 알리는 동안에만, 어느 리더도 모르는 화면이 마지막 몇 줄과 기본 키(Enter, Esc, 번호 메뉴의 숫자, y/n)를 담은 대체 카드가 됩니다. 비밀번호 입력 화면은 카드로 만들지 않습니다. Chat 화면에서는 카드가 입력창 바로 위에 붙고, Terminal 화면 위에는 에이전트가 묻고 있다는 배너가 뜹니다. 배너의 **Answer**는 채팅으로 넘어가고, 채팅이 없는 패인이면 같은 카드를 터미널 위에 띄웁니다. 배너는 그 질문에 한해 닫을 수 있습니다.
+선택한 Claude나 Codex 패인은 herdr가 어떤 상태로 알리든(메뉴가 떠 있어도 blocked로 알리지 않을 때가 있습니다) 서버가 그 화면을 읽어 화면에 뜬 메뉴를 카드로 만듭니다. 일반 출력은, 답변 속 번호 목록이라도 카드가 되지 않습니다. Claude Code의 도구 승인(Yes / Yes, and don't ask again / No), 계획 승인, AskUserQuestion 메뉴(하나 고르기, 여러 개 고르기, 직접 입력), 여러 답을 한 번에 보내기 전 확인, 폴더 신뢰 확인 같은 번호 없는 메뉴를 읽고, Codex의 승인(명령 실행, 편집 적용, 폴더 신뢰. "No, and tell Codex what to do differently"는 Esc로 답함), plan 모드 질문(선택지, 또는 "None of the above"의 메모로 직접 입력), 일하는 동안 대기열에 넣은 질문, "Press enter to continue" 메뉴도 읽습니다. herdr가 패인을 blocked로 알리는 동안에만, 어느 리더도 모르는 화면이 마지막 몇 줄과 기본 키(Enter, Esc, 번호 메뉴의 숫자, y/n)를 담은 대체 카드가 됩니다. Claude의 계획·질문 카드 글은 대화 기록에서 Claude가 기다리는 호출(`ExitPlanMode`의 계획 전체, `AskUserQuestion`의 질문·선택지 전체)에서 가져옵니다. 터미널에서는 긴 계획이 화면 위로 밀려나거나, 좁은 패인에서 선택지가 `…`로 잘리기 때문입니다. 선택지 줄, 보내는 키, 답을 확인하는 기준은 그대로 화면입니다. 기록에서 찾지 못하면 화면의 글을 씁니다. 비밀번호 입력 화면은 카드로 만들지 않습니다. Chat 화면에서는 카드가 입력창 바로 위에 붙고, Terminal 화면 위에는 에이전트가 묻고 있다는 배너가 뜹니다. 배너의 **Answer**는 채팅으로 넘어가고, 채팅이 없는 패인이면 같은 카드를 터미널 위에 띄웁니다. 배너는 그 질문에 한해 닫을 수 있습니다.
 
 선택지를 누르면 카드 id를 보냅니다. 서버는 화면을 다시 읽어 질문이 바뀌었으면 `409 prompt_changed`로 거절하고(카드는 새로 읽습니다), 아니면 커서 이동 키를 보낸 뒤 화면에서 커서가 고른 줄에 온 것을 확인하고서야 Enter를 보냅니다. 카드는 선택한 패인이 Claude나 Codex 패인이거나 blocked인 동안에만 터미널 소켓으로 받습니다. Herdr 머신의 패인도 같은 방식으로 동작합니다.
 
@@ -420,7 +420,7 @@ iOS에서 PWA를 독립 실행 모드로 쓰면 내려받은 파일이 저장되
 
 ### 출력과 이전 기록
 
-터미널의 출력과 이전 기록은 Herdr의 화면 및 스크롤백에서만 가져오며 Claude JSONL 기록과 Codex rollout을 터미널에 섞지 않습니다. 그 기록은 Chat 화면만 따로 읽습니다. attach된 터미널에서는 휠이나 손가락으로 Herdr의 이전 기록을 스크롤하고, 비춰 보이는 패인은 현재 화면만 보여 줍니다. 설치·업데이트 시 Claude 전역 설정에 `tui: "default"`와 `env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1"`을 적용하고 기존 설정은 백업합니다. 실행 중인 Claude는 재시작 후 적용됩니다. HerdRabbit을 돌리는 머신마다 자기 설치·업데이트에서 적용되며, Herdr SSH 머신은 바꾸지 않습니다.
+터미널의 출력과 이전 기록은 Herdr의 화면 및 스크롤백에서만 가져오며 Claude JSONL 기록과 Codex rollout을 터미널에 섞지 않습니다. 그 기록은 Chat 화면이 따로 읽습니다(Claude 계획·질문 카드의 글도 거기서 가져옵니다). attach된 터미널에서는 휠이나 손가락으로 Herdr의 이전 기록을 스크롤하고, 비춰 보이는 패인은 현재 화면만 보여 줍니다. 설치·업데이트 시 Claude 전역 설정에 `tui: "default"`와 `env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1"`을 적용하고 기존 설정은 백업합니다. 실행 중인 Claude는 재시작 후 적용됩니다. HerdRabbit을 돌리는 머신마다 자기 설치·업데이트에서 적용되며, Herdr SSH 머신은 바꾸지 않습니다.
 
 현재 터미널의 입력·대화 전송·기능키와 화면 갱신은 `/api/terminal` WebSocket을 사용합니다. attach된 패인은 Herdr의 출력을 그대로 받고, 비춰 보이는 패인은 최초 화면 이후 변경된 부분만 받습니다. Herdr는 terminal attach 밖에서는 범용 화면 변경 구독을 제공하지 않아 서버가 변경을 감지합니다. 입력 직후·출력 변경 중에는 조회 완료 후 50ms, 조용할 때는 500ms 간격으로 확인하며 같은 패인·조회 범위의 구독은 공유합니다. 브라우저가 백그라운드로 가면 연결을 닫고 복귀 시 새 화면을 받습니다. 세션 상태는 Herdr의 `pane.agent_status_changed` 이벤트를 WebSocket으로 전달해 선택하지 않은 세션까지 갱신합니다. 프로젝트·세션 목록은 2초마다 HTTP로 조회하며, 상태 구독 연결 후에도 HTTP로 다시 동기화합니다. 상태 구독이 끊기면 HTTP 목록 조회로 보완하고 재구독합니다. 로그인·프로젝트·세션 관리는 HTTP를 유지합니다. 푸시 알림 동작은 유지합니다.
 

@@ -38,6 +38,14 @@ export function claudeProjectDir(cwd) {
   return `${name.slice(0, MAX_PROJECT_NAME)}-${Math.abs(stringHash(cwd)).toString(36)}`;
 }
 
+// The last `bytes` of the file at `path` (whose `stat` is given) as text,
+// from the first whole line.
+export async function readTail(store, path, stat, bytes) {
+  const start = Math.max(0, stat.size - bytes);
+  const text = (await store.read(path, start, stat.size - start)).toString("utf8");
+  return start > 0 ? text.slice(text.indexOf("\n") + 1) : text;
+}
+
 // A background job Claude opened in this session, by the job's short id in
 // parentheses in a local command's notice ("Opening …, running in the
 // background (d62fa238)"). Only a job the store knows counts, so other short
@@ -54,9 +62,7 @@ async function continuations(store, path) {
   try {
     const stat = await store.stat(path);
     if (!stat) return [];
-    const start = Math.max(0, stat.size - CONTINUED_TAIL_BYTES);
-    text = (await store.read(path, start, stat.size - start)).toString("utf8");
-    if (start > 0) text = text.slice(text.indexOf("\n") + 1);
+    text = await readTail(store, path, stat, CONTINUED_TAIL_BYTES);
   } catch {
     return [];
   }
@@ -509,3 +515,35 @@ export const CLAUDE_TRANSCRIPT = Object.freeze({
   toolNeedle: (toolId) => Buffer.from(`"tool_use_id":${JSON.stringify(toolId)}`),
   toolOutputIn: claudeToolOutputIn,
 });
+
+// ---------------------------------------------------------------------------
+// What Claude waits on.
+
+// The tools whose question a prompt card shows from the terminal, where a long
+// plan scrolls away and a narrow pane cuts an option short.
+const ASKING_TOOLS = new Set(["ExitPlanMode", "AskUserQuestion"]);
+
+const isAsk = (item) => item?.type === "tool_use" && ASKING_TOOLS.has(item.name) &&
+  typeof item.id === "string" && item.input !== null && typeof item.input === "object";
+
+// The last asking tool call in `text` (a transcript's tail) that has no result
+// yet: { name, input }, or null.
+export function pendingClaudeAsk(text) {
+  const open = new Map();
+  for (const line of String(text).split("\n")) {
+    if (!line.includes('"tool_')) continue;
+    let entry;
+    try { entry = JSON.parse(line); } catch { continue; }
+    const content = entry?.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const item of content) {
+      if (isAsk(item)) {
+        open.delete(item.id);
+        open.set(item.id, { name: item.name, input: item.input });
+      } else if (item?.type === "tool_result" && typeof item.tool_use_id === "string") {
+        open.delete(item.tool_use_id);
+      }
+    }
+  }
+  return [...open.values()].at(-1) ?? null;
+}
