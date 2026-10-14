@@ -1,6 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.44";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.44";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.44";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.45";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.45";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.45";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -50,7 +50,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.44";
+} from "./ui-model.js?v=1.2.45";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -61,41 +61,42 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.44";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.44";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.44";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.44";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.44";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.44";
+} from "./browse-preference.js?v=1.2.45";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.45";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.45";
+import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.45";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.45";
+import { createChatFind } from "./chat/chat-find.js?v=1.2.45";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.45";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.44";
-import { chatAgent } from "./lens-preference.js?v=1.2.44";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.44";
+} from "./chat-font-preference.js?v=1.2.45";
+import { chatAgent } from "./lens-preference.js?v=1.2.45";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.45";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.44";
+} from "./pane-preference.js?v=1.2.45";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.44";
+} from "./workspace-preference.js?v=1.2.45";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.44";
+} from "./terminal-preference.js?v=1.2.45";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.44";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.44";
+} from "./completion-preference.js?v=1.2.45";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.45";
 import {
   attachSidebarDrag,
   dropScope,
@@ -104,14 +105,14 @@ import {
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.2.44";
-import { renamePaneKeys } from "./pane-rename.js?v=1.2.44";
-import { renamePaneLenses } from "./lens-preference.js?v=1.2.44";
+} from "./sidebar-drag.js?v=1.2.45";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.45";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.45";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.44";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.44";
+} from "./input-history-preference.js?v=1.2.45";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.45";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -127,16 +128,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.44";
+} from "./key-bar-preference.js?v=1.2.45";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.44";
+} from "./launch-session.js?v=1.2.45";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.44";
+} from "./push-notifications.js?v=1.2.45";
 
 function browserStorage() {
   try {
@@ -3206,8 +3207,10 @@ const terminalStream = terminalConnection({
   onStatusesUnavailable: () => liveStatusUpdates.clear(),
 });
 
-// The find bar over the Terminal lens (terminal-find.js), made once the lens is.
+// The find bar over the Terminal lens (terminal-find.js), made once the lens is,
+// and the one over the Chat lens (chat-find.js).
 let terminalFind = null;
+let chatFind = null;
 
 const attachedTerminal = createAttachedTerminal({
   host: elements.terminalXterm,
@@ -3290,14 +3293,17 @@ const chatLens = createChatLens({
   isLinkablePath: isLinkableTerminalPath,
   onOpenPath: openTerminalPath,
   onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
+  onChatDrawn: (chat, drawn) => chatFind?.redrawn(chat, drawn),
   onLensChange: (lens, paneId) => {
     scheduleTerminalPark(lens, paneId);
     // The key bar drives the terminal: the Chat lens hides it, and the
     // terminal fits again once it is back.
     elements.terminalPanel.dataset.lens = lens;
     promptDock?.setLens(lens);
-    // The find bar is the terminal's: the Chat lens closes it.
+    // Each lens has its own find bar, and each bar its own pane: a switch
+    // closes the other lens's, and a pane switch the chat's.
     if (lens === "chat") terminalFind?.close();
+    if (lens !== "chat" || chatFind?.paneId !== paneId) chatFind?.close();
     if (terminalFind) syncTerminalFind();
     if (lens === "terminal") window.requestAnimationFrame(() => attachedTerminal.refit());
     // Typing must not go on into a terminal that is no longer on screen.
@@ -3371,13 +3377,21 @@ function syncTerminalFind() {
   const { paneId, mirrored } = terminalFindTarget();
   terminalFind.setPane(mirrored ? null : paneId);
   terminalFindButton.hidden = !paneId;
+  const shortcut = FIND_SHORTCUT_MAC ? "Cmd+F" : "Ctrl+F";
+  // Over the Chat lens the same button finds in the conversation.
+  if (chatLens.lens === "chat") {
+    terminalFindButton.setAttribute("aria-controls", "chat-find");
+    terminalFindButton.setAttribute("aria-disabled", "false");
+    terminalFindButton.setAttribute("aria-expanded", String(Boolean(chatFind?.open)));
+    terminalFindButton.setAttribute("aria-label", "Find in conversation");
+    terminalFindButton.title = `Find in conversation (${shortcut})`;
+    return;
+  }
+  terminalFindButton.setAttribute("aria-controls", "terminal-find");
   terminalFindButton.setAttribute("aria-disabled", String(mirrored));
   terminalFindButton.setAttribute("aria-expanded", String(terminalFind.open));
-  terminalFindButton.title = mirrored
-    ? MIRRORED_FIND_REASON
-    : chatLens.lens === "chat"
-      ? "Find in terminal (switches to the Terminal view)"
-      : `Find in terminal (${FIND_SHORTCUT_MAC ? "Cmd+F" : "Ctrl+F"})`;
+  terminalFindButton.setAttribute("aria-label", "Find in terminal");
+  terminalFindButton.title = mirrored ? MIRRORED_FIND_REASON : `Find in terminal (${shortcut})`;
 }
 
 function openTerminalFind() {
@@ -3389,7 +3403,36 @@ function openTerminalFind() {
   return true;
 }
 
+// Find in the conversation: marks the turns the Chat lens has drawn, and
+// offers to load the earlier ones it has not (chat-find.js).
+const chatFindForm = document.querySelector("#chat-find");
+chatFind = createChatFind({
+  form: chatFindForm,
+  input: document.querySelector("#chat-find-input"),
+  count: document.querySelector("#chat-find-count"),
+  olderButton: document.querySelector("#chat-find-older"),
+  newerButton: document.querySelector("#chat-find-newer"),
+  closeButton: document.querySelector("#chat-find-close"),
+  more: document.querySelector("#chat-find-more"),
+  moreButton: document.querySelector("#chat-find-load"),
+  onOpen: () => syncTerminalFind(),
+  onClose: () => syncTerminalFind(),
+});
+
+function openChatFind() {
+  const chat = chatLens.lens === "chat" ? chatLens.chatFor(chatLens.paneId) : null;
+  if (!chat) return false;
+  chatFind.show(chat);
+  syncTerminalFind();
+  return true;
+}
+
 terminalFindButton.addEventListener("click", () => {
+  if (chatLens.lens === "chat") {
+    if (chatFind.open) chatFind.close();
+    else openChatFind();
+    return;
+  }
   if (terminalFindButton.getAttribute("aria-disabled") === "true") {
     setFeedback(MIRRORED_FIND_REASON, true);
     return;
@@ -3398,18 +3441,25 @@ terminalFindButton.addEventListener("click", () => {
   else openTerminalFind();
 });
 
-// Taken before xterm sees it (it would send ^F to the program), but only over
-// the Terminal lens, and never from a text field: the composer, a dialog or
-// the sidebar's fields keep the browser's own find. The Chat lens is page
-// text, which the browser's find already searches.
+// Taken before xterm sees it (it would send ^F to the program), and over the
+// Chat lens for the conversation's own find, but never from a text field: the
+// composer, a dialog or the sidebar's fields keep the browser's own find.
 window.addEventListener("keydown", (event) => {
   if (!isFindShortcut(event, FIND_SHORTCUT_MAC) || !state.authenticated) return;
-  if (document.querySelector("dialog[open]") || chatLens.lens !== "terminal") return;
+  if (document.querySelector("dialog[open]")) return;
   const active = document.activeElement;
   const inTerminal = elements.terminalXterm.contains(active);
-  const inFind = terminalFindForm.contains(active);
+  const inFind = terminalFindForm.contains(active) || chatFindForm.contains(active);
   if (!inTerminal && !inFind && active instanceof HTMLElement &&
       (active.isContentEditable || active.matches("input, textarea, select"))) return;
+  if (chatLens.lens === "chat") {
+    if (!chatLens.chatFor(chatLens.paneId)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openChatFind();
+    return;
+  }
+  if (chatLens.lens !== "terminal") return;
   const { paneId, mirrored } = terminalFindTarget();
   if (!paneId || mirrored) return;
   event.preventDefault();

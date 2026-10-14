@@ -10,18 +10,18 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>HerdRabbit</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <script src="/theme.js?v=1.2.44"></script>
+    <script src="/theme.js?v=1.2.45"></script>
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/rabbit-outline-32-v33.png" />
     <link rel="icon" type="image/svg+xml" href="/icons/rabbit-outline-v33.svg" />
     <link rel="apple-touch-icon" href="/icons/rabbit-outline-app-180-v35.png" />
     <link rel="stylesheet" href="/ui/ui.css" />
-    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.44" />
-    <link rel="stylesheet" href="/styles.css?v=1.2.44" />
-    <link rel="stylesheet" href="/chat/chat-view.css?v=1.2.44" />
-    <link rel="stylesheet" href="/chat/prompt-card.css?v=1.2.44" />
-    <link rel="stylesheet" href="/key-bar.css?v=1.2.44" />
-    <script src="/vendor/simplewebauthn-browser.js?v=1.2.44"></script>
-    <script type="module" src="/app.js?v=1.2.44"></script>
+    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.45" />
+    <link rel="stylesheet" href="/styles.css?v=1.2.45" />
+    <link rel="stylesheet" href="/chat/chat-view.css?v=1.2.45" />
+    <link rel="stylesheet" href="/chat/prompt-card.css?v=1.2.45" />
+    <link rel="stylesheet" href="/key-bar.css?v=1.2.45" />
+    <script src="/vendor/simplewebauthn-browser.js?v=1.2.45"></script>
+    <script type="module" src="/app.js?v=1.2.45"></script>
   </head>
   <body class="auth-pending">
     <main class="shell">
@@ -207,6 +207,37 @@
             <button id="terminal-find-close" type="button" aria-label="Close find" title="Close (Esc)">
               <svg aria-hidden="true" viewBox="0 0 20 20" focusable="false"><path d="m5.5 5.5 9 9m0-9-9 9" /></svg>
             </button>
+          </form>
+          <form id="chat-find" class="terminal-find chat-find" role="search" aria-label="Find in conversation" hidden>
+            <svg class="terminal-find-icon" aria-hidden="true" viewBox="0 0 20 20" focusable="false">
+              <circle cx="8.5" cy="8.5" r="5" />
+              <path d="m12.2 12.2 4.3 4.3" />
+            </svg>
+            <input
+              id="chat-find-input"
+              type="search"
+              placeholder="Find in conversation"
+              aria-label="Find in the loaded conversation"
+              maxlength="256"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              enterkeyhint="search"
+            />
+            <span id="chat-find-count" class="terminal-find-count" role="status" aria-live="polite"></span>
+            <button id="chat-find-older" type="button" aria-label="Previous match" title="Previous match (Enter)">
+              <svg aria-hidden="true" viewBox="0 0 20 20" focusable="false"><path d="m5 12.5 5-5 5 5" /></svg>
+            </button>
+            <button id="chat-find-newer" type="button" aria-label="Next match" title="Next match (Shift+Enter)">
+              <svg aria-hidden="true" viewBox="0 0 20 20" focusable="false"><path d="m5 7.5 5 5 5-5" /></svg>
+            </button>
+            <button id="chat-find-close" type="button" aria-label="Close find" title="Close (Esc)">
+              <svg aria-hidden="true" viewBox="0 0 20 20" focusable="false"><path d="m5.5 5.5 9 9m0-9-9 9" /></svg>
+            </button>
+            <p id="chat-find-more" class="chat-find-more" hidden>
+              <span>Earlier messages aren't loaded, so they aren't searched.</span>
+              <button id="chat-find-load" class="chat-find-load" type="button">Load earlier</button>
+            </p>
           </form>
           <div id="terminal-held" class="terminal-held" role="status" hidden>
             <span>Another client has this terminal open.</span>

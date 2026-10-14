@@ -851,3 +851,16 @@ pre.md-math {
     animation: none;
   }
 }
+
+/* Find in the conversation (chat-find.js): every match tinted, the current
+   one stronger and outlined. Text keeps its own color. */
+mark.chat-find-mark {
+  border-radius: 2px;
+  background: color-mix(in srgb, #ffb340 35%, transparent);
+  color: inherit;
+}
+
+mark.chat-find-mark.is-current {
+  background: color-mix(in srgb, #ff9500 70%, transparent);
+  outline: 1px solid #ff9500;
+}
