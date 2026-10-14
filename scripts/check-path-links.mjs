@@ -2,7 +2,9 @@
 // (an .aab) is a link too, and pressing it opens the Files tab in its folder
 // with that file's row selected and in view -- on a desktop and on a phone. A
 // name with no extension (`feat/settings-menu`) stays plain text, and a file
-// that is not in its folder leaves a short note. Runs against a fake herdr.
+// that is not in its folder leaves a short note. A folder written out in full
+// (absolute, or starting with ./) is a link too and opens the Files tab inside
+// it; an extensionless file path is selected in its parent instead. Runs against a fake herdr.
 // PATHLINK_SCREENSHOTS=<folder> keeps pictures of the phone.
 import assert from "node:assert/strict";
 import { once } from "node:events";
@@ -23,6 +25,15 @@ await writeFile(target, "bundle");
 const missing = join(release, "gone-for-good.aab");
 const notes = join(release, "notes.md");
 await writeFile(notes, "# notes");
+const inner = join(release, "inner-folder");
+await mkdir(inner);
+await writeFile(join(inner, "inner-file.txt"), "y");
+const plain = join(release, "plainfile");
+await writeFile(plain, "z");
+// a folder whose name reads like a file the viewer could show
+const dottedFolder = join(release, "bundle.md");
+await mkdir(dottedFolder);
+await writeFile(join(dottedFolder, "inside-bundle.txt"), "w");
 
 const snapshot = {
   focused_workspace_id: "w1", focused_tab_id: "w1:t1", focused_pane_id: "w1:p1",
@@ -44,7 +55,7 @@ const snapshot = {
   ],
   agents: [],
 };
-const output = `\x1b[?1049hbuilt ${target}\r\nmissing ${missing}\r\nviewer ${notes}\r\nbranch feat/settings-menu 1/2\r\n$ `;
+const output = `\x1b[?1049hbuilt ${target}\r\nmissing ${missing}\r\nviewer ${notes}\r\nbranch feat/settings-menu 1/2\r\nfolder ${release}\r\nrel ./docviewer-release/inner-folder\r\nplain ${plain}\r\ndotted ${dottedFolder}\r\ncmd /compact src/foo\r\n$ `;
 const attachments = new PaneAttachments({
   log: () => {},
   options: { holdMs: 5, heldRetryMs: 60_000, relookupForMs: 200 },
@@ -73,10 +84,16 @@ try {
     });
     const page = await context.newPage();
     const errors = [];
-    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("pageerror", (error) => {
+      // Playwright's own service-worker block, injected into the viewer's
+      // sandboxed frame, cannot read navigator.serviceWorker there: that is
+      // the harness, not the page.
+      if (/serviceWorker.*sandboxed/u.test(error.message)) return;
+      errors.push(error.message);
+    });
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
     await page.waitForFunction(() => document.querySelector("#terminal-xterm .xterm-rows")?.textContent.includes("settings-menu"));
-    await page.waitForFunction(() => document.querySelectorAll(".terminal-link-marks span").length >= 3);
+    await page.waitForFunction(() => document.querySelectorAll(".terminal-link-marks span").length >= 6);
     // a path the phone's width wraps is two underlines, the second from the left edge
     const starts = await page.evaluate(() => {
       const boxes = [...document.querySelectorAll(".terminal-link-marks span")].map((span) => span.getBoundingClientRect());
@@ -84,7 +101,7 @@ try {
       return boxes.filter((box) => box.left > edge + 1).map((box) => ({ x: box.left, y: box.top, width: box.width }));
     });
     const marks = starts.length;
-    assert.equal(marks, 3, "the .aab, the missing .aab and the .md are links; the branch and the fraction are not");
+    assert.equal(marks, 7, "the .aab, the missing .aab, the .md, the two folders, the extensionless file and the folder named like a file are links; the branch, the fraction and the slash command are not");
     if (shots && mobile) await page.screenshot({ path: join(shots, "phone-dark-terminal-links.png") });
 
     // the underline marks sit under each link: press just above one
@@ -117,6 +134,28 @@ try {
     if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());
     await press(1);
     await page.waitForFunction(() => document.querySelector("#file-feedback").textContent.includes("is not in this folder"));
+    assert.equal(await page.locator("#file-path").inputValue(), release);
+
+    // a folder: the absolute one opens, and the ./ one too -- Files shows what is inside it
+    for (const [index, folder, child] of [[3, release, "notes.md"], [4, inner, "inner-file.txt"], [6, dottedFolder, "inside-bundle.txt"]]) {
+      await page.evaluate(() => { document.querySelector("#tab-sessions").click(); });
+      if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());
+      await press(index);
+      await page.waitForFunction((path) => document.querySelector("#file-path").value === path
+        && document.querySelector("#file-feedback").textContent === ""
+        && document.querySelector(".browse-row"), folder, { timeout: 15_000 });
+      assert.equal(await page.locator("#tab-files").getAttribute("aria-selected"), "true");
+      assert.equal(await page.locator("#file-path").inputValue(), folder);
+      assert.equal(await page.locator(".browse-row", { hasText: child }).count(), 1, `${child} is listed in ${folder}`);
+      assert.equal(await page.locator('.browse-row[data-selected="true"]').count(), 0, "a folder link selects no row");
+      assert.equal(await page.locator("dialog[open]").count(), 0, "no viewer opened on a folder");
+    }
+
+    // a file without an extension: its parent opens with its row selected
+    await page.evaluate(() => { document.querySelector("#tab-sessions").click(); });
+    if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());
+    await press(5);
+    await page.waitForFunction((path) => document.querySelector('.browse-row[data-selected="true"]')?.dataset.path === path, plain, { timeout: 15_000 });
     assert.equal(await page.locator("#file-path").inputValue(), release);
 
     // a slow listing already loading does not turn the link away: hold every
@@ -157,7 +196,7 @@ try {
         } catch { /* a request still in flight when the page closes */ }
       });
       await cutPage.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
-      await cutPage.waitForFunction(() => document.querySelectorAll(".terminal-link-marks span").length >= 3);
+      await cutPage.waitForFunction(() => document.querySelectorAll(".terminal-link-marks span").length >= 6);
       assert.equal(await cutPage.locator('.browse-row[data-selected="true"]').count(), 0, "nothing is selected before the press");
       const box = await cutPage.evaluate(() => {
         const edge = document.querySelector("#terminal-xterm .xterm-screen").getBoundingClientRect().left;
@@ -177,7 +216,7 @@ try {
     await press(2);
     await page.locator("dialog[open]").first().waitFor({ state: "visible" });
     assert.deepEqual(errors, []);
-    console.log({ mobile, links: marks, filesTab: true, rowInView: true, missingNote: true, slowListing: true, pastTheCut: true, previewKept: true });
+    console.log({ mobile, links: marks, filesTab: true, folders: true, extensionless: true, rowInView: true, missingNote: true, slowListing: true, pastTheCut: true, previewKept: true });
     await context.close();
   }
   // A remote pane's link opens that machine's files, not this one's. The lab's

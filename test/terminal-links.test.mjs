@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { findScreenLinks, isFileName } from "../public/terminal-links.js";
+import { findScreenLinks, isFileName, isFolderPath } from "../public/terminal-links.js";
 
 // Screen rows as xterm-terminal.js reads them: plain text, one cell per character here.
 const rowsOf = (text) => text.split(/\r?\n/u).map((line) => ({
@@ -111,4 +111,50 @@ test("links a file the viewer cannot show when it has an extension, and leaves f
   const found = (text) => targets(text, "path", { isLinkablePath: linkable });
   assert.deepEqual(found("saved /home/me/docviewer-release/docviewer-0.1.0-v10-testads.aab ok"), ["/home/me/docviewer-release/docviewer-0.1.0-v10-testads.aab"]);
   assert.deepEqual(found("on feat/settings-menu with 1/2 done in src/foo and /usr/bin/ and ./build/app.apk."), ["./build/app.apk"]);
+});
+
+// Screen rows are padded to the terminal's width, so a row that is full has no space before its newline.
+const withFolders = (raw) => viewable(raw) || isFileName(raw.split("/").pop()) || isFolderPath(raw);
+const folders = (text) => targets(text, "path", { isLinkablePath: withFolders });
+
+test("a folder written out in full is a path: absolute, ./ or ../", () => {
+  for (const path of ["/home/capalace/Git/doc-viewer", "/usr/bin", "./build", "../shared/lib", "./a/b/", "/home/me/proj/"]) {
+    assert.equal(isFolderPath(path), true, path);
+  }
+  for (const path of ["", "/", "./", "../", "..", "/..", "//host/share", "//x", "/compact", "src/foo", "feat/settings-menu", "1/2", "a/b", "~/proj", "~", "/a//b", "https://x.example/a/b"]) {
+    assert.equal(isFolderPath(path), false, path);
+  }
+});
+
+test("links folder paths in terminal output, keeping a closing slash and leaving the rest plain", () => {
+  assert.deepEqual(folders("cd /home/capalace/Git/doc-viewer && ls ./build ../shared/ src/foo feat/settings-menu 1/2 a/b /compact"), [
+    "/home/capalace/Git/doc-viewer", "./build", "../shared/",
+  ]);
+  assert.deepEqual(folders("(see /usr/bin), then ./out/dir."), ["/usr/bin", "./out/dir"]);
+  // a file with an extension still links as before
+  assert.deepEqual(folders("wrote src/api.mjs and /tmp/x.aab"), ["src/api.mjs", "/tmp/x.aab"]);
+});
+
+test("the path inside a web address is not a folder link", () => {
+  const links = findScreenLinks(rowsOf("open https://example.com/home/capalace/Git and //host/share/x (https://x.example/a/b)"), { isLinkablePath: withFolders });
+  assert.deepEqual(links.map((link) => [link.kind, link.target]), [
+    ["url", "https://example.com/home/capalace/Git"], ["url", "https://x.example/a/b"],
+  ]);
+});
+
+test("a folder path cut at the end of a full row joins the next row, but only a full row", () => {
+  const pad = (line, width) => line.padEnd(width);
+  const wrapped = (first, second, width) => `${pad(first, width)}\n${pad(second, width)}`;
+  const text = wrapped("cd /home/capalace/Git/doc-", "viewer now", 26);
+  assert.deepEqual(folders(text), ["/home/capalace/Git/doc-viewer"]);
+  const link = findScreenLinks(rowsOf(text), { isLinkablePath: withFolders })[0];
+  assert.equal(link.segments.length, 2);
+  assert.deepEqual(link.segments[1], { row: 1, start: 0, end: 6 });
+  // a row that ended before the edge, or a next row that is indented, is not a wrap
+  assert.deepEqual(folders(wrapped("cd /home/capalace/Git", "viewer now", 30)), ["/home/capalace/Git"]);
+  assert.deepEqual(folders("cd /home/capalace/Git\n  viewer now"), ["/home/capalace/Git"]);
+  // a file name already complete is not extended
+  assert.deepEqual(folders("see /tmp/note.md\nlater"), ["/tmp/note.md"]);
+  // the continuation's own trailing punctuation is left out
+  assert.deepEqual(folders("cd /home/capalace/Git/doc-\nviewer."), ["/home/capalace/Git/doc-viewer"]);
 });

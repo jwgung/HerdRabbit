@@ -1,6 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.38";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.38";
-import { isFileName } from "./terminal-links.js?v=1.2.38";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.39";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.39";
+import { isFileName, isFolderPath } from "./terminal-links.js?v=1.2.39";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -50,7 +50,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.38";
+} from "./ui-model.js?v=1.2.39";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -61,45 +61,45 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.38";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.38";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.38";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.38";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.38";
+} from "./browse-preference.js?v=1.2.39";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.39";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.39";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.39";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.39";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.38";
-import { chatAgent } from "./lens-preference.js?v=1.2.38";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.38";
+} from "./chat-font-preference.js?v=1.2.39";
+import { chatAgent } from "./lens-preference.js?v=1.2.39";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.39";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.38";
+} from "./pane-preference.js?v=1.2.39";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.38";
+} from "./workspace-preference.js?v=1.2.39";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.38";
+} from "./terminal-preference.js?v=1.2.39";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.38";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.38";
+} from "./completion-preference.js?v=1.2.39";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.39";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.38";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.38";
+} from "./input-history-preference.js?v=1.2.39";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.39";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -115,16 +115,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.38";
+} from "./key-bar-preference.js?v=1.2.39";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.38";
+} from "./launch-session.js?v=1.2.39";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.38";
+} from "./push-notifications.js?v=1.2.39";
 
 function browserStorage() {
   try {
@@ -2762,6 +2762,8 @@ function renderPaneHeading(pane, tab, workspace) {
 // -- and on a phone the only way to look at one was to go find it in the tree.
 // A named file that this app can show becomes a link that opens it; any other
 // name that ends in an extension becomes a link that shows it in the Files tab.
+// So does a folder written out in full (`/home/me/proj`, `./build`): it opens
+// in the Files tab.
 //
 // Relative names are resolved against the pane's own directory, because that is
 // what the agent writing them meant. `~` is not resolved: that home belongs to
@@ -2780,16 +2782,37 @@ function resolveTerminalPath(raw) {
 
 function isLinkableTerminalPath(raw) {
   const name = raw.split("/").pop();
-  return (previewFor(name) !== null || isFileName(name)) && resolveTerminalPath(raw) !== null;
+  return (previewFor(name) !== null || isFileName(name) || isFolderPath(raw)) && resolveTerminalPath(raw) !== null;
 }
 
-function openTerminalPath(raw) {
+// Whether `path` on `server` lists as a folder. A file, or nothing there,
+// does not.
+async function listsAsFolder(server, path) {
+  try {
+    await transferRequest(`/api/browse?server=${encodeURIComponent(server)}&path=${encodeURIComponent(path)}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function openTerminalPath(raw) {
   const resolved = resolveTerminalPath(raw);
   if (!resolved) return;
-  const name = resolved.split("/").pop();
+  // a closing slash says "folder"; the name is the last one before it
+  const trimmed = resolved.replace(/\/+$/u, "") || "/";
+  const name = trimmed.split("/").pop();
   const server = paneServerId(state.selectedPaneId) || "local";
-  if (previewFor(name) !== null) void viewFile(resolved, name, server);
-  else void revealInFiles(resolved, name, server);
+  // A folder may well be called `docs.md`: one written out in full is asked
+  // about before the viewer is opened on it. Anything picked meanwhile -- a
+  // folder, a machine, another link, another pane -- wins over this one.
+  const generation = ++revealGeneration;
+  const paneId = state.selectedPaneId;
+  const viewable = trimmed === resolved && previewFor(name) !== null
+    && !(isFolderPath(raw) && await listsAsFolder(server, trimmed));
+  if (generation !== revealGeneration || paneId !== state.selectedPaneId) return;
+  if (viewable) void viewFile(resolved, name, server);
+  else void revealInFiles(trimmed, name, server);
 }
 
 function showTerminalMessage(message) {
@@ -4854,6 +4877,8 @@ elements.fileServer.addEventListener("change", async () => {
 
 // A file the viewer cannot show is still a file somebody named: take them to
 // it in the Files tab, in its own folder, with its row selected and in view.
+// A folder somebody named is opened itself: whether the name is a file or a
+// folder is read from its row in the parent's listing.
 async function revealInFiles(filePath, name, server) {
   const generation = ++revealGeneration;
   const folder = filePath.slice(0, filePath.lastIndexOf("/")) || "/";
@@ -4864,18 +4889,23 @@ async function revealInFiles(filePath, name, server) {
   refreshServerChoices();
   // A load already under way would turn this one away, however slow the
   // machine it is reading: wait it out, and go again if another slipped in.
-  let loaded = false;
-  for (;;) {
-    while (browseState.busy) {
-      await new Promise((resolve) => window.setTimeout(resolve, 50));
-      if (generation !== revealGeneration) return;
+  // Returns true when loaded, false when it failed, null when a later press
+  // or a hand-picked folder took over.
+  const open = async (target, first) => {
+    for (;;) {
+      while (browseState.busy) {
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+        if (generation !== revealGeneration) return null;
+      }
+      const loaded = first && server !== browseState.server
+        ? await selectBrowseServer(server, target, { reveal: true })
+        : await loadBrowseFolder(target, { reveal: true });
+      if (generation !== revealGeneration) return null;
+      if (loaded || !browseState.busy) return loaded;
     }
-    loaded = server === browseState.server
-      ? await loadBrowseFolder(folder, { reveal: true })
-      : await selectBrowseServer(server, folder, { reveal: true });
-    if (generation !== revealGeneration) return;
-    if (loaded || !browseState.busy) break;
-  }
+  };
+  const loaded = await open(folder, true);
+  if (loaded === null) return;
   elements.fileServer.value = browseState.server;
   if (!loaded) return;
   await ensureUploadsPath();
@@ -4893,6 +4923,11 @@ async function revealInFiles(filePath, name, server) {
   }
   if (!entry) {
     setBrowseFeedback(`${name} is not in this folder.`);
+    return;
+  }
+  if (entry.kind === "directory" && !entry.broken) {
+    browseState.selected = null;
+    await open(entry.path, false);
     return;
   }
   browseState.selected = entry.path;

@@ -121,6 +121,42 @@ export function isFileName(name) {
   return /^[^.].*\.(?=[A-Za-z0-9]{1,10}$)[0-9]*[A-Za-z][A-Za-z0-9]*$/u.test(name);
 }
 
+// A folder path an agent spells out in full: absolute (`/home/me/proj`) or
+// explicitly relative (`./build`, `../shared/`). Such a path says it is a path
+// whatever its last name looks like, so it needs no extension. A bare
+// `src/foo`, `feat/settings-menu` or `1/2` does not say so and stays plain
+// text, as does `//host/share` (half of a URL) and a lone `/word`, which in a
+// terminal is nearly always a slash command (`/compact`), not a folder.
+export function isFolderPath(raw) {
+  if (typeof raw !== "string" || raw.startsWith("//")) return false;
+  const relative = raw.startsWith("./") || raw.startsWith("../");
+  if (!relative && !raw.startsWith("/")) return false;
+  if (/[\x00-\x1f\x7f\s]/u.test(raw)) return false;
+  const segments = raw.replace(/\/+$/u, "").split("/").slice(1);
+  const last = segments.at(-1);
+  if (!last || last === "." || last === "..") return false;
+  // `/word` is one segment; `./word` and `../word` are explicit enough alone.
+  if (!relative && segments.length < 2) return false;
+  return !segments.includes("");
+}
+
+const TRAILING_PUNCTUATION = /[.,;:!?)\]}]/u;
+function trimPunctuation(value) {
+  let cleaned = value;
+  while (cleaned && TRAILING_PUNCTUATION.test(cleaned.at(-1))) cleaned = cleaned.slice(0, -1);
+  return cleaned;
+}
+
+// The path a run names, with a closing slash kept (it says "folder") when the
+// run is linkable that way and otherwise without it, or null.
+function linkableLabel(value, isLinkable) {
+  const label = trimPunctuation(value);
+  if (!label) return null;
+  if (isLinkable(label)) return label;
+  const bare = label.replace(/\/+$/u, "");
+  return bare !== label && bare && isLinkable(bare) ? bare : null;
+}
+
 // Linkable paths in terminal text, as [start, end) string offsets.
 export function findTerminalPaths(text, isLinkable) {
   const links = [];
@@ -129,42 +165,43 @@ export function findTerminalPaths(text, isLinkable) {
     const start = match.index + match[0].length - match[1].length;
     const end = start + raw.length;
 
-    let label = raw;
-    while (label && /[.,;:!?)\]}/]/u.test(label.at(-1))) label = label.slice(0, -1);
-    if (label && isLinkable(label)) {
-      links.push({ start, end: start + label.length, path: label });
-      continue;
-    }
+    const own = linkableLabel(raw, isLinkable);
+    // A path that stopped at the end of a screen row may go on in the next
+    // one. Screen rows are padded to the terminal's width, so a newline right
+    // after the last character means the row was full. A file name already
+    // complete (`a.md`) is not extended; a folder is, when the longer path is
+    // one too (`/home/me/doc-` + `viewer`).
+    const extendable = own === null || (!isFileName(own.replace(/\/+$/u, "").split("/").pop()));
 
-    // Terminal width wrapping can split a long path across line breaks.
-    let currentEnd = end;
-    let accumulated = raw;
+    let best = own === null ? null : { start, end: start + own.length, path: own };
+    if (extendable) {
+      let currentEnd = end;
+      let accumulated = raw;
 
-    while (currentEnd < text.length) {
-      const newlineMatch = text.slice(currentEnd).match(/^(\r?\n)([ \t]*)/);
-      if (!newlineMatch) break;
+      while (currentEnd < text.length) {
+        const newlineMatch = text.slice(currentEnd).match(/^(\r?\n)([ \t]*)/);
+        if (!newlineMatch) break;
+        if (own !== null && newlineMatch[2]) break;
 
-      const nextPos = currentEnd + newlineMatch[0].length;
-      const contMatch = text.slice(nextPos).match(/^[^\s'"`)\]>:,;\x00-\x1f\x7f]+/);
-      if (!contMatch) break;
+        const nextPos = currentEnd + newlineMatch[0].length;
+        const contMatch = text.slice(nextPos).match(/^[^\s'"`)\]>:,;\x00-\x1f\x7f]+/);
+        if (!contMatch) break;
 
-      const rawCont = contMatch[0];
-      let trimmedCont = rawCont;
-      while (trimmedCont && /[.,;:!?)\]}/]/u.test(trimmedCont.at(-1))) trimmedCont = trimmedCont.slice(0, -1);
+        const rawCont = contMatch[0];
+        const trimmedCont = trimPunctuation(rawCont);
+        const candidate = linkableLabel(accumulated + trimmedCont, isLinkable);
+        if (candidate !== null) {
+          best = { start, end: nextPos + trimmedCont.length, path: candidate };
+          if (own === null) break;
+        }
 
-      const candidate = accumulated + trimmedCont;
-      let candidateLabel = candidate;
-      while (candidateLabel && /[.,;:!?)\]}/]/u.test(candidateLabel.at(-1))) candidateLabel = candidateLabel.slice(0, -1);
-
-      if (candidateLabel && isLinkable(candidateLabel)) {
-        const finalEnd = nextPos + trimmedCont.length;
-        links.push({ start, end: finalEnd, path: candidateLabel });
-        break;
+        accumulated += rawCont;
+        currentEnd = nextPos + rawCont.length;
+        // a continuation that itself ended in punctuation is the end of the path
+        if (own !== null && trimmedCont.length !== rawCont.length) break;
       }
-
-      accumulated = accumulated + rawCont;
-      currentEnd = nextPos + rawCont.length;
     }
+    if (best) links.push(best);
   }
 
   const nonOverlapping = [];
