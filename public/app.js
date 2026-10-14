@@ -1,6 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.41";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.41";
-import { isFileName, isFolderPath } from "./path-links.js?v=1.2.41";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.42";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.42";
+import { isFileName, isFolderPath } from "./path-links.js?v=1.2.42";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -50,7 +50,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.41";
+} from "./ui-model.js?v=1.2.42";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -61,45 +61,56 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.41";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.41";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.41";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.41";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.41";
+} from "./browse-preference.js?v=1.2.42";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.42";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.42";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.42";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.42";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.41";
-import { chatAgent } from "./lens-preference.js?v=1.2.41";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.41";
+} from "./chat-font-preference.js?v=1.2.42";
+import { chatAgent } from "./lens-preference.js?v=1.2.42";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.42";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.41";
+} from "./pane-preference.js?v=1.2.42";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.41";
+} from "./workspace-preference.js?v=1.2.42";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.41";
+} from "./terminal-preference.js?v=1.2.42";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.41";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.41";
+} from "./completion-preference.js?v=1.2.42";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.42";
+import {
+  attachSidebarDrag,
+  dropScope,
+  followMovedPane,
+  movedTabSnapshot,
+  movedWorkspaceSnapshot,
+  tabMoveRequest,
+  workspaceMoveRequest,
+} from "./sidebar-drag.js?v=1.2.42";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.42";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.42";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.41";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.41";
+} from "./input-history-preference.js?v=1.2.42";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.42";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -115,16 +126,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.41";
+} from "./key-bar-preference.js?v=1.2.42";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.41";
+} from "./launch-session.js?v=1.2.42";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.41";
+} from "./push-notifications.js?v=1.2.42";
 
 function browserStorage() {
   try {
@@ -449,6 +460,25 @@ const state = {
   // The pane whose terminal was let go while its chat stayed on screen.
   terminalParked: null,
 };
+
+// Dragging in the sidebar: what was dropped shows where it landed at once,
+// and goes back with a word if Herdr refuses.
+let navigationRedrawHeld = false;
+const sidebarDrag = attachSidebarDrag(elements.workspaceList, {
+  canStart: () => !state.mutationBusy && !renameIsOpen() &&
+    !document.body.classList.contains("sidebar-collapsed"),
+  onEnd: () => { if (navigationRedrawHeld) renderNavigation(); },
+  onDropTab: (drop) => void moveSidebarItem(
+    tabMoveRequest(state.snapshot, drop),
+    (request) => `/api/tabs/${encodeURIComponent(request.tabId)}/move`,
+    () => movedTabSnapshot(state.snapshot, drop),
+  ),
+  onDropWorkspace: (drop) => void moveSidebarItem(
+    workspaceMoveRequest(state.snapshot, drop),
+    (request) => `/api/workspaces/${encodeURIComponent(request.workspaceId)}/move`,
+    () => movedWorkspaceSnapshot(state.snapshot, drop),
+  ),
+});
 
 const desktopMedia = window.matchMedia("(min-width: 761px)");
 const primaryTouchMedia = window.matchMedia("(pointer: coarse) and (hover: none)");
@@ -2490,6 +2520,12 @@ function renameIsOpen() {
 }
 
 function renderNavigation() {
+  // A row being held or dragged stays where it is; the redraw waits for the drop.
+  if (sidebarDrag.isActive()) {
+    navigationRedrawHeld = true;
+    return;
+  }
+  navigationRedrawHeld = false;
   const { servers, herdrSessions, workspaces, tabs, panes } = snapshotRecords();
   elements.workspaceList.replaceChildren();
   // Shown even for this machine alone: its row is where the machine is managed,
@@ -2551,6 +2587,8 @@ function renderNavigation() {
   const appendWorkspace = (parent, workspace) => {
     const workspaceId = idOf(workspace, "workspace_id", "id");
     const group = createElement("section", { className: "workspace-group" });
+    group.dataset.workspaceId = workspaceId;
+    group.dataset.dropScope = dropScope(workspace);
     const workspaceLabel = displayRecordLabel(workspace, "Project");
     const workspaceTabs = tabs.filter(
       (tab) => idOf(tab, "workspace_id", "workspaceId") === workspaceId,
@@ -2584,9 +2622,14 @@ function renderNavigation() {
     for (const tab of workspaceTabs) {
       const tabId = idOf(tab, "tab_id", "id");
       const tabGroup = createElement("div", { className: "tab-group" });
+      tabGroup.dataset.tabId = tabId;
+      tabGroup.dataset.workspaceId = workspaceId;
+      tabGroup.dataset.dropScope = group.dataset.dropScope;
       const tabLabel = displayTabLabel(tab);
       const editingTab = state.editingTabId === tabId;
       const tabPanes = panes.filter((pane) => idOf(pane, "tab_id", "tabId") === tabId);
+      // A split session can be put in order within its project, not carried out.
+      if (tabPanes.length > 1) tabGroup.dataset.split = "true";
       // With one pane the pane is the session, so its name belongs in the
       // button. With several the name covers the group, and repeating it on
       // every button would say the same thing three times.
@@ -2719,6 +2762,66 @@ function renderNavigation() {
   for (const workspace of workspaces) {
     appendWorkspace(serverGroups.get(workspace.server_id) || elements.workspaceList, workspace);
   }
+}
+
+// What the page keeps under a pane's id goes with the pane to its new id: the
+// unsent draft (and its secret verdict), the blocked/held marks, the message
+// history, the chosen lens and the acknowledged completion.
+function followMovedPaneState(moves) {
+  if (!Array.isArray(moves) || moves.length === 0) return;
+  saveComposerDraft();
+  composerDrafts.rename(moves);
+  for (const set of [draftBlocked, draftHeld]) {
+    const kept = [...set];
+    set.clear();
+    for (const id of kept) set.add(followMovedPane(id, moves));
+  }
+  // The pane on screen keeps its composer: the text stays, only the key changes.
+  if (draftPaneId) draftPaneId = followMovedPane(draftPaneId, moves);
+  state.inputHistoryByPane = renamePaneKeys(state.inputHistoryByPane, moves);
+  writeInputHistories(panePreferenceStorage, state.inputHistoryByPane);
+  state.acknowledgedCompletions = renamePaneKeys(state.acknowledgedCompletions, moves);
+  writeAcknowledgedCompletions(panePreferenceStorage, state.acknowledgedCompletions);
+  renamePaneLenses(panePreferenceStorage, moves);
+  chatLens.renamePanes(moves);
+}
+
+async function moveSidebarItem(request, pathFor, optimistic) {
+  if (!request || state.mutationBusy) return;
+  const before = state.snapshot;
+  state.mutationBusy = true;
+  setFeedback("");
+  state.snapshot = optimistic();
+  renderNavigation();
+  let failed = false;
+  let unread = false;
+  let reorderedFeedback = "";
+  try {
+    const payload = await api(pathFor(request), { method: "POST", body: request.body });
+    if (payload.moved?.reordered === false) reorderedFeedback = "Moved; it is at the end of the project.";
+    // A session moved to another project brings its panes under new ids; the
+    // one on screen is followed there.
+    const followed = followMovedPane(state.selectedPaneId, payload.moved?.panes);
+    followMovedPaneState(payload.moved?.panes);
+    if (followed !== state.selectedPaneId) writePanePreference(panePreferenceStorage, followed);
+    if (payload.snapshot) adoptMutationSnapshot(payload.snapshot, followed !== state.selectedPaneId ? followed : null);
+    else {
+      // read once the mutation is over: refreshSnapshot waits out a busy one
+      if (followed !== state.selectedPaneId) state.selectedPaneId = followed;
+      unread = true;
+    }
+  } catch (error) {
+    failed = true;
+    state.snapshot = before;
+    renderNavigation();
+    setFeedback(error.message, true);
+  } finally {
+    state.mutationBusy = false;
+  }
+  if (reorderedFeedback) setFeedback(reorderedFeedback);
+  // A failed move may still have changed something; a move answered without a
+  // snapshot is read now.
+  if (failed || unread) void refreshSnapshot();
 }
 
 function renderPaneHeading(pane, tab, workspace) {

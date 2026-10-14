@@ -6,8 +6,8 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatView.tsx and
 // ChatView.css, rewritten as plain DOM code without React.
-import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.41";
-import { lineDiff } from "./diff.js?v=1.2.41";
+import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.42";
+import { lineDiff } from "./diff.js?v=1.2.42";
 import {
   formatWorkDuration,
   commandText,
@@ -23,16 +23,17 @@ import {
   workStartsOpen,
   workSummary,
   workTitle,
-} from "./work-blocks.js?v=1.2.41";
-import { ConversationLoader } from "./conversation-refresh.js?v=1.2.41";
-import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.41";
+} from "./work-blocks.js?v=1.2.42";
+import { paneRenames } from "../pane-rename.js?v=1.2.42";
+import { ConversationLoader } from "./conversation-refresh.js?v=1.2.42";
+import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.42";
 import {
   chatMayBecomeAvailable,
   chatUnavailableText,
   chooseLens,
   readPaneLens,
   writePaneLens,
-} from "../lens-preference.js?v=1.2.41";
+} from "../lens-preference.js?v=1.2.42";
 
 // Scrolling this close to the top reads the page before it.
 const LOAD_OLDER_PX = 400;
@@ -857,6 +858,20 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
   connection.onReconnect(() => { if (watched !== null) chats.get(watched)?.refresh(); });
 
   return {
+    // A pane carried to another project has a new id: its lens choice follows.
+    // A chat is bound to the id it reads by, so the old one is let go and the
+    // new id reads its conversation afresh when it is shown.
+    renamePanes(moves) {
+      for (const [from, to] of paneRenames(moves)) {
+        if (chosen.has(from)) { chosen.set(to, chosen.get(from)); chosen.delete(from); }
+        const old = chats.get(from);
+        if (old) { old.destroy(); chats.delete(from); }
+        availability.delete(from);
+        if (watched === from) { connection.unwatchConversation(from); watched = null; }
+        if (reported.paneId === from) reported = { ...reported, paneId: to };
+        if (paneId === from) paneId = to;
+      }
+    },
     // The pane shown now, the agent the snapshot names for it when the chat
     // reads that agent ("claude", "codex"; `claude: true` is "claude"), and its status.
     select(nextPaneId, { agent = null, claude = false, status = null } = {}) {

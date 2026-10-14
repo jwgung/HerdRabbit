@@ -2264,3 +2264,69 @@ body.is-resizing-sidebar {
 .terminal-panel[data-lens="chat"] .quick-keys {
   display: none;
 }
+
+/* Dragging in the sidebar. A held row is not text: a long press picks it up
+   instead of selecting words or opening the browser's menu. */
+.tab-group,
+.workspace-heading {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.tab-group input,
+.workspace-heading input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+body.is-sidebar-dragging,
+body.is-sidebar-dragging * {
+  cursor: grabbing !important;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.is-drag-source {
+  opacity: 0.4;
+}
+
+/* The row under the pointer, following it above everything else. */
+.sidebar-drag-ghost {
+  position: fixed;
+  z-index: 1000;
+  margin: 0;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 10px 28px var(--mobile-shadow);
+  opacity: 0.82;
+  pointer-events: none;
+}
+
+.sidebar-drag-ghost .session-action-menu,
+.sidebar-drag-ghost .sidebar-action-menu {
+  visibility: hidden;
+}
+
+/* Where the row will land. */
+.sidebar-drop-line {
+  position: fixed;
+  z-index: 1001;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  pointer-events: none;
+}
+
+.sidebar-drop-line[hidden] {
+  display: none;
+}
+
+/* Another project a session would move to. */
+.workspace-group.is-drop-target {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}

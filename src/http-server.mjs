@@ -66,6 +66,8 @@ const STATIC_FILES = new Map([
   ["/terminal-preference.js", { path: `${PUBLIC_DIR}/terminal-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/completion-preference.js", { path: `${PUBLIC_DIR}/completion-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/swipe-dismiss.js", { path: `${PUBLIC_DIR}/swipe-dismiss.js`, type: "text/javascript; charset=utf-8" }],
+  ["/pane-rename.js", { path: `${PUBLIC_DIR}/pane-rename.js`, type: "text/javascript; charset=utf-8" }],
+  ["/sidebar-drag.js", { path: `${PUBLIC_DIR}/sidebar-drag.js`, type: "text/javascript; charset=utf-8" }],
   ["/input-history-preference.js", { path: `${PUBLIC_DIR}/input-history-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/composer-draft-preference.js", { path: `${PUBLIC_DIR}/composer-draft-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/secret-prompt.js", { path: `${PUBLIC_DIR}/secret-prompt.js`, type: "text/javascript; charset=utf-8" }],
@@ -328,7 +330,7 @@ function errorResponse(error) {
   }
   if (error instanceof HerdrCommandError) {
     return {
-      status: error.code === "herdr_timeout" ? 504 : 502,
+      status: error.code === "herdr_timeout" ? 504 : error.code === "split_session" ? 409 : 502,
       code: error.code,
       message: error.message,
     };
@@ -1230,6 +1232,37 @@ export function createHerdrHttpServer({
         const body = await readJsonBody(request, maxBodyBytes);
         await herdr.renameTab(decodePaneId(tabRenameMatch[1]), body.label);
         sendJson(response, 200, { ok: true });
+        return;
+      }
+
+      // Dragging in the sidebar. A session moves within its project, or to
+      // another project of the same machine and Herdr session (one pane only);
+      // the pane it carries comes back with their new ids so the page can keep its place.
+      const tabMoveMatch = url.pathname.match(/^\/api\/tabs\/([^/]+)\/move$/);
+      if (method === "POST" && tabMoveMatch) {
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, maxBodyBytes);
+        const tabId = decodePaneId(tabMoveMatch[1]);
+        let moved = { tab_id: tabId, panes: [], reordered: true };
+        if (body.workspaceId === undefined) await herdr.moveTab(tabId, body.insertIndex);
+        else {
+          if (typeof body.workspaceId !== "string") throw new InputValidationError("Invalid workspace id");
+          moved = await herdr.moveTabToWorkspace(tabId, body.workspaceId, body.insertIndex);
+        }
+        // The move has happened; a snapshot that cannot be read now must not
+        // lose the new pane ids the page needs to follow it. It reloads.
+        const snapshot = await herdr.snapshot().catch(() => null);
+        sendJson(response, 200, { moved, snapshot });
+        return;
+      }
+
+      const workspaceMoveMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/move$/);
+      if (method === "POST" && workspaceMoveMatch) {
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, maxBodyBytes);
+        await herdr.moveWorkspace(decodePaneId(workspaceMoveMatch[1]), body.insertIndex);
+        // Moved either way: an unreadable snapshot is reloaded by the page.
+        sendJson(response, 200, { snapshot: await herdr.snapshot().catch(() => null) });
         return;
       }
 

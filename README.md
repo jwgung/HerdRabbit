@@ -294,6 +294,7 @@ Project and tab names may appear on the lock screen. Previous commands and reque
 - Use a project's `⋯` menu to rename it, add a shell session, or close the project.
 - Use a session's `⋯` menu to rename it or close that Herdr tab.
 - Collapse or expand a project's child sessions with the arrow beside its name.
+- Drag a session to reorder it within its project, or onto another project of the same machine and Herdr session to move it there (it keeps its name; a split session with several panes can only be reordered within its project); drag a project's name to reorder projects. On a phone, hold a row for a moment before dragging; a short tap still selects and a swipe still scrolls. Reordering uses Herdr's `tab.move` and `workspace.move`, moving uses `pane move`.
 - Servers and Herdr sessions collapse the same way, so a sidebar listing several machines can be narrowed to the one in use. The choice is remembered per browser.
 - Destructive close actions always require confirmation.
 
