@@ -1395,7 +1395,10 @@ export function createHerdrHttpServer({
       if (method === "POST" && revealMatch) {
         requireWriteAuthorization(request, csrfToken);
         const body = await readJsonBody(request, maxBodyBytes);
-        const reveal = validation.validateRevealRequest({ match: body.match, contentRevision: body.contentRevision });
+        const reveal = validation.validateRevealRequest({
+          match: body.match, contentRevision: body.contentRevision,
+          ...(body.coverRows === undefined ? {} : { coverRows: body.coverRows }),
+        });
         sendJson(response, 200, await herdr.paneReveal(decodePaneId(revealMatch[1]), reveal));
         return;
       }

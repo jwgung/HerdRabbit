@@ -401,6 +401,10 @@ test("the reveal route needs the write token, checks what it is given and moves 
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { scroll: { offset_from_bottom: 4, max_offset_from_bottom: 30, viewport_rows: 20 } });
   assert.deepEqual(calls, [["hs_x~w1:p2", { match, contentRevision: 4, coverRows: 3 }]]);
+  calls.length = 0;
+  assert.equal((await post({ match, contentRevision: 4, coverRows: 6 })).status, 200);
+  assert.deepEqual(calls, [["hs_x~w1:p2", { match, contentRevision: 4, coverRows: 6 }]], "the page's measure reaches herdr");
+  assert.equal((await post({ match, contentRevision: 4, coverRows: 99 })).status, 400);
 
   stale = true;
   const conflict = await post({ match, contentRevision: 4 });
