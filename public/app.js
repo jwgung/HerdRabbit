@@ -1785,6 +1785,16 @@ const sessionsDialog = document.querySelector("#sessions-dialog");
 const sessionsList = document.querySelector("#sessions-list");
 const sessionsFeedback = document.querySelector("#sessions-feedback");
 document.querySelector("#sessions-close").addEventListener("click", () => sessionsDialog.close());
+// A sign-in from before the list existed has no row to sign out from, so the
+// dialog offers this device on its own. Even when the server cannot be told,
+// this window forgets its launch token, so it is signed out here either way.
+const sessionsEndThis = document.querySelector("#sessions-end-this");
+sessionsEndThis.addEventListener("click", () => void sessionsAction(async () => {
+  await api("/api/auth/logout", { method: "POST", body: {} }).catch(() => {});
+  sessionsDialog.close();
+  signedOut();
+}));
+
 document.querySelector("#sessions-end-all").addEventListener("click", () => {
   if (!window.confirm("Sign out every browser, this one included?")) return;
   void sessionsAction(async () => {
@@ -1841,6 +1851,7 @@ function sessionRow(session) {
 async function loadSessions() {
   const { sessions } = await api("/api/auth/sessions");
   const items = array(sessions);
+  sessionsEndThis.hidden = items.some((session) => session?.current);
   sessionsList.replaceChildren(...(items.length > 0
     ? items.map(sessionRow)
     : [createElement("li", { className: "passkey-empty", text: "Only sign-ins made since this list started are shown." })]));
@@ -1849,6 +1860,7 @@ async function loadSessions() {
 async function showSessions() {
   setSessionsFeedback("");
   sessionsList.replaceChildren();
+  sessionsEndThis.hidden = true;
   sessionsDialog.showModal();
   await sessionsAction(loadSessions);
 }

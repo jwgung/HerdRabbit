@@ -83,6 +83,11 @@ test("manages passkeys from this machine's menu only, with the password again", 
   const machineMenu = app.slice(app.indexOf("function serverActionMenu"), app.indexOf("// This machine is not a connection"));
   assert.doesNotMatch(machineMenu, /Passkeys|Signed-in devices|Sign out/);
   assert.doesNotMatch(app, /function signOut\(/);
+  // A sign-in from before the device list has no row of its own to sign out,
+  // so the list offers this device apart whenever no row is it.
+  assert.match(page, /id="sessions-end-this"[^>]*hidden/);
+  assert.match(app, /sessionsEndThis\.hidden = items\.some\(\(session\) => session\?\.current\);/);
+  assert.match(app, /sessionsEndThis\.addEventListener\("click", \(\) => void sessionsAction\(async \(\) => \{\s+await api\("\/api\/auth\/logout"[\s\S]*?signedOut\(\);/);
   // Without WebAuthn the list still opens, to remove; only adding is hidden.
   assert.match(app, /querySelector\("#passkeys-add"\)\.hidden = !supportsPasskeys\(\);/);
   // Escape cannot close either dialog under a running ceremony.
