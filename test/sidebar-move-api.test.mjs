@@ -147,6 +147,32 @@ test("a session with two panes moves to another project as one tab, keeps its na
   assert.deepEqual(herdrSocket.requests, [{ method: "tab.move", params: { tab_id: "w2:t3", insert_index: 1 } }]);
 });
 
+test("a move that fails halfway brings the panes already moved back to the session they left", async () => {
+  const fake = recordingRunner((args) => {
+    if (args[0] === "api") return { result: { snapshot: twoProjects } };
+    if (args[2] === "w1:p2") return moveResult({ from: "w1:p2", to: "w2:p3", tabId: "w2:t3", created: true, label: "Release" });
+    if (args[2] === "w1:p5") return new Error("herdr went away");
+    if (args[2] === "w2:p3") return moveResult({ from: "w2:p3", to: "w1:p6", tabId: "w1:t2" });
+    throw new Error(`unexpected ${args.join(" ")}`);
+  });
+  const client = new HerdrClient({ runner: fake.runner });
+  await assert.rejects(client.moveTabToWorkspace("w1:t2", "w2", 1));
+  assert.deepEqual(fake.calls.filter((args) => args[0] === "pane").at(-1),
+    ["pane", "move", "w2:p3", "--tab", "w1:t2", "--split", "right", "--target-pane", "w1:p5", "--no-focus"]);
+});
+
+test("a session moved whole stays moved when only the reorder fails", async (context) => {
+  const herdrSocket = await fakeHerdrSocket(context, () => ({ error: { code: "bad", message: "no" } }));
+  const fake = recordingRunner((args) => {
+    if (args[0] === "api") return { result: { snapshot: twoProjects } };
+    if (args[0] === "session") return sessionList(herdrSocket.socketPath);
+    if (args[2] === "w1:p1") return moveResult({ from: "w1:p1", to: "w2:p3", tabId: "w2:t3", created: true });
+    throw new Error(`unexpected ${args.join(" ")}`);
+  });
+  const client = new HerdrClient({ runner: fake.runner });
+  assert.deepEqual(await client.moveTabToWorkspace("w1:t1", "w2", 0), { tab_id: "w2:t3", panes: [{ from: "w1:p1", to: "w2:p3" }] });
+});
+
 test("an unnamed session keeps Herdr's numbering, and one dropped last needs no reordering", async () => {
   const fake = recordingRunner((args) => {
     if (args[0] === "api") return { result: { snapshot: twoProjects } };
