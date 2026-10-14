@@ -28,6 +28,12 @@ async function fakeHome(context) {
     claudeGlobal: join(home, ".claude.json"),
     claudeBackup: join(home, ".claude.json.backup"),
     codexAuth: join(home, ".codex", "auth.json"),
+    netrc: join(home, ".netrc"),
+    gitCredentials: join(home, ".git-credentials"),
+    awsCredentials: join(home, ".aws", "credentials"),
+    dockerConfig: join(home, ".docker", "config.json"),
+    kubeConfig: join(home, ".kube", "config"),
+    ghHosts: join(home, ".config", "gh", "hosts.yml"),
     claudeConfig: join(home, ".config", "claude-desktop", "config.json"),
     herdrBridge: join(home, ".config", "herdr-bridge", "auth.json"),
     // Moved by the environment, away from the default folder.
@@ -39,6 +45,7 @@ async function fakeHome(context) {
     notes: join(home, "notes", "plain.txt"),
     transcript: join(home, ".claude", "projects", "p", "session.jsonl"),
     codexConfig: join(home, ".codex", "config.toml"),
+    dockerOther: join(home, ".docker", "daemon.json"),
     otherConfig: join(home, ".config", "other", "ok.txt"),
   };
   for (const path of [...Object.values(paths), ...Object.values(allowed)]) await put(path, path.endsWith(".txt") ? "ordinary" : "secret");

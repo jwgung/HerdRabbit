@@ -70,7 +70,7 @@ function defaultFilesDirectory(environment) {
 // One spelling per address, so "0:0:0:0:0:0:0:0", "::0" and "::" are the same
 // address everywhere they are compared -- and the same text a Host header
 // carries for it.
-export function canonicalAddress(host) {
+function canonicalAddress(host) {
   const value = String(host ?? "").trim().toLowerCase();
   if (isIP(value) !== 6) return value;
   const canonical = new URL(`http://[${value}]/`).hostname.slice(1, -1);
@@ -111,7 +111,7 @@ function isEveryInterface(host) {
   return canonical === "0.0.0.0" || canonical === "::";
 }
 
-export function isTailnetAddress(host) {
+function isTailnetAddress(host) {
   return inRange(TAILNET, host);
 }
 

@@ -70,9 +70,10 @@ const FINGERPRINT_SCRIPT = `${PRELUDE}for d in "$@"; do
   if cd -P -- "$d" 2>/dev/null && [ -r . ]; then
     m=$(find . -maxdepth 0 -printf "%T@")
     n=$(find . -mindepth 1 -maxdepth 1 -printf x 2>/dev/null | wc -c | tr -d " ")
-    printf "F\\0%s\\0%s\\0" "$m" "$n"
+    r=$(pwd -P; echo x); r=\${r%??}
+    printf "F\\0%s\\0%s\\0%s\\0" "$m" "$n" "$r"
   else
-    printf "X\\0\\0\\0"
+    printf "X\\0\\0\\0\\0"
   fi
 done
 `;
@@ -311,7 +312,7 @@ export class MachineFiles {
     this.maxBytes = maxBytes;
     this.timeoutMs = timeoutMs;
     this.homes = new WeakMap();
-    this.guards = new WeakMap();
+    this.matchers = new WeakMap();
     this.commands = slots(MAX_COMMANDS, () => new FileAccessError(429, "browse_busy", "Too many folders are being read on that machine. Try again."));
     this.streams = slots(MAX_STREAMS, () => new FileAccessError(429, "too_many_downloads", "Too many files are moving to or from that machine. Try again."));
   }
@@ -416,18 +417,26 @@ export class MachineFiles {
 
   // What the file browser never opens on that machine: its SSH and GPG keys,
   // its AI CLIs' sign-ins and any HerdRabbit settings under its home -- the
-  // same list as here, at the default places (src/protected-paths.mjs). Real
-  // paths are asked for once per connection.
+  // same list as here, at the default places (src/protected-paths.mjs). The
+  // rules' real paths are asked for once per connection, so a key folder made
+  // or linked on the machine after that is seen on the next connection.
   async #protected(link) {
-    if (this.guards.has(link)) return this.guards.get(link);
+    if (this.matchers.has(link)) return this.matchers.get(link);
     const home = await this.#home(link);
     const guard = protectedPaths(credentialRules({ home }), async (paths) => {
-      const real = fields(await this.#command(link, RESOLVE_SCRIPT, paths)).map((part) => part.toString("utf8"));
-      return new Map(paths.map((path, index) => [path, real[index]?.startsWith("/") ? real[index] : path]));
+      const real = await this.#realPaths(link, paths);
+      return new Map(paths.map((path, index) => [path, real[index]]));
     });
     const matcher = await guard.matcher();
-    this.guards.set(link, matcher);
+    this.matchers.set(link, matcher);
     return matcher;
+  }
+
+  // Where each path really is on the machine (`readlink -m`), as written when
+  // it cannot say.
+  async #realPaths(link, paths) {
+    const real = fields(await this.#command(link, RESOLVE_SCRIPT, paths)).map((part) => part.toString("utf8"));
+    return paths.map((path, index) => (real[index]?.startsWith("/") ? real[index] : path));
   }
 
   async listDirectory(rawPath, { limit = MAX_LISTED_ENTRIES, prefix = "" } = {}) {
@@ -510,23 +519,30 @@ export class MachineFiles {
   async directoryFingerprints(rawPaths) {
     const link = this.#ready();
     const result = new Map();
-    let valid = [];
-    for (const raw of rawPaths) {
+    const checked = rawPaths.map((raw) => {
       try {
-        valid.push([raw, validateBrowsePath(raw)]);
+        return { raw, path: validateBrowsePath(raw) };
       } catch {
-        result.set(raw, null);
+        return { raw, path: null };
       }
-    }
-    if (valid.length === 0) return result;
+    });
+    for (const { raw, path } of checked) if (path === null) result.set(raw, null);
+    const candidates = checked.filter(({ path }) => path !== null);
+    if (candidates.length === 0) return result;
+    // Protected as written, or where it really leads (the script says where,
+    // like listDirectory's real path), so a link to a key folder is no way in.
     const isProtected = await this.#protected(link);
-    for (const [raw, path] of valid) if (isProtected(path)) result.set(raw, null);
-    valid = valid.filter(([raw]) => !result.has(raw));
+    const valid = candidates.filter(({ raw, path }) => {
+      if (!isProtected(path)) return true;
+      result.set(raw, null);
+      return false;
+    });
     if (valid.length === 0) return result;
-    const parts = fields(await this.#command(link, FINGERPRINT_SCRIPT, valid.map(([, path]) => path)));
-    valid.forEach(([raw], index) => {
-      const [tag, time, count] = parts.slice(index * 3, index * 3 + 3).map((part) => part?.toString("latin1"));
-      result.set(raw, tag === "F" && time && /^\d+$/u.test(count ?? "") ? fingerprintOf(time, Number(count)) : null);
+    const parts = fields(await this.#command(link, FINGERPRINT_SCRIPT, valid.map(({ path }) => path)));
+    valid.forEach(({ raw }, index) => {
+      const [tag, time, count] = parts.slice(index * 4, index * 4 + 4).map((part) => part?.toString("latin1"));
+      const reads = tag === "F" && time && /^\d+$/u.test(count ?? "");
+      result.set(raw, reads && !isProtected(parts[index * 4 + 3].toString("utf8")) ? fingerprintOf(time, Number(count)) : null);
     });
     return result;
   }

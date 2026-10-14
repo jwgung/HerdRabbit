@@ -10,7 +10,8 @@ import { dataPaths } from "./config.mjs";
 //
 //   - HerdRabbit's own settings: the password hash, push keys, connected PCs,
 //     announcements and saved AI sign-ins, wherever the environment put them;
-//   - ~/.ssh and ~/.gnupg;
+//   - ~/.ssh, ~/.gnupg, ~/.aws, ~/.kube and ~/.config/gh;
+//   - ~/.netrc, ~/.git-credentials and ~/.docker/config.json;
 //   - the AI CLIs' sign-ins, at the paths ai-account-adapters.mjs swaps them
 //     at, and ~/.config/claude*.
 //
@@ -46,8 +47,8 @@ export function credentialRules({ home, env = {}, data = defaultDataPaths(home) 
   const root = posix.resolve(home);
   const at = (...parts) => posix.join(root, ...parts);
   const environment = { ...env, HOME: root };
-  const trees = [at(".ssh"), at(".gnupg"), at(".config", "herdr-bridge"), posix.resolve(data.aiAccountsDir)];
-  const files = [];
+  const trees = [at(".ssh"), at(".gnupg"), at(".aws"), at(".kube"), at(".config", "gh"), at(".config", "herdr-bridge"), posix.resolve(data.aiAccountsDir)];
+  const files = [at(".netrc"), at(".git-credentials"), at(".docker", "config.json")];
   for (const file of [data.authFile, data.pushFile, data.serversFile, data.announcementsFile]) {
     const resolved = posix.resolve(file);
     files.push(resolved);
@@ -68,20 +69,20 @@ export function credentialRules({ home, env = {}, data = defaultDataPaths(home) 
   };
 }
 
-function every(rules) {
+function allRulePaths(rules) {
   return [...rules.trees, ...rules.files, ...rules.prefixes.map((rule) => rule.parent)];
 }
 
 // Each rule's path as written and as it resolves, so a settings folder that is
 // itself a link into dotfiles is matched by where it really is.
 async function resolvedRules(rules, resolve) {
-  const paths = every(rules);
+  const paths = allRulePaths(rules);
   const real = await resolve(paths);
-  const both = (path) => [...new Set([path, real.get(path) ?? path])];
+  const asWrittenAndResolved = (path) => [...new Set([path, real.get(path) ?? path])];
   return {
-    trees: rules.trees.flatMap(both),
-    files: rules.files.flatMap(both),
-    prefixes: rules.prefixes.flatMap((rule) => both(rule.parent).map((parent) => ({ parent, prefix: rule.prefix }))),
+    trees: rules.trees.flatMap(asWrittenAndResolved),
+    files: rules.files.flatMap(asWrittenAndResolved),
+    prefixes: rules.prefixes.flatMap((rule) => asWrittenAndResolved(rule.parent).map((parent) => ({ parent, prefix: rule.prefix }))),
   };
 }
 
@@ -101,9 +102,10 @@ function matcher(rules) {
 // for paths that do not exist yet as far as they do.
 export function protectedPaths(rules, resolve) {
   return {
-    rules,
-    // A predicate over real paths, built fresh: a key folder may have been
-    // made, or turned into a link, since the last look.
+    // A predicate over real paths. It resolves the rules when asked, so a key
+    // folder made or turned into a link since is seen -- by whoever asks again
+    // (the local guard asks on every request; an SSH machine, once per
+    // connection).
     async matcher() {
       return matcher(await resolvedRules(rules, resolve));
     },
@@ -121,7 +123,7 @@ async function realOrNearest(path) {
   }
 }
 
-export async function resolveLocal(paths) {
+async function resolveLocal(paths) {
   const real = new Map();
   await Promise.all(paths.map(async (path) => real.set(path, await realOrNearest(path))));
   return real;

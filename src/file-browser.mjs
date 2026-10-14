@@ -119,13 +119,20 @@ async function describeEntry(directory, name, isProtected) {
   }
 }
 
+// Throws when the real path `real` is protected; otherwise answers the guard's
+// predicate, for callers that go on to ask about more paths.
+async function assertNotProtected(guard, real) {
+  const isProtected = await guard.matcher();
+  if (isProtected(real)) throw protectedPathError();
+  return isProtected;
+}
+
 export async function listDirectory(rawPath, { limit = MAX_LISTED_ENTRIES, prefix = "", guard = defaultProtectedPaths() } = {}) {
   const requested = validateBrowsePath(rawPath);
   // Resolving symlinks keeps breadcrumbs and "go up" consistent, and lets the
   // kernel reject link loops for us.
   const directory = await realpath(requested);
-  const isProtected = await guard.matcher();
-  if (isProtected(directory)) throw protectedPathError();
+  const isProtected = await assertNotProtected(guard, directory);
   const all = await readdir(directory);
 
   // Completion filters here rather than in the browser: a folder like /tmp can
@@ -162,7 +169,7 @@ export async function listDirectory(rawPath, { limit = MAX_LISTED_ENTRIES, prefi
 export async function directoryFingerprint(rawPath, { guard = defaultProtectedPaths() } = {}) {
   const requested = validateBrowsePath(rawPath);
   const directory = await realpath(requested);
-  if ((await guard.matcher())(directory)) throw protectedPathError();
+  await assertNotProtected(guard, directory);
   const dirStat = await stat(directory);
   const all = await readdir(directory);
   return `${dirStat.mtimeMs.toString(36)}:${all.length.toString(36)}`;
@@ -177,7 +184,7 @@ export async function refuseProtected(path, guard = defaultProtectedPaths()) {
   } catch {
     return;
   }
-  if ((await guard.matcher())(real)) throw protectedPathError();
+  await assertNotProtected(guard, real);
 }
 
 // Opening a FIFO the ordinary way blocks until a writer appears, and the open
@@ -190,7 +197,7 @@ export async function refuseProtected(path, guard = defaultProtectedPaths()) {
 export async function openFile(rawPath, { maxBytes = Infinity, rangeHeader = null, guard = defaultProtectedPaths() } = {}) {
   const path = validateBrowsePath(rawPath);
   const real = await realpath(path);
-  if ((await guard.matcher())(real)) throw protectedPathError();
+  await assertNotProtected(guard, real);
   const handle = await open(real, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
   let stats;
   try {

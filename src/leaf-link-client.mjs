@@ -1,4 +1,4 @@
-import { Readable, Transform } from "node:stream";
+import { Readable, Transform, pipeline } from "node:stream";
 import { HerdrCommandError } from "./herdr-client.mjs";
 import { FileAccessError, UNKNOWN_SIZE_STREAM_BYTES } from "./file-browser.mjs";
 import { LINK_PROTOCOL, ResponseTooLarge, checkLeafCompatibility, normalizeLeafSnapshot, readLimitedText } from "./leaf-protocol.mjs";
@@ -67,6 +67,21 @@ function accountDetails(details) {
   };
 }
 
+// Passes bytes through, failing once more than `limit` has gone by.
+function capped(limit) {
+  let seen = 0;
+  return new Transform({
+    transform(chunk, encoding, callback) {
+      seen += chunk.length;
+      if (seen > limit) {
+        callback(new FileAccessError(502, "leaf_error", "The connected PC sent more of that file than it should have."));
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+}
+
 // `Content-Range: bytes <start>-<end>/<size>` is where a partial answer keeps
 // both numbers the caller needs: how much came back, and how big the file is.
 //
@@ -91,22 +106,8 @@ function leafFile(response, path, maxBytes = Infinity) {
     size: served ? Number(served[3]) : declared,
     range,
     length: declared,
-    stream: Readable.fromWeb(response.body).pipe(capped(limit)),
+    stream: pipeline(Readable.fromWeb(response.body), capped(limit), () => {}),
   };
-}
-
-function capped(limit) {
-  let seen = 0;
-  return new Transform({
-    transform(chunk, encoding, callback) {
-      seen += chunk.length;
-      if (seen > limit) {
-        callback(new FileAccessError(502, "leaf_error", "The connected PC sent more of that file than it should have."));
-        return;
-      }
-      callback(null, chunk);
-    },
-  });
 }
 
 // The hub's half of a link: this PC asking another PC's Connect PC port. It is constructed synchronously because

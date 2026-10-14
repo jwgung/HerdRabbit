@@ -4763,6 +4763,14 @@ function browseActionButton({ label, paths, danger = false, run }) {
   return button;
 }
 
+// A folder the tree can open into: not a broken link, and not one of the
+// sign-in folders the server lists by name only.
+function isOpenableFolder(entry) {
+  return entry.kind === "directory" && !entry.broken && entry.locked !== true;
+}
+
+// The server marks a locked entry readable: false too, so the file actions
+// need no separate locked test.
 function browseRow({ entry, depth, expanded }) {
   // Sign-in keys and HerdRabbit's own settings are listed by name only: the
   // server never opens them, so neither does the tree.
@@ -4784,7 +4792,7 @@ function browseRow({ entry, depth, expanded }) {
   for (let level = 0; level < depth; level += 1) {
     lead.append(createElement("span", { className: "browse-indent" }));
   }
-  if (entry.kind === "directory" && !entry.broken && !entry.removed && !locked) {
+  if (isOpenableFolder(entry) && !entry.removed) {
     const twisty = createElement("button", { className: "browse-twisty" });
     twisty.type = "button";
     twisty.dataset.name = entry.name;
@@ -4829,14 +4837,14 @@ function browseRow({ entry, depth, expanded }) {
   if (!entry.removed) {
     // Expanding shows a folder in place; this re-roots the tree there, so a deep
     // path stops costing a column of indentation.
-    if (entry.kind === "directory" && !entry.broken && !locked) {
+    if (isOpenableFolder(entry)) {
       actions.append(browseActionButton({
         label: `Open ${entry.name} as the root`,
         paths: ["M4 12h13", "M13 7l5 5-5 5", "M20 5v14"],
         run: () => void loadBrowseFolder(entry.path),
       }));
     }
-    if (entry.kind === "file" && entry.readable !== false && !locked) {
+    if (entry.kind === "file" && entry.readable !== false) {
       // Reading a log or checking a screenshot is most of what a file in this
       // tree is opened for, and downloading it to a phone to do that is a detour.
       if (canView(entry.name, entry.size)) {
@@ -4862,7 +4870,7 @@ function browseRow({ entry, depth, expanded }) {
         other.dataset.selected = "false";
       }
       row.dataset.selected = "true";
-      if (entry.kind === "directory" && !entry.broken && !locked) void toggleBrowseFolder(entry.path);
+      if (isOpenableFolder(entry)) void toggleBrowseFolder(entry.path);
     });
   }
 
@@ -5328,7 +5336,7 @@ async function revealInFiles(filePath, name, server) {
     setBrowseFeedback(`${name} is not in this folder.`);
     return;
   }
-  if (entry.kind === "directory" && !entry.broken && !entry.locked) {
+  if (isOpenableFolder(entry)) {
     browseState.selected = null;
     await open(entry.path, false);
     return;

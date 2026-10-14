@@ -435,3 +435,19 @@ test("a file sent past this PC's transfer limit, or past what it declared, fails
   const honest = peerClient(async () => new Response("hello", { status: 200, headers: { "content-length": "5" } }), { maxTransferBytes: 1024 });
   assert.equal(await readAll((await honest.openFile("/srv/hello")).stream), 5);
 });
+
+test("a file whose connection breaks part-way fails on the hub's side with that error", async () => {
+  let sent = false;
+  const broken = new ReadableStream({
+    pull(controller) {
+      if (sent) { controller.error(new Error("connection reset")); return; }
+      sent = true;
+      controller.enqueue(new TextEncoder().encode("partial"));
+    },
+  });
+  const client = peerClient(async () => new Response(broken, { status: 200, headers: { "content-length": "100" } }));
+  const opened = await client.openFile("/srv/dropped");
+  await assert.rejects(async () => {
+    for await (const chunk of opened.stream) void chunk;
+  }, /connection reset/u);
+});

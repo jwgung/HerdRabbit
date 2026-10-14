@@ -519,7 +519,7 @@ function browsePath(value) {
   }
 }
 
-async function browseDirectory(value, options, source, guard) {
+async function browseDirectory(value, options, source, guard = defaultProtectedPaths()) {
   try {
     if (source) return await source.listDirectory(value, options);
     return await listDirectory(browsePath(value), { ...options, guard });

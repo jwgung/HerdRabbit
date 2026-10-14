@@ -97,6 +97,8 @@ Files 탭과 업로드 대화상자도 이 머신들에서 동작합니다. File
 
 ### HerdRabbit이 도는 다른 PC (Connect PC)
 
+두 PC 모두 같은 tailnet에서 Tailscale이 켜져 있어야 합니다(꺼져 있으면 tailnet 주소가 없어 `HERDR_WEB_PEER_HOST`를 쓸 수 없고 `tailscale whois` 확인도 안 됩니다).
+
 모든 PC는 같은 HerdRabbit을 돌립니다. [빠른 시작](#빠른-시작)으로 설치하면 PC마다 자기 화면과 로그인이 `127.0.0.1` + Tailscale Serve 뒤에 생깁니다. 여기에 더해 PC는 다른 PC를 위한 **Connect PC 포트**를 열 수 있습니다. 그러면 다른 PC의 HerdRabbit이 이 PC의 세션을 자기 화면에 함께 보여 줍니다. 방향은 한쪽입니다. A가 B를 붙이면 B는 A 화면에만 보이고, B는 그와 상관없이 자기 화면과 로그인을 그대로 가집니다.
 
 **붙을 PC(B)에서:** Connect PC 포트를 열고 붙을 수 있는 PC를 정합니다. B에서 `npm run install-service`를 다시 실행해 "다른 PC가 이 PC에 붙을 수 있게 열까요?"에 답하고 tailnet 목록에서 허용할 PC를 고르거나, 직접 설정합니다.
@@ -104,7 +106,7 @@ Files 탭과 업로드 대화상자도 이 머신들에서 동작합니다. File
 | 변수 | 의미 |
 | --- | --- |
 | `HERDR_WEB_PEER_HOST` | 이 PC의 tailnet 주소(예: `100.64.0.2`). 설정하면 Connect PC 포트가 열리고, 기본값(설정 안 함)이면 닫혀 있습니다. Tailscale 대역(`100.64.0.0/10`, `fd7a:115c:a1e0::/48`)이나 loopback 주소만 받습니다. 모든 인터페이스(`0.0.0.0`, 어떤 표기의 `::`든)나 LAN 주소는 받지 않고, 그런 값이면 서비스가 시작하지 않습니다. |
-| `HERDR_WEB_PEER_PORT` | 그 포트. 기본 `38788`. tailnet 주소의 화면 포트는 Tailscale Serve가 쓰므로 같은 포트를 쓸 수 없습니다. |
+| `HERDR_WEB_PEER_PORT` | 그 포트. 1024–65535 정수, 기본 `38788`. tailnet 주소의 화면 포트는 Tailscale Serve가 쓰므로 같은 포트를 쓸 수 없습니다. |
 | `HERDR_WEB_PEER_ADDRESSES` | 붙을 수 있는 PC의 tailnet 주소, 쉼표로 구분. |
 | `HERDR_WEB_PEER_LOGINS` | 붙을 수 있는 tailnet 계정, 쉼표로 구분. 요청한 주소의 계정을 `tailscale whois`로 확인합니다. 두 목록을 함께 쓰면 둘 다 맞아야 합니다. |
 | `HERDR_WEB_HUB` | 선택. 이 PC를 붙일 PC의 화면 주소(예: `https://laptop.tailnet.ts.net:38787`). 그 PC에 이 PC의 Connect PC 포트가 어디인지 알립니다. 기본 포트가 아닐 때만 필요합니다. |
@@ -410,7 +412,7 @@ Chat 화면에서는 같은 단축키와 돋보기가 **채팅 안 찾기**를 �
 
 탭 맨 아래 경로 입력칸으로 어디든 바로 갈 수 있습니다. 입력하면 이름이 맞는 폴더가 후보로 나오고, 방향키로 옮겨 `Enter`로 엽니다. 탭을 다시 열면 마지막으로 보던 폴더에서 시작하며, 처음 열 때는 업로드 폴더에서 시작합니다.
 
-로그인 키와 HerdRabbit 자체 설정은 열지 않습니다. `~/.ssh`, `~/.gnupg`, AI CLI 로그인 파일(`~/.claude/.credentials.json`, `~/.claude.json`, `~/.codex/auth.json`, `~/.config/claude*`), HerdRabbit 설정 폴더는 트리에 이름만 **locked**로 보이고 펼치거나 미리 보거나 내려받을 수 없습니다. 심볼릭 링크를 거쳐도, Connect PC로 붙은 PC에서도, Herdr SSH 머신에서도 같습니다.
+로그인 키와 HerdRabbit 자체 설정은 열지 않습니다. `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.config/gh`, `~/.netrc`, `~/.git-credentials`, `~/.docker/config.json`, AI CLI 로그인 파일(`~/.claude/.credentials.json`, `~/.claude.json`, `~/.codex/auth.json`, `~/.config/claude*`), HerdRabbit 설정 폴더는 트리에 이름만 **locked**로 보이고 펼치거나 미리 보거나 내려받을 수 없습니다. 심볼릭 링크를 거쳐도, Connect PC로 붙은 PC에서도, Herdr SSH 머신에서도 같습니다.
 
 탐색은 읽기 전용입니다. 트리에서는 아무것도 바꿀 수 없고, 업로드와 삭제는 Uploads 대화상자에서 합니다. 터미널에서 업로드 폴더로 복사한 파일도 그 대화상자에 나타납니다. 업로드 폴더 위치는 `HERDR_WEB_FILES_DIR`을 지정하지 않으면 `~/.local/share/herdrabbit/files`이며, 자격증명이 저장되는 설정 디렉터리와 의도적으로 분리했습니다. 업로드와 다운로드는 기본적으로 크기 제한이 없고, `HERDR_WEB_MAX_TRANSFER_MB`로 둘 모두에 적용되는 제한(MB)을 하나 둘 수 있습니다. 폴더 자체에는 용량이나 개수 제한이 없어 디스크가 찰 때까지 쌓이고 자동으로 지워지지 않습니다.
 
@@ -463,7 +465,7 @@ iOS에서 PWA를 독립 실행 모드로 쓰면 내려받은 파일이 저장되
 | `HERDR_WEB_HOST` | `127.0.0.1` | 바인딩할 주소. `127.0.0.1`, `0.0.0.0`, 또는 Tailscale 주소처럼 특정 인터페이스 하나. 주소 하나로 묶는 것이 가장 좁습니다 — 그 머신이 물려 있는 다른 모든 네트워크에서 서비스가 아예 보이지 않고, 그 주소는 요청 host로도 자동 허용됩니다. 이름은 listen 시점에 해석되므로 거부합니다. |
 | `HERDR_WEB_PORT` | `38787` | 1024–65535 범위의 수신 포트 |
 | `HERDR_WEB_ALLOWED_HOSTS` | 비어 있음 | 역방향 프록시와 Tailscale용 추가 Host 이름. 쉼표로 구분 |
-| `HERDR_WEB_PEER_HOST`, `HERDR_WEB_PEER_PORT`, `HERDR_WEB_PEER_ADDRESSES`, `HERDR_WEB_PEER_LOGINS`, `HERDR_WEB_HUB` | 설정 안 함, 포트 `38788` | Connect PC 포트와 붙을 수 있는 PC. [HerdRabbit이 도는 다른 PC](#herdrabbit이-도는-다른-pc-connect-pc) 참고. `HERDR_WEB_PEER_HOST`를 설정해야 열리고, 허용 목록이 둘 다 비어 있으면 아무도 받지 않습니다. |
+| `HERDR_WEB_PEER_HOST`, `HERDR_WEB_PEER_PORT`, `HERDR_WEB_PEER_ADDRESSES`, `HERDR_WEB_PEER_LOGINS`, `HERDR_WEB_HUB` | 설정 안 함, 포트는 1024–65535 정수, 기본 `38788` | Connect PC 포트와 붙을 수 있는 PC. [HerdRabbit이 도는 다른 PC](#herdrabbit이-도는-다른-pc-connect-pc) 참고. `HERDR_WEB_PEER_HOST`를 설정해야 열리고, 허용 목록이 둘 다 비어 있으면 아무도 받지 않습니다. |
 | `HERDR_WEB_SERVERS_FILE` | `~/.config/herdr-bridge/servers.json` | Connect PC로 붙인 PC 목록 |
 | `HERDR_WEB_MAX_TRANSFER_MB` | 설정 안 함(제한 없음) | 업로드·다운로드 1건의 최대 크기(MB, 양의 정수). 설정하지 않으면 제한 없음. 여럿이 쓰거나 디스크가 넉넉하지 않은 호스트에서는 제한을 두는 것을 권장합니다 |
 | `HERDR_WEB_AUTH_FILE` | `~/.config/herdr-bridge/auth.json` | 비밀번호 해시와 세션 서명 키를 저장한 인증 파일 |
@@ -723,7 +725,7 @@ tailscale serve status
 - 엄격한 Content Security Policy, 프레임 차단 및 MIME 스니핑 차단 헤더를 사용합니다.
 - 서비스 워커는 정적 앱 셸만 캐시하고 `/api/` 응답과 터미널 출력은 저장하지 않습니다.
 - 쓰기는 이 머신의 업로드 폴더에만 닿습니다. 비밀번호 해시와 VAPID 키가 있는 설정 디렉터리 바깥에 둡니다. 업로드와 삭제는 그 폴더 밖의 경로를 지정할 수 없습니다. URL로 들어온 이름은 교정하지 않고 거부하며, 대상은 경로를 조합하지 않고 디렉터리 목록에서 가져옵니다.
-- 탐색은 읽기 전용이며 이 머신에서 서비스 계정이 읽을 수 있는 경로에 닿지만, **로그인 키와 HerdRabbit 자체 설정은 목록 안으로 들어가지도, 열지도, 미리 보거나 내려받지도 않습니다**: `~/.ssh`, `~/.gnupg`, AI CLI 로그인 파일(`~/.claude/.credentials.json`, `~/.claude.json`과 그 백업, `~/.codex/auth.json`, `~/.config/claude*`, `CLAUDE_CONFIG_DIR`/`CODEX_HOME`이 가리키는 곳), HerdRabbit 데이터(`~/.config/herdr-bridge/`, 그리고 환경 변수로 옮긴 비밀번호·푸시·서버 목록·저장된 로그인 경로). 경로는 심볼릭 링크를 풀어서 비교하므로 키를 가리키는 링크도 키와 똑같이 거부됩니다. 목록에서는 이름과 종류만 locked로 보입니다. 같은 목록이 Connect PC로 붙은 PC의 파일(그 PC 기준)과 Herdr SSH 머신의 파일(그 머신의 홈 기준)에도 적용되고, 업로드 폴더가 그 안에 있으면 서비스가 시작하지 않습니다. 이 목록 밖은 OS 파일 권한이 경계이며 `/proc/self/environ` 같은 것은 여전히 읽힙니다. 인증된 클라이언트는 이미 터미널 패인으로 그 계정의 임의 명령을 실행할 수 있으므로 권한 상승은 아닙니다 — 이 목록은 로그인 정보가 파일 브라우저로 머신 밖에 나가는 길을 막는 것이지 터미널을 막는 것은 아닙니다. HerdRabbit을 root나 공용 계정으로 실행하지 말아야 할 이유가 하나 더 늘어납니다.
+- 탐색은 읽기 전용이며 이 머신에서 서비스 계정이 읽을 수 있는 경로에 닿지만, **로그인 키와 HerdRabbit 자체 설정은 목록 안으로 들어가지도, 열지도, 미리 보거나 내려받지도 않습니다**: `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.config/gh`, `~/.netrc`, `~/.git-credentials`, `~/.docker/config.json`, AI CLI 로그인 파일(`~/.claude/.credentials.json`, `~/.claude.json`과 그 백업, `~/.codex/auth.json`, `~/.config/claude*`, `CLAUDE_CONFIG_DIR`/`CODEX_HOME`이 가리키는 곳), HerdRabbit 데이터(`~/.config/herdr-bridge/`, 그리고 환경 변수로 옮긴 비밀번호·푸시·서버 목록·저장된 로그인 경로). 경로는 심볼릭 링크를 풀어서 비교하므로 키를 가리키는 링크도 키와 똑같이 거부됩니다. 목록에서는 이름과 종류만 locked로 보입니다. 같은 목록이 Connect PC로 붙은 PC의 파일(그 PC 기준)과 Herdr SSH 머신의 파일(그 머신의 홈 기준)에도 적용되고, 업로드 폴더가 그 안에 있으면 서비스가 시작하지 않습니다. 이 목록 밖은 OS 파일 권한이 경계이며 `/proc/self/environ` 같은 것은 여전히 읽힙니다. 인증된 클라이언트는 이미 터미널 패인으로 그 계정의 임의 명령을 실행할 수 있으므로 권한 상승은 아닙니다 — 이 목록은 로그인 정보가 파일 브라우저로 머신 밖에 나가는 길을 막는 것이지 터미널을 막는 것은 아닙니다. HerdRabbit을 root나 공용 계정으로 실행하지 말아야 할 이유가 하나 더 늘어납니다.
 - 어떤 머신도 다른 머신의 자격증명을 쥐지 않습니다. 각자 자기 HerdRabbit과 자기 Herdr를 돌리므로, 하나가 뚫려도 나머지가 함께 넘어가지 않습니다.
 - **Connect PC 포트**는 화면과 따로 듣는 별도 리스너입니다. `/api/link/`만 응답하고 화면·로그인·브라우저 API는 내주지 않으며, 화면 쪽에는 `/api/link/` 경로가 아예 없습니다. 그래서 붙은 PC가 화면 세션을 쓸 수 없고, 브라우저 세션으로 Connect PC API에 들어올 수도 없습니다. PC는 소켓의 주소로(그리고 `HERDR_WEB_PEER_LOGINS`가 있으면 그 주소를 `tailscale whois`로 확인한 계정으로) 들어오며, 쿠키·비밀번호·헤더로는 들어올 수 없습니다. 허용 목록이 비어 있으면 아무도 들어오지 못합니다.
 - Connect PC 포트는 자기 주소로 온 요청에만 답합니다. `Host`가 듣고 있는 주소와 포트(IPv6는 `[주소]:포트`)나 이 PC의 tailnet DNS 이름과 정확히 같지 않으면 `421`, 브라우저가 붙이는 헤더(`Origin`, `Sec-Fetch-Site`, `Sec-Fetch-Dest`)가 있으면 `403`입니다. 그래서 다른 이름의 웹 페이지가 이 주소로 풀리게 해도(DNS rebinding), 허용한 PC의 브라우저에서 그 페이지가 이 포트를 쓸 수 없습니다. 연결은 최대 64개, 상태 스트림은 최대 16개이고, 요청은 헤더를 5초 안에, 전체를 3분 안에 보내야 합니다.

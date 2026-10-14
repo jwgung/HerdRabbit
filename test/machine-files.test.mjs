@@ -482,5 +482,15 @@ test("a machine's keys and sign-ins are listed locked and never opened, through 
   await assert.rejects(() => files.openFile(join(home, "notes", "innocent.txt")), refused);
   await assert.rejects(() => files.openFile(join(home, "notes", "keys", "id_ed25519")), refused);
   assert.equal((await files.directoryFingerprints([join(home, ".ssh")])).get(join(home, ".ssh")), null);
+  // A link to a protected folder is no way round for the fingerprint either.
+  const linked = (await files.directoryFingerprints([join(home, "notes", "keys"), join(home, "notes")]));
+  assert.equal(linked.get(join(home, "notes", "keys")), null);
+  assert.notEqual(linked.get(join(home, "notes")), null);
+  // Other tools' credentials are protected the same way.
+  await mkdir(join(home, ".aws"), { recursive: true });
+  await writeFile(join(home, ".aws", "credentials"), "secret");
+  await writeFile(join(home, ".netrc"), "secret");
+  await assert.rejects(() => files.openFile(join(home, ".netrc")), refused);
+  await assert.rejects(() => files.listDirectory(join(home, ".aws")), refused);
   assert.equal(await text((await files.openFile(join(home, "notes", "plain.txt"))).stream), "ordinary");
 });
