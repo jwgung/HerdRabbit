@@ -18,6 +18,11 @@ export function isFileName(name) {
   return /^[^.].*\.(?=[A-Za-z0-9]{1,10}$)[0-9]*[A-Za-z][A-Za-z0-9]*$/u.test(name);
 }
 
+// A path without the slashes that close it: they say "folder", not which one.
+export function trimTrailingSlashes(path) {
+  return path.replace(/\/+$/u, "");
+}
+
 // A folder path an agent spells out in full: absolute (`/home/me/proj`) or
 // explicitly relative (`./build`, `../shared/`). Such a path says it is a path
 // whatever its last name looks like, so it needs no extension. A bare
@@ -31,7 +36,7 @@ export function isFolderPath(raw) {
   const relative = raw.startsWith("./") || raw.startsWith("../");
   if (!relative && !raw.startsWith("/")) return false;
   if (/[\x00-\x1f\x7f]/u.test(raw)) return false;
-  const segments = raw.replace(/\/+$/u, "").split("/").slice(1);
+  const segments = trimTrailingSlashes(raw).split("/").slice(1);
   const last = segments.at(-1);
   if (!last || last === "." || last === "..") return false;
   // `/word` is one segment; `./word` and `../word` are explicit enough alone.
@@ -43,7 +48,7 @@ export function isFolderPath(raw) {
 // written out in full. The default `isLinkable`, for callers that only want
 // to know where the paths are.
 export function namesPath(raw) {
-  return isFileName(raw.replace(/\/+$/u, "").split("/").pop()) || isFolderPath(raw);
+  return isFileName(trimTrailingSlashes(raw).split("/").pop()) || isFolderPath(raw);
 }
 
 // Any run that holds a slash: `/abs/x.log`, `./rel/x.md`, `~/x.md`, the bare
@@ -80,7 +85,7 @@ export function linkableLabel(value, isLinkable) {
   const head = withoutParticle(label);
   if (head !== null && isLinkable(head)) return head;
   if (isLinkable(label)) return label;
-  const bare = label.replace(/\/+$/u, "");
+  const bare = trimTrailingSlashes(label);
   return bare !== label && bare && isLinkable(bare) ? bare : null;
 }
 
@@ -112,24 +117,36 @@ function sameLineQuote(text, open) {
   return value.includes("\n") ? null : { end, value };
 }
 
+// The offset of the first quote at or after `from` that opens one, or -1.
+function findOpenQuote(text, from) {
+  for (let index = from; index < text.length; index += 1) {
+    if (QUOTES.includes(text[index]) && (index === 0 || OPENS_AFTER.test(text[index - 1]))) return index;
+  }
+  return -1;
+}
+
+// The link a quote opened at `open` makes, or null when it holds no spaced,
+// linkable path or is not closed where a quote closes.
+function quotedLink(text, open, isLinkable, closeQuote) {
+  const quoted = closeQuote(text, open);
+  if (quoted === null || !/\s/u.test(quoted.value)) return null;
+  const after = text[quoted.end + 1];
+  if (after !== undefined && !CLOSES_BEFORE.test(after)) return null;
+  if (!isQuotablePath(quoted.value) || !isLinkable(quoted.value)) return null;
+  return { start: open + 1, end: quoted.end, path: quoted.value };
+}
+
 function quotedPaths(text, isLinkable, closeQuote) {
   const links = [];
   let from = 0;
-  for (;;) {
-    let open = -1;
-    for (let index = from; index < text.length; index += 1) {
-      if (QUOTES.includes(text[index]) && (index === 0 || OPENS_AFTER.test(text[index - 1]))) { open = index; break; }
-    }
-    if (open === -1) return links;
+  for (let open = findOpenQuote(text, from); open !== -1; open = findOpenQuote(text, from)) {
     from = open + 1;
-    const quoted = closeQuote(text, open);
-    if (quoted === null || !/\s/u.test(quoted.value)) continue;
-    const after = text[quoted.end + 1];
-    if (after !== undefined && !CLOSES_BEFORE.test(after)) continue;
-    if (!isQuotablePath(quoted.value) || !isLinkable(quoted.value)) continue;
-    links.push({ start: open + 1, end: quoted.end, path: quoted.value });
-    from = quoted.end + 1;
+    const link = quotedLink(text, open, isLinkable, closeQuote);
+    if (link === null) continue;
+    links.push(link);
+    from = link.end + 1;
   }
+  return links;
 }
 
 const overlaps = (link, links) => links.some((found) => link.start < found.end && found.start < link.end);

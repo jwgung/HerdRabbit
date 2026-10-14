@@ -1,4 +1,4 @@
-import { InputValidationError } from "./herdr-client.mjs";
+import { InputValidationError, mapMovedIds } from "./herdr-client.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported } from "./herdr-version.mjs";
 
 const isMachine = (profile) => profile?.transport === "machine";
@@ -237,12 +237,7 @@ export class MultiServerClient {
       if (entry.pending) await entry.pending;
       await this.refresh(entry);
     }
-    const scope = (id) => entry.profile.id === "local" ? id : `${entry.profile.id}!${id}`;
-    return {
-      ...result,
-      tab_id: scope(result.tab_id),
-      panes: result.panes.map(({ from, to }) => ({ from: scope(from), to: scope(to) })),
-    };
+    return mapMovedIds(result, (id) => entry.profile.id === "local" ? id : `${entry.profile.id}!${id}`);
   }
   async createWorkspace(label, sessionId) {
     if (!sessionId) return this.local.createWorkspace(label);

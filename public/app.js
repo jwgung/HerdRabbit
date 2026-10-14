@@ -1,6 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.42";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.42";
-import { isFileName, isFolderPath } from "./path-links.js?v=1.2.42";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.43";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.43";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.43";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -50,7 +50,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.42";
+} from "./ui-model.js?v=1.2.43";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -61,40 +61,40 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.42";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.42";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.42";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.42";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.42";
+} from "./browse-preference.js?v=1.2.43";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.43";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.43";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.43";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.43";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.42";
-import { chatAgent } from "./lens-preference.js?v=1.2.42";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.42";
+} from "./chat-font-preference.js?v=1.2.43";
+import { chatAgent } from "./lens-preference.js?v=1.2.43";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.43";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.42";
+} from "./pane-preference.js?v=1.2.43";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.42";
+} from "./workspace-preference.js?v=1.2.43";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.42";
+} from "./terminal-preference.js?v=1.2.43";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.42";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.42";
+} from "./completion-preference.js?v=1.2.43";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.43";
 import {
   attachSidebarDrag,
   dropScope,
@@ -103,14 +103,14 @@ import {
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.2.42";
-import { renamePaneKeys } from "./pane-rename.js?v=1.2.42";
-import { renamePaneLenses } from "./lens-preference.js?v=1.2.42";
+} from "./sidebar-drag.js?v=1.2.43";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.43";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.43";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.42";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.42";
+} from "./input-history-preference.js?v=1.2.43";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.43";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -126,16 +126,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.42";
+} from "./key-bar-preference.js?v=1.2.43";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.42";
+} from "./launch-session.js?v=1.2.43";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.42";
+} from "./push-notifications.js?v=1.2.43";
 
 function browserStorage() {
   try {
@@ -753,6 +753,9 @@ const SUN_ICON = [
 ];
 const MOON_ICON = ["M20.2 15.1A8.5 8.5 0 0 1 8.9 3.8 8.5 8.5 0 1 0 20.2 15.1Z"];
 const BELL_ICON = ["M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8h18c0-1-3-1-3-8Z", "M10 20h4"];
+const KEYBOARD_ICON = ["M2.5 6h19v12h-19z", "M6 9.5h.01M9 9.5h.01M12 9.5h.01M15 9.5h.01M18 9.5h.01M6 12.5h.01M18 12.5h.01M8.5 15h7"];
+const PASSKEY_ICON = ["M8 15a4 4 0 1 1 3.9-5H21v3h-2v2h-3v-2h-4.1A4 4 0 0 1 8 15Z", "M8 11h.01"];
+const DEVICES_ICON = ["M4 5h16v10H4z", "M8 19h8", "M12 15v4"];
 const GEAR_ICON = [
   "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
   "M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z",
@@ -775,6 +778,7 @@ function buildSettingsMenu() {
     className: "settings-menu",
     summaryClass: "settings-button",
     icon: GEAR_ICON,
+    // Any class but the default `more-icon`, whose thick stroke is for dots.
     iconClass: "settings-icon",
     // The menu opens upward from the footer; the top layer keeps it from being
     // cut off by the sidebar.
@@ -785,7 +789,7 @@ function buildSettingsMenu() {
       {
         key: "keys",
         label: "Edit keys",
-        paths: ["M2.5 6h19v12h-19z", "M6 9.5h.01M9 9.5h.01M12 9.5h.01M15 9.5h.01M18 9.5h.01M6 12.5h.01M18 12.5h.01M8.5 15h7"],
+        paths: KEYBOARD_ICON,
         onSelect: () => {
           // on a phone the editor takes the screen; the sidebar it was opened from steps aside
           if (!desktopMedia.matches) closeMobileSidebar();
@@ -796,13 +800,13 @@ function buildSettingsMenu() {
       {
         key: "passkeys",
         label: "Passkeys",
-        paths: ["M8 15a4 4 0 1 1 3.9-5H21v3h-2v2h-3v-2h-4.1A4 4 0 0 1 8 15Z", "M8 11h.01"],
+        paths: PASSKEY_ICON,
         onSelect: () => void showPasskeys(),
       },
       {
         key: "sessions",
         label: "Signed-in devices",
-        paths: ["M4 5h16v10H4z", "M8 19h8", "M12 15v4"],
+        paths: DEVICES_ICON,
         onSelect: () => void showSessions(),
       },
     ],
@@ -2764,26 +2768,44 @@ function renderNavigation() {
   }
 }
 
-// What the page keeps under a pane's id goes with the pane to its new id: the
-// unsent draft (and its secret verdict), the blocked/held marks, the message
-// history, the chosen lens and the acknowledged completion.
+// Every place the page keeps state under a pane's id, each with how it follows
+// the pane to a new id: the unsent draft (and its secret verdict), the
+// blocked/held marks, the message history, the chosen lens and the acknowledged
+// completion. A new pane-keyed store joins by being listed here. The functions
+// are called late, so a store defined further down the file is fine.
+const paneScopedStores = [
+  { rename: (moves) => composerDrafts.rename(moves) },
+  {
+    rename(moves) {
+      for (const set of [draftBlocked, draftHeld]) {
+        const kept = [...set];
+        set.clear();
+        for (const id of kept) set.add(followMovedPane(id, moves));
+      }
+      // The pane on screen keeps its composer: the text stays, only the key changes.
+      if (draftPaneId) draftPaneId = followMovedPane(draftPaneId, moves);
+    },
+  },
+  {
+    rename(moves) {
+      state.inputHistoryByPane = renamePaneKeys(state.inputHistoryByPane, moves);
+      writeInputHistories(panePreferenceStorage, state.inputHistoryByPane);
+    },
+  },
+  {
+    rename(moves) {
+      state.acknowledgedCompletions = renamePaneKeys(state.acknowledgedCompletions, moves);
+      writeAcknowledgedCompletions(panePreferenceStorage, state.acknowledgedCompletions);
+    },
+  },
+  { rename: (moves) => renamePaneLenses(panePreferenceStorage, moves) },
+  { rename: (moves) => chatLens.renamePanes(moves) },
+];
+
 function followMovedPaneState(moves) {
   if (!Array.isArray(moves) || moves.length === 0) return;
   saveComposerDraft();
-  composerDrafts.rename(moves);
-  for (const set of [draftBlocked, draftHeld]) {
-    const kept = [...set];
-    set.clear();
-    for (const id of kept) set.add(followMovedPane(id, moves));
-  }
-  // The pane on screen keeps its composer: the text stays, only the key changes.
-  if (draftPaneId) draftPaneId = followMovedPane(draftPaneId, moves);
-  state.inputHistoryByPane = renamePaneKeys(state.inputHistoryByPane, moves);
-  writeInputHistories(panePreferenceStorage, state.inputHistoryByPane);
-  state.acknowledgedCompletions = renamePaneKeys(state.acknowledgedCompletions, moves);
-  writeAcknowledgedCompletions(panePreferenceStorage, state.acknowledgedCompletions);
-  renamePaneLenses(panePreferenceStorage, moves);
-  chatLens.renamePanes(moves);
+  for (const store of paneScopedStores) store.rename(moves);
 }
 
 async function moveSidebarItem(request, pathFor, optimistic) {
@@ -2803,11 +2825,12 @@ async function moveSidebarItem(request, pathFor, optimistic) {
     // one on screen is followed there.
     const followed = followMovedPane(state.selectedPaneId, payload.moved?.panes);
     followMovedPaneState(payload.moved?.panes);
-    if (followed !== state.selectedPaneId) writePanePreference(panePreferenceStorage, followed);
-    if (payload.snapshot) adoptMutationSnapshot(payload.snapshot, followed !== state.selectedPaneId ? followed : null);
+    const paneMoved = followed !== state.selectedPaneId;
+    if (paneMoved) writePanePreference(panePreferenceStorage, followed);
+    if (payload.snapshot) adoptMutationSnapshot(payload.snapshot, paneMoved ? followed : null);
     else {
       // read once the mutation is over: refreshSnapshot waits out a busy one
-      if (followed !== state.selectedPaneId) state.selectedPaneId = followed;
+      if (paneMoved) state.selectedPaneId = followed;
       unread = true;
     }
   } catch (error) {
@@ -2880,12 +2903,15 @@ function resolveTerminalPath(raw) {
   const base = pane?.foreground_cwd || pane?.cwd;
   if (typeof base !== "string" || !base.startsWith("/")) return null;
   // `..` and `.` survive as they are: the machine that opens this resolves it.
-  return `${base.replace(/\/+$/u, "")}/${raw.replace(/^\.\//u, "")}`;
+  return `${trimTrailingSlashes(base)}/${raw.replace(/^\.\//u, "")}`;
 }
+
+// Whether the viewer can show a file of this name.
+const hasPreview = (name) => previewFor(name) !== null;
 
 function isLinkableTerminalPath(raw) {
   const name = raw.split("/").pop();
-  return (previewFor(name) !== null || isFileName(name) || isFolderPath(raw)) && resolveTerminalPath(raw) !== null;
+  return (hasPreview(name) || isFileName(name) || isFolderPath(raw)) && resolveTerminalPath(raw) !== null;
 }
 
 // Whether `path` on `server` lists as a folder. A file, or nothing there,
@@ -2903,7 +2929,7 @@ async function openTerminalPath(raw) {
   const resolved = resolveTerminalPath(raw);
   if (!resolved) return;
   // a closing slash says "folder"; the name is the last one before it
-  const trimmed = resolved.replace(/\/+$/u, "") || "/";
+  const trimmed = trimTrailingSlashes(resolved) || "/";
   const name = trimmed.split("/").pop();
   const server = paneServerId(state.selectedPaneId) || "local";
   // A folder may well be called `docs.md`: one written out in full is asked
@@ -2911,7 +2937,7 @@ async function openTerminalPath(raw) {
   // folder, a machine, another link, another pane -- wins over this one.
   const generation = ++revealGeneration;
   const paneId = state.selectedPaneId;
-  const viewable = trimmed === resolved && previewFor(name) !== null
+  const viewable = trimmed === resolved && hasPreview(name)
     && !(isFolderPath(raw) && await listsAsFolder(server, trimmed));
   if (generation !== revealGeneration || paneId !== state.selectedPaneId) return;
   if (viewable) void viewFile(resolved, name, server);
@@ -4968,15 +4994,32 @@ function selectBrowseServer(id, target, { reveal = false } = {}) {
   return loadBrowseFolder(target ?? (readBrowsePath(browsePathStorage, browseState.server) || ""), { reveal });
 }
 
+// How often a waiting folder load checks whether the one under way is done.
+const BROWSE_IDLE_POLL_MS = 50;
+
+// Resolves once no folder load is under way. `giveUp()` is asked after each
+// wait; when it says so, resolves false instead.
+async function waitForBrowseIdle(giveUp = () => false) {
+  while (browseState.busy) {
+    await new Promise((resolve) => window.setTimeout(resolve, BROWSE_IDLE_POLL_MS));
+    if (giveUp()) return false;
+  }
+  return true;
+}
+
 // A machine picked by hand waits out a load still under way, which would turn
 // its own away, and a file link still waiting gives way to it.
 elements.fileServer.addEventListener("change", async () => {
   const id = elements.fileServer.value;
   revealGeneration += 1;
-  while (browseState.busy) await new Promise((resolve) => window.setTimeout(resolve, 50));
+  await waitForBrowseIdle();
   if (elements.fileServer.value !== id) return;
   void selectBrowseServer(id);
 });
+
+const REVEAL_LOADED = "loaded";
+const REVEAL_FAILED = "failed";
+const REVEAL_SUPERSEDED = "superseded";
 
 // A file the viewer cannot show is still a file somebody named: take them to
 // it in the Files tab, in its own folder, with its row selected and in view.
@@ -4992,25 +5035,23 @@ async function revealInFiles(filePath, name, server) {
   refreshServerChoices();
   // A load already under way would turn this one away, however slow the
   // machine it is reading: wait it out, and go again if another slipped in.
-  // Returns true when loaded, false when it failed, null when a later press
-  // or a hand-picked folder took over.
+  // Settles as REVEAL_LOADED, REVEAL_FAILED, or REVEAL_SUPERSEDED when a later
+  // press or a hand-picked folder took over.
   const open = async (target, first) => {
+    const superseded = () => generation !== revealGeneration;
     for (;;) {
-      while (browseState.busy) {
-        await new Promise((resolve) => window.setTimeout(resolve, 50));
-        if (generation !== revealGeneration) return null;
-      }
+      if (!await waitForBrowseIdle(superseded)) return REVEAL_SUPERSEDED;
       const loaded = first && server !== browseState.server
         ? await selectBrowseServer(server, target, { reveal: true })
         : await loadBrowseFolder(target, { reveal: true });
-      if (generation !== revealGeneration) return null;
-      if (loaded || !browseState.busy) return loaded;
+      if (superseded()) return REVEAL_SUPERSEDED;
+      if (loaded || !browseState.busy) return loaded ? REVEAL_LOADED : REVEAL_FAILED;
     }
   };
-  const loaded = await open(folder, true);
-  if (loaded === null) return;
+  const outcome = await open(folder, true);
+  if (outcome === REVEAL_SUPERSEDED) return;
   elements.fileServer.value = browseState.server;
-  if (!loaded) return;
+  if (outcome === REVEAL_FAILED) return;
   await ensureUploadsPath();
   if (generation !== revealGeneration) return;
   const listing = browseState.loaded.get(browseState.root);

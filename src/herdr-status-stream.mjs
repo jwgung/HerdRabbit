@@ -1,8 +1,8 @@
-import { createConnection } from "node:net";
+import { connectHerdrSocket, createLineBuffer, whenConnected } from "./herdr-socket.mjs";
 
 export async function subscribeHerdrStatuses({ socketPath, paneIds, openSocket, onStatus, onError }) {
-  const socket = openSocket ? await openSocket(socketPath) : createConnection(socketPath);
-  let buffer = "";
+  const socket = await connectHerdrSocket(socketPath, openSocket);
+  const buffer = createLineBuffer();
   let closed = false;
   let acknowledged = false;
   const allowed = new Set(paneIds);
@@ -19,13 +19,9 @@ export async function subscribeHerdrStatuses({ socketPath, paneIds, openSocket, 
     socket.on("error", () => fail(new Error("Herdr status connection failed")));
     socket.on("close", () => fail(new Error("Herdr status connection closed")));
     socket.on("data", chunk => {
-      buffer += chunk;
+      buffer.append(chunk);
       if (buffer.length > 2 * 1024 * 1024) { fail(new Error("Herdr status message too large")); return; }
-      let boundary;
-      while ((boundary = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 1);
-        if (!line) continue;
+      for (const line of buffer.lines()) {
         try {
           const message = JSON.parse(line);
           if (message.error) throw new Error("Herdr rejected status subscription");
@@ -41,7 +37,6 @@ export async function subscribeHerdrStatuses({ socketPath, paneIds, openSocket, 
     });
     const request = () => socket.write(JSON.stringify({ id: "herdrabbit-status", method: "events.subscribe",
       params: { subscriptions: paneIds.map(pane_id => ({ type: "pane.agent_status_changed", pane_id })) } }) + "\n");
-    if (socket.connecting) socket.once("connect", request);
-    else request();
+    whenConnected(socket, request);
   });
 }
