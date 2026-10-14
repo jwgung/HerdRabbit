@@ -2,7 +2,10 @@
 // Keys: the bar is edited in the "Edit keys" window (a custom Ctrl+R added, PgUp
 // removed, Enter moved first -- dragged on a desktop, arrow buttons on a
 // phone), draws again at once, survives a reload, a saved combination sends its
-// own chord to the pane while the Shift/Ctrl/Alt latches keep working, and
+// own chord to the pane while the Shift/Ctrl/Alt latches keep working, PgDn
+// pages the history unless Shift is held, a held Ctrl also takes a letter from
+// a phone keyboard (composed or plain) without leaving it in the draft,
+// removing a latched modifier's button drops it, and
 // "Reset to default" brings the old bar back. Drafts: text typed in one pane
 // is kept when another is opened and when the page is reloaded, goes when the
 // message is sent, and a password answer leaves no copy. Runs on a phone and a
@@ -188,6 +191,103 @@ try {
     await page.waitForTimeout(200);
     assert.deepEqual(keysSent(), ["ctrl+r", "ctrl+shift+z", "ctrl+r", "esc", "shift+tab", "enter"]);
     assert.equal(await bar.locator('[aria-pressed="true"]').count(), 0, "latches are spent");
+
+    // PgDn pages the history as the wheel does, sending no key; with Shift held
+    // the plain key goes to the program.
+    herdr.sent.length = 0;
+    await page.evaluate(() => {
+      window.wheelNotches = 0;
+      document.addEventListener("wheel", () => { window.wheelNotches += 1; }, { capture: true });
+    });
+    await bar.locator("button", { hasText: /^PgDn$/u }).click();
+    await page.waitForTimeout(200);
+    assert.deepEqual(keysSent(), [], "PgDn sent a key instead of paging");
+    assert.ok(await page.evaluate(() => window.wheelNotches) >= 1, "PgDn did not page the history");
+    await bar.locator('[data-modifier="shift"]').click();
+    await bar.locator("button", { hasText: /^PgDn$/u }).click();
+    await page.waitForFunction(() => document.querySelector('#quick-keys [aria-pressed="true"]') === null);
+    await page.waitForTimeout(100);
+    assert.deepEqual(keysSent(), ["pagedown"], "Shift+PgDn is the plain key");
+
+    // A held Ctrl takes the next letter from a phone keyboard too, which composes
+    // it (Gboard) or types it plainly; the letter does not stay in the draft.
+    const cdp = await context.newCDPSession(page);
+    for (const composed of [true, false]) {
+      herdr.sent.length = 0;
+      await input.fill("half a draft");
+      await bar.locator('[data-modifier="ctrl"]').click();
+      await input.focus();
+      if (composed) await cdp.send("Input.imeSetComposition", { text: "c", selectionStart: 1, selectionEnd: 1 });
+      await cdp.send("Input.insertText", { text: "c" });
+      await page.waitForFunction(() => document.querySelector('#quick-keys [data-modifier="ctrl"]').getAttribute("aria-pressed") === "false");
+      await page.waitForTimeout(100);
+      assert.deepEqual(keysSent(), ["ctrl+c"], `${composed ? "composed" : "plain"} letter with Ctrl`);
+      assert.equal(await input.inputValue(), "half a draft", `${composed ? "composed" : "plain"} letter stayed in the draft`);
+    }
+    // Ctrl takes one composed letter; the keyboard then starts afresh, and the
+    // next letter is ordinary typing again.
+    herdr.sent.length = 0;
+    await input.fill("half a draft");
+    await bar.locator('[data-modifier="ctrl"]').click();
+    await input.focus();
+    await cdp.send("Input.imeSetComposition", { text: "c", selectionStart: 1, selectionEnd: 1 });
+    await cdp.send("Input.imeSetComposition", { text: "a", selectionStart: 1, selectionEnd: 1 });
+    await cdp.send("Input.insertText", { text: "a" });
+    await page.waitForTimeout(200);
+    assert.deepEqual(keysSent(), ["ctrl+c"], "a composed letter with Ctrl, then another");
+    assert.equal(await input.inputValue(), "half a drafta", "the letter after the key was lost, or the key's stayed");
+
+    // A Korean syllable composed with Ctrl held is text, not a key.
+    herdr.sent.length = 0;
+    await input.fill("");
+    await bar.locator('[data-modifier="ctrl"]').click();
+    await input.focus();
+    await cdp.send("Input.imeSetComposition", { text: "ㄱ", selectionStart: 1, selectionEnd: 1 });
+    await cdp.send("Input.imeSetComposition", { text: "가", selectionStart: 1, selectionEnd: 1 });
+    await cdp.send("Input.insertText", { text: "가" });
+    await page.waitForTimeout(200);
+    assert.deepEqual(keysSent(), [], "a Korean syllable with Ctrl was sent as a key");
+    assert.equal(await input.inputValue(), "가");
+    assert.equal(await bar.locator('[data-modifier="ctrl"]').getAttribute("aria-pressed"), "true", "Ctrl is still held for the next key");
+    await bar.locator('[data-modifier="ctrl"]').click();
+    await input.fill("");
+
+    // A pasted letter with Ctrl held is text, not a key.
+    herdr.sent.length = 0;
+    await input.fill("");
+    await bar.locator('[data-modifier="ctrl"]').click();
+    await input.evaluate((field) => {
+      field.dispatchEvent(new InputEvent("beforeinput", { inputType: "insertFromPaste", data: "c", bubbles: true, cancelable: true }));
+      field.value = "c";
+      field.dispatchEvent(new InputEvent("input", { inputType: "insertFromPaste", data: "c", bubbles: true }));
+    });
+    await page.waitForTimeout(200);
+    assert.deepEqual(keysSent(), [], "a pasted letter with Ctrl was sent as a key");
+    assert.equal(await input.inputValue(), "c");
+    await bar.locator('[data-modifier="ctrl"]').click();
+    await input.fill("");
+
+    // Without a held modifier a composed letter is ordinary typing.
+    herdr.sent.length = 0;
+    await input.fill("half a draft");
+    await input.focus();
+    await cdp.send("Input.imeSetComposition", { text: "c", selectionStart: 1, selectionEnd: 1 });
+    await cdp.send("Input.insertText", { text: "c" });
+    await page.waitForTimeout(200);
+    assert.deepEqual(keysSent(), [], "a composed letter without a modifier was sent as a key");
+    assert.equal(await input.inputValue(), "half a draftc", "a composed letter without a modifier was lost");
+    // Alt takes a composed letter the same way.
+    herdr.sent.length = 0;
+    await input.fill("");
+    await bar.locator('[data-modifier="alt"]').click();
+    await input.focus();
+    await cdp.send("Input.imeSetComposition", { text: "b", selectionStart: 1, selectionEnd: 1 });
+    await cdp.send("Input.insertText", { text: "b" });
+    await page.waitForFunction(() => document.querySelector('#quick-keys [data-modifier="alt"]').getAttribute("aria-pressed") === "false");
+    await page.waitForTimeout(100);
+    assert.deepEqual(keysSent(), ["alt+b"], "composed letter with Alt");
+    assert.equal(await input.inputValue(), "", "composed letter with Alt stayed in the draft");
+    await input.fill("");
 
     // Removing a latched modifier's button drops the latch.
     await bar.locator('[data-modifier="alt"]').click();

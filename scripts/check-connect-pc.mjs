@@ -19,6 +19,8 @@ import { PaneAttachments } from "../src/pane-attachments.mjs";
 import { PeerIdentity } from "../src/peer-identity.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
 import { ServerProfiles } from "../src/server-profiles.mjs";
+// The release this PC reports, whatever package.json says.
+const HUB_VERSION = "1.2.47";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const SESSION = "hs_ZGVmYXVsdA";
@@ -91,7 +93,7 @@ const olderAddress = await listen(olderServer);
 const directory = await mkdtemp(join(tmpdir(), "herdrabbit-connect-pc-check-"));
 const profiles = await ServerProfiles.load(join(directory, "servers.json"));
 const laptop = machine("Laptop work", [{ label: "shell" }]);
-const herdr = new MultiServerClient({ local: laptop, profiles, hubVersion: "1.2.47", machineName: (profile) => profile.id === "local" ? "laptop" : null });
+const herdr = new MultiServerClient({ local: laptop, profiles, hubVersion: HUB_VERSION, machineName: (profile) => profile.id === "local" ? "laptop" : null });
 const attachments = new PaneAttachments({
   log: () => {},
   options: { holdMs: 5, heldRetryMs: 60_000, relookupForMs: 200 },
@@ -180,7 +182,7 @@ try {
   await page.waitForFunction(() => document.querySelector("#server-feedback").dataset.error === "true");
   const refused = await page.locator("#server-feedback").textContent();
   assert.match(refused, /0\.9\.0 with connection protocol 99/u);
-  assert.match(refused, /HerdRabbit 1\.2\.46, protocol 1/u);
+  assert.ok(refused.includes(`HerdRabbit ${HUB_VERSION}, protocol 1`), refused);
   await page.locator("#server-close").click();
 
   // desk's sessions sit under its own row, on a different release.
@@ -189,7 +191,7 @@ try {
     row.textContent.includes("desk") && row.classList.contains("is-online")));
   const deskInfo = await details(page, "desk");
   assert.equal(deskInfo.Kind, "Connect PC");
-  assert.equal(deskInfo.HerdRabbit, "9.9.9 (this PC: 1.2.47)");
+  assert.equal(deskInfo.HerdRabbit, `9.9.9 (this PC: ${HUB_VERSION})`);
   assert.equal(deskInfo["Connection protocol"], "1");
   assert.equal(deskInfo.Address, deskAddress);
 
@@ -229,7 +231,7 @@ try {
   await page.waitForFunction(() => [...document.querySelectorAll(".server-heading")].some((row) =>
     row.textContent.includes("old") && row.textContent.includes("Offline")));
   const oldInfo = await details(page, "old");
-  assert.equal(oldInfo.HerdRabbit, "0.9.0 (this PC: 1.2.47)");
+  assert.equal(oldInfo.HerdRabbit, `0.9.0 (this PC: ${HUB_VERSION})`);
   assert.equal(oldInfo["Connection protocol"], "99 (this PC: 1)");
   assert.match(oldInfo.Status, /protocol 99.*protocol 1/u);
   await page.locator(`${heading("old")} .server-action-menu summary`).click();

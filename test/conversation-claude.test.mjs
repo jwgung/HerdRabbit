@@ -226,6 +226,50 @@ test("locates a transcript by cwd, then by scanning every project, and follows c
   assert.equal(await locateClaudeTranscript(store, SESSION, []), moved);
 });
 
+test("follows a background job the session opened, by the job's state file", async (context) => {
+  const configDir = join(await temp(context), "claude-config");
+  const projects = join(configDir, "projects");
+  const store = localTranscriptStore({ configDir });
+  const job = "d62fa238-a733-4b7e-84f3-c593e3cd49d2";
+  const parked = "e20d1ebb-bc77-4e02-94b6-86a0bea71761";
+  await mkdir(join(projects, "-w-app"), { recursive: true });
+  await mkdir(join(projects, "-w-app--claude-worktrees-x"), { recursive: true });
+  const started = join(projects, "-w-app", `${SESSION}.jsonl`);
+  // as Claude Code writes it: the notice naming the job, then this session parked
+  const notice = { type: "system", subtype: "local_command", content: '<local-command-stdout>Opening "x ⑂", running in the background (d62fa238)</local-command-stdout>' };
+  await writeFile(started, jsonl([notice, { type: "continued-in", continuedInSessionId: parked }]));
+  // no job state yet: the short id names nothing, and the first file stays
+  assert.equal(await locateClaudeTranscript(store, SESSION, ["/w/app"]), started);
+  await mkdir(join(configDir, "jobs", "d62fa238"), { recursive: true });
+  await writeFile(join(configDir, "jobs", "d62fa238", "state.json"), JSON.stringify({ state: "idle", sessionId: job }));
+  const background = join(projects, "-w-app--claude-worktrees-x", `${job}.jsonl`);
+  await writeFile(background, jsonl([user("work in the background")]));
+  // the parked session has no file: the job the pane shows is the one written now
+  assert.equal(await locateClaudeTranscript(store, SESSION, ["/w/app"]), background);
+  // back in its own session, which now has a file: that one, being the later
+  await writeFile(join(projects, "-w-app", `${parked}.jsonl`), jsonl([user("back home")]));
+  assert.equal(await locateClaudeTranscript(store, SESSION, ["/w/app"]), join(projects, "-w-app", `${parked}.jsonl`));
+  // a state file naming another session, or a short id that is no job, leads nowhere
+  await rm(join(projects, "-w-app", `${parked}.jsonl`));
+  await writeFile(join(configDir, "jobs", "d62fa238", "state.json"), JSON.stringify({ sessionId: SESSION }));
+  assert.equal(await locateClaudeTranscript(store, SESSION, ["/w/app"]), started);
+  assert.equal(await store.backgroundJobSession("../../x"), null);
+  assert.equal(await store.backgroundJobSession("abcdef12"), null);
+  // a broken state file names nothing
+  await writeFile(join(configDir, "jobs", "d62fa238", "state.json"), "{ torn");
+  assert.equal(await store.backgroundJobSession("d62fa238"), null);
+  // two notices, the later job first; a job and a session naming each other end
+  const other = "abcdef12-1111-4111-8111-111111111111";
+  await writeFile(join(configDir, "jobs", "d62fa238", "state.json"), JSON.stringify({ sessionId: job }));
+  await mkdir(join(configDir, "jobs", "abcdef12"), { recursive: true });
+  await writeFile(join(configDir, "jobs", "abcdef12", "state.json"), JSON.stringify({ sessionId: other }));
+  const otherPath = join(projects, "-w-app", `${other}.jsonl`);
+  await writeFile(otherPath, jsonl([{ type: "system", subtype: "local_command", content: "(d62fa238)" }]));
+  await writeFile(started, jsonl([notice, { type: "system", subtype: "local_command", content: "running in the background (abcdef12) (abcdef12)" }]));
+  await writeFile(background, jsonl([user("bg"), { type: "continued-in", continuedInSessionId: SESSION }]));
+  assert.equal(await locateClaudeTranscript(store, SESSION, ["/w/app"]), background);
+});
+
 test("the scan fallback looks into a few projects at once and stops after a hit", async (context) => {
   const configDir = join(await temp(context), "claude-config");
   const projects = join(configDir, "projects");

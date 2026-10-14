@@ -2,7 +2,7 @@
 // runs (Claude Code or Codex, each with its own format), which server's store
 // holds it (this machine's files, or a Herdr machine's over SSH), which file,
 // and the page or tool output asked for.
-import { CLAUDE_TRANSCRIPT, SESSION_ID, locateClaudeTranscript } from "./claude.mjs";
+import { CLAUDE_TRANSCRIPT, SESSION_ID, locateClaudeTranscript, pendingClaudeAsk, readTail } from "./claude.mjs";
 import { CODEX_TRANSCRIPT, THREAD_ID, isCodexProcess, locateCodexRollout } from "./codex.mjs";
 import {
   ConversationError,
@@ -12,8 +12,7 @@ import {
   answerVersion,
   transcriptPage,
   transcriptToolOutput,
-  versionMatches,
-} from "./pages.mjs";
+  versionMatches, remember } from "./pages.mjs";
 import { localTranscriptStore, machineTranscriptStore } from "./stores.mjs";
 
 const LOCAL = "local";
@@ -32,6 +31,12 @@ export function paneAgentName(pane) {
   const name = [pane?.agent, reported?.agent].find((value) => typeof value === "string" && value.trim());
   return name ? name.trim().toLowerCase() : null;
 }
+
+// How much of a transcript's end is read for the call a prompt card waits on:
+// the call is the last thing Claude wrote, a long plan included.
+const ASK_TAIL_BYTES = 2 * 1024 * 1024;
+// Panes whose last read call is kept, at most.
+const MAX_REMEMBERED_ASKS = 64;
 
 export class ConversationService {
   constructor({
@@ -57,6 +62,30 @@ export class ConversationService {
     this.now = now;
     this.located = new Map();
     this.remoteStores = new Map();
+    // paneId -> { key, ask }: the asking tool call last read from that file version
+    this.asks = new Map();
+  }
+
+  // The plan or question a Claude pane's agent waits on, from its transcript's
+  // tail: { name, input } or null. A pane that is not Claude's, or whose
+  // transcript cannot be read, has none. Read again only when the file changed.
+  // `snapshot`: a herdr snapshot already in hand, so a watch looking at many
+  // panes asks herdr once.
+  async pendingAsk(paneId, snapshot = null) {
+    try {
+      const found = await this.resolve(paneId, snapshot);
+      if (found.agent !== "claude" || !found.path) return null;
+      const stat = await found.store.stat(found.path);
+      if (!stat) return null;
+      const key = `${found.serverId}\0${found.path}\0${stat.identity}\0${stat.size}\0${stat.mtimeMs}`;
+      const known = this.asks.get(paneId);
+      if (known?.key === key) return known.ask;
+      const ask = pendingClaudeAsk(await readTail(found.store, found.path, stat, ASK_TAIL_BYTES));
+      remember(this.asks, paneId, { key, ask }, MAX_REMEMBERED_ASKS);
+      return ask;
+    } catch {
+      return null;
+    }
   }
 
   #store(serverId) {
@@ -78,10 +107,10 @@ export class ConversationService {
 
   // The pane's transcript: { paneId, serverId, agent, format, store, session,
   // path }, path null while the session has written nothing. Throws
-  // ConversationUnavailable.
-  async resolve(paneId) {
+  // ConversationUnavailable. `given` is a snapshot already in hand.
+  async resolve(paneId, given = null) {
     if (typeof paneId !== "string" || !paneId || paneId.length > 512) throw new ConversationUnavailable("pane_not_found");
-    const snapshot = await this.herdr.snapshot();
+    const snapshot = given ?? await this.herdr.snapshot();
     const pane = (snapshot?.panes ?? []).find((candidate) => candidate?.pane_id === paneId);
     if (!pane) throw new ConversationUnavailable("pane_not_found");
     const agent = paneAgentName(pane);
