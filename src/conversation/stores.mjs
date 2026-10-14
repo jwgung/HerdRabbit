@@ -12,7 +12,7 @@
 import { open, readFile, readdir, readlink, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
-import { SESSION_ID } from "./claude.mjs";
+import { JOB_SHORT_ID, SESSION_ID } from "./claude.mjs";
 import { THREAD_ID } from "./codex.mjs";
 
 const MiB = 1024 * 1024;
@@ -20,7 +20,6 @@ const MiB = 1024 * 1024;
 const SCAN_CONCURRENCY = 8;
 // A background job's state file is a few kilobytes; a larger one is not read.
 const MAX_JOB_STATE_BYTES = 256 * 1024;
-const JOB_SHORT_ID = /^[0-9a-f]{8}$/u;
 
 // This machine: the newest page reads up to 4 MiB, an older page widens to
 // 16 MiB for one long turn, a tool's output is looked for in the last 64 MiB.
@@ -100,7 +99,7 @@ export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), cod
     // Claude keeps each background job's state in jobs/<short id>/state.json,
     // the job's whole session id among it.
     async backgroundJobSession(short) {
-      if (!JOB_SHORT_ID.test(short)) return null;
+      if (typeof short !== "string" || !JOB_SHORT_ID.test(short)) return null;
       const path = join(configDir, "jobs", short, "state.json");
       let text;
       try {

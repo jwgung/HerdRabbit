@@ -42,22 +42,23 @@ export function claudeProjectDir(cwd) {
 // parentheses in a local command's notice ("Opening …, running in the
 // background (d62fa238)"). Only a job the store knows counts, so other short
 // ids in parentheses (a commit's) name nothing.
-const JOB_SHORT_ID = /\(([0-9a-f]{8})\)/gu;
+export const JOB_SHORT_ID = /^[0-9a-f]{8}$/u;
+const JOB_NOTICE = /\(([0-9a-f]{8})\)/gu;
 
 // Where this session went on, when it has no user or assistant turn after:
 // the session of a `continued-in` record, or a background job a local command
 // opened (the pane now shows that job). Oldest first; only the file's tail is
-// read. A file that cannot be read names nothing.
+// read. A file that cannot be read names nothing (an empty list).
 async function continuations(store, path) {
   let text;
   try {
     const stat = await store.stat(path);
-    if (!stat) return null;
+    if (!stat) return [];
     const start = Math.max(0, stat.size - CONTINUED_TAIL_BYTES);
     text = (await store.read(path, start, stat.size - start)).toString("utf8");
     if (start > 0) text = text.slice(text.indexOf("\n") + 1);
   } catch {
-    return null;
+    return [];
   }
   let found = [];
   for (const line of text.split("\n")) {
@@ -68,7 +69,7 @@ async function continuations(store, path) {
       else if (entry?.type === "continued-in" && typeof entry.continuedInSessionId === "string" && SESSION_ID.test(entry.continuedInSessionId)) {
         found.push({ session: entry.continuedInSessionId });
       } else if (entry?.type === "system" && entry.subtype === "local_command" && typeof entry.content === "string") {
-        for (const match of entry.content.matchAll(JOB_SHORT_ID)) found.push({ job: match[1] });
+        for (const match of entry.content.matchAll(JOB_NOTICE)) found.push({ job: match[1] });
       }
     } catch { /* a torn tail line cannot name the active session */ }
   }
@@ -87,7 +88,11 @@ export async function locateClaudeTranscript(store, session, cwds = []) {
   let path = await store.locate(session, dirs);
   while (path !== null) {
     let nextPath = null;
+    const tried = new Set();
     for (const next of (await continuations(store, path)).reverse()) {
+      const key = next.session ?? next.job;
+      if (tried.has(key)) continue;
+      tried.add(key);
       const id = next.session ?? await store.backgroundJobSession?.(next.job) ?? null;
       if (id === null || seen.has(id)) continue;
       // one whose file is not there (yet) gives way to the one before it
