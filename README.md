@@ -78,7 +78,7 @@ Live terminal input (including composer submissions and extra keys) and output u
 
 ### Herdr SSH machines
 
-Machines added with `herdr machine add` appear in the sidebar next to this one, and **+ → Add SSH machine** adds one from here: give an SSH target (`user@host`, or a host from your SSH config) and optionally a name. Nothing is installed on that machine besides the Herdr it already runs. HerdRabbit keeps one SSH connection per enabled machine and forwards that machine's Herdr sockets to a private directory of its own, so its panes list, take input, report status and open as a real terminal the same way this machine's do. The machine's `⋯` menu renames it, turns it off or removes it, through `herdr machine`, so Herdr's own list stays the same.
+Machines added with `herdr machine add` appear in the sidebar next to this one, and **+ → Add SSH machine** adds one from here (where SSH machines are not available, there is no `+`): give an SSH target (`user@host`, or a host from your SSH config) and optionally a name. Nothing is installed on that machine besides the Herdr it already runs. HerdRabbit keeps one SSH connection per enabled machine and forwards that machine's Herdr sockets to a private directory of its own, so its panes list, take input, report status and open as a real terminal the same way this machine's do. The machine's `⋯` menu renames it, turns it off or removes it, through `herdr machine`, so Herdr's own list stays the same.
 
 SSH has to sign in with a key and already trust the host. A machine that asks for a password or a new host key shows that in its status; run `herdr machine reconnect` (or `herdr machine add`) for it once in a terminal.
 
@@ -120,7 +120,7 @@ Herdr SSH machines (above) keep working beside connected PCs; both are listed in
 
 All machines appear together as **machine → Herdr session → project → tab/pane**; selecting a pane sends input and reads output on that machine. Each machine refreshes on its own, with slower retries after a failure, so an unreachable one does not hold up local data; its last-known panes stay visible while it is marked offline. A machine's sessions appear in the project/session picker, and projects and tabs can be created, renamed and closed there.
 
-A machine is managed where it is seen, and every machine has a row -- this one too, even when it is the only one. Its `⋯` menu opens **Details** -- the machine's name, the HerdRabbit version answering for this machine, its Herdr version (marked when it is older than 0.9.0; this machine also logs that at startup), and how many Herdr sessions and panes it contributes -- and **AI accounts**. Browser-wide settings (including **Passkeys** and **Signed-in devices**) are in the ⚙ menu at the foot of the sidebar, not here. Details are the first thing worth reading when a machine will not connect.
+A machine is managed where it is seen, and every machine has a row -- this one too, even when it is the only one. Its `⋯` menu offers **New project** (while a Herdr session runs there), **Details** -- the machine's name, the HerdRabbit version answering for this machine, its Herdr version (marked when it is older than 0.9.0; this machine also logs that at startup), and how many Herdr sessions and panes it contributes -- and **AI accounts**. Browser-wide settings (including **Passkeys** and **Signed-in devices**) are in the ⚙ menu at the foot of the sidebar, not here. Details are the first thing worth reading when a machine will not connect.
 
 ### PCs installed as a leaf by an older version
 
@@ -318,7 +318,7 @@ Project and tab names may appear on the lock screen. Previous commands and reque
 
 ### Projects and sessions
 
-- Use the top `+` action to create a named workspace with a default shell.
+- Use a machine's `⋯` menu → **New project** to create a named workspace with a default shell on that machine.
 - Use a project's `⋯` menu to rename it, add a shell session, or close the project.
 - Use a session's `⋯` menu to rename it or close that Herdr tab.
 - Collapse or expand a project's child sessions with the arrow beside its name.
@@ -549,6 +549,7 @@ The Service Worker reloads the page once when it activates a new app shell. Manu
 
 ```bash
 npm run verify
+npm run check:browser   # Playwright checks against a fake Herdr (needs `npx playwright install chromium`)
 npm run dev
 ```
 

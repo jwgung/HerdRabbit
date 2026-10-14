@@ -14,7 +14,12 @@ function scope(snapshot, server) {
   return Object.fromEntries(collections.map((key) => [key, (snapshot[key] || []).map((record) => {
     const next = { ...record, server_id: server.id, server_name: server.name };
     for (const field of idFields) if (typeof next[field] === "string") next[field] = prefix(next[field]);
-    if (server.id !== "local" && key === "herdr_sessions") next.default = false;
+    // `default` stays this machine's alone; each machine's own default is kept
+    // as `machine_default`, for choosing a session on that machine.
+    if (key === "herdr_sessions") {
+      next.machine_default = record.default === true;
+      if (server.id !== "local") next.default = false;
+    }
     return next;
   })]));
 }

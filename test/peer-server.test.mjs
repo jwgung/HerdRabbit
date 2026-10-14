@@ -24,7 +24,7 @@ async function listen(context, server) {
 function peerPort(context, peer) {
   return listen(context, createPeerServer({
     peer,
-    link: leafLinkRoutes({ client: herdr, version: "1.2.46" }),
+    link: leafLinkRoutes({ client: herdr, version: "1.2.47" }),
     logger: { error() {} },
   }));
 }
@@ -176,7 +176,7 @@ test("a browser is refused even on the right host; a server's fetch is not", asy
 test("this PC's own tailnet name is accepted as well as its address", async (context) => {
   const base = await listen(context, createPeerServer({
     peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
-    link: leafLinkRoutes({ client: herdr, version: "1.2.46" }),
+    link: leafLinkRoutes({ client: herdr, version: "1.2.47" }),
     hostNames: () => ["desk.tail1234.ts.net"],
     logger: { error() {} },
   }));
@@ -188,7 +188,7 @@ test("this PC's own tailnet name is accepted as well as its address", async (con
 test("on IPv6 the host is the bracketed address, as a hub's fetch sends it", async (context) => {
   const server = createPeerServer({
     peer: new PeerIdentity({ addresses: ["::1"] }),
-    link: leafLinkRoutes({ client: herdr, version: "1.2.46" }),
+    link: leafLinkRoutes({ client: herdr, version: "1.2.47" }),
     logger: { error() {} },
   });
   try {
@@ -219,7 +219,7 @@ test("status streams beyond the limit are refused until one closes", async (cont
   };
   const base = await listen(context, createPeerServer({
     peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
-    link: leafLinkRoutes({ client: watching, version: "1.2.46", maxStatusStreams: 2 }),
+    link: leafLinkRoutes({ client: watching, version: "1.2.47", maxStatusStreams: 2 }),
     logger: { error() {} },
   }));
   const open = async () => {

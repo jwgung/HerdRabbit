@@ -91,7 +91,7 @@ const olderAddress = await listen(olderServer);
 const directory = await mkdtemp(join(tmpdir(), "herdrabbit-connect-pc-check-"));
 const profiles = await ServerProfiles.load(join(directory, "servers.json"));
 const laptop = machine("Laptop work", [{ label: "shell" }]);
-const herdr = new MultiServerClient({ local: laptop, profiles, hubVersion: "1.2.46", machineName: (profile) => profile.id === "local" ? "laptop" : null });
+const herdr = new MultiServerClient({ local: laptop, profiles, hubVersion: "1.2.47", machineName: (profile) => profile.id === "local" ? "laptop" : null });
 const attachments = new PaneAttachments({
   log: () => {},
   options: { holdMs: 5, heldRetryMs: 60_000, relookupForMs: 200 },
@@ -189,7 +189,7 @@ try {
     row.textContent.includes("desk") && row.classList.contains("is-online")));
   const deskInfo = await details(page, "desk");
   assert.equal(deskInfo.Kind, "Connect PC");
-  assert.equal(deskInfo.HerdRabbit, "9.9.9 (this PC: 1.2.46)");
+  assert.equal(deskInfo.HerdRabbit, "9.9.9 (this PC: 1.2.47)");
   assert.equal(deskInfo["Connection protocol"], "1");
   assert.equal(deskInfo.Address, deskAddress);
 
@@ -229,7 +229,7 @@ try {
   await page.waitForFunction(() => [...document.querySelectorAll(".server-heading")].some((row) =>
     row.textContent.includes("old") && row.textContent.includes("Offline")));
   const oldInfo = await details(page, "old");
-  assert.equal(oldInfo.HerdRabbit, "0.9.0 (this PC: 1.2.46)");
+  assert.equal(oldInfo.HerdRabbit, "0.9.0 (this PC: 1.2.47)");
   assert.equal(oldInfo["Connection protocol"], "99 (this PC: 1)");
   assert.match(oldInfo.Status, /protocol 99.*protocol 1/u);
   await page.locator(`${heading("old")} .server-action-menu summary`).click();

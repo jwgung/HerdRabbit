@@ -213,7 +213,7 @@ test("another PC asking over Connect PC is refused them the same way, and held t
   await writeFile(join(home, "notes", "big.bin"), Buffer.alloc(64));
   const server = createPeerServer({
     peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
-    link: leafLinkRoutes({ client: {}, version: "1.2.46", protectedPaths: guard, maxTransferBytes: 32 }),
+    link: leafLinkRoutes({ client: {}, version: "1.2.47", protectedPaths: guard, maxTransferBytes: 32 }),
     logger: { error() {} },
   });
   server.listen(0, "127.0.0.1");
@@ -221,7 +221,7 @@ test("another PC asking over Connect PC is refused them the same way, and held t
   context.after(() => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }));
   const client = new LeafLinkClient({
     profile: { name: "desk", transport: "link", address: `http://127.0.0.1:${server.address().port}` },
-    hubVersion: "1.2.46",
+    hubVersion: "1.2.47",
   });
   context.after(() => client.close());
 
