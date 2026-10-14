@@ -1,10 +1,12 @@
 // Browser check of where a project is made and of the sidebar footer. New
-// project sits in a machine's ⋯ menu and creates the project on that machine
-// (in the selected pane's Herdr session when it is there, else the machine's
-// default; the session picker lists that machine's sessions only);
-// the top + menu holds only Add SSH machine, so without SSH machines it is not
-// shown. The footer's uploads and settings buttons look alike, their icons
-// centred. Runs on a desktop and a phone against an in-process fake herdr.
+// project sits in the top + menu, opened on the selected pane's Herdr session
+// (a remote pane's own, or its machine's default while that one is stopped),
+// and its picker lists every machine's running sessions, so a project can be
+// made on another machine too; a machine's ⋯ menu does not offer it, and with
+// no session running it is off. Add SSH machine shows in the + menu only where
+// SSH machines are available. The
+// footer's uploads and settings buttons look alike, their icons centred. Runs
+// on a desktop and a phone against an in-process fake herdr.
 //
 // NEW_PROJECT_SHOTS=<folder> keeps pictures of the footer and the open menu.
 import assert from "node:assert/strict";
@@ -13,10 +15,21 @@ import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
-const workspaces = [{ workspace_id: "w1", label: "Platform", herdr_session_id: "hs_local", server_id: "local" }];
-const tabs = [{ tab_id: "w1:t1", workspace_id: "w1", label: "Shells", herdr_session_id: "hs_local" }];
-const panes = [{ pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Alpha", cwd: "/work/alpha", herdr_session_id: "hs_local", server_id: "local" }];
+const workspaces = [
+  { workspace_id: "w1", label: "Platform", herdr_session_id: "hs_local", server_id: "local" },
+  { workspace_id: "lab:w1", label: "Bench", herdr_session_id: "lab!hs_work", server_id: "lab" },
+];
+const tabs = [
+  { tab_id: "w1:t1", workspace_id: "w1", label: "Shells", herdr_session_id: "hs_local" },
+  { tab_id: "lab:w1:t1", workspace_id: "lab:w1", label: "Bench", herdr_session_id: "lab!hs_work" },
+];
+const panes = [
+  { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Alpha", cwd: "/work/alpha", herdr_session_id: "hs_local", server_id: "local" },
+  { pane_id: "lab:w1:p1", tab_id: "lab:w1:t1", workspace_id: "lab:w1", label: "Bench", cwd: "/work/bench", herdr_session_id: "lab!hs_work", server_id: "lab" },
+];
 const created = [];
+let sessionsDown = false;
+let labWorkDown = false;
 const herdr = {
   async snapshot() {
     return {
@@ -28,9 +41,9 @@ const herdr = {
       // As the multi-server client scopes them: only this machine's session is
       // the page's default, each machine keeps its own as machine_default.
       herdr_sessions: [
-        { session_id: "hs_local", name: "default", default: true, machine_default: true, running: true, available: true, server_id: "local", server_name: "workstation" },
-        { session_id: "lab!hs_work", name: "work", default: false, machine_default: false, running: true, available: true, server_id: "lab", server_name: "lab" },
-        { session_id: "lab!hs_main", name: "main", default: false, machine_default: true, running: true, available: true, server_id: "lab", server_name: "lab" },
+        { session_id: "hs_local", name: "default", default: true, machine_default: true, running: !sessionsDown, available: true, server_id: "local", server_name: "workstation" },
+        { session_id: "lab!hs_work", name: "work", default: false, machine_default: false, running: !sessionsDown && !labWorkDown, available: true, server_id: "lab", server_name: "lab" },
+        { session_id: "lab!hs_main", name: "main", default: false, machine_default: true, running: !sessionsDown, available: true, server_id: "lab", server_name: "lab" },
       ],
       workspaces: [...workspaces], tabs: [...tabs], panes: [...panes], agents: [],
     };
@@ -51,6 +64,11 @@ const { server } = createHerdrHttpServer({ herdr, logger: { info() {}, error() {
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
 const url = `http://127.0.0.1:${server.address().port}`;
+// The same herdr where SSH machines can be added.
+const { server: withMachines } = createHerdrHttpServer({ herdr, machines: { machineIdFor: () => null }, logger: { info() {}, error() {} } });
+withMachines.listen(0, "127.0.0.1");
+await once(withMachines, "listening");
+const machinesUrl = `http://127.0.0.1:${withMachines.address().port}`;
 const browser = await chromium.launch({ args: ["--no-sandbox"] });
 const shots = process.env.NEW_PROJECT_SHOTS;
 
@@ -92,27 +110,30 @@ try {
     }
     if (shots) await page.locator(".navigator-footer").screenshot({ path: join(shots, `footer-${mobile ? "phone" : "desktop"}.png`) });
 
-    // Without SSH machines the + menu has nothing to offer.
-    assert.equal(await page.locator("#add-menu").isVisible(), false, "+ menu shows with nothing in it");
-    assert.equal(await page.locator("#create-project").count(), 0, "New project is still in the + menu");
-
-    // A machine with no running Herdr session has nowhere to make one.
-    const offline = page.locator('.server-heading[data-server-id="laptop"]');
-    await offline.locator(".sidebar-action-menu > summary").click();
-    await offline.locator(".sidebar-action-item", { hasText: "Details" }).waitFor({ state: "visible" });
-    assert.equal(await offline.locator(".sidebar-action-item", { hasText: "New project" }).count(), 0,
-      "an offline machine offers New project");
-    // Escape also closes the phone sidebar, which slides away.
+    // Without SSH machines the + menu still offers New project, and not Add SSH machine.
+    assert.equal(await page.locator("#add-menu").isVisible(), true, "+ menu is hidden");
+    await page.locator("#add-menu > summary").click();
+    await page.locator("#create-project").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#add-machine").isVisible(), false, "Add SSH machine shows without SSH machines");
+    if (shots) await page.screenshot({ path: join(shots, `plus-menu-${mobile ? "phone" : "desktop"}.png`) });
     await page.keyboard.press("Escape");
-    if (mobile) {
-      await page.waitForTimeout(400);
+    if (mobile) await page.waitForTimeout(400);
+
+    // A machine's ⋯ menu does not make projects.
+    if (mobile && await page.locator("#mobile-sidebar-open").getAttribute("aria-expanded") !== "true") {
       await page.locator("#mobile-sidebar-open").click();
       await page.waitForTimeout(400);
     }
+    const local = page.locator('.server-heading[data-server-id="local"]');
+    await local.locator(".sidebar-action-menu > summary").click();
+    await local.locator(".sidebar-action-item", { hasText: "Details" }).waitFor({ state: "visible" });
+    assert.equal(await local.locator(".sidebar-action-item", { hasText: "New project" }).count(), 0,
+      "a machine's menu offers New project");
+    await page.keyboard.press("Escape");
 
-    // New project from a machine's ⋯ menu, made in that machine's session.
-    const makeOn = async (serverId, label, expectedSessions, expectedSession) => {
-      // Making a project closes the phone sidebar; it slides away first.
+    // New project from the + menu: the selected pane's session first, every
+    // machine's running sessions to pick from.
+    const makeFromPlus = async (label, pick) => {
       if (mobile) {
         await page.waitForTimeout(400);
         if (await page.locator("#mobile-sidebar-open").getAttribute("aria-expanded") !== "true") {
@@ -120,34 +141,65 @@ try {
           await page.waitForTimeout(400);
         }
       }
-      const heading = page.locator(`.server-heading[data-server-id="${serverId}"]`);
-      await heading.locator(".sidebar-action-menu > summary").click();
-      const item = heading.locator(".sidebar-action-item", { hasText: "New project" });
-      await item.waitFor({ state: "visible" });
-      if (shots) await page.screenshot({ path: join(shots, `machine-menu-${serverId}-${mobile ? "phone" : "desktop"}.png`) });
-      await item.click();
+      await page.locator("#add-menu > summary").click();
+      await page.locator("#create-project").click();
       const dialog = page.locator("#project-dialog");
       await dialog.waitFor({ state: "visible" });
       const picker = page.locator("#project-server-session");
       assert.deepEqual(await picker.locator("option").evaluateAll((options) => options.map((option) => option.value)),
-        expectedSessions, `${serverId}: the session picker lists other machines' sessions`);
-      assert.equal(await picker.inputValue(), expectedSession, `${serverId}: the wrong session is picked`);
+        ["hs_local", "lab!hs_work", "lab!hs_main"], "the session picker misses a machine's sessions");
+      assert.equal(await picker.inputValue(), "hs_local", "the selected pane's session is not picked first");
+      if (pick) await picker.selectOption(pick);
       await page.locator("#project-name").fill(label);
       await dialog.locator('button[type="submit"]').click();
       await dialog.waitFor({ state: "hidden" });
-      assert.deepEqual(created.at(-1), { label, herdrSessionId: expectedSession }, `${serverId}: the project was not made there`);
+      assert.deepEqual(created.at(-1), { label, herdrSessionId: pick ?? "hs_local" }, `${label}: the project was not made there`);
     };
     const where = mobile ? "phone" : "desktop";
-    // The selected pane is on this machine, so its session is used here...
-    await makeOn("local", `Local ${where}`, ["hs_local"], "hs_local");
-    // ...and on another machine, that machine's own default, not its first.
-    await makeOn("lab", `Lab ${where}`, ["lab!hs_work", "lab!hs_main"], "lab!hs_main");
+    await makeFromPlus(`Local ${where}`, null);
+    await makeFromPlus(`Lab ${where}`, "lab!hs_main");
 
     assert.deepEqual(errors, [], `page errors: ${errors.join("; ")}`);
     await context.close();
   }
-  console.log("new project from the machine menu and the footer look: ok");
+  const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 844 } });
+  const page = await context.newPage();
+  const pickedFor = async (paneId) => {
+    await page.goto(`${url}/?pane=${encodeURIComponent(paneId)}`);
+    await page.locator(".pane-button").first().waitFor({ state: "visible" });
+    await page.locator("#add-menu > summary").click();
+    await page.locator("#create-project").click();
+    await page.locator("#project-dialog").waitFor({ state: "visible" });
+    const picked = await page.locator("#project-server-session").inputValue();
+    await page.keyboard.press("Escape");
+    return picked;
+  };
+  // A pane on another machine: its own session, and while that one is
+  // stopped, that machine's default rather than this machine's.
+  assert.equal(await pickedFor("lab:w1:p1"), "lab!hs_work", "a remote pane's session is not picked first");
+  labWorkDown = true;
+  assert.equal(await pickedFor("lab:w1:p1"), "lab!hs_main", "a remote pane's stopped session does not fall to its machine's default");
+  labWorkDown = false;
+
+  // Where SSH machines can be added, the + menu offers that too.
+  await page.goto(`${machinesUrl}/?pane=${encodeURIComponent("w1:p1")}`);
+  await page.locator(".pane-button").first().waitFor({ state: "visible" });
+  await page.locator("#add-menu > summary").click();
+  await page.locator("#add-machine").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#create-project").isVisible(), true, "New project is gone beside Add SSH machine");
+  await page.keyboard.press("Escape");
+
+  // With no Herdr session running anywhere there is nowhere to make one.
+  sessionsDown = true;
+  await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
+  await page.locator(".pane-button").first().waitFor({ state: "visible" });
+  await page.locator("#add-menu > summary").click();
+  await page.locator("#create-project").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#create-project").isDisabled(), true, "New project is offered with no running session");
+  await context.close();
+  console.log("new project from the + menu and the footer look: ok");
 } finally {
   await browser.close();
   server.close();
+  withMachines.close();
 }
