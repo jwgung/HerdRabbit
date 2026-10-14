@@ -136,8 +136,15 @@ test("a reveal leaves a match already on screen where it is", async (context) =>
   const herdr = await fakeHerdrSocket(context, herdrPane());
   const match = { start: { row: 206, col: 7 }, end: { row: 206, col: 12 } };
   const answer = await socketClient(herdr.socketPath).paneReveal("w1:p1", { match, contentRevision: 382 });
-  assert.deepEqual(herdr.requests.map((request) => request.method), ["pane.get"]);
+  assert.deepEqual(herdr.requests.map((request) => request.method), ["pane.get", "pane.copy_motion"], "checked, not scrolled");
   assert.deepEqual(answer, { scroll: { offset_from_bottom: 0, max_offset_from_bottom: 168, viewport_rows: 40 } });
+});
+
+test("a match already on screen whose history changed is stale_content too", async (context) => {
+  const herdr = await fakeHerdrSocket(context, herdrPane({ revision: 400 }));
+  const match = { start: { row: 206, col: 7 }, end: { row: 206, col: 12 } };
+  await assert.rejects(socketClient(herdr.socketPath).paneReveal("w1:p1", { match, contentRevision: 382 }), { code: "stale_content" });
+  assert.equal(herdr.requests.some((request) => request.method === "pane.scroll"), false);
 });
 
 test("a reveal of a history that changed is stale_content, and the view is not moved", async (context) => {
@@ -425,6 +432,8 @@ test("the query is marked where it shows, in cells, in herdr's smart case", () =
   assert.deepEqual(findOccurrences(rows, "needle", { row: 0, col: 7 }).map((found) => found.current), [false, true, false]);
   assert.deepEqual(findOccurrences(rows, ""), []);
   assert.deepEqual(findOccurrences([rowOf("aaaa")], "aa").map((found) => found.start), [0, 2], "no overlaps");
+  assert.deepEqual(findOccurrences([rowOf("İ NEEDLE")], "needle").map((found) => found.start), [2],
+    "a letter whose lower case is longer does not unfold the rest of the row");
 });
 
 test("the current match's screen cell comes from herdr's view, and only when it is on screen", () => {

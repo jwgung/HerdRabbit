@@ -23,11 +23,16 @@ export function findIsCaseSensitive(query) {
 export function findOccurrences(rows, query, current = null) {
   if (typeof query !== "string" || query.length === 0) return [];
   const sensitive = findIsCaseSensitive(query);
+  // Letter by letter, so one letter whose lower case is longer (İ) stays as it
+  // is instead of shifting every index after it or leaving the row unfolded.
   const fold = (text) => {
     if (sensitive) return text;
-    const lower = text.toLowerCase();
-    // A letter whose lower case is longer would shift every index after it.
-    return lower.length === text.length ? lower : text;
+    let folded = "";
+    for (const letter of text) {
+      const lower = letter.toLowerCase();
+      folded += lower.length === letter.length ? lower : letter;
+    }
+    return folded;
   };
   const needle = fold(query);
   const found = [];

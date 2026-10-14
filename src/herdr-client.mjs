@@ -574,7 +574,8 @@ export class HerdrClient {
     const now = await this.#paneScroll(safePaneId);
     if (!now) return { scroll: null };
     const offset = findScrollOffset(now, match);
-    if (offset === now.offset_from_bottom) return { scroll: now };
+    // Checked even when the view need not move: a match the history has moved
+    // away from must not be shown as the current one.
     try {
       await this.#call("pane.copy_motion", {
         pane_id: safePaneId, cursor: match.start, motion: "line_end", content_revision: contentRevision,
@@ -583,6 +584,7 @@ export class HerdrClient {
       if (error?.code === "stale_content") throw staleContent(error);
       throw error;
     }
+    if (offset === now.offset_from_bottom) return { scroll: now };
     const scrolled = await this.#call("pane.scroll", { pane_id: safePaneId, offset_from_bottom: offset });
     return { scroll: scrollInfo(scrolled?.pane?.scroll) ?? { ...now, offset_from_bottom: offset } };
   }
