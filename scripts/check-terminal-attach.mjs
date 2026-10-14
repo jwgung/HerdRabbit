@@ -79,6 +79,11 @@ try {
     await page.keyboard.press("Enter");
     await shows("echo hi");
     assert.equal(ptys[0].written, "echo hi\r");
+    // Ctrl+Enter is a line feed, as in a native terminal, not a second Enter
+    await page.keyboard.press("Control+Enter");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(ptys[0].written, "echo hi\r\n");
+    ptys[0].written = "echo hi\r";
     assert.ok(ptys[0].sizes.length > 0 || ptys[0].options.cols > 0, "the pty follows the browser's size");
 
     // Hidden, the page lets its socket go; shown again, it attaches the same pane anew.
