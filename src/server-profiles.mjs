@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { writePrivateFile } from "./ai-account-adapters.mjs";
 import { InputValidationError } from "./herdr-client.mjs";
 import { validateLinkProfile } from "./link-profiles.mjs";
 
@@ -46,15 +46,10 @@ export class ServerProfiles {
   // recognises this one by the address its requests arrive from.
   list() { return this.profiles.map((profile) => ({ ...profile })); }
 
-  connectionProfiles() { return this.profiles.map((profile) => ({ ...profile })); }
-
   change(operation) {
     const task = this.pending.then(async () => {
-      const next = operation(this.connectionProfiles());
-      await mkdir(dirname(this.file), { recursive: true, mode: 0o700 });
-      const temporary = `${this.file}.${randomUUID()}.tmp`;
-      await writeFile(temporary, JSON.stringify(next, null, 2), { mode: 0o600, flag: "wx" });
-      await rename(temporary, this.file);
+      const next = operation(this.list());
+      await writePrivateFile(this.file, JSON.stringify(next, null, 2));
       this.profiles = next;
       return this.list();
     });

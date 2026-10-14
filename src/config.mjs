@@ -160,9 +160,10 @@ function parsePeerLogins(value) {
 function parsePeerAddresses(value) {
   if (value === undefined || value.trim() === "") return [];
   const addresses = value.split(",").map((address) => address.trim().toLowerCase()).filter(Boolean);
+  // Only a tailnet address proves a device; loopback is this PC's own, for trying it out here.
   for (const address of addresses) {
-    if (isIP(address) === 0) {
-      throw new Error("HERDR_WEB_PEER_ADDRESSES must contain comma-separated IP addresses");
+    if (isIP(address) === 0 || !(isTailnetAddress(address) || isLoopbackHost(address))) {
+      throw new Error("HERDR_WEB_PEER_ADDRESSES must contain comma-separated tailnet addresses (100.64.0.0/10 or fd7a:115c:a1e0::/48)");
     }
   }
   return [...new Set(addresses)];

@@ -59,6 +59,7 @@ export async function subscribeLeafStatuses({
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
       body: JSON.stringify({ paneIds }),
+      redirect: "manual", // a redirect is refused below, never followed
       signal: controller.signal,
     });
   } catch (error) {

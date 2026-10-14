@@ -55,6 +55,9 @@ test("an account is looked up for the socket's address, and a failed lookup refu
   assert.equal(await refusal(identity, from("100.64.0.8")), "peer_identity_rejected");
   await identity.authorize(from(HUB));
   assert.equal(lookups.filter((address) => address === HUB).length, 1, "a known answer is reused briefly");
+  // a device that keeps knocking after a failed lookup does not start tailscale each time
+  assert.equal(await refusal(identity, from("100.64.0.7")), "peer_identity_rejected");
+  assert.equal(lookups.filter((address) => address === "100.64.0.7").length, 1, "a failed lookup is kept for a few seconds");
 });
 
 test("with both lists a caller has to match both", async () => {

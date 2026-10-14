@@ -69,7 +69,7 @@ export class MultiServerClient {
   syncEntries() {
     const profiles = [
       { id: "local", name: "Local" },
-      ...(this.profiles?.connectionProfiles?.() ?? this.profiles?.list?.() ?? []),
+      ...(this.profiles?.list?.() ?? []),
       ...(this.machines?.profiles() ?? []),
     ];
     for (const id of this.entries.keys()) {

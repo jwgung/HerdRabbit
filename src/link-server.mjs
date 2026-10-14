@@ -12,7 +12,7 @@ import { defaultProtectedPaths } from "./protected-paths.mjs";
 const HEARTBEAT_MS = 15_000;
 const MAX_WATCHED_PANES = 512;
 // Status streams open at once. A hub keeps one per page watching this PC.
-export const MAX_STATUS_STREAMS = 16;
+const MAX_STATUS_STREAMS = 16;
 const AI_ACCOUNT_ROUTE = aiAccountRoute("/api/link/ai-accounts");
 
 

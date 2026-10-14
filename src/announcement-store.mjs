@@ -1,6 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { writePrivateFile } from "./ai-account-adapters.mjs";
 
 // Kept on disk so a hub restart does not lose track of the machines that have
 // told it where they are. Nothing here is a secret -- a name, an address and a
@@ -20,10 +19,7 @@ export function announcementWriter(file, { logger = console } = {}) {
   let pending = Promise.resolve();
   return (entries) => {
     pending = pending.then(async () => {
-      await mkdir(dirname(file), { recursive: true, mode: 0o700 });
-      const temporary = `${file}.${randomUUID()}.tmp`;
-      await writeFile(temporary, JSON.stringify(entries, null, 2), { mode: 0o600, flag: "wx" });
-      await rename(temporary, file);
+      await writePrivateFile(file, JSON.stringify(entries, null, 2));
     }).catch((error) => {
       // Losing the file costs a rediscovery, not a failure worth stopping for.
       logger.error?.(`Could not save announcements: ${error.message}`);

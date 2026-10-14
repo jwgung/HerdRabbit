@@ -79,7 +79,8 @@ async function probe(peer, { hubVersion, port, fetchImpl, timeoutMs = PROBE_TIME
 async function answer(peer, address, hubVersion, fetchImpl, controller) {
   let response;
   try {
-    response = await fetchImpl(`${address}/api/link/hello`, { signal: controller.signal });
+    // a redirect is not followed (it could point anywhere); it is just not HerdRabbit
+    response = await fetchImpl(`${address}/api/link/hello`, { redirect: "manual", signal: controller.signal });
   } catch {
     return { ...peer, address, state: "absent", reason: "No HerdRabbit answered on this machine." };
   }

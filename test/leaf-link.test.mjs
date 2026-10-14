@@ -80,7 +80,7 @@ function hubFor(address, { name = "Dev box" } = {}) {
   };
   const herdr = new MultiServerClient({
     local,
-    profiles: { list: () => [profile], connectionProfiles: () => [profile] },
+    profiles: { list: () => [profile] },
     remoteFactory: (item) => new LeafLinkClient({
       profile: item, hubVersion: HUB_VERSION, fetchImpl: hubFetch(),
     }),
@@ -374,6 +374,20 @@ function peerClient(fetchImpl, options = {}) {
     ...options,
   });
 }
+
+test("a redirect from a connected PC is refused, never followed", async () => {
+  const asked = [];
+  const client = peerClient(async (url, init) => {
+    asked.push(init?.redirect);
+    return new Response(null, { status: 307, headers: { location: "http://169.254.169.254/latest/meta-data" } });
+  });
+  await assert.rejects(() => client.listDirectory("/srv"), (error) => {
+    assert.equal(error.code, "leaf_error");
+    assert.match(error.message, /redirect/u);
+    return true;
+  });
+  assert.deepEqual(asked, ["manual"]);
+});
 
 test("an answer that never ends is cut off at the hub's limit, not read to the end", async () => {
   let cancelled = 0;

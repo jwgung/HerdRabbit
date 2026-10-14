@@ -10,8 +10,10 @@ import { dataPaths } from "./config.mjs";
 //
 //   - HerdRabbit's own settings: the password hash, push keys, connected PCs,
 //     announcements and saved AI sign-ins, wherever the environment put them;
-//   - ~/.ssh, ~/.gnupg, ~/.aws, ~/.kube and ~/.config/gh;
-//   - ~/.netrc, ~/.git-credentials and ~/.docker/config.json;
+//   - ~/.ssh, ~/.gnupg, ~/.aws, ~/.azure, ~/.kube, ~/.password-store,
+//     ~/.local/share/keyrings and ~/.config/{gh,gcloud,rclone};
+//   - ~/.netrc, ~/.git-credentials, ~/.docker/config.json, ~/.npmrc, ~/.pypirc
+//     and ~/.cargo/credentials(.toml);
 //   - the AI CLIs' sign-ins, at the paths ai-account-adapters.mjs swaps them
 //     at, and ~/.config/claude*.
 //
@@ -47,8 +49,11 @@ export function credentialRules({ home, env = {}, data = defaultDataPaths(home) 
   const root = posix.resolve(home);
   const at = (...parts) => posix.join(root, ...parts);
   const environment = { ...env, HOME: root };
-  const trees = [at(".ssh"), at(".gnupg"), at(".aws"), at(".kube"), at(".config", "gh"), at(".config", "herdr-bridge"), posix.resolve(data.aiAccountsDir)];
-  const files = [at(".netrc"), at(".git-credentials"), at(".docker", "config.json")];
+  const trees = [at(".ssh"), at(".gnupg"), at(".aws"), at(".azure"), at(".kube"), at(".password-store"),
+    at(".local", "share", "keyrings"), at(".config", "gh"), at(".config", "gcloud"), at(".config", "rclone"),
+    at(".config", "herdr-bridge"), posix.resolve(data.aiAccountsDir)];
+  const files = [at(".netrc"), at(".git-credentials"), at(".docker", "config.json"), at(".npmrc"), at(".pypirc"),
+    at(".cargo", "credentials"), at(".cargo", "credentials.toml")];
   for (const file of [data.authFile, data.pushFile, data.serversFile, data.announcementsFile]) {
     const resolved = posix.resolve(file);
     files.push(resolved);

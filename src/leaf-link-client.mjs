@@ -152,15 +152,22 @@ export class LeafLinkClient {
       clearTimeout(timer);
       this.controllers.delete(controller);
     };
+    let response;
     try {
-      const response = await this.fetchImpl(`${this.address}${path}`, {
-        method, headers, body, duplex, signal: controller.signal,
+      // A redirect is not followed: it could send the hub anywhere.
+      response = await this.fetchImpl(`${this.address}${path}`, {
+        method, headers, body, duplex, redirect: "manual", signal: controller.signal,
       });
-      return { response, done, abort: () => controller.abort() };
     } catch (error) {
       done();
       throw transportError(error, this.address);
     }
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel().catch(() => {});
+      done();
+      throw linkError("leaf_error", `HerdRabbit at ${this.address} answered with a redirect, which this hub does not follow.`);
+    }
+    return { response, done, abort: () => controller.abort() };
   }
 
   // An answer read whole, never past `limit` bytes, within the call's clock.

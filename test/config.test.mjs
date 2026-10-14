@@ -103,6 +103,9 @@ test("refuses a Connect PC port that would listen everywhere or clash with the p
   assert.throws(() => readConfig({ HERDR_WEB_HOST: "100.64.0.2", HERDR_WEB_PEER_HOST: "100.64.0.2", HERDR_WEB_PEER_PORT: "38787" }),
     /HERDR_WEB_PEER_PORT must differ/u);
   assert.throws(() => parsePeerAddresses("100.64.0.9, box"), /HERDR_WEB_PEER_ADDRESSES/u);
+  // a LAN address proves no device: only tailnet addresses (and this PC's loopback)
+  assert.throws(() => parsePeerAddresses("192.168.0.20"), /HERDR_WEB_PEER_ADDRESSES/u);
+  assert.deepEqual(parsePeerAddresses("127.0.0.1, fd7a:115c:a1e0::9"), ["127.0.0.1", "fd7a:115c:a1e0::9"]);
   assert.throws(() => parsePeerLogins("owner"), /HERDR_WEB_PEER_LOGINS/u);
   assert.throws(() => parseHubUrl("https://hub.example.ts.net/path"), /HERDR_WEB_HUB/u);
   assert.throws(() => parseRole("server"), /HERDR_WEB_ROLE/u);

@@ -62,6 +62,7 @@ export class PeerRejected extends Error {
 }
 
 const LOGIN_CACHE_MS = 30_000;
+const FAILED_LOGIN_CACHE_MS = 5_000;
 
 // Who may use the Connect PC port (src/peer-server.mjs). That port listens on
 // this PC's own tailnet address, never behind Tailscale Serve, so the caller's
@@ -112,17 +113,16 @@ export class PeerIdentity {
     return { address: from, login };
   }
 
-  // A lookup runs `tailscale`, so a known answer is kept briefly; a failed one
-  // is not kept, and refuses.
+  // A lookup runs `tailscale`, so an answer is kept briefly: a known login for
+  // a while, a failed lookup (which refuses) for a few seconds, so a device
+  // that keeps knocking does not start a process each time.
   async #login(address) {
     const known = this.knownLogins.get(address);
-    if (known && this.now() - known.at < LOGIN_CACHE_MS) return known.login;
+    if (known && this.now() - known.at < (known.login === null ? FAILED_LOGIN_CACHE_MS : LOGIN_CACHE_MS)) return known.login;
     let login = null;
     try { login = normalizeLogin(await this.loginOf(address)); } catch { login = null; }
-    if (login !== null) {
-      if (this.knownLogins.size > 256) this.knownLogins.clear();
-      this.knownLogins.set(address, { login, at: this.now() });
-    }
+    if (this.knownLogins.size > 256) this.knownLogins.clear();
+    this.knownLogins.set(address, { login, at: this.now() });
     return login;
   }
 }
