@@ -3643,6 +3643,7 @@ elements.terminalInput.addEventListener("blur", () => {
 window.addEventListener("resize", resizeTerminalInput);
 
 let keyBarItems = readKeyBarItems(panePreferenceStorage);
+const PAGE_KEY_DIRECTION = Object.freeze({ pageup: -1, pagedown: 1 });
 
 function renderKeyBar() {
   const buttons = keyBarItems.map((item) => {
@@ -3727,10 +3728,12 @@ elements.quickKeys.addEventListener("click", (event) => {
   }
   // PgUp and PgDn page through the history, as a finger or the wheel does: a
   // shell or Claude Code does nothing with the keys. Held Shift sends the plain
-  // key instead, for a program that pages itself (less, vim).
-  const page = button.dataset.chord === undefined ? { pageup: -1, pagedown: 1 }[button.dataset.key] : undefined;
+  // key instead (not Shift+PgUp, which less and vim do not read as paging).
+  // In the chat lens there is no terminal to page, and the key goes as before.
+  const page = button.dataset.chord === undefined && Object.hasOwn(PAGE_KEY_DIRECTION, button.dataset.key)
+    ? PAGE_KEY_DIRECTION[button.dataset.key] : undefined;
   if (page && modifiers.length === 0 && attachedTerminal.scrollPage(page)) return;
-  if (page && modifiers.length === 1 && modifiers[0] === "shift") {
+  if (page && modifiers.length > 0 && modifiers.every((part) => part === "shift")) {
     void sendCommandKey(button.dataset.key);
     return;
   }

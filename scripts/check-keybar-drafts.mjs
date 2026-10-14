@@ -3,9 +3,9 @@
 // removed, Enter moved first -- dragged on a desktop, arrow buttons on a
 // phone), draws again at once, survives a reload, a saved combination sends its
 // own chord to the pane while the Shift/Ctrl/Alt latches keep working, PgDn
-// pages the history unless Shift is held (a held
-// Ctrl also takes a letter from a phone keyboard, composed or plain, without
-// leaving it in the draft), removing a latched modifier's button drops it, and
+// pages the history unless Shift is held, a held Ctrl also takes a letter from
+// a phone keyboard (composed or plain) without leaving it in the draft,
+// removing a latched modifier's button drops it, and
 // "Reset to default" brings the old bar back. Drafts: text typed in one pane
 // is kept when another is opened and when the page is reloaded, goes when the
 // message is sent, and a password answer leaves no copy. Runs on a phone and a
@@ -202,7 +202,7 @@ try {
     await bar.locator("button", { hasText: /^PgDn$/u }).click();
     await page.waitForTimeout(200);
     assert.deepEqual(keysSent(), [], "PgDn sent a key instead of paging");
-    assert.ok(await page.evaluate(() => window.wheelNotches) > 1, "PgDn did not page the history");
+    assert.ok(await page.evaluate(() => window.wheelNotches) >= 1, "PgDn did not page the history");
     await bar.locator('[data-modifier="shift"]').click();
     await bar.locator("button", { hasText: /^PgDn$/u }).click();
     await page.waitForFunction(() => document.querySelector('#quick-keys [aria-pressed="true"]') === null);

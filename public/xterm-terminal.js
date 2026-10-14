@@ -258,7 +258,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         const lineHeight = screen && term.rows ? screen.offsetHeight / term.rows : 16;
         return lineHeight * LINES_PER_NOTCH;
       },
-      emit: (direction) => wheel(direction, touchX),
+      emit: (direction) => wheelNotch(direction, touchX),
     });
     let pinch = null;
     // A held finger selects: from the cell it was held on to the one under it.
@@ -556,7 +556,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   }
 
   // One notch of the wheel that herdr reads as a scroll of its history.
-  function wheel(direction, clientX = host.getBoundingClientRect().left + 20) {
+  function wheelNotch(direction, clientX = host.getBoundingClientRect().left + 20) {
     (term.element ?? host).dispatchEvent(new WheelEvent("wheel", {
       bubbles: true, cancelable: true, deltaY: direction * 100, clientX, clientY: host.getBoundingClientRect().top + 20,
     }));
@@ -657,17 +657,12 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       scheduleLinks();
     },
     focus() { term?.focus(); },
-    // Scrolls the shown history by a screen, up for -1: herdr's for an
-    // attached pane, the page's own copy for a mirror. False with nothing shown.
+    // Scrolls herdr's history of the attached pane by a screen, up for -1.
+    // False when no pane is attached: a mirror shows its current screen only.
     scrollPage(direction) {
-      if (!term || host.hidden) return false;
-      if (mirrored) {
-        term.scrollPages(direction);
-        return true;
-      }
-      if (!paneId) return false;
+      if (!term || host.hidden || !paneId) return false;
       const notches = Math.max(1, Math.round((term.rows - 1) / LINES_PER_NOTCH));
-      for (let notch = 0; notch < notches; notch += 1) wheel(direction);
+      for (let notch = 0; notch < notches; notch += 1) wheelNotch(direction);
       return true;
     },
   };
