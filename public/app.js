@@ -1,6 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.46";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.46";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.46";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.47";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.47";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.47";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -50,7 +50,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyServersNotice,
-} from "./ui-model.js?v=1.2.46";
+} from "./ui-model.js?v=1.2.47";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -61,42 +61,42 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.46";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.46";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.46";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.46";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.46";
-import { createChatFind } from "./chat/chat-find.js?v=1.2.46";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.46";
+} from "./browse-preference.js?v=1.2.47";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.47";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.47";
+import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.47";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.47";
+import { createChatFind } from "./chat/chat-find.js?v=1.2.47";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.47";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.46";
-import { chatAgent } from "./lens-preference.js?v=1.2.46";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.46";
+} from "./chat-font-preference.js?v=1.2.47";
+import { chatAgent } from "./lens-preference.js?v=1.2.47";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.47";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.46";
+} from "./pane-preference.js?v=1.2.47";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.46";
+} from "./workspace-preference.js?v=1.2.47";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.46";
+} from "./terminal-preference.js?v=1.2.47";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.46";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.46";
+} from "./completion-preference.js?v=1.2.47";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.47";
 import {
   attachSidebarDrag,
   dropScope,
@@ -105,14 +105,14 @@ import {
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.2.46";
-import { renamePaneKeys } from "./pane-rename.js?v=1.2.46";
-import { renamePaneLenses } from "./lens-preference.js?v=1.2.46";
+} from "./sidebar-drag.js?v=1.2.47";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.47";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.47";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.46";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.46";
+} from "./input-history-preference.js?v=1.2.47";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.47";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -128,16 +128,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.46";
+} from "./key-bar-preference.js?v=1.2.47";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.46";
+} from "./launch-session.js?v=1.2.47";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.46";
+} from "./push-notifications.js?v=1.2.47";
 
 function browserStorage() {
   try {
@@ -3241,6 +3241,38 @@ const attachedTerminal = createAttachedTerminal({
   onViewMoved: () => terminalFind?.forgetPlace(),
 });
 
+// A phone keyboard takes the bottom of the screen. The page shrinks to what is
+// still visible, so the composer and key bar sit just above the keyboard
+// instead of under it, and the terminal keeps its size and shows its foot.
+// The tallest height seen at a width is the screen without a keyboard; each
+// width (a phone held upright or turned) keeps its own.
+// A keyboard takes far more than this; a browser's address bar folding away
+// takes less.
+const KEYBOARD_MIN_HEIGHT_PX = 120;
+let phoneKeyboardOpen = false;
+if (window.visualViewport) {
+  const viewport = window.visualViewport;
+  const unobstructedHeights = new Map();
+  const followKeyboard = () => {
+    const width = Math.round(viewport.width);
+    const unobstructed = Math.max(unobstructedHeights.get(width) ?? 0, viewport.height);
+    unobstructedHeights.set(width, unobstructed);
+    // Only typing brings a keyboard: a split screen or a resized window with
+    // nothing focused is a smaller screen, which the terminal fits.
+    const typing = document.activeElement instanceof HTMLElement && document.activeElement.matches("input, textarea");
+    const open = usesTouchInputEnvironment() && typing && viewport.height < unobstructed - KEYBOARD_MIN_HEIGHT_PX;
+    if (open) document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
+    else document.documentElement.style.removeProperty("--app-height");
+    phoneKeyboardOpen = open;
+    attachedTerminal.setKeyboardOpen(open);
+    // The browser may have scrolled the page to show the composer; the page
+    // now fits, so it goes back to the top.
+    if (open && window.scrollY) window.scrollTo(0, 0);
+  };
+  viewport.addEventListener("resize", followKeyboard);
+  followKeyboard();
+}
+
 // A conversation page or tool output for the Chat lens. The answer's ETag
 // comes back as If-None-Match, so an unchanged page costs no body (a 304).
 async function conversationRequest(path, { etag } = {}) {
@@ -3643,6 +3675,7 @@ elements.terminalInput.addEventListener("blur", () => {
 window.addEventListener("resize", resizeTerminalInput);
 
 let keyBarItems = readKeyBarItems(panePreferenceStorage);
+const PAGE_KEY_DIRECTION = Object.freeze({ pageup: -1, pagedown: 1 });
 
 function renderKeyBar() {
   const buttons = keyBarItems.map((item) => {
@@ -3705,6 +3738,15 @@ elements.quickKeys.addEventListener("mousedown", (event) => {
   if (event.target.closest("button")) event.preventDefault();
 });
 
+// A phone keyboard put away leaves its input focused, and Android brings the
+// keyboard back as soon as the terminal answers a key. With the keyboard away,
+// a tap on the bar lets go of the input; with it up, typing carries on.
+elements.quickKeys.addEventListener("pointerdown", (event) => {
+  if (!event.target.closest("button") || !usesTouchInputEnvironment() || phoneKeyboardOpen) return;
+  const focused = document.activeElement;
+  if (focused instanceof HTMLElement && focused.matches("input, textarea")) focused.blur();
+});
+
 elements.quickKeys.addEventListener("click", (event) => {
   if (!state.authenticated || !state.selectedPaneId || keySendBusy) return;
   const modifier = event.target.closest("button[data-modifier]");
@@ -3725,6 +3767,17 @@ elements.quickKeys.addEventListener("click", (event) => {
     if (event.altKey) modifiers.push("alt");
     if (event.shiftKey) modifiers.push("shift");
   }
+  // PgUp and PgDn page through the history, as a finger or the wheel does: a
+  // shell or Claude Code does nothing with the keys. Held Shift sends the plain
+  // key instead (not Shift+PgUp, which less and vim do not read as paging).
+  // In the chat lens there is no terminal to page, and the key goes as before.
+  const page = button.dataset.chord === undefined && Object.hasOwn(PAGE_KEY_DIRECTION, button.dataset.key)
+    ? PAGE_KEY_DIRECTION[button.dataset.key] : undefined;
+  if (page && modifiers.length === 0 && attachedTerminal.scrollPage(page)) return;
+  if (page && modifiers.length > 0 && modifiers.every((part) => part === "shift")) {
+    void sendCommandKey(button.dataset.key);
+    return;
+  }
   void sendCommandKey(combinedTerminalKey(button.dataset.key, modifiers));
 });
 
@@ -3743,14 +3796,79 @@ elements.terminalPanel.addEventListener("keydown", (event) => {
   if (!event.repeat) void sendCommandKey(key);
 }, { capture: true });
 
-// Mobile keyboards may emit beforeinput without a usable keydown event.
+// Mobile keyboards may emit beforeinput without a usable keydown event. Most
+// also compose even a single letter, which cannot be cancelled: then the held
+// modifier takes the one character the composer gained, and it is taken out.
+let modifierInputBefore = null;
+// The keyboard may still commit the letter it was composing once the
+// modifier has gone; that copy is taken out too.
+let modifierComposition = null;
 elements.terminalInput.addEventListener("beforeinput", (event) => {
-  if (!selectedKeyModifiers.size || event.isComposing || event.inputType !== "insertText") return;
-  if (typeof event.data !== "string" || event.data.length !== 1) return;
-  const key = keyboardTerminalKey({ key: event.data }, [...selectedKeyModifiers]);
-  if (!key || !event.cancelable) return;
-  event.preventDefault();
+  if (!selectedKeyModifiers.size) return;
+  if (!event.isComposing && event.inputType === "insertText" && event.cancelable &&
+      typeof event.data === "string" && event.data.length === 1) {
+    const key = keyboardTerminalKey({ key: event.data }, [...selectedKeyModifiers]);
+    if (key) {
+      event.preventDefault();
+      void sendCommandKey(key);
+      return;
+    }
+  }
+  // Only typing takes the modifier: a pasted letter stays text.
+  if (event.inputType !== "insertText" && event.inputType !== "insertCompositionText") return;
+  const input = elements.terminalInput;
+  modifierInputBefore ??= { value: input.value, start: input.selectionStart, end: input.selectionEnd };
+});
+
+function restoreComposer(before) {
+  elements.terminalInput.value = before.value;
+  elements.terminalInput.setSelectionRange(before.start, before.end);
+}
+
+elements.terminalInput.addEventListener("input", (event) => {
+  const input = elements.terminalInput;
+  const before = modifierInputBefore;
+  modifierInputBefore = null;
+  // The composition that gave the key may still change or commit until it
+  // ends: whatever it writes is taken out again.
+  if (modifierComposition) {
+    restoreComposer(modifierComposition);
+    return;
+  }
+  if (!before || !selectedKeyModifiers.size) return;
+  const head = before.value.slice(0, before.start);
+  const tail = before.value.slice(before.end);
+  const { value } = input;
+  // Head and tail can overlap when the text was cut short, so check the length too.
+  if (value.length < head.length + tail.length || !value.startsWith(head) || !value.endsWith(tail)) return;
+  const added = value.slice(head.length, value.length - tail.length);
+  // Only a letter, digit or sign: a Korean or Japanese keyboard composes a
+  // syllable through partial ones, and Ctrl with those means nothing here.
+  const key = /^[\x21-\x7e]$/u.test(added) ? keyboardTerminalKey({ key: added }, [...selectedKeyModifiers]) : null;
+  if (!key) return;
+  restoreComposer(before);
+  if (event.isComposing) modifierComposition = before;
   void sendCommandKey(key);
+});
+
+// A composition the key was taken from may end without a compositionend once
+// the composer was set back; the next one starts afresh.
+elements.terminalInput.addEventListener("compositionstart", () => {
+  modifierComposition = null;
+});
+
+elements.terminalInput.addEventListener("compositionend", () => {
+  // Some browsers commit after compositionend; let that input arrive first.
+  window.setTimeout(() => {
+    modifierComposition = null;
+    modifierInputBefore = null;
+  }, 0);
+});
+
+// A composition cut short by leaving the composer leaves nothing to take out.
+elements.terminalInput.addEventListener("blur", () => {
+  modifierComposition = null;
+  modifierInputBefore = null;
 });
 
 // The "Edit keys" window: a list in bar order (drag a row on a desktop, or use

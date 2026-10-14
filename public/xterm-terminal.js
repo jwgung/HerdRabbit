@@ -1,11 +1,11 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.46";
-import { findScreenLinks } from "./terminal-links.js?v=1.2.46";
-import { createTouchScroller } from "./touch-scroll.js?v=1.2.46";
-import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.46";
-import { findOccurrences } from "./terminal-find.js?v=1.2.46";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.47";
+import { findScreenLinks } from "./terminal-links.js?v=1.2.47";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.47";
+import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.47";
+import { findOccurrences } from "./terminal-find.js?v=1.2.47";
 
 const RESIZE_DEBOUNCE_MS = 80;
 // herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
@@ -99,6 +99,9 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   let drawingFrame = false;
   // Writes handed to xterm and not drawn yet (pty data and mirror frames).
   let writesInFlight = 0;
+  // A phone keyboard is up, and the frame's height when it last fitted.
+  let keyboardOpen = false;
+  let fullHeight = 0;
 
   function create() {
     term = new Terminal({
@@ -258,11 +261,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         const lineHeight = screen && term.rows ? screen.offsetHeight / term.rows : 16;
         return lineHeight * LINES_PER_NOTCH;
       },
-      emit: (direction) => {
-        (term.element ?? host).dispatchEvent(new WheelEvent("wheel", {
-          bubbles: true, cancelable: true, deltaY: direction * 100, clientX: touchX, clientY: host.getBoundingClientRect().top + 20,
-        }));
-      },
+      emit: (direction) => wheelNotch(direction, touchX),
     });
     let pinch = null;
     // A held finger selects: from the cell it was held on to the one under it.
@@ -410,6 +409,10 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
 
   function fitNow() {
     if (!term || host.hidden || host.clientWidth === 0 || host.clientHeight === 0) return;
+    // A phone keyboard only covers the screen for a while: the pane keeps its
+    // size, so herdr and every other screen on it are not resized each time.
+    if (keyboardOpen) return;
+    fullHeight = host.clientHeight;
     if (owner) { fit.fit(); return; }
     // Not this page's grid to change: it only says what it would want, for
     // when it takes the size over by typing.
@@ -559,6 +562,13 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     return buffer.viewportY >= buffer.baseY;
   }
 
+  // One notch of the wheel that herdr reads as a scroll of its history.
+  function wheelNotch(direction, clientX = host.getBoundingClientRect().left + 20) {
+    (term.element ?? host).dispatchEvent(new WheelEvent("wheel", {
+      bubbles: true, cancelable: true, deltaY: direction * 100, clientX, clientY: host.getBoundingClientRect().top + 20,
+    }));
+  }
+
   function stop() {
     clearTimeout(resizeTimer);
     cancelPress();
@@ -654,5 +664,25 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       scheduleLinks();
     },
     focus() { term?.focus(); },
+    // While a phone keyboard is up the terminal does not fit to the smaller
+    // frame; it shows its foot instead, and fits again once the keyboard goes.
+    setKeyboardOpen(open) {
+      // Never fitted (hidden until now): there is no size to keep yet.
+      if (open && fullHeight === 0) open = false;
+      if (open === keyboardOpen) return;
+      keyboardOpen = open;
+      if (open) host.style.setProperty("--terminal-full-height", `${fullHeight}px`);
+      else host.style.removeProperty("--terminal-full-height");
+      host.classList.toggle("is-keyboard-open", open);
+      if (!open) fitNow();
+    },
+    // Scrolls herdr's history of the attached pane by a screen, up for -1.
+    // False when no pane is attached: a mirror shows its current screen only.
+    scrollPage(direction) {
+      if (!term || host.hidden || !paneId) return false;
+      const notches = Math.max(1, Math.round((term.rows - 1) / LINES_PER_NOTCH));
+      for (let notch = 0; notch < notches; notch += 1) wheelNotch(direction);
+      return true;
+    },
   };
 }

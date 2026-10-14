@@ -11,7 +11,7 @@ body {
 
 .shell {
   height: 100vh;
-  height: 100dvh;
+  height: var(--app-height, 100dvh);
   min-height: 0;
   overflow: hidden;
   display: grid;
@@ -767,6 +767,16 @@ body.sidebar-collapsed .terminal-panel {
   display: none;
 }
 
+/* A phone keyboard is up: the terminal keeps its rows, and the room left shows
+   its foot, where the prompt is. */
+.terminal-xterm.is-keyboard-open .xterm {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--terminal-full-height, 100%);
+}
+
 /* The inset sits on xterm's own element, where its fit counts it; on the
    frame, the fit would size the grid as if it were not there and the last
    columns would be cut off. */
@@ -1381,7 +1391,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 @media (max-width: 760px) {
   .shell {
     height: 100vh;
-    height: 100dvh;
+    height: var(--app-height, 100dvh);
     display: block;
   }
 
@@ -1434,7 +1444,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
   .terminal-panel {
     height: 100vh;
-    height: 100dvh;
+    height: var(--app-height, 100dvh);
     min-height: 0;
     padding: 8px 12px 12px;
     grid-template-rows: auto minmax(0, 1fr) auto auto;
