@@ -105,6 +105,12 @@ test("a reply over 2 MiB without ending is invalid_herdr_response", async (conte
   await assert.rejects(call(socketPath), failsWith("invalid_herdr_response", "Herdr returned too much"));
 });
 
+test("the 2 MiB cap counts bytes, so a reply in Korean is held to it too", async (context) => {
+  // 800k characters of three bytes each: under 2 MiB as characters, 2.4 MB as bytes
+  const socketPath = await fakeSocket(context, (socket) => socket.write("한".repeat(800 * 1024)));
+  await assert.rejects(call(socketPath), failsWith("invalid_herdr_response", "Herdr returned too much"));
+});
+
 test("no reply in time is herdr_timeout, and the socket is let go", async (context) => {
   let served = null;
   const socketPath = await fakeSocket(context, (socket) => { served = socket; });

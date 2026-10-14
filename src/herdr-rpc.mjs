@@ -11,6 +11,8 @@ export function callHerdrSocket({ socketPath, method, params, openSocket, timeou
   return new Promise((resolve, reject) => {
     let socket = null;
     let buffer = "";
+    // Counted in bytes as they arrive, not in the decoded string's characters.
+    let received = 0;
     let settled = false;
     const finish = (error, result) => {
       if (settled) return;
@@ -29,7 +31,8 @@ export function callHerdrSocket({ socketPath, method, params, openSocket, timeou
       socket.on("close", () => finish(wrapError({ code: "herdr_command_failed", message: "Herdr command failed" })));
       socket.on("data", (chunk) => {
         buffer += chunk;
-        if (buffer.length > MAX_RESPONSE_BYTES) {
+        received += Buffer.byteLength(chunk, "utf8");
+        if (received > MAX_RESPONSE_BYTES) {
           finish(wrapError({ code: "invalid_herdr_response", message: "Herdr returned too much" }));
           return;
         }
