@@ -556,7 +556,12 @@ export class HerdrClient {
     if (!isCount(found?.total) || !Array.isArray(found?.matches)) throw unexpected();
     const matches = found.matches.slice(0, MAX_FIND_MATCHES).map(textRange);
     if (matches.includes(null)) throw unexpected();
-    const match = isCount(found.current) ? matches[found.current] ?? null : null;
+    // An answer that contradicts itself is refused, not read as "no match".
+    if (isCount(found.current) && found.current >= found.matches.length) throw unexpected();
+    const match = isCount(found.current) ? textRange(found.matches[found.current]) : null;
+    if (isCount(found.current) && !match) throw unexpected();
+    if (match && found.total === 0) throw unexpected();
+    if (isCount(found.current_global) && found.current_global >= found.total) throw unexpected();
     const ordinal = isCount(found.current_global) ? found.current_global : found.current;
     const foundRevision = isCount(found.content_revision) ? found.content_revision : revision;
     return {

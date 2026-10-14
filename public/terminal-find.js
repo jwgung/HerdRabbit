@@ -180,7 +180,8 @@ export function createTerminalFind({
       }
       if (current()) result = { ...answer, query };
     } catch (cause) {
-      if (forPane === paneId && open) {
+      // A failure belongs to its own search: one the reader has left says nothing.
+      if (forPane === paneId && open && forOpening === opening && input.value === query) {
         result = null;
         error = cause?.message || "Search failed";
         onError(error);

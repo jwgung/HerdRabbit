@@ -204,6 +204,23 @@ test("an answer herdr should not give is refused, not passed on", async (context
     { code: "invalid_herdr_response" });
 });
 
+test("a search answer that contradicts itself is refused, not read as no match", async (context) => {
+  const range = { start: { row: 2, col: 0 }, end: { row: 2, col: 3 } };
+  for (const [label, answer] of [
+    ["current past the matches", { matches: [range], total: 1, current: 1 }],
+    ["a match with a total of none", { matches: [range], total: 0, current: 0 }],
+    ["an ordinal past the total", { matches: [range], total: 1, current: 0, current_global: 1 }],
+  ]) {
+    const herdr = await fakeHerdrSocket(context, (request) => {
+      if (request.method === "pane.get") return { result: { pane: { scroll: null } } };
+      if (request.method === "pane.copy_motion") return { result: { cursor: { row: 0, col: 3 }, content_revision: 1 } };
+      return { result: { content_revision: 1, ...answer } };
+    });
+    await assert.rejects(socketClient(herdr.socketPath).paneFind("w1:p1", { query: "x", direction: "forward" }),
+      { code: "invalid_herdr_response" }, label);
+  }
+});
+
 test("a bad find is refused before herdr is asked", async () => {
   const calls = [];
   const client = new HerdrClient({ runner: async (...args) => { calls.push(args); return { stdout: "{}" }; } });
@@ -827,4 +844,30 @@ test("an answer from before the bar closed is not shown, nor revealed, after it 
   pending.shift()({ total: 1, current: 0, match: matchAt(3, 0), matches: [], content_revision: 1, scroll: null });
   for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(reveals, [{ match: matchAt(3, 0), contentRevision: 1, coverRows: 4 }], "the new one does, with the measured cover");
+});
+
+test("a failure of a search the reader has since changed or reopened is not shown for the new one", async () => {
+  const elements = {
+    form: new FakeElement(), input: new FakeElement(), count: new FakeElement(),
+    olderButton: new FakeElement(), newerButton: new FakeElement(), closeButton: new FakeElement(),
+  };
+  const pending = [];
+  const errors = [];
+  const find = createTerminalFind({
+    ...elements,
+    search: () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+    onError: (message) => errors.push(message),
+    setTimer: (callback) => { queueMicrotask(callback); return 1; },
+    clearTimer: () => {},
+  });
+  find.show("w1:p1");
+  elements.input.value = "needle";
+  elements.input.dispatchEvent(new Event("input"));
+  await new Promise((resolve) => setImmediate(resolve));
+  keydown(elements.input, "Escape");
+  find.show("w1:p1");
+  pending.shift().reject(new Error("Herdr command timed out"));
+  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(errors, [], "the failure of the search before the close is not reported");
+  assert.notEqual(elements.count.textContent, "Search failed");
 });
