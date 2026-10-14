@@ -140,6 +140,9 @@ export function createTerminalFind({
         // Output moved the history since the last match: find again from
         // where the view is now, the same way.
         if (cause?.code !== "stale_content" || !body.previous) throw cause;
+        // A search the reader has since changed or left is not retried: it
+        // would scroll the shared view for words nobody is looking for now.
+        if (forPane !== paneId || !open || input.value !== query) return;
         answer = await search(forPane, findRequestBody(query, null, direction));
       }
       if (forPane === paneId && open && input.value === query) result = { ...answer, query };

@@ -522,3 +522,33 @@ test("a query typed while a find is out is searched after it, and the late answe
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(elements.count.textContent, "2/4");
 });
+
+test("a stale step for a query since changed is not retried for the old words", async () => {
+  const pending = [];
+  const elements = {
+    form: new FakeElement(), input: new FakeElement(), count: new FakeElement(),
+    olderButton: new FakeElement(), newerButton: new FakeElement(), closeButton: new FakeElement(),
+  };
+  const bodies = [];
+  const find = createTerminalFind({
+    ...elements,
+    search: (paneId, body) => { bodies.push(body); return new Promise((resolve, reject) => pending.push({ resolve, reject })); },
+    setTimer: (callback) => { queueMicrotask(callback); return 1; },
+    clearTimer: () => {},
+  });
+  find.show("w1:p1");
+  elements.input.value = "ab";
+  elements.input.dispatchEvent(new Event("input"));
+  await new Promise((resolve) => setImmediate(resolve));
+  pending.shift().resolve({ total: 3, current: 1, match: matchAt(1, 0), matches: [], content_revision: 1, scroll: null });
+  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  keydown(elements.input, "Enter");
+  assert.ok(bodies[1]?.previous, `a step from the last match: ${JSON.stringify(bodies)}`);
+  elements.input.value = "abc";
+  elements.input.dispatchEvent(new Event("input"));
+  await new Promise((resolve) => setImmediate(resolve));
+  pending.shift().reject(Object.assign(new Error("changed"), { code: "stale_content" }));
+  for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(bodies.filter((body) => body.query === "ab").length, 2, "no retry for ab");
+  assert.equal(bodies.at(-1).query, "abc", "the new words are searched instead");
+});
