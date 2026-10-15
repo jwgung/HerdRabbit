@@ -3850,25 +3850,30 @@ async function sendCommandKey(key) {
 // still go out (the agent queues it) and Send never turns into Stop under a
 // finger. Esc interrupts without losing the conversation: no confirmation.
 const STOP_BUSY_MS = 1_000;
-let stopBusyTimer = null;
+// Panes whose Stop is still sending: busy is per pane, so a slow Esc to one
+// does not hold another pane's Stop.
+const stoppingPanes = new Set();
 
 function syncStopButton() {
   const shown = Boolean(stopTarget.paneId) && stopTarget.paneId === state.selectedPaneId &&
     showsStop({ lens: chatLens.lens, agent: stopTarget.agent, status: stopTarget.status });
   elements.stopButton.hidden = !shown;
+  const busy = stoppingPanes.has(state.selectedPaneId);
+  elements.stopButton.disabled = busy;
+  if (busy) elements.stopButton.setAttribute("aria-busy", "true");
+  else elements.stopButton.removeAttribute("aria-busy");
 }
 
 async function stopAgent() {
-  if (elements.stopButton.hidden || elements.stopButton.disabled) return;
   const paneId = state.selectedPaneId;
-  if (!state.authenticated || !paneId) return;
+  if (elements.stopButton.hidden || !state.authenticated || !paneId || stoppingPanes.has(paneId)) return;
   // Busy until the Esc has gone, and for a moment at least; then ready again,
   // as Claude may need a second Esc. Stop does not queue behind another key
   // on its way (a slow link, a stuck request): the Esc goes at once, to the
   // pane it was pressed for, and is never dropped for waiting.
-  elements.stopButton.disabled = true;
-  elements.stopButton.setAttribute("aria-busy", "true");
-  const shortest = new Promise((resolve) => { window.clearTimeout(stopBusyTimer); stopBusyTimer = window.setTimeout(resolve, STOP_BUSY_MS); });
+  stoppingPanes.add(paneId);
+  syncStopButton();
+  const shortest = new Promise((resolve) => window.setTimeout(resolve, STOP_BUSY_MS));
   clearKeyModifiers();
   try {
     await sendKeys(["esc"], paneId);
@@ -3877,8 +3882,8 @@ async function stopAgent() {
     setFeedback(error.message, true);
   } finally {
     await shortest;
-    elements.stopButton.disabled = false;
-    elements.stopButton.removeAttribute("aria-busy");
+    stoppingPanes.delete(paneId);
+    syncStopButton();
   }
 }
 
