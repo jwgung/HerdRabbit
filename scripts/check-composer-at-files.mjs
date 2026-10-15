@@ -41,6 +41,8 @@ const herdr = {
       panes: [
         { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Project", cwd: root, foreground_cwd: project },
         { pane_id: "w1:p2", tab_id: "w1:t1", workspace_id: "w1", label: "Nowhere" },
+        // a pane on another PC, at the same folder path as this one's
+        { pane_id: "link_lab!w1:p1", tab_id: "link_lab!w1:t1", workspace_id: "link_lab!w1", label: "Lab", cwd: root, foreground_cwd: project, server_id: "link_lab" },
       ],
       agents: [],
     };
@@ -232,8 +234,51 @@ try {
     assert.equal(await page.locator("#app-alert").isHidden(), true, "no alert");
     assert.equal(await page.locator("#action-feedback").textContent(), "");
 
+    // A pane on another PC asks that PC for its folder (the browse request
+    // names its server), and gets that PC's names, not this one's cached ones.
+    const asked = [];
+    await page.route(/\/api\/browse\?/u, async (route) => {
+      const requested = new URL(route.request().url());
+      asked.push(requested.searchParams.get("server"));
+      if (requested.searchParams.get("server") !== "link_lab") return route.continue();
+      await route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ path: project, parent: root, entries: [{ name: "lab-only.txt", path: `${project}/lab-only.txt`, kind: "file", hidden: false }], truncated: false, total: 1, server: "link_lab" }) });
+    });
+    await page.goto(`${url}/?pane=${encodeURIComponent("link_lab!w1:p1")}`);
+    await page.waitForFunction(() => document.querySelector("#terminal-input"));
+    await input.click();
+    await page.keyboard.type("@");
+    await shown(["lab-only.txt"]);
+    assert.ok(asked.includes("link_lab"), `the other PC was not asked: ${JSON.stringify(asked)}`);
+    await page.unroute(/\/api\/browse\?/u);
+
+    // A Korean IME composing after @ neither picks from the list nor sends;
+    // once the composition ends, the list follows what was typed.
+    if (!mobile) {
+      await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
+      await page.waitForFunction(() => document.querySelector("#terminal-xterm .xterm-rows")?.textContent.includes("ready"));
+      await input.click();
+      await reset();
+      await page.keyboard.type("@");
+      await shown(["my folder/", "src/", "README.md", "package.json"]);
+      const sentBefore = herdr.sent.length;
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Input.imeSetComposition", { text: "ㅁ", selectionStart: 1, selectionEnd: 1 });
+      // The Enter an IME uses to settle a syllable arrives as a composing keydown.
+      await input.evaluate((element) => element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true })));
+      await page.waitForTimeout(200);
+      assert.equal(herdr.sent.length, sentBefore, `Enter while composing sent the draft: ${JSON.stringify(herdr.sent)}`);
+      assert.doesNotMatch(await input.inputValue(), /README|package|src|my folder/u, "Enter while composing picked from the list");
+      // The composition settles on a name nothing starts with: the list goes.
+      await cdp.send("Input.insertText", { text: "ㅁ" });
+      await closed();
+      await page.keyboard.press("Backspace");
+      await page.keyboard.type("my");
+      await shown(["my folder/"]);
+    }
+
     assert.deepEqual(errors, []);
-    console.log({ mobile, listed: true, narrowed: true, arrowsEnter: true, stale: true, folderDrill: true, quoted: true, hidden: true, escape: true, history: true, tap: true, noCwd: true });
+    console.log({ mobile, remote: true, ime: !mobile, listed: true, narrowed: true, arrowsEnter: true, stale: true, folderDrill: true, quoted: true, hidden: true, escape: true, history: true, tap: true, noCwd: true });
     await context.close();
   }
 } finally {
