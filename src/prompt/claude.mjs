@@ -348,7 +348,10 @@ function withoutClaudeTasks(shown) {
     if (list && rows > 0 && rows <= total) end = head;
   }
   if (LABELED_RULE_RE.test(shown[end - 1] ?? "")) end -= 1;
-  return end < shown.length && CLAUDE_HINT_TAIL_RE.test(shown[end - 1] ?? "") ? shown.slice(0, end) : shown;
+  // the rule (Claude's input-box frame, named after the session) closes a
+  // prompt: one ending in its key hint, or the answers' review ending in Cancel
+  const closes = (line) => CLAUDE_HINT_TAIL_RE.test(line) || CLAUDE_SUBMIT_CANCEL_RE.test(line);
+  return end < shown.length && closes(shown[end - 1] ?? "") ? shown.slice(0, end) : shown;
 }
 
 // Whether the prompt still owns the end of the screen: an answered menu
