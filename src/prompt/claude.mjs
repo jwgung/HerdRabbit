@@ -40,6 +40,8 @@ const CLAUDE_ASK_HINT_RE = /enter to select.*(?:↑\/↓|tab\/arrow keys) to nav
 // question tabs, whole (`←  ☒ Route  ☐ Author  ✔ Submit  →`) or cut off by a narrow pane
 const CLAUDE_TABS_RE = /^←\s+[☐☒☑✔]/;
 // Claude Code's unnumbered menus (the folder-trust check on a new folder, among others)
+// the review step's last row: "2. Cancel", maybe the selected one
+const CLAUDE_SUBMIT_CANCEL_RE = /^(?:[›>❯]\s*)?\d+\.\s+Cancel$/i;
 const CLAUDE_CONFIRM_HINT_RE = /enter to confirm.*esc to (?:cancel|exit|go back)/i;
 // Claude's /model list and /effort slider: their Enter saves a default, so a
 // screen showing one gets no fallback card (the terminal answers them).
@@ -358,7 +360,14 @@ function promptTailIsActive(prompt, screen) {
   const ends = (re) => hintEnds(shown, re);
   switch (prompt.responder) {
     case "claude-question": return ends(CLAUDE_ASK_HINT_RE);
-    case "claude-submit": return /^(?:[›>❯]\s*)?\d+\.\s+Cancel$/i.test(last);
+    // Its Cancel row last, or under it only Claude's key hint (newer Claude
+    // Code adds one: "Enter to select · … · Esc to cancel").
+    case "claude-submit": {
+      const cancel = shown.findLastIndex((line) => CLAUDE_SUBMIT_CANCEL_RE.test(line));
+      if (cancel < 0) return false;
+      const after = shown.slice(cancel + 1);
+      return after.length === 0 || (after.length <= 3 && /esc to cancel/i.test(after.join(" ")) && hintEnds(shown, /esc to cancel/i));
+    }
     // "Esc to cancel", maybe with Claude's own suffixes; anything else after it is not the approval's
     case "claude-approval": return ends(/esc to cancel.*(?:tab|ctrl\+e)|ctrl\+e to explain|^esc to cancel(?:\s*·\s*ctrl\+x ctrl\+k twice to stop background agents)?$/i);
     case "claude-confirm": return ends(CLAUDE_CONFIRM_HINT_RE);

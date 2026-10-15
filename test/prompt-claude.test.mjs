@@ -227,6 +227,30 @@ Ready to submit your answers?
   assert.equal(review.title, "Review your answers");
   assert.match(review.body, /→ Repo owner/);
   assert.deepEqual(labels(review), ["Submit answers", "Cancel"]);
+
+  // newer Claude Code puts its key hint under the review's rows; still the card
+  const hinted = parseClaudePrompt(`
+←  ☒ Route  ☒ Author  ✔ Submit  →
+Review your answers
+ ● Which way should the PR go?
+   → Log in as owner
+Ready to submit your answers?
+❯ 1. Submit answers
+  2. Cancel
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
+`);
+  assert.equal(hinted?.title, "Review your answers");
+  assert.deepEqual(labels(hinted), ["Submit answers", "Cancel"]);
+  // but anything else after the rows means the review has gone
+  assert.equal(parseClaudePrompt(`
+←  ☒ Route  ✔ Submit  →
+Review your answers
+Ready to submit your answers?
+❯ 1. Submit answers
+  2. Cancel
+⏺ Answers submitted, carrying on
+`), null);
 });
 
 test("a multiple choice ticked in the terminal unticks only what is not wanted", () => {

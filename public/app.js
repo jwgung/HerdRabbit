@@ -1,6 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.57";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.57";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.57";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.58";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.58";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.58";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -50,7 +50,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyMachinesNotice,
-} from "./ui-model.js?v=1.2.57";
+} from "./ui-model.js?v=1.2.58";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -61,42 +61,42 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.57";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.57";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.57";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.57";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.57";
-import { createChatFind } from "./chat/chat-find.js?v=1.2.57";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.57";
+} from "./browse-preference.js?v=1.2.58";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.58";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.58";
+import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.58";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.58";
+import { createChatFind } from "./chat/chat-find.js?v=1.2.58";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.58";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.57";
-import { chatAgent } from "./lens-preference.js?v=1.2.57";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.57";
+} from "./chat-font-preference.js?v=1.2.58";
+import { chatAgent } from "./lens-preference.js?v=1.2.58";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.58";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.57";
+} from "./pane-preference.js?v=1.2.58";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.57";
+} from "./workspace-preference.js?v=1.2.58";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.57";
+} from "./terminal-preference.js?v=1.2.58";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.57";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.57";
+} from "./completion-preference.js?v=1.2.58";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.58";
 import {
   attachSidebarDrag,
   dropScope,
@@ -105,15 +105,15 @@ import {
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.2.57";
-import { renamePaneKeys } from "./pane-rename.js?v=1.2.57";
-import { renamePaneLenses } from "./lens-preference.js?v=1.2.57";
+} from "./sidebar-drag.js?v=1.2.58";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.58";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.58";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.57";
-import { createAtFilesPopup } from "./composer-at-files.js?v=1.2.57";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.57";
+} from "./input-history-preference.js?v=1.2.58";
+import { createAtFilesPopup } from "./composer-at-files.js?v=1.2.58";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.58";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -129,16 +129,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.57";
+} from "./key-bar-preference.js?v=1.2.58";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.57";
+} from "./launch-session.js?v=1.2.58";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.57";
+} from "./push-notifications.js?v=1.2.58";
 
 function browserStorage() {
   try {
