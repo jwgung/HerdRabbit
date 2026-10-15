@@ -3866,11 +3866,14 @@ async function stopAgent() {
   elements.stopButton.disabled = true;
   elements.stopButton.setAttribute("aria-busy", "true");
   const shortest = new Promise((resolve) => { window.clearTimeout(stopBusyTimer); stopBusyTimer = window.setTimeout(resolve, STOP_BUSY_MS); });
+  // The pane pressed for: while waiting the page may move to another pane,
+  // whose agent this Esc must not stop.
+  const paneId = state.selectedPaneId;
   try {
     for (let waited = 0; keySendBusy && waited < 10_000; waited += 100) {
       await new Promise((resolve) => window.setTimeout(resolve, 100));
     }
-    await sendCommandKey("esc");
+    if (state.selectedPaneId === paneId) await sendCommandKey("esc");
   } finally {
     await shortest;
     elements.stopButton.disabled = false;

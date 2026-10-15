@@ -38,6 +38,8 @@ test("the composer has a hidden Stop button that sends the key bar's Esc", async
   // beside Send, before it, and hidden until the agent works
   assert.match(composer, /<button\s+id="stop-button"\s+class="secondary-button stop-button"\s+type="button"\s+aria-label="Stop"\s+title="Stop \(Esc\)"\s+hidden\s*>[\s\S]*?<\/button>\s*<button class="primary-button send-button"/u);
   assert.match(app, /await sendCommandKey\("esc"\);/u);
+  // the Esc goes only to the pane Stop was pressed for, even after a wait
+  assert.match(app, /const paneId = state\.selectedPaneId;[\s\S]{0,400}if \(state\.selectedPaneId === paneId\) await sendCommandKey\("esc"\);/u);
   // the @ list answers Esc before the Stop shortcut
   assert.match(app, /if \(atFiles\.handleKeydown\(event\)\) return;\s*\/\/ Esc in the composer stops the agent/u);
 });
