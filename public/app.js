@@ -6060,17 +6060,13 @@ async function serverAction(action) {
   }
 }
 
-let savedServers = [];
-
-async function loadServers() {
-  savedServers = array((await api("/api/servers")).profiles);
-}
-
 document.querySelector("#manage-servers").addEventListener("click", () => {
   document.querySelector("#add-menu").open = false;
   resetServerForm();
   serversDialog.showModal();
-  void serverAction(async () => { await loadServers(); serverFeedback.textContent = ""; });
+  // PCs already added are managed from their sidebar rows; here the list
+  // marks them as added.
+  serverFeedback.textContent = "";
   void lookForServers();
 });
 
@@ -6215,7 +6211,6 @@ serverForm.addEventListener("submit", (event) => {
       method: editingServer ? "PUT" : "POST", body: profile,
     });
     resetServerForm();
-    await loadServers();
     await refreshSnapshot();
     void lookForServers();
     serverFeedback.textContent = "Saved. Connection status appears in the sidebar.";

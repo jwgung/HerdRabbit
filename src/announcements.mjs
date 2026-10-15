@@ -49,7 +49,7 @@ export function announcementRegistry({ now = () => Date.now(), initial = [], sav
       if (!["http:", "https:"].includes(parsed.protocol) || host !== String(from).toLowerCase()) {
         return { ok: false, reason: "address" };
       }
-      if (typeof name !== "string" || name === "" || name.length > 80) {
+      if (typeof name !== "string" || name.trim() === "" || name.length > 80) {
         return { ok: false, reason: "name" };
       }
       const entry = {
