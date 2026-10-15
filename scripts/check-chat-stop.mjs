@@ -151,6 +151,12 @@ try {
     assert.deepEqual(texts(), ["hello there"], "Send sent the draft");
     await sentKeys(0);
     await page.waitForFunction(() => document.querySelector("#terminal-input").value === "", null, { timeout: 5_000 });
+    if (!mobile) {
+      // A click on Send hands focus back to the composer: the button stays
+      // Send, so a quick second click cannot stop what was just sent.
+      await page.waitForFunction(() => document.activeElement?.id === "terminal-input", null, { timeout: 3_000 });
+      await looksLike("send");
+    }
 
     // Out of the composer a press sends one Esc, keeps the draft, and is busy for a moment.
     await input.fill("a draft that stays");

@@ -3706,6 +3706,10 @@ elements.inputForm.addEventListener("submit", async (event) => {
   } finally {
     if (paneId) releaseComposerDraft(paneId, { sent: delivered, text, secret });
     composerSending = false;
+    // On a desktop the composer gets focus back after a click on Send, so
+    // the button stays Send and a second click cannot stop what was just
+    // sent. A touch screen keeps its keyboard down (focusComposer no-ops).
+    focusComposer();
     syncSendButton();
   }
 });
