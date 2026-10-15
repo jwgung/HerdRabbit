@@ -81,6 +81,13 @@ const centreOffset = (page, selector) => page.locator(selector).evaluate((button
     background: getComputedStyle(button).backgroundColor,
     border: getComputedStyle(button).borderColor,
     radius: getComputedStyle(button).borderRadius,
+    // How much of the button the drawing fills, not just the box it sits in.
+    glyph: button.querySelector("svg").getBBox().width,
+    // And where in its 24-unit box the drawing's middle is.
+    glyphOff: (() => {
+      const box = button.querySelector("svg").getBBox();
+      return Math.max(Math.abs(box.x + box.width / 2 - 12), Math.abs(box.y + box.height / 2 - 12));
+    })(),
     width: outer.width,
     height: outer.height,
   };
@@ -107,6 +114,11 @@ try {
     }
     for (const key of ["background", "border", "radius", "width", "height"]) {
       assert.equal(settings[key], uploads[key], `footer buttons differ in ${key}`);
+    }
+    assert.ok(Math.abs(settings.glyph - uploads.glyph) <= 2, `footer icons differ in size: ${uploads.glyph} vs ${settings.glyph}`);
+    // A folder is wider than tall, so only the width is matched; both sit in the middle.
+    for (const [name, look] of [["uploads", uploads], ["settings", settings]]) {
+      assert.ok(look.glyphOff <= 1, `${name} drawing is off centre: ${look.glyphOff}`);
     }
     if (shots) await page.locator(".navigator-footer").screenshot({ path: join(shots, `footer-${mobile ? "phone" : "desktop"}.png`) });
 
