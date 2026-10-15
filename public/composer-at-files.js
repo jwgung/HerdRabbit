@@ -262,6 +262,12 @@ export function createAtFilesPopup({ input, listElement, context, fetchListing, 
       return;
     }
     const next = applyAtCompletion(input.value, token, entry);
+    // Set by script, the value would pass the composer's maxlength; a name
+    // that does not fit is not put in.
+    if (input.maxLength > 0 && next.value.length > input.maxLength) {
+      close();
+      return;
+    }
     close();
     input.value = next.value;
     input.setSelectionRange(next.caret, next.caret);

@@ -160,6 +160,17 @@ try {
       await page.waitForTimeout(2_600);
     }
 
+    // a name that would take the draft past the composer's limit is not put in
+    if (!mobile) {
+      const limit = Number(await input.getAttribute("maxlength"));
+      const filler = "x".repeat(limit - 4);
+      await input.fill(`${filler} @R`);
+      await shown(["README.md"]);
+      await page.keyboard.press("Enter");
+      assert.equal(await input.inputValue(), `${filler} @R`, "a completion went past maxlength");
+      await reset();
+    }
+
     // a folder is entered and its contents offered at once; ArrowUp wraps to the last
     await reset();
     await page.keyboard.type("@s");
