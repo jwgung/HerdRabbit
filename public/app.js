@@ -3881,8 +3881,14 @@ function stopReady() {
     showsStop({ lens: chatLens.lens, agent: stopTarget.agent, status: stopTarget.status });
 }
 
+// Whether the composer is where the person is: in it, or on Send having
+// tabbed there from it (a keyboard press on Send means sending the draft).
+// Send focused by a pointer press is not: that press chose its mode already.
+let sendFocusedByPointer = false;
 function composerFocused() {
-  return document.activeElement === elements.terminalInput && !composerKeyboardDismissed;
+  const active = document.activeElement;
+  if (active === elements.sendButton) return !sendFocusedByPointer;
+  return active === elements.terminalInput && !composerKeyboardDismissed;
 }
 
 function sendButtonMode() {
@@ -3938,12 +3944,15 @@ async function stopAgent() {
 // The press decides: at pointerdown, before focus leaves the composer, a press
 // is Send if the composer is focused and Stop if not (while the agent works).
 elements.sendButton.addEventListener("pointerdown", () => {
+  sendFocusedByPointer = true;
   if (elements.sendButton.disabled) return;
   window.clearTimeout(pressedSendModeTimer);
   pressedSendMode = sendButtonMode();
   syncSendButton();
 });
 elements.sendButton.addEventListener("pointercancel", releasePressedSendMode);
+elements.sendButton.addEventListener("focus", () => syncSendButton());
+elements.sendButton.addEventListener("blur", () => { sendFocusedByPointer = false; syncSendButton(); });
 // A press let go off the button has no click: its mode goes a moment later.
 window.addEventListener("pointerup", () => {
   if (pressedSendMode === null) return;
