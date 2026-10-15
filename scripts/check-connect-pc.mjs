@@ -3,8 +3,9 @@
 // Save puts the PC in the sidebar with its sessions, and its row menu renames,
 // shows Details (app version and connection protocol beside this PC's) and
 // disconnects. A PC on another protocol stays offline with both versions and
-// offers Find new address. A connected PC's pane is mirrored (no find, no
-// chat yet) and its sessions still drag. Everything runs in this process: a
+// offers Find new address. A connected PC's pane attaches for real (the PC
+// runs the attach, a fake pty here, and this page types into it; no chat
+// yet) and its sessions still drag. Everything runs in this process: a
 // page, and a second HerdRabbit's Connect PC port on loopback, each with a
 // fake herdr. CONNECT_PC_SCREENSHOTS=<folder> keeps pictures.
 import assert from "node:assert/strict";
@@ -13,6 +14,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
+import { linkAttachSockets, routedSpawner } from "../src/link-attach.mjs";
 import { leafLinkRoutes } from "../src/link-server.mjs";
 import { MultiServerClient } from "../src/multi-server-client.mjs";
 import { PaneAttachments } from "../src/pane-attachments.mjs";
@@ -45,6 +47,10 @@ function machine(label, tabs) {
     calls,
     async snapshot() { return structuredClone(state); },
     async readPane() { return `${label} mirrored screen\n$ `; },
+    async terminalTarget(paneId) {
+      const terminalId = `term_${paneId.replace(/\W/gu, "_")}`;
+      return { command: "herdr", args: ["terminal", "attach", terminalId], env: {}, terminalId, cols: 100, rows: 30 };
+    },
     async sendText(...args) { calls.push(["sendText", ...args]); },
     async sendKeys(...args) { calls.push(["sendKeys", ...args]); },
     async moveTab(tabId, insertIndex) {
@@ -64,10 +70,23 @@ async function listen(server) {
 }
 
 // The PC being connected to, on the same app protocol but another release.
+// Its attaches run on a fake pty that greets and keeps what is typed.
 const desk = machine("Desk work", [{ label: "Agent", agent: "claude" }, { label: "Logs" }]);
+const deskTyped = [];
+const deskAttach = linkAttachSockets({
+  terminalTarget: (paneId) => desk.terminalTarget(paneId),
+  spawnPty: (options) => {
+    setTimeout(() => options.onData("\x1b[H\x1b[2JDesk work attached\r\n$ "), 10);
+    let resolveExit;
+    const exited = new Promise((resolve) => { resolveExit = resolve; });
+    return { exited, write(data) { deskTyped.push(data); }, resize() {}, pause() {}, resume() {}, kill() { resolveExit(); } };
+  },
+  log: () => {},
+});
 const deskServer = createPeerServer({
   peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
-  link: leafLinkRoutes({ client: desk, version: "9.9.9", serverName: "desk" }),
+  link: leafLinkRoutes({ client: desk, attach: deskAttach, version: "9.9.9", serverName: "desk" }),
+  attach: deskAttach,
   logger: { error() {} },
 });
 const deskAddress = await listen(deskServer);
@@ -98,14 +117,14 @@ const attachments = new PaneAttachments({
   log: () => {},
   options: { holdMs: 5, heldRetryMs: 60_000, relookupForMs: 200 },
   resolveTerminal: async (paneId, timeoutMs) => {
-    // The connected PC's client refuses (attach_unsupported); this one attaches.
+    // The connected PC's pane attaches there, over its Connect PC port.
     if (paneId.includes("!")) return herdr.terminalTarget(paneId, timeoutMs);
     return { command: "herdr", args: ["terminal", "attach", "term_1"], env: {}, terminalId: "term_1" };
   },
-  spawnPty: (options) => {
+  spawnPty: routedSpawner((options) => {
     setTimeout(() => options.onData("\x1b[H\x1b[2Jlaptop attached\r\n$ "), 10);
     return { write() {}, resize() {}, pause() {}, resume() {}, kill() {} };
-  },
+  }),
 });
 const discover = async (known) => ({
   available: true,
@@ -195,14 +214,20 @@ try {
   assert.equal(deskInfo["Connection protocol"], "1");
   assert.equal(deskInfo.Address, deskAddress);
 
-  // Its pane is a mirror: no find, and chat says it is not there yet.
+  // Its pane is attached, not mirrored: desk's own attach draws it and typing
+  // reaches it. Chat says it is not there yet.
   const deskPane = `${(await profiles.list())[0].id}!${id("w1:p1")}`;
   await page.locator(`.pane-button[data-pane-id="${deskPane}"]`).click();
-  await page.waitForFunction(() => document.querySelector("#terminal-xterm .xterm-rows")?.textContent.includes("Desk work mirrored screen"));
-  await page.waitForFunction(() => document.querySelector("#terminal-find-open")?.getAttribute("aria-disabled") === "true");
+  await page.waitForFunction(() => document.querySelector("#terminal-xterm .xterm-rows")?.textContent.includes("Desk work attached"));
+  assert.equal(await page.evaluate(() => document.querySelector("#terminal-xterm .xterm-rows").textContent.includes("mirrored screen")), false);
+  await page.waitForFunction(() => document.querySelector("#terminal-find-open")?.getAttribute("aria-disabled") === "false");
+  await page.locator("#terminal-xterm").click();
+  await page.keyboard.type("pwd");
+  for (let attempt = 0; attempt < 30 && !deskTyped.join("").includes("pwd"); attempt += 1) await page.waitForTimeout(100);
+  assert.ok(deskTyped.join("").includes("pwd"), `typing reached desk: ${JSON.stringify(deskTyped)}`);
   await page.waitForFunction(() => document.querySelector("#lens-chat")?.getAttribute("aria-disabled") === "true" &&
     /Connect PC/u.test(document.querySelector("#lens-chat").title));
-  if (shots) await page.screenshot({ path: join(shots, "connect-pc-mirror.png") });
+  if (shots) await page.screenshot({ path: join(shots, "connect-pc-attached.png") });
 
   // Its sessions drag, and the move happens on desk.
   const second = await page.locator(`.tab-group:has(.pane-button[data-pane-id="${deskPane.replace("w1:p1", "w1:p2")}"])`).boundingBox();
@@ -242,11 +267,12 @@ try {
   if (shots) await page.screenshot({ path: join(shots, "connect-pc-sidebar.png") });
 
   assert.deepEqual(errors, []);
-  console.log("Connect PC (dialog, test and save, typed address, Details, mirror, drag, rename, other protocol, disconnect): passed");
+  console.log("Connect PC (dialog, test and save, typed address, Details, attach, drag, rename, other protocol, disconnect): passed");
 } finally {
   await browser.close();
   herdr.stopped = true;
   attachments.close();
+  deskAttach.close();
   for (const each of [server, deskServer, olderServer]) {
     each.closeAllConnections();
     await new Promise((resolve) => each.close(resolve));

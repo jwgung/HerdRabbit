@@ -341,6 +341,7 @@ test("what a connected PC cannot do yet is refused with a reason, not a crash", 
   const { address } = await startLeaf(context);
   const { herdr } = hubFor(address);
   await settled(herdr);
+  // This leaf has no attach (no node-pty there): its panes are mirrored.
   await assert.rejects(() => herdr.terminalTarget(`${LINK_ID}!${PANE}`), { code: "attach_unsupported" });
   await assert.rejects(() => herdr.paneFind(`${LINK_ID}!${PANE}`, { query: "x" }), { code: "link_unsupported" });
   assert.equal(await herdr.paneProcessInfo(`${LINK_ID}!${PANE}`), null);

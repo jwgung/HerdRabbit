@@ -18,6 +18,7 @@ import { MIN_HERDR_VERSION, herdrVersionSupported, readHerdrVersion } from "./he
 import { ServerProfiles } from "./server-profiles.mjs";
 import { PeerIdentity } from "./peer-identity.mjs";
 import { leafLinkRoutes } from "./link-server.mjs";
+import { linkAttachSockets, routedSpawner } from "./link-attach.mjs";
 import { createPeerServer } from "./peer-server.mjs";
 import { discoverLeaves, readTailnetPeers, tailnetLoginOf } from "./tailnet-peers.mjs";
 import { announcementRegistry } from "./announcements.mjs";
@@ -121,12 +122,22 @@ const herdr = new MultiServerClient({
 // Only this machine's panes decide whether a switch here would disturb anything.
 const aiAccounts = new AiAccounts({ directory: config.aiAccountsDir, runningAgents: () => runningAgentsIn(local) });
 const notificationMonitor = new AgentNotificationMonitor({ herdr, push });
-// Without node-pty's native module every pane is a read-only mirror of its screen.
+// Without node-pty's native module this PC's panes are read-only mirrors of
+// their screens. A connected PC's panes still attach: that PC runs the pty.
 const nodePty = await loadNodePty();
 if (!nodePty) console.warn("node-pty is unavailable; terminals mirror the screen instead of attaching.");
-const attachments = nodePty
-  ? new PaneAttachments({ resolveTerminal: (paneId, timeoutMs) => herdr.terminalTarget(paneId, timeoutMs), spawnPty: nodePtySpawner(nodePty) })
-  : null;
+const localPty = nodePty ? nodePtySpawner(nodePty) : null;
+const attachments = new PaneAttachments({
+  resolveTerminal: async (paneId, timeoutMs) => {
+    const target = await herdr.terminalTarget(paneId, timeoutMs);
+    // Refused before anything is spawned, so the page mirrors the pane for good.
+    if (!target.remote && !localPty) {
+      throw Object.assign(new Error("Terminals cannot attach on this PC (node-pty is unavailable)."), { code: "attach_unsupported" });
+    }
+    return target;
+  },
+  spawnPty: routedSpawner(localPty),
+});
 // Shown in this PC's Details: where other PCs connect, and how many may.
 const connectPc = config.peerHost
   ? { address: `http://${hostPort(config.peerHost, config.peerPort)}`, allowed: config.peerAddresses.length + config.peerLogins.length }
@@ -167,6 +178,11 @@ const { server } = createHerdrHttpServer({
 // The Connect PC port: other PCs reach this one's own sessions here, never the
 // page. It answers with the local Herdr client, not the aggregating one, so
 // this PC reports only its own sessions.
+// A hub attaching to one of this PC's panes: this PC's own Herdr and node-pty
+// run the attach, exactly as for this PC's page.
+const linkAttach = config.peerHost
+  ? linkAttachSockets({ terminalTarget: (paneId, timeoutMs) => local.terminalTarget(paneId, timeoutMs), spawnPty: localPty })
+  : null;
 const peerServer = config.peerHost ? createPeerServer({
   peer: new PeerIdentity({
     addresses: config.peerAddresses,
@@ -174,9 +190,10 @@ const peerServer = config.peerHost ? createPeerServer({
     loginOf: (address) => tailnetLoginOf(address),
   }),
   link: leafLinkRoutes({
-    client: local, files, aiAccounts, version: hubVersion, herdrVersion: () => herdrVersion,
+    client: local, files, aiAccounts, attach: linkAttach, version: hubVersion, herdrVersion: () => herdrVersion,
     serverName: hostname(), maxTransferBytes: config.maxTransferBytes, protectedPaths,
   }),
+  attach: linkAttach,
   // A PC added by this one's tailnet name reaches it under that name.
   hostNames: () => [tailnetNames.selfFull].filter(Boolean),
 }) : null;
@@ -247,7 +264,8 @@ async function shutdown() {
   herdr.close();
   notificationMonitor.stop();
   announcer.stop();
-  attachments?.close();
+  attachments.close();
+  linkAttach?.close();
   // The machines' SSH connections close before the server stops listening.
   await machines?.stop().catch((error) => console.error("Closing Herdr machines failed:", error.message));
   // A hub's status stream would otherwise hold the port open.

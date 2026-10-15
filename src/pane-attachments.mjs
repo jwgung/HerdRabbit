@@ -46,6 +46,7 @@ export class PaneAttachments {
   #stopped = false;
 
   // resolveTerminal(paneId, timeoutMs) answers { command, args, env, terminalId, cols, rows }
+  // -- or, for a connected PC's pane, { remote, terminalId, cols, rows } --
   // or throws an error whose `code` says why; spawnPty runs one command on a pty.
   constructor({ resolveTerminal, spawnPty, options = {}, log = (message) => console.error(message) }) {
     this.resolveTerminal = resolveTerminal;
@@ -491,6 +492,9 @@ export class PaneAttachments {
         // --takeover goes after the id: before it, herdr reads the id as an option.
         args: [...terminal.args, ...(takingOver ? ["--takeover"] : [])],
         env: terminal.env,
+        // A connected PC's terminal is opened there, not run here (src/link-attach.mjs).
+        remote: terminal.remote,
+        takeover: Boolean(takingOver),
         cols: attachment.cols,
         rows: attachment.rows,
         onData: (data) => {
