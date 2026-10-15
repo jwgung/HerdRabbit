@@ -85,6 +85,9 @@ export function leafLinkRoutes({
       server_name: serverName,
       // Optional, so a hub reading an older leaf just sees no Herdr version.
       herdr_version: herdrVersion(),
+      // What this PC answers beyond the protocol's base, so a hub asks only
+      // for what is there. A PC from before this list says nothing.
+      features: conversations ? ["conversation"] : [],
     };
   }
 

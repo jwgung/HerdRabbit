@@ -171,6 +171,8 @@ function leafFile(response, path, maxBytes = Infinity, idleMs = TIMEOUTS.fileIdl
 // not a promise, so nothing here touches the network until it is called.
 export class LeafLinkClient {
   #handshake = null;
+  // What the PC said it answers beyond the base protocol (its hello's features).
+  #features = new Set();
   // What the other PC last said it runs, kept when it could not be connected
   // too, so Details can show both sides' versions.
   #remote = null;
@@ -312,6 +314,8 @@ export class LeafLinkClient {
       throw linkError(result.code, result.reason);
     }
     this.#handshake = result;
+    this.#features = new Set((Array.isArray(hello?.features) ? hello.features : [])
+      .filter((feature) => typeof feature === "string" && /^[a-z_]{1,32}$/u.test(feature)).slice(0, 32));
   }
 
   async snapshot() {
@@ -407,6 +411,8 @@ export class LeafLinkClient {
   // such routes and reads as one to update.
   async #conversation(path, { headers = {} } = {}) {
     await this.#ready();
+    // Asked only of a PC that said it answers it, not guessed from a 404.
+    if (!this.#features.has("conversation")) throw new ConversationUnavailable("linked_pc_old");
     const call = await this.#open(path, { headers, timeoutMs: this.timeouts.read });
     const { response } = call;
     const etag = response.headers.get("etag");
@@ -421,7 +427,6 @@ export class LeafLinkClient {
     if (!response.ok) {
       const refusal = conversationRefusal(response.status, payload?.error);
       if (refusal) throw refusal;
-      if (response.status === 404 && payload?.error?.code === "not_found") throw new ConversationUnavailable("linked_pc_old");
       if (response.status === 401 || response.status === 403) {
         throw linkError("leaf_unauthorized", `HerdRabbit at ${this.address} does not allow this PC. Add this PC to its allowed list there.`);
       }

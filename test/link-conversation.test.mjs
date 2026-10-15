@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
@@ -25,6 +25,15 @@ const VERSION = "1.2.54";
 const SESSION = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
 const PANE = "hs_ZGVmYXVsdA~w1:p1";
 const LINKED = `link_1!${PANE}`;
+const CODEX_PANE = "hs_ZGVmYXVsdA~w1:p3";
+const THREAD = "019da5c2-66fd-7021-b565-5e94406b028e";
+const codexTask = (n) => [
+  { type: "event_msg", payload: { type: "task_started", turn_id: `t${n}` } },
+  { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: `codex prompt ${n}` }] } },
+  { type: "event_msg", payload: { type: "user_message", message: `codex prompt ${n}` } },
+  { type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: `codex answer ${n}` }], phase: "final_answer" } },
+  { type: "event_msg", payload: { type: "task_complete" } },
+];
 const jsonl = (entries) => `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
 const turn = (n) => [
   { type: "user", message: { role: "user", content: `prompt ${n}` } },
@@ -57,7 +66,7 @@ async function listen(context, server) {
 // `link` wraps its routes, for a PC that answers differently.
 async function startDesk(context, { link = (routes) => routes } = {}) {
   forgetConversationState();
-  const root = await mkdtemp(join(tmpdir(), "herdrabbit-link-conversation-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "herdrabbit-link-conversation-")));
   context.after(() => rm(root, { recursive: true, force: true }));
   const configDir = join(root, "claude");
   const project = join(configDir, "projects", claudeProjectDir("/work/desk"));
@@ -68,8 +77,16 @@ async function startDesk(context, { link = (routes) => routes } = {}) {
     { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "toolu_big", name: "Bash", input: { command: "seq 1 100000" } }] } },
     { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_big", content: "1\n".repeat(600_000) }] } },
   ]));
+  // A Codex rollout, as Codex names it, reported by its thread id.
+  const rolloutFolder = join(root, "codex", "sessions", "2026", "09", "22");
+  await mkdir(rolloutFolder, { recursive: true });
+  await writeFile(join(rolloutFolder, `rollout-2026-09-22T01-00-00-${THREAD}.jsonl`), jsonl([
+    { type: "session_meta", payload: { id: THREAD, cwd: "/work/desk", source: "cli" } },
+    ...codexTask(1), ...codexTask(2),
+  ]));
   const reads = [];
   const panes = [
+    { pane_id: CODEX_PANE, agent: "codex", agent_status: "idle", cwd: "/work/desk", agent_session: { agent: "codex", kind: "id", value: THREAD } },
     { pane_id: PANE, agent: "claude", agent_status: "blocked", cwd: "/work/desk", agent_session: { agent: "claude", kind: "id", value: SESSION } },
     { pane_id: "hs_ZGVmYXVsdA~w1:p2", agent: null, cwd: "/work/desk" },
   ];
@@ -247,10 +264,19 @@ test("a plan card for a connected PC's pane shows the whole plan from B's transc
 });
 
 test("a connected PC from before this says to update it", async (context) => {
-  // An older HerdRabbit has none of the conversation routes: every one is its 404 not_found.
+  // An older HerdRabbit names no features in its hello and has none of the
+  // conversation routes (every one is its 404 not_found).
   const desk = await startDesk(context, {
     link: (routes) => async (request, response, url, method) => {
       if (/\/(conversation|pending-ask)/u.test(url.pathname)) throw new HttpError(404, "not_found", "Not found");
+      const end = response.end.bind(response);
+      response.end = (body, ...rest) => {
+        if (typeof body === "string" && body.includes('"features"')) {
+          body = body.replace(/,"features":\[[^\]]*\]/u, "");
+          response.setHeader("Content-Length", Buffer.byteLength(body));
+        }
+        return end(body, ...rest);
+      };
       return routes(request, response, url, method);
     },
   });
@@ -279,4 +305,16 @@ test("a connected PC that cannot be reached reads as a machine that is not conne
   const response = await get(pane("/conversation"));
   assert.equal(response.status, 404);
   assert.deepEqual((await response.json()).error.details, { reason: "server_unavailable" });
+});
+
+test("a connected PC's Codex pane reads as a chat too, found there by its thread", async (context) => {
+  const desk = await startDesk(context);
+  const { get } = await startHub(context, desk.address);
+  const response = await get(`/api/panes/${encodeURIComponent(`link_1!${CODEX_PANE}`)}/conversation`);
+  assert.equal(response.status, 200, await response.clone().text());
+  const page = await response.json();
+  const words = JSON.stringify(page.turns);
+  assert.match(words, /codex prompt 1/u);
+  assert.match(words, /codex answer 2/u);
+  assert.doesNotMatch(words, /rollout-2026/u, "B's file path stays on B");
 });
