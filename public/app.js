@@ -3860,20 +3860,21 @@ function syncStopButton() {
 
 async function stopAgent() {
   if (elements.stopButton.hidden || elements.stopButton.disabled) return;
+  const paneId = state.selectedPaneId;
+  if (!state.authenticated || !paneId) return;
   // Busy until the Esc has gone, and for a moment at least; then ready again,
-  // as Claude may need a second Esc. A key still on its way (another key bar
-  // key, a slow link) is waited for, so this Esc is never silently dropped.
+  // as Claude may need a second Esc. Stop does not queue behind another key
+  // on its way (a slow link, a stuck request): the Esc goes at once, to the
+  // pane it was pressed for, and is never dropped for waiting.
   elements.stopButton.disabled = true;
   elements.stopButton.setAttribute("aria-busy", "true");
   const shortest = new Promise((resolve) => { window.clearTimeout(stopBusyTimer); stopBusyTimer = window.setTimeout(resolve, STOP_BUSY_MS); });
-  // The pane pressed for: while waiting the page may move to another pane,
-  // whose agent this Esc must not stop.
-  const paneId = state.selectedPaneId;
+  clearKeyModifiers();
   try {
-    for (let waited = 0; keySendBusy && waited < 10_000; waited += 100) {
-      await new Promise((resolve) => window.setTimeout(resolve, 100));
-    }
-    if (state.selectedPaneId === paneId) await sendCommandKey("esc");
+    await sendKeys(["esc"], paneId);
+    refreshAfterSubmission();
+  } catch (error) {
+    setFeedback(error.message, true);
   } finally {
     await shortest;
     elements.stopButton.disabled = false;
