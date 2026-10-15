@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  namesImage,
   HerdrClient,
   HerdrCommandError,
   InputValidationError,
@@ -114,6 +115,29 @@ test("submits text through Herdr's atomic pane run command", async () => {
   assert.deepEqual(fake.calls.map((call) => call.args), [
     ["pane", "run", "w1:p2", "$(touch /tmp/not-run)"],
   ]);
+});
+
+test("a message naming an image gets its Enter a moment after the text, so the agent attaches it first", async () => {
+  const ok = { stdout: "", stderr: "" };
+  const fake = recordingRunner([ok, ok]);
+  const waited = [];
+  const client = new HerdrClient({ runner: fake.runner, imageSettleMs: 700, sleep: async (ms) => { waited.push(ms); } });
+  const text = "look at /home/me/.local/share/herdrabbit/files/pasted-2026-10-15T00-44-38.png please";
+  await client.sendText("w1:p2", text, { submit: true });
+  assert.deepEqual(fake.calls.map((call) => call.args), [
+    ["pane", "send-text", "w1:p2", text],
+    ["pane", "send-keys", "w1:p2", "enter"],
+  ]);
+  assert.deepEqual(waited, [700]);
+});
+
+test("tells an image path in a message from other text", async () => {
+  for (const text of ["/tmp/a.png", "see ~/shots/b.JPG", "./c.webp and more", '"/x y/d.gif"', "(/p/e.jpeg)", "@shots/a.png", '@"my folder/a.png" now', "@/tmp/b.webp"]) {
+    assert.equal(namesImage(text), true, text);
+  }
+  for (const text of ["no image here", "image.png", "/tmp/notes.md", "a.png.txt at /tmp/f.png.bak", "https://x.test/a.png", "@src/app.js", "me@x.png"]) {
+    assert.equal(namesImage(text), false, text);
+  }
 });
 
 test("accepts an empty successful response when sending terminal keys", async () => {

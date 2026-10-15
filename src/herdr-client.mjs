@@ -339,6 +339,20 @@ function publicCommandError(error) {
   return new HerdrCommandError("Herdr command failed", { cause: error });
 }
 
+// Enough for Claude Code to read a pasted image path before its Enter.
+const IMAGE_SETTLE_MS = 700;
+// A path to an image file, as an upload or a path link puts in a message.
+const IMAGE_EXTENSION = "(?:png|jpe?g|gif|webp|bmp|heic|heif|tiff?)";
+const IMAGE_PATH_RE = new RegExp(`(?:^|[\\s(])(?:~|\\.{0,2})?/[^\\s"']*\\.${IMAGE_EXTENSION}(?=$|[\\s)])`, "iu");
+// a quoted one may hold spaces: "/my shots/a.png"
+const QUOTED_IMAGE_PATH_RE = new RegExp(`(["'])(?:~|\\.{0,2})?/[^"'\\n]*\\.${IMAGE_EXTENSION}\\1`, "iu");
+// an @ reference to one, relative or not, quoted or not: @shots/a.png
+const AT_IMAGE_RE = new RegExp(`(?:^|\\s)@(?:"[^"\\n]*\\.${IMAGE_EXTENSION}"|[^\\s"]*\\.${IMAGE_EXTENSION})(?=$|\\s)`, "iu");
+export function namesImage(text) {
+  const value = String(text ?? "");
+  return IMAGE_PATH_RE.test(value) || QUOTED_IMAGE_PATH_RE.test(value) || AT_IMAGE_RE.test(value);
+}
+
 export class HerdrClient {
   constructor({
     binary = "herdr",
@@ -346,8 +360,13 @@ export class HerdrClient {
     runner = execFileAsync,
     sessionName = null,
     socketPath = null,
+    // How long an agent gets to take in a pasted image before its Enter.
+    imageSettleMs = IMAGE_SETTLE_MS,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   } = {}) {
     this.binary = binary;
+    this.imageSettleMs = imageSettleMs;
+    this.sleep = sleep;
     this.timeoutMs = timeoutMs;
     this.runner = runner;
     this.sessionName = sessionName === null
@@ -679,6 +698,14 @@ export class HerdrClient {
   async sendText(paneId, text, { submit = false } = {}) {
     const safePaneId = validatePaneId(paneId);
     const safeText = validateText(text);
+    if (submit && namesImage(safeText)) {
+      // Claude Code turns a pasted image path into an attachment ([Image #1])
+      // and drops an Enter that arrives while it does: the text goes first,
+      // the Enter after a moment, so the message is sent in one go.
+      await this.#run(["pane", "send-text", safePaneId, safeText], { json: false });
+      await this.sleep(this.imageSettleMs);
+      return this.#run(["pane", "send-keys", safePaneId, "enter"], { json: false });
+    }
     if (submit) {
       return this.#run(["pane", "run", safePaneId, safeText], {
         json: false,
