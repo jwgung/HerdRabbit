@@ -6,13 +6,13 @@ import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { PEER_ADDRESS_HEADER, PEER_LOGIN_HEADER } from "../src/peer-identity.mjs";
 
 const OWNER = "owner@example.com";
-const LEAF = "100.64.0.2";
+const LINKED_ADDRESS = "100.64.0.2";
 
 function claim(overrides = {}) {
   return {
-    from: LEAF,
+    from: LINKED_ADDRESS,
     name: "dev-box",
-    address: `http://${LEAF}:30001`,
+    address: `http://${LINKED_ADDRESS}:30001`,
     version: "1.4.0",
     protocol: 1,
     ...overrides,
@@ -20,12 +20,12 @@ function claim(overrides = {}) {
 }
 
 test("a machine may announce itself and nothing else", () => {
-  // Without this one leaf could fill the dialog with rows pointing anywhere,
+  // Without this one connected PC could fill the dialog with rows pointing anywhere,
   // including at machines it has nothing to do with.
   const registry = announcementRegistry();
   assert.equal(registry.record(claim()).ok, true);
   assert.deepEqual(registry.list(), [{
-    name: "dev-box", address: `http://${LEAF}:30001`, version: "1.4.0", protocol: 1,
+    name: "dev-box", address: `http://${LINKED_ADDRESS}:30001`, version: "1.4.0", protocol: 1,
   }]);
 
   assert.equal(registry.record(claim({ address: "http://100.64.0.9:30001" })).ok, false);
@@ -111,7 +111,7 @@ async function hub(context, registry) {
 const announce = (base, headers, body) => fetch(`${base}/api/announce`, {
   method: "POST",
   headers: { "content-type": "application/json", ...headers },
-  body: JSON.stringify(body ?? { name: "dev-box", address: `http://${LEAF}:30001`, version: "1.4.0", link_protocol: 1 }),
+  body: JSON.stringify(body ?? { name: "dev-box", address: `http://${LINKED_ADDRESS}:30001`, version: "1.4.0", link_protocol: 1 }),
 });
 
 test("the hub takes an announcement only from its own tailnet", async (context) => {
@@ -122,13 +122,13 @@ test("the hub takes an announcement only from its own tailnet", async (context) 
   // can reach this socket. Neither one alone says the caller is on the tailnet.
   assert.equal((await announce(base, {})).status, 403);
   assert.equal((await announce(base, { [PEER_LOGIN_HEADER]: OWNER })).status, 403);
-  assert.equal((await announce(base, { [PEER_ADDRESS_HEADER]: LEAF })).status, 403);
+  assert.equal((await announce(base, { [PEER_ADDRESS_HEADER]: LINKED_ADDRESS })).status, 403);
   assert.equal((await announce(base, {
-    [PEER_LOGIN_HEADER]: "someone@else", [PEER_ADDRESS_HEADER]: LEAF,
+    [PEER_LOGIN_HEADER]: "someone@else", [PEER_ADDRESS_HEADER]: LINKED_ADDRESS,
   })).status, 403);
   assert.equal(registry.size, 0);
 
-  const accepted = await announce(base, { [PEER_LOGIN_HEADER]: OWNER, [PEER_ADDRESS_HEADER]: LEAF });
+  const accepted = await announce(base, { [PEER_LOGIN_HEADER]: OWNER, [PEER_ADDRESS_HEADER]: LINKED_ADDRESS });
   assert.equal(accepted.status, 202);
   assert.equal(registry.size, 1);
 });
@@ -138,7 +138,7 @@ test("the hub refuses an announcement that points somewhere else", async (contex
   const base = await hub(context, registry);
   const response = await announce(
     base,
-    { [PEER_LOGIN_HEADER]: OWNER, [PEER_ADDRESS_HEADER]: LEAF },
+    { [PEER_LOGIN_HEADER]: OWNER, [PEER_ADDRESS_HEADER]: LINKED_ADDRESS },
     { name: "impostor", address: "http://100.64.0.9:30001", version: "1.4.0", link_protocol: 1 },
   );
   assert.equal(response.status, 400);
@@ -155,7 +155,7 @@ test("a hub without announcements enabled has no such route", async (context) =>
   await once(created.server, "listening");
   context.after(() => new Promise((resolve) => created.server.close(resolve)));
   const base = `http://127.0.0.1:${created.server.address().port}`;
-  assert.equal((await announce(base, { [PEER_LOGIN_HEADER]: OWNER, [PEER_ADDRESS_HEADER]: LEAF })).status, 404);
+  assert.equal((await announce(base, { [PEER_LOGIN_HEADER]: OWNER, [PEER_ADDRESS_HEADER]: LINKED_ADDRESS })).status, 404);
 });
 
 test("forgets an address a look proved is not there", () => {
@@ -167,7 +167,7 @@ test("forgets an address a look proved is not there", () => {
   registry.record(claim({ from: "100.64.0.3", address: "http://100.64.0.3:30001" }));
   assert.equal(registry.size, 2);
 
-  assert.equal(registry.forget([`http://${LEAF}:30001`, "http://100.64.9.9:1"]), 1);
+  assert.equal(registry.forget([`http://${LINKED_ADDRESS}:30001`, "http://100.64.9.9:1"]), 1);
   assert.deepEqual(registry.list().map((entry) => entry.address), ["http://100.64.0.3:30001"]);
   assert.equal(saved.length, 1, "the file is rewritten only when something went");
 });

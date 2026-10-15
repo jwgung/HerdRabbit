@@ -2,16 +2,16 @@ import { Readable, Transform, pipeline } from "node:stream";
 import { HerdrCommandError, TERMINAL_ID } from "./herdr-client.mjs";
 import { validSize } from "./pane-attachments.mjs";
 import { FileAccessError, UNKNOWN_SIZE_STREAM_BYTES } from "./file-browser.mjs";
-import { LINK_PROTOCOL, ResponseTooLarge, checkLeafCompatibility, normalizeLeafSnapshot, readLimitedText } from "./leaf-protocol.mjs";
+import { LINK_PROTOCOL, ResponseTooLarge, checkLinkCompatibility, normalizeLinkSnapshot, readLimitedText } from "./link-protocol.mjs";
 import { AiAccountError } from "./ai-accounts.mjs";
-import { subscribeLeafStatuses } from "./leaf-status-stream.mjs";
+import { subscribeLinkStatuses } from "./link-status-stream.mjs";
 import { openRemotePty } from "./link-attach.mjs";
 import { ConversationError, ConversationUnavailable, HistoryChanged, TOOL_ID } from "./conversation/pages.mjs";
 
 // fileIdle: how long a file being passed on may go quiet before it fails
 const TIMEOUTS = { hello: 5_000, snapshot: 8_000, read: 6_000, write: 6_000, fileIdle: 60_000 };
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
-// A refusal is a short JSON error; nothing a leaf says about one needs more.
+// A refusal is a short JSON error; nothing a connected PC says about one needs more.
 const MAX_ERROR_BYTES = 64 * 1024;
 
 function linkError(code, message, cause) {
@@ -76,7 +76,7 @@ function movedResult(value, tabId) {
   };
 }
 
-// Anything the leaf says reaches a status line in the sidebar, so it is trimmed
+// Anything the connected PC says reaches a status line in the sidebar, so it is trimmed
 // and stripped of anything that would smear a log or a heading.
 function readable(text) {
   return String(text ?? "").replace(/[\u0000-\u001f\u007f]/gu, " ").trim().slice(0, 200);
@@ -84,19 +84,19 @@ function readable(text) {
 
 function transportError(error, address) {
   if (error?.name === "TimeoutError" || error?.name === "AbortError") {
-    return linkError("leaf_timeout", `HerdRabbit at ${address} did not answer in time.`, error);
+    return linkError("link_timeout", `HerdRabbit at ${address} did not answer in time.`, error);
   }
   const code = error?.cause?.code || error?.code;
   if (code === "CERT_HAS_EXPIRED" || String(code).startsWith("ERR_TLS") || String(code).startsWith("UNABLE_TO_")) {
-    return linkError("leaf_tls", `The HTTPS certificate at ${address} was rejected.`, error);
+    return linkError("link_tls", `The HTTPS certificate at ${address} was rejected.`, error);
   }
-  return linkError("leaf_unreachable",
+  return linkError("link_unreachable",
     `Could not reach HerdRabbit at ${address}. Check the address and that HerdRabbit is running there.`, error);
 }
 
 
 // The only detail an account refusal carries is which panes a switch would
-// affect; anything else a leaf sends is dropped.
+// affect; anything else a connected PC sends is dropped.
 function accountDetails(details) {
   if (!Array.isArray(details?.panes)) return undefined;
   return {
@@ -120,7 +120,7 @@ function capped(limit, idleMs) {
       clearTimeout(timer);
       seen += chunk.length;
       if (seen > limit) {
-        callback(new FileAccessError(502, "leaf_error", "The connected PC sent more of that file than it should have."));
+        callback(new FileAccessError(502, "link_error", "The connected PC sent more of that file than it should have."));
         return;
       }
       callback(null, chunk);
@@ -131,7 +131,7 @@ function capped(limit, idleMs) {
   const read = stream._read.bind(stream);
   stream._read = (size) => {
     clearTimeout(timer);
-    timer = setTimeout(() => stream.destroy(new FileAccessError(504, "leaf_timeout", "The connected PC stopped sending that file.")), idleMs);
+    timer = setTimeout(() => stream.destroy(new FileAccessError(504, "link_timeout", "The connected PC stopped sending that file.")), idleMs);
     timer.unref?.();
     read(size);
   };
@@ -141,11 +141,11 @@ function capped(limit, idleMs) {
 // `Content-Range: bytes <start>-<end>/<size>` is where a partial answer keeps
 // both numbers the caller needs: how much came back, and how big the file is.
 //
-// The bytes are counted as they pass: a leaf may not send more than it said,
+// The bytes are counted as they pass: a connected PC may not send more than it said,
 // nor more than `maxBytes`, nor -- saying nothing -- more than a file of
 // unknown size may be. One that does is cut off with an error, so the
 // download fails rather than ends looking whole.
-function leafFile(response, path, maxBytes = Infinity, idleMs = TIMEOUTS.fileIdle) {
+function linkedFile(response, path, maxBytes = Infinity, idleMs = TIMEOUTS.fileIdle) {
   const named = response.headers.get("x-herdr-file-name");
   const length = response.headers.get("content-length");
   const served = /^bytes (\d+)-(\d+)\/(\d+)$/u.exec(response.headers.get("content-range") ?? "");
@@ -169,7 +169,7 @@ function leafFile(response, path, maxBytes = Infinity, idleMs = TIMEOUTS.fileIdl
 // The hub's half of a link: this PC asking another PC's Connect PC port. It is constructed synchronously because
 // MultiServerClient builds clients inside syncEntries and expects an object,
 // not a promise, so nothing here touches the network until it is called.
-export class LeafLinkClient {
+export class LinkClient {
   #handshake = null;
   // What the PC said it answers beyond the base protocol (its hello's features).
   #features = new Set();
@@ -177,7 +177,7 @@ export class LeafLinkClient {
   // too, so Details can show both sides' versions.
   #remote = null;
 
-  constructor({ profile, hubVersion, fetchImpl = globalThis.fetch, subscribe = subscribeLeafStatuses, maxTransferBytes = Infinity, timeouts = TIMEOUTS }) {
+  constructor({ profile, hubVersion, fetchImpl = globalThis.fetch, subscribe = subscribeLinkStatuses, maxTransferBytes = Infinity, timeouts = TIMEOUTS }) {
     this.profile = profile;
     this.maxTransferBytes = maxTransferBytes;
     this.timeouts = { ...TIMEOUTS, ...timeouts };
@@ -199,13 +199,13 @@ export class LeafLinkClient {
     };
   }
 
-  // One call to the leaf. The clock runs until `done` is called -- after the
-  // body is read, for an answer that is read whole -- so a leaf that answers
+  // One call to the connected PC. The clock runs until `done` is called -- after the
+  // body is read, for an answer that is read whole -- so a connected PC that answers
   // its headers and then trickles cannot hold a request open for good.
   async #open(path, { method = "GET", body, headers = {}, timeoutMs, duplex }) {
     const controller = new AbortController();
     this.controllers.add(controller);
-    const timer = setTimeout(() => controller.abort(new DOMException("The leaf did not answer in time.", "TimeoutError")), timeoutMs);
+    const timer = setTimeout(() => controller.abort(new DOMException("The connected PC did not answer in time.", "TimeoutError")), timeoutMs);
     timer.unref?.();
     const done = () => {
       clearTimeout(timer);
@@ -225,7 +225,7 @@ export class LeafLinkClient {
     if (response.status >= 300 && response.status < 400 && response.status !== 304) {
       await response.body?.cancel().catch(() => {});
       done();
-      throw linkError("leaf_error", `HerdRabbit at ${this.address} answered with a redirect, which this hub does not follow.`);
+      throw linkError("link_error", `HerdRabbit at ${this.address} answered with a redirect, which this hub does not follow.`);
     }
     return { response, done, abort: () => controller.abort() };
   }
@@ -237,7 +237,7 @@ export class LeafLinkClient {
     } catch (error) {
       abort();
       if (error instanceof ResponseTooLarge) {
-        throw linkError("leaf_error", `HerdRabbit at ${this.address} sent more than this hub will read.`);
+        throw linkError("link_error", `HerdRabbit at ${this.address} sent more than this hub will read.`);
       }
       throw transportError(error, this.address);
     } finally {
@@ -267,7 +267,7 @@ export class LeafLinkClient {
 
     if (!response.ok) {
       // An account refusal keeps its own status and code, so "that account is
-      // active" is not flattened into "the leaf is broken".
+      // active" is not flattened into "the connected PC is broken".
       const refusal = payload?.error;
       if (codes?.has(refusal?.code)) {
         throw linkError(refusal.code, readable(refusal.message) || `HerdRabbit at ${this.address} returned ${response.status}.`);
@@ -282,29 +282,29 @@ export class LeafLinkClient {
       }
       // The page's own port asks for a login; that is the wrong port, not a refusal.
       if (response.status === 401 && payload?.error?.code === "authentication_required") {
-        throw linkError("leaf_not_linked",
+        throw linkError("link_not_linked",
           `${this.address} is a HerdRabbit page, not its Connect PC port. Use the address its Connect PC setting shows.`);
       }
       if (response.status === 401 || response.status === 403) {
-        throw linkError("leaf_unauthorized", payload?.error?.code === "peer_not_allowed"
+        throw linkError("link_unauthorized", payload?.error?.code === "peer_not_allowed"
           ? `HerdRabbit at ${this.address} does not accept other PCs yet. Add this PC to its allowed list there.`
           : `HerdRabbit at ${this.address} does not allow this PC. Add this PC to its allowed list there.`);
       }
       if (response.status === 404) {
-        throw linkError("leaf_not_linked",
+        throw linkError("link_not_linked",
           `${this.address} answered, but not as a HerdRabbit Connect PC port.`);
       }
       const message = readable(payload?.error?.message) || `HerdRabbit at ${this.address} returned ${response.status}.`;
-      throw linkError(payload?.error?.code?.startsWith?.("leaf_") ? payload.error.code : "leaf_error", message);
+      throw linkError(payload?.error?.code?.startsWith?.("link_") ? payload.error.code : "link_error", message);
     }
     if (payload === null || typeof payload !== "object") {
-      throw linkError("leaf_not_herdrabbit", `That address answered, but it is not a HerdRabbit server.`);
+      throw linkError("link_not_herdrabbit", `That address answered, but it is not a HerdRabbit server.`);
     }
     return payload;
   }
 
   #verify(hello) {
-    const result = checkLeafCompatibility(
+    const result = checkLinkCompatibility(
       { hubVersion: this.hubVersion, hubProtocol: LINK_PROTOCOL, serverName: `"${this.profile.name}"` },
       hello,
     );
@@ -319,11 +319,11 @@ export class LeafLinkClient {
   }
 
   async snapshot() {
-    // The handshake rides along, so an incompatible leaf is caught on the same
+    // The handshake rides along, so an incompatible connected PC is caught on the same
     // poll that would have merged its records.
     const body = await this.#request("/api/link/snapshot", { timeoutMs: this.timeouts.snapshot, checked: true });
     this.#verify(body.hello);
-    return normalizeLeafSnapshot(body.snapshot);
+    return normalizeLinkSnapshot(body.snapshot);
   }
 
   // `source` reaches the PC too, so a prompt card there reads the region
@@ -428,18 +428,18 @@ export class LeafLinkClient {
       const refusal = conversationRefusal(response.status, payload?.error);
       if (refusal) throw refusal;
       if (response.status === 401 || response.status === 403) {
-        throw linkError("leaf_unauthorized", `HerdRabbit at ${this.address} does not allow this PC. Add this PC to its allowed list there.`);
+        throw linkError("link_unauthorized", `HerdRabbit at ${this.address} does not allow this PC. Add this PC to its allowed list there.`);
       }
-      throw linkError("leaf_error", readable(payload?.error?.message) || `HerdRabbit at ${this.address} returned ${response.status}.`);
+      throw linkError("link_error", readable(payload?.error?.message) || `HerdRabbit at ${this.address} returned ${response.status}.`);
     }
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
-      throw linkError("leaf_error", `HerdRabbit at ${this.address} sent an answer this hub cannot read.`);
+      throw linkError("link_error", `HerdRabbit at ${this.address} sent an answer this hub cannot read.`);
     }
     return { notModified: false, etag, body: payload };
   }
 
   #unreadable() {
-    return linkError("leaf_error", `HerdRabbit at ${this.address} sent an answer this hub cannot read.`);
+    return linkError("link_error", `HerdRabbit at ${this.address} sent an answer this hub cannot read.`);
   }
 
   // A page of turns, as this hub's own page read answers one: the page with
@@ -514,11 +514,11 @@ export class LeafLinkClient {
     return () => { this.stops.delete(stop); stop(); };
   }
 
-  // Files. The leaf answers these with its own local browser, so nothing here
+  // Files. The connected PC answers these with its own local browser, so nothing here
   // needs to know how to read a disk -- only how to ask.
   //
   // `stream`: the body is a file, handed on as it arrives, so the clock stops
-  // at the headers and the bytes are bounded by leafFile instead. Otherwise
+  // at the headers and the bytes are bounded by linkedFile instead. Otherwise
   // the body is JSON and is read here, whole and bounded, on the clock.
   async #fileRequest(path, { method = "GET", body, headers = {}, timeoutMs = this.timeouts.read, stream = false } = {}) {
     await this.#ready();
@@ -529,10 +529,10 @@ export class LeafLinkClient {
     if (!response.ok) {
       let payload = null;
       try { payload = JSON.parse(await this.#readBody(call, MAX_ERROR_BYTES)); } catch { /* keep the status */ }
-      // The leaf already decided what this is; passing its status through keeps
+      // The connected PC already decided what this is; passing its status through keeps
       // "no such folder" from arriving as a generic failure.
       const code = typeof payload?.error?.code === "string" && /^[a-z_]{1,64}$/u.test(payload.error.code)
-        ? payload.error.code : "leaf_error";
+        ? payload.error.code : "link_error";
       throw new FileAccessError(
         response.status,
         code,
@@ -549,7 +549,7 @@ export class LeafLinkClient {
     try {
       return JSON.parse(text);
     } catch {
-      throw new FileAccessError(502, "leaf_error", `HerdRabbit at ${this.address} sent an answer this hub cannot read.`);
+      throw new FileAccessError(502, "link_error", `HerdRabbit at ${this.address} sent an answer this hub cannot read.`);
     }
   }
 
@@ -576,7 +576,7 @@ export class LeafLinkClient {
       `/api/link/browse/file?path=${encodeURIComponent(path)}`,
       { headers: rangeHeader ? { range: rangeHeader } : {}, stream: true },
     );
-    const file = leafFile(response, path, maxBytes, this.timeouts.fileIdle);
+    const file = linkedFile(response, path, maxBytes, this.timeouts.fileIdle);
     // The same limit a file on this PC is held to, checked before any byte is passed on.
     if (file.size !== null && file.size > maxBytes) {
       file.stream.destroy();
@@ -599,7 +599,7 @@ export class LeafLinkClient {
 
   async openUpload(name) {
     const response = await this.#fileRequest(`/api/link/files/${encodeURIComponent(name)}`, { stream: true });
-    const file = leafFile(response, name, this.maxTransferBytes, this.timeouts.fileIdle);
+    const file = linkedFile(response, name, this.maxTransferBytes, this.timeouts.fileIdle);
     if (file.size !== null && file.size > this.maxTransferBytes) {
       file.stream.destroy();
       throw new FileAccessError(413, "file_too_large", "That file is too large to download here.");
@@ -607,7 +607,7 @@ export class LeafLinkClient {
     return file;
   }
 
-  // The declared size travels with the body: the leaf refuses an upload it
+  // The declared size travels with the body: the connected PC refuses an upload it
   // cannot size, the same way this hub refuses one from a browser.
   async saveUpload(name, source, { bytes } = {}) {
     const answer = await this.#fileRequest(`/api/link/files/${encodeURIComponent(name)}`, {
@@ -628,7 +628,7 @@ export class LeafLinkClient {
   hold() {}
   release() {}
 
-  // Project and tab changes. The leaf runs them through its own Herdr client,
+  // Project and tab changes. The connected PC runs them through its own Herdr client,
   // so its validation is what decides -- this side only carries the request.
   async createWorkspace(label, herdrSessionId) {
     const body = herdrSessionId === undefined ? { label } : { label, herdrSessionId };
@@ -680,7 +680,7 @@ export class LeafLinkClient {
     });
   }
 
-  // AI CLI accounts on the leaf, shaped like the local account manager so the
+  // AI CLI accounts on the connected PC, shaped like the local account manager so the
   // hub's routes do not care which machine they are talking to.
   aiAccounts() {
     const post = (path, body) => this.#request(`/api/link/ai-accounts${path}`, {

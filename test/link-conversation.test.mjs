@@ -16,12 +16,12 @@ import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
 import { HttpError } from "../src/http-basics.mjs";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
-import { leafLinkRoutes } from "../src/link-server.mjs";
+import { linkRoutes } from "../src/link-server.mjs";
 import { MultiServerClient } from "../src/multi-server-client.mjs";
 import { PeerIdentity } from "../src/peer-identity.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
 
-const VERSION = "1.2.54";
+const VERSION = "1.2.55";
 const SESSION = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
 const PANE = "hs_ZGVmYXVsdA~w1:p1";
 const LINKED = `link_1!${PANE}`;
@@ -103,7 +103,7 @@ async function startDesk(context, { link = (routes) => routes } = {}) {
   const conversations = new ConversationService({ herdr, localStore: localTranscriptStore({ configDir, codexHome: join(root, "codex") }) });
   const server = createPeerServer({
     peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
-    link: link(leafLinkRoutes({ client: herdr, conversations, version: VERSION, serverName: "desk" })),
+    link: link(linkRoutes({ client: herdr, conversations, version: VERSION, serverName: "desk" })),
     logger: { error() {} },
   });
   return { address: await listen(context, server), herdr, transcript, project };

@@ -36,7 +36,7 @@ function browserRequest(headers) {
 //     `hostNames`), so a page on someone else's name that resolves here is
 //     refused before anything else is looked at.
 //
-// `link` is leafLinkRoutes (src/link-server.mjs); `peer` is a PeerIdentity.
+// `link` is linkRoutes (src/link-server.mjs); `peer` is a PeerIdentity.
 // `attach` is linkAttachSockets (src/link-attach.mjs), the one WebSocket this
 // port speaks: a hub attaching to a pane's terminal. Without it every upgrade
 // is turned away. `hostNames` returns other names this PC is reached by, such

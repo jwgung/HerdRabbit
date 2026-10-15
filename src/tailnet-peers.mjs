@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { isIP } from "node:net";
 import { promisify } from "node:util";
 import { hostPort } from "./config.mjs";
-import { DEFAULT_PEER_PORT, checkLeafCompatibility, readLimitedText } from "./leaf-protocol.mjs";
+import { DEFAULT_PEER_PORT, checkLinkCompatibility, readLimitedText } from "./link-protocol.mjs";
 
 const run = promisify(execFile);
 
@@ -13,7 +13,7 @@ const MAX_PEERS = 32;
 const MAX_HELLO_BYTES = 16 * 1024;
 
 // Discovery asks the default Connect PC port only. A PC on another port
-// announces itself (src/leaf-announce.mjs) -- guessing a range would turn one
+// announces itself (src/link-announce.mjs) -- guessing a range would turn one
 // dialog into a port scan.
 export { DEFAULT_PEER_PORT };
 
@@ -101,13 +101,13 @@ async function answer(peer, address, hubVersion, fetchImpl, controller) {
   }
   let hello = null;
   try { hello = JSON.parse(await readLimitedText(response, MAX_HELLO_BYTES)); } catch { /* handled by the check below */ }
-  const verdict = checkLeafCompatibility({ hubVersion, serverName: `"${peer.name}"` }, hello);
+  const verdict = checkLinkCompatibility({ hubVersion, serverName: `"${peer.name}"` }, hello);
   return verdict.ok
     ? { ...peer, address, state: "ready", version: verdict.version }
     : { ...peer, address, state: "incompatible", reason: verdict.reason, version: verdict.version ?? null };
 }
 
-export async function discoverLeaves({
+export async function discoverPeers({
   hubVersion,
   port = DEFAULT_PEER_PORT,
   fetchImpl = globalThis.fetch,

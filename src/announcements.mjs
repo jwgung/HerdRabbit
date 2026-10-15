@@ -1,4 +1,4 @@
-// A leaf knows its hub -- that is what it was installed with -- so it can say
+// A connected PC knows its hub -- that is what it was installed with -- so it can say
 // where it is instead of waiting to be found. This matters when a machine runs
 // more than one HerdRabbit, one per account: they share a tailnet address and
 // differ only by port, and probing cannot guess a port.
@@ -12,7 +12,7 @@ const MAX_ANNOUNCEMENTS = 32;
 const MAX_VERSION_LENGTH = 40;
 
 // Once a machine has said where it is, that is worth keeping: it does not stop
-// being true because the hub restarted or the leaf went quiet for a while. A
+// being true because the hub restarted or the connected PC went quiet for a while. A
 // machine that is genuinely gone drops out of the dialog on its own, because
 // every candidate is probed before it is offered.
 export function announcementRegistry({ now = () => Date.now(), initial = [], save = () => {} } = {}) {
@@ -36,7 +36,7 @@ export function announcementRegistry({ now = () => Date.now(), initial = [], sav
   return {
     // `from` is the address the request actually arrived from. A machine may
     // announce itself and nothing else, which is the whole check: without it
-    // one leaf could fill the dialog with rows pointing anywhere.
+    // one connected PC could fill the dialog with rows pointing anywhere.
     record({ from, name, address, version, protocol }) {
       let parsed;
       try {
