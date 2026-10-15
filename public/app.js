@@ -1,6 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.56";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.56";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.56";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.57";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.57";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.57";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -49,7 +49,8 @@ import {
   aiRestartHint,
   isAiLoginWorkspace,
   paneKeepsInputHistory,
-} from "./ui-model.js?v=1.2.56";
+  legacyMachinesNotice,
+} from "./ui-model.js?v=1.2.57";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -60,42 +61,42 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.56";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.56";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.56";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.56";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.56";
-import { createChatFind } from "./chat/chat-find.js?v=1.2.56";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.56";
+} from "./browse-preference.js?v=1.2.57";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.57";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.57";
+import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.57";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.57";
+import { createChatFind } from "./chat/chat-find.js?v=1.2.57";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.57";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.56";
-import { chatAgent } from "./lens-preference.js?v=1.2.56";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.56";
+} from "./chat-font-preference.js?v=1.2.57";
+import { chatAgent } from "./lens-preference.js?v=1.2.57";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.57";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.56";
+} from "./pane-preference.js?v=1.2.57";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.56";
+} from "./workspace-preference.js?v=1.2.57";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.56";
+} from "./terminal-preference.js?v=1.2.57";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.56";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.56";
+} from "./completion-preference.js?v=1.2.57";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.57";
 import {
   attachSidebarDrag,
   dropScope,
@@ -104,15 +105,15 @@ import {
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.2.56";
-import { renamePaneKeys } from "./pane-rename.js?v=1.2.56";
-import { renamePaneLenses } from "./lens-preference.js?v=1.2.56";
+} from "./sidebar-drag.js?v=1.2.57";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.57";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.57";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.56";
-import { createAtFilesPopup } from "./composer-at-files.js?v=1.2.56";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.56";
+} from "./input-history-preference.js?v=1.2.57";
+import { createAtFilesPopup } from "./composer-at-files.js?v=1.2.57";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.57";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -128,16 +129,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.56";
+} from "./key-bar-preference.js?v=1.2.57";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.56";
+} from "./launch-session.js?v=1.2.57";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.56";
+} from "./push-notifications.js?v=1.2.57";
 
 function browserStorage() {
   try {
@@ -1807,22 +1808,17 @@ function attachGroupCollapse(group, heading, body, groupId, label) {
   heading.prepend(button);
 }
 
+// Only a PC connected with Connect PC is renamed: this PC is not a connection.
 function serverRenameForm(server) {
-  const linked = server.transport === "link";
   return renameForm({
     value: server.name,
     label: `${server.name} machine name`,
-    // Herdr's machine names are held to 60 characters by the server.
-    maxLength: linked ? 80 : 60,
+    maxLength: 80,
     invalidMessage: "Enter a name.",
     onCancel: () => { state.editingServerId = null; renderNavigation(); },
     onSubmit: async (name) => {
-      if (linked) {
-        // The address is not edited here, so it is carried over unchanged.
-        await api(`/api/servers/${server.id}`, { method: "PUT", body: { name, address: server.address ?? "" } });
-      } else {
-        await api(`/api/machines/${server.id}`, { method: "PUT", body: { label: name } });
-      }
+      // The address is not edited here, so it is carried over unchanged.
+      await api(`/api/servers/${server.id}`, { method: "PUT", body: { name, address: server.address ?? "" } });
       state.editingServerId = null;
       await refreshSnapshot();
     },
@@ -1840,7 +1836,7 @@ function herdrVersionText(server) {
     : server.herdr_version;
 }
 
-const SERVER_KINDS = { local: "This PC", link: "Connect PC", machine: "SSH machine (herdr machine)" };
+const SERVER_KINDS = { local: "This PC", link: "Connect PC" };
 
 // A connected PC on another app version still connects; Details says so. Its
 // link protocol is what decides, so that is shown beside this PC's.
@@ -1878,7 +1874,7 @@ function showServerDetails(server) {
   // A machine is shown by the name Tailscale knows it by, not by an address.
   const rows = [
     ...(server.machine ? [["Machine", server.machine]] : []),
-    ["Kind", SERVER_KINDS[server.transport] ?? SERVER_KINDS.machine],
+    ["Kind", SERVER_KINDS[server.transport] ?? SERVER_KINDS.link],
     ["HerdRabbit", herdRabbitVersionText(server)],
     ...linkDetailRows(server),
     ["Herdr", herdrVersionText(server)],
@@ -2499,8 +2495,7 @@ function serverActionMenu(server) {
       paths: ["M12 8h.01", "M11 12h1v4h1", "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"],
       onSelect: () => showServerDetails(server),
     },
-    // A Herdr SSH machine switches too, when it has Node.js; without it the
-    // dialog says so in place of each CLI's accounts.
+    // A connected PC switches its own accounts.
     {
       label: "AI accounts",
       paths: ["M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M4 20a8 8 0 0 1 16 0"],
@@ -2518,45 +2513,7 @@ function serverActionMenu(server) {
   }
   // A PC connected with Connect PC: renamed and dropped here, and found again
   // when it moved to another port.
-  if (server.transport === "link") return linkActionMenu(server, actions);
-  // Every other PC is one of Herdr's own SSH machines, managed with
-  // `herdr machine` so Herdr's TUI shows the same list.
-  const machineAction = (method, path, prompt) => () => {
-    if (prompt && !window.confirm(prompt)) return;
-    void api(path, { method, body: method === "DELETE" ? undefined : {} })
-      .then(() => refreshSnapshot())
-      .catch((error) => setFeedback(error.message, true));
-  };
-  actions.push(
-    {
-      label: "Rename",
-      paths: ["M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17l-1 3Z", "M14.5 7.5l3 3"],
-      onSelect: () => { state.editingServerId = server.id; renderNavigation(); },
-    },
-    server.enabled === false ? {
-      label: "Turn on",
-      paths: ["M12 3v9", "M6.3 7.3a8 8 0 1 0 11.4 0"],
-      onSelect: machineAction("POST", `/api/machines/${server.id}/enable`),
-    } : {
-      label: "Turn off",
-      paths: ["M12 3v9", "M6.3 7.3a8 8 0 1 0 11.4 0"],
-      onSelect: machineAction("POST", `/api/machines/${server.id}/disable`,
-        `Turn off “${server.name}”? It stays listed here, and Turn on connects it again.`),
-    },
-    {
-      label: "Remove",
-      paths: ["M6 6l12 12M18 6 6 18"],
-      danger: true,
-      onSelect: machineAction("DELETE", `/api/machines/${server.id}`,
-        `Remove “${server.name}” from Herdr's machines? Its sessions keep running there.`),
-    },
-  );
-  return sidebarActionMenu({
-    id: `server-${server.id}`,
-    label: `More actions for ${server.name}`,
-    className: "server-action-menu",
-    actions,
-  });
+  return linkActionMenu(server, actions);
 }
 
 function linkActionMenu(server, actions) {
@@ -3130,7 +3087,6 @@ function choosePane() {
   const awaitedSince = pendingNotificationPaneId ? pendingNotificationSince : pageOpenedAt;
   if (waitsForRemotePane(
     awaited, panes, snapshotRecords().servers, Date.now() - awaitedSince, PENDING_REMOTE_PANE_MS,
-    state.snapshot?.servers_pending,
   )) return;
   if (awaited?.includes("!") && !panes.some((pane) => idOf(pane, "pane_id", "id") === awaited)) {
     if (awaited === pendingNotificationPaneId) pendingNotificationPaneId = null;
@@ -5361,15 +5317,14 @@ async function ensureUploadsPath() {
 // first visit because it is the one folder this app is certain exists.
 // The snapshot already carries every configured server with its reachability,
 // including ones Herdr could not answer on. Reading the session records instead
-// would drop exactly those, and files may still be reachable over SFTP when
-// Herdr itself is missing.
+// would drop exactly those, and a connected PC's files may still be reachable
+// when Herdr itself is missing there.
 function refreshServerChoices() {
   const options = [
     { id: "local", name: "This machine" },
-    // Every linked server answers for its own files, and a Herdr SSH machine
-    // through its SSH connection. One that is turned off has none to offer.
+    // Every connected PC answers for its own files.
     ...array(state.snapshot?.servers)
-      .filter((server) => server.id !== "local" && server.enabled !== false)
+      .filter((server) => server.id !== "local")
       .map((server) => ({ id: server.id, name: server.name || server.id })),
   ];
   elements.fileServer.replaceChildren();
@@ -5965,10 +5920,10 @@ async function initializeApplication() {
   state.pushPublicKey = typeof bootstrap.pushPublicKey === "string"
     ? bootstrap.pushPublicKey
     : null;
-  document.querySelector("#add-machine").hidden = bootstrap.machines !== true;
   document.querySelector("#manage-servers").hidden = bootstrap.servers !== true;
   state.connectPc = bootstrap.connectPc && typeof bootstrap.connectPc.address === "string" ? bootstrap.connectPc : null;
   showApplication();
+  showLegacyMachinesNotice(bootstrap.legacyMachines);
   browseState.pinnedServer = readFileServer(browsePathStorage);
   showNavigatorTab(readNavigatorTab(browsePathStorage));
   await refreshSnapshot();
@@ -5989,37 +5944,20 @@ async function initializeApplication() {
   }
 }
 
-const machineDialog = document.querySelector("#machine-dialog");
-const machineFeedback = document.querySelector("#machine-feedback");
-document.querySelector("#add-machine").addEventListener("click", () => {
-  document.querySelector("#add-menu").open = false;
-  document.querySelector("#machine-form").reset();
-  machineFeedback.textContent = "";
-  machineFeedback.dataset.error = "false";
-  machineDialog.showModal();
-});
-document.querySelector("#machine-cancel").addEventListener("click", () => machineDialog.close());
-document.querySelector("#machine-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const controls = form.querySelectorAll("button, input");
-  controls.forEach((control) => { control.disabled = true; });
-  machineFeedback.dataset.error = "false";
-  // Setting Herdr up there can take a while on a first connection.
-  machineFeedback.textContent = "Connecting and setting up Herdr there…";
-  try {
-    await api("/api/machines", { method: "POST", body: {
-      target: form.elements.target.value.trim(), label: form.elements.label.value.trim(),
-    } });
-    machineDialog.close();
-    await refreshSnapshot();
-  } catch (error) {
-    machineFeedback.textContent = error.message;
-    machineFeedback.dataset.error = "true";
-  } finally {
-    controls.forEach((control) => { control.disabled = false; });
-  }
-});
+// Herdr SSH machines (`herdr machine`) are not shown here any more. Said once
+// per browser: those PCs come back with Connect PC.
+const LEGACY_MACHINES_NOTICE_KEY = "herdr:legacy-machines-notice";
+const legacyMachinesDialog = document.querySelector("#legacy-machines-dialog");
+document.querySelector("#legacy-machines-close").addEventListener("click", () => legacyMachinesDialog.close());
+function showLegacyMachinesNotice(count) {
+  let seen = false;
+  try { seen = panePreferenceStorage?.getItem(LEGACY_MACHINES_NOTICE_KEY) === "seen"; } catch {}
+  const message = legacyMachinesNotice({ count, seen });
+  if (!message || legacyMachinesDialog.open) return;
+  document.querySelector("#legacy-machines-message").textContent = message;
+  try { panePreferenceStorage?.setItem(LEGACY_MACHINES_NOTICE_KEY, "seen"); } catch {}
+  legacyMachinesDialog.showModal();
+}
 
 // Connect PC: another PC running HerdRabbit, reached on its Connect PC port.
 const serversDialog = document.querySelector("#servers-dialog");

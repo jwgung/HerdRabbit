@@ -39,7 +39,7 @@ const ERRNO_STATUS = new Map([
 
 // Sign-in keys and HerdRabbit's own settings (src/protected-paths.mjs). The
 // same words everywhere a file can be asked for, so a refusal reads the same
-// here, over Connect PC and on an SSH machine.
+// here and over Connect PC.
 export function protectedPathError() {
   return new FileAccessError(403, "protected_path", "HerdRabbit does not open sign-in keys or its own settings.");
 }

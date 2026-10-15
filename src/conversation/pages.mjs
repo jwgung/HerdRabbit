@@ -1,8 +1,7 @@
 // What every agent's transcript shares once it is found: the errors the
 // routes answer with, the limits a page keeps to, and the paging itself. A
 // transcript is a JSONL file that only grows at its end, read through a store
-// (stores.mjs) so the same code reads this machine's files and a Herdr
-// machine's over SSH. What differs per agent (which line opens a turn, how
+// (stores.mjs). What differs per agent (which line opens a turn, how
 // lines read as turns, where a tool's output is) comes in as a format:
 //
 //   source              "claude-transcript", "codex-transcript", ...

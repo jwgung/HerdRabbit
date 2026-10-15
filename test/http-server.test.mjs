@@ -1277,50 +1277,20 @@ test("counts wrong passwords by the caller Tailscale names, not for everyone", (
   assert.equal(attemptKey(request({ "tailscale-user-login": "owner@example.com" }, "192.168.0.9")), "address:192.168.0.9");
 });
 
-test("Herdr machines are added, renamed, turned off and removed through write-protected routes", async (context) => {
-  const calls = [];
-  const machines = {
-    machineIdFor: (serverId) => serverId === "machine-4c139ff50dfb" ? "4c139ff50dfb4a0dcda27e728dc50ef9" : null,
-    async add(value) { calls.push(["add", value]); },
-    async rename(id, label) { calls.push(["rename", id, label]); },
-    async disable(id) { calls.push(["disable", id]); },
-    async enable(id) { calls.push(["enable", id]); },
-    async remove(id) { calls.push(["remove", id]); },
-  };
-  const app = await startServer({ async snapshot() { return {}; } }, { machines });
-  context.after(() => closeServer(app.server));
-  assert.equal((await (await fetch(`${app.baseUrl}/api/bootstrap`)).json()).machines, true, "the page offers to add one");
-  const send = (path, method, body, headers = { "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl }) => fetch(`${app.baseUrl}${path}`, {
-    method, headers: { "Content-Type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body),
-  });
-
-  assert.equal((await send("/api/machines", "POST", { target: "me@lab", label: "Lab" })).status, 200);
-  assert.equal((await send("/api/machines/machine-4c139ff50dfb", "PUT", { label: "Desk" })).status, 200);
-  assert.equal((await send("/api/machines/machine-4c139ff50dfb/disable", "POST", {})).status, 200);
-  assert.equal((await send("/api/machines/machine-4c139ff50dfb/enable", "POST", {})).status, 200);
-  assert.equal((await send("/api/machines/machine-4c139ff50dfb", "DELETE")).status, 200);
-  assert.deepEqual(calls, [
-    ["add", { target: "me@lab", label: "Lab" }],
-    ["rename", "4c139ff50dfb4a0dcda27e728dc50ef9", "Desk"],
-    ["disable", "4c139ff50dfb4a0dcda27e728dc50ef9"],
-    ["enable", "4c139ff50dfb4a0dcda27e728dc50ef9"],
-    ["remove", "4c139ff50dfb4a0dcda27e728dc50ef9"],
-  ]);
-
-  assert.equal((await send("/api/machines", "POST", { target: "-oProxyCommand=touch /tmp/x" })).status, 400);
-  assert.equal((await send("/api/machines/machine-4c139ff50dfb", "PUT", { label: "x".repeat(61) })).status, 400, "names stop at 60 characters");
-  assert.equal((await send("/api/machines/machine-000000000000", "DELETE")).status, 404);
-  assert.equal((await send("/api/machines", "POST", { target: "me@lab" }, { Origin: app.baseUrl })).status, 403, "the write token is required");
-  assert.equal((await send("/api/machines/machine-4c139ff50dfb", "PUT", { label: "x".repeat(60) })).status, 200);
-  assert.equal(calls.length, 6);
-});
-
-test("a server without Herdr machines does not offer to add one, and has no machine routes", async (context) => {
-  const app = await startServer({ async snapshot() { return {}; } });
-  context.after(() => closeServer(app.server));
-  assert.equal((await (await fetch(`${app.baseUrl}/api/bootstrap`)).json()).machines, false);
-  const response = await fetch(`${app.baseUrl}/api/machines`, {
-    method: "POST", headers: { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl }, body: "{}",
+test("Herdr SSH machines are gone: no machine routes, only a count of those Herdr still lists", async (context) => {
+  const plain = await startServer({ async snapshot() { return {}; } });
+  context.after(() => closeServer(plain.server));
+  const bootstrap = await (await fetch(`${plain.baseUrl}/api/bootstrap`)).json();
+  assert.equal("machines" in bootstrap, false, "nothing offers to add one");
+  assert.equal(bootstrap.legacyMachines, 0);
+  const response = await fetch(`${plain.baseUrl}/api/machines`, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: plain.baseUrl }, body: "{}",
   });
   assert.equal(response.status, 404);
+
+  let count = 0;
+  const listed = await startServer({ async snapshot() { return {}; } }, { legacyMachines: () => count });
+  context.after(() => closeServer(listed.server));
+  count = 2;
+  assert.equal((await (await fetch(`${listed.baseUrl}/api/bootstrap`)).json()).legacyMachines, 2, "read when the page asks");
 });

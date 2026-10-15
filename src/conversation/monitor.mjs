@@ -1,7 +1,7 @@
 // Tells watchers when a pane's transcript (Claude's or Codex's) changed, without reading it:
 // a stat (identity, size, time) of the file every 250 ms on this machine and
-// every 1.5 s on a Herdr machine (one SSH command each) or a PC connected with
-// Connect PC (one change signature asked of it), only while someone watches
+// every 1.5 s on a PC connected with Connect PC (one change signature asked
+// of it), only while someone watches
 // the pane. The pane is looked up again every few seconds, so a new
 // session (a new file) is noticed too. No timer runs while nobody watches.
 //
@@ -114,7 +114,7 @@ export class ConversationMonitor {
       }
       this.#publish(paneId, state, `file\0${target.serverId}\0${target.path}\0${stat.identity}\0${stat.size}\0${stat.mtimeMs}`);
     } catch {
-      // A machine that dropped its connection says nothing new; the next stat asks again.
+      // A PC that dropped its connection says nothing new; the next stat asks again.
     } finally {
       state.statting = false;
       state.nextStat = this.now() + (target.store.remote ? this.remoteStatIntervalMs : 0);
@@ -146,7 +146,7 @@ export class ConversationMonitor {
         present = false;
         this.#publish(paneId, state, `unavailable\0${error.reason}`);
       }
-      // Anything else (Herdr busy, a machine offline) keeps what was known.
+      // Anything else (Herdr busy, a PC offline) keeps what was known.
     } finally {
       state.resolving = false;
       state.nextResolve = this.now() + (present ? this.resolveIntervalMs : this.missingResolveIntervalMs);

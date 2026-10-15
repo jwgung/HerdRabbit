@@ -158,13 +158,13 @@ export function uploadSummary({ saved = [], failed = [], elsewhere = null } = {}
 }
 
 // The uploads folder only exists on the machine running HerdRabbit. A pane id carries
-// a server prefix when it belongs to an SSH host, and a local path pasted into
-// that pane would name a file the remote machine does not have.
+// a server prefix when it belongs to a connected PC, and a local path pasted into
+// that pane would name a file the other PC does not have.
 export function paneUsesLocalFiles(paneId) {
   return typeof paneId === "string" && paneId !== "" && !paneId.includes("!");
 }
 
-// Records from an SSH host carry a "<serverId>!" prefix on their ids, so the
+// Records from a connected PC carry a "<serverId>!" prefix on their ids, so the
 // pane itself says which machine its files live on.
 export function paneServerId(paneId) {
   if (typeof paneId !== "string" || paneId === "") return null;
@@ -174,8 +174,8 @@ export function paneServerId(paneId) {
 
 // The pane record carries the directory the session runs in. foreground_cwd
 // tracks the running process and cwd is where the session started; either beats
-// falling back to the home directory. Remote panes report a path on the SSH
-// host, which does not exist on the machine serving these files, so they get no
+// falling back to the home directory. Remote panes report a path on the other
+// PC, which does not exist on the machine serving these files, so they get no
 // starting point at all.
 export function paneStartDirectory(pane, { home = null } = {}) {
   if (!pane || !paneUsesLocalFiles(pane.pane_id ?? pane.id)) return home;
@@ -442,23 +442,23 @@ export function openRenames(editing, records) {
 
 // A pane on another server that is not in the snapshot yet is waited for, not
 // replaced by some other pane, while that server is still connecting -- and
-// only for so long. A server that is off or failed to answer has nothing coming;
-// one not listed yet may still be, while the server list is pending.
-export function waitsForRemotePane(paneId, panes, servers, waitedMs, limitMs, serversPending = false) {
+// only for so long. A server that failed to answer, or is not listed at all,
+// has nothing coming.
+export function waitsForRemotePane(paneId, panes, servers, waitedMs, limitMs) {
   if (!paneId?.includes("!") || waitedMs >= limitMs) return false;
   if (array(panes).some((pane) => idOf(pane, "pane_id", "id") === paneId)) return false;
   const serverId = paneId.split("!")[0];
   const server = array(servers).find((item) => item?.id === serverId);
-  return server ? server.connecting === true : serversPending === true;
+  return server?.connecting === true;
 }
 
 // The pane on screen whose server dropped stays on screen while that server
-// comes back; one whose machine was turned off gives way to another pane.
+// comes back.
 export function keepsVanishedRemotePane(paneId, panes, servers) {
   if (!paneId?.includes("!")) return false;
   if (array(panes).some((pane) => idOf(pane, "pane_id", "id") === paneId)) return false;
   const serverId = paneId.split("!")[0];
-  return array(servers).some((server) => server?.id === serverId && !server.available && server.enabled !== false);
+  return array(servers).some((server) => server?.id === serverId && !server.available);
 }
 
 export function selectedPaneIdForSnapshot(
@@ -727,4 +727,13 @@ export function loginMethodPresentation({
         instruction: "Enter your password.",
         passwordLabel: "Password",
       };
+}
+
+// Herdr's own SSH machines (`herdr machine`) are not shown any more; remote
+// PCs run HerdRabbit and are added with Connect PC. The page says so once
+// when Herdr still lists some, and leaves Herdr's list as it is.
+export function legacyMachinesNotice({ count = 0, seen = false } = {}) {
+  if (seen || !Number.isInteger(count) || count < 1) return null;
+  return "Herdr SSH machines are no longer shown here. " +
+    "Install HerdRabbit on that PC and add it with + → Connect PC.";
 }

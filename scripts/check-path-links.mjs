@@ -55,19 +55,19 @@ const snapshot = {
   focused_workspace_id: "w1", focused_tab_id: "w1:t1", focused_pane_id: "w1:p1",
   servers: [
     { id: "local", name: "workstation", available: true, status: "Connected" },
-    { id: "machine-lab", name: "lab", available: true, status: "Connected" },
+    { id: "lab", name: "lab", available: true, status: "Connected" },
   ],
   workspaces: [
     { workspace_id: "w1", label: "Platform", server_id: "local" },
-    { workspace_id: "machine-lab!w2", label: "Lab", server_id: "machine-lab" },
+    { workspace_id: "lab!w2", label: "Lab", server_id: "lab" },
   ],
   tabs: [
     { tab_id: "w1:t1", workspace_id: "w1", label: "Release" },
-    { tab_id: "machine-lab!w2:t1", workspace_id: "machine-lab!w2", label: "Remote" },
+    { tab_id: "lab!w2:t1", workspace_id: "lab!w2", label: "Remote" },
   ],
   panes: [
     { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Release", cwd: root },
-    { pane_id: "machine-lab!w2:p1", tab_id: "machine-lab!w2:t1", workspace_id: "machine-lab!w2", label: "Remote", cwd: root },
+    { pane_id: "lab!w2:p1", tab_id: "lab!w2:t1", workspace_id: "lab!w2", label: "Remote", cwd: root },
   ],
   agents: [],
 };
@@ -261,12 +261,12 @@ try {
     await page.route("**/api/browse?*", async (route) => {
       const requested = new URL(route.request().url());
       asked.push(requested.searchParams.get("server"));
-      if (requested.searchParams.get("server") !== "machine-lab") return route.continue();
+      if (requested.searchParams.get("server") !== "lab") return route.continue();
       requested.searchParams.set("server", "local");
       const response = await route.fetch({ url: requested.href });
       await route.fulfill({ response });
     });
-    await page.goto(`${url}/?pane=${encodeURIComponent("machine-lab!w2:p1")}`);
+    await page.goto(`${url}/?pane=${encodeURIComponent("lab!w2:p1")}`);
     await page.waitForFunction(() => document.querySelectorAll(".terminal-link-marks span").length >= 3);
     const box = await page.evaluate(() => {
       const rect = document.querySelector(".terminal-link-marks span").getBoundingClientRect();
@@ -274,8 +274,8 @@ try {
     });
     await page.mouse.click(box.x + Math.min(box.width / 2, 20), box.y - 4);
     await page.waitForFunction((path) => document.querySelector('.browse-row[data-selected="true"]')?.dataset.path === path, target, { timeout: 15_000 });
-    assert.equal(await page.locator("#file-server").inputValue(), "machine-lab", "the lab's files are open");
-    assert.ok(asked.includes("machine-lab"), "the listing was asked of the lab");
+    assert.equal(await page.locator("#file-server").inputValue(), "lab", "the lab's files are open");
+    assert.ok(asked.includes("lab"), "the listing was asked of the lab");
     await page.unrouteAll({ behavior: "ignoreErrors" });
     console.log({ remotePane: true });
     await context.close();
@@ -289,7 +289,7 @@ try {
     await page.route("**/api/browse?*", async (route) => {
       try {
         const requested = new URL(route.request().url());
-        if (requested.searchParams.get("server") === "machine-lab") {
+        if (requested.searchParams.get("server") === "lab") {
           requested.searchParams.set("server", "local");
           return await route.fulfill({ response: await route.fetch({ url: requested.href }) });
         }
@@ -305,11 +305,11 @@ try {
     });
     await page.mouse.click(box.x + Math.min(box.width / 2, 20), box.y - 4);
     await page.locator("#file-server").waitFor({ state: "visible" });
-    await page.selectOption("#file-server", "machine-lab");
+    await page.selectOption("#file-server", "lab");
     await page.waitForFunction(() => document.querySelector("#file-feedback").textContent !== "Loading…"
       && document.querySelectorAll(".browse-row").length > 0, null, { timeout: 15_000 });
     await page.waitForTimeout(4_000); // past the slow listing the link was waiting on
-    assert.equal(await page.locator("#file-server").inputValue(), "machine-lab", "the machine picked by hand stays");
+    assert.equal(await page.locator("#file-server").inputValue(), "lab", "the machine picked by hand stays");
     assert.ok(await page.locator(".browse-row").count() > 0, "its folder is listed");
     assert.equal(await page.locator('.browse-row[data-selected="true"]').count(), 0, "the link gave way");
     await page.unrouteAll({ behavior: "ignoreErrors" });

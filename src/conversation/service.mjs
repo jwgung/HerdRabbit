@@ -1,7 +1,7 @@
 // A pane's conversation, from the pane id the browser knows: which agent it
-// runs (Claude Code or Codex, each with its own format), which server's store
-// holds it (this machine's files, or a Herdr machine's over SSH), which file,
-// and the page or tool output asked for. A PC connected with Connect PC reads
+// runs (Claude Code or Codex, each with its own format), which file of this
+// machine's holds it, and the page or tool output asked for. A PC connected
+// with Connect PC reads
 // its own transcripts: its panes' pages, tool output, change signature and
 // pending plan or question are asked of it over its link, never read here.
 import { createHash, randomUUID } from "node:crypto";
@@ -16,7 +16,7 @@ import {
   transcriptPage,
   transcriptToolOutput,
   versionMatches, remember } from "./pages.mjs";
-import { localTranscriptStore, machineTranscriptStore } from "./stores.mjs";
+import { localTranscriptStore } from "./stores.mjs";
 
 const LOCAL = "local";
 // A located file is trusted this long before it is looked up again; a
@@ -48,26 +48,12 @@ export class ConversationService {
   constructor({
     herdr,
     localStore = localTranscriptStore(),
-    // A Herdr machine's store, from the file client its SSH connection gives.
-    remoteStore = (serverId) => {
-      const files = herdr.fileClient?.(serverId);
-      if (!files?.locateClaudeTranscript) return null;
-      // one store per file client: a new one every call would never compare equal
-      const known = this.machineStores.get(serverId);
-      if (known?.files === files) return known.store;
-      const store = machineTranscriptStore(serverId, files);
-      this.machineStores.set(serverId, { files, store });
-      return store;
-    },
     now = () => Date.now(),
   }) {
     this.herdr = herdr;
-    this.machineStores = new Map();
     this.localStore = localStore;
-    this.remoteStore = remoteStore;
     this.now = now;
     this.located = new Map();
-    this.remoteStores = new Map();
     // serverId -> { client, store }: what the monitor stats a connected PC's panes through
     this.linkStores = new Map();
     // paneId -> { key, ask }: the asking tool call last read from that file version
@@ -83,9 +69,8 @@ export class ConversationService {
     return linked && LINK_CALLS.every((name) => typeof linked.client?.[name] === "function") ? linked : null;
   }
 
-  // A connected PC that cannot be reached has no conversation to show here,
-  // as a Herdr machine that is not connected has none; what it said itself
-  // about a pane (ConversationError) is passed on as it is.
+  // A connected PC that cannot be reached has no conversation to show here;
+  // what it said itself about a pane (ConversationError) is passed on as it is.
   async #relay(work) {
     try {
       return await work();
@@ -164,18 +149,13 @@ export class ConversationService {
     }
   }
 
+  // Only this machine's transcripts are read here: a connected PC's pane is
+  // its own to read (#linked), and any other server has none to offer.
   #store(serverId) {
-    if (serverId === LOCAL) return this.localStore;
-    const store = this.remoteStore(serverId);
-    if (!store) return null;
-    // One store per machine, so its identity (and cached reads) carry over.
-    const known = this.remoteStores.get(serverId);
-    if (known && (known === store || known.locate === store.locate)) return known;
-    this.remoteStores.set(serverId, store);
-    return store;
+    return serverId === LOCAL ? this.localStore : null;
   }
 
-  // A server without a store is a machine that is not connected.
+  // A pane of a server with no store here: nothing to read it from.
   #noStore() {
     return new ConversationUnavailable("server_unavailable");
   }
@@ -220,15 +200,13 @@ export class ConversationService {
     const session = own && typeof own.value === "string" && own.value.length <= 4096
       ? { kind: own.kind, value: own.value } : null;
     const thread = session && (session.kind === undefined || session.kind === "id") && THREAD_ID.test(session.value) ? session.value : null;
-    const local = serverId === LOCAL;
     // per pane: the open files and the screen that may decide it are the pane's own
     const found = await this.#located(`codex\0${serverId}\0${paneId}\0${session?.kind ?? ""}\0${session?.value ?? ""}\0${cwds.join("\0")}`,
       async () => locateCodexRollout(store, {
         session,
         cwd: cwds[0] ?? null,
-        pids: local ? await this.#codexPids(paneId) : [],
-        // this machine's panes only: on a Herdr machine every candidate would be a read over SSH
-        readScreen: local ? () => this.herdr.readPane(paneId, { lines: MATCH_SCREEN_LINES, format: "text", source: "recent-unwrapped" }) : null,
+        pids: await this.#codexPids(paneId),
+        readScreen: () => this.herdr.readPane(paneId, { lines: MATCH_SCREEN_LINES, format: "text", source: "recent-unwrapped" }),
       }));
     // nothing names the session and nothing tells which file is the pane's: wait for herdr to report it
     if (found.value === null && thread === null) {

@@ -3,8 +3,7 @@
 // (a remote pane's own, or its machine's default while that one is stopped),
 // and its picker lists every machine's running sessions, so a project can be
 // made on another machine too; a machine's ⋯ menu does not offer it, and with
-// no session running it is off. Add SSH machine shows in the + menu only where
-// SSH machines are available. The
+// no session running it is off. The + menu offers no Add SSH machine. The
 // footer's uploads and settings buttons look alike, their icons centred. Runs
 // on a desktop and a phone against an in-process fake herdr.
 //
@@ -64,11 +63,6 @@ const { server } = createHerdrHttpServer({ herdr, logger: { info() {}, error() {
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
 const url = `http://127.0.0.1:${server.address().port}`;
-// The same herdr where SSH machines can be added.
-const { server: withMachines } = createHerdrHttpServer({ herdr, machines: { machineIdFor: () => null }, logger: { info() {}, error() {} } });
-withMachines.listen(0, "127.0.0.1");
-await once(withMachines, "listening");
-const machinesUrl = `http://127.0.0.1:${withMachines.address().port}`;
 const browser = await chromium.launch({ args: ["--no-sandbox"] });
 const shots = process.env.NEW_PROJECT_SHOTS;
 
@@ -122,11 +116,11 @@ try {
     }
     if (shots) await page.locator(".navigator-footer").screenshot({ path: join(shots, `footer-${mobile ? "phone" : "desktop"}.png`) });
 
-    // Without SSH machines the + menu still offers New project, and not Add SSH machine.
+    // The + menu offers New project, and no longer Add SSH machine.
     assert.equal(await page.locator("#add-menu").isVisible(), true, "+ menu is hidden");
     await page.locator("#add-menu > summary").click();
     await page.locator("#create-project").waitFor({ state: "visible" });
-    assert.equal(await page.locator("#add-machine").isVisible(), false, "Add SSH machine shows without SSH machines");
+    assert.equal(await page.locator("#add-menu .sidebar-action-item", { hasText: "SSH" }).count(), 0, "Add SSH machine is still offered");
     if (shots) await page.screenshot({ path: join(shots, `plus-menu-${mobile ? "phone" : "desktop"}.png`) });
     await page.keyboard.press("Escape");
     if (mobile) await page.waitForTimeout(400);
@@ -193,14 +187,6 @@ try {
   assert.equal(await pickedFor("lab:w1:p1"), "lab!hs_main", "a remote pane's stopped session does not fall to its machine's default");
   labWorkDown = false;
 
-  // Where SSH machines can be added, the + menu offers that too.
-  await page.goto(`${machinesUrl}/?pane=${encodeURIComponent("w1:p1")}`);
-  await page.locator(".pane-button").first().waitFor({ state: "visible" });
-  await page.locator("#add-menu > summary").click();
-  await page.locator("#add-machine").waitFor({ state: "visible" });
-  assert.equal(await page.locator("#create-project").isVisible(), true, "New project is gone beside Add SSH machine");
-  await page.keyboard.press("Escape");
-
   // With no Herdr session running anywhere there is nowhere to make one.
   sessionsDown = true;
   await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
@@ -213,5 +199,4 @@ try {
 } finally {
   await browser.close();
   server.close();
-  withMachines.close();
 }

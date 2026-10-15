@@ -57,7 +57,7 @@ const herdr = {
     return structuredClone({
       servers: [
         { id: "local", name: "workstation", available: true, status: "Connected" },
-        { id: "laptop", name: "laptop", available: true, status: "Connected", transport: "machine" },
+        { id: "laptop", name: "laptop", available: true, status: "Connected", transport: "link" },
       ],
       herdr_sessions: [
         { session_id: "hs_x", name: "default", running: true, available: true, server_id: "local" },

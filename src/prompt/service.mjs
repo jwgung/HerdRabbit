@@ -47,12 +47,11 @@ function promptChanged() {
   return new HttpError(409, "prompt_changed", "The prompt changed. Look at it again and choose once more.");
 }
 
-// Whether the snapshot cannot tell yet if the pane is there: its herdr
-// machine is still being listed or reached.
+// Whether the snapshot cannot tell yet if the pane is there: its connected
+// PC is still being reached.
 function serverPending(snapshot, paneId) {
   const separator = paneId.indexOf("!");
   if (separator < 0) return false;
-  if (snapshot?.servers_pending) return true;
   const server = (snapshot?.servers ?? []).find((item) => item.id === paneId.slice(0, separator));
   return Boolean(server && !server.available && server.connecting);
 }
@@ -317,7 +316,7 @@ export class PromptService {
         else if (agent) this.#tell(entry, null);
         else if (!serverPending(snapshot, entry.paneId)) {
           // One snapshot without the pane is not the end of it (a tab moved,
-          // a machine reconnecting); a few running give its place back, and
+          // a PC reconnecting); a few running give its place back, and
           // its listeners keep it until they stop watching.
           this.#tell(entry, null);
           entry.missing = (entry.missing ?? 0) + 1;

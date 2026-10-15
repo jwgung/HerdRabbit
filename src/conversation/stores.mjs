@@ -1,6 +1,5 @@
-// Where a transcript's bytes come from: this machine's files, or a Herdr
-// machine's over its SSH connection (machine-files.mjs). Both answer the same
-// calls, so pages.mjs, claude.mjs and codex.mjs read either the same way:
+// Where a transcript's bytes come from: this machine's files. A store answers
+// these calls, so pages.mjs, claude.mjs and codex.mjs read through it:
 //   locate(session, projectDirs) -> a Claude transcript's path | null
 //   backgroundJobSession(short)  -> the session of Claude's background job
 //                                   with that short id | null (optional)
@@ -24,8 +23,6 @@ const MAX_JOB_STATE_BYTES = 256 * 1024;
 // This machine: the newest page reads up to 4 MiB, an older page widens to
 // 16 MiB for one long turn, a tool's output is looked for in the last 64 MiB.
 export const LOCAL_LIMITS = Object.freeze({ windowBytes: 4 * MiB, maxPageBytes: 16 * MiB, maxToolScanBytes: 64 * MiB });
-// Over SSH every read is a round trip and its bytes cross the network.
-export const REMOTE_LIMITS = Object.freeze({ windowBytes: 1 * MiB, maxPageBytes: 4 * MiB, maxToolScanBytes: 16 * MiB });
 
 // The store this server's own Claude writes: `$CLAUDE_CONFIG_DIR`, else `~/.claude`.
 export function defaultClaudeConfigDir(environment = process.env, home = homedir()) {
@@ -140,25 +137,6 @@ export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), cod
         await handle.close();
       }
     },
-  };
-}
-
-// A Herdr machine's transcripts, through the fixed scripts in
-// machine-files.mjs. `files` is that machine's MachineFiles.
-export function machineTranscriptStore(serverId, files, { limits = REMOTE_LIMITS } = {}) {
-  return {
-    key: serverId,
-    remote: true,
-    ...limits,
-    locate: (session, projectDirs) => files.locateClaudeTranscript(session, projectDirs),
-    // a Herdr machine's Codex: the rollout herdr names, or the thread's by its
-    // file name; its thread index and processes stay on the machine
-    codex: {
-      rollout: files.codexRollout ? (path) => files.codexRollout(path) : undefined,
-      thread: files.locateCodexRollout ? (thread) => files.locateCodexRollout(thread) : undefined,
-    },
-    stat: (path) => files.transcriptStat(path),
-    read: (path, start, length) => files.readTranscriptRange(path, start, length),
   };
 }
 

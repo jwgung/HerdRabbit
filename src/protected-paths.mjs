@@ -5,7 +5,7 @@ import { claudeAdapter, codexAdapter } from "./ai-account-adapters.mjs";
 import { dataPaths } from "./config.mjs";
 
 // What the file browser never lists the inside of, opens, or hands out --
-// here, over Connect PC, or on a Herdr SSH machine. Sign-ins are changed in
+// here or over Connect PC. Sign-ins are changed in
 // place (AI accounts) and never read out; these are the files that hold them.
 //
 //   - HerdRabbit's own settings: the password hash, push keys, connected PCs,
@@ -109,8 +109,7 @@ export function protectedPaths(rules, resolve) {
   return {
     // A predicate over real paths. It resolves the rules when asked, so a key
     // folder made or turned into a link since is seen -- by whoever asks again
-    // (the local guard asks on every request; an SSH machine, once per
-    // connection).
+    // (the local guard asks on every request).
     async matcher() {
       return matcher(await resolvedRules(rules, resolve));
     },
