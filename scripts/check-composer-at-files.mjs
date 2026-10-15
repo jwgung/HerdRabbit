@@ -133,6 +133,15 @@ try {
     assert.equal(await input.inputValue(), "look at @README.md ");
     await closed();
 
+    // typed on before the list caught up: Enter puts nothing in and sends nothing
+    await reset();
+    await page.keyboard.type("@p");
+    await shown(["package.json"]);
+    await page.keyboard.type("x");
+    await page.keyboard.press("Enter");
+    assert.equal(await input.inputValue(), "@px", "a stale list completed a reference typed on since");
+    assert.deepEqual(herdr.sent, [], "Enter on a stale list sent the draft");
+
     // a folder is entered and its contents offered at once; ArrowUp wraps to the last
     await reset();
     await page.keyboard.type("@s");
@@ -224,7 +233,7 @@ try {
     assert.equal(await page.locator("#action-feedback").textContent(), "");
 
     assert.deepEqual(errors, []);
-    console.log({ mobile, listed: true, narrowed: true, arrowsEnter: true, folderDrill: true, quoted: true, hidden: true, escape: true, history: true, tap: true, noCwd: true });
+    console.log({ mobile, listed: true, narrowed: true, arrowsEnter: true, stale: true, folderDrill: true, quoted: true, hidden: true, escape: true, history: true, tap: true, noCwd: true });
     await context.close();
   }
 } finally {

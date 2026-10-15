@@ -14,14 +14,16 @@ export const AT_CACHE_MS = 5_000;
 // the text or after whitespace. Unquoted it runs to the caret with no
 // whitespace; `@"…` runs to the caret with no closing quote, so a name with a
 // space can be typed and completed. `end` also takes in what belongs to the
-// reference past the caret: the rest of the word, or a closing quote.
+// reference past the caret: the rest of the word, or the rest of a quoted
+// name up to and with its closing quote.
 export function parseAtQuery(value, selectionStart, selectionEnd = selectionStart) {
   if (typeof value !== "string" || !Number.isInteger(selectionStart) || selectionStart !== selectionEnd) return null;
   const before = value.slice(0, selectionStart);
   const quoted = /(^|\s)@"([^"\n]*)$/u.exec(before);
   if (quoted) {
     const start = quoted.index + quoted[1].length;
-    const end = value[selectionStart] === '"' ? selectionStart + 1 : selectionStart;
+    const closing = /^[^"\n]*"/u.exec(value.slice(selectionStart));
+    const end = closing ? selectionStart + closing[0].length : selectionStart;
     return withParts({ start, end, query: quoted[2], quoted: true });
   }
   const plain = /(^|\s)@([^\s"]*)$/u.exec(before);
@@ -248,6 +250,13 @@ export function createAtFilesPopup({ input, listElement, context, fetchListing, 
     const entry = state.matches[index];
     const token = state.token;
     if (!entry || !token) return;
+    // Typed on, or moved, since this list was drawn: it belongs to another
+    // reference. Nothing is put in; the list catches up instead.
+    const now = parseAtQuery(input.value, input.selectionStart, input.selectionEnd);
+    if (!now || now.start !== token.start || now.end !== token.end || now.query !== token.query || now.quoted !== token.quoted) {
+      update({ now: true });
+      return;
+    }
     const next = applyAtCompletion(input.value, token, entry);
     close();
     input.value = next.value;

@@ -145,3 +145,16 @@ test("keeps listings briefly, and lets a whole shorter one answer a longer name"
   clock += 200;
   assert.equal(cache.get("local", "/p", "a"), null, "an old listing is asked again");
 });
+
+test("completing in the middle of a quoted name replaces the whole name, quote and all", () => {
+  const value = 'use @"src/apple.js" now';
+  const caret = 'use @"src/ap'.length;
+  const token = parseAtQuery(value, caret, caret);
+  assert.equal(token.prefix, "ap");
+  assert.equal(value.slice(token.start, token.end), '@"src/apple.js"');
+  const next = applyAtCompletion(value, token, { name: "api.js", kind: "file" });
+  assert.equal(next.value, 'use @"src/api.js" now');
+  // a quoted name still being typed, with no closing quote yet, ends at the caret
+  const open = parseAtQuery('@"my fo', 7, 7);
+  assert.equal(open.end, 7);
+});
