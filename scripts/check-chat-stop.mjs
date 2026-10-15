@@ -50,7 +50,12 @@ const herdr = {
   },
   async readPane() { return "$ "; },
   async sendText(paneId, text) { herdr.sent.push({ paneId, text }); },
-  async sendKeys(paneId, keys) { herdr.sent.push({ paneId, keys: [...keys] }); },
+  // a slow link: a key takes this long to reach the pane
+  slowMs: 0,
+  async sendKeys(paneId, keys) {
+    if (herdr.slowMs) await new Promise((resolve) => setTimeout(resolve, herdr.slowMs));
+    herdr.sent.push({ paneId, keys: [...keys] });
+  },
 };
 const attachments = new PaneAttachments({
   log: () => {},
@@ -134,10 +139,23 @@ try {
     await sentKeys(2);
     await page.waitForFunction(() => !document.querySelector("#stop-button").disabled, null, { timeout: 3_000 });
 
+    // On a slow link Stop stays busy until its Esc has gone, so a second
+    // press is never silently dropped.
+    herdr.slowMs = 1_600;
+    await stop.click();
+    await page.waitForTimeout(1_250);
+    assert.equal(await stop.isDisabled(), true, "Stop was ready again while its Esc was still on its way");
+    await sentKeys(3);
+    await page.waitForFunction(() => !document.querySelector("#stop-button").disabled, null, { timeout: 5_000 });
+    await stop.click();
+    await sentKeys(4);
+    await page.waitForFunction(() => !document.querySelector("#stop-button").disabled, null, { timeout: 5_000 });
+    herdr.slowMs = 0;
+
     // Esc in the composer stops too.
     await input.focus();
     await page.keyboard.press("Escape");
-    await sentKeys(3);
+    await sentKeys(5);
     assert.equal(await input.inputValue(), "a draft that stays");
     await page.waitForFunction(() => !document.querySelector("#stop-button").disabled, null, { timeout: 3_000 });
 
@@ -147,7 +165,7 @@ try {
     await page.waitForFunction(() => !document.querySelector("#composer-files").hidden, null, { timeout: 5_000 });
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => document.querySelector("#composer-files").hidden, null, { timeout: 5_000 });
-    await sentKeys(3);
+    await sentKeys(5);
     await input.fill("");
 
     // Back in the Terminal lens Stop goes; the key bar has Esc there.
@@ -155,7 +173,7 @@ try {
     await stopShown(false);
     await input.focus();
     await page.keyboard.press("Escape");
-    await sentKeys(3);
+    await sentKeys(5);
     await page.locator("#lens-chat").click();
     await stopShown(true);
 
@@ -164,7 +182,7 @@ try {
     await stopShown(false);
     await input.focus();
     await page.keyboard.press("Escape");
-    await sentKeys(3);
+    await sentKeys(5);
     // And comes back when it works again.
     herdr.status = "working";
     await stopShown(true);

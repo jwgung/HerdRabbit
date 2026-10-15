@@ -37,7 +37,7 @@ test("the composer has a hidden Stop button that sends the key bar's Esc", async
   const composer = page.match(/<div class="input-composer">[\s\S]*?<\/form>/u)?.[0] ?? "";
   // beside Send, before it, and hidden until the agent works
   assert.match(composer, /<button\s+id="stop-button"\s+class="secondary-button stop-button"\s+type="button"\s+aria-label="Stop"\s+title="Stop \(Esc\)"\s+hidden\s*>[\s\S]*?<\/button>\s*<button class="primary-button send-button"/u);
-  assert.match(app, /void sendCommandKey\("esc"\);/u);
+  assert.match(app, /await sendCommandKey\("esc"\);/u);
   // the @ list answers Esc before the Stop shortcut
   assert.match(app, /if \(atFiles\.handleKeydown\(event\)\) return;\s*\/\/ Esc in the composer stops the agent/u);
 });

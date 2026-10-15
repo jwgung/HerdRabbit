@@ -3712,7 +3712,7 @@ elements.terminalInput.addEventListener("keydown", (event) => {
   })) {
     event.preventDefault();
     event.stopPropagation();
-    stopAgent();
+    void stopAgent();
     return;
   }
   if (
@@ -3858,22 +3858,29 @@ function syncStopButton() {
   elements.stopButton.hidden = !shown;
 }
 
-function stopAgent() {
+async function stopAgent() {
   if (elements.stopButton.hidden || elements.stopButton.disabled) return;
-  // Busy for a moment, then ready again: Claude may need a second Esc.
+  // Busy until the Esc has gone, and for a moment at least; then ready again,
+  // as Claude may need a second Esc. A key still on its way (another key bar
+  // key, a slow link) is waited for, so this Esc is never silently dropped.
   elements.stopButton.disabled = true;
   elements.stopButton.setAttribute("aria-busy", "true");
-  window.clearTimeout(stopBusyTimer);
-  stopBusyTimer = window.setTimeout(() => {
+  const shortest = new Promise((resolve) => { window.clearTimeout(stopBusyTimer); stopBusyTimer = window.setTimeout(resolve, STOP_BUSY_MS); });
+  try {
+    for (let waited = 0; keySendBusy && waited < 10_000; waited += 100) {
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
+    }
+    await sendCommandKey("esc");
+  } finally {
+    await shortest;
     elements.stopButton.disabled = false;
     elements.stopButton.removeAttribute("aria-busy");
-  }, STOP_BUSY_MS);
-  void sendCommandKey("esc");
+  }
 }
 
 // A mouse click keeps the composer focused, as the key bar does.
 elements.stopButton.addEventListener("mousedown", (event) => event.preventDefault());
-elements.stopButton.addEventListener("click", () => stopAgent());
+elements.stopButton.addEventListener("click", () => void stopAgent());
 
 // Keep the composer focused when using the screen keyboard with a mouse.
 elements.quickKeys.addEventListener("mousedown", (event) => {
