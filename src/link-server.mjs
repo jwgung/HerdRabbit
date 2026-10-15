@@ -62,8 +62,10 @@ async function sendFile(response, file) {
 // `protectedPaths` is what the file browser never opens: sign-in keys and
 // HerdRabbit's own settings (src/protected-paths.mjs). A hub is held to it
 // exactly as a person browsing this PC's own page is.
+// `attach` is linkAttachSockets (src/link-attach.mjs): it answers which
+// terminal a pane has before a hub attaches to it on the same port.
 export function leafLinkRoutes({
-  client, files = null, aiAccounts = null, version, herdrVersion = () => null, serverName = "",
+  client, files = null, aiAccounts = null, attach = null, version, herdrVersion = () => null, serverName = "",
   maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024, protectedPaths = defaultProtectedPaths(),
   maxStatusStreams = MAX_STATUS_STREAMS,
 }) {
@@ -165,9 +167,16 @@ export function leafLinkRoutes({
       return true;
     }
 
-    const paneMatch = url.pathname.match(/^\/api\/link\/panes\/([^/]+)\/(output|text|keys)$/u);
+    const paneMatch = url.pathname.match(/^\/api\/link\/panes\/([^/]+)\/(output|text|keys|terminal|find|reveal)$/u);
     if (paneMatch) {
       const paneId = decodePaneId(paneMatch[1]);
+      // Which terminal the pane has, never how to run it: the herdr binary and
+      // its socket stay on this PC, where the attach runs.
+      if (method === "GET" && paneMatch[2] === "terminal") {
+        if (!attach) throw new HttpError(501, "attach_unsupported", "This PC cannot attach terminals.");
+        sendJson(response, 200, await attach.describe(paneId));
+        return true;
+      }
       if (method === "GET" && paneMatch[2] === "output") {
         const output = await client.readPane(paneId, {
           lines: validation.validateLines(url.searchParams.get("lines")),
@@ -182,6 +191,26 @@ export function leafLinkRoutes({
         const body = await readJsonBody(request, maxBodyBytes);
         await client.sendText(paneId, validation.validateText(body.text), { submit: body.submit === true });
         sendJson(response, 200, { ok: true });
+        return true;
+      }
+      // Find in this PC's pane history, and scroll its view to a match, as the
+      // page's own /find and /reveal do.
+      if (method === "POST" && paneMatch[2] === "find") {
+        const body = await readJsonBody(request, maxBodyBytes);
+        const find = validation.validateFindRequest({
+          query: body.query, direction: body.direction,
+          previous: body.previous, contentRevision: body.contentRevision,
+        });
+        sendJson(response, 200, await client.paneFind(paneId, find));
+        return true;
+      }
+      if (method === "POST" && paneMatch[2] === "reveal") {
+        const body = await readJsonBody(request, maxBodyBytes);
+        const reveal = validation.validateRevealRequest({
+          match: body.match, contentRevision: body.contentRevision,
+          ...(body.coverRows === undefined ? {} : { coverRows: body.coverRows }),
+        });
+        sendJson(response, 200, await client.paneReveal(paneId, reveal));
         return true;
       }
       if (method === "POST" && paneMatch[2] === "keys") {

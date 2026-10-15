@@ -73,7 +73,8 @@ test("the Connect PC port serves the link API and nothing of the page", async (c
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "x" }),
   });
   assert.equal(login.status, 404);
-  // Nothing on this port speaks WebSocket, so the terminal socket is not here either.
+  // The page's terminal socket is not here either: the only upgrade is a
+  // Connect PC attach under /api/link/ (test/link-attach.test.mjs).
   const upgrade = await new Promise((resolve, reject) => {
     const req = request(`${base}/api/terminal`, { headers: { Connection: "Upgrade", Upgrade: "websocket" } });
     req.on("response", (response) => { response.resume(); resolve(response.statusCode); });

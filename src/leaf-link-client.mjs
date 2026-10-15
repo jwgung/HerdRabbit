@@ -1,9 +1,11 @@
 import { Readable, Transform, pipeline } from "node:stream";
-import { HerdrCommandError } from "./herdr-client.mjs";
+import { HerdrCommandError, TERMINAL_ID } from "./herdr-client.mjs";
+import { validSize } from "./pane-attachments.mjs";
 import { FileAccessError, UNKNOWN_SIZE_STREAM_BYTES } from "./file-browser.mjs";
 import { LINK_PROTOCOL, ResponseTooLarge, checkLeafCompatibility, normalizeLeafSnapshot, readLimitedText } from "./leaf-protocol.mjs";
 import { AiAccountError } from "./ai-accounts.mjs";
 import { subscribeLeafStatuses } from "./leaf-status-stream.mjs";
+import { openRemotePty } from "./link-attach.mjs";
 
 // fileIdle: how long a file being passed on may go quiet before it fails
 const TIMEOUTS = { hello: 5_000, snapshot: 8_000, read: 6_000, write: 6_000, fileIdle: 60_000 };
@@ -15,11 +17,16 @@ function linkError(code, message, cause) {
   return new HerdrCommandError(message, { code, cause });
 }
 
-// What a connected PC cannot do over the link yet: its terminal is shown as a
-// copy of its screen, so attaching and searching its scrollback wait.
-function notOverLink(what, code = "link_unsupported") {
-  return linkError(code, `${what} is not available for a connected PC yet.`);
+// What a connected PC on an older HerdRabbit cannot do over the link.
+function tooOld(address, what) {
+  return linkError("link_unsupported", `HerdRabbit at ${address} is too old for ${what}; update it there.`);
 }
+
+// What a terminal lookup may say and keep saying here: a pane that is gone ends
+// the attach for good, and a PC that cannot attach is mirrored instead.
+const FIND_CODES = new Set(["stale_content", "pane_not_found", "invalid_herdr_response", "herdr_timeout", "not_found"]);
+const TERMINAL_CODES = new Set(["pane_not_found", "pane_not_restored", "no_terminal", "attach_unsupported", "not_found"]);
+const gridSize = (value) => validSize(value) ? value : undefined;
 
 const MAX_ID_LENGTH = 512;
 const movedId = (value) => typeof value === "string" && value !== "" && value.length <= MAX_ID_LENGTH && !value.includes("!");
@@ -146,6 +153,7 @@ export class LeafLinkClient {
     this.subscribe = subscribe;
     this.controllers = new Set();
     this.stops = new Set();
+    this.ptys = new Set();
   }
 
   info() {
@@ -209,7 +217,7 @@ export class LeafLinkClient {
     this.#verify(await this.#request("/api/link/hello", { timeoutMs: this.timeouts.hello, checked: true }));
   }
 
-  async #request(path, { method = "GET", body, timeoutMs = this.timeouts.read, accountErrors = false, checked = false } = {}) {
+  async #request(path, { method = "GET", body, timeoutMs = this.timeouts.read, accountErrors = false, checked = false, codes = null } = {}) {
     if (!checked) await this.#ready();
     const call = await this.#open(path, {
       method,
@@ -226,6 +234,9 @@ export class LeafLinkClient {
       // An account refusal keeps its own status and code, so "that account is
       // active" is not flattened into "the leaf is broken".
       const refusal = payload?.error;
+      if (codes?.has(refusal?.code)) {
+        throw linkError(refusal.code, readable(refusal.message) || `HerdRabbit at ${this.address} returned ${response.status}.`);
+      }
       if (accountErrors && response.status < 500 && typeof refusal?.code === "string" &&
           /^[a-z_]{1,64}$/u.test(refusal.code) && refusal.code !== "not_found" &&
           response.status !== 401 && response.status !== 403) {
@@ -290,17 +301,66 @@ export class LeafLinkClient {
     });
   }
 
-  // The terminal of a connected PC is mirrored from its screen for now.
-  async terminalTarget() {
-    throw notOverLink("Attaching to the terminal", "attach_unsupported");
+  // A connected PC's terminal attaches for real: that PC runs the attach on its
+  // own pty, and this hub relays it over a WebSocket on the same Connect PC
+  // port (src/link-attach.mjs). The target has no command: PaneAttachments'
+  // spawner sees `remote` and opens that instead. A PC from before this could
+  // attach answers not_found, and its panes stay mirrored.
+  async terminalTarget(paneId, timeoutMs = this.timeouts.read) {
+    const path = `/api/link/panes/${encodeURIComponent(paneId)}`;
+    let body;
+    try {
+      body = await this.#request(`${path}/terminal`, { timeoutMs: Math.min(timeoutMs, this.timeouts.read), codes: TERMINAL_CODES });
+    } catch (error) {
+      if (error.code === "not_found") throw linkError("attach_unsupported", `HerdRabbit at ${this.address} is too old to attach its terminals.`);
+      throw error;
+    }
+    if (typeof body.terminal_id !== "string" || !TERMINAL_ID.test(body.terminal_id)) {
+      throw linkError("no_terminal", "The pane has no terminal");
+    }
+    return {
+      remote: { open: (options) => this.#openTerminal(path, options) },
+      command: null,
+      args: [],
+      env: {},
+      terminalId: body.terminal_id,
+      cols: gridSize(body.cols),
+      rows: gridSize(body.rows),
+    };
   }
 
-  async paneFind() {
-    throw notOverLink("Searching the terminal");
+  #openTerminal(path, { cols, rows, takeover = false, onData, onExit }) {
+    const query = new URLSearchParams({ cols: String(cols), rows: String(rows) });
+    if (takeover) query.set("takeover", "1");
+    // The same address, same checks, as every other call: only the scheme is a socket's.
+    const address = this.address.replace(/^http(s?):/u, "ws$1:");
+    const pty = openRemotePty({
+      url: `${address}${path}/attach?${query}`,
+      onData,
+      onExit: (code) => { this.ptys.delete(pty); onExit(code); },
+    });
+    this.ptys.add(pty);
+    return pty;
   }
 
-  async paneReveal() {
-    throw notOverLink("Searching the terminal");
+  // Find and reveal run on the connected PC, against its own Herdr; a history
+  // that changed since the match before stays a 409 stale_content here too.
+  async paneFind(paneId, request) {
+    return this.#search(`/api/link/panes/${encodeURIComponent(paneId)}/find`, request);
+  }
+
+  async paneReveal(paneId, request) {
+    return this.#search(`/api/link/panes/${encodeURIComponent(paneId)}/reveal`, request);
+  }
+
+  async #search(path, request) {
+    try {
+      return await this.#request(path, { method: "POST", body: request, timeoutMs: this.timeouts.write, codes: FIND_CODES });
+    } catch (error) {
+      // A PC from before find went over the link has no such route.
+      if (error.code === "not_found") throw tooOld(this.address, "searching its terminals");
+      throw error;
+    }
   }
 
   async sendKeys(paneId, keys) {
@@ -509,5 +569,6 @@ export class LeafLinkClient {
     this.controllers.clear();
     for (const stop of this.stops) stop();
     this.stops.clear();
+    for (const pty of this.ptys) pty.kill();
   }
 }

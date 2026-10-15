@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { STATUS_CODES, createServer } from "node:http";
 import { HttpError, sendJson } from "./http-basics.mjs";
 import { PeerRejected } from "./peer-identity.mjs";
 import { errorResponse } from "./error-response.mjs";
@@ -37,32 +37,45 @@ function browserRequest(headers) {
 //     refused before anything else is looked at.
 //
 // `link` is leafLinkRoutes (src/link-server.mjs); `peer` is a PeerIdentity.
-// `hostNames` returns other names this PC is reached by, such as its tailnet
-// DNS name. With an empty allowed list every request is refused.
-export function createPeerServer({ peer, link, hostNames = () => [], logger = console }) {
+// `attach` is linkAttachSockets (src/link-attach.mjs), the one WebSocket this
+// port speaks: a hub attaching to a pane's terminal. Without it every upgrade
+// is turned away. `hostNames` returns other names this PC is reached by, such
+// as its tailnet DNS name. With an empty allowed list every request is refused.
+export function createPeerServer({ peer, link, attach = null, hostNames = () => [], logger = console }) {
+  // What every request and every upgrade passes, in this order, before any
+  // route sees it.
+  async function admit(request) {
+    if (!expectedHost(request.headers.host)) {
+      throw new HttpError(421, "wrong_host", "This port answers only to its own address.");
+    }
+    if (browserRequest(request.headers)) {
+      throw new HttpError(403, "browser_refused", "This port answers other PCs, not browsers.");
+    }
+    const url = new URL(request.url || "/", "http://peer.invalid");
+    // Narrowed before asking who is calling, so the refusal is the same for
+    // everyone and nothing else here is ever served.
+    if (!url.pathname.startsWith("/api/link/")) throw new HttpError(404, "not_found", "Not found");
+    await peer.authorize(request);
+    return url;
+  }
+
+  function failureOf(error) {
+    const failure = error instanceof PeerRejected
+      ? { status: error.status, code: error.code, message: error.message }
+      : errorResponse(error);
+    if (failure.status >= 500) logger.error?.(`Connect PC request failed: ${error?.message || error}`);
+    return failure;
+  }
+
   const server = createServer(async (request, response) => {
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("X-Content-Type-Options", "nosniff");
     try {
-      if (!expectedHost(request.headers.host)) {
-        throw new HttpError(421, "wrong_host", "This port answers only to its own address.");
-      }
-      if (browserRequest(request.headers)) {
-        throw new HttpError(403, "browser_refused", "This port answers other PCs, not browsers.");
-      }
-      const url = new URL(request.url || "/", "http://peer.invalid");
-      const method = request.method || "GET";
-      // Narrowed before asking who is calling, so the refusal is the same for
-      // everyone and nothing else here is ever served.
-      if (!url.pathname.startsWith("/api/link/")) throw new HttpError(404, "not_found", "Not found");
-      await peer.authorize(request);
-      if (await link(request, response, url, method)) return;
+      const url = await admit(request);
+      if (await link(request, response, url, request.method || "GET")) return;
       throw new HttpError(404, "not_found", "Not found");
     } catch (error) {
-      const failure = error instanceof PeerRejected
-        ? { status: error.status, code: error.code, message: error.message }
-        : errorResponse(error);
-      if (failure.status >= 500) logger.error?.(`Connect PC request failed: ${error?.message || error}`);
+      const failure = failureOf(error);
       if (response.headersSent) {
         response.destroy();
         return;
@@ -85,9 +98,23 @@ export function createPeerServer({ peer, link, hostNames = () => [], logger = co
       host === `${name.toLowerCase()}:${bound.port}`);
   }
 
-  // Nothing here speaks WebSocket; an upgrade is turned away before any route.
-  server.on("upgrade", (request, socket) => {
-    socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+  // A terminal attach is the only upgrade: it passes the same checks as any
+  // request, then the attach's own (pane, size, how many are open). A refusal
+  // is an ordinary HTTP answer and the connection closes.
+  server.on("upgrade", async (request, socket, head) => {
+    socket.on("error", () => {});
+    try {
+      const url = await admit(request);
+      if (!attach?.matches(url.pathname)) throw new HttpError(404, "not_found", "Not found");
+      await attach.upgrade(request, socket, head, url);
+    } catch (error) {
+      const failure = failureOf(error);
+      if (socket.destroyed) return;
+      const body = JSON.stringify({ error: { code: failure.code, message: failure.message } });
+      socket.end(`HTTP/1.1 ${failure.status} ${STATUS_CODES[failure.status] ?? "Error"}\r\n` +
+        "Connection: close\r\nCache-Control: no-store\r\nContent-Type: application/json; charset=utf-8\r\n" +
+        `Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+    }
   });
   server.maxConnections = MAX_PEER_CONNECTIONS;
   server.headersTimeout = 5_000;

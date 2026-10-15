@@ -258,8 +258,8 @@ export class MultiServerClient {
     if (entry.profile.id !== "local" || typeof entry.client.paneProcessInfo !== "function") return null;
     return entry.client.paneProcessInfo(localId);
   }
-  // This machine's panes and Herdr machines' attach; a connected PC's client
-  // refuses (attach_unsupported), and the page mirrors its screen instead.
+  // This machine's panes and Herdr machines' attach here; a connected PC's
+  // client answers a target that attaches on that PC (src/link-attach.mjs).
   terminalTarget(id, timeoutMs) {
     const { entry, id: localId } = this.target(id);
     return entry.client.terminalTarget(localId, timeoutMs);
