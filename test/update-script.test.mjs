@@ -94,13 +94,14 @@ test("updater keeps the installed Herdr when its update fails but it is new enou
   assert.match(commands, /systemctl --user restart/);
 });
 
-test("updater stops a former leaf before changing anything and says how to move it over", async (t) => {
+test("updater updates a former leaf in place and says how to open its page", async (t) => {
   const { result, commands } = await runFixture(t, "leaf");
-  assert.notEqual(result.code, undefined);
+  assert.equal(result.code, undefined, result.stderr);
   assert.match(result.stdout, /installed as a leaf/u);
   assert.match(result.stdout, /npm run install-service/u);
-  assert.match(result.stderr, /nothing was changed/u);
-  assert.doesNotMatch(commands, /git fetch|herdr update|git merge --ff-only|npm ci|systemctl --user restart/);
+  assert.match(commands, /git merge --ff-only FETCH_HEAD/);
+  assert.match(commands, /systemctl --user restart/);
+  assert.doesNotMatch(commands, /install-service/);
 });
 
 test("updater changes nothing, Herdr included, when it cannot read the new code", async (t) => {

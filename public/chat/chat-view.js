@@ -6,8 +6,8 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatView.tsx and
 // ChatView.css, rewritten as plain DOM code without React.
-import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.50";
-import { lineDiff } from "./diff.js?v=1.2.50";
+import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.51";
+import { lineDiff } from "./diff.js?v=1.2.51";
 import {
   formatWorkDuration,
   commandText,
@@ -23,17 +23,17 @@ import {
   workStartsOpen,
   workSummary,
   workTitle,
-} from "./work-blocks.js?v=1.2.50";
-import { paneRenames } from "../pane-rename.js?v=1.2.50";
-import { ConversationLoader } from "./conversation-refresh.js?v=1.2.50";
-import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.50";
+} from "./work-blocks.js?v=1.2.51";
+import { paneRenames } from "../pane-rename.js?v=1.2.51";
+import { ConversationLoader } from "./conversation-refresh.js?v=1.2.51";
+import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.51";
 import {
   chatMayBecomeAvailable,
   chatUnavailableText,
   chooseLens,
   readPaneLens,
   writePaneLens,
-} from "../lens-preference.js?v=1.2.50";
+} from "../lens-preference.js?v=1.2.51";
 
 // Scrolling this close to the top reads the page before it.
 const LOAD_OLDER_PX = 400;

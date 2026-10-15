@@ -61,3 +61,21 @@ export async function promptForNewPassword() {
   }
   return password;
 }
+
+// A yes/no or a number: nothing secret, so it is echoed.
+export function readVisibleLine(label) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error("설치에는 대화형 터미널이 필요합니다.");
+  }
+  return new Promise((resolve, reject) => {
+    process.stdout.write(label);
+    const onData = (chunk) => {
+      process.stdin.removeListener("data", onData);
+      process.stdin.pause();
+      resolve(String(chunk).trim());
+    };
+    process.stdin.once("error", reject);
+    process.stdin.resume();
+    process.stdin.on("data", onData);
+  });
+}

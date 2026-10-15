@@ -85,8 +85,10 @@ test("keeps a separate last folder for each server", () => {
   // A server nobody visited has no folder yet.
   assert.equal(readBrowsePath(store, "machine-ffffffffffff"), null);
   assert.equal(writeBrowsePath(store, "/srv", "not-a-server"), false);
-  // A removed leaf link's id is not a server any more.
-  assert.equal(writeBrowsePath(store, "/srv", "link_0123abcd-0123-0123-0123-0123456789ab"), false);
+  // A PC connected with Connect PC keeps its own folder too.
+  assert.equal(writeBrowsePath(store, "/srv", "link_0123abcd-0123-0123-0123-0123456789ab"), true);
+  assert.equal(readBrowsePath(store, "link_0123abcd-0123-0123-0123-0123456789ab"), "/srv");
+  assert.equal(writeBrowsePath(store, "/srv", "link_not-a-uuid"), false);
   assert.equal(readBrowsePath(store, "not-a-server"), null);
 });
 

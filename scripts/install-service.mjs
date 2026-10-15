@@ -15,7 +15,9 @@ import {
   isPortInServiceRange,
   PREFERRED_SERVICE_PORT,
 } from "../src/port-selection.mjs";
-import { promptForNewPassword } from "./password-prompt.mjs";
+import { promptForNewPassword, readVisibleLine } from "./password-prompt.mjs";
+import { DEFAULT_PEER_PORT } from "../src/leaf-protocol.mjs";
+import { readTailnetPeers } from "../src/tailnet-peers.mjs";
 import { ensureHerdrExecutable } from "./herdr-install.mjs";
 import { configureClaude } from "./configure-claude.mjs";
 
@@ -31,18 +33,35 @@ function quoteSystemd(value) {
 // Re-running the installer on a machine that is already set up should carry
 // its answers forward, so the prompts default to what it is rather than to what
 // a fresh install would be.
+function unitSetting(source, name) {
+  return source.match(new RegExp(`${name}=([^"\\s]*)`, "u"))?.[1] ?? "";
+}
+
+// The Connect PC settings a unit already has, or null when its port is
+// closed. A leaf an older version wrote listened on its tailnet address for
+// its hub; that is the same thing now, so a rerun offers to keep it.
+function existingPeer(source, wasLeaf) {
+  const host = unitSetting(source, "HERDR_WEB_PEER_HOST") ||
+    (wasLeaf && !/^(127\.|::1$|0\.0\.0\.0$|::$)/u.test(unitSetting(source, "HERDR_WEB_HOST")) ? unitSetting(source, "HERDR_WEB_HOST") : "");
+  if (!host) return null;
+  const port = Number(unitSetting(source, "HERDR_WEB_PEER_PORT") || (wasLeaf ? unitSetting(source, "HERDR_WEB_PORT") : "")) || DEFAULT_PEER_PORT;
+  const list = (name) => unitSetting(source, name).split(",").map((item) => item.trim()).filter(Boolean);
+  return { host, port, addresses: list("HERDR_WEB_PEER_ADDRESSES"), logins: list("HERDR_WEB_PEER_LOGINS"), hub: unitSetting(source, "HERDR_WEB_HUB") || null };
+}
+
 export async function readExistingUnit(serviceFile) {
   try {
     const source = await readFile(serviceFile, "utf8");
     const port = Number(source.match(/HERDR_WEB_PORT=(\d+)/)?.[1]);
+    const wasLeaf = /HERDR_WEB_ROLE=(?:")?leaf/u.test(source);
     return {
       port: isPortInServiceRange(port) ? port : null,
-      // Leaf mode is gone; a rerun on a former leaf writes a normal unit and
-      // says what changed.
-      wasLeaf: /HERDR_WEB_ROLE=(?:")?leaf/u.test(source),
+      // A leaf is written again as an ordinary unit with its own page.
+      wasLeaf,
+      peer: existingPeer(source, wasLeaf),
     };
   } catch (error) {
-    if (error.code === "ENOENT") return { port: null, wasLeaf: false };
+    if (error.code === "ENOENT") return { port: null, wasLeaf: false, peer: null };
     throw error;
   }
 }
@@ -63,6 +82,8 @@ async function tailscaleDetails() {
       serve = JSON.parse(serveSource);
     } catch {}
     const hostname = String(status.Self?.DNSName || "").replace(/\.$/, "");
+    const address = (Array.isArray(status.Self?.TailscaleIPs) ? status.Self.TailscaleIPs : [])
+      .find((item) => !String(item).includes(":")) || "";
     const usedHttpsPorts = new Set(
       Object.entries(serve.TCP || {})
         .filter(([, value]) => value?.HTTPS === true)
@@ -72,14 +93,17 @@ async function tailscaleDetails() {
     return {
       available: status.BackendState === "Running" && hostname !== "",
       hostname,
+      address,
       usedHttpsPorts,
     };
   } catch {
-    return { available: false, hostname: "", usedHttpsPorts: new Set() };
+    return { available: false, hostname: "", address: "", usedHttpsPorts: new Set() };
   }
 }
 
-export function serviceUnit({ nodeBin, herdrBin, authFile, port, hostname }) {
+// `peer`: the Connect PC port, { host, port, addresses, logins, hub }, or null
+// to keep it closed. The page always stays on loopback behind Tailscale Serve.
+export function serviceUnit({ nodeBin, herdrBin, authFile, port, hostname, peer = null }) {
   const lines = [
     "[Unit]",
     "Description=HerdRabbit",
@@ -94,6 +118,17 @@ export function serviceUnit({ nodeBin, herdrBin, authFile, port, hostname }) {
   ];
   if (hostname) {
     lines.push(`Environment=${quoteSystemd(`HERDR_WEB_ALLOWED_HOSTS=${hostname}`)}`);
+  }
+  if (peer) {
+    // Baked in at install time so the allowed list cannot change without the
+    // unit changing. An empty list keeps the port shut to everyone.
+    lines.push(
+      `Environment=${quoteSystemd(`HERDR_WEB_PEER_HOST=${peer.host}`)}`,
+      `Environment=${quoteSystemd(`HERDR_WEB_PEER_PORT=${peer.port}`)}`,
+    );
+    if (peer.addresses?.length) lines.push(`Environment=${quoteSystemd(`HERDR_WEB_PEER_ADDRESSES=${peer.addresses.join(",")}`)}`);
+    if (peer.logins?.length) lines.push(`Environment=${quoteSystemd(`HERDR_WEB_PEER_LOGINS=${peer.logins.join(",")}`)}`);
+    if (peer.hub) lines.push(`Environment=${quoteSystemd(`HERDR_WEB_HUB=${peer.hub}`)}`);
   }
   lines.push(
     `Environment=${quoteSystemd(`HERDR_BIN=${herdrBin}`)}`,
@@ -159,6 +194,59 @@ function runInteractive(command, args) {
 }
 
 
+// Whether other PCs may connect to this one (Connect PC), and which. Nothing
+// about the page or its password changes either way.
+export function parsePeerChoice(answer, peers) {
+  const picked = String(answer).split(",").map((item) => item.trim()).filter(Boolean);
+  const addresses = [];
+  for (const item of picked) {
+    const peer = peers[Number(item) - 1];
+    if (!/^\d+$/u.test(item) || !peer) throw new Error(`목록에 없는 번호입니다: ${item}`);
+    if (!addresses.includes(peer.address)) addresses.push(peer.address);
+  }
+  return addresses;
+}
+
+export function peerPortBeside(wanted, pagePort, usedHttpsPorts = new Set()) {
+  const taken = (candidate) => candidate === pagePort || usedHttpsPorts.has(candidate);
+  if (!taken(wanted)) return wanted;
+  for (let candidate = DEFAULT_PEER_PORT; candidate <= 65_535; candidate += 1) {
+    if (!taken(candidate)) return candidate;
+  }
+  throw new Error("Connect PC 포트로 쓸 빈 포트를 찾지 못했습니다.");
+}
+
+async function chooseConnectPc(tailscale, existing) {
+  if (!tailscale.available || !tailscale.address) return null;
+  const wasOpen = existing.peer !== null;
+  const answer = await readVisibleLine(
+    `다른 PC가 이 PC에 붙을 수 있게 열까요? (Connect PC) [${wasOpen ? "Y/n" : "y/N"}]: `,
+  );
+  const open = answer === "" ? wasOpen : /^y(es)?$/iu.test(answer);
+  if (!open) return null;
+
+  const { peers } = await readTailnetPeers();
+  if (peers.length === 0) {
+    console.log("tailnet에 다른 PC가 없습니다. 허용 목록이 비어 있으면 아무 PC도 붙을 수 없습니다.");
+  } else {
+    console.log("이 PC에 붙을 수 있게 허용할 PC를 고르세요 (쉼표로 여러 개, 비우면 지금 설정 유지):");
+    peers.forEach((peer, index) => {
+      const mark = existing.peer?.addresses.includes(peer.address) ? " (허용됨)" : "";
+      console.log(`  ${index + 1}. ${peer.name}  ${peer.address}${mark}`);
+    });
+  }
+  const picked = peers.length === 0 ? "" : await readVisibleLine("번호: ");
+  const addresses = picked === "" ? existing.peer?.addresses ?? [] : parsePeerChoice(picked, peers);
+  const port = existing.peer?.host === tailscale.address ? existing.peer.port : DEFAULT_PEER_PORT;
+  return {
+    host: tailscale.address,
+    port,
+    addresses,
+    logins: existing.peer?.logins ?? [],
+    hub: existing.peer?.hub ?? null,
+  };
+}
+
 async function main() {
   const userConfigHome = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
   const unitDirectory = join(userConfigHome, "systemd", "user");
@@ -177,11 +265,15 @@ async function main() {
   });
 
   if (existing.wasLeaf) {
-    // A leaf listened on its tailnet address with no password. Leaf mode is
-    // gone: this becomes a normal HerdRabbit on loopback, with a password.
-    console.log("이 PC는 예전 leaf 설치입니다. 일반 HerdRabbit으로 다시 설치합니다.");
-    console.log("다른 PC의 HerdRabbit에서 이 PC를 보려면 그쪽에서 herdr machine으로 다시 추가하세요.");
+    // A leaf had no page. Every PC has one now, on loopback with a password,
+    // and the leaf's link becomes its Connect PC port.
+    console.log("이 PC는 예전 leaf 설치입니다. 이제 이 PC에도 화면과 로그인이 생깁니다.");
   }
+  const connectPc = await chooseConnectPc(tailscale, existing);
+  // Tailscale Serve holds the page's port (and any other HTTPS port it serves)
+  // on the tailnet address, which would hide a Connect PC port there. A former
+  // leaf listened on the page's port; its hub finds it again with Find new address.
+  if (connectPc) connectPc.port = peerPortBeside(connectPc.port, port, tailscale.usedHttpsPorts);
   const password = await promptForNewPassword();
   const claude = await configureClaude();
   console.log(`Claude 일반 터미널 모드 설정: ${claude.path}`);
@@ -194,6 +286,7 @@ async function main() {
     authFile,
     port,
     hostname: tailscale.hostname,
+    peer: connectPc,
   }), { mode: 0o600 });
 
   await execFileAsync("systemctl", ["--user", "daemon-reload"]);
@@ -213,6 +306,13 @@ async function main() {
     // Without a password the API is open to the tailnet while everything
     // still looks like it is working.
     console.warn("경고: 비밀번호가 없습니다. 이 API는 tailnet의 모든 기기에 열려 있습니다.");
+  }
+  if (connectPc) {
+    console.log(`Connect PC 포트: http://${connectPc.host}:${connectPc.port}`);
+    console.log(connectPc.addresses.length > 0
+      ? `이 PC에 붙을 수 있는 PC: ${connectPc.addresses.join(", ")}`
+      : "허용한 PC가 없어 아직 아무 PC도 붙을 수 없습니다. 다시 실행해 고르세요.");
+    console.log("붙일 PC의 화면에서 사이드바 + → Connect PC로 이 PC를 고르세요.");
   }
 
   if (!tailscale.available) {

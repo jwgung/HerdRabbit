@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formerLeafRefusal, obsoleteSettingsWarning, parseAllowedHosts, parseHost, parseMaxTransferBytes, parsePort, readConfig } from "../src/config.mjs";
+import {
+  formerLeafRefusal, hostPort, legacyLeafWarning, parseAllowedHosts, parseHost, parseHubUrl, parseMaxTransferBytes,
+  parsePeerAddresses, parsePeerHost, parsePeerLogins, parsePeerPort, parsePort, parseRole, readConfig,
+} from "../src/config.mjs";
 
 test("uses safe loopback defaults", () => {
   const config = readConfig({});
@@ -63,16 +66,54 @@ test("rejects privileged or malformed ports", () => {
   }
 });
 
-test("nothing obsolete is set on a fresh install", () => {
+test("the Connect PC port is closed on a fresh install", () => {
   const config = readConfig({});
-  assert.deepEqual(config.obsoleteSettings, []);
+  assert.equal(config.peerHost, null);
+  assert.equal(config.peerPort, 38_788);
+  assert.deepEqual(config.peerAddresses, []);
+  assert.deepEqual(config.peerLogins, []);
   assert.equal(config.wasLeaf, false);
-  assert.equal(obsoleteSettingsWarning(config), null);
+  assert.equal(legacyLeafWarning(config), null);
 });
 
-test("a former leaf still starts, on loopback only, with one warning", () => {
-  // Its unit still says leaf and binds its tailnet address with no password.
-  // Leaf mode is gone, so kept there it would be an open terminal on the tailnet.
+test("opens the Connect PC port on one tailnet address beside the page", () => {
+  const config = readConfig({
+    HERDR_WEB_PEER_HOST: "100.101.171.95",
+    HERDR_WEB_PEER_ADDRESSES: "100.64.0.9, 100.64.0.9",
+    HERDR_WEB_PEER_LOGINS: "Owner@Example.com",
+    HERDR_WEB_HUB: "https://hub.example.ts.net:38787/",
+  });
+  // The page stays on loopback behind Tailscale Serve, with its login.
+  assert.equal(config.host, "127.0.0.1");
+  assert.equal(config.peerHost, "100.101.171.95");
+  assert.equal(config.peerPort, 38_788);
+  assert.deepEqual(config.peerAddresses, ["100.64.0.9"]);
+  assert.deepEqual(config.peerLogins, ["owner@example.com"]);
+  assert.equal(config.hub, "https://hub.example.ts.net:38787");
+  assert.equal(readConfig({ HERDR_WEB_PEER_HOST: "100.101.171.95", HERDR_WEB_PEER_PORT: "30002" }).peerPort, 30_002);
+});
+
+test("refuses a Connect PC port that would listen everywhere or clash with the page", () => {
+  for (const value of ["0.0.0.0", "::", "box.ts.net", "100.101.171"]) {
+    assert.throws(() => parsePeerHost(value), /HERDR_WEB_PEER_HOST/u, value);
+  }
+  for (const value of ["80", "abc", "65536"]) {
+    assert.throws(() => parsePeerPort(value), /HERDR_WEB_PEER_PORT/u, value);
+  }
+  assert.throws(() => readConfig({ HERDR_WEB_HOST: "100.64.0.2", HERDR_WEB_PEER_HOST: "100.64.0.2", HERDR_WEB_PEER_PORT: "38787" }),
+    /HERDR_WEB_PEER_PORT must differ/u);
+  assert.throws(() => parsePeerAddresses("100.64.0.9, box"), /HERDR_WEB_PEER_ADDRESSES/u);
+  // a LAN address proves no device: only tailnet addresses (and this PC's loopback)
+  assert.throws(() => parsePeerAddresses("192.168.0.20"), /HERDR_WEB_PEER_ADDRESSES/u);
+  assert.deepEqual(parsePeerAddresses("127.0.0.1, fd7a:115c:a1e0::9"), ["127.0.0.1", "fd7a:115c:a1e0::9"]);
+  // written the long way, an address is the one a socket reports
+  assert.deepEqual(parsePeerAddresses("FD7A:115C:A1E0:0:0:0:0:9, fd7a:115c:a1e0::9"), ["fd7a:115c:a1e0::9"]);
+  assert.throws(() => parsePeerLogins("owner"), /HERDR_WEB_PEER_LOGINS/u);
+  assert.throws(() => parseHubUrl("https://hub.example.ts.net/path"), /HERDR_WEB_HUB/u);
+  assert.throws(() => parseRole("server"), /HERDR_WEB_ROLE/u);
+});
+
+test("a former leaf keeps answering its hub on the same address and port, and its page moves to loopback", () => {
   const config = readConfig({
     HERDR_WEB_ROLE: "leaf",
     HERDR_WEB_HOST: "100.101.171.95",
@@ -81,28 +122,25 @@ test("a former leaf still starts, on loopback only, with one warning", () => {
   });
   assert.equal(config.host, "127.0.0.1");
   assert.equal(config.wasLeaf, true);
-  assert.equal("role" in config, false);
-  assert.equal("peerAddresses" in config, false);
-  assert.deepEqual(config.obsoleteSettings, ["HERDR_WEB_ROLE", "HERDR_WEB_PEER_ADDRESSES", "HERDR_WEB_HUB"]);
-  const warning = obsoleteSettingsWarning(config);
-  assert.match(warning, /^Ignoring HERDR_WEB_ROLE, HERDR_WEB_PEER_ADDRESSES, HERDR_WEB_HUB:/u);
-  assert.match(warning, /herdr machine/u);
-  assert.match(warning, /127\.0\.0\.1 only/u);
+  assert.equal(config.peerHost, "100.101.171.95");
+  assert.equal(config.peerPort, 38_787, "the hub's saved address keeps working");
+  assert.deepEqual(config.peerAddresses, ["100.64.0.9"]);
+  const warning = legacyLeafWarning(config);
+  assert.match(warning, /127\.0\.0\.1:38787/u);
+  assert.match(warning, /100\.101\.171\.95:38787/u);
   assert.equal(warning.includes("\n"), false);
 });
 
-test("stray leaf settings on a normal server are ignored, not fatal", () => {
-  // These used to refuse to start; now they mean nothing and the bind stays.
-  const config = readConfig({ HERDR_WEB_HOST: "100.101.171.95", HERDR_WEB_PEER_LOGINS: "owner@example.com", HERDR_WEB_ROLE: "hub" });
-  assert.equal(config.host, "100.101.171.95");
-  assert.equal(config.wasLeaf, false);
-  assert.deepEqual(config.obsoleteSettings, ["HERDR_WEB_ROLE", "HERDR_WEB_PEER_LOGINS"]);
-  assert.doesNotMatch(obsoleteSettingsWarning(config), /127\.0\.0\.1/u);
+test("a former leaf behind Tailscale Serve gets a page but no Connect PC port", () => {
+  const config = readConfig({ HERDR_WEB_ROLE: "leaf", HERDR_WEB_HOST: "127.0.0.1", HERDR_WEB_PEER_LOGINS: "owner@example.com" });
+  assert.equal(config.host, "127.0.0.1");
+  assert.equal(config.peerHost, null);
+  assert.match(legacyLeafWarning(config), /HERDR_WEB_PEER_HOST/u);
 });
 
-test("a former leaf without a password refuses to start", () => {
-  // Behind Tailscale Serve a loopback bind still reaches the tailnet, and the
-  // peer gate that guarded it is gone; only a password closes it now.
+test("a former leaf without a password keeps its page locked", () => {
+  // Behind Tailscale Serve a loopback page still reaches the tailnet, and a
+  // leaf never had a password; only setting one opens the page.
   const leaf = readConfig({ HERDR_WEB_ROLE: "leaf", HERDR_WEB_HOST: "127.0.0.1", HERDR_WEB_PEER_LOGINS: "owner@example.com" });
   assert.match(formerLeafRefusal(leaf, false), /no password.*npm run install-service/u);
   assert.equal(formerLeafRefusal(leaf, true), null);
@@ -121,4 +159,29 @@ test("refuses a transfer limit that is not a positive whole number", () => {
   for (const value of ["0", "-5", "1.5", "abc", "50MB", "1e3", "999999999999999"]) {
     assert.throws(() => readConfig({ HERDR_WEB_MAX_TRANSFER_MB: value }), /HERDR_WEB_MAX_TRANSFER_MB/u, value);
   }
+});
+
+test("the Connect PC port listens only on a tailnet address, however the address is spelled", () => {
+  // Every spelling of "every interface", and any address outside Tailscale's ranges.
+  for (const value of ["::0", "0:0:0:0:0:0:0:0", "0::0", "::ffff:0.0.0.0", "::ffff:0:0", "0.0.0.0",
+    "192.168.1.10", "10.0.0.2", "172.17.0.1", "100.128.0.1", "100.63.255.255", "fe80::1", "fd7a:115c:a1e1::1", "2001:db8::1"]) {
+    assert.throws(() => parsePeerHost(value), /HERDR_WEB_PEER_HOST must be this PC's tailnet address/u, value);
+  }
+  assert.equal(parsePeerHost("100.64.0.2"), "100.64.0.2");
+  assert.equal(parsePeerHost("100.127.255.254"), "100.127.255.254");
+  assert.equal(parsePeerHost("FD7A:115C:A1E0:0:0:0:0:1"), "fd7a:115c:a1e0::1", "kept in the spelling a Host header carries");
+  assert.equal(parsePeerHost("::ffff:100.64.0.2"), "100.64.0.2");
+  // Loopback reaches nothing but this PC, so trying it out here is allowed.
+  assert.equal(parsePeerHost("127.0.0.1"), "127.0.0.1");
+  assert.equal(parsePeerHost("::1"), "::1");
+});
+
+test("a former leaf on a LAN address does not start answering the LAN", () => {
+  assert.throws(() => readConfig({ HERDR_WEB_ROLE: "leaf", HERDR_WEB_HOST: "192.168.1.10" }), /HERDR_WEB_PEER_HOST/u);
+  assert.equal(readConfig({ HERDR_WEB_ROLE: "leaf", HERDR_WEB_HOST: "::0" }).peerHost, null);
+});
+
+test("an IPv6 address is bracketed wherever it is written with a port", () => {
+  assert.equal(hostPort("fd7a:115c:a1e0::1", 38_788), "[fd7a:115c:a1e0::1]:38788");
+  assert.equal(hostPort("100.64.0.2", 38_788), "100.64.0.2:38788");
 });

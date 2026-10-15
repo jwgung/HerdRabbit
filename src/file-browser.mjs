@@ -2,6 +2,7 @@ import { constants as fsConstants } from "node:fs";
 import { lstat, open, readdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { parseByteRange } from "../public/file-preview.js";
+import { defaultProtectedPaths } from "./protected-paths.mjs";
 
 const MAX_PATH_LENGTH = 4096;
 export const MAX_LISTED_ENTRIES = 2000;
@@ -36,6 +37,13 @@ const ERRNO_STATUS = new Map([
   ["ENXIO", [400, "not_a_file", "That path is not a regular file."]],
 ]);
 
+// Sign-in keys and HerdRabbit's own settings (src/protected-paths.mjs). The
+// same words everywhere a file can be asked for, so a refusal reads the same
+// here, over Connect PC and on an SSH machine.
+export function protectedPathError() {
+  return new FileAccessError(403, "protected_path", "HerdRabbit does not open sign-in keys or its own settings.");
+}
+
 export function fileAccessError(error) {
   if (error instanceof FileAccessError) return error;
   const mapped = ERRNO_STATUS.get(error?.code);
@@ -68,7 +76,13 @@ function entryKind(stats) {
   return "other";
 }
 
-async function describeEntry(directory, name) {
+// A protected entry is listed by name and kind and nothing else, so a folder
+// still shows that it holds keys without saying anything about them.
+function lockedEntry(entry, stats) {
+  return { ...entry, kind: entryKind(stats), readable: false, locked: true };
+}
+
+async function describeEntry(directory, name, isProtected) {
   const path = resolve(directory, name);
   const entry = { name, path, hidden: name.startsWith("."), readable: isReadableName(name) };
   let link;
@@ -79,6 +93,8 @@ async function describeEntry(directory, name) {
   }
 
   if (!link.isSymbolicLink()) {
+    // `directory` is already real, so this is the entry's real path.
+    if (isProtected(path)) return lockedEntry(entry, link);
     return {
       ...entry,
       kind: entryKind(link),
@@ -90,6 +106,7 @@ async function describeEntry(directory, name) {
   // Report what the link points at so a folder link behaves like a folder.
   try {
     const target = await stat(path);
+    if (isProtected(await realpath(path))) return { ...lockedEntry(entry, target), symlink: true };
     return {
       ...entry,
       kind: entryKind(target),
@@ -102,11 +119,20 @@ async function describeEntry(directory, name) {
   }
 }
 
-export async function listDirectory(rawPath, { limit = MAX_LISTED_ENTRIES, prefix = "" } = {}) {
+// Throws when the real path `real` is protected; otherwise answers the guard's
+// predicate, for callers that go on to ask about more paths.
+async function assertNotProtected(guard, real) {
+  const isProtected = await guard.matcher();
+  if (isProtected(real)) throw protectedPathError();
+  return isProtected;
+}
+
+export async function listDirectory(rawPath, { limit = MAX_LISTED_ENTRIES, prefix = "", guard = defaultProtectedPaths() } = {}) {
   const requested = validateBrowsePath(rawPath);
   // Resolving symlinks keeps breadcrumbs and "go up" consistent, and lets the
   // kernel reject link loops for us.
   const directory = await realpath(requested);
+  const isProtected = await assertNotProtected(guard, directory);
   const all = await readdir(directory);
 
   // Completion filters here rather than in the browser: a folder like /tmp can
@@ -121,7 +147,7 @@ export async function listDirectory(rawPath, { limit = MAX_LISTED_ENTRIES, prefi
   const names = wanted.sort((first, second) => (first < second ? -1 : 1));
   const visible = names.slice(0, limit);
   const entries = [];
-  for (const name of visible) entries.push(await describeEntry(directory, name));
+  for (const name of visible) entries.push(await describeEntry(directory, name, isProtected));
   entries.sort((first, second) => {
     if (first.kind !== second.kind) return first.kind === "directory" ? -1 : 1;
     return first.name < second.name ? -1 : 1;
@@ -140,12 +166,25 @@ export async function listDirectory(rawPath, { limit = MAX_LISTED_ENTRIES, prefi
   };
 }
 
-export async function directoryFingerprint(rawPath) {
+export async function directoryFingerprint(rawPath, { guard = defaultProtectedPaths() } = {}) {
   const requested = validateBrowsePath(rawPath);
   const directory = await realpath(requested);
+  await assertNotProtected(guard, directory);
   const dirStat = await stat(directory);
   const all = await readdir(directory);
   return `${dirStat.mtimeMs.toString(36)}:${all.length.toString(36)}`;
+}
+
+// Throws when `path` is, or leads to, a protected path. A path that does not
+// exist is left for whatever opens it to report.
+export async function refuseProtected(path, guard = defaultProtectedPaths()) {
+  let real;
+  try {
+    real = await realpath(path);
+  } catch {
+    return;
+  }
+  await assertNotProtected(guard, real);
 }
 
 // Opening a FIFO the ordinary way blocks until a writer appears, and the open
@@ -153,10 +192,13 @@ export async function directoryFingerprint(rawPath) {
 // them would freeze the whole app. O_NONBLOCK returns immediately so fstat can
 // reject anything that is not a regular file. O_NOFOLLOW is deliberately absent:
 // browsing has no directory boundary to protect, so refusing symlinks would
-// only break ordinary paths.
-export async function openFile(rawPath, { maxBytes = Infinity, rangeHeader = null } = {}) {
+// only break ordinary paths. What is opened is the real path that was checked
+// against the protected ones, so a link to a key opens nothing.
+export async function openFile(rawPath, { maxBytes = Infinity, rangeHeader = null, guard = defaultProtectedPaths() } = {}) {
   const path = validateBrowsePath(rawPath);
-  const handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
+  const real = await realpath(path);
+  await assertNotProtected(guard, real);
+  const handle = await open(real, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
   let stats;
   try {
     stats = await handle.stat();

@@ -60,13 +60,13 @@ main() {
     HERDR_BIN="${SERVICE_HERDR_BIN:-${HERDR_BIN:-herdr}}"
     export HERDR_BIN
     need "$HERDR_BIN"
-    # A leaf never had a password, and the new code serves one without it only
-    # a locked page. Stop before anything changes and say how to move it over.
+    # A unit an older version wrote as a leaf keeps answering its hub on the
+    # same address and port (its Connect PC port now). Its page is new, and
+    # stays locked until it has a password.
     SERVER_ROLE="$(systemctl --user show "$UPDATE_SERVICE" --property=Environment --value | node scripts/service-environment.mjs HERDR_WEB_ROLE)"
     if [ "$SERVER_ROLE" = leaf ]; then
-        log "This machine was installed as a leaf, which is no longer supported; remote PCs are added with herdr machine now."
-        log "         To keep HerdRabbit here, run 'git pull --ff-only && npm ci --omit=dev && npm run install-service' (it asks for a password)."
-        fail "a leaf cannot be updated in place; nothing was changed"
+        log "This PC was installed as a leaf. It keeps answering the PC it is connected to; every PC now also has its own page."
+        log "         To open this PC's page, run 'npm run install-service' after the update (it asks for a password)."
     fi
 
     log "Fetching main in $UPDATE_DIRECTORY"
