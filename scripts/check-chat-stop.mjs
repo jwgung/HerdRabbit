@@ -54,6 +54,7 @@ const herdr = {
   slowMs: 0,
   async sendKeys(paneId, keys) {
     if (herdr.slowMs) await new Promise((resolve) => setTimeout(resolve, herdr.slowMs));
+    if (herdr.failKeys) throw new Error("herdr refused the key");
     herdr.sent.push({ paneId, keys: [...keys] });
   },
 };
@@ -151,6 +152,14 @@ try {
     await sentKeys(4);
     await page.waitForFunction(() => !document.querySelector("#stop-button").disabled, null, { timeout: 5_000 });
     herdr.slowMs = 0;
+
+    // A refused Esc says so, and Stop is ready again for another try.
+    herdr.failKeys = true;
+    await stop.click();
+    await page.waitForFunction(() => !document.querySelector("#stop-button").disabled, null, { timeout: 5_000 });
+    assert.equal(await stop.getAttribute("aria-busy"), null, "Stop stayed busy after a refused Esc");
+    assert.notEqual((await page.locator("#action-feedback").textContent()).trim(), "", "a refused Esc said nothing");
+    herdr.failKeys = false;
 
     // Esc in the composer stops too.
     await input.focus();
