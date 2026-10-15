@@ -13,7 +13,8 @@ import { posix } from "node:path";
 import { PassThrough, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { InputValidationError } from "./herdr-client.mjs";
-import { FileAccessError, MAX_LISTED_ENTRIES, UNKNOWN_SIZE_STREAM_BYTES, fileAccessError, validateBrowsePath } from "./file-browser.mjs";
+import { FileAccessError, MAX_LISTED_ENTRIES, UNKNOWN_SIZE_STREAM_BYTES, fileAccessError, protectedPathError, validateBrowsePath } from "./file-browser.mjs";
+import { credentialRules, protectedPaths } from "./protected-paths.mjs";
 import { TEMPORARY_PREFIX, safeTransferName, splitExtension, validateTransferName } from "./file-store.mjs";
 import { parseByteRange } from "../public/file-preview.js";
 
@@ -69,9 +70,10 @@ const FINGERPRINT_SCRIPT = `${PRELUDE}for d in "$@"; do
   if cd -P -- "$d" 2>/dev/null && [ -r . ]; then
     m=$(find . -maxdepth 0 -printf "%T@")
     n=$(find . -mindepth 1 -maxdepth 1 -printf x 2>/dev/null | wc -c | tr -d " ")
-    printf "F\\0%s\\0%s\\0" "$m" "$n"
+    r=$(pwd -P; echo x); r=\${r%??}
+    printf "F\\0%s\\0%s\\0%s\\0" "$m" "$n" "$r"
   else
-    printf "X\\0\\0\\0"
+    printf "X\\0\\0\\0\\0"
   fi
 done
 `;
@@ -79,12 +81,20 @@ done
 const HOME_SCRIPT = `printf "%s" "$HOME"
 `;
 
-// $1: a path; $2: "follow" or "nofollow" (an upload is never a link). Its size.
+// $1: a path; $2: "follow" or "nofollow" (an upload is never a link). Its
+// size, then its real path, which is what is checked against the protected ones.
 const STAT_SCRIPT = `${PRELUDE}if [ "$2" = nofollow ] && [ -L "$1" ]; then exit 64; fi
 [ -e "$1" ] || exit 64
 [ -f "$1" ] || exit 67
 [ -r "$1" ] || exit 66
 find -L "$1" -maxdepth 0 -printf "%s\\0"
+readlink -zf -- "$1" || exit 68
+`;
+
+// Each argument's real path, as far as it exists: where the machine's keys
+// and settings really are.
+const RESOLVE_SCRIPT = `LC_ALL=C; export LC_ALL
+readlink -zm -- "$@" || exit 68
 `;
 
 // $1: a path; $2: "+<first byte, from 1>"; $3: how many bytes; $4 as above.
@@ -302,6 +312,7 @@ export class MachineFiles {
     this.maxBytes = maxBytes;
     this.timeoutMs = timeoutMs;
     this.homes = new WeakMap();
+    this.matchers = new WeakMap();
     this.commands = slots(MAX_COMMANDS, () => new FileAccessError(429, "browse_busy", "Too many folders are being read on that machine. Try again."));
     this.streams = slots(MAX_STREAMS, () => new FileAccessError(429, "too_many_downloads", "Too many files are moving to or from that machine. Try again."));
   }
@@ -404,6 +415,30 @@ export class MachineFiles {
     return resolved;
   }
 
+  // What the file browser never opens on that machine: its SSH and GPG keys,
+  // its AI CLIs' sign-ins and any HerdRabbit settings under its home -- the
+  // same list as here, at the default places (src/protected-paths.mjs). The
+  // rules' real paths are asked for once per connection, so a key folder made
+  // or linked on the machine after that is seen on the next connection.
+  async #protected(link) {
+    if (this.matchers.has(link)) return this.matchers.get(link);
+    const home = await this.#home(link);
+    const guard = protectedPaths(credentialRules({ home }), async (paths) => {
+      const real = await this.#realPaths(link, paths);
+      return new Map(paths.map((path, index) => [path, real[index]]));
+    });
+    const matcher = await guard.matcher();
+    this.matchers.set(link, matcher);
+    return matcher;
+  }
+
+  // Where each path really is on the machine (`readlink -m`), as written when
+  // it cannot say.
+  async #realPaths(link, paths) {
+    const real = fields(await this.#command(link, RESOLVE_SCRIPT, paths)).map((part) => part.toString("utf8"));
+    return paths.map((path, index) => (real[index]?.startsWith("/") ? real[index] : path));
+  }
+
   async listDirectory(rawPath, { limit = MAX_LISTED_ENTRIES, prefix = "" } = {}) {
     const link = this.#ready();
     // No path is the machine's home.
@@ -436,6 +471,8 @@ export class MachineFiles {
       }
     }
     if (!directory?.startsWith("/")) throw failed();
+    const isProtected = await this.#protected(link);
+    if (isProtected(directory)) throw protectedPathError();
 
     const all = lstats.map((record) => ({ ...decodeName(record.raw), record }));
     const wanted = prefix === ""
@@ -445,10 +482,18 @@ export class MachineFiles {
     // the first N by name.
     const names = wanted.sort((first, second) => (first.name < second.name ? -1 : 1));
     const visible = names.slice(0, limit);
+    // A link is locked when where it really leads is: its size and time would
+    // otherwise say something about a key. One more call, only for links.
+    const links = visible.filter(({ record }) => record.type === "l").map(({ name }) => posix.resolve(directory, name));
+    const real = links.length > 0 ? await this.#realPaths(link, links) : [];
+    const lockedLinks = new Set(links.filter((path, index) => isProtected(real[index])));
     const entries = visible.map(({ name, readable, record }) => {
       const entry = { name, path: posix.resolve(directory, name), hidden: name.startsWith("."), readable };
       if (record.type !== "l") {
         const kind = kindOf(record.type);
+        // As file-browser.mjs: named, and nothing more. A link's target is
+        // not known here; opening it is refused by its real path instead.
+        if (isProtected(entry.path)) return { ...entry, kind, readable: false, locked: true };
         return { ...entry, kind, size: kind === "file" ? record.size : null, modifiedAt: isoTime(record.time) };
       }
       const target = targets.get(record.raw.toString("latin1"));
@@ -457,6 +502,7 @@ export class MachineFiles {
         return { ...entry, kind: "other", symlink: true, broken: true };
       }
       const kind = kindOf(target.type);
+      if (lockedLinks.has(entry.path)) return { ...entry, kind, readable: false, locked: true, symlink: true };
       return { ...entry, kind, size: kind === "file" ? target.size : null, modifiedAt: isoTime(target.time), symlink: true };
     });
     entries.sort((first, second) => {
@@ -479,19 +525,30 @@ export class MachineFiles {
   async directoryFingerprints(rawPaths) {
     const link = this.#ready();
     const result = new Map();
-    const valid = [];
-    for (const raw of rawPaths) {
+    const checked = rawPaths.map((raw) => {
       try {
-        valid.push([raw, validateBrowsePath(raw)]);
+        return { raw, path: validateBrowsePath(raw) };
       } catch {
-        result.set(raw, null);
+        return { raw, path: null };
       }
-    }
+    });
+    for (const { raw, path } of checked) if (path === null) result.set(raw, null);
+    const candidates = checked.filter(({ path }) => path !== null);
+    if (candidates.length === 0) return result;
+    // Protected as written, or where it really leads (the script says where,
+    // like listDirectory's real path), so a link to a key folder is no way in.
+    const isProtected = await this.#protected(link);
+    const valid = candidates.filter(({ raw, path }) => {
+      if (!isProtected(path)) return true;
+      result.set(raw, null);
+      return false;
+    });
     if (valid.length === 0) return result;
-    const parts = fields(await this.#command(link, FINGERPRINT_SCRIPT, valid.map(([, path]) => path)));
-    valid.forEach(([raw], index) => {
-      const [tag, time, count] = parts.slice(index * 3, index * 3 + 3).map((part) => part?.toString("latin1"));
-      result.set(raw, tag === "F" && time && /^\d+$/u.test(count ?? "") ? fingerprintOf(time, Number(count)) : null);
+    const parts = fields(await this.#command(link, FINGERPRINT_SCRIPT, valid.map(({ path }) => path)));
+    valid.forEach(({ raw }, index) => {
+      const [tag, time, count] = parts.slice(index * 4, index * 4 + 4).map((part) => part?.toString("latin1"));
+      const reads = tag === "F" && time && /^\d+$/u.test(count ?? "");
+      result.set(raw, reads && !isProtected(parts[index * 4 + 3].toString("utf8")) ? fingerprintOf(time, Number(count)) : null);
     });
     return result;
   }
@@ -503,10 +560,15 @@ export class MachineFiles {
   }
 
   async #size(link, path, follow) {
+    return (await this.#stat(link, path, follow)).size;
+  }
+
+  async #stat(link, path, follow) {
     const output = fields(await this.#command(link, STAT_SCRIPT, [path, follow ? "follow" : "nofollow"]));
     const size = Number(output[0]?.toString("latin1"));
-    if (!Number.isSafeInteger(size) || size < 0) throw failed();
-    return size;
+    const real = output[1]?.toString("utf8");
+    if (!Number.isSafeInteger(size) || size < 0 || !real?.startsWith("/")) throw failed();
+    return { size, real };
   }
 
   // The bytes of one file, read as they are sent. The stream ends cleanly only
@@ -578,7 +640,8 @@ export class MachineFiles {
   async openFile(rawPath, { maxBytes = Infinity, rangeHeader = null } = {}) {
     const path = validateBrowsePath(rawPath);
     const link = this.#ready();
-    const stats = await this.#size(link, path, true);
+    const { size: stats, real } = await this.#stat(link, path, true);
+    if ((await this.#protected(link))(real)) throw protectedPathError();
     if (stats > maxBytes) throw new FileAccessError(413, "file_too_large", "That file is too large to download here.");
     // As file-browser.mjs: a size of 0 may be a file that does not know its
     // own length, so it streams without one, capped.
@@ -594,7 +657,12 @@ export class MachineFiles {
       : size === null ? { start: 0, end: Math.min(maxBytes, UNKNOWN_SIZE_STREAM_BYTES) - 1 } : { start: 0, end: size - 1 };
     // A file of unknown size (0) may end before the cap; any other read must
     // bring every byte it promised.
-    const stream = await this.#read(link, path, slice.start, slice.end - slice.start + 1, true, size !== null);
+    // The path checked is the one read, and not through a link: one swapped in
+    // between the two calls cannot turn an ordinary file into a key. /proc is
+    // the exception -- /proc/self is a different process in each call, and
+    // nobody can swap a link in there.
+    const inProc = real === "/proc" || real.startsWith("/proc/");
+    const stream = await this.#read(link, inProc ? path : real, slice.start, slice.end - slice.start + 1, inProc, size !== null);
     return {
       name: posix.basename(path),
       path,

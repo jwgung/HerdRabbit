@@ -728,13 +728,3 @@ export function loginMethodPresentation({
         passwordLabel: "Password",
       };
 }
-
-// Links to other PCs saved by an older version (a second HerdRabbit on each,
-// a "leaf") are not used any more. The page says so once, and says how to get
-// those PCs back.
-export function legacyServersNotice({ count = 0, seen = false } = {}) {
-  if (seen || !Number.isInteger(count) || count < 1) return null;
-  const links = count === 1 ? "1 computer was" : `${count} computers were`;
-  return `${links} connected with the old Connect Server setup, which has been removed. ` +
-    "Re-add each PC with Add SSH machine (herdr machine); its sessions keep running there.";
-}

@@ -49,7 +49,6 @@ import {
   aiRestartHint,
   isAiLoginWorkspace,
   paneKeepsInputHistory,
-  legacyServersNotice,
 } from "./ui-model.js?v=1.2.52";
 import {
   clampNavigatorWidth,
@@ -461,6 +460,8 @@ const state = {
   passkeyAutoStarted: false,
   // The pane whose terminal was let go while its chat stayed on screen.
   terminalParked: null,
+  // This PC's own Connect PC port, { address, allowed }, or null when closed.
+  connectPc: null,
 };
 
 // Dragging in the sidebar: what was dropped shows where it landed at once,
@@ -1786,15 +1787,21 @@ function attachGroupCollapse(group, heading, body, groupId, label) {
 }
 
 function serverRenameForm(server) {
+  const linked = server.transport === "link";
   return renameForm({
     value: server.name,
     label: `${server.name} machine name`,
     // Herdr's machine names are held to 60 characters by the server.
-    maxLength: 60,
+    maxLength: linked ? 80 : 60,
     invalidMessage: "Enter a name.",
     onCancel: () => { state.editingServerId = null; renderNavigation(); },
     onSubmit: async (name) => {
-      await api(`/api/machines/${server.id}`, { method: "PUT", body: { label: name } });
+      if (linked) {
+        // The address is not edited here, so it is carried over unchanged.
+        await api(`/api/servers/${server.id}`, { method: "PUT", body: { name, address: server.address ?? "" } });
+      } else {
+        await api(`/api/machines/${server.id}`, { method: "PUT", body: { label: name } });
+      }
       state.editingServerId = null;
       await refreshSnapshot();
     },
@@ -1812,6 +1819,37 @@ function herdrVersionText(server) {
     : server.herdr_version;
 }
 
+const SERVER_KINDS = { local: "This PC", link: "Connect PC", machine: "SSH machine (herdr machine)" };
+
+// A connected PC on another app version still connects; Details says so. Its
+// link protocol is what decides, so that is shown beside this PC's.
+function linkDetailRows(server) {
+  const here = snapshotRecords().servers.find((item) => item.id === "local");
+  if (server.id === "local") {
+    return [
+      ["Connection protocol", server.link_protocol == null ? "Unknown" : String(server.link_protocol)],
+      ["Connect PC port", state.connectPc
+        ? `${state.connectPc.address} (${state.connectPc.allowed > 0 ? `${state.connectPc.allowed} allowed` : "nobody allowed yet"})`
+        : "Closed"],
+    ];
+  }
+  if (server.transport !== "link") return [];
+  const protocol = server.link_protocol == null ? "Unknown" : String(server.link_protocol);
+  const differs = here?.link_protocol != null && server.link_protocol != null && here.link_protocol !== server.link_protocol;
+  return [
+    ["Address", server.address || "Unknown"],
+    ["Connection protocol", differs ? `${protocol} (this PC: ${here.link_protocol})` : protocol],
+  ];
+}
+
+function herdRabbitVersionText(server) {
+  if (!server.version) return "Unknown";
+  const here = snapshotRecords().servers.find((item) => item.id === "local");
+  return server.id !== "local" && here?.version && here.version !== server.version
+    ? `${server.version} (this PC: ${here.version})`
+    : server.version;
+}
+
 function showServerDetails(server) {
   const sessions = snapshotRecords().herdrSessions.filter((item) => item.server_id === server.id);
   // A pane record carries no server of its own; its id is where the server is.
@@ -1819,7 +1857,9 @@ function showServerDetails(server) {
   // A machine is shown by the name Tailscale knows it by, not by an address.
   const rows = [
     ...(server.machine ? [["Machine", server.machine]] : []),
-    ["HerdRabbit", server.version || "Unknown"],
+    ["Kind", SERVER_KINDS[server.transport] ?? SERVER_KINDS.machine],
+    ["HerdRabbit", herdRabbitVersionText(server)],
+    ...linkDetailRows(server),
     ["Herdr", herdrVersionText(server)],
     ["Status", server.available ? "Connected" : server.status || "Offline"],
     ["Herdr sessions", String(sessions.length)],
@@ -2455,6 +2495,9 @@ function serverActionMenu(server) {
       actions,
     });
   }
+  // A PC connected with Connect PC: renamed and dropped here, and found again
+  // when it moved to another port.
+  if (server.transport === "link") return linkActionMenu(server, actions);
   // Every other PC is one of Herdr's own SSH machines, managed with
   // `herdr machine` so Herdr's TUI shows the same list.
   const machineAction = (method, path, prompt) => () => {
@@ -2485,6 +2528,62 @@ function serverActionMenu(server) {
       danger: true,
       onSelect: machineAction("DELETE", `/api/machines/${server.id}`,
         `Remove “${server.name}” from Herdr's machines? Its sessions keep running there.`),
+    },
+  );
+  return sidebarActionMenu({
+    id: `server-${server.id}`,
+    label: `More actions for ${server.name}`,
+    className: "server-action-menu",
+    actions,
+  });
+}
+
+function linkActionMenu(server, actions) {
+  // A PC that moved to another port leaves its entry pointing at the old one,
+  // offline for good. Its tailnet address says it is the same PC.
+  if (!server.available) {
+    actions.push({
+      label: "Find new address",
+      paths: ["M20 12a8 8 0 1 1-2.3-5.6", "M20 4v5h-5"],
+      onSelect: () => void (async () => {
+        try {
+          setFeedback(`Looking for ${server.name}…`);
+          const found = await api("/api/servers/discover", { method: "POST", body: {} });
+          const host = new URL(server.address).hostname;
+          const moved = array(found.candidates).find((candidate) =>
+            candidate.state === "ready" && candidate.address !== server.address &&
+            new URL(candidate.address).hostname === host);
+          if (!moved) {
+            setFeedback(`${server.name} is not answering anywhere on ${host}.`, true);
+            return;
+          }
+          await api(`/api/servers/${server.id}`, {
+            method: "PUT", body: { name: server.name, address: moved.address },
+          });
+          await refreshSnapshot();
+          setFeedback(`${server.name} now points at ${moved.address}.`);
+        } catch (error) {
+          setFeedback(error.message, true);
+        }
+      })(),
+    });
+  }
+  actions.push(
+    {
+      label: "Rename",
+      paths: ["M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17l-1 3Z", "M14.5 7.5l3 3"],
+      onSelect: () => { state.editingServerId = server.id; renderNavigation(); },
+    },
+    {
+      label: "Disconnect",
+      paths: ["M6 6l12 12M18 6 6 18"],
+      danger: true,
+      onSelect: () => {
+        if (!window.confirm(`Disconnect “${server.name}”? Its sessions keep running there.`)) return;
+        void api(`/api/servers/${server.id}`, { method: "DELETE" })
+          .then(() => refreshSnapshot())
+          .catch((error) => setFeedback(error.message, true));
+      },
     },
   );
   return sidebarActionMenu({
@@ -4801,8 +4900,20 @@ function browseActionButton({ label, paths, danger = false, run }) {
   return button;
 }
 
+// A folder the tree can open into: not a broken link, and not one of the
+// sign-in folders the server lists by name only.
+function isOpenableFolder(entry) {
+  return entry.kind === "directory" && !entry.broken && entry.locked !== true;
+}
+
+// The server marks a locked entry readable: false too, so the file actions
+// need no separate locked test.
 function browseRow({ entry, depth, expanded }) {
+  // Sign-in keys and HerdRabbit's own settings are listed by name only: the
+  // server never opens them, so neither does the tree.
+  const locked = entry.locked === true;
   const row = createElement("div", { className: "transfer-row browse-row" });
+  if (locked) row.classList.add("is-locked");
   row.tabIndex = -1;
   row.style.setProperty("--depth", String(depth));
   row.dataset.path = entry.path;
@@ -4818,7 +4929,7 @@ function browseRow({ entry, depth, expanded }) {
   for (let level = 0; level < depth; level += 1) {
     lead.append(createElement("span", { className: "browse-indent" }));
   }
-  if (entry.kind === "directory" && !entry.broken && !entry.removed) {
+  if (isOpenableFolder(entry) && !entry.removed) {
     const twisty = createElement("button", { className: "browse-twisty" });
     twisty.type = "button";
     twisty.dataset.name = entry.name;
@@ -4846,6 +4957,8 @@ function browseRow({ entry, depth, expanded }) {
   lead.append(copy);
   if (entry.removed) {
     row.title = `${entry.name} (removed)`;
+  } else if (locked) {
+    row.title = `${entry.name}\nHerdRabbit does not open sign-in keys or its own settings.`;
   } else if (entry.modifiedAt) {
     const size = entry.kind === "directory" ? "" : `${formatTransferSize(entry.size ?? 0)} · `;
     row.title = `${entry.name}\n${size}${new Date(entry.modifiedAt).toLocaleString()}`;
@@ -4853,13 +4966,15 @@ function browseRow({ entry, depth, expanded }) {
 
   if (entry.broken) {
     lead.append(createElement("span", { className: "transfer-meta", text: "broken" }));
+  } else if (locked) {
+    lead.append(createElement("span", { className: "transfer-meta", text: "locked" }));
   }
 
   const actions = createElement("div", { className: "transfer-row-actions" });
   if (!entry.removed) {
     // Expanding shows a folder in place; this re-roots the tree there, so a deep
     // path stops costing a column of indentation.
-    if (entry.kind === "directory" && !entry.broken) {
+    if (isOpenableFolder(entry)) {
       actions.append(browseActionButton({
         label: `Open ${entry.name} as the root`,
         paths: ["M4 12h13", "M13 7l5 5-5 5", "M20 5v14"],
@@ -4892,7 +5007,7 @@ function browseRow({ entry, depth, expanded }) {
         other.dataset.selected = "false";
       }
       row.dataset.selected = "true";
-      if (entry.kind === "directory" && !entry.broken) void toggleBrowseFolder(entry.path);
+      if (isOpenableFolder(entry)) void toggleBrowseFolder(entry.path);
     });
   }
 
@@ -5358,7 +5473,7 @@ async function revealInFiles(filePath, name, server) {
     setBrowseFeedback(`${name} is not in this folder.`);
     return;
   }
-  if (entry.kind === "directory" && !entry.broken) {
+  if (isOpenableFolder(entry)) {
     browseState.selected = null;
     await open(entry.path, false);
     return;
@@ -5828,8 +5943,9 @@ async function initializeApplication() {
     ? bootstrap.pushPublicKey
     : null;
   document.querySelector("#add-machine").hidden = bootstrap.machines !== true;
+  document.querySelector("#manage-servers").hidden = bootstrap.servers !== true;
+  state.connectPc = bootstrap.connectPc && typeof bootstrap.connectPc.address === "string" ? bootstrap.connectPc : null;
   showApplication();
-  showLegacyServersNotice(bootstrap.legacyServers);
   browseState.pinnedServer = readFileServer(browsePathStorage);
   showNavigatorTab(readNavigatorTab(browsePathStorage));
   await refreshSnapshot();
@@ -5848,21 +5964,6 @@ async function initializeApplication() {
     window.setInterval(() => void refreshSnapshot(), state.pollIntervalMs * 2);
     window.setInterval(refreshOutputOnSchedule, Math.min(state.pollIntervalMs, OUTPUT_POLL_TICK_MS));
   }
-}
-
-// Computers linked by an older version (a second HerdRabbit on each) are not
-// shown any more. Said once per browser: those PCs come back with herdr machine.
-const LEGACY_SERVERS_NOTICE_KEY = "herdr:legacy-servers-notice";
-const legacyServersDialog = document.querySelector("#legacy-servers-dialog");
-document.querySelector("#legacy-servers-close").addEventListener("click", () => legacyServersDialog.close());
-function showLegacyServersNotice(count) {
-  let seen = false;
-  try { seen = panePreferenceStorage?.getItem(LEGACY_SERVERS_NOTICE_KEY) === "seen"; } catch {}
-  const message = legacyServersNotice({ count, seen });
-  if (!message || legacyServersDialog.open) return;
-  document.querySelector("#legacy-servers-message").textContent = message;
-  try { panePreferenceStorage?.setItem(LEGACY_SERVERS_NOTICE_KEY, "seen"); } catch {}
-  legacyServersDialog.showModal();
 }
 
 const machineDialog = document.querySelector("#machine-dialog");
@@ -5895,6 +5996,232 @@ document.querySelector("#machine-form").addEventListener("submit", async (event)
   } finally {
     controls.forEach((control) => { control.disabled = false; });
   }
+});
+
+// Connect PC: another PC running HerdRabbit, reached on its Connect PC port.
+const serversDialog = document.querySelector("#servers-dialog");
+const serverForm = document.querySelector("#server-form");
+const serverFeedback = document.querySelector("#server-feedback");
+let editingServer = null;
+let serverBusy = false;
+
+// A PC is only worth saving once it has actually answered, so Save stays
+// closed until a test succeeds and reopens only for the settings that passed.
+const serverSubmitButton = serverForm.querySelector('button[type="submit"]');
+let verifiedServerSettings = null;
+
+function serverFormValues() {
+  return Object.fromEntries(new FormData(serverForm));
+}
+
+function serverFormFingerprint() {
+  return JSON.stringify(serverFormValues());
+}
+
+function syncServerSubmitState() {
+  const verified = verifiedServerSettings !== null && verifiedServerSettings === serverFormFingerprint();
+  serverSubmitButton.disabled = !verified;
+  serverSubmitButton.title = verified ? "" : "Test the connection first";
+}
+
+serverForm.addEventListener("input", syncServerSubmitState);
+serverForm.addEventListener("change", syncServerSubmitState);
+
+function resetServerForm(profile = null) {
+  editingServer = profile?.id || null;
+  serverForm.reset();
+  if (profile) for (const name of ["name", "address"]) {
+    serverForm.elements.namedItem(name).value = profile[name] ?? "";
+  }
+  chosenBlock.hidden = profile === null;
+  chosenAddress.textContent = profile?.address ?? "";
+  serverFeedback.textContent = "";
+  serverFeedback.dataset.error = "false";
+  serverSubmitButton.textContent = profile ? "Save changes" : "Save";
+  // Switching to another PC drops whatever the last test proved.
+  verifiedServerSettings = null;
+  syncServerSubmitState();
+}
+
+async function serverAction(action) {
+  if (serverBusy) return;
+  serverBusy = true;
+  serversDialog.querySelectorAll("button, input").forEach((element) => { element.disabled = true; });
+  serverFeedback.textContent = "Connecting…";
+  serverFeedback.dataset.error = "false";
+  try { await action(); }
+  catch (error) { serverFeedback.textContent = error.message; serverFeedback.dataset.error = "true"; }
+  finally {
+    serverBusy = false;
+    serversDialog.querySelectorAll("button, input").forEach((element) => { element.disabled = false; });
+    // The blanket re-enable above would otherwise hand Save back untested.
+    syncServerSubmitState();
+    for (const row of candidateList.querySelectorAll(".server-candidate")) row.disabled = row.dataset.state !== "ready";
+  }
+}
+
+document.querySelector("#manage-servers").addEventListener("click", () => {
+  document.querySelector("#add-menu").open = false;
+  resetServerForm();
+  serversDialog.showModal();
+  // PCs already added are managed from their sidebar rows; here the list
+  // marks them as added.
+  serverFeedback.textContent = "";
+  void lookForServers();
+});
+
+const candidateList = document.querySelector("#server-candidates");
+const setupHint = document.querySelector("#server-setup-hint");
+const restSummary = document.querySelector("#server-rest");
+const chosenBlock = document.querySelector("#server-chosen");
+const chosenAddress = document.querySelector("#server-chosen-address");
+const manualAddress = document.querySelector("#server-manual-address");
+
+// The address comes from the tailnet (or is typed below), so what is left to
+// decide is what to call the PC here.
+function chooseCandidate(candidate, { fromList = true } = {}) {
+  serverForm.elements.namedItem("name").value = candidate?.name ?? "";
+  serverForm.elements.namedItem("address").value = candidate?.address ?? "";
+  chosenBlock.hidden = candidate === null;
+  chosenAddress.textContent = candidate ? candidate.address : "";
+  for (const row of candidateList.querySelectorAll(".server-candidate")) {
+    row.classList.toggle("is-chosen", fromList && row.dataset.address === candidate?.address);
+  }
+  if (fromList) manualAddress.value = "";
+  syncServerSubmitState();
+  if (candidate) serverFeedback.textContent = "Test it to save.";
+}
+
+manualAddress.addEventListener("input", () => {
+  const typed = manualAddress.value.trim();
+  if (!typed) { chooseCandidate(null, { fromList: false }); return; }
+  let name = typed;
+  try { name = new URL(typed).hostname || typed; } catch { /* the test says what is wrong with it */ }
+  const current = serverForm.elements.namedItem("name").value;
+  chooseCandidate({ name: current || name, address: typed }, { fromList: false });
+});
+
+const CANDIDATE_LABELS = {
+  ready: "Ready",
+  added: "Added",
+  refused: "Does not allow this PC",
+  incompatible: "Other protocol",
+  absent: "No Connect PC port",
+  offline: "Offline",
+};
+
+const CANDIDATE_ORDER = ["ready", "refused", "incompatible", "added"];
+const NOTHING_TO_DO = new Set(["absent", "offline"]);
+
+function candidateRow(candidate) {
+  const row = createElement("button", { className: `server-candidate is-${candidate.state}` });
+  row.type = "button";
+  // Only a ready PC can be picked; the rest are shown so the reason is visible.
+  row.disabled = candidate.state !== "ready";
+  row.dataset.state = candidate.state;
+  row.dataset.address = candidate.address;
+  row.title = candidate.reason || candidate.address;
+  const dot = createElement("span", { className: "server-candidate-dot" });
+  dot.setAttribute("aria-hidden", "true");
+  const identity = createElement("span", { className: "server-candidate-identity" });
+  let where = candidate.address;
+  try {
+    const url = new URL(candidate.address);
+    where = url.port ? `${url.hostname}:${url.port}` : url.hostname;
+  } catch { /* an address we cannot parse is shown as it came */ }
+  // A different app version connects; it is only said, for the person to know.
+  if (candidate.version) where = `${where} · HerdRabbit ${candidate.version}`;
+  identity.append(
+    createElement("strong", { text: candidate.name }),
+    createElement("small", { text: where }),
+  );
+  row.append(dot, identity, createElement("small", {
+    className: "server-candidate-state",
+    text: CANDIDATE_LABELS[candidate.state] || candidate.state,
+  }));
+  row.addEventListener("click", () => chooseCandidate(candidate));
+  return row;
+}
+
+function renderCandidates(found) {
+  candidateList.replaceChildren();
+  restSummary.textContent = "";
+  if (!found.available) {
+    setupHint.textContent = "Tailscale is not running, so PCs cannot be listed. Enter an address below instead.";
+    return;
+  }
+  setupHint.textContent = found.self?.address
+    ? `New PC? Install HerdRabbit there, open its Connect PC port, and allow ${found.self.address}.`
+    : "";
+  const candidates = array(found.candidates);
+  if (candidates.length === 0) {
+    candidateList.append(createElement("p", { className: "dialog-feedback", text: "No other PCs here." }));
+    return;
+  }
+  const ordered = [...candidates].sort((first, second) =>
+    CANDIDATE_ORDER.indexOf(first.state) - CANDIDATE_ORDER.indexOf(second.state));
+  const actionable = ordered.filter((candidate) => !NOTHING_TO_DO.has(candidate.state));
+  const rest = ordered.filter((candidate) => NOTHING_TO_DO.has(candidate.state));
+  for (const candidate of actionable) candidateList.append(candidateRow(candidate));
+  if (actionable.length === 0) {
+    candidateList.append(createElement("p", { className: "dialog-feedback", text: "Nothing ready to connect yet." }));
+  }
+  restSummary.textContent = rest.length === 0
+    ? ""
+    : `${rest.length} other ${rest.length === 1 ? "PC" : "PCs"} with nothing to connect to.`;
+}
+
+// Only the latest look is drawn: an earlier one that answers late (a Refresh
+// pressed while it ran) does not overwrite it.
+let serverLook = 0;
+
+async function lookForServers() {
+  const look = ++serverLook;
+  candidateList.replaceChildren(createElement("p", { className: "dialog-feedback", text: "Looking…" }));
+  setupHint.textContent = "";
+  try {
+    const found = await api("/api/servers/discover", { method: "POST", body: {} });
+    if (look === serverLook) renderCandidates(found);
+  } catch (error) {
+    if (look !== serverLook) return;
+    candidateList.replaceChildren();
+    setupHint.textContent = error.message;
+  }
+}
+
+document.querySelector("#server-refresh").addEventListener("click", () => { void lookForServers(); });
+document.querySelector("#server-close").addEventListener("click", () => { if (!serverBusy) serversDialog.close(); });
+serversDialog.addEventListener("cancel", (event) => { if (serverBusy) event.preventDefault(); });
+document.querySelector("#server-test").addEventListener("click", () => {
+  if (!serverForm.elements.namedItem("address").value) {
+    serverFeedback.textContent = "Pick a PC, or enter its Connect PC address.";
+    serverFeedback.dataset.error = "true";
+    return;
+  }
+  if (!serverForm.reportValidity()) return;
+  const profile = serverFormValues();
+  const tested = serverFormFingerprint();
+  void serverAction(async () => {
+    const result = await api("/api/servers/test", { method: "POST", body: profile });
+    verifiedServerSettings = tested;
+    syncServerSubmitState();
+    const reached = result.version ? `Connected to HerdRabbit ${result.version}.` : "Connected.";
+    serverFeedback.textContent = `${reached} ${result.sessions} Herdr sessions, ${result.panes} panes. You can save now.`;
+  });
+});
+serverForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (serverSubmitButton.disabled) return;
+  const profile = serverFormValues();
+  void serverAction(async () => {
+    await api(editingServer ? `/api/servers/${editingServer}` : "/api/servers", {
+      method: editingServer ? "PUT" : "POST", body: profile,
+    });
+    resetServerForm();
+    await refreshSnapshot();
+    void lookForServers();
+    serverFeedback.textContent = "Saved. Connection status appears in the sidebar.";
+  });
 });
 
 async function start() {

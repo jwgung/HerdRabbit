@@ -384,12 +384,10 @@ test("a file read that stops sending is ended, and gives its slot back", async (
   const home = await realpath(await mkdtemp(join(tmpdir(), "herdrabbit-machine-home-")));
   await writeFile(join(home, "slow.txt"), "data");
   const ssh = fakeSsh(home);
-  let calls = 0;
   const killed = [];
   // The size is asked as usual; the read itself hangs there.
   const spawnProcess = (binary, args, options) => {
-    calls += 1;
-    if (calls === 1) return ssh.spawnProcess(binary, args, options);
+    if (!args.at(-1).includes("tail -c")) return ssh.spawnProcess(binary, args, options);
     const child = spawn("sleep", ["30"], options);
     const kill = child.kill.bind(child);
     child.kill = (signal) => { killed.push(signal); return kill(signal); };
@@ -406,12 +404,10 @@ test("a read that brings fewer bytes than it promised fails instead of ending sh
   const path = join(home, "shrinks.txt");
   await writeFile(path, "0123456789");
   const ssh = fakeSsh(home);
-  let calls = 0;
   // The file is cut short between taking its size and reading it; the shell
   // still exits 0, as only head's status counts.
   const spawnProcess = (binary, args, options) => {
-    calls += 1;
-    if (calls === 2) writeFileSync(path, "0123");
+    if (args.at(-1).includes("tail -c")) writeFileSync(path, "0123");
     return ssh.spawnProcess(binary, args, options);
   };
   const files = new MachineFiles({ link: () => fakeLink(), spawnProcess });
@@ -460,4 +456,50 @@ test("a download whose browser stops reading is ended; one that reads slowly kee
     await new Promise((resolve) => setTimeout(resolve, 15));
   }
   assert.equal(total, 256 * 1024);
+});
+
+test("a machine's keys and sign-ins are listed locked and never opened, through a link or not", async () => {
+  const { home, files } = await setup();
+  await mkdir(join(home, ".ssh"), { recursive: true });
+  await writeFile(join(home, ".ssh", "id_ed25519"), "secret");
+  await mkdir(join(home, ".codex"), { recursive: true });
+  await writeFile(join(home, ".codex", "auth.json"), "secret");
+  await writeFile(join(home, ".claude.json"), "secret");
+  await mkdir(join(home, "notes"), { recursive: true });
+  await writeFile(join(home, "notes", "plain.txt"), "ordinary");
+  await symlink(join(home, ".ssh", "id_ed25519"), join(home, "notes", "innocent.txt"));
+  await symlink(join(home, ".ssh"), join(home, "notes", "keys"));
+  const refused = { status: 403, code: "protected_path" };
+
+  const listing = await files.listDirectory(home);
+  const ssh = listing.entries.find((entry) => entry.name === ".ssh");
+  assert.deepEqual(ssh, { name: ".ssh", path: join(home, ".ssh"), hidden: true, readable: false, kind: "directory", locked: true });
+  assert.equal(listing.entries.find((entry) => entry.name === ".claude.json").locked, true);
+  assert.equal(listing.entries.find((entry) => entry.name === "notes").locked, undefined);
+  // a link to a key is listed locked too, with nothing of the key's size or time
+  const notes = await files.listDirectory(join(home, "notes"));
+  for (const name of ["innocent.txt", "keys"]) {
+    const entry = notes.entries.find((item) => item.name === name);
+    assert.equal(entry.locked, true, name);
+    assert.equal(entry.size, undefined, name);
+    assert.equal(entry.modifiedAt, undefined, name);
+  }
+  assert.equal(notes.entries.find((item) => item.name === "plain.txt").locked, undefined);
+  await assert.rejects(() => files.listDirectory(join(home, ".ssh")), refused);
+  await assert.rejects(() => files.listDirectory(join(home, "notes", "keys")), refused);
+  await assert.rejects(() => files.openFile(join(home, ".codex", "auth.json")), refused);
+  await assert.rejects(() => files.openFile(join(home, "notes", "innocent.txt")), refused);
+  await assert.rejects(() => files.openFile(join(home, "notes", "keys", "id_ed25519")), refused);
+  assert.equal((await files.directoryFingerprints([join(home, ".ssh")])).get(join(home, ".ssh")), null);
+  // A link to a protected folder is no way round for the fingerprint either.
+  const linked = (await files.directoryFingerprints([join(home, "notes", "keys"), join(home, "notes")]));
+  assert.equal(linked.get(join(home, "notes", "keys")), null);
+  assert.notEqual(linked.get(join(home, "notes")), null);
+  // Other tools' credentials are protected the same way.
+  await mkdir(join(home, ".aws"), { recursive: true });
+  await writeFile(join(home, ".aws", "credentials"), "secret");
+  await writeFile(join(home, ".netrc"), "secret");
+  await assert.rejects(() => files.openFile(join(home, ".netrc")), refused);
+  await assert.rejects(() => files.listDirectory(join(home, ".aws")), refused);
+  assert.equal(await text((await files.openFile(join(home, "notes", "plain.txt"))).stream), "ordinary");
 });

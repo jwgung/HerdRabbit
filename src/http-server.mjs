@@ -5,32 +5,31 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   InputValidationError,
-  HerdrCommandError,
   ALLOWED_KEYS,
   MAX_PANE_READ_LINES,
   validation,
 } from "./herdr-client.mjs";
 import { PasswordAttemptsByKey, PasswordAuth } from "./password-auth.mjs";
-import { PasskeyError, browserLabel, passkeyLabel } from "./passkey-auth.mjs";
+import { browserLabel, passkeyLabel } from "./passkey-auth.mjs";
 import { OutputRevisions } from "./output-revisions.mjs";
 import { attachTerminalWebSocket } from "./terminal-websocket.mjs";
 import { HttpError, acceptUpload, aiAccountRoute, decodePaneId, readJsonBody, sendJson } from "./http-basics.mjs";
-import { AiAccountError } from "./ai-accounts.mjs";
 import {
   PEER_ADDRESS_HEADER, PEER_LOGIN_HEADER,
   isLoopbackSocket, nearestForwardedAddress, normalizeLogin, socketAddress,
 } from "./peer-identity.mjs";
 import { terminalOutputWatcher } from "./terminal-output-watch.mjs";
-import { PushValidationError } from "./web-push-service.mjs";
 import { validateTransferName } from "./file-store.mjs";
-import { FileAccessError, fileAccessError, listDirectory, openFile, validateBrowsePath, directoryFingerprint } from "./file-browser.mjs";
+import { fileAccessError, listDirectory, openFile, validateBrowsePath, directoryFingerprint, refuseProtected } from "./file-browser.mjs";
+import { defaultProtectedPaths } from "./protected-paths.mjs";
 import { MAX_TEXT_PREVIEW_BYTES, inlineTypeFor, isMarkdown } from "../public/file-preview.js";
 import { renderMarkdown } from "./markdown.mjs";
 import { secretPrompt } from "./secret-prompt.mjs";
 import { validMachineLabel, validMachineTarget } from "./herdr-machines.mjs";
-import { ConversationError } from "./conversation/pages.mjs";
+import { validateServerProfile } from "./server-profiles.mjs";
 import { ConversationMonitor } from "./conversation/monitor.mjs";
 import { ConversationService } from "./conversation/service.mjs";
+import { errorResponse } from "./error-response.mjs";
 import { PromptService } from "./prompt/service.mjs";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
@@ -302,46 +301,6 @@ export function outputWindow(output, requestedLines) {
   };
 }
 
-function errorResponse(error) {
-  if (error instanceof HttpError) {
-    return { status: error.status, code: error.code, message: error.message };
-  }
-  // File and SFTP failures already carry a status; without this they would
-  // surface as 500s from the paths that throw outside a route's own handling.
-  if (error instanceof FileAccessError) {
-    return { status: error.status, code: error.code, message: error.message };
-  }
-  if (error instanceof InputValidationError) {
-    return { status: 400, code: "invalid_input", message: error.message };
-  }
-  if (error instanceof PushValidationError) {
-    return { status: 400, code: "invalid_push_subscription", message: error.message };
-  }
-  if (error instanceof PasskeyError) {
-    return { status: error.status, code: error.code, message: error.message };
-  }
-  // Messages and details are written by the account manager itself and name
-  // no credential; details only ever lists the panes a switch would affect.
-  if (error instanceof AiAccountError) {
-    return { status: error.status, code: error.code, message: error.message, details: error.details };
-  }
-  // A conversation that cannot be shown says why (details.reason) for the
-  // page to word it; a stale cursor is a 409 the page reloads on.
-  if (error instanceof ConversationError) {
-    return { status: error.status, code: error.code, message: error.message, details: error.details };
-  }
-  if (error instanceof HerdrCommandError) {
-    return {
-      status: error.code === "herdr_timeout" ? 504
-        : error.code === "split_session" || error.code === "stale_content" ? 409 : 502,
-      code: error.code,
-      message: error.message,
-    };
-  }
-
-  return { status: 500, code: "internal_error", message: "Internal server error" };
-}
-
 // Unlike readJsonBody, an oversized upload cannot be drained: the point of the
 // limit is to not read it. Content-Length settles the question before a byte
 // arrives, and a request that will not declare its size is refused outright.
@@ -516,20 +475,20 @@ function browsePath(value) {
   }
 }
 
-async function browseDirectory(value, options, source) {
+async function browseDirectory(value, options, source, guard = defaultProtectedPaths()) {
   try {
     if (source) return await source.listDirectory(value, options);
-    return await listDirectory(browsePath(value), options);
+    return await listDirectory(browsePath(value), { ...options, guard });
   } catch (error) {
     return browseFailure(error);
   }
 }
 
-async function openBrowsedFile(value, source, rangeHeader = null, maxBytes = Infinity) {
+async function openBrowsedFile(value, source, rangeHeader = null, maxBytes = Infinity, guard = defaultProtectedPaths()) {
   try {
     const file = source
       ? await source.openFile(value, { rangeHeader, maxBytes })
-      : await openFile(value, { rangeHeader, maxBytes });
+      : await openFile(value, { rangeHeader, maxBytes, guard });
     return { file, stream: file.stream };
   } catch (error) {
     return browseFailure(error);
@@ -585,12 +544,19 @@ export function createHerdrHttpServer({
   conversations = null,
   // Prompt cards (src/prompt/): a blocked pane's approval or question.
   prompts = null,
-  // How many links to other HerdRabbits an older version saved. Those are not
-  // used any more; the page says once to add those PCs again with herdr machine.
-  legacyServers = 0,
+  // PCs connected with Connect PC (src/server-profiles.mjs), the tailnet look
+  // that finds them (`discover`), and what PCs announced about themselves.
+  profiles = null,
+  discover = null,
+  announcements = null,
+  // This PC's own Connect PC port, { address, allowed }, or null when closed.
+  connectPc = null,
   csrfToken = randomBytes(32).toString("base64url"),
   maxBodyBytes = 16 * 1024,
   maxTransferBytes = Infinity,
+  // Sign-in keys and HerdRabbit's own settings, which the file browser here
+  // never opens (src/protected-paths.mjs).
+  protectedPaths = defaultProtectedPaths(),
   // A request that is not an upload has this long to arrive in full; an
   // upload may take as long as it keeps sending, going quiet for uploadIdleMs at most.
   requestTimeoutMs = 120_000,
@@ -736,6 +702,34 @@ export function createHerdrHttpServer({
         return;
       }
 
+      // Another PC saying where its Connect PC port is. It has no session here,
+      // so this sits ahead of the gate like the download ticket does. What it
+      // can do is bounded on purpose: it adds a row to a list a person still
+      // has to choose from, and choosing probes the address itself.
+      if (method === "POST" && url.pathname === "/api/announce") {
+        if (!announcements) throw new HttpError(404, "not_found", "Not found");
+        const from = nearestForwardedAddress(request.headers[PEER_ADDRESS_HEADER]);
+        const login = normalizeLogin(request.headers[PEER_LOGIN_HEADER]);
+        // Both come from Tailscale Serve, which is the only thing that can
+        // reach this socket from the tailnet; without them the caller is not
+        // on it. Only this PC's own tailnet account may announce.
+        if (!isLoopbackSocket(request) || from === null || login === null ||
+            login !== announcements.ownerLogin()) {
+          throw new HttpError(403, "announce_rejected", "Announcements are only accepted from your tailnet.");
+        }
+        const body = await readJsonBody(request, maxBodyBytes);
+        const recorded = announcements.record({
+          from,
+          name: body.name,
+          address: body.address,
+          version: body.version,
+          protocol: body.link_protocol,
+        });
+        if (!recorded.ok) throw new HttpError(400, "invalid_input", "That announcement was not usable.");
+        sendJson(response, 202, { ok: true });
+        return;
+      }
+
       if (method === "GET" && url.pathname === "/api/auth/status") {
         sendJson(response, 200, {
           required: auth.required,
@@ -807,13 +801,13 @@ export function createHerdrHttpServer({
           throw new HttpError(404, "unknown_server", "That server is no longer configured.");
         }
         if (!claim.inlineType) {
-          await sendDownload(response, await openBrowsedFile(claim.path, from, null, maxTransferBytes));
+          await sendDownload(response, await openBrowsedFile(claim.path, from, null, maxTransferBytes, protectedPaths));
           return;
         }
         // A rendered file is not sliced: what a range would name does not exist
         // until it has been rendered, so the whole of it is read either way.
         const range = claim.markdown ? null : request.headers.range ?? null;
-        const opened = await openBrowsedFile(claim.path, from, range, maxTransferBytes);
+        const opened = await openBrowsedFile(claim.path, from, range, maxTransferBytes, protectedPaths);
         await sendInline(response, {
           file: opened.file, type: claim.inlineType, markdown: claim.markdown,
         });
@@ -833,6 +827,39 @@ export function createHerdrHttpServer({
 
       // Herdr's own SSH machines: added, renamed, turned off and removed with
       // `herdr machine`, so the sidebar and Herdr's TUI list the same ones.
+      // Connect PC: other PCs running HerdRabbit, reached on their Connect PC port.
+      if (profiles && url.pathname.startsWith("/api/servers")) {
+        const match = url.pathname.match(/^\/api\/servers(?:\/(link_[a-f0-9-]{36}|test|discover))?$/u);
+        if (!match) throw new HttpError(404, "not_found", "Server route not found");
+        const id = match[1];
+        if (method === "GET" && !id) {
+          sendJson(response, 200, { profiles: profiles.list() });
+          return;
+        }
+        requireWriteAuthorization(request, csrfToken);
+        if (method === "POST" && id === "discover") {
+          if (!discover) {
+            throw new HttpError(501, "discovery_unavailable", "This PC cannot list its tailnet.");
+          }
+          sendJson(response, 200, await discover(profiles.list().map((item) => item.address)));
+          return;
+        }
+        if (method === "POST" && id === "test") {
+          const profile = validateServerProfile(await readJsonBody(request, maxBodyBytes));
+          sendJson(response, 200, await herdr.testProfile(profile));
+          return;
+        }
+        if ((method === "POST" && !id) || (method === "PUT" && id && id !== "test" && id !== "discover")) {
+          sendJson(response, 200, { profiles: await profiles.save(await readJsonBody(request, maxBodyBytes), id) });
+          return;
+        }
+        if (method === "DELETE" && id && id !== "test" && id !== "discover") {
+          sendJson(response, 200, { profiles: await profiles.remove(id) });
+          return;
+        }
+        throw new HttpError(405, "method_not_allowed", "Method not allowed");
+      }
+
       if (machines && url.pathname.startsWith("/api/machines")) {
         const match = url.pathname.match(/^\/api\/machines(?:\/(machine-[0-9a-f]{12})(\/disable|\/enable)?)?$/u);
         if (!match) throw new HttpError(404, "not_found", "Machine route not found");
@@ -966,7 +993,7 @@ export function createHerdrHttpServer({
           // thread budget -- and one that stops answering cannot exhaust it.
           const listing = source
             ? await browseDirectory(target, { prefix }, source)
-            : await withDirectorySlot(() => browseDirectory(target, { prefix }));
+            : await withDirectorySlot(() => browseDirectory(target, { prefix }, null, protectedPaths));
           sendJson(response, 200, { ...listing, server: serverId });
           return;
         }
@@ -1007,7 +1034,7 @@ export function createHerdrHttpServer({
                 ? await (typeof source.directoryFingerprint === "function"
                   ? source.directoryFingerprint(path)
                   : null)
-                : await directoryFingerprint(browsePath(path));
+                : await directoryFingerprint(browsePath(path), { guard: protectedPaths });
               if (current === null || current !== knownEtag) {
                 changed.push(path);
               }
@@ -1023,6 +1050,9 @@ export function createHerdrHttpServer({
           const body = await readJsonBody(request, maxBodyBytes);
           const { serverId, source } = fileSource(body.server);
           const filePath = source ? String(body.path) : browsePath(body.path);
+          // Refused here rather than when the link is followed: a download
+          // link that fails opens as a broken download, not as a reason.
+          if (!source) await refuseProtected(filePath, protectedPaths).catch(browseFailure);
           // Which door this link opens is decided here, on a request that
           // carried the CSRF token, from the name alone. A file with no viewable
           // type gets no view link at all rather than a downgraded one.
@@ -1147,7 +1177,10 @@ export function createHerdrHttpServer({
           pushPublicKey: push?.publicKey || null,
           // Whether SSH machines can be added here: not without a socket directory.
           machines: Boolean(machines),
-          legacyServers,
+          // Whether other PCs can be connected here (Connect PC), and this
+          // PC's own Connect PC port for Details.
+          servers: Boolean(profiles),
+          connectPc,
           // Bytes, or null when files may be any size.
           maxTransferBytes: Number.isFinite(maxTransferBytes) ? maxTransferBytes : null,
         });
