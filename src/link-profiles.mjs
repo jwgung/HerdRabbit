@@ -3,7 +3,7 @@ import { InputValidationError } from "./herdr-client.mjs";
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/u;
 
 // A linked server runs its own HerdRabbit, so the only thing worth storing is
-// where to reach it. There is no credential here: the leaf identifies its
+// where to reach it. There is no credential here: the connected PC identifies its
 // caller from the tailnet, so a link profile holds no secret at all.
 export function validateLinkProfile(input) {
   const name = input?.name ?? "";

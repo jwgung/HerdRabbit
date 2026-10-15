@@ -5,7 +5,7 @@ import {
 } from "./http-basics.mjs";
 import { ConversationUnavailable } from "./conversation/pages.mjs";
 import { validation } from "./herdr-client.mjs";
-import { LINK_PROTOCOL } from "./leaf-protocol.mjs";
+import { LINK_PROTOCOL } from "./link-protocol.mjs";
 import { directoryFingerprint, fileAccessError, listDirectory, openFile } from "./file-browser.mjs";
 import { validateTransferName } from "./file-store.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
@@ -34,13 +34,13 @@ async function browsing(work) {
 
 // Always octet-stream: this surface hands bytes to a hub, and what the hub is
 // allowed to call them is decided there, against the same allow-list a local
-// file goes through. A leaf never gets to name a content type for a browser.
+// file goes through. A connected PC never gets to name a content type for a browser.
 async function sendFile(response, file) {
   response.setHeader("Content-Type", "application/octet-stream");
   response.setHeader("Accept-Ranges", "bytes");
   response.setHeader("X-Herdr-File-Name", encodeURIComponent(file.name ?? ""));
   if (file.range) {
-    // A player on the hub's side seeks; the leaf holds the file, so the seek
+    // A player on the hub's side seeks; the connected PC holds the file, so the seek
     // has to travel the whole way rather than stop at the hub.
     response.statusCode = 206;
     response.setHeader("Content-Range", `bytes ${file.range.start}-${file.range.end}/${file.size}`);
@@ -59,8 +59,8 @@ async function sendFile(response, file) {
 // not -- an Origin, a cookie, a CSRF token from a page load -- and the two
 // kinds of caller must not be able to borrow each other's way in.
 //
-// `client` is the leaf's own Herdr client, never its MultiServerClient. That is
-// what makes "a leaf reports only its own sessions" structural: it does not
+// `client` is the connected PC's own Herdr client, never its MultiServerClient. That is
+// what makes "a connected PC reports only its own sessions" structural: it does not
 // hold anyone else's to report.
 // `protectedPaths` is what the file browser never opens: sign-in keys and
 // HerdRabbit's own settings (src/protected-paths.mjs). A hub is held to it
@@ -69,7 +69,7 @@ async function sendFile(response, file) {
 // terminal a pane has before a hub attaches to it on the same port.
 // `conversations` is this PC's own ConversationService (the one its page
 // uses): a hub's Chat reads this PC's transcripts through it, here.
-export function leafLinkRoutes({
+export function linkRoutes({
   client, files = null, aiAccounts = null, attach = null, conversations = null, version, herdrVersion = () => null, serverName = "",
   maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024, protectedPaths = defaultProtectedPaths(),
   maxStatusStreams = MAX_STATUS_STREAMS,
@@ -83,7 +83,7 @@ export function leafLinkRoutes({
       link_protocol: LINK_PROTOCOL,
       scope: "local",
       server_name: serverName,
-      // Optional, so a hub reading an older leaf just sees no Herdr version.
+      // Optional, so a hub reading an older connected PC just sees no Herdr version.
       herdr_version: herdrVersion(),
       // What this PC answers beyond the protocol's base, so a hub asks only
       // for what is there. A PC from before this list says nothing.
@@ -125,7 +125,7 @@ export function leafLinkRoutes({
     response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("Connection", "keep-alive");
-    // Nothing should sit between a leaf and its hub, but a buffering proxy
+    // Nothing should sit between a connected PC and its hub, but a buffering proxy
     // would hold every event until the stream ends, which is never.
     response.setHeader("X-Accel-Buffering", "no");
     response.flushHeaders?.();
@@ -276,7 +276,7 @@ export function leafLinkRoutes({
 
     // Files are answered by this machine's own browser, the same one a person
     // opening this HerdRabbit directly would use. Nothing here knows how to
-    // read another machine's disk, which is the point: a hub asks each leaf
+    // read another machine's disk, which is the point: a hub asks each connected PC
     // about itself.
     if (url.pathname === "/api/link/browse" && method === "GET") {
       const prefix = url.searchParams.get("prefix") || "";
@@ -328,7 +328,7 @@ export function leafLinkRoutes({
       throw new HttpError(405, "method_not_allowed", "Method not allowed");
     }
 
-    // Project and tab changes. The leaf validates them through the same client
+    // Project and tab changes. The connected PC validates them through the same client
     // a person on that machine would drive, so the rules cannot drift apart.
     if (method === "POST" && url.pathname === "/api/link/workspaces") {
       const body = await readJsonBody(request, maxBodyBytes);

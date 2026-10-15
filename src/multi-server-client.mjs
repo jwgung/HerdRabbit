@@ -1,7 +1,7 @@
 import { HerdrCommandError, InputValidationError, mapMovedIds } from "./herdr-client.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported } from "./herdr-version.mjs";
-import { LeafLinkClient } from "./leaf-link-client.mjs";
-import { LINK_PROTOCOL } from "./leaf-protocol.mjs";
+import { LinkClient } from "./link-client.mjs";
+import { LINK_PROTOCOL } from "./link-protocol.mjs";
 
 const isMachine = (profile) => profile?.transport === "machine";
 
@@ -27,7 +27,7 @@ function scope(snapshot, server) {
 // Only messages we wrote ourselves are safe to show; anything else could be a
 // remote command's output arriving through an error.
 export function serverStatusFor(error) {
-  return error?.code?.startsWith("leaf_") || error?.code?.startsWith("machine_")
+  return error?.code?.startsWith("link_") || error?.code?.startsWith("machine_")
     ? error.message
     : "Could not reach Herdr on this PC. Check that it is running there.";
 }
@@ -40,7 +40,7 @@ export class MultiServerClient {
     profiles = null,
     // A file a connected PC sends is held to the same limit as one here.
     maxTransferBytes = Infinity,
-    remoteFactory = (profile) => new LeafLinkClient({ profile, hubVersion, maxTransferBytes }),
+    remoteFactory = (profile) => new LinkClient({ profile, hubVersion, maxTransferBytes }),
     // Herdr's own SSH machines (src/herdr-machines.mjs), listed beside them.
     machines = null,
   }) {

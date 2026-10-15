@@ -19,7 +19,7 @@ import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { linkAttachSockets, routedSpawner } from "../src/link-attach.mjs";
-import { leafLinkRoutes } from "../src/link-server.mjs";
+import { linkRoutes } from "../src/link-server.mjs";
 import { MultiServerClient } from "../src/multi-server-client.mjs";
 import { PaneAttachments } from "../src/pane-attachments.mjs";
 import { PeerIdentity } from "../src/peer-identity.mjs";
@@ -100,7 +100,7 @@ const deskAttach = linkAttachSockets({
 });
 const deskServer = createPeerServer({
   peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
-  link: leafLinkRoutes({
+  link: linkRoutes({
     client: desk, attach: deskAttach, version: "9.9.9", serverName: "desk",
     // desk reads its own transcripts; this page only relays them
     conversations: new ConversationService({
@@ -112,7 +112,7 @@ const deskServer = createPeerServer({
 });
 const deskAddress = await listen(deskServer);
 // A PC on another link protocol.
-const olderRoutes = leafLinkRoutes({ client: machine("Old work", [{ label: "shell" }]), version: "0.9.0", serverName: "old" });
+const olderRoutes = linkRoutes({ client: machine("Old work", [{ label: "shell" }]), version: "0.9.0", serverName: "old" });
 const olderServer = createPeerServer({
   peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
   link: async (request, response, url, method) => {

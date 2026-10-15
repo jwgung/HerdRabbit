@@ -17,13 +17,13 @@ import { AiAccounts, runningAgentsIn } from "./ai-accounts.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported, readHerdrVersion } from "./herdr-version.mjs";
 import { ServerProfiles } from "./server-profiles.mjs";
 import { PeerIdentity } from "./peer-identity.mjs";
-import { leafLinkRoutes } from "./link-server.mjs";
+import { linkRoutes } from "./link-server.mjs";
 import { linkAttachSockets, routedSpawner } from "./link-attach.mjs";
 import { createPeerServer } from "./peer-server.mjs";
-import { discoverLeaves, readTailnetPeers, tailnetLoginOf } from "./tailnet-peers.mjs";
+import { discoverPeers, readTailnetPeers, tailnetLoginOf } from "./tailnet-peers.mjs";
 import { announcementRegistry } from "./announcements.mjs";
 import { announcementWriter, readAnnouncements } from "./announcement-store.mjs";
-import { announceToHub } from "./leaf-announce.mjs";
+import { announceToHub } from "./link-announce.mjs";
 import { isProtectedPath, localProtectedPaths } from "./protected-paths.mjs";
 import { ConversationService } from "./conversation/service.mjs";
 
@@ -157,7 +157,7 @@ const { server } = createHerdrHttpServer({
   // Only this PC goes looking; what it finds is offered, never added by itself.
   discover: async (known) => {
     const announced = announcements.list();
-    const found = await discoverLeaves({ hubVersion, known, announced });
+    const found = await discoverPeers({ hubVersion, known, announced });
     // Drop what a look just proved is not there. "offline" is not that: the
     // machine is merely asleep and will announce itself again when it wakes.
     const claimed = new Set(announced.map((entry) => entry.address));
@@ -195,7 +195,7 @@ const peerServer = config.peerHost ? createPeerServer({
     logins: config.peerLogins,
     loginOf: (address) => tailnetLoginOf(address),
   }),
-  link: leafLinkRoutes({
+  link: linkRoutes({
     client: local, files, aiAccounts, attach: linkAttach, conversations, version: hubVersion, herdrVersion: () => herdrVersion,
     serverName: hostname(), maxTransferBytes: config.maxTransferBytes, protectedPaths,
   }),

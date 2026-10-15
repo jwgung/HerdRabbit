@@ -1,4 +1,4 @@
-// A connected PC's pane attached for real: a hub's LeafLinkClient against a
+// A connected PC's pane attached for real: a hub's LinkClient against a
 // real Connect PC port on loopback, with a fake pty on the PC that has the
 // pane. No herdr and no node-pty run here.
 import test from "node:test";
@@ -7,14 +7,14 @@ import { once } from "node:events";
 import { request } from "node:http";
 import { setTimeout as sleep } from "node:timers/promises";
 import { HerdrCommandError } from "../src/herdr-client.mjs";
-import { LeafLinkClient } from "../src/leaf-link-client.mjs";
+import { LinkClient } from "../src/link-client.mjs";
 import { linkAttachSockets, openRemotePty, routedSpawner } from "../src/link-attach.mjs";
-import { leafLinkRoutes } from "../src/link-server.mjs";
+import { linkRoutes } from "../src/link-server.mjs";
 import { PaneAttachments } from "../src/pane-attachments.mjs";
 import { PeerIdentity } from "../src/peer-identity.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
 
-const VERSION = "1.2.54";
+const VERSION = "1.2.55";
 const SESSION = "hs_ZGVmYXVsdA";
 const PANE = `${SESSION}~w1:p1`;
 
@@ -60,7 +60,7 @@ async function startPeer(context, { allowed = ["127.0.0.1"], spawnPty, client, m
   }) : null;
   const server = createPeerServer({
     peer: new PeerIdentity({ addresses: allowed }),
-    link: leafLinkRoutes({ client: client ?? peer.client, attach, version: VERSION }),
+    link: linkRoutes({ client: client ?? peer.client, attach, version: VERSION }),
     attach,
     logger: { error() {} },
   });
@@ -72,7 +72,7 @@ async function startPeer(context, { allowed = ["127.0.0.1"], spawnPty, client, m
 }
 
 function hubFor(base) {
-  return new LeafLinkClient({ profile: { id: "link_1", name: "desk", address: base }, hubVersion: VERSION });
+  return new LinkClient({ profile: { id: "link_1", name: "desk", address: base }, hubVersion: VERSION });
 }
 
 async function until(check, what, timeoutMs = 5_000) {
@@ -259,7 +259,7 @@ test("a PC without node-pty refuses as attach_unsupported, and so does one from 
   await assert.rejects(hubFor(noPty.base).terminalTarget(PANE), { code: "attach_unsupported" });
 
   // An older PC has no terminal route at all: its 404 means "mirror it".
-  const routes = leafLinkRoutes({ client: fakePeer().client, version: VERSION });
+  const routes = linkRoutes({ client: fakePeer().client, version: VERSION });
   const server = createPeerServer({
     peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
     link: async (request, response, url, method) => (url.pathname.endsWith("/terminal") ? false : routes(request, response, url, method)),

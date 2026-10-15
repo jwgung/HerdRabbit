@@ -16,7 +16,7 @@ import {
   PREFERRED_SERVICE_PORT,
 } from "../src/port-selection.mjs";
 import { promptForNewPassword, readVisibleLine } from "./password-prompt.mjs";
-import { DEFAULT_PEER_PORT } from "../src/leaf-protocol.mjs";
+import { DEFAULT_PEER_PORT } from "../src/link-protocol.mjs";
 import { readTailnetPeers } from "../src/tailnet-peers.mjs";
 import { ensureHerdrExecutable } from "./herdr-install.mjs";
 import { configureClaude } from "./configure-claude.mjs";

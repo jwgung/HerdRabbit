@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { leafLinkRoutes } from "../src/link-server.mjs";
-import { LeafLinkClient } from "../src/leaf-link-client.mjs";
+import { linkRoutes } from "../src/link-server.mjs";
+import { LinkClient } from "../src/link-client.mjs";
 import { MultiServerClient } from "../src/multi-server-client.mjs";
 import { PeerIdentity } from "../src/peer-identity.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
 import { HerdrCommandError, InputValidationError } from "../src/herdr-client.mjs";
-import { LINK_PROTOCOL } from "../src/leaf-protocol.mjs";
+import { LINK_PROTOCOL } from "../src/link-protocol.mjs";
 
 const HUB_VERSION = "1.2.0";
 const LINK_ID = "link_11111111-1111-1111-1111-111111111111";
@@ -28,7 +28,7 @@ async function startPeer(context, { link, allowed = ["127.0.0.1"] }) {
 
 const MATCH = { start: { row: 3, col: 1 }, end: { row: 3, col: 6 } };
 
-function leafHerdr(calls, snapshotOverrides = {}) {
+function peerHerdr(calls, snapshotOverrides = {}) {
   return {
     async snapshot() {
       calls.push(["snapshot"]);
@@ -59,8 +59,8 @@ function leafHerdr(calls, snapshotOverrides = {}) {
   };
 }
 
-async function startLeaf(context, { calls = [], version = HUB_VERSION, herdr, herdrVersion, protocol } = {}) {
-  let link = leafLinkRoutes({ client: herdr ?? leafHerdr(calls), version, herdrVersion, serverName: "dev-box" });
+async function startLinkedPeer(context, { calls = [], version = HUB_VERSION, herdr, herdrVersion, protocol } = {}) {
+  let link = linkRoutes({ client: herdr ?? peerHerdr(calls), version, herdrVersion, serverName: "dev-box" });
   if (protocol !== undefined) {
     // A PC on another link protocol: the same routes, answering a different number.
     const routes = link;
@@ -89,7 +89,7 @@ function hubFor(address, { name = "Dev box" } = {}) {
   const herdr = new MultiServerClient({
     local,
     profiles: { list: () => [profile] },
-    remoteFactory: (item) => new LeafLinkClient({
+    remoteFactory: (item) => new LinkClient({
       profile: item, hubVersion: HUB_VERSION, fetchImpl: hubFetch(),
     }),
   });
@@ -106,8 +106,8 @@ async function settled(herdr) {
   return herdr.snapshot();
 }
 
-test("a linked leaf appears in the merged snapshot under its own prefix", async (context) => {
-  const { address, calls } = await startLeaf(context);
+test("a linked connected PC appears in the merged snapshot under its own prefix", async (context) => {
+  const { address, calls } = await startLinkedPeer(context);
   const { herdr } = hubFor(address);
   const snapshot = await settled(herdr);
 
@@ -119,17 +119,17 @@ test("a linked leaf appears in the merged snapshot under its own prefix", async 
   assert.ok(calls.some(([name]) => name === "snapshot"));
 });
 
-test("a linked leaf reports its Herdr version, and an older leaf reports none", async (context) => {
-  const current = await startLeaf(context, { herdrVersion: () => "0.8.2" });
-  const { servers: [, leaf] } = await settled(hubFor(current.address).herdr);
-  assert.deepEqual([leaf.herdr_version, leaf.herdr_supported], ["0.8.2", false]);
-  const older = await startLeaf(context);
+test("a linked connected PC reports its Herdr version, and an older connected PC reports none", async (context) => {
+  const current = await startLinkedPeer(context, { herdrVersion: () => "0.8.2" });
+  const { servers: [, peer] } = await settled(hubFor(current.address).herdr);
+  assert.deepEqual([peer.herdr_version, peer.herdr_supported], ["0.8.2", false]);
+  const older = await startLinkedPeer(context);
   const { servers: [, silent] } = await settled(hubFor(older.address).herdr);
   assert.deepEqual([silent.herdr_version, silent.herdr_supported], [null, null]);
 });
 
-test("commands reach the leaf with the prefix taken off again", async (context) => {
-  const { address, calls } = await startLeaf(context);
+test("commands reach the connected PC with the prefix taken off again", async (context) => {
+  const { address, calls } = await startLinkedPeer(context);
   const { herdr, localCalls } = hubFor(address);
   await settled(herdr);
 
@@ -143,7 +143,7 @@ test("commands reach the leaf with the prefix taken off again", async (context) 
 });
 
 test("a PC on another app version but the same link protocol connects, and says its version", async (context) => {
-  const { address } = await startLeaf(context, { version: "9.9.9" });
+  const { address } = await startLinkedPeer(context, { version: "9.9.9" });
   const { herdr } = hubFor(address);
   const snapshot = await settled(herdr);
   assert.equal(snapshot.servers[1].available, true);
@@ -154,7 +154,7 @@ test("a PC on another app version but the same link protocol connects, and says 
 });
 
 test("a PC on another link protocol is shown offline with both sides' protocol and version", async (context) => {
-  const { address } = await startLeaf(context, { version: "2.0.0", protocol: LINK_PROTOCOL + 1 });
+  const { address } = await startLinkedPeer(context, { version: "2.0.0", protocol: LINK_PROTOCOL + 1 });
   const { herdr } = hubFor(address);
   await herdr.snapshot();
   for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -162,28 +162,28 @@ test("a PC on another link protocol is shown offline with both sides' protocol a
     if ((await herdr.snapshot()).servers[1].status !== "Connecting") break;
   }
   const snapshot = await herdr.snapshot();
-  const [, leaf] = snapshot.servers;
-  assert.equal(leaf.available, false);
-  assert.match(leaf.status, /HerdRabbit 2\.0\.0 with connection protocol 2/u);
-  assert.match(leaf.status, new RegExp(`HerdRabbit ${HUB_VERSION.replaceAll(".", "\\.")}, protocol ${LINK_PROTOCOL}`, "u"));
+  const [, peer] = snapshot.servers;
+  assert.equal(peer.available, false);
+  assert.match(peer.status, /HerdRabbit 2\.0\.0 with connection protocol 2/u);
+  assert.match(peer.status, new RegExp(`HerdRabbit ${HUB_VERSION.replaceAll(".", "\\.")}, protocol ${LINK_PROTOCOL}`, "u"));
   // Details shows what the other PC said even though it is offline.
-  assert.deepEqual([leaf.version, leaf.link_protocol], ["2.0.0", LINK_PROTOCOL + 1]);
+  assert.deepEqual([peer.version, peer.link_protocol], ["2.0.0", LINK_PROTOCOL + 1]);
   assert.equal(snapshot.panes.length, 0, "an incompatible PC contributes nothing");
 });
 
-test("records a leaf should not be reporting are dropped", async (context) => {
-  // The leaf declares scope "local" and the hub still filters, because a
+test("records a connected PC should not be reporting are dropped", async (context) => {
+  // The connected PC declares scope "local" and the hub still filters, because a
   // declaration is easy to get wrong and a silent forwarded record would carry
   // an id this hub cannot route.
   const calls = [];
-  const herdrWithStrays = leafHerdr(calls, {
+  const herdrWithStrays = peerHerdr(calls, {
     panes: [
       { pane_id: PANE },
       { pane_id: "ssh_22222222-2222-2222-2222-222222222222!wC:p1" },
       { pane_id: "wD:p1", server_id: "ssh_22222222-2222-2222-2222-222222222222" },
     ],
   });
-  const { address } = await startLeaf(context, { herdr: herdrWithStrays });
+  const { address } = await startLinkedPeer(context, { herdr: herdrWithStrays });
   const { herdr } = hubFor(address);
   const snapshot = await settled(herdr);
   assert.deepEqual(snapshot.panes.map((pane) => pane.pane_id), [`${LINK_ID}!${PANE}`]);
@@ -199,7 +199,7 @@ async function settledStatus(herdr) {
 }
 
 test("a PC that does not allow this one says so instead of blaming SSH", async (context) => {
-  const link = leafLinkRoutes({ client: leafHerdr([]), version: HUB_VERSION });
+  const link = linkRoutes({ client: peerHerdr([]), version: HUB_VERSION });
   const outside = await startPeer(context, { link, allowed: ["100.64.0.9"] });
   const status = await settledStatus(hubFor(outside).herdr);
   assert.match(status, /does not allow this PC/u);
@@ -208,16 +208,16 @@ test("a PC that does not allow this one says so instead of blaming SSH", async (
   assert.match(await settledStatus(hubFor(empty).herdr), /does not accept other PCs yet/u);
 });
 
-test("project and tab changes reach the leaf with the prefix taken off", async (context) => {
-  const { address, calls } = await startLeaf(context);
+test("project and tab changes reach the connected PC with the prefix taken off", async (context) => {
+  const { address, calls } = await startLinkedPeer(context);
   const { herdr } = hubFor(address);
   await settled(herdr);
 
   // A mutation is followed by a refresh, so the call under test is not the last
-  // one the leaf saw.
+  // one the connected PC saw.
   const sawCall = (expected) => assert.ok(
     calls.some((call) => JSON.stringify(call) === JSON.stringify(expected)),
-    `${expected[0]} reached the leaf as ${JSON.stringify(expected)}`,
+    `${expected[0]} reached the connected PC as ${JSON.stringify(expected)}`,
   );
 
   await herdr.createWorkspace("New project", `${LINK_ID}!${SESSION}`);
@@ -234,21 +234,21 @@ test("project and tab changes reach the leaf with the prefix taken off", async (
   sawCall(["closeWorkspace", `${SESSION}~wB`]);
 });
 
-test("a change the leaf refuses arrives as the leaf's own complaint", async (context) => {
+test("a change the connected PC refuses arrives as the connected PC's own complaint", async (context) => {
   // The rules live on the machine that owns the session, so a bad label has to
   // come back saying so rather than as a generic link failure.
   const calls = [];
   const strict = {
-    ...leafHerdr(calls),
+    ...peerHerdr(calls),
     async renameWorkspace() { throw new InputValidationError("Enter a project name."); },
   };
-  const { address } = await startLeaf(context, { herdr: strict });
+  const { address } = await startLinkedPeer(context, { herdr: strict });
   const { herdr } = hubFor(address);
   await settled(herdr);
   await assert.rejects(() => herdr.renameWorkspace(`${LINK_ID}!${SESSION}~wB`, ""), /Enter a project name/u);
 });
 
-test("a leaf answers for its own files, and the hub never reads a disk", async (context) => {
+test("a connected PC answers for its own files, and the hub never reads a disk", async (context) => {
   // The point of moving browsing onto the link: each machine uses the same
   // local browser a person opening it directly would get. Nothing on the hub
   // knows how to read another machine's filesystem.
@@ -258,15 +258,15 @@ test("a leaf answers for its own files, and the hub never reads a disk", async (
   const { Readable } = await import("node:stream");
   const { FileStore } = await import("../src/file-store.mjs");
 
-  const dir = await mkdtemp(join(tmpdir(), "herdr-leaf-files-"));
+  const dir = await mkdtemp(join(tmpdir(), "herdr-peer-files-"));
   context.after(() => rm(dir, { recursive: true, force: true }));
-  await writeFile(join(dir, "notes.txt"), "leaf side");
-  const uploads = await mkdtemp(join(tmpdir(), "herdr-leaf-uploads-"));
+  await writeFile(join(dir, "notes.txt"), "peer side");
+  const uploads = await mkdtemp(join(tmpdir(), "herdr-peer-uploads-"));
   context.after(() => rm(uploads, { recursive: true, force: true }));
   const files = await FileStore.load(uploads);
 
-  const address = await startPeer(context, { link: leafLinkRoutes({ client: leafHerdr([]), files, version: HUB_VERSION }) });
-  const client = new LeafLinkClient({
+  const address = await startPeer(context, { link: linkRoutes({ client: peerHerdr([]), files, version: HUB_VERSION }) });
+  const client = new LinkClient({
     profile: { name: "Dev box", transport: "link", address },
     hubVersion: HUB_VERSION,
     fetchImpl: hubFetch(),
@@ -280,7 +280,7 @@ test("a leaf answers for its own files, and the hub never reads a disk", async (
   assert.equal(opened.name, "notes.txt");
   const chunks = [];
   for await (const chunk of opened.stream) chunks.push(chunk);
-  assert.equal(Buffer.concat(chunks).toString(), "leaf side", "bytes survive the link");
+  assert.equal(Buffer.concat(chunks).toString(), "peer side", "bytes survive the link");
 
   assert.equal(await client.uploadsDirectory(), uploads);
   const saved = await client.saveUpload("보고서.txt", Readable.from([Buffer.from("uploaded")]), { bytes: 8 });
@@ -293,14 +293,14 @@ test("a leaf answers for its own files, and the hub never reads a disk", async (
   client.close();
 });
 
-test("a folder the leaf will not open is refused with its own reason", async (context) => {
-  const { address } = await startLeaf(context);
-  const client = new LeafLinkClient({
+test("a folder the connected PC will not open is refused with its own reason", async (context) => {
+  const { address } = await startLinkedPeer(context);
+  const client = new LinkClient({
     profile: { name: "Dev box", transport: "link", address },
     hubVersion: HUB_VERSION,
     fetchImpl: hubFetch(),
   });
-  // The leaf decided this, so the status is its status rather than a generic
+  // The connected PC decided this, so the status is its status rather than a generic
   // link failure that tells the person nothing.
   await assert.rejects(() => client.listDirectory("/definitely/not/here"), (error) => {
     assert.equal(error.status, 404);
@@ -313,11 +313,11 @@ test("a file larger than this PC allows is refused before any byte is passed on"
   const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  const dir = await mkdtemp(join(tmpdir(), "herdr-leaf-big-"));
+  const dir = await mkdtemp(join(tmpdir(), "herdr-peer-big-"));
   context.after(() => rm(dir, { recursive: true, force: true }));
   await writeFile(join(dir, "big.bin"), Buffer.alloc(64));
-  const address = await startPeer(context, { link: leafLinkRoutes({ client: leafHerdr([]), version: HUB_VERSION }) });
-  const client = new LeafLinkClient({ profile: { name: "Dev box", transport: "link", address }, hubVersion: HUB_VERSION });
+  const address = await startPeer(context, { link: linkRoutes({ client: peerHerdr([]), version: HUB_VERSION }) });
+  const client = new LinkClient({ profile: { name: "Dev box", transport: "link", address }, hubVersion: HUB_VERSION });
   await assert.rejects(() => client.openFile(join(dir, "big.bin"), { maxBytes: 10 }), { status: 413, code: "file_too_large" });
   client.close();
 });
@@ -325,7 +325,7 @@ test("a file larger than this PC allows is refused before any byte is passed on"
 test("sessions dragged on a connected PC move there, and the moved pane comes back under its prefix", async (context) => {
   const calls = [];
   const herdrWithMoves = {
-    ...leafHerdr(calls),
+    ...peerHerdr(calls),
     async moveTab(id, index) { calls.push(["moveTab", id, index]); },
     async moveWorkspace(id, index) { calls.push(["moveWorkspace", id, index]); },
     async moveTabToWorkspace(id, workspace, index) {
@@ -333,7 +333,7 @@ test("sessions dragged on a connected PC move there, and the moved pane comes ba
       return { tab_id: `${SESSION}~wC:t2`, panes: [{ from: PANE, to: `${SESSION}~wC:p2` }, { from: "x!y", to: "z" }] };
     },
   };
-  const { address } = await startLeaf(context, { herdr: herdrWithMoves });
+  const { address } = await startLinkedPeer(context, { herdr: herdrWithMoves });
   const { herdr } = hubFor(address);
   await settled(herdr);
   await herdr.moveTab(`${LINK_ID}!${SESSION}~wB:t1`, 1);
@@ -346,16 +346,16 @@ test("sessions dragged on a connected PC move there, and the moved pane comes ba
 });
 
 test("what a connected PC cannot do yet is refused with a reason, not a crash", async (context) => {
-  const { address } = await startLeaf(context);
+  const { address } = await startLinkedPeer(context);
   const { herdr } = hubFor(address);
   await settled(herdr);
-  // This leaf has no attach (no node-pty there): its panes are mirrored.
+  // This connected PC has no attach (no node-pty there): its panes are mirrored.
   await assert.rejects(() => herdr.terminalTarget(`${LINK_ID}!${PANE}`), { code: "attach_unsupported" });
   assert.equal(await herdr.paneProcessInfo(`${LINK_ID}!${PANE}`), null);
 });
 
 test("find and reveal run on the connected PC, and a changed history stays a stale_content", async (context) => {
-  const { address, calls } = await startLeaf(context);
+  const { address, calls } = await startLinkedPeer(context);
   const { herdr } = hubFor(address);
   await settled(herdr);
   const found = await herdr.paneFind(`${LINK_ID}!${PANE}`, { query: "needle", direction: "backward" });
@@ -370,7 +370,7 @@ test("find and reveal run on the connected PC, and a changed history stays a sta
 });
 
 test("a connected PC from before find went over the link says it is too old", async () => {
-  const client = new LeafLinkClient({
+  const client = new LinkClient({
     profile: { name: "Old box", transport: "link", address: "http://100.64.0.3:38788" }, hubVersion: HUB_VERSION,
     fetchImpl: async (url) => new URL(url).pathname === "/api/link/hello"
       ? new Response(JSON.stringify({ product: "herdrabbit", version: "1.2.51", link_protocol: LINK_PROTOCOL, scope: "local" }), { status: 200 })
@@ -406,7 +406,7 @@ function tricklingBody(signal) {
 const PEER_HELLO = { product: "herdrabbit", version: HUB_VERSION, link_protocol: LINK_PROTOCOL, scope: "local" };
 
 function peerClient(fetchImpl, options = {}) {
-  return new LeafLinkClient({
+  return new LinkClient({
     profile: { name: "Dev box", transport: "link", address: "http://100.64.0.2:38788" },
     hubVersion: HUB_VERSION,
     fetchImpl: async (url, init) => new URL(url).pathname === "/api/link/hello"
@@ -425,13 +425,13 @@ test("nothing is asked of a PC before its link protocol is known to match", asyn
     return new Response(JSON.stringify({ output: "screen" }), { status: 200 });
   };
   // a PC on another protocol: the hello is all that is sent, the text never goes
-  const other = new LeafLinkClient({ profile: { name: "Old box", transport: "link", address: "http://100.64.0.3:38788" }, hubVersion: HUB_VERSION,
+  const other = new LinkClient({ profile: { name: "Old box", transport: "link", address: "http://100.64.0.3:38788" }, hubVersion: HUB_VERSION,
     fetchImpl: answer({ product: "herdrabbit", version: "0.9.0", link_protocol: LINK_PROTOCOL + 1, scope: "local" }) });
-  await assert.rejects(() => other.sendText("p1", "rm -rf /tmp/x", { submit: true }), { code: "leaf_protocol_mismatch" });
+  await assert.rejects(() => other.sendText("p1", "rm -rf /tmp/x", { submit: true }), { code: "link_protocol_mismatch" });
   assert.deepEqual(asked, ["/api/link/hello"]);
   // a matching PC is greeted once, then asked
   asked.length = 0;
-  const same = new LeafLinkClient({ profile: { name: "Dev box", transport: "link", address: "http://100.64.0.2:38788" }, hubVersion: HUB_VERSION,
+  const same = new LinkClient({ profile: { name: "Dev box", transport: "link", address: "http://100.64.0.2:38788" }, hubVersion: HUB_VERSION,
     fetchImpl: answer({ product: "herdrabbit", version: HUB_VERSION, link_protocol: LINK_PROTOCOL, scope: "local" }) });
   await same.readPane("p1");
   await same.readPane("p1");
@@ -448,7 +448,7 @@ test("a file that stops arriving after its headers fails instead of waiting for 
   try {
     await assert.rejects(async () => {
       for await (const chunk of opened.stream) void chunk;
-    }, { code: "leaf_timeout" });
+    }, { code: "link_timeout" });
   } finally {
     clearInterval(alive);
   }
@@ -487,7 +487,7 @@ test("a redirect from a connected PC is refused, never followed", async () => {
     return new Response(null, { status: 307, headers: { location: "http://169.254.169.254/latest/meta-data" } });
   });
   await assert.rejects(() => client.listDirectory("/srv"), (error) => {
-    assert.equal(error.code, "leaf_error");
+    assert.equal(error.code, "link_error");
     assert.match(error.message, /redirect/u);
     return true;
   });
@@ -498,7 +498,7 @@ test("an answer that never ends is cut off at the hub's limit, not read to the e
   let cancelled = 0;
   const client = peerClient(async () => new Response(endlessBody(() => { cancelled += 1; }), { status: 200 }));
   await assert.rejects(() => client.readPane("p1"), (error) => {
-    assert.equal(error.code, "leaf_error");
+    assert.equal(error.code, "link_error");
     assert.match(error.message, /more than this hub will read/u);
     return true;
   });
@@ -507,7 +507,7 @@ test("an answer that never ends is cut off at the hub's limit, not read to the e
   const failing = peerClient(async () => new Response(endlessBody(() => { cancelled += 1; }), { status: 500 }));
   await assert.rejects(() => failing.listDirectory("/srv"), (error) => {
     assert.equal(error.status, 500);
-    assert.equal(error.code, "leaf_error");
+    assert.equal(error.code, "link_error");
     return true;
   });
   assert.equal(cancelled, 3);
@@ -518,11 +518,11 @@ test("an answer whose body trickles is given up on the same clock as its headers
   const client = peerClient(fetchImpl);
   const started = Date.now();
   await assert.rejects(() => client.snapshot(), (error) => {
-    assert.equal(error.code, "leaf_timeout");
+    assert.equal(error.code, "link_timeout");
     return true;
   });
-  await assert.rejects(() => client.listDirectory("/srv"), { code: "leaf_timeout" });
-  await assert.rejects(() => client.directoryFingerprint("/srv"), { code: "leaf_timeout" });
+  await assert.rejects(() => client.listDirectory("/srv"), { code: "link_timeout" });
+  await assert.rejects(() => client.directoryFingerprint("/srv"), { code: "link_timeout" });
   assert.ok(Date.now() - started < 3_000);
   client.close();
 });
@@ -536,15 +536,15 @@ test("a file sent past this PC's transfer limit, or past what it declared, fails
   // No length said, and no end.
   const unsized = peerClient(async () => new Response(endlessBody(), { status: 200 }), { maxTransferBytes: 1024 * 1024 });
   const opened = await unsized.openFile("/srv/endless");
-  await assert.rejects(() => readAll(opened.stream), { code: "leaf_error" });
+  await assert.rejects(() => readAll(opened.stream), { code: "link_error" });
   const upload = await unsized.openUpload("endless.bin");
-  await assert.rejects(() => readAll(upload.stream), { code: "leaf_error" });
+  await assert.rejects(() => readAll(upload.stream), { code: "link_error" });
 
   // A length said, and more sent.
   const liar = peerClient(async () => new Response(new TextEncoder().encode("0123456789abcdef"), {
     status: 200, headers: { "content-length": "4" },
   }));
-  await assert.rejects(async () => readAll((await liar.openFile("/srv/short")).stream), { code: "leaf_error" });
+  await assert.rejects(async () => readAll((await liar.openFile("/srv/short")).stream), { code: "link_error" });
 
   // An upload that says it is larger than this PC takes is refused up front.
   const large = peerClient(async () => new Response("x".repeat(64), { status: 200, headers: { "content-length": "64" } }), { maxTransferBytes: 10 });

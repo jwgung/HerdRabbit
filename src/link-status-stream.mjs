@@ -14,7 +14,7 @@ function parseFrame(block) {
 // Mirrors subscribeHerdrStatuses: the promise settles on whether the
 // subscription was established, and everything after that is onError's problem.
 // A caller written against the local path must not have to tell them apart.
-export async function subscribeLeafStatuses({
+export async function subscribeLinkStatuses({
   url,
   paneIds,
   headers = {},
@@ -44,7 +44,7 @@ export async function subscribeLeafStatuses({
 
   const touch = () => {
     clearTimeout(idleTimer);
-    // A leaf sends a heartbeat every 15s, so silence well past that means the
+    // A connected PC sends a heartbeat every 15s, so silence well past that means the
     // connection is gone in a way neither end noticed.
     idleTimer = setTimeout(() => fail(new Error("The linked server stopped sending status updates.")), idleTimeoutMs);
     idleTimer.unref?.();

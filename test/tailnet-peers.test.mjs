@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { discoverLeaves, readTailnetPeers, tailnetLoginOf } from "../src/tailnet-peers.mjs";
+import { discoverPeers, readTailnetPeers, tailnetLoginOf } from "../src/tailnet-peers.mjs";
 
 const HUB_VERSION = "1.4.0";
 
@@ -47,7 +47,7 @@ test("reads the tailnet, dropping what cannot be addressed", async () => {
 test("says what each machine is rather than hiding the ones that will not work", async () => {
   // A machine missing from the list is indistinguishable from a machine that
   // is refusing this hub, and those need completely different fixes.
-  const { candidates, self } = await discoverLeaves({ hubVersion: HUB_VERSION, execute, fetchImpl });
+  const { candidates, self } = await discoverPeers({ hubVersion: HUB_VERSION, execute, fetchImpl });
   assert.equal(self.address, "100.64.0.1");
   assert.equal(stateOf(candidates, "ready-box"), "ready");
   assert.equal(stateOf(candidates, "sleeping"), "offline", "an offline peer is named, not probed");
@@ -62,7 +62,7 @@ test("says what each machine is rather than hiding the ones that will not work",
 });
 
 test("marks a machine that is already registered", async () => {
-  const { candidates } = await discoverLeaves({
+  const { candidates } = await discoverPeers({
     hubVersion: HUB_VERSION, execute, fetchImpl,
     known: ["http://100.64.0.2:38788"],
   });
@@ -72,7 +72,7 @@ test("marks a machine that is already registered", async () => {
 test("a device with only an IPv6 tailnet address is still found, at a bracketed address", async () => {
   const onlySix = { ...status, Peer: { f: { DNSName: "six.tailnet.ts.net.", TailscaleIPs: ["fd7a:115c:a1e0::6"], Online: true } } };
   const asked = [];
-  const { candidates } = await discoverLeaves({
+  const { candidates } = await discoverPeers({
     hubVersion: HUB_VERSION,
     execute: async () => ({ stdout: JSON.stringify(onlySix) }),
     fetchImpl: async (url) => { asked.push(url); return new Response(JSON.stringify({ product: "herdrabbit", version: HUB_VERSION, link_protocol: 1, scope: "local" }), { status: 200 }); },
@@ -83,7 +83,7 @@ test("a device with only an IPv6 tailnet address is still found, at a bracketed 
 });
 
 test("a saved announcement that is not an address is left out, not the whole search", async () => {
-  const { candidates } = await discoverLeaves({
+  const { candidates } = await discoverPeers({
     hubVersion: HUB_VERSION, execute, fetchImpl,
     announced: [{ name: "broken", address: "not a url" }, { name: "odd", address: "file:///etc/passwd" }, { name: "second", address: "http://100.64.0.2:30002" }],
   });
@@ -95,7 +95,7 @@ test("a saved announcement that is not an address is left out, not the whole sea
 
 test("a PC on another app version but the same link protocol is ready to connect", async () => {
   const answering = async () => new Response(JSON.stringify({ product: "herdrabbit", version: "9.0.0", link_protocol: 1, scope: "local" }), { status: 200 });
-  const { candidates } = await discoverLeaves({ hubVersion: HUB_VERSION, execute, fetchImpl: answering });
+  const { candidates } = await discoverPeers({ hubVersion: HUB_VERSION, execute, fetchImpl: answering });
   assert.equal(stateOf(candidates, "ready-box"), "ready");
   assert.equal(candidates.find((candidate) => candidate.name === "ready-box").version, "9.0.0");
 });
@@ -113,7 +113,7 @@ test("looks up the tailnet account of an address, and says nothing when it canno
 });
 
 test("reports plainly when there is no tailnet to read", async () => {
-  const found = await discoverLeaves({
+  const found = await discoverPeers({
     hubVersion: HUB_VERSION,
     execute: async () => { throw new Error("tailscale: not found"); },
   });
@@ -145,7 +145,7 @@ test("a machine that never stops answering, or answers too slowly, is not taken 
     },
   };
   const started = Date.now();
-  const result = await discoverLeaves({
+  const result = await discoverPeers({
     hubVersion: HUB_VERSION,
     execute: async () => ({ stdout: JSON.stringify(peers) }),
     probeTimeoutMs: 300,

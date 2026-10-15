@@ -1,6 +1,6 @@
-import { LINK_PROTOCOL } from "./leaf-protocol.mjs";
+import { LINK_PROTOCOL } from "./link-protocol.mjs";
 
-// A leaf on a port nobody would guess -- a second account on a machine that
+// A connected PC on a port nobody would guess -- a second account on a machine that
 // already runs one -- cannot be found by probing. It can say where it is,
 // because it was installed knowing which hub it answers to.
 const RETRY_MS = 60_000;

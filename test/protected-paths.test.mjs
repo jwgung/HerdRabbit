@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { directoryFingerprint, listDirectory, openFile, refuseProtected } from "../src/file-browser.mjs";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
-import { leafLinkRoutes } from "../src/link-server.mjs";
-import { LeafLinkClient } from "../src/leaf-link-client.mjs";
+import { linkRoutes } from "../src/link-server.mjs";
+import { LinkClient } from "../src/link-client.mjs";
 import { PeerIdentity } from "../src/peer-identity.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
 import { defaultDataPaths, isProtectedPath, localProtectedPaths } from "../src/protected-paths.mjs";
@@ -217,13 +217,13 @@ test("another PC asking over Connect PC is refused them the same way, and held t
   await writeFile(join(home, "notes", "big.bin"), Buffer.alloc(64));
   const server = createPeerServer({
     peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
-    link: leafLinkRoutes({ client: {}, version: "1.2.47", protectedPaths: guard, maxTransferBytes: 32 }),
+    link: linkRoutes({ client: {}, version: "1.2.47", protectedPaths: guard, maxTransferBytes: 32 }),
     logger: { error() {} },
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   context.after(() => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }));
-  const client = new LeafLinkClient({
+  const client = new LinkClient({
     profile: { name: "desk", transport: "link", address: `http://127.0.0.1:${server.address().port}` },
     hubVersion: "1.2.47",
   });
@@ -237,7 +237,7 @@ test("another PC asking over Connect PC is refused them the same way, and held t
   await symlink(paths.codexAuth, join(home, "notes", "linked"));
   await assert.rejects(() => client.openFile(join(home, "notes", "linked")), refused);
 
-  // The leaf's own limit, even when the hub would take more.
+  // The connected PC's own limit, even when the hub would take more.
   await assert.rejects(() => client.openFile(join(home, "notes", "big.bin")), { status: 413, code: "file_too_large" });
   assert.equal(await read((await client.openFile(join(home, "notes", "plain.txt"))).stream), "ordinary");
 });

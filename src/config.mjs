@@ -3,7 +3,7 @@ import { defaultPushFilePath } from "./web-push-service.mjs";
 import { BlockList, isIP } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { DEFAULT_PEER_PORT } from "./leaf-protocol.mjs";
+import { DEFAULT_PEER_PORT } from "./link-protocol.mjs";
 
 const DEFAULT_PORT = 38_787;
 // Any single address is narrower than 0.0.0.0, so binding to one interface --
@@ -170,7 +170,7 @@ function parsePeerAddresses(value) {
   return [...new Set(addresses)];
 }
 
-// Where this PC says it is (src/leaf-announce.mjs): the page of the PC that
+// Where this PC says it is (src/link-announce.mjs): the page of the PC that
 // connects to it, by its tailnet name, because that page sits behind
 // Tailscale Serve and its certificate is for the name.
 function parseHubUrl(value) {

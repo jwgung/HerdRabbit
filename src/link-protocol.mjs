@@ -14,7 +14,7 @@ const ID_FIELDS = ["session_id", "herdr_session_id", "workspace_id", "active_tab
 
 const COLLECTIONS = ["herdr_sessions", "workspaces", "tabs", "panes", "agents"];
 const FOCUSED = ["focused_workspace_id", "focused_tab_id", "focused_pane_id"];
-// Enough for any real machine, and a bound on what a leaf can make the hub hold.
+// Enough for any real machine, and a bound on what a connected PC can make the hub hold.
 const MAX_RECORDS = 2_000;
 
 // What decides whether two PCs can be connected is the link protocol: the
@@ -24,12 +24,12 @@ const MAX_RECORDS = 2_000;
 //
 // A refusal names both sides' protocol and app version, so the person can see
 // which PC to update without opening either one.
-export function checkLeafCompatibility({ hubVersion = null, hubProtocol = LINK_PROTOCOL, serverName = "that PC" }, hello) {
+export function checkLinkCompatibility({ hubVersion = null, hubProtocol = LINK_PROTOCOL, serverName = "that PC" }, hello) {
   if (!hello || typeof hello !== "object" || hello.product !== "herdrabbit" ||
       typeof hello.version !== "string" || hello.version === "") {
     return {
       ok: false,
-      code: "leaf_not_herdrabbit",
+      code: "link_not_herdrabbit",
       reason: "That address answered, but it is not a HerdRabbit server.",
     };
   }
@@ -39,19 +39,19 @@ export function checkLeafCompatibility({ hubVersion = null, hubProtocol = LINK_P
     const here = hubVersion ? `HerdRabbit ${hubVersion}, protocol ${hubProtocol}` : `protocol ${hubProtocol}`;
     return {
       ok: false,
-      code: "leaf_protocol_mismatch",
+      code: "link_protocol_mismatch",
       version,
       protocol,
       reason: `${serverName} runs HerdRabbit ${version} with connection protocol ${protocol ?? "unknown"}; ` +
         `this PC runs ${here}. Update the older one.`,
     };
   }
-  // A leaf that forwards other servers would hand back ids from a namespace
+  // A connected PC that forwards other servers would hand back ids from a namespace
   // this hub has no way to route.
   if (hello.scope !== "local") {
     return {
       ok: false,
-      code: "leaf_scope",
+      code: "link_scope",
       reason: "That HerdRabbit reports servers other than its own, which a link cannot represent.",
     };
   }
@@ -65,20 +65,20 @@ export function checkLeafCompatibility({ hubVersion = null, hubProtocol = LINK_P
 
 function usableRecord(record) {
   if (!record || typeof record !== "object") return false;
-  // A leaf reports its own sessions and nothing else. It says so in the
+  // A connected PC reports its own sessions and nothing else. It says so in the
   // handshake, but saying so is easy to get wrong, so anything that looks
   // forwarded is dropped here regardless of what it claimed.
   if (typeof record.server_id === "string" && record.server_id !== "local") return false;
   return !ID_FIELDS.some((field) => typeof record[field] === "string" && record[field].includes("!"));
 }
 
-// The hub stamps its own server_id and prefixes every id, so whatever the leaf
+// The hub stamps its own server_id and prefixes every id, so whatever the connected PC
 // put there would only collide with that.
 function stripOwnership({ server_id, server_name, ...record }) {
   return record;
 }
 
-export function normalizeLeafSnapshot(value) {
+export function normalizeLinkSnapshot(value) {
   const snapshot = value && typeof value === "object" ? value : {};
   const normalized = {
     protocol: snapshot.protocol,
