@@ -70,18 +70,15 @@ function accountDetails(details) {
 
 // Passes bytes through, failing once more than `limit` has gone by.
 // A file that stops arriving -- headers, then silence -- would hold the
-// download open for ever; one quiet for `idleMs` fails instead.
+// download open for ever; one quiet for `idleMs` fails instead. The clock runs
+// only while the reader is asking for more, so a reader that pauses (a slow
+// browser, backpressure) does not count as the PC going quiet.
 function capped(limit, idleMs) {
   let seen = 0;
   let timer = null;
-  const stall = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => stream.destroy(new FileAccessError(504, "leaf_timeout", "The connected PC stopped sending that file.")), idleMs);
-    timer.unref?.();
-  };
   const stream = new Transform({
     transform(chunk, encoding, callback) {
-      stall();
+      clearTimeout(timer);
       seen += chunk.length;
       if (seen > limit) {
         callback(new FileAccessError(502, "leaf_error", "The connected PC sent more of that file than it should have."));
@@ -92,7 +89,13 @@ function capped(limit, idleMs) {
     flush(callback) { clearTimeout(timer); callback(); },
     destroy(error, callback) { clearTimeout(timer); callback(error); },
   });
-  stall();
+  const read = stream._read.bind(stream);
+  stream._read = (size) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => stream.destroy(new FileAccessError(504, "leaf_timeout", "The connected PC stopped sending that file.")), idleMs);
+    timer.unref?.();
+    read(size);
+  };
   return stream;
 }
 

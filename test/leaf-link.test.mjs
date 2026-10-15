@@ -423,6 +423,19 @@ test("closing the merged client lets go of every connected PC, not this one", ()
   assert.deepEqual(closed, [LINK_ID]);
 });
 
+test("a reader that pauses is not taken for a PC that stopped sending", async () => {
+  const chunks = Array.from({ length: 6 }, () => new Uint8Array(64 * 1024));
+  const body = new ReadableStream({ pull(controller) { const next = chunks.shift(); if (next) controller.enqueue(next); else controller.close(); } });
+  const client = peerClient(async () => new Response(body, { status: 200, headers: { "content-length": String(6 * 64 * 1024) } }), { timeouts: { read: 300, snapshot: 300, write: 300, fileIdle: 50 } });
+  const opened = await client.openFile("/srv/big");
+  let total = 0;
+  for await (const chunk of opened.stream) {
+    if (total === 0) await new Promise((resolve) => setTimeout(resolve, 200));
+    total += chunk.length;
+  }
+  assert.equal(total, 6 * 64 * 1024);
+});
+
 test("a redirect from a connected PC is refused, never followed", async () => {
   const asked = [];
   const client = peerClient(async (url, init) => {
