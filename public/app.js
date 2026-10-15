@@ -1,9 +1,11 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.58";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.58";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.58";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.59";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.59";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.59";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
+// The selected pane's agent and status, for the Chat lens's Stop button.
+let stopTarget = { paneId: null, agent: null, status: null };
 import {
   HISTORY_PAGE_LINES,
   agentCompletionIdentity,
@@ -50,7 +52,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyMachinesNotice,
-} from "./ui-model.js?v=1.2.58";
+} from "./ui-model.js?v=1.2.59";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -61,42 +63,43 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.58";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.58";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.58";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.58";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.58";
-import { createChatFind } from "./chat/chat-find.js?v=1.2.58";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.58";
+} from "./browse-preference.js?v=1.2.59";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.59";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.59";
+import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.59";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.59";
+import { createChatFind } from "./chat/chat-find.js?v=1.2.59";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.59";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.58";
-import { chatAgent } from "./lens-preference.js?v=1.2.58";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.58";
+} from "./chat-font-preference.js?v=1.2.59";
+import { chatAgent } from "./lens-preference.js?v=1.2.59";
+import { composerEscapeStops, showsStop } from "./chat/chat-activity.js?v=1.2.59";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.59";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.58";
+} from "./pane-preference.js?v=1.2.59";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.58";
+} from "./workspace-preference.js?v=1.2.59";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.58";
+} from "./terminal-preference.js?v=1.2.59";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.58";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.58";
+} from "./completion-preference.js?v=1.2.59";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.59";
 import {
   attachSidebarDrag,
   dropScope,
@@ -105,15 +108,15 @@ import {
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.2.58";
-import { renamePaneKeys } from "./pane-rename.js?v=1.2.58";
-import { renamePaneLenses } from "./lens-preference.js?v=1.2.58";
+} from "./sidebar-drag.js?v=1.2.59";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.59";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.59";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.58";
-import { createAtFilesPopup } from "./composer-at-files.js?v=1.2.58";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.58";
+} from "./input-history-preference.js?v=1.2.59";
+import { createAtFilesPopup } from "./composer-at-files.js?v=1.2.59";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.59";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -129,16 +132,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.58";
+} from "./key-bar-preference.js?v=1.2.59";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.58";
+} from "./launch-session.js?v=1.2.59";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.58";
+} from "./push-notifications.js?v=1.2.59";
 
 function browserStorage() {
   try {
@@ -372,6 +375,7 @@ const elements = {
   quickKeys: document.querySelector(".quick-keys"),
   inputForm: document.querySelector("#input-form"),
   sendButton: document.querySelector("#input-form .send-button"),
+  stopButton: document.querySelector("#stop-button"),
   terminalInput: document.querySelector("#terminal-input"),
   composerFiles: document.querySelector("#composer-files"),
   actionFeedback: document.querySelector("#action-feedback"),
@@ -2950,15 +2954,19 @@ function renderPaneHeading(pane, tab, workspace) {
     elements.paneContext.textContent = "Select a pane";
     elements.paneTitle.textContent = "Terminal";
     elements.paneTitle.removeAttribute("title");
+    stopTarget = { paneId: null, agent: null, status: null };
     chatLens.select(null);
     promptDock?.select(null);
+    syncStopButton();
     return;
   }
 
   const paneId = idOf(pane, "pane_id", "id");
   const agent = agentForPane(paneId);
+  stopTarget = { paneId, agent: chatAgent(pane, agent), status: agentStatus(agent, pane) };
   chatLens.select(paneId, { agent: chatAgent(pane, agent), status: agentStatus(agent, pane) });
   promptDock?.select(paneId, { agent: chatAgent(pane, agent), status: agentStatus(agent, pane) });
+  syncStopButton();
   const workspaceLabel = displayRecordLabel(workspace, "Project");
   const tabLabel = displayTabLabel(tab);
 
@@ -3425,6 +3433,7 @@ const chatLens = createChatLens({
     // terminal fits again once it is back.
     elements.terminalPanel.dataset.lens = lens;
     promptDock?.setLens(lens);
+    syncStopButton();
     // Each lens has its own find bar, and each bar its own pane: a switch
     // closes the other lens's, and a pane switch the chat's.
     if (lens === "chat") terminalFind?.close();
@@ -3693,6 +3702,19 @@ elements.inputForm.addEventListener("submit", async (event) => {
 
 elements.terminalInput.addEventListener("keydown", (event) => {
   if (atFiles.handleKeydown(event)) return;
+  // Esc in the composer stops the agent, as it does in the terminal, unless
+  // the @ list (answered above), the find bar or a dialog has Esc first.
+  if (composerEscapeStops({
+    key: event.key, isComposing: event.isComposing, keyCode: event.keyCode,
+    ctrlKey: event.ctrlKey, altKey: event.altKey, metaKey: event.metaKey, shiftKey: event.shiftKey,
+    stopShown: !elements.stopButton.hidden,
+    ownedElsewhere: atFiles.isOpen || Boolean(chatFind?.open) || Boolean(document.querySelector("dialog[open]")),
+  })) {
+    event.preventDefault();
+    event.stopPropagation();
+    stopAgent();
+    return;
+  }
   if (
     !event.isComposing &&
     !event.ctrlKey &&
@@ -3822,6 +3844,36 @@ async function sendCommandKey(key) {
     keySendBusy = false;
   }
 }
+
+// Stop: the key bar's Esc for the Chat lens, which has no key bar. It shows
+// beside Send while the selected Claude or Codex pane works, so a draft can
+// still go out (the agent queues it) and Send never turns into Stop under a
+// finger. Esc interrupts without losing the conversation: no confirmation.
+const STOP_BUSY_MS = 1_000;
+let stopBusyTimer = null;
+
+function syncStopButton() {
+  const shown = Boolean(stopTarget.paneId) && stopTarget.paneId === state.selectedPaneId &&
+    showsStop({ lens: chatLens.lens, agent: stopTarget.agent, status: stopTarget.status });
+  elements.stopButton.hidden = !shown;
+}
+
+function stopAgent() {
+  if (elements.stopButton.hidden || elements.stopButton.disabled) return;
+  // Busy for a moment, then ready again: Claude may need a second Esc.
+  elements.stopButton.disabled = true;
+  elements.stopButton.setAttribute("aria-busy", "true");
+  window.clearTimeout(stopBusyTimer);
+  stopBusyTimer = window.setTimeout(() => {
+    elements.stopButton.disabled = false;
+    elements.stopButton.removeAttribute("aria-busy");
+  }, STOP_BUSY_MS);
+  void sendCommandKey("esc");
+}
+
+// A mouse click keeps the composer focused, as the key bar does.
+elements.stopButton.addEventListener("mousedown", (event) => event.preventDefault());
+elements.stopButton.addEventListener("click", () => stopAgent());
 
 // Keep the composer focused when using the screen keyboard with a mouse.
 elements.quickKeys.addEventListener("mousedown", (event) => {
