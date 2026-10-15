@@ -73,6 +73,9 @@ export function linkAttachSockets({
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_INPUT_FRAME, perMessageDeflate: false });
   // Attaches being looked up count too: each is about to become a pty.
   let open = 0;
+  // Set by close(): a look-up still running then upgrades nothing.
+  let closed = false;
+  const pending = new Set();
 
   function refuseUnsupported() {
     throw new HttpError(501, "attach_unsupported", "This PC cannot attach terminals (node-pty is unavailable here).");
@@ -112,16 +115,26 @@ export function linkAttachSockets({
     const cols = size(url.searchParams.get("cols"), "cols") ?? 80;
     const rows = size(url.searchParams.get("rows"), "rows") ?? 24;
     const takeover = url.searchParams.get("takeover") === "1";
+    if (closed) throw new HttpError(503, "shutting_down", "This PC is stopping.");
     if (open >= maxAttaches) throw new HttpError(429, "too_many_attachments", "Too many terminals are attached. Try again shortly.");
     open += 1;
     let counted = true;
     const release = () => { if (counted) { counted = false; open -= 1; } };
     let found;
+    pending.add(socket);
     try {
       found = await target(paneId);
     } catch (error) {
       release();
       throw error;
+    } finally {
+      pending.delete(socket);
+    }
+    // Stopped while the pane was looked up: nothing is spawned after close().
+    if (closed) {
+      release();
+      socket.destroy();
+      return;
     }
     // Without a verifyClient, ws upgrades (and calls back) synchronously; a
     // socket that closed while the pane was looked up, or a malformed
@@ -201,6 +214,8 @@ export function linkAttachSockets({
     upgrade,
     get open() { return open; },
     close() {
+      closed = true;
+      for (const socket of pending) socket.destroy();
       for (const ws of wss.clients) ws.terminate();
     },
   };

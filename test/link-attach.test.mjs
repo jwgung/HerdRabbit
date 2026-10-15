@@ -305,6 +305,27 @@ test("a handshake the socket library will not take gives its slot back", async (
   assert.equal((await upgrade(peer.base, ATTACH)).status, 101, "a good attach still gets the one slot");
 });
 
+test("an attach still being looked up when this PC stops spawns nothing", async (context) => {
+  const base = fakePeer();
+  let answer;
+  const slow = { ...base.client, terminalTarget: (paneId, timeoutMs) => new Promise((resolve, reject) => {
+    answer = () => base.client.terminalTarget(paneId, timeoutMs).then(resolve, reject);
+  }) };
+  const peer = await startPeer(context, { client: slow });
+  const asked = upgrade(peer.base, ATTACH).catch(() => ({ status: null }));
+  await until(() => answer, "the look-up to start");
+  peer.attach.close();
+  answer();
+  const result = await asked;
+  assert.notEqual(result.status, 101, "upgraded after close()");
+  assert.equal(peer.spawns.length, 0);
+  assert.equal(peer.attach.open, 0);
+  // and nothing new is taken once stopped
+  const late = await upgrade(peer.base, ATTACH).catch(() => ({ status: null }));
+  assert.notEqual(late.status, 101);
+  assert.equal(peer.spawns.length, 0);
+});
+
 test("a refused or unreachable attach ends the hub's pty without output", async (context) => {
   const peer = await startPeer(context, { allowed: ["100.64.0.9"] });
   const seen = { data: "", exit: undefined };
