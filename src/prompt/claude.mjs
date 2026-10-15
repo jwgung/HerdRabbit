@@ -365,7 +365,10 @@ function promptTailIsActive(prompt, screen) {
       const cancel = shown.findLastIndex((line) => CLAUDE_SUBMIT_CANCEL_RE.test(line));
       if (cancel < 0) return false;
       const after = shown.slice(cancel + 1);
-      return after.length === 0 || (/esc to cancel/i.test(after.join(" ")) && hintEnds(shown, /esc to cancel/i));
+      // Everything under it must be that one hint, from its "Enter to select":
+      // another prompt's "Esc to cancel" (a trust check, a later menu) is not the review's.
+      return after.length === 0 ||
+        (after.length <= 3 && /^enter to select\b/i.test(after[0]) && CLAUDE_ASK_HINT_RE.test(after.join(" ")));
     }
     // "Esc to cancel", maybe with Claude's own suffixes; anything else after it is not the approval's
     case "claude-approval": return ends(/esc to cancel.*(?:tab|ctrl\+e)|ctrl\+e to explain|^esc to cancel(?:\s*·\s*ctrl\+x ctrl\+k twice to stop background agents)?$/i);

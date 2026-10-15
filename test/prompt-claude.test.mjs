@@ -251,6 +251,22 @@ Ready to submit your answers?
   2. Cancel
 ⏺ Answers submitted, carrying on
 `), null);
+  // nor when a later prompt ends the screen with its own "Esc to cancel"
+  const finished = `
+←  ☒ Route  ✔ Submit  →
+Review your answers
+Ready to submit your answers?
+❯ 1. Submit answers
+  2. Cancel
+`;
+  assert.notEqual(parseClaudePrompt(`${finished}⏺ later output\nEsc to cancel\n`)?.responder, "claude-submit");
+  const trust = parseClaudePrompt(`${finished}⏺ Answers submitted
+Do you trust the files in this folder?
+❯ 1. Yes, proceed
+  2. No, exit
+Enter to confirm · Esc to cancel
+`);
+  assert.notEqual(trust?.title, "Review your answers", "a finished review came back over a trust prompt");
 });
 
 test("a multiple choice ticked in the terminal unticks only what is not wanted", () => {
