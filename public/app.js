@@ -480,15 +480,8 @@ const atFiles = createAtFilesPopup({
     if (typeof cwd !== "string" || !cwd.startsWith("/")) return null;
     return { server: paneServerId(paneId) || "local", cwd };
   },
-  fetchListing: async (server, path, prefix) => {
-    const parts = [`server=${encodeURIComponent(server)}`, `path=${encodeURIComponent(path)}`];
-    if (prefix !== "") parts.push(`prefix=${encodeURIComponent(prefix)}`);
-    const response = await fetch(`/api/browse?${parts.join("&")}`, {
-      headers: transferHeaders(), credentials: "same-origin",
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
-  },
+  // The Files tab's own request, for the pane's machine instead of the tab's.
+  fetchListing: (server, path, prefix) => fetchListing(path, { prefix, server }),
 });
 
 // Dragging in the sidebar: what was dropped shows where it landed at once,
@@ -5101,8 +5094,8 @@ function renderBrowseTree() {
   appendBrowseRows(elements.browseTree, rows);
 }
 
-async function fetchListing(target, { prefix = "" } = {}) {
-  const parts = [`server=${encodeURIComponent(browseState.server)}`];
+async function fetchListing(target, { prefix = "", server = browseState.server } = {}) {
+  const parts = [`server=${encodeURIComponent(server)}`];
   // A remote listing with no path starts at that server's home.
   if (target) parts.push(`path=${encodeURIComponent(target)}`);
   if (prefix !== "") parts.push(`prefix=${encodeURIComponent(prefix)}`);

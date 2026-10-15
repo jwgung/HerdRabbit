@@ -220,6 +220,7 @@ export function createAtFilesPopup({ input, listElement, context, fetchListing, 
     // The caret moved on, or the list was closed, while this was asked.
     if (generation !== state.generation) return;
     state.token = token;
+    state.where = { server: where.server, cwd: where.cwd };
     state.matches = matchingEntries(entries, token.prefix);
     state.active = 0;
     render();
@@ -253,7 +254,10 @@ export function createAtFilesPopup({ input, listElement, context, fetchListing, 
     // Typed on, or moved, since this list was drawn: it belongs to another
     // reference. Nothing is put in; the list catches up instead.
     const now = parseAtQuery(input.value, input.selectionStart, input.selectionEnd);
-    if (!now || now.start !== token.start || now.end !== token.end || now.query !== token.query || now.quoted !== token.quoted) {
+    // The pane's folder changed (a `cd`) since: the names are another folder's.
+    const where = context();
+    const moved = !where || where.server !== state.where?.server || where.cwd !== state.where?.cwd;
+    if (moved || !now || now.start !== token.start || now.end !== token.end || now.query !== token.query || now.quoted !== token.quoted) {
       update({ now: true });
       return;
     }

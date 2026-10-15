@@ -34,12 +34,14 @@ const protectedPaths = localProtectedPaths({ env: { HOME: home }, home, data: de
 
 const herdr = {
   sent: [],
+  // where the project pane's shell is now; a `cd` moves it
+  foreground: null,
   async snapshot() {
     return {
       workspaces: [{ workspace_id: "w1", label: "Platform" }],
       tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "Shells" }],
       panes: [
-        { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Project", cwd: root, foreground_cwd: project },
+        { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Project", cwd: root, foreground_cwd: herdr.foreground ?? project },
         { pane_id: "w1:p2", tab_id: "w1:t1", workspace_id: "w1", label: "Nowhere" },
         // a pane on another PC, at the same folder path as this one's
         { pane_id: "link_lab!w1:p1", tab_id: "link_lab!w1:t1", workspace_id: "link_lab!w1", label: "Lab", cwd: root, foreground_cwd: project, server_id: "link_lab" },
@@ -143,6 +145,20 @@ try {
     await page.keyboard.press("Enter");
     assert.equal(await input.inputValue(), "@px", "a stale list completed a reference typed on since");
     assert.deepEqual(herdr.sent, [], "Enter on a stale list sent the draft");
+
+    // the pane's shell moved to another folder while the list was open: Enter
+    // puts in nothing from the folder it left
+    if (!mobile) {
+      await reset();
+      await page.keyboard.type("@R");
+      await shown(["README.md"]);
+      herdr.foreground = join(project, "src");
+      await page.waitForTimeout(2_600);
+      await page.keyboard.press("Enter");
+      assert.equal(await input.inputValue(), "@R", "a name from the folder the pane left went in");
+      herdr.foreground = null;
+      await page.waitForTimeout(2_600);
+    }
 
     // a folder is entered and its contents offered at once; ArrowUp wraps to the last
     await reset();
