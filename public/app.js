@@ -1850,7 +1850,6 @@ function linkDetailRows(server) {
         : "Closed"],
     ];
   }
-  if (server.transport !== "link") return [];
   const protocol = server.link_protocol == null ? "Unknown" : String(server.link_protocol);
   const differs = here?.link_protocol != null && server.link_protocol != null && here.link_protocol !== server.link_protocol;
   return [
@@ -1874,7 +1873,7 @@ function showServerDetails(server) {
   // A machine is shown by the name Tailscale knows it by, not by an address.
   const rows = [
     ...(server.machine ? [["Machine", server.machine]] : []),
-    ["Kind", SERVER_KINDS[server.transport] ?? SERVER_KINDS.link],
+    ["Kind", server.id === "local" ? SERVER_KINDS.local : SERVER_KINDS.link],
     ["HerdRabbit", herdRabbitVersionText(server)],
     ...linkDetailRows(server),
     ["Herdr", herdrVersionText(server)],
@@ -2495,7 +2494,7 @@ function serverActionMenu(server) {
       paths: ["M12 8h.01", "M11 12h1v4h1", "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"],
       onSelect: () => showServerDetails(server),
     },
-    // A connected PC switches its own accounts.
+    // This PC's accounts, or a connected PC's, switched on that PC.
     {
       label: "AI accounts",
       paths: ["M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M4 20a8 8 0 0 1 16 0"],
