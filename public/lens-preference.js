@@ -101,7 +101,7 @@ const UNAVAILABLE_TEXT = {
   not_supported_agent: "Chat is only for Claude Code and Codex panes.",
   no_session_id: "Chat appears once the agent reports its session.",
   server_unavailable: "Chat is unavailable: the machine is not connected.",
-  linked_pc: "Chat is not available yet for a PC connected with Connect PC.",
+  linked_pc_old: "Chat needs a newer HerdRabbit on that PC: update it there.",
   transcript_missing: "Chat is unavailable: the agent's conversation file was not found.",
 };
 
@@ -111,5 +111,5 @@ export function chatUnavailableText(reason) {
 
 // Reasons that may change while the pane stays: worth asking again later.
 export function chatMayBecomeAvailable(reason) {
-  return reason !== "not_claude" && reason !== "not_supported_agent" && reason !== "linked_pc";
+  return reason !== "not_claude" && reason !== "not_supported_agent";
 }

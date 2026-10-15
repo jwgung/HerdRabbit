@@ -198,6 +198,18 @@ export class MultiServerClient {
     return entry ? entry.profile.transport ?? "link" : null;
   }
 
+  // A pane of a PC connected with Connect PC: { serverId, id, client }, where
+  // `id` is the pane's id on that PC and `client` the link that asks it. That
+  // PC reads its panes' conversations itself; null for any other pane.
+  linkedPane(paneId) {
+    if (typeof paneId !== "string" || !paneId.includes("!")) return null;
+    let found;
+    try { found = this.target(paneId); } catch { return null; }
+    const { entry, id } = found;
+    if (entry.profile.id === "local" || isMachine(entry.profile)) return null;
+    return { serverId: entry.profile.id, id, client: entry.client };
+  }
+
   // Connect PC's "Test connection": one snapshot through a client of its own.
   async testProfile(profile) {
     const client = this.remoteFactory(profile);

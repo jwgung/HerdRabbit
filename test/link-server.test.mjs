@@ -45,6 +45,8 @@ test("announces what it is and what it will report", async (context) => {
     scope: "local",
     server_name: "dev-box",
     herdr_version: null,
+    // without this PC's conversations, it offers no chat
+    features: [],
   });
 });
 

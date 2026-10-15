@@ -13,7 +13,9 @@ import { PasswordAttemptsByKey, PasswordAuth } from "./password-auth.mjs";
 import { browserLabel, passkeyLabel } from "./passkey-auth.mjs";
 import { OutputRevisions } from "./output-revisions.mjs";
 import { attachTerminalWebSocket } from "./terminal-websocket.mjs";
-import { HttpError, acceptUpload, aiAccountRoute, decodePaneId, readJsonBody, sendJson } from "./http-basics.mjs";
+import {
+  HttpError, acceptUpload, aiAccountRoute, conversationCursor, decodePaneId, readJsonBody, requestedVersions, sendJson,
+} from "./http-basics.mjs";
 import {
   PEER_ADDRESS_HEADER, PEER_LOGIN_HEADER,
   isLoopbackSocket, nearestForwardedAddress, normalizeLogin, socketAddress,
@@ -509,23 +511,6 @@ async function serveStatic(response, pathname, method) {
   response.setHeader("Content-Length", body.length);
   response.end(method === "HEAD" ? undefined : body);
   return true;
-}
-
-// A conversation cursor from the query: absent or empty is none; the page
-// read refuses one that does not name a place in the transcript.
-function conversationCursor(value) {
-  if (value === null || value === "") return undefined;
-  if (value.length > 200) throw new HttpError(400, "invalid_cursor", "That conversation cursor is not valid.");
-  return value;
-}
-
-// The versions an If-None-Match header names, without quotes or W/. `*`
-// (RFC 9110) matches any current representation: the page read answers 304
-// for it once the conversation exists.
-function requestedVersions(header) {
-  if (typeof header !== "string" || header.length > 1024) return [];
-  if (header.trim() === "*") return ["*"];
-  return header.split(",").map((tag) => tag.trim().replace(/^W\//u, "").replace(/^"(.*)"$/u, "$1")).filter(Boolean);
 }
 
 export function createHerdrHttpServer({

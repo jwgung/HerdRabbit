@@ -1,7 +1,8 @@
 // Tells watchers when a pane's transcript (Claude's or Codex's) changed, without reading it:
 // a stat (identity, size, time) of the file every 250 ms on this machine and
-// every 1.5 s on a Herdr machine (one SSH command each), only while someone
-// watches the pane. The pane is looked up again every few seconds, so a new
+// every 1.5 s on a Herdr machine (one SSH command each) or a PC connected with
+// Connect PC (one change signature asked of it), only while someone watches
+// the pane. The pane is looked up again every few seconds, so a new
 // session (a new file) is noticed too. No timer runs while nobody watches.
 //
 // Ported from herdr-web-ui (MIT, Copyright (c) 2026 devswha),

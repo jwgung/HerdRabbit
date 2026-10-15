@@ -6,6 +6,7 @@ import { LINK_PROTOCOL, ResponseTooLarge, checkLeafCompatibility, normalizeLeafS
 import { AiAccountError } from "./ai-accounts.mjs";
 import { subscribeLeafStatuses } from "./leaf-status-stream.mjs";
 import { openRemotePty } from "./link-attach.mjs";
+import { ConversationError, ConversationUnavailable, HistoryChanged, TOOL_ID } from "./conversation/pages.mjs";
 
 // fileIdle: how long a file being passed on may go quiet before it fails
 const TIMEOUTS = { hello: 5_000, snapshot: 8_000, read: 6_000, write: 6_000, fileIdle: 60_000 };
@@ -27,6 +28,37 @@ function tooOld(address, what) {
 const FIND_CODES = new Set(["stale_content", "pane_not_found", "invalid_herdr_response", "herdr_timeout", "not_found"]);
 const TERMINAL_CODES = new Set(["pane_not_found", "pane_not_restored", "no_terminal", "attach_unsupported", "not_found"]);
 const gridSize = (value) => validSize(value) ? value : undefined;
+
+// What a connected PC answers about one pane's conversation and this hub
+// passes on as it is: why there is none, a cursor from another transcript,
+// a malformed cursor or tool id, a tool call without output.
+const CONVERSATION_CODES = new Set(["invalid_cursor", "invalid_tool_id", "tool_output_not_found", "invalid_path"]);
+const REASON = /^[a-z_]{1,64}$/u;
+// A page's version (its ETag) and a change signature: short base64url hashes.
+const VERSION = /^[A-Za-z0-9_-]{1,128}$/u;
+const MAX_VERSIONS = 16;
+
+// The If-None-Match a connected PC is sent for the versions a browser named.
+function ifNoneMatchHeader(versions) {
+  if (versions === "*" || (Array.isArray(versions) && versions.includes("*"))) return "*";
+  const list = (Array.isArray(versions) ? versions : [versions])
+    .filter((version) => typeof version === "string" && VERSION.test(version)).slice(0, MAX_VERSIONS);
+  return list.length > 0 ? list.map((version) => `"${version}"`).join(", ") : null;
+}
+
+// What a connected PC said about a pane's conversation, as the error this
+// hub's own conversation service would have thrown; null for anything else.
+function conversationRefusal(status, error) {
+  if (error?.code === "conversation_unavailable") {
+    const reason = error.details?.reason;
+    return new ConversationUnavailable(typeof reason === "string" && REASON.test(reason) ? reason : "unknown");
+  }
+  if (error?.code === "history_changed") return new HistoryChanged();
+  if (CONVERSATION_CODES.has(error?.code) && status >= 400 && status < 500) {
+    return new ConversationError(status, error.code, readable(error.message) || "The connected PC refused that.");
+  }
+  return null;
+}
 
 const MAX_ID_LENGTH = 512;
 const movedId = (value) => typeof value === "string" && value !== "" && value.length <= MAX_ID_LENGTH && !value.includes("!");
@@ -139,6 +171,8 @@ function leafFile(response, path, maxBytes = Infinity, idleMs = TIMEOUTS.fileIdl
 // not a promise, so nothing here touches the network until it is called.
 export class LeafLinkClient {
   #handshake = null;
+  // What the PC said it answers beyond the base protocol (its hello's features).
+  #features = new Set();
   // What the other PC last said it runs, kept when it could not be connected
   // too, so Details can show both sides' versions.
   #remote = null;
@@ -187,7 +221,8 @@ export class LeafLinkClient {
       done();
       throw transportError(error, this.address);
     }
-    if (response.status >= 300 && response.status < 400) {
+    // 304 is the one 3xx that is an answer: an unchanged conversation page.
+    if (response.status >= 300 && response.status < 400 && response.status !== 304) {
       await response.body?.cancel().catch(() => {});
       done();
       throw linkError("leaf_error", `HerdRabbit at ${this.address} answered with a redirect, which this hub does not follow.`);
@@ -279,6 +314,8 @@ export class LeafLinkClient {
       throw linkError(result.code, result.reason);
     }
     this.#handshake = result;
+    this.#features = new Set((Array.isArray(hello?.features) ? hello.features : [])
+      .filter((feature) => typeof feature === "string" && /^[a-z_]{1,32}$/u.test(feature)).slice(0, 32));
   }
 
   async snapshot() {
@@ -289,8 +326,12 @@ export class LeafLinkClient {
     return normalizeLeafSnapshot(body.snapshot);
   }
 
-  async readPane(paneId, { lines = 160, format = "ansi" } = {}) {
+  // `source` reaches the PC too, so a prompt card there reads the region
+  // herdr reads agent states from, as it would here; a PC from before this
+  // ignores it.
+  async readPane(paneId, { lines = 160, format = "ansi", source } = {}) {
     const query = new URLSearchParams({ lines: String(lines), format });
+    if (source !== undefined) query.set("source", source);
     const body = await this.#request(`/api/link/panes/${encodeURIComponent(paneId)}/output?${query}`);
     return typeof body.output === "string" ? body.output : "";
   }
@@ -360,6 +401,98 @@ export class LeafLinkClient {
       // A PC from before find went over the link has no such route.
       if (error.code === "not_found") throw tooOld(this.address, "searching its terminals");
       throw error;
+    }
+  }
+
+  // Conversations. The connected PC reads its own transcripts (it has the
+  // files, and for Codex the processes and screen that tell which is the
+  // pane's); this hub only relays. What it says about a pane comes back as the
+  // error this hub's own service would throw; a PC from before this has no
+  // such routes and reads as one to update.
+  async #conversation(path, { headers = {} } = {}) {
+    await this.#ready();
+    // Asked only of a PC that said it answers it, not guessed from a 404.
+    if (!this.#features.has("conversation")) throw new ConversationUnavailable("linked_pc_old");
+    const call = await this.#open(path, { headers, timeoutMs: this.timeouts.read });
+    const { response } = call;
+    const etag = response.headers.get("etag");
+    if (response.status === 304) {
+      await response.body?.cancel().catch(() => {});
+      call.done();
+      return { notModified: true, etag, body: null };
+    }
+    const text = await this.#readBody(call, response.ok ? MAX_RESPONSE_BYTES : MAX_ERROR_BYTES);
+    let payload = null;
+    try { payload = JSON.parse(text); } catch { /* handled below */ }
+    if (!response.ok) {
+      const refusal = conversationRefusal(response.status, payload?.error);
+      if (refusal) throw refusal;
+      if (response.status === 401 || response.status === 403) {
+        throw linkError("leaf_unauthorized", `HerdRabbit at ${this.address} does not allow this PC. Add this PC to its allowed list there.`);
+      }
+      throw linkError("leaf_error", readable(payload?.error?.message) || `HerdRabbit at ${this.address} returned ${response.status}.`);
+    }
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+      throw linkError("leaf_error", `HerdRabbit at ${this.address} sent an answer this hub cannot read.`);
+    }
+    return { notModified: false, etag, body: payload };
+  }
+
+  #unreadable() {
+    return linkError("leaf_error", `HerdRabbit at ${this.address} sent an answer this hub cannot read.`);
+  }
+
+  // A page of turns, as this hub's own page read answers one: the page with
+  // its version, or { notModified, version } for versions the browser holds.
+  async conversationPage(paneId, { before, since, ifNoneMatch } = {}) {
+    const query = new URLSearchParams();
+    if (before !== undefined) query.set("before", before);
+    if (since !== undefined) query.set("since", since);
+    const tags = ifNoneMatchHeader(ifNoneMatch);
+    const answer = await this.#conversation(
+      `/api/link/panes/${encodeURIComponent(paneId)}/conversation${query.size > 0 ? `?${query}` : ""}`,
+      { headers: tags ? { "if-none-match": tags } : {} },
+    );
+    if (answer.notModified) {
+      const version = /^"(.*)"$/u.exec(answer.etag ?? "")?.[1];
+      if (!VERSION.test(version ?? "")) throw this.#unreadable();
+      return { notModified: true, version };
+    }
+    const page = answer.body;
+    if (typeof page.version !== "string" || !VERSION.test(page.version) || !Array.isArray(page.turns)) throw this.#unreadable();
+    return page;
+  }
+
+  async conversationToolOutput(paneId, toolId) {
+    if (typeof toolId !== "string" || !TOOL_ID.test(toolId)) {
+      throw new ConversationError(400, "invalid_tool_id", "That tool call id is not valid.");
+    }
+    const { body } = await this.#conversation(
+      `/api/link/panes/${encodeURIComponent(paneId)}/conversation/tools/${encodeURIComponent(toolId)}`,
+    );
+    if (typeof body.output !== "string" || !Number.isSafeInteger(body.output_size)) throw this.#unreadable();
+    return { id: toolId, output: body.output, output_size: body.output_size, truncated: body.truncated === true };
+  }
+
+  // A value that changes whenever the pane's conversation does: what this
+  // hub's monitor polls instead of a file's stat.
+  async conversationSignature(paneId) {
+    const { body } = await this.#conversation(`/api/link/panes/${encodeURIComponent(paneId)}/conversation/signature`);
+    if (typeof body.signature !== "string" || !VERSION.test(body.signature)) throw this.#unreadable();
+    return body.signature;
+  }
+
+  // The plan or question the pane's Claude waits on, { name, input } or null:
+  // the whole words a prompt card shows. Anything that fails is none.
+  async conversationPendingAsk(paneId) {
+    try {
+      const { body } = await this.#conversation(`/api/link/panes/${encodeURIComponent(paneId)}/pending-ask`);
+      const ask = body.ask;
+      if (!ask || typeof ask !== "object" || typeof ask.name !== "string" || ask.name.length > 64 ||
+          !ask.input || typeof ask.input !== "object" || Array.isArray(ask.input)) return null;
+      return { name: ask.name, input: ask.input };
+    } catch {
+      return null;
     }
   }
 

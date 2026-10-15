@@ -1,7 +1,10 @@
 // A pane's conversation, from the pane id the browser knows: which agent it
 // runs (Claude Code or Codex, each with its own format), which server's store
 // holds it (this machine's files, or a Herdr machine's over SSH), which file,
-// and the page or tool output asked for.
+// and the page or tool output asked for. A PC connected with Connect PC reads
+// its own transcripts: its panes' pages, tool output, change signature and
+// pending plan or question are asked of it over its link, never read here.
+import { createHash, randomUUID } from "node:crypto";
 import { CLAUDE_TRANSCRIPT, SESSION_ID, locateClaudeTranscript, pendingClaudeAsk, readTail } from "./claude.mjs";
 import { CODEX_TRANSCRIPT, THREAD_ID, isCodexProcess, locateCodexRollout } from "./codex.mjs";
 import {
@@ -24,6 +27,9 @@ const MISSING_LOCATE_TTL_MS = 2_000;
 const MATCH_SCREEN_LINES = 400;
 
 const FORMATS = { claude: CLAUDE_TRANSCRIPT, codex: CODEX_TRANSCRIPT };
+
+// What a link's client must answer for its panes' conversations to be relayed.
+const LINK_CALLS = ["conversationPage", "conversationToolOutput", "conversationSignature", "conversationPendingAsk"];
 
 // The agent the snapshot names for the pane, lower case, or null.
 export function paneAgentName(pane) {
@@ -62,8 +68,76 @@ export class ConversationService {
     this.now = now;
     this.located = new Map();
     this.remoteStores = new Map();
+    // serverId -> { client, store }: what the monitor stats a connected PC's panes through
+    this.linkStores = new Map();
     // paneId -> { key, ask }: the asking tool call last read from that file version
     this.asks = new Map();
+    // Signatures handed out are hashed with this, so they say nothing of the file.
+    this.salt = randomUUID();
+  }
+
+  // A pane of a PC connected with Connect PC: { serverId, id, client }, the
+  // id being that PC's own; null for a pane this server reads itself.
+  #linked(paneId) {
+    const linked = this.herdr.linkedPane?.(paneId);
+    return linked && LINK_CALLS.every((name) => typeof linked.client?.[name] === "function") ? linked : null;
+  }
+
+  // A connected PC that cannot be reached has no conversation to show here,
+  // as a Herdr machine that is not connected has none; what it said itself
+  // about a pane (ConversationError) is passed on as it is.
+  async #relay(work) {
+    try {
+      return await work();
+    } catch (error) {
+      if (error instanceof ConversationError) throw error;
+      throw new ConversationUnavailable("server_unavailable");
+    }
+  }
+
+  // The store the monitor stats a connected PC's pane through: each "stat" is
+  // one signature asked of that PC, which changes whenever its own monitor
+  // would have said so. One per PC, so the monitor sees the same store again.
+  #linkStore(linked) {
+    const known = this.linkStores.get(linked.serverId);
+    if (known?.client === linked.client) return known.store;
+    const store = {
+      key: `link:${linked.serverId}`,
+      remote: true,
+      stat: async (id) => {
+        try {
+          return { identity: await linked.client.conversationSignature(id), size: 0, mtimeMs: 0 };
+        } catch (error) {
+          // what the PC said about the pane is a state of its own to report
+          if (error instanceof ConversationUnavailable) return { identity: `unavailable:${error.reason}`, size: 0, mtimeMs: 0 };
+          throw error;
+        }
+      },
+    };
+    this.linkStores.set(linked.serverId, { client: linked.client, store });
+    return store;
+  }
+
+  // A short value that changes whenever the pane's conversation does (the
+  // file, its size or time, the session, why it cannot be read), and says
+  // nothing else: what a hub's monitor polls for this PC's pane.
+  async signature(paneId) {
+    let observed;
+    try {
+      const target = await this.resolve(paneId);
+      if (target.path === null) observed = `unwritten\0${target.serverId}\0${target.session}`;
+      else {
+        const stat = await target.store.stat(target.path);
+        if (!stat) this.forget(target);
+        observed = stat
+          ? `file\0${target.serverId}\0${target.path}\0${stat.identity}\0${stat.size}\0${stat.mtimeMs}`
+          : `missing\0${target.serverId}\0${target.path}`;
+      }
+    } catch (error) {
+      if (!(error instanceof ConversationUnavailable)) throw error;
+      observed = `unavailable\0${error.reason}`;
+    }
+    return createHash("sha256").update(`${this.salt}\0${paneId}\0${observed}`).digest("base64url").slice(0, 22);
   }
 
   // The plan or question a Claude pane's agent waits on, from its transcript's
@@ -73,6 +147,8 @@ export class ConversationService {
   // panes asks herdr once.
   async pendingAsk(paneId, snapshot = null) {
     try {
+      const linked = this.#linked(paneId);
+      if (linked) return await linked.client.conversationPendingAsk(linked.id);
       const found = await this.resolve(paneId, snapshot);
       if (found.agent !== "claude" || !found.path) return null;
       const stat = await found.store.stat(found.path);
@@ -99,10 +175,9 @@ export class ConversationService {
     return store;
   }
 
-  // A PC connected with Connect PC has no transcript store over its link yet;
-  // anything else without one is a machine that is not connected.
-  #noStore(serverId) {
-    return new ConversationUnavailable(this.herdr.serverTransport?.(serverId) === "link" ? "linked_pc" : "server_unavailable");
+  // A server without a store is a machine that is not connected.
+  #noStore() {
+    return new ConversationUnavailable("server_unavailable");
   }
 
   // The pane's transcript: { paneId, serverId, agent, format, store, session,
@@ -110,6 +185,11 @@ export class ConversationService {
   // ConversationUnavailable. `given` is a snapshot already in hand.
   async resolve(paneId, given = null) {
     if (typeof paneId !== "string" || !paneId || paneId.length > 512) throw new ConversationUnavailable("pane_not_found");
+    // A connected PC's pane is the PC's to look up; the monitor stats it through its link.
+    const linked = this.#linked(paneId);
+    if (linked) {
+      return { paneId, serverId: linked.serverId, agent: null, format: null, store: this.#linkStore(linked), session: "", path: linked.id, key: null, linked };
+    }
     const snapshot = given ?? await this.herdr.snapshot();
     const pane = (snapshot?.panes ?? []).find((candidate) => candidate?.pane_id === paneId);
     if (!pane) throw new ConversationUnavailable("pane_not_found");
@@ -126,7 +206,7 @@ export class ConversationService {
       const session = own && (own.kind === undefined || own.kind === "id") ? own.value : null;
       if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
       const store = this.#store(serverId);
-      if (!store) throw this.#noStore(serverId);
+      if (!store) throw this.#noStore();
       const found = await this.#located(`claude\0${serverId}\0${session}\0${cwds.join("\0")}`,
         () => locateClaudeTranscript(store, session, cwds));
       return { paneId, serverId, agent, format, store, session, path: found.value, key: found.key };
@@ -136,7 +216,7 @@ export class ConversationService {
 
   async #resolveCodex(paneId, { serverId, agent, format, own, cwds }) {
     const store = this.#store(serverId);
-    if (!store) throw this.#noStore(serverId);
+    if (!store) throw this.#noStore();
     const session = own && typeof own.value === "string" && own.value.length <= 4096
       ? { kind: own.kind, value: own.value } : null;
     const thread = session && (session.kind === undefined || session.kind === "id") && THREAD_ID.test(session.value) ? session.value : null;
@@ -192,6 +272,8 @@ export class ConversationService {
   }
 
   async page(paneId, { before, since, ifNoneMatch } = {}) {
+    const linked = typeof paneId === "string" && paneId.length <= 512 ? this.#linked(paneId) : null;
+    if (linked) return this.#relay(() => linked.client.conversationPage(linked.id, { before, since, ifNoneMatch }));
     const target = await this.resolve(paneId);
     if (target.path === null) {
       // the agent writes the file with its first message: until then there is
@@ -217,6 +299,8 @@ export class ConversationService {
     if (typeof toolId !== "string" || !TOOL_ID.test(toolId)) {
       throw new ConversationError(400, "invalid_tool_id", "That tool call id is not valid.");
     }
+    const linked = typeof paneId === "string" && paneId.length <= 512 ? this.#linked(paneId) : null;
+    if (linked) return this.#relay(() => linked.client.conversationToolOutput(linked.id, toolId));
     const target = await this.resolve(paneId);
     if (target.path === null) throw new ConversationError(404, "tool_output_not_found", "That tool call has no output.");
     let found;
