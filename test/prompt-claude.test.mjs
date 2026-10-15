@@ -27,6 +27,16 @@ test("reads an approval: Yes / Yes, and don't ask again / No, with the command a
   assert.throws(() => answerSteps(parsed, { text: "maybe" }), /typed answer/);
 });
 
+test("Claude Code's session-named rule under a prompt is frame, not later output", () => {
+  const rule = `${"─".repeat(40)} my-session ─`;
+  const approval = parseClaudePrompt(`${approvalScreen()}\n${rule}\n`);
+  assert.equal(approval?.kind, "approval");
+  assert.deepEqual(labels(approval), ["Yes", "Yes, and don't ask again for: npm test", "No"]);
+  assert.equal(parseClaudePrompt(`${questionScreen()}\n${rule}\n`)?.kind, "question");
+  // but real output after it still ends the prompt
+  assert.equal(parseClaudePrompt(`${approvalScreen()}\n${rule}\n⏺ Ran npm test\n`), null);
+});
+
 test("the card id stays while the cursor moves and changes with the command", () => {
   const first = parseClaudePrompt(approvalScreen()).id;
   assert.equal(parseClaudePrompt(approvalScreen()).id, first);
@@ -251,6 +261,23 @@ Ready to submit your answers?
   2. Cancel
 ⏺ Answers submitted, carrying on
 `), null);
+  // as Claude Code 2.1.300 draws it: the box's rule, named after the session, under Cancel
+  const framed = parseClaudePrompt(`
+←  ☒ First  ☒ Second  ✔ Submit  →
+
+Review your answers
+
+ ● Pick one?
+   → A
+
+Ready to submit your answers?
+
+❯ 1. Submit answers
+  2. Cancel
+${"─".repeat(40)} my-session ─
+`);
+  assert.equal(framed?.title, "Review your answers");
+  assert.deepEqual(labels(framed), ["Submit answers", "Cancel"]);
   // nor when a later prompt ends the screen with its own "Esc to cancel"
   const finished = `
 ←  ☒ Route  ✔ Submit  →
