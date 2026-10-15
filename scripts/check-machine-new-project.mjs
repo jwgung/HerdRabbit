@@ -81,6 +81,8 @@ const centreOffset = (page, selector) => page.locator(selector).evaluate((button
     background: getComputedStyle(button).backgroundColor,
     border: getComputedStyle(button).borderColor,
     radius: getComputedStyle(button).borderRadius,
+    // How much of the button the drawing fills, not just the box it sits in.
+    glyph: button.querySelector("svg").getBBox().width,
     width: outer.width,
     height: outer.height,
   };
@@ -108,6 +110,7 @@ try {
     for (const key of ["background", "border", "radius", "width", "height"]) {
       assert.equal(settings[key], uploads[key], `footer buttons differ in ${key}`);
     }
+    assert.ok(Math.abs(settings.glyph - uploads.glyph) <= 2, `footer icons differ in size: ${uploads.glyph} vs ${settings.glyph}`);
     if (shots) await page.locator(".navigator-footer").screenshot({ path: join(shots, `footer-${mobile ? "phone" : "desktop"}.png`) });
 
     // Without SSH machines the + menu still offers New project, and not Add SSH machine.
