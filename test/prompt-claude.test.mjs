@@ -38,6 +38,7 @@ test("Claude Code's session-named rule under a prompt is frame, not later output
   // the frame is only Claude's own shape, as the screen's last line: a titled
   // line of output above real output is not taken for it
   assert.equal(parseClaudePrompt(`${approvalScreen()}\n${rule}\n⏺ Ran npm test\n${rule}\n`), null);
+
 });
 
 test("the card id stays while the cursor moves and changes with the command", () => {

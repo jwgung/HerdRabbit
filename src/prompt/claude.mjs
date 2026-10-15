@@ -39,9 +39,6 @@ import { indexAtColumn, stringWidth } from "./text-width.mjs";
 const CLAUDE_ASK_HINT_RE = /enter to select.*(?:↑\/↓|tab\/arrow keys) to navigate.*esc to cancel/i;
 // question tabs, whole (`←  ☒ Route  ☐ Author  ✔ Submit  →`) or cut off by a narrow pane
 const CLAUDE_TABS_RE = /^←\s+[☐☒☑✔]/;
-// the rule under Claude Code's input box, the session's name near its right
-// end: "────── my-session ─" (one dash after the name, as Claude draws it)
-const CLAUDE_TITLED_RULE_RE = /^─{3,} \S(?:.*\S)? ─$/u;
 // the review step's last row: "2. Cancel", maybe the selected one
 const CLAUDE_SUBMIT_CANCEL_RE = /^(?:[›>❯]\s*)?\d+\.\s+Cancel$/i;
 // Claude Code's unnumbered menus (the folder-trust check on a new folder, among others)
@@ -351,17 +348,16 @@ function withoutClaudeTasks(shown) {
     if (list && rows > 0 && rows <= total) end = head;
   }
   if (LABELED_RULE_RE.test(shown[end - 1] ?? "")) end -= 1;
-  return end < shown.length && CLAUDE_HINT_TAIL_RE.test(shown[end - 1] ?? "") ? shown.slice(0, end) : shown;
+  // the rule (Claude's input-box frame, named after the session) closes a
+  // prompt: one ending in its key hint, or the answers' review ending in Cancel
+  const closes = (line) => CLAUDE_HINT_TAIL_RE.test(line) || CLAUDE_SUBMIT_CANCEL_RE.test(line);
+  return end < shown.length && closes(shown[end - 1] ?? "") ? shown.slice(0, end) : shown;
 }
 
 // Whether the prompt still owns the end of the screen: an answered menu
 // above later output is no card.
 function promptTailIsActive(prompt, screen) {
   const visible = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine).filter((line) => line && !isDivider(line));
-  // Claude Code closes its input box with a rule that names the session
-  // ("──── my-session ─"): as the screen's last line it is frame, not output
-  // after the prompt. Anywhere else, or shaped otherwise, it counts.
-  if (CLAUDE_TITLED_RULE_RE.test(visible.at(-1) ?? "")) visible.pop();
   const shown = withoutClaudeTasks(visible);
   const ends = (re) => hintEnds(shown, re);
   switch (prompt.responder) {
