@@ -83,6 +83,9 @@ test("a Claude pane is known from the snapshot, and an unavailable chat says why
   }
   assert.equal(chatMayBecomeAvailable("no_session_id"), true);
   assert.equal(chatMayBecomeAvailable("not_claude"), false);
+  // a connected PC on an older HerdRabbit: update it there, and Chat comes once it is
+  assert.match(chatUnavailableText("linked_pc_old"), /update it there/u);
+  assert.equal(chatMayBecomeAvailable("linked_pc_old"), true);
 });
 
 test("a Codex pane has a chat too; other agents do not", () => {

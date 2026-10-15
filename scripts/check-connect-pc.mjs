@@ -4,15 +4,19 @@
 // shows Details (app version and connection protocol beside this PC's) and
 // disconnects. A PC on another protocol stays offline with both versions and
 // offers Find new address. A connected PC's pane attaches for real (the PC
-// runs the attach, a fake pty here, and this page types into it; no chat
-// yet) and its sessions still drag. Everything runs in this process: a
-// page, and a second HerdRabbit's Connect PC port on loopback, each with a
-// fake herdr. CONNECT_PC_SCREENSHOTS=<folder> keeps pictures.
+// runs the attach, a fake pty here, and this page types into it), its Claude
+// pane's Chat shows the conversation that PC read from its own transcript (a
+// temporary one here), and its sessions still drag. Everything runs in this
+// process: a page, and a second HerdRabbit's Connect PC port on loopback, each
+// with a fake herdr. CONNECT_PC_SCREENSHOTS=<folder> keeps pictures.
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { claudeProjectDir } from "../src/conversation/claude.mjs";
+import { ConversationService } from "../src/conversation/service.mjs";
+import { localTranscriptStore } from "../src/conversation/stores.mjs";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { linkAttachSockets, routedSpawner } from "../src/link-attach.mjs";
 import { leafLinkRoutes } from "../src/link-server.mjs";
@@ -26,6 +30,7 @@ const HUB_VERSION = "1.2.47";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const SESSION = "hs_ZGVmYXVsdA";
+const CLAUDE_SESSION = "0b7d5d2a-5c1e-4c55-9f0c-2b6f1f4a9c11";
 const id = (value) => `${SESSION}~${value}`;
 const scoped = { herdr_session_id: SESSION };
 
@@ -39,7 +44,7 @@ function machine(label, tabs) {
     tabs: tabs.map((tab, index) => ({ tab_id: id(`w1:t${index + 1}`), workspace_id: id("w1"), label: tab.label, ...scoped })),
     panes: tabs.map((tab, index) => ({
       pane_id: id(`w1:p${index + 1}`), tab_id: id(`w1:t${index + 1}`), workspace_id: id("w1"), cwd: "/work/desk", ...scoped,
-      ...(tab.agent ? { agent: tab.agent, agent_session: { agent: tab.agent, kind: "id", value: "0b7d5d2a-5c1e-4c55-9f0c-2b6f1f4a9c11" } } : {}),
+      ...(tab.agent ? { agent: tab.agent, agent_session: { agent: tab.agent, kind: "id", value: CLAUDE_SESSION } } : {}),
     })),
     agents: [],
   };
@@ -69,6 +74,16 @@ async function listen(server) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 
+// Each PC's Claude transcripts live in a folder of this check's own.
+const directory = await mkdtemp(join(tmpdir(), "herdrabbit-connect-pc-check-"));
+const deskClaude = join(directory, "desk-claude");
+const deskProject = join(deskClaude, "projects", claudeProjectDir("/work/desk"));
+await mkdir(deskProject, { recursive: true });
+await writeFile(join(deskProject, `${CLAUDE_SESSION}.jsonl`), [
+  { type: "user", message: { role: "user", content: "What runs on desk?" } },
+  { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Desk answered from its own transcript." }] } },
+].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+
 // The PC being connected to, on the same app protocol but another release.
 // Its attaches run on a fake pty that greets and keeps what is typed.
 const desk = machine("Desk work", [{ label: "Agent", agent: "claude" }, { label: "Logs" }]);
@@ -85,7 +100,13 @@ const deskAttach = linkAttachSockets({
 });
 const deskServer = createPeerServer({
   peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
-  link: leafLinkRoutes({ client: desk, attach: deskAttach, version: "9.9.9", serverName: "desk" }),
+  link: leafLinkRoutes({
+    client: desk, attach: deskAttach, version: "9.9.9", serverName: "desk",
+    // desk reads its own transcripts; this page only relays them
+    conversations: new ConversationService({
+      herdr: desk, localStore: localTranscriptStore({ configDir: deskClaude, codexHome: join(directory, "desk-codex") }),
+    }),
+  }),
   attach: deskAttach,
   logger: { error() {} },
 });
@@ -109,7 +130,6 @@ const olderServer = createPeerServer({
 });
 const olderAddress = await listen(olderServer);
 
-const directory = await mkdtemp(join(tmpdir(), "herdrabbit-connect-pc-check-"));
 const profiles = await ServerProfiles.load(join(directory, "servers.json"));
 const laptop = machine("Laptop work", [{ label: "shell" }]);
 const herdr = new MultiServerClient({ local: laptop, profiles, hubVersion: HUB_VERSION, machineName: (profile) => profile.id === "local" ? "laptop" : null });
@@ -138,6 +158,9 @@ const discover = async (known) => ({
 });
 const { server } = createHerdrHttpServer({
   herdr, attachments, profiles, discover,
+  conversations: new ConversationService({
+    herdr, localStore: localTranscriptStore({ configDir: join(directory, "laptop-claude"), codexHome: join(directory, "laptop-codex") }),
+  }),
   connectPc: { address: "http://100.64.0.1:38788", allowed: 1 },
   logger: { info() {}, error() {} },
 });
@@ -215,7 +238,7 @@ try {
   assert.equal(deskInfo.Address, deskAddress);
 
   // Its pane is attached, not mirrored: desk's own attach draws it and typing
-  // reaches it. Chat says it is not there yet.
+  // reaches it.
   const deskPane = `${(await profiles.list())[0].id}!${id("w1:p1")}`;
   await page.locator(`.pane-button[data-pane-id="${deskPane}"]`).click();
   await page.waitForFunction(() => document.querySelector("#terminal-xterm .xterm-rows")?.textContent.includes("Desk work attached"));
@@ -225,9 +248,17 @@ try {
   await page.keyboard.type("pwd");
   for (let attempt = 0; attempt < 30 && !deskTyped.join("").includes("pwd"); attempt += 1) await page.waitForTimeout(100);
   assert.ok(deskTyped.join("").includes("pwd"), `typing reached desk: ${JSON.stringify(deskTyped)}`);
-  await page.waitForFunction(() => document.querySelector("#lens-chat")?.getAttribute("aria-disabled") === "true" &&
-    /Connect PC/u.test(document.querySelector("#lens-chat").title));
   if (shots) await page.screenshot({ path: join(shots, "connect-pc-attached.png") });
+
+  // Its Claude pane has a Chat like a pane here: desk read the turn from its
+  // own transcript, and this page shows it.
+  await page.waitForFunction(() => document.querySelector("#lens-chat")?.getAttribute("aria-disabled") === "false");
+  await page.locator("#lens-chat").click();
+  await page.waitForFunction((paneId) => document.querySelector(`.chat-pane[data-pane-id="${CSS.escape(paneId)}"]`)
+    ?.textContent.includes("Desk answered from its own transcript."), deskPane);
+  assert.ok(await page.locator(".chat-turn-user").filter({ hasText: "What runs on desk?" }).count() > 0);
+  if (shots) await page.screenshot({ path: join(shots, "connect-pc-chat.png") });
+  await page.locator("#lens-terminal").click();
 
   // Its sessions drag, and the move happens on desk.
   const second = await page.locator(`.tab-group:has(.pane-button[data-pane-id="${deskPane.replace("w1:p1", "w1:p2")}"])`).boundingBox();
@@ -267,7 +298,7 @@ try {
   if (shots) await page.screenshot({ path: join(shots, "connect-pc-sidebar.png") });
 
   assert.deepEqual(errors, []);
-  console.log("Connect PC (dialog, test and save, typed address, Details, attach, drag, rename, other protocol, disconnect): passed");
+  console.log("Connect PC (dialog, test and save, typed address, Details, attach, chat, drag, rename, other protocol, disconnect): passed");
 } finally {
   await browser.close();
   herdr.stopped = true;

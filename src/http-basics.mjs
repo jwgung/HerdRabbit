@@ -34,6 +34,24 @@ export function decodePaneId(value) {
   }
 }
 
+// A conversation cursor from the query (the page API and the Connect PC
+// port read it alike): absent or empty is none; the page
+// read refuses one that does not name a place in the transcript.
+export function conversationCursor(value) {
+  if (value === null || value === "") return undefined;
+  if (value.length > 200) throw new HttpError(400, "invalid_cursor", "That conversation cursor is not valid.");
+  return value;
+}
+
+// The versions an If-None-Match header names, without quotes or W/. `*`
+// (RFC 9110) matches any current representation: the page read answers 304
+// for it once the conversation exists.
+export function requestedVersions(header) {
+  if (typeof header !== "string" || header.length > 1024) return [];
+  if (header.trim() === "*") return ["*"];
+  return header.split(",").map((tag) => tag.trim().replace(/^W\//u, "").replace(/^"(.*)"$/u, "$1")).filter(Boolean);
+}
+
 export async function readJsonBody(request, maxBodyBytes) {
   const contentType = request.headers["content-type"] || "";
   if (!contentType.toLowerCase().startsWith("application/json")) {

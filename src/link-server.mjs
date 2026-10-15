@@ -1,6 +1,9 @@
 import { homedir } from "node:os";
 import { pipeline } from "node:stream/promises";
-import { HttpError, acceptUpload, aiAccountRoute, decodePaneId, readJsonBody, sendJson } from "./http-basics.mjs";
+import {
+  HttpError, acceptUpload, aiAccountRoute, conversationCursor, decodePaneId, readJsonBody, requestedVersions, sendJson,
+} from "./http-basics.mjs";
+import { ConversationUnavailable } from "./conversation/pages.mjs";
 import { validation } from "./herdr-client.mjs";
 import { LINK_PROTOCOL } from "./leaf-protocol.mjs";
 import { directoryFingerprint, fileAccessError, listDirectory, openFile } from "./file-browser.mjs";
@@ -64,8 +67,10 @@ async function sendFile(response, file) {
 // exactly as a person browsing this PC's own page is.
 // `attach` is linkAttachSockets (src/link-attach.mjs): it answers which
 // terminal a pane has before a hub attaches to it on the same port.
+// `conversations` is this PC's own ConversationService (the one its page
+// uses): a hub's Chat reads this PC's transcripts through it, here.
 export function leafLinkRoutes({
-  client, files = null, aiAccounts = null, attach = null, version, herdrVersion = () => null, serverName = "",
+  client, files = null, aiAccounts = null, attach = null, conversations = null, version, herdrVersion = () => null, serverName = "",
   maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024, protectedPaths = defaultProtectedPaths(),
   maxStatusStreams = MAX_STATUS_STREAMS,
 }) {
@@ -152,6 +157,40 @@ export function leafLinkRoutes({
     else write("event: ready\ndata: {}\n\n");
   }
 
+  // Pages, a tool's whole output, a change signature and the plan or question
+  // a Claude pane waits on. Only this PC's own panes: an id naming another
+  // server ("server!pane") is one this PC's page lists for a PC or machine
+  // it reaches itself, and a hub is not let through to those.
+  async function conversation(request, response, url, [, encodedPane, signature, encodedTool, pendingAsk]) {
+    if (!conversations) throw new HttpError(501, "conversations_unsupported", "This PC cannot read conversations.");
+    const paneId = decodePaneId(encodedPane);
+    if (paneId.includes("!")) throw new ConversationUnavailable("pane_not_found");
+    if (pendingAsk) {
+      sendJson(response, 200, { ask: await conversations.pendingAsk(paneId) });
+      return;
+    }
+    if (signature) {
+      sendJson(response, 200, { signature: await conversations.signature(paneId) });
+      return;
+    }
+    if (encodedTool !== undefined) {
+      sendJson(response, 200, await conversations.toolOutput(paneId, decodePaneId(encodedTool)));
+      return;
+    }
+    const answer = await conversations.page(paneId, {
+      before: conversationCursor(url.searchParams.get("before")),
+      since: conversationCursor(url.searchParams.get("since")),
+      ifNoneMatch: requestedVersions(request.headers["if-none-match"]),
+    });
+    response.setHeader("ETag", `"${answer.version}"`);
+    if (answer.notModified) {
+      response.statusCode = 304;
+      response.end();
+      return;
+    }
+    sendJson(response, 200, answer);
+  }
+
   return async function handle(request, response, url, method) {
     if (!url.pathname.startsWith("/api/link/")) return false;
 
@@ -164,6 +203,14 @@ export function leafLinkRoutes({
       // The handshake rides along so the hub re-checks compatibility on every
       // poll without paying for a second round trip.
       sendJson(response, 200, { hello: hello(), snapshot: await client.snapshot() });
+      return true;
+    }
+
+    // A pane's conversation, read here exactly as this PC's page reads it.
+    const conversationMatch = method === "GET" &&
+      url.pathname.match(/^\/api\/link\/panes\/([^/]+)\/(?:conversation(?:\/(signature)|\/tools\/([^/]+))?|(pending-ask))$/u);
+    if (conversationMatch) {
+      await conversation(request, response, url, conversationMatch);
       return true;
     }
 
@@ -181,6 +228,9 @@ export function leafLinkRoutes({
         const output = await client.readPane(paneId, {
           lines: validation.validateLines(url.searchParams.get("lines")),
           format: validation.validateReadFormat(url.searchParams.get("format")),
+          // A hub's prompt card reads the region herdr detects agent states
+          // from, as a card on this PC's page does.
+          ...(url.searchParams.has("source") ? { source: validation.validateReadSource(url.searchParams.get("source")) } : {}),
         });
         // A string, not a revision window: the hub's own watcher does the
         // diffing, and it expects what a local read would have given it.
