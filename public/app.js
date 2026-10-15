@@ -6171,12 +6171,19 @@ function renderCandidates(found) {
     : `${rest.length} other ${rest.length === 1 ? "PC" : "PCs"} with nothing to connect to.`;
 }
 
+// Only the latest look is drawn: an earlier one that answers late (a Refresh
+// pressed while it ran) does not overwrite it.
+let serverLook = 0;
+
 async function lookForServers() {
+  const look = ++serverLook;
   candidateList.replaceChildren(createElement("p", { className: "dialog-feedback", text: "Looking…" }));
   setupHint.textContent = "";
   try {
-    renderCandidates(await api("/api/servers/discover", { method: "POST", body: {} }));
+    const found = await api("/api/servers/discover", { method: "POST", body: {} });
+    if (look === serverLook) renderCandidates(found);
   } catch (error) {
+    if (look !== serverLook) return;
     candidateList.replaceChildren();
     setupHint.textContent = error.message;
   }
