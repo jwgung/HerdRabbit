@@ -405,9 +405,16 @@ test("a file that stops arriving after its headers fails instead of waiting for 
   const silent = new ReadableStream({ pull() { return new Promise(() => {}); } });
   const client = peerClient(async () => new Response(silent, { status: 200, headers: { "content-length": "100" } }), { timeouts: { read: 300, snapshot: 300, write: 300, fileIdle: 50 } });
   const opened = await client.openFile("/srv/stuck");
-  await assert.rejects(async () => {
-    for await (const chunk of opened.stream) void chunk;
-  }, { code: "leaf_timeout" });
+  // The idle clock does not hold the process open (unref), and a silent body
+  // holds nothing either, so the test keeps the loop alive itself.
+  const alive = setInterval(() => {}, 1_000);
+  try {
+    await assert.rejects(async () => {
+      for await (const chunk of opened.stream) void chunk;
+    }, { code: "leaf_timeout" });
+  } finally {
+    clearInterval(alive);
+  }
 });
 
 test("closing the merged client lets go of every connected PC, not this one", () => {

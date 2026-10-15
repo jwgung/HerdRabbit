@@ -476,6 +476,15 @@ test("a machine's keys and sign-ins are listed locked and never opened, through 
   assert.deepEqual(ssh, { name: ".ssh", path: join(home, ".ssh"), hidden: true, readable: false, kind: "directory", locked: true });
   assert.equal(listing.entries.find((entry) => entry.name === ".claude.json").locked, true);
   assert.equal(listing.entries.find((entry) => entry.name === "notes").locked, undefined);
+  // a link to a key is listed locked too, with nothing of the key's size or time
+  const notes = await files.listDirectory(join(home, "notes"));
+  for (const name of ["innocent.txt", "keys"]) {
+    const entry = notes.entries.find((item) => item.name === name);
+    assert.equal(entry.locked, true, name);
+    assert.equal(entry.size, undefined, name);
+    assert.equal(entry.modifiedAt, undefined, name);
+  }
+  assert.equal(notes.entries.find((item) => item.name === "plain.txt").locked, undefined);
   await assert.rejects(() => files.listDirectory(join(home, ".ssh")), refused);
   await assert.rejects(() => files.listDirectory(join(home, "notes", "keys")), refused);
   await assert.rejects(() => files.openFile(join(home, ".codex", "auth.json")), refused);

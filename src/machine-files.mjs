@@ -482,6 +482,11 @@ export class MachineFiles {
     // the first N by name.
     const names = wanted.sort((first, second) => (first.name < second.name ? -1 : 1));
     const visible = names.slice(0, limit);
+    // A link is locked when where it really leads is: its size and time would
+    // otherwise say something about a key. One more call, only for links.
+    const links = visible.filter(({ record }) => record.type === "l").map(({ name }) => posix.resolve(directory, name));
+    const real = links.length > 0 ? await this.#realPaths(link, links) : [];
+    const lockedLinks = new Set(links.filter((path, index) => isProtected(real[index])));
     const entries = visible.map(({ name, readable, record }) => {
       const entry = { name, path: posix.resolve(directory, name), hidden: name.startsWith("."), readable };
       if (record.type !== "l") {
@@ -497,6 +502,7 @@ export class MachineFiles {
         return { ...entry, kind: "other", symlink: true, broken: true };
       }
       const kind = kindOf(target.type);
+      if (lockedLinks.has(entry.path)) return { ...entry, kind, readable: false, locked: true, symlink: true };
       return { ...entry, kind, size: kind === "file" ? target.size : null, modifiedAt: isoTime(target.time), symlink: true };
     });
     entries.sort((first, second) => {
