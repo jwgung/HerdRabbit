@@ -39,8 +39,9 @@ import { indexAtColumn, stringWidth } from "./text-width.mjs";
 const CLAUDE_ASK_HINT_RE = /enter to select.*(?:↑\/↓|tab\/arrow keys) to navigate.*esc to cancel/i;
 // question tabs, whole (`←  ☒ Route  ☐ Author  ✔ Submit  →`) or cut off by a narrow pane
 const CLAUDE_TABS_RE = /^←\s+[☐☒☑✔]/;
-// the rule under Claude Code's input box, with the session's name in it
-const CLAUDE_TITLED_RULE_RE = /^[─━]{3,}\s+\S.*\s[─━]+$/u;
+// the rule under Claude Code's input box, the session's name near its right
+// end: "────── my-session ─" (one dash after the name, as Claude draws it)
+const CLAUDE_TITLED_RULE_RE = /^─{3,} \S(?:.*\S)? ─$/u;
 // the review step's last row: "2. Cancel", maybe the selected one
 const CLAUDE_SUBMIT_CANCEL_RE = /^(?:[›>❯]\s*)?\d+\.\s+Cancel$/i;
 // Claude Code's unnumbered menus (the folder-trust check on a new folder, among others)
@@ -356,10 +357,11 @@ function withoutClaudeTasks(shown) {
 // Whether the prompt still owns the end of the screen: an answered menu
 // above later output is no card.
 function promptTailIsActive(prompt, screen) {
+  const visible = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine).filter((line) => line && !isDivider(line));
   // Claude Code closes its input box with a rule that names the session
-  // ("──── my-session ─"): part of the frame, not something after the prompt.
-  const visible = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine)
-    .filter((line) => line && !isDivider(line) && !CLAUDE_TITLED_RULE_RE.test(line));
+  // ("──── my-session ─"): as the screen's last line it is frame, not output
+  // after the prompt. Anywhere else, or shaped otherwise, it counts.
+  if (CLAUDE_TITLED_RULE_RE.test(visible.at(-1) ?? "")) visible.pop();
   const shown = withoutClaudeTasks(visible);
   const ends = (re) => hintEnds(shown, re);
   switch (prompt.responder) {
