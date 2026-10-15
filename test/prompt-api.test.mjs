@@ -8,6 +8,9 @@ import { PromptService } from "../src/prompt/service.mjs";
 import { parseClaudePrompt } from "../src/prompt/claude.mjs";
 import { approvalScreen, fakePromptHerdr } from "./fixtures/claude-prompt.mjs";
 
+// A PC connected with Connect PC.
+const LAB = "link_00000000-0000-4000-8000-00000000000a";
+
 const CARD_ID = parseClaudePrompt(approvalScreen()).id;
 
 function panes() {
@@ -244,21 +247,17 @@ test("a password prompt is no card, not even a fallback one", async (context) =>
   assert.deepEqual(herdr.sent, []);
 });
 
-test("a herdr machine's pane is read and answered through the same client", async (context) => {
+test("a connected PC's pane is read and answered through the same client", async (context) => {
   const remote = fakePromptHerdr(panes());
-  const machines = {
-    listed: true,
-    profiles: () => [{ id: "machine-lab", name: "lab", transport: "machine", enabled: true }],
-    client: () => remote,
-  };
+  const profiles = { list: () => [{ id: LAB, name: "lab", address: "http://100.64.0.9:38788" }] };
   const local = { snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }) };
-  const herdr = new MultiServerClient({ local, machines });
+  const herdr = new MultiServerClient({ local, profiles, remoteFactory: () => remote });
   await herdr.snapshot();
   await new Promise((resolve) => setTimeout(resolve, 20));
   const { get, answer } = await fixture(context, { herdr, prompts: new PromptService({ herdr, stepDelayMs: 1, lookMs: 5, settleMs: 300 }) });
-  const { card } = (await get("machine-lab!w1:p1")).body;
+  const { card } = (await get(`${LAB}!w1:p1`)).body;
   assert.equal(card.id, CARD_ID);
-  assert.equal((await answer("machine-lab!w1:p1", { cardId: card.id, option: 1 })).status, 200);
+  assert.equal((await answer(`${LAB}!w1:p1`, { cardId: card.id, option: 1 })).status, 200);
   assert.deepEqual(remote.sent, [{ paneId: "w1:p1", keys: ["down"] }, { paneId: "w1:p1", keys: ["enter"] }]);
   assert.deepEqual(remote.answered, [{ paneId: "w1:p1", answer: "Yes, and don't ask again for: npm test" }]);
 });
@@ -425,53 +424,45 @@ test("a pane missing from the snapshot for a while keeps its watch, and its card
   assert.equal(prompts.watches.has("w1:p1"), true);
 });
 
-test("one look takes one snapshot of this PC and at most one of each herdr machine", async (context) => {
+test("one look takes one snapshot of this PC and at most one of each connected PC", async (context) => {
   const local = fakePromptHerdr(panes());
   const remote = fakePromptHerdr(panes());
-  const machines = {
-    listed: true,
-    profiles: () => [{ id: "machine-lab", name: "lab", transport: "machine", enabled: true }],
-    client: () => remote,
-  };
-  const herdr = new MultiServerClient({ local, machines });
+  const profiles = { list: () => [{ id: LAB, name: "lab", address: "http://100.64.0.9:38788" }] };
+  const herdr = new MultiServerClient({ local, profiles, remoteFactory: () => remote });
   await herdr.snapshot();
   await new Promise((resolve) => setTimeout(resolve, 20));
   const before = { local: local.snapshots, remote: remote.snapshots };
   const prompts = new PromptService({ herdr, pollMs: 60_000 });
   context.after(() => prompts.stop());
   const heard = new Map();
-  for (const paneId of ["w1:p1", "w1:p3", "machine-lab!w1:p1", "machine-lab!w1:p2", "machine-lab!w1:p3"]) {
+  for (const paneId of ["w1:p1", "w1:p3", `${LAB}!w1:p1`, `${LAB}!w1:p2`, `${LAB}!w1:p3`]) {
     prompts.watch(paneId, (card) => heard.set(paneId, card));
   }
   for (let tries = 0; tries < 100 && heard.size < 5; tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(heard.size, 5);
   assert.equal(local.snapshots - before.local, 1);
   assert.ok(remote.snapshots - before.remote <= 1);
-  assert.equal(heard.get("machine-lab!w1:p1").id, CARD_ID);
-  assert.equal(heard.get("machine-lab!w1:p2"), null);
+  assert.equal(heard.get(`${LAB}!w1:p1`).id, CARD_ID);
+  assert.equal(heard.get(`${LAB}!w1:p2`), null);
   assert.deepEqual(remote.reads.map((read) => read.paneId).sort(), ["w1:p1", "w1:p2", "w1:p3"]);
 });
 
-test("a herdr machine's Codex pane shows its approval card and takes the answer's keys over its client", async (context) => {
+test("a connected PC's Codex pane shows its approval card and takes the answer's keys over its client", async (context) => {
   const local = fakePromptHerdr(panes());
   const remote = fakePromptHerdr({
     panes: [{ pane_id: "w1:p1", agent: "codex", agent_status: "blocked" }],
     menus: { "w1:p1": { agent: "codex", cursor: 0 } },
   });
-  const machines = {
-    listed: true,
-    profiles: () => [{ id: "machine-lab", name: "lab", transport: "machine", enabled: true }],
-    client: () => remote,
-  };
-  const herdr = new MultiServerClient({ local, machines });
+  const profiles = { list: () => [{ id: LAB, name: "lab", address: "http://100.64.0.9:38788" }] };
+  const herdr = new MultiServerClient({ local, profiles, remoteFactory: () => remote });
   await herdr.snapshot();
   await new Promise((resolve) => setTimeout(resolve, 20));
   const { get, answer } = await fixture(context, { herdr });
-  const { card } = (await get("machine-lab!w1:p1")).body;
+  const { card } = (await get(`${LAB}!w1:p1`)).body;
   assert.equal(card.agent, "codex");
   assert.equal(card.kind, "approval");
   assert.equal(card.title, "Would you like to run the following command?");
-  assert.equal((await answer("machine-lab!w1:p1", { cardId: card.id, option: 1 })).status, 200);
+  assert.equal((await answer(`${LAB}!w1:p1`, { cardId: card.id, option: 1 })).status, 200);
   assert.deepEqual(remote.sent.map((item) => item.keys), [["down"], ["enter"]]);
   assert.deepEqual(remote.answered, [{ paneId: "w1:p1", answer: "Yes, and don't ask again for commands that start with npm" }]);
   assert.deepEqual(local.sent, []);

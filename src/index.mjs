@@ -11,7 +11,7 @@ import { readAppVersion } from "./app-version.mjs";
 import { serveLocked } from "./locked-server.mjs";
 import { FileStore } from "./file-store.mjs";
 import { MultiServerClient } from "./multi-server-client.mjs";
-import { HerdrMachines, machineSocketDirectory } from "./herdr-machines.mjs";
+import { countLegacyMachines } from "./legacy-machines.mjs";
 import { PaneAttachments, loadNodePty, nodePtySpawner } from "./pane-attachments.mjs";
 import { AiAccounts, runningAgentsIn } from "./ai-accounts.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported, readHerdrVersion } from "./herdr-version.mjs";
@@ -54,11 +54,10 @@ void tailnet.then((status) => {
     peers: new Map(status.peers.map((peer) => [peer.address, peer.name])),
   };
 });
-// This PC goes by its tailnet (or host) name, a connected PC by the name
-// Tailscale knows its address by, and a Herdr machine by its own label.
+// This PC goes by its tailnet (or host) name, and a connected PC by the name
+// Tailscale knows its address by.
 function machineName(profile) {
   if (profile.id === "local") return tailnetNames.self || hostname();
-  if (profile.transport === "machine") return null;
   try {
     return tailnetNames.peers.get(new URL(profile.address).hostname) || null;
   } catch {
@@ -99,25 +98,13 @@ void readHerdrVersion(config.herdrBin).then((version) => {
     console.warn(`Herdr ${version || "(unknown version)"} is older than ${MIN_HERDR_VERSION}. Run: ${config.herdrBin} update --handoff`);
   }
 });
-// Herdr's own SSH machines (`herdr machine add`) are reached without anything
-// installed on them, and are listed beside the connected PCs.
-const machineDirectory = await machineSocketDirectory().catch((error) => {
-  // Without a private directory the machines stay unconnected; everything else runs.
-  console.warn(`Herdr machines are unavailable: ${error.message}`);
-  return null;
-});
-const machines = !machineDirectory ? null : new HerdrMachines({
-  binary: config.herdrBin,
-  directory: machineDirectory,
-  createBridge: (link) => new HerdrBridgeClient({
-    binary: config.herdrBin, timeoutMs: config.commandTimeoutMs, socketPath: link.socketPath, sessionName: link.machine.session,
-  }),
-  log: (message) => console.warn(message),
-  maxTransferBytes: config.maxTransferBytes,
-});
-machines?.start();
+// Herdr SSH machines are not shown any more; the page says once how to bring
+// those PCs back when Herdr still lists some. Asked in the background, so a
+// Herdr that hangs never holds the page up.
+let legacyMachines = 0;
+void countLegacyMachines({ binary: config.herdrBin }).then((count) => { legacyMachines = count; });
 const herdr = new MultiServerClient({
-  local, profiles, hubVersion, machineName, herdrVersion: () => herdrVersion, machines,
+  local, profiles, hubVersion, machineName, herdrVersion: () => herdrVersion,
   maxTransferBytes: config.maxTransferBytes,
 });
 // Panes' conversations: this PC's page reads them, and so does a PC that
@@ -150,7 +137,7 @@ const connectPc = config.peerHost
 const { server } = createHerdrHttpServer({
   herdr,
   attachments,
-  machines,
+  legacyMachines: () => legacyMachines,
   profiles,
   announcements,
   connectPc,
@@ -272,8 +259,6 @@ async function shutdown() {
   announcer.stop();
   attachments.close();
   linkAttach?.close();
-  // The machines' SSH connections close before the server stops listening.
-  await machines?.stop().catch((error) => console.error("Closing Herdr machines failed:", error.message));
   // A hub's status stream would otherwise hold the port open.
   peerServer?.close();
   peerServer?.closeAllConnections();

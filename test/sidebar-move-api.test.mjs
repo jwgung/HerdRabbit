@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HerdrClient, HerdrCommandError, InputValidationError } from "../src/herdr-client.mjs";
 import { HerdrBridgeClient, sessionIds } from "../src/herdr-bridge-client.mjs";
-import { HerdrMachines } from "../src/herdr-machines.mjs";
 import { MultiServerClient } from "../src/multi-server-client.mjs";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 
@@ -66,7 +65,7 @@ test("tab.move and workspace.move go to the session's socket, as Herdr's CLI has
   assert.deepEqual(fake.calls[0], ["--session=review", "session", "list", "--json"]);
 });
 
-test("a machine's client moves over its forwarded socket without asking for the session list", async (context) => {
+test("a client given its socket moves over it without asking for the session list", async (context) => {
   const herdrSocket = await fakeHerdrSocket(context, () => ({ result: { type: "tab_list" } }));
   const fake = recordingRunner([]);
   const client = new HerdrClient({ runner: fake.runner, socketPath: herdrSocket.socketPath, sessionName: "default" });
@@ -261,27 +260,19 @@ test("the bridge moves within one Herdr session and gives the new ids back scope
   assert.equal(fake.calls.length, before);
 });
 
-function fakeLink(machine) {
-  return { machine, state: "ready", error: null, socketPath: "/run/x.sock", start() {}, async stop() {} };
-}
-
-test("a session does not cross machines, and a machine's move comes back with its server prefix", async () => {
-  const ID = "4c139ff50dfb4a0dcda27e728dc50ef9";
+test("a session does not cross PCs, and a connected PC's move comes back with its server prefix", async () => {
   const remoteCalls = [];
-  const machines = new HerdrMachines({
-    directory: "/run/x", createLink: fakeLink,
-    read: async () => [{ id: ID, label: "lab", target: "me@lab", session: "default", enabled: true }],
-    createBridge: () => ({
-      snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }),
-      moveTab: async (...args) => { remoteCalls.push(["moveTab", ...args]); },
-      moveWorkspace: async (...args) => { remoteCalls.push(["moveWorkspace", ...args]); },
-      moveTabToWorkspace: async (...args) => {
-        remoteCalls.push(["moveTabToWorkspace", ...args]);
-        return { tab_id: "hs_x~w2:t3", panes: [{ from: "hs_x~w1:p2", to: "hs_x~w2:p3" }] };
-      },
-    }),
-  });
-  await machines.refresh();
+  const remote = {
+    snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }),
+    moveTab: async (...args) => { remoteCalls.push(["moveTab", ...args]); },
+    moveWorkspace: async (...args) => { remoteCalls.push(["moveWorkspace", ...args]); },
+    moveTabToWorkspace: async (...args) => {
+      remoteCalls.push(["moveTabToWorkspace", ...args]);
+      return { tab_id: "hs_x~w2:t3", panes: [{ from: "hs_x~w1:p2", to: "hs_x~w2:p3" }] };
+    },
+  };
+  const server = "link_00000000-0000-4000-8000-00000000000a";
+  const profiles = { list: () => [{ id: server, name: "lab", address: "http://100.64.0.9:38788" }] };
   const localCalls = [];
   const local = {
     snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }),
@@ -291,8 +282,7 @@ test("a session does not cross machines, and a machine's move comes back with it
       return { tab_id: "hs_x~w2:t3", panes: [] };
     },
   };
-  const herdr = new MultiServerClient({ local, machines });
-  const server = "machine-4c139ff50dfb";
+  const herdr = new MultiServerClient({ local, profiles, remoteFactory: () => remote });
 
   await assert.rejects(herdr.moveTabToWorkspace("hs_x~w1:t2", `${server}!hs_x~w2`, 0), InputValidationError);
   await assert.rejects(herdr.moveTabToWorkspace(`${server}!hs_x~w1:t2`, "hs_x~w2", 0), InputValidationError);

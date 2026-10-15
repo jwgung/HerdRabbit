@@ -10,8 +10,7 @@
 // https://github.com/devswha/herdr-web-ui -- server/codex.ts (the record
 // parser, the rollout checks and the screen match), shared/patch.ts, the Codex
 // parts of server/conversation.ts and server/conversation-metadata.ts.
-// Rewritten for plain Node ESM: every read goes through a store, so the same
-// code reads this machine's rollouts and a Herdr machine's over SSH.
+// Rewritten for plain Node ESM: every read goes through a store (stores.mjs).
 import { TOOL_ID, record, setToolOutput, toolInputFields } from "./pages.mjs";
 
 export const THREAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;

@@ -27,7 +27,6 @@ import { defaultProtectedPaths } from "./protected-paths.mjs";
 import { MAX_TEXT_PREVIEW_BYTES, inlineTypeFor, isMarkdown } from "../public/file-preview.js";
 import { renderMarkdown } from "./markdown.mjs";
 import { secretPrompt } from "./secret-prompt.mjs";
-import { validMachineLabel, validMachineTarget } from "./herdr-machines.mjs";
 import { validateServerProfile } from "./server-profiles.mjs";
 import { ConversationMonitor } from "./conversation/monitor.mjs";
 import { ConversationService } from "./conversation/service.mjs";
@@ -524,9 +523,11 @@ export function createHerdrHttpServer({
   allowedHosts = LOOPBACK_HOSTS,
   aiAccounts = null,
   attachments = null,
-  machines = null,
+  // How many Herdr SSH machines `herdr machine list` still names; those are
+  // not shown any more, and the page says once how to bring those PCs back.
+  legacyMachines = () => 0,
   // A pane's Claude or Codex conversation (src/conversation/): this machine's
-  // transcripts, and a Herdr machine's through its file client.
+  // transcripts; a connected PC reads its own.
   conversations = null,
   // Prompt cards (src/prompt/): a blocked pane's approval or question.
   prompts = null,
@@ -811,8 +812,6 @@ export function createHerdrHttpServer({
         throw new HttpError(401, "authentication_required", "Enter your password.");
       }
 
-      // Herdr's own SSH machines: added, renamed, turned off and removed with
-      // `herdr machine`, so the sidebar and Herdr's TUI list the same ones.
       // Connect PC: other PCs running HerdRabbit, reached on their Connect PC port.
       if (profiles && url.pathname.startsWith("/api/servers")) {
         const match = url.pathname.match(/^\/api\/servers(?:\/(link_[a-f0-9-]{36}|test|discover))?$/u);
@@ -846,40 +845,11 @@ export function createHerdrHttpServer({
         throw new HttpError(405, "method_not_allowed", "Method not allowed");
       }
 
-      if (machines && url.pathname.startsWith("/api/machines")) {
-        const match = url.pathname.match(/^\/api\/machines(?:\/(machine-[0-9a-f]{12})(\/disable|\/enable)?)?$/u);
-        if (!match) throw new HttpError(404, "not_found", "Machine route not found");
-        requireWriteAuthorization(request, csrfToken);
-        const body = method === "DELETE" ? {} : await readJsonBody(request, maxBodyBytes);
-        const [, serverId, toggle] = match;
-        const machineId = serverId ? machines.machineIdFor(serverId) : null;
-        if (serverId && !machineId) throw new HttpError(404, "not_found", "That machine is no longer in Herdr's list.");
-        const label = typeof body.label === "string" ? body.label.trim() : "";
-        if (method === "POST" && !serverId) {
-          if (!validMachineTarget(body.target)) throw new HttpError(400, "invalid_machine", "Enter an SSH target such as user@host or a host from your SSH config.");
-          if (label && !validMachineLabel(label)) throw new HttpError(400, "invalid_machine", "A name is up to 60 characters on one line.");
-          await machines.add({ target: body.target, label });
-        } else if (method === "PUT" && serverId && !toggle) {
-          if (!validMachineLabel(label)) throw new HttpError(400, "invalid_machine", "A name is 1 to 60 characters on one line.");
-          await machines.rename(machineId, label);
-        } else if (method === "POST" && toggle === "/disable") {
-          await machines.disable(machineId);
-        } else if (method === "POST" && toggle === "/enable") {
-          await machines.enable(machineId);
-        } else if (method === "DELETE" && serverId && !toggle) {
-          await machines.remove(machineId);
-        } else {
-          throw new HttpError(405, "method_not_allowed", "Method not allowed");
-        }
-        sendJson(response, 200, { ok: true });
-        return;
-      }
-
       if (files && url.pathname.startsWith("/api/files")) {
         const match = url.pathname.match(/^\/api\/files(?:\/([^/]+))?$/u);
         if (!match) throw new HttpError(404, "not_found", "File route not found");
         const name = match[1] === undefined ? null : validateTransferName(match[1]);
-        // Writing to a Herdr machine goes to that machine's own uploads folder,
+        // Writing to a connected PC goes to that PC's own uploads folder,
         // never to a path the request chooses.
         const { serverId: filesServer, source: remote } = fileSource(url.searchParams.get("server"));
         if (method === "GET" && !name) {
@@ -927,7 +897,7 @@ export function createHerdrHttpServer({
         if (!aiAccounts || !match) throw new HttpError(404, "not_found", "Not found");
         const [, action, loginId, step] = match;
         if (method === "GET" && !action && !loginId) {
-          // Same-origin like browsing: a listing may wait on a Herdr machine.
+          // Same-origin like browsing: a listing may wait on a connected PC.
           requireSameOrigin(request);
           const { serverId, source } = accountsSource(url.searchParams.get("server"));
           sendJson(response, 200, { ...(await source.list()), server: serverId });
@@ -975,7 +945,7 @@ export function createHerdrHttpServer({
           }
           const { serverId, source } = fileSource(url.searchParams.get("server"));
           const target = url.searchParams.get("path");
-          // A Herdr machine does its own reading, so it needs none of the local
+          // A connected PC does its own reading, so it needs none of the local
           // thread budget -- and one that stops answering cannot exhaust it.
           const listing = source
             ? await browseDirectory(target, { prefix }, source)
@@ -1003,16 +973,6 @@ export function createHerdrHttpServer({
             throw new HttpError(400, "invalid_input", "Too many targets.");
           }
           const changed = [];
-          // A Herdr SSH machine answers every folder in one round trip.
-          if (typeof source?.directoryFingerprints === "function") {
-            const current = await source.directoryFingerprints(targetPaths).catch(() => new Map());
-            for (const path of targetPaths) {
-              const fingerprint = current.get(path);
-              if (fingerprint === null || fingerprint === undefined || fingerprint !== targets[path]) changed.push(path);
-            }
-            sendJson(response, 200, { changed, server: serverId });
-            return;
-          }
           for (const path of targetPaths) {
             const knownEtag = targets[path];
             try {
@@ -1161,8 +1121,8 @@ export function createHerdrHttpServer({
           allowedKeys: ALLOWED_KEYS,
           pollIntervalMs: 1_000,
           pushPublicKey: push?.publicKey || null,
-          // Whether SSH machines can be added here: not without a socket directory.
-          machines: Boolean(machines),
+          // Herdr SSH machines still registered with Herdr, which are not shown.
+          legacyMachines: legacyMachines(),
           // Whether other PCs can be connected here (Connect PC), and this
           // PC's own Connect PC port for Details.
           servers: Boolean(profiles),
@@ -1465,8 +1425,8 @@ export function createHerdrHttpServer({
   server.headersTimeout = 5_000;
   server.keepAliveTimeout = 5_000;
 
-  // A Herdr machine answers for its own files, so the id resolves to that
-  // machine's client; local keeps the filesystem path.
+  // A connected PC answers for its own files, so the id resolves to that
+  // PC's client; local keeps the filesystem path.
   function fileSource(value) {
     if (value === undefined || value === null || value === "" || value === LOCAL_SERVER) {
       return { serverId: LOCAL_SERVER, source: null };

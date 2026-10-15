@@ -146,11 +146,8 @@ export class HerdrBridgeClient {
     binary = "herdr",
     timeoutMs = 5_000,
     runner,
-    // Another machine's Herdr through a forwarded socket, and its session's name.
-    socketPath = null,
-    sessionName = null,
   } = {}) {
-    this.clientOptions = { binary, timeoutMs, ...(socketPath ? { socketPath, sessionName } : {}) };
+    this.clientOptions = { binary, timeoutMs };
     if (runner) this.clientOptions.runner = runner;
     this.rootClient = new HerdrClient(this.clientOptions);
     this.runningSessionNames = new Set(["default"]);

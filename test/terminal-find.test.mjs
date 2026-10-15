@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HerdrClient, HerdrCommandError, InputValidationError, findScrollOffset } from "../src/herdr-client.mjs";
 import { HerdrBridgeClient, sessionIds } from "../src/herdr-bridge-client.mjs";
-import { HerdrMachines } from "../src/herdr-machines.mjs";
 import { MultiServerClient } from "../src/multi-server-client.mjs";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import {
@@ -257,7 +256,7 @@ test("the view moves only as far as the history goes", () => {
   assert.equal(findScrollOffset(scroll, { start: { row: 167, col: 110 }, end: { row: 168, col: 2 } }), 168 - (167 - 13));
 });
 
-test("a session's pane is found through its own session, and a machine's through its machine", async () => {
+test("a session's pane is found through its own session, and a connected PC's through its link", async () => {
   const calls = [];
   const bridgeCalls = [];
   const bridge = new HerdrBridgeClient({ runner: async () => ({ stdout: "{}" }) });
@@ -290,20 +289,15 @@ test("a session's pane is found through its own session, and a machine's through
     ["reveal", "default", "w1:p2", revealRequest],
   ]);
 
-  const ID = "4c139ff50dfb4a0dcda27e728dc50ef9";
-  const machines = new HerdrMachines({
-    directory: "/run/x",
-    createLink: (machine) => ({ machine, state: "ready", error: null, socketPath: "/run/x.sock", start() {}, async stop() {} }),
-    read: async () => [{ id: ID, label: "lab", target: "me@lab", session: "default", enabled: true }],
-    createBridge: () => ({
-      snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }),
-      paneFind: async (...args) => { calls.push(["remote", ...args]); return { total: 3, current: 1 }; },
-      paneReveal: async (...args) => { calls.push(["remote reveal", ...args]); return { scroll: { remote: true } }; },
-    }),
-  });
-  await machines.refresh();
+  const LAB = "link_00000000-0000-4000-8000-00000000000a";
+  const remote = {
+    snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }),
+    paneFind: async (...args) => { calls.push(["remote", ...args]); return { total: 3, current: 1 }; },
+    paneReveal: async (...args) => { calls.push(["remote reveal", ...args]); return { scroll: { remote: true } }; },
+  };
   const herdr = new MultiServerClient({
-    machines,
+    profiles: { list: () => [{ id: LAB, name: "lab", address: "http://100.64.0.9:38788" }] },
+    remoteFactory: () => remote,
     local: {
       snapshot: async () => ({ herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }),
       paneFind: async (...args) => { calls.push(["local", ...args]); return { total: 1, current: 1 }; },
@@ -311,11 +305,11 @@ test("a session's pane is found through its own session, and a machine's through
     },
   });
   const request = { query: "x", direction: "backward" };
-  assert.deepEqual(await herdr.paneFind("machine-4c139ff50dfb!hs_x~w1:p2", request), { total: 3, current: 1 });
+  assert.deepEqual(await herdr.paneFind(`${LAB}!hs_x~w1:p2`, request), { total: 3, current: 1 });
   assert.deepEqual(await herdr.paneFind("hs_x~w1:p2", request), { total: 1, current: 1 });
   assert.deepEqual(calls, [["remote", "hs_x~w1:p2", request], ["local", "hs_x~w1:p2", request]]);
   const reveal = { match: { start: { row: 1, col: 0 }, end: { row: 1, col: 2 } }, contentRevision: 3 };
-  assert.deepEqual(await herdr.paneReveal("machine-4c139ff50dfb!hs_x~w1:p2", reveal), { scroll: { remote: true } });
+  assert.deepEqual(await herdr.paneReveal(`${LAB}!hs_x~w1:p2`, reveal), { scroll: { remote: true } });
   assert.deepEqual(await herdr.paneReveal("hs_x~w1:p2", reveal), { scroll: { remote: false } });
   assert.deepEqual(calls.slice(2), [["remote reveal", "hs_x~w1:p2", reveal], ["local reveal", "hs_x~w1:p2", reveal]]);
 });

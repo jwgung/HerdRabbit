@@ -70,9 +70,9 @@ test("shows the server row even when this machine is the only one", () => {
   // cannot wait for a second machine to be linked.
   assert.match(app, /const showServers = servers\.length > 0;/);
   assert.match(app, /label: "AI accounts"[\s\S]*?onSelect: \(\) => showAiAccounts\(server\)/);
-  // Herdr SSH machines included: their accounts are switched over SSH.
-  const menu = app.slice(app.indexOf("function serverActionMenu("), app.indexOf('label: "AI accounts"'));
-  assert.doesNotMatch(menu, /transport === "machine"/u);
+  // Herdr SSH machines are gone: nothing adds, renames, turns off or removes one.
+  assert.doesNotMatch(app, /\/api\/machines|#add-machine|transport === "machine"/u);
+  assert.doesNotMatch(page, /Add SSH machine|id="machine-dialog"/u);
 });
 
 test("a server's menu lines up with the project menus under it", () => {

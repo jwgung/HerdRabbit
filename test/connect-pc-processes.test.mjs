@@ -27,7 +27,7 @@ if (args[0] === "api" && args[1] === "snapshot") reply({ snapshot: {
   panes: [{ pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1" }],
   agents: [],
 } });
-if (args[0] === "machine" && args[1] === "list") reply({ machines: [] });
+if (args[0] === "machine" && args[1] === "list") reply([]);
 if (args[0] === "pane" && args[1] === "read") { process.stdout.write(process.env.FAKE_LABEL + " screen"); process.exit(0); }
 process.stderr.write(JSON.stringify({ error: { code: "unsupported", message: "not in this fake" } }));
 process.exit(1);

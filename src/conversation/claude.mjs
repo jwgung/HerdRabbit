@@ -7,8 +7,7 @@
 // https://github.com/devswha/herdr-web-ui -- server/claude-store.ts,
 // server/conversation.ts (the Claude parts), server/transcript-records.ts,
 // server/conversation-metadata.ts and server/tool-output.ts. Rewritten for
-// plain Node ESM; every read goes through a store (stores.mjs) so the same
-// code reads this machine's files and a Herdr machine's over SSH.
+// plain Node ESM; every read goes through a store (stores.mjs).
 import { TOOL_ID, record, setToolOutput, toolInputFields } from "./pages.mjs";
 
 // How much of a transcript's end is read for a `continued-in` record: only metadata follows one.

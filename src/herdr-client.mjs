@@ -353,8 +353,8 @@ export class HerdrClient {
     this.sessionName = sessionName === null
       ? null
       : validateHerdrSessionName(sessionName);
-    // Another machine's Herdr, reached through a socket forwarded here: every
-    // command goes to that socket, and it is the one session there is.
+    // A Herdr reached through a socket given here rather than one `session
+    // list` names: every command goes to that socket, and it is the one session.
     this.socketPath = socketPath;
   }
 
@@ -439,8 +439,8 @@ export class HerdrClient {
     return this.#run(["tab", "close", safeTabId], { json: false });
   }
 
-  // The socket of the session this client speaks for: the forwarded one of
-  // another machine, or the one `session list` names here.
+  // The socket of the session this client speaks for: the one given, or the
+  // one `session list` names here.
   async #sessionSocket() {
     if (this.socketPath) return this.socketPath;
     const sessions = await this.listSessions();
@@ -658,10 +658,9 @@ export class HerdrClient {
     const session = sessions.find(item => item.name === (this.sessionName || "default") && item.running);
     if (!session?.socket_path) throw new HerdrCommandError("Herdr socket is unavailable", { code: "server_unavailable" });
     // `terminal attach` takes the API socket in HERDR_SOCKET_PATH and finds the
-    // client socket beside it as `<name>-client.sock`; on a Herdr machine that
-    // is the second socket the SSH link forwards (clientSocketFor).
-    // On a Herdr machine this id comes from the other side: it may only ever be
-    // an id, never something `terminal attach` would read as an option.
+    // client socket beside it as `<name>-client.sock`.
+    // The id comes from Herdr's answer: it may only ever be an id, never
+    // something `terminal attach` would read as an option.
     if (typeof pane?.terminal_id !== "string" || !TERMINAL_ID.test(pane.terminal_id)) {
       throw new HerdrCommandError("The pane has no terminal", { code: "no_terminal" });
     }

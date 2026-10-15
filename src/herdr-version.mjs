@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 
-// Terminal attach, pane scrolling and saved machines are what HerdRabbit
+// Terminal attach and pane scrolling are what HerdRabbit
 // builds on; Herdr has all of them from 0.9.0.
 export const MIN_HERDR_VERSION = "0.9.0";
 

@@ -74,7 +74,7 @@ test("keeps the sidebar width inside usable bounds", () => {
 
 test("keeps a separate last folder for each server", () => {
   const store = storage();
-  const remote = "machine-0123456789ab";
+  const remote = "link_0123abcd-0123-0123-0123-0123456789ab";
 
   assert.equal(writeBrowsePath(store, "/home/me", "local"), true);
   assert.equal(writeBrowsePath(store, "/srv/app", remote), true);
@@ -83,11 +83,10 @@ test("keeps a separate last folder for each server", () => {
   assert.equal(readBrowsePath(store), "/home/me", "local is the default");
 
   // A server nobody visited has no folder yet.
-  assert.equal(readBrowsePath(store, "machine-ffffffffffff"), null);
+  assert.equal(readBrowsePath(store, "link_ffffffff-ffff-ffff-ffff-ffffffffffff"), null);
   assert.equal(writeBrowsePath(store, "/srv", "not-a-server"), false);
-  // A PC connected with Connect PC keeps its own folder too.
-  assert.equal(writeBrowsePath(store, "/srv", "link_0123abcd-0123-0123-0123-0123456789ab"), true);
-  assert.equal(readBrowsePath(store, "link_0123abcd-0123-0123-0123-0123456789ab"), "/srv");
+  // Herdr SSH machines are gone, and so are their ids.
+  assert.equal(writeBrowsePath(store, "/srv", "machine-0123456789ab"), false);
   assert.equal(writeBrowsePath(store, "/srv", "link_not-a-uuid"), false);
   assert.equal(readBrowsePath(store, "not-a-server"), null);
 });
@@ -95,7 +94,7 @@ test("keeps a separate last folder for each server", () => {
 test("reads a path stored before servers existed as the local one", () => {
   const store = storage({ "herdrbridge-browse-path": "/home/me/project" });
   assert.equal(readBrowsePath(store, "local"), "/home/me/project");
-  assert.equal(readBrowsePath(store, "machine-0123456789ab"), null);
+  assert.equal(readBrowsePath(store, "link_0123abcd-0123-0123-0123-0123456789ab"), null);
 });
 
 test("remembers which machine files go to, and forgets on request", () => {
@@ -103,8 +102,8 @@ test("remembers which machine files go to, and forgets on request", () => {
   // used to go; a value means the choice was made deliberately.
   const store = storage();
   assert.equal(readFileServer(store), null);
-  writeFileServer(store, "machine-0123456789ab");
-  assert.equal(readFileServer(store), "machine-0123456789ab");
+  writeFileServer(store, "link_0123abcd-0123-0123-0123-0123456789ab");
+  assert.equal(readFileServer(store), "link_0123abcd-0123-0123-0123-0123456789ab");
   writeFileServer(store, null);
   assert.equal(readFileServer(store), null);
 });

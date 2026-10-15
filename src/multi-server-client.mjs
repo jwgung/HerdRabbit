@@ -3,8 +3,6 @@ import { MIN_HERDR_VERSION, herdrVersionSupported } from "./herdr-version.mjs";
 import { LinkClient } from "./link-client.mjs";
 import { LINK_PROTOCOL } from "./link-protocol.mjs";
 
-const isMachine = (profile) => profile?.transport === "machine";
-
 const collections = ["herdr_sessions", "workspaces", "tabs", "panes", "agents"];
 const idFields = ["session_id", "herdr_session_id", "workspace_id", "active_tab_id", "tab_id", "pane_id"];
 const empty = () => Object.fromEntries(collections.map((key) => [key, []]));
@@ -27,7 +25,7 @@ function scope(snapshot, server) {
 // Only messages we wrote ourselves are safe to show; anything else could be a
 // remote command's output arriving through an error.
 export function serverStatusFor(error) {
-  return error?.code?.startsWith("link_") || error?.code?.startsWith("machine_")
+  return error?.code?.startsWith("link_")
     ? error.message
     : "Could not reach Herdr on this PC. Check that it is running there.";
 }
@@ -41,18 +39,9 @@ export class MultiServerClient {
     // A file a connected PC sends is held to the same limit as one here.
     maxTransferBytes = Infinity,
     remoteFactory = (profile) => new LinkClient({ profile, hubVersion, maxTransferBytes }),
-    // Herdr's own SSH machines (src/herdr-machines.mjs), listed beside them.
-    machines = null,
   }) {
     this.profiles = profiles;
     this.remoteFactory = remoteFactory;
-    this.machines = machines;
-    // A machine whose connection just came up or went down is asked again at
-    // once, not at its next poll.
-    machines?.onLinkChange?.((serverId) => {
-      const entry = this.entries.get(serverId);
-      if (entry && !this.stopped) void this.refresh(entry, { again: true });
-    });
     this.local = local;
     this.machineName = machineName;
     this.herdrVersion = herdrVersion;
@@ -63,14 +52,13 @@ export class MultiServerClient {
 
   clientFor(profile) {
     if (profile.id === "local") return this.local;
-    return isMachine(profile) ? this.machines.client(profile) : this.remoteFactory(profile);
+    return this.remoteFactory(profile);
   }
 
   syncEntries() {
     const profiles = [
       { id: "local", name: "Local" },
       ...(this.profiles?.list?.() ?? []),
-      ...(this.machines?.profiles() ?? []),
     ];
     for (const id of this.entries.keys()) {
       if (profiles.some((profile) => profile.id === id)) continue;
@@ -106,7 +94,6 @@ export class MultiServerClient {
     }
     entry.pending = Promise.resolve().then(async () => {
       try {
-        if (entry.profile.enabled === false) throw Object.assign(new Error("Turned off"), { code: "machine_off" });
         entry.snapshot = await entry.client.snapshot();
         entry.available = true;
         entry.status = "Connected";
@@ -145,9 +132,6 @@ export class MultiServerClient {
     });
     return {
       ...this.entries.get("local").snapshot,
-      // Machines not listed yet: a page opening on one of their panes waits
-      // (up to its own limit).
-      servers_pending: Boolean(this.machines && !this.machines.listed),
       ...Object.fromEntries(collections.map((key) => [key, snapshots.flatMap((snapshot) => snapshot[key])])),
       // Address and version travel with the server so the sidebar can say what
       // a machine is without asking again.
@@ -157,14 +141,11 @@ export class MultiServerClient {
       servers: entries.map(({ profile, available, status, connecting, client }) => ({
         // Connecting: not reached yet, but still trying; a page waits for its panes.
         id: profile.id, name: profile.name, available, status, connecting: !available && connecting,
-        transport: profile.id === "local" ? "local" : profile.transport ?? "link",
-        ...(isMachine(profile) ? { enabled: profile.enabled !== false } : {}),
+        transport: profile.id === "local" ? "local" : "link",
         address: profile.address ?? null,
         machine: this.machineName(profile) ?? null,
         version: profile.id === "local" ? this.hubVersion : client?.info?.().version ?? null,
-        ...(profile.id === "local" || !isMachine(profile)
-          ? { link_protocol: profile.id === "local" ? LINK_PROTOCOL : client?.info?.().protocol ?? null }
-          : {}),
+        link_protocol: profile.id === "local" ? LINK_PROTOCOL : client?.info?.().protocol ?? null,
         ...this.herdrFields(profile.id === "local" ? this.herdrVersion() : client?.info?.().herdrVersion ?? null),
       })),
     };
@@ -179,23 +160,12 @@ export class MultiServerClient {
   }
 
   // File routes address a server by id and need the client that speaks for it:
-  // a Herdr SSH machine answers through its SSH connection. Local is handled
-  // by the caller.
+  // a connected PC answers for its own files over its Connect PC port. Local
+  // is handled by the caller.
   fileClient(serverId) {
     this.syncEntries();
     const entry = serverId === "local" ? null : this.entries.get(serverId);
-    if (!entry) return null;
-    // A connected PC answers for its own files over its Connect PC port.
-    return isMachine(entry.profile) ? entry.client.files?.() ?? null : entry.client;
-  }
-
-  // "local", "link" (Connect PC) or "machine" (Herdr SSH machine), or null for
-  // a server that is not configured.
-  serverTransport(serverId) {
-    if (serverId === "local") return "local";
-    this.syncEntries();
-    const entry = this.entries.get(serverId);
-    return entry ? entry.profile.transport ?? "link" : null;
+    return entry ? entry.client : null;
   }
 
   // A pane of a PC connected with Connect PC: { serverId, id, client }, where
@@ -206,7 +176,7 @@ export class MultiServerClient {
     let found;
     try { found = this.target(paneId); } catch { return null; }
     const { entry, id } = found;
-    if (entry.profile.id === "local" || isMachine(entry.profile)) return null;
+    if (entry.profile.id === "local") return null;
     return { serverId: entry.profile.id, id, client: entry.client };
   }
 
@@ -232,8 +202,8 @@ export class MultiServerClient {
     }
   }
 
-  // Account routes address a server the same way: a Herdr SSH machine runs
-  // the account manager there over SSH. Local is the caller's.
+  // Account routes address a server the same way: a connected PC switches its
+  // own accounts. Local is the caller's.
   aiAccountsClient(serverId) {
     this.syncEntries();
     const entry = serverId === "local" ? null : this.entries.get(serverId);
@@ -264,14 +234,14 @@ export class MultiServerClient {
   }
 
   readPane(id, options) { return this.invoke("readPane", id, [options]); }
-  // This machine's panes only: a Herdr machine's processes are not this one's to look into.
+  // This machine's panes only: a connected PC's processes are not this one's to look into.
   async paneProcessInfo(id) {
     const { entry, id: localId } = this.target(id);
     if (entry.profile.id !== "local" || typeof entry.client.paneProcessInfo !== "function") return null;
     return entry.client.paneProcessInfo(localId);
   }
-  // This machine's panes and Herdr machines' attach here; a connected PC's
-  // client answers a target that attaches on that PC (src/link-attach.mjs).
+  // This machine's panes attach here; a connected PC's client answers a
+  // target that attaches on that PC (src/link-attach.mjs).
   terminalTarget(id, timeoutMs) {
     const { entry, id: localId } = this.target(id);
     return entry.client.terminalTarget(localId, timeoutMs);
@@ -288,9 +258,8 @@ export class MultiServerClient {
       if (!groups.has(entry)) groups.set(entry, []);
       groups.get(entry).push(id);
     }
-    // A machine that is not connected has nothing to watch yet, and must not
-    // stop every other server's statuses; the next list refresh asks again.
-    const results = await Promise.allSettled([...groups].filter(([entry]) => entry.client.ready !== false).map(([entry, ids]) =>
+    // One server failing to watch must not stop every other server's statuses.
+    const results = await Promise.allSettled([...groups].map(([entry, ids]) =>
       entry.client.watchStatuses(ids, event => onStatus({ ...event,
         pane_id: entry.profile.id === "local" ? event.pane_id : `${entry.profile.id}!${event.pane_id}` }), onError)));
     const stops = results.filter(result => result.status === "fulfilled").map(result => result.value);

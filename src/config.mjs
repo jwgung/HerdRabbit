@@ -57,7 +57,7 @@ function parseAllowedHosts(value) {
 }
 
 // Transferred files live outside the configuration directory that holds the
-// password hash, SSH passwords, and VAPID keys. The uploads folder has no total size
+// password hash and VAPID keys. The uploads folder has no total size
 // limit, and keeping it apart means a path bug can never reach a credential.
 function defaultFilesDirectory(environment) {
   if (environment.HERDR_WEB_FILES_DIR) {
