@@ -127,12 +127,16 @@ export function linkAttachSockets({
     // socket that closed while the pane was looked up, or a malformed
     // handshake, is dropped there without a call back, and spawns nothing.
     let upgraded = false;
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      upgraded = true;
-      ws.once("close", release);
-      relay(ws, paneId, found, { cols, rows, takeover });
-    });
-    if (!upgraded) release();
+    try {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        upgraded = true;
+        ws.once("close", release);
+        relay(ws, paneId, found, { cols, rows, takeover });
+      });
+    } finally {
+      // Whatever ws did with a handshake it would not take, the slot is back.
+      if (!upgraded) release();
+    }
   }
 
   function relay(ws, paneId, found, { cols, rows, takeover }) {

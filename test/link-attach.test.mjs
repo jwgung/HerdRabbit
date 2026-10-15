@@ -287,6 +287,24 @@ test("attaches beyond the limit are refused until one closes", async (context) =
   await second.pty.exited;
 });
 
+test("a handshake the socket library will not take gives its slot back", async (context) => {
+  const peer = await startPeer(context, { maxAttaches: 1 });
+  const statusOf = (headers) => new Promise((resolve, reject) => {
+    const req = request(`${peer.base}${ATTACH}`, { headers: { Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Version": "13", ...headers } });
+    req.on("response", (response) => { response.resume(); resolve(response.statusCode); });
+    req.on("upgrade", (response, socket) => { socket.destroy(); resolve(101); });
+    req.on("error", () => resolve(null));
+    req.end();
+  });
+  for (let index = 0; index < 3; index += 1) {
+    assert.notEqual(await statusOf({ "Sec-WebSocket-Key": "abc" }), 101);
+    assert.notEqual(await statusOf({ "Sec-WebSocket-Version": "7", "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==" }), 101);
+  }
+  assert.equal(peer.attach.open, 0, "a slot was kept by a refused handshake");
+  assert.equal(peer.spawns.length, 0);
+  assert.equal((await upgrade(peer.base, ATTACH)).status, 101, "a good attach still gets the one slot");
+});
+
 test("a refused or unreachable attach ends the hub's pty without output", async (context) => {
   const peer = await startPeer(context, { allowed: ["100.64.0.9"] });
   const seen = { data: "", exit: undefined };
