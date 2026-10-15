@@ -168,13 +168,6 @@ export class MultiServerClient {
     return entry ? entry.client : null;
   }
 
-  // "local" or "link" (Connect PC), or null for a server that is not configured.
-  serverTransport(serverId) {
-    if (serverId === "local") return "local";
-    this.syncEntries();
-    return this.entries.has(serverId) ? "link" : null;
-  }
-
   // A pane of a PC connected with Connect PC: { serverId, id, client }, where
   // `id` is the pane's id on that PC and `client` the link that asks it. That
   // PC reads its panes' conversations itself; null for any other pane.
