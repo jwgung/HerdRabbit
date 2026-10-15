@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
+import { isIP } from "node:net";
 import { promisify } from "node:util";
+import { hostPort } from "./config.mjs";
 import { DEFAULT_PEER_PORT, checkLeafCompatibility, readLimitedText } from "./leaf-protocol.mjs";
 
 const run = promisify(execFile);
@@ -27,8 +29,9 @@ export async function readTailnetPeers(execute = run) {
 
   const fullName = (value) => String(value?.DNSName || "").replace(/\.$/u, "");
   const name = (value) => fullName(value).split(".")[0];
-  const address = (value) => (Array.isArray(value?.TailscaleIPs) ? value.TailscaleIPs : [])
-    .find((item) => !String(item).includes(":")) || null;
+  // IPv4 when the device has one, else its IPv6 (a tailnet can turn IPv4 off).
+  const ips = (value) => (Array.isArray(value?.TailscaleIPs) ? value.TailscaleIPs : []).map(String);
+  const address = (value) => ips(value).find((item) => isIP(item) === 4) || ips(value).find((item) => isIP(item) === 6) || null;
 
   const peers = Object.values(status.Peer || {})
     .map((peer) => ({ name: name(peer), fullName: fullName(peer), address: address(peer), online: peer?.Online === true }))
@@ -64,7 +67,7 @@ export async function tailnetLoginOf(address, execute = run) {
 // read no further than a hello could be: whatever is on that port may not be
 // HerdRabbit at all, and may never stop talking.
 async function probe(peer, { hubVersion, port, fetchImpl, timeoutMs = PROBE_TIMEOUT_MS }) {
-  const address = `http://${peer.address}:${port}`;
+  const address = `http://${hostPort(peer.address, port)}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   timer.unref?.();
@@ -122,7 +125,7 @@ export async function discoverLeaves({
   const probes = tailnet.peers.map(async (peer) => {
     // An offline peer cannot be probed, and saying so beats a timeout.
     if (!peer.online) {
-      return { ...peer, address: `http://${peer.address}:${port}`, state: "offline", reason: "This machine is offline." };
+      return { ...peer, address: `http://${hostPort(peer.address, port)}`, state: "offline", reason: "This machine is offline." };
     }
     return probe(peer, { hubVersion, port, fetchImpl, timeoutMs: probeTimeoutMs });
   });
@@ -134,7 +137,7 @@ export async function discoverLeaves({
     let url;
     try { url = new URL(claim?.address); } catch { return []; }
     if (url.protocol !== "http:") return [];
-    const host = url.hostname;
+    const host = url.hostname.replace(/^\[(.*)\]$/u, "$1");
     const peer = { name: byName.get(host) ? `${byName.get(host)} (${url.port})` : claim.name, address: host };
     return [probe(peer, { hubVersion, port: url.port || port, fetchImpl, timeoutMs: probeTimeoutMs })];
   });

@@ -69,6 +69,19 @@ test("marks a machine that is already registered", async () => {
   assert.equal(stateOf(candidates, "ready-box"), "added");
 });
 
+test("a device with only an IPv6 tailnet address is still found, at a bracketed address", async () => {
+  const onlySix = { ...status, Peer: { f: { DNSName: "six.tailnet.ts.net.", TailscaleIPs: ["fd7a:115c:a1e0::6"], Online: true } } };
+  const asked = [];
+  const { candidates } = await discoverLeaves({
+    hubVersion: HUB_VERSION,
+    execute: async () => ({ stdout: JSON.stringify(onlySix) }),
+    fetchImpl: async (url) => { asked.push(url); return new Response(JSON.stringify({ product: "herdrabbit", version: HUB_VERSION, link_protocol: 1, scope: "local" }), { status: 200 }); },
+  });
+  assert.equal(stateOf(candidates, "six"), "ready");
+  assert.equal(candidates.find((candidate) => candidate.name === "six").address, "http://[fd7a:115c:a1e0::6]:38788");
+  assert.deepEqual(asked, ["http://[fd7a:115c:a1e0::6]:38788/api/link/hello"]);
+});
+
 test("a saved announcement that is not an address is left out, not the whole search", async () => {
   const { candidates } = await discoverLeaves({
     hubVersion: HUB_VERSION, execute, fetchImpl,

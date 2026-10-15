@@ -365,15 +365,63 @@ function tricklingBody(signal) {
   });
 }
 
+// A PC on this link protocol: its hello answers, `fetchImpl` answers the rest.
+const PEER_HELLO = { product: "herdrabbit", version: HUB_VERSION, link_protocol: LINK_PROTOCOL, scope: "local" };
+
 function peerClient(fetchImpl, options = {}) {
   return new LeafLinkClient({
     profile: { name: "Dev box", transport: "link", address: "http://100.64.0.2:38788" },
     hubVersion: HUB_VERSION,
-    fetchImpl,
+    fetchImpl: async (url, init) => new URL(url).pathname === "/api/link/hello"
+      ? new Response(JSON.stringify(PEER_HELLO), { status: 200, headers: { "content-type": "application/json" } })
+      : fetchImpl(url, init),
     timeouts: { read: 300, snapshot: 300, write: 300 },
     ...options,
   });
 }
+
+test("nothing is asked of a PC before its link protocol is known to match", async () => {
+  const asked = [];
+  const answer = (hello) => async (url) => {
+    asked.push(new URL(url).pathname);
+    if (new URL(url).pathname === "/api/link/hello") return new Response(JSON.stringify(hello), { status: 200 });
+    return new Response(JSON.stringify({ output: "screen" }), { status: 200 });
+  };
+  // a PC on another protocol: the hello is all that is sent, the text never goes
+  const other = new LeafLinkClient({ profile: { name: "Old box", transport: "link", address: "http://100.64.0.3:38788" }, hubVersion: HUB_VERSION,
+    fetchImpl: answer({ product: "herdrabbit", version: "0.9.0", link_protocol: LINK_PROTOCOL + 1, scope: "local" }) });
+  await assert.rejects(() => other.sendText("p1", "rm -rf /tmp/x", { submit: true }), { code: "leaf_protocol_mismatch" });
+  assert.deepEqual(asked, ["/api/link/hello"]);
+  // a matching PC is greeted once, then asked
+  asked.length = 0;
+  const same = new LeafLinkClient({ profile: { name: "Dev box", transport: "link", address: "http://100.64.0.2:38788" }, hubVersion: HUB_VERSION,
+    fetchImpl: answer({ product: "herdrabbit", version: HUB_VERSION, link_protocol: LINK_PROTOCOL, scope: "local" }) });
+  await same.readPane("p1");
+  await same.readPane("p1");
+  assert.deepEqual(asked, ["/api/link/hello", "/api/link/panes/p1/output", "/api/link/panes/p1/output"]);
+});
+
+test("a file that stops arriving after its headers fails instead of waiting for ever", async () => {
+  const silent = new ReadableStream({ pull() { return new Promise(() => {}); } });
+  const client = peerClient(async () => new Response(silent, { status: 200, headers: { "content-length": "100" } }), { timeouts: { read: 300, snapshot: 300, write: 300, fileIdle: 50 } });
+  const opened = await client.openFile("/srv/stuck");
+  await assert.rejects(async () => {
+    for await (const chunk of opened.stream) void chunk;
+  }, { code: "leaf_timeout" });
+});
+
+test("closing the merged client lets go of every connected PC, not this one", () => {
+  const closed = [];
+  const local = { snapshot: async () => ({}), close: () => closed.push("local") };
+  const herdr = new MultiServerClient({
+    local, hubVersion: HUB_VERSION,
+    profiles: { list: () => [{ id: LINK_ID, name: "Dev box", transport: "link", address: "http://100.64.0.2:38788" }] },
+  });
+  herdr.syncEntries();
+  for (const [id, entry] of herdr.entries) if (id !== "local") entry.client.close = () => closed.push(id);
+  herdr.close();
+  assert.deepEqual(closed, [LINK_ID]);
+});
 
 test("a redirect from a connected PC is refused, never followed", async () => {
   const asked = [];

@@ -89,6 +89,14 @@ export class MultiServerClient {
     }
   }
 
+  // On shutdown: the other PCs' open requests and status streams are let go,
+  // so they do not hold the process after it was told to stop.
+  close() {
+    for (const [id, entry] of this.entries) {
+      if (id !== "local") entry.client?.close?.();
+    }
+  }
+
   // `again`: what changed may come after the answer a running request will
   // give, so that request is followed by one more.
   async refresh(entry, { again = false } = {}) {

@@ -5,7 +5,8 @@ import { LINK_PROTOCOL, ResponseTooLarge, checkLeafCompatibility, normalizeLeafS
 import { AiAccountError } from "./ai-accounts.mjs";
 import { subscribeLeafStatuses } from "./leaf-status-stream.mjs";
 
-const TIMEOUTS = { hello: 5_000, snapshot: 8_000, read: 6_000, write: 6_000 };
+// fileIdle: how long a file being passed on may go quiet before it fails
+const TIMEOUTS = { hello: 5_000, snapshot: 8_000, read: 6_000, write: 6_000, fileIdle: 60_000 };
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 // A refusal is a short JSON error; nothing a leaf says about one needs more.
 const MAX_ERROR_BYTES = 64 * 1024;
@@ -68,10 +69,19 @@ function accountDetails(details) {
 }
 
 // Passes bytes through, failing once more than `limit` has gone by.
-function capped(limit) {
+// A file that stops arriving -- headers, then silence -- would hold the
+// download open for ever; one quiet for `idleMs` fails instead.
+function capped(limit, idleMs) {
   let seen = 0;
-  return new Transform({
+  let timer = null;
+  const stall = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => stream.destroy(new FileAccessError(504, "leaf_timeout", "The connected PC stopped sending that file.")), idleMs);
+    timer.unref?.();
+  };
+  const stream = new Transform({
     transform(chunk, encoding, callback) {
+      stall();
       seen += chunk.length;
       if (seen > limit) {
         callback(new FileAccessError(502, "leaf_error", "The connected PC sent more of that file than it should have."));
@@ -79,7 +89,11 @@ function capped(limit) {
       }
       callback(null, chunk);
     },
+    flush(callback) { clearTimeout(timer); callback(); },
+    destroy(error, callback) { clearTimeout(timer); callback(error); },
   });
+  stall();
+  return stream;
 }
 
 // `Content-Range: bytes <start>-<end>/<size>` is where a partial answer keeps
@@ -89,7 +103,7 @@ function capped(limit) {
 // nor more than `maxBytes`, nor -- saying nothing -- more than a file of
 // unknown size may be. One that does is cut off with an error, so the
 // download fails rather than ends looking whole.
-function leafFile(response, path, maxBytes = Infinity) {
+function leafFile(response, path, maxBytes = Infinity, idleMs = TIMEOUTS.fileIdle) {
   const named = response.headers.get("x-herdr-file-name");
   const length = response.headers.get("content-length");
   const served = /^bytes (\d+)-(\d+)\/(\d+)$/u.exec(response.headers.get("content-range") ?? "");
@@ -106,7 +120,7 @@ function leafFile(response, path, maxBytes = Infinity) {
     size: served ? Number(served[3]) : declared,
     range,
     length: declared,
-    stream: pipeline(Readable.fromWeb(response.body), capped(limit), () => {}),
+    stream: pipeline(Readable.fromWeb(response.body), capped(limit, idleMs), () => {}),
   };
 }
 
@@ -185,7 +199,15 @@ export class LeafLinkClient {
     }
   }
 
-  async #request(path, { method = "GET", body, timeoutMs = this.timeouts.read, accountErrors = false } = {}) {
+  // Nothing is asked of a PC before its link protocol is known to match: the
+  // snapshot carries the handshake, and anything else asked first says hello.
+  async #ready() {
+    if (this.#handshake) return;
+    this.#verify(await this.#request("/api/link/hello", { timeoutMs: this.timeouts.hello, checked: true }));
+  }
+
+  async #request(path, { method = "GET", body, timeoutMs = this.timeouts.read, accountErrors = false, checked = false } = {}) {
+    if (!checked) await this.#ready();
     const call = await this.#open(path, {
       method,
       headers: body === undefined ? {} : { "content-type": "application/json" },
@@ -248,7 +270,7 @@ export class LeafLinkClient {
   async snapshot() {
     // The handshake rides along, so an incompatible leaf is caught on the same
     // poll that would have merged its records.
-    const body = await this.#request("/api/link/snapshot", { timeoutMs: this.timeouts.snapshot });
+    const body = await this.#request("/api/link/snapshot", { timeoutMs: this.timeouts.snapshot, checked: true });
     this.#verify(body.hello);
     return normalizeLeafSnapshot(body.snapshot);
   }
@@ -303,6 +325,7 @@ export class LeafLinkClient {
   // at the headers and the bytes are bounded by leafFile instead. Otherwise
   // the body is JSON and is read here, whole and bounded, on the clock.
   async #fileRequest(path, { method = "GET", body, headers = {}, timeoutMs = this.timeouts.read, stream = false } = {}) {
+    await this.#ready();
     const call = await this.#open(path, {
       method, body, headers, timeoutMs, duplex: body === undefined ? undefined : "half",
     });
@@ -357,7 +380,7 @@ export class LeafLinkClient {
       `/api/link/browse/file?path=${encodeURIComponent(path)}`,
       { headers: rangeHeader ? { range: rangeHeader } : {}, stream: true },
     );
-    const file = leafFile(response, path, maxBytes);
+    const file = leafFile(response, path, maxBytes, this.timeouts.fileIdle);
     // The same limit a file on this PC is held to, checked before any byte is passed on.
     if (file.size !== null && file.size > maxBytes) {
       file.stream.destroy();
@@ -380,7 +403,7 @@ export class LeafLinkClient {
 
   async openUpload(name) {
     const response = await this.#fileRequest(`/api/link/files/${encodeURIComponent(name)}`, { stream: true });
-    const file = leafFile(response, name, this.maxTransferBytes);
+    const file = leafFile(response, name, this.maxTransferBytes, this.timeouts.fileIdle);
     if (file.size !== null && file.size > this.maxTransferBytes) {
       file.stream.destroy();
       throw new FileAccessError(413, "file_too_large", "That file is too large to download here.");

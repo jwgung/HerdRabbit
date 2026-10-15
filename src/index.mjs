@@ -244,6 +244,7 @@ if (peerServer) {
 
 async function shutdown() {
   herdr.stopped = true;
+  herdr.close();
   notificationMonitor.stop();
   announcer.stop();
   attachments?.close();
