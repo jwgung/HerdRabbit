@@ -44,7 +44,9 @@ export function announcementRegistry({ now = () => Date.now(), initial = [], sav
       } catch {
         return { ok: false, reason: "address" };
       }
-      if (!["http:", "https:"].includes(parsed.protocol) || parsed.hostname !== from) {
+      // An IPv6 host is bracketed in a URL ([fd7a::1]) and bare where it came from.
+      const host = parsed.hostname.replace(/^\[(.*)\]$/u, "$1").toLowerCase();
+      if (!["http:", "https:"].includes(parsed.protocol) || host !== String(from).toLowerCase()) {
         return { ok: false, reason: "address" };
       }
       if (typeof name !== "string" || name === "" || name.length > 80) {

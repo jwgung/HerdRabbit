@@ -657,7 +657,12 @@ export class MachineFiles {
       : size === null ? { start: 0, end: Math.min(maxBytes, UNKNOWN_SIZE_STREAM_BYTES) - 1 } : { start: 0, end: size - 1 };
     // A file of unknown size (0) may end before the cap; any other read must
     // bring every byte it promised.
-    const stream = await this.#read(link, path, slice.start, slice.end - slice.start + 1, true, size !== null);
+    // The path checked is the one read, and not through a link: one swapped in
+    // between the two calls cannot turn an ordinary file into a key. /proc is
+    // the exception -- /proc/self is a different process in each call, and
+    // nobody can swap a link in there.
+    const inProc = real === "/proc" || real.startsWith("/proc/");
+    const stream = await this.#read(link, inProc ? path : real, slice.start, slice.end - slice.start + 1, inProc, size !== null);
     return {
       name: posix.basename(path),
       path,

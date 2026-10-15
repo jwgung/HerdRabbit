@@ -32,6 +32,9 @@ test("a machine may announce itself and nothing else", () => {
   assert.equal(registry.record(claim({ address: "not a url" })).ok, false);
   assert.equal(registry.record(claim({ address: "ftp://100.64.0.2:30001" })).ok, false);
   assert.equal(registry.size, 1);
+  // an IPv6 machine announces its bracketed address
+  assert.equal(registry.record(claim({ from: "fd7a:115c:a1e0::2", address: "http://[fd7a:115c:a1e0::2]:30001" })).ok, true);
+  assert.equal(registry.record(claim({ from: "fd7a:115c:a1e0::2", address: "http://[fd7a:115c:a1e0::9]:30001" })).ok, false);
 });
 
 test("keeps one row per address and holds on to it", () => {
