@@ -2348,6 +2348,35 @@ body.is-resizing-sidebar {
   background: var(--hover-surface);
 }
 
+/* `@` file references: the same list as the Files path field, over the
+   composer's whole row, and tall enough for a thumb on a phone. */
+.input-composer {
+  position: relative;
+}
+
+.composer-files {
+  z-index: 6;
+  bottom: calc(100% + 6px);
+  max-height: min(260px, 40vh);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
+}
+
+.composer-file {
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+.composer-file[data-kind="directory"] {
+  font-weight: 600;
+}
+
+@media (pointer: coarse) {
+  .composer-file {
+    padding: 11px 12px;
+  }
+}
+
 .file-panel-actions {
   display: flex;
   align-items: center;
