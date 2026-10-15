@@ -16,13 +16,14 @@ function linkError(code, message, cause) {
   return new HerdrCommandError(message, { code, cause });
 }
 
-// What a connected PC cannot do over the link yet: searching its scrollback.
-function notOverLink(what, code = "link_unsupported") {
-  return linkError(code, `${what} is not available for a connected PC yet.`);
+// What a connected PC on an older HerdRabbit cannot do over the link.
+function tooOld(address, what) {
+  return linkError("link_unsupported", `HerdRabbit at ${address} is too old for ${what}; update it there.`);
 }
 
 // What a terminal lookup may say and keep saying here: a pane that is gone ends
 // the attach for good, and a PC that cannot attach is mirrored instead.
+const FIND_CODES = new Set(["stale_content", "pane_not_found", "invalid_herdr_response", "herdr_timeout", "not_found"]);
 const TERMINAL_CODES = new Set(["pane_not_found", "pane_not_restored", "no_terminal", "attach_unsupported", "not_found"]);
 const TERMINAL_ID = /^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$/u;
 const gridSize = (value) => Number.isInteger(value) && value >= 1 && value <= 1000 ? value : undefined;
@@ -342,12 +343,24 @@ export class LeafLinkClient {
     return pty;
   }
 
-  async paneFind() {
-    throw notOverLink("Searching the terminal");
+  // Find and reveal run on the connected PC, against its own Herdr; a history
+  // that changed since the match before stays a 409 stale_content here too.
+  async paneFind(paneId, request) {
+    return this.#search(`/api/link/panes/${encodeURIComponent(paneId)}/find`, request);
   }
 
-  async paneReveal() {
-    throw notOverLink("Searching the terminal");
+  async paneReveal(paneId, request) {
+    return this.#search(`/api/link/panes/${encodeURIComponent(paneId)}/reveal`, request);
+  }
+
+  async #search(path, request) {
+    try {
+      return await this.#request(path, { method: "POST", body: request, timeoutMs: this.timeouts.write, codes: FIND_CODES });
+    } catch (error) {
+      // A PC from before find went over the link has no such route.
+      if (error.code === "not_found") throw tooOld(this.address, "searching its terminals");
+      throw error;
+    }
   }
 
   async sendKeys(paneId, keys) {

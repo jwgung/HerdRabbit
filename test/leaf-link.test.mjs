@@ -6,7 +6,7 @@ import { LeafLinkClient } from "../src/leaf-link-client.mjs";
 import { MultiServerClient } from "../src/multi-server-client.mjs";
 import { PeerIdentity } from "../src/peer-identity.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
-import { InputValidationError } from "../src/herdr-client.mjs";
+import { HerdrCommandError, InputValidationError } from "../src/herdr-client.mjs";
 import { LINK_PROTOCOL } from "../src/leaf-protocol.mjs";
 
 const HUB_VERSION = "1.2.0";
@@ -26,6 +26,8 @@ async function startPeer(context, { link, allowed = ["127.0.0.1"] }) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 
+const MATCH = { start: { row: 3, col: 1 }, end: { row: 3, col: 6 } };
+
 function leafHerdr(calls, snapshotOverrides = {}) {
   return {
     async snapshot() {
@@ -42,6 +44,12 @@ function leafHerdr(calls, snapshotOverrides = {}) {
     async readPane(id) { calls.push(["readPane", id]); return "remote output"; },
     async sendText(id, text, options) { calls.push(["sendText", id, text, options]); },
     async sendKeys(id, keys) { calls.push(["sendKeys", id, keys]); },
+    async paneFind(id, request) {
+      calls.push(["paneFind", id, request]);
+      if (request.contentRevision === 1) throw new HerdrCommandError("The history changed", { code: "stale_content" });
+      return { match: MATCH, total: 2, contentRevision: 2 };
+    },
+    async paneReveal(id, request) { calls.push(["paneReveal", id, request]); return { scrolled: true }; },
     async createWorkspace(label, sessionId) { calls.push(["createWorkspace", label, sessionId]); },
     async renameWorkspace(id, label) { calls.push(["renameWorkspace", id, label]); },
     async closeWorkspace(id) { calls.push(["closeWorkspace", id]); },
@@ -343,8 +351,36 @@ test("what a connected PC cannot do yet is refused with a reason, not a crash", 
   await settled(herdr);
   // This leaf has no attach (no node-pty there): its panes are mirrored.
   await assert.rejects(() => herdr.terminalTarget(`${LINK_ID}!${PANE}`), { code: "attach_unsupported" });
-  await assert.rejects(() => herdr.paneFind(`${LINK_ID}!${PANE}`, { query: "x" }), { code: "link_unsupported" });
   assert.equal(await herdr.paneProcessInfo(`${LINK_ID}!${PANE}`), null);
+});
+
+test("find and reveal run on the connected PC, and a changed history stays a stale_content", async (context) => {
+  const { address, calls } = await startLeaf(context);
+  const { herdr } = hubFor(address);
+  await settled(herdr);
+  const found = await herdr.paneFind(`${LINK_ID}!${PANE}`, { query: "needle", direction: "backward" });
+  assert.equal(found.total, 2);
+  assert.deepEqual(calls.find((call) => call[0] === "paneFind").slice(0, 2), ["paneFind", PANE]);
+  assert.equal(calls.find((call) => call[0] === "paneFind")[2].query, "needle");
+  await assert.rejects(() => herdr.paneFind(`${LINK_ID}!${PANE}`, { query: "needle", direction: "backward", previous: MATCH, contentRevision: 1 }), { code: "stale_content" });
+  assert.deepEqual(await herdr.paneReveal(`${LINK_ID}!${PANE}`, { match: MATCH, contentRevision: 2 }), { scrolled: true });
+  assert.equal(calls.find((call) => call[0] === "paneReveal")[1], PANE);
+  // what the peer would not take is refused there too
+  await assert.rejects(() => herdr.paneFind(`${LINK_ID}!${PANE}`, { query: "" }));
+});
+
+test("a connected PC from before find went over the link says it is too old", async () => {
+  const client = new LeafLinkClient({
+    profile: { name: "Old box", transport: "link", address: "http://100.64.0.3:38788" }, hubVersion: HUB_VERSION,
+    fetchImpl: async (url) => new URL(url).pathname === "/api/link/hello"
+      ? new Response(JSON.stringify({ product: "herdrabbit", version: "1.2.51", link_protocol: LINK_PROTOCOL, scope: "local" }), { status: 200 })
+      : new Response(JSON.stringify({ error: { code: "not_found", message: "Not found" } }), { status: 404 }),
+  });
+  await assert.rejects(() => client.paneFind("p1", { query: "x" }), (error) => {
+    assert.equal(error.code, "link_unsupported");
+    assert.match(error.message, /too old/u);
+    return true;
+  });
 });
 
 // A peer that has been allowed is still not trusted to stop talking: these
