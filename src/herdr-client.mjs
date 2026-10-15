@@ -125,6 +125,9 @@ function validTextPoint(point) {
     isCount(point.row, MAX_HISTORY_ROW) && isCount(point.col, MAX_HISTORY_COL);
 }
 
+// What a herdr terminal id may look like before it goes into an argument list.
+export const TERMINAL_ID = /^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$/u;
+
 function textRange(range) {
   if (range === null || typeof range !== "object" || !validTextPoint(range.start) || !validTextPoint(range.end)) return null;
   return { start: { row: range.start.row, col: range.start.col }, end: { row: range.end.row, col: range.end.col } };
@@ -659,7 +662,7 @@ export class HerdrClient {
     // is the second socket the SSH link forwards (clientSocketFor).
     // On a Herdr machine this id comes from the other side: it may only ever be
     // an id, never something `terminal attach` would read as an option.
-    if (typeof pane?.terminal_id !== "string" || !/^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$/u.test(pane.terminal_id)) {
+    if (typeof pane?.terminal_id !== "string" || !TERMINAL_ID.test(pane.terminal_id)) {
       throw new HerdrCommandError("The pane has no terminal", { code: "no_terminal" });
     }
     const rect = layout?.layout?.panes?.find(item => item.pane_id === safePaneId)?.rect;

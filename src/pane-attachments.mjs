@@ -33,7 +33,7 @@ export const ATTACH_DEFAULTS = Object.freeze({
 
 const RETIRE_WAIT_MS = 3_000;
 const delay = (ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref?.(); });
-const validSize = (value) => Number.isInteger(value) && value >= 1 && value <= 1000;
+export const validSize = (value) => Number.isInteger(value) && value >= 1 && value <= 1000;
 
 export class PaneAttachments {
   #attachments = new Map();

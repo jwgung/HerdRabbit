@@ -1,5 +1,6 @@
 import { Readable, Transform, pipeline } from "node:stream";
-import { HerdrCommandError } from "./herdr-client.mjs";
+import { HerdrCommandError, TERMINAL_ID } from "./herdr-client.mjs";
+import { validSize } from "./pane-attachments.mjs";
 import { FileAccessError, UNKNOWN_SIZE_STREAM_BYTES } from "./file-browser.mjs";
 import { LINK_PROTOCOL, ResponseTooLarge, checkLeafCompatibility, normalizeLeafSnapshot, readLimitedText } from "./leaf-protocol.mjs";
 import { AiAccountError } from "./ai-accounts.mjs";
@@ -25,8 +26,7 @@ function tooOld(address, what) {
 // the attach for good, and a PC that cannot attach is mirrored instead.
 const FIND_CODES = new Set(["stale_content", "pane_not_found", "invalid_herdr_response", "herdr_timeout", "not_found"]);
 const TERMINAL_CODES = new Set(["pane_not_found", "pane_not_restored", "no_terminal", "attach_unsupported", "not_found"]);
-const TERMINAL_ID = /^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$/u;
-const gridSize = (value) => Number.isInteger(value) && value >= 1 && value <= 1000 ? value : undefined;
+const gridSize = (value) => validSize(value) ? value : undefined;
 
 const MAX_ID_LENGTH = 512;
 const movedId = (value) => typeof value === "string" && value !== "" && value.length <= MAX_ID_LENGTH && !value.includes("!");

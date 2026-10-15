@@ -1,7 +1,8 @@
 import { StringDecoder } from "node:string_decoder";
 import { WebSocket, WebSocketServer } from "ws";
 import { HttpError, decodePaneId } from "./http-basics.mjs";
-import { HerdrCommandError } from "./herdr-client.mjs";
+import { HerdrCommandError, TERMINAL_ID } from "./herdr-client.mjs";
+import { validSize } from "./pane-attachments.mjs";
 
 // A connected PC's pane, attached for real: the PC that has the pane runs
 // `herdr terminal attach` on its own pty, exactly as it would for its own page,
@@ -32,7 +33,6 @@ const PING_MS = 30_000;
 const HANDSHAKE_MS = 10_000;
 const ATTACH_PATH = /^\/api\/link\/panes\/([^/]+)\/attach$/u;
 // The same shape herdr-client accepts: an id, never something read as an option.
-const TERMINAL_ID = /^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$/u;
 const SIZE = /^[1-9]\d{0,3}$/u;
 
 function size(value, name) {
@@ -42,7 +42,6 @@ function size(value, name) {
   return number;
 }
 
-const validSize = (value) => Number.isInteger(value) && value >= 1 && value <= 1000;
 
 // Pings `socket` every `intervalMs` and ends it when the last ping went
 // unanswered. `quiet()` true skips a check: a paused socket reads no pongs.
@@ -203,6 +202,9 @@ export function linkAttachSockets({
   };
 }
 
+// What a hub keeps of typing that arrives before the far side has answered.
+const MAX_PENDING_INPUT_BYTES = 64 * 1024;
+
 // The hub's half: a pty on another PC, reached at `url` (ws:// or wss://), with
 // the interface nodePtySpawner's ptys have. It is returned at once and connects
 // in the background; typing and resizes made meanwhile are sent once it opens.
@@ -222,6 +224,7 @@ export function openRemotePty({
   let exited = false;
   let paused = false;
   let pendingInput = [];
+  let pendingBytes = 0;
   let pendingSize = null;
   let resolveExit;
   const exitedPromise = new Promise((resolve) => { resolveExit = resolve; });
@@ -257,8 +260,13 @@ export function openRemotePty({
     write: (data) => {
       if (exited) return;
       if (ws.readyState === WebSocket.CONNECTING) {
-        // Bounded: nothing types into an attach that has not started.
-        if (pendingInput.length < 64) pendingInput.push(data);
+        // Bounded, by count and by bytes: nothing types much into an attach
+        // that has not started.
+        const size = Buffer.byteLength(data, "utf8");
+        if (pendingInput.length < 64 && pendingBytes + size <= MAX_PENDING_INPUT_BYTES) {
+          pendingInput.push(data);
+          pendingBytes += size;
+        }
         return;
       }
       if (ws.readyState === WebSocket.OPEN) send(Buffer.from(data, "utf8"), { binary: true });

@@ -175,14 +175,14 @@ const { server } = createHerdrHttpServer({
   protectedPaths,
 });
 
-// The Connect PC port: other PCs reach this one's own sessions here, never the
-// page. It answers with the local Herdr client, not the aggregating one, so
-// this PC reports only its own sessions.
 // A hub attaching to one of this PC's panes: this PC's own Herdr and node-pty
 // run the attach, exactly as for this PC's page.
 const linkAttach = config.peerHost
   ? linkAttachSockets({ terminalTarget: (paneId, timeoutMs) => local.terminalTarget(paneId, timeoutMs), spawnPty: localPty })
   : null;
+// The Connect PC port: other PCs reach this one's own sessions here, never the
+// page. It answers with the local Herdr client, not the aggregating one, so
+// this PC reports only its own sessions.
 const peerServer = config.peerHost ? createPeerServer({
   peer: new PeerIdentity({
     addresses: config.peerAddresses,
