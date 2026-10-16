@@ -56,7 +56,7 @@ test("the Send button doubles as Stop and the press decides which", async () => 
   assert.match(app, /button\.disabled = stop \? busy : composerSending;/u);
   // the mode is taken at pointerdown, before focus leaves the composer, and a
   // Stop press never submits the form
-  assert.match(app, /sendButton\.addEventListener\("pointerdown", \(\) => \{[\s\S]{0,200}pressedSendMode = sendButtonMode\(\);/u);
+  assert.match(app, /sendButton\.addEventListener\("pointerdown", \(\) => \{[\s\S]{0,300}const mode = sendButtonMode\(\);[\s\S]{0,200}pressedSendMode = mode;/u);
   assert.match(app, /const mode = pressedSendMode \?\? sendButtonMode\(\);[\s\S]{0,160}event\.preventDefault\(\);\s*void stopAgent\(\);/u);
   // the key bar's Esc, sent at once to the pane Stop was pressed for: never
   // queued behind (and dropped for) another key on its way

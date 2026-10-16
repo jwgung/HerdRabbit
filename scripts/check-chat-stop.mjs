@@ -172,6 +172,17 @@ try {
       assert.ok(texts().includes("tabbed and sent"), "Enter on the tabbed-to button did not send the draft");
       await sentKeys(0);
       await page.waitForFunction(() => document.querySelector("#terminal-input").value === "", null, { timeout: 5_000 });
+      // Tabbed to, then clicked: still Send, as it shows.
+      await input.fill("tabbed and clicked");
+      await input.focus();
+      await page.keyboard.press("Tab");
+      await looksLike("send");
+      await button.click();
+      const by = Date.now() + 5_000;
+      while (!texts().includes("tabbed and clicked") && Date.now() < by) await page.waitForTimeout(50);
+      assert.ok(texts().includes("tabbed and clicked"), "a click on the tabbed-to Send stopped instead of sending");
+      await sentKeys(0);
+      await page.waitForFunction(() => document.querySelector("#terminal-input").value === "", null, { timeout: 5_000 });
     }
 
     // Out of the composer a press sends one Esc, keeps the draft, and is busy for a moment.
@@ -216,7 +227,7 @@ try {
     assert.equal(await button.getAttribute("aria-busy"), null, "Stop stayed busy after a refused Esc");
     assert.notEqual((await page.locator("#action-feedback").textContent()).trim(), "", "a refused Esc said nothing");
     herdr.failKeys = false;
-    assert.deepEqual(texts().filter((text) => text !== "tabbed and sent"), ["hello there"], "Stop never sent the draft");
+    assert.deepEqual(texts().filter((text) => !text.startsWith("tabbed and")), ["hello there"], "Stop never sent the draft");
 
     // Esc in the composer stops too.
     await input.focus();

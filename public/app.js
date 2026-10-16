@@ -3944,10 +3944,13 @@ async function stopAgent() {
 // The press decides: at pointerdown, before focus leaves the composer, a press
 // is Send if the composer is focused and Stop if not (while the agent works).
 elements.sendButton.addEventListener("pointerdown", () => {
+  // The mode is what the button shows as it is pressed (Send when tabbed to
+  // from the composer); the pointer's own focus counts only after.
+  const mode = sendButtonMode();
   sendFocusedByPointer = true;
   if (elements.sendButton.disabled) return;
   window.clearTimeout(pressedSendModeTimer);
-  pressedSendMode = sendButtonMode();
+  pressedSendMode = mode;
   syncSendButton();
 });
 elements.sendButton.addEventListener("pointercancel", releasePressedSendMode);
