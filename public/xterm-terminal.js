@@ -1,11 +1,11 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.64";
-import { findScreenLinks } from "./terminal-links.js?v=1.2.64";
-import { createTouchScroller } from "./touch-scroll.js?v=1.2.64";
-import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.64";
-import { findOccurrences } from "./terminal-find.js?v=1.2.64";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.65";
+import { findScreenLinks } from "./terminal-links.js?v=1.2.65";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.65";
+import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.65";
+import { findOccurrences } from "./terminal-find.js?v=1.2.65";
 
 const RESIZE_DEBOUNCE_MS = 80;
 // herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
@@ -58,8 +58,10 @@ export function mirrorFrame(text) {
 // Enough for every line the page polls for a mirror.
 const MIRROR_SCROLLBACK = 1000;
 
-// `connection` is the page's terminal socket; `onFallback(paneId)` hears that a
-// pane cannot attach, so the page mirrors its polled screen instead.
+// `connection` is the page's terminal socket; `onFallback(paneId, problem)` hears
+// that a pane cannot attach, so the page mirrors its polled screen instead.
+// `problem` is { code, message, retryAt }: the server's reason ("ended" when
+// herdr ended the attach), and when it is tried again (Infinity: never).
 export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
   onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer"),
   isLinkablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {},
@@ -460,7 +462,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         break;
       case "attach-unavailable":
       case "attach-error":
-        fallBack(message.code === "attach_unsupported" ? Infinity : Date.now() + RETRY_ATTACH_MS);
+        fallBack(message.code === "attach_unsupported" ? Infinity : Date.now() + RETRY_ATTACH_MS,
+          { code: message.code ?? "attach_failed", message: message.message ?? "" });
         break;
       // Typing that arrived while the attach was not ready never reached the pane.
       case "pty-input-dropped":
@@ -468,7 +471,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         break;
       // herdr ended the attach: the pane is mirrored meanwhile.
       case "pty-exit":
-        fallBack(Date.now() + RETRY_ATTACH_MS);
+        fallBack(Date.now() + RETRY_ATTACH_MS, { code: "ended", message: "" });
         break;
       default:
         break;
@@ -481,6 +484,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     held = false;
     clearScreen();
     attachCurrent();
+    setState({});
   });
 
   // Each pane shown, and each socket, is a new stream. xterm writes in order,
@@ -527,14 +531,19 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
 
   // A pane that failed for now is tried again once its wait is over, even if
   // nothing else on the page asks for it.
-  let retryTimer = null;
-  function fallBack(until) {
+  // One wait per pane: Reconnect on one, or another failing, leaves the
+  // others' own retries alone.
+  const retryTimers = new Map();
+  function fallBack(until, problem) {
     const failed = paneId;
     unavailable.set(failed, until);
     stop();
-    onFallback(failed);
-    clearTimeout(retryTimer);
-    if (Number.isFinite(until)) retryTimer = setTimeout(() => onRetry(failed), Math.max(0, until - Date.now()) + 50);
+    onFallback(failed, { ...problem, retryAt: until });
+    clearTimeout(retryTimers.get(failed));
+    retryTimers.delete(failed);
+    if (Number.isFinite(until)) {
+      retryTimers.set(failed, setTimeout(() => { retryTimers.delete(failed); onRetry(failed); }, Math.max(0, until - Date.now()) + 50));
+    }
   }
 
   function drawFrame(frame) {
@@ -634,6 +643,16 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       return true;
     },
     takeOver() { if (paneId && held) connection.takeOver(paneId); },
+    // Reconnect pressed on a pane that failed to attach: its wait is skipped,
+    // and the page is asked to show it again now.
+    retryNow(failed) {
+      if (!failed || !unavailable.has(failed)) return false;
+      unavailable.delete(failed);
+      clearTimeout(retryTimers.get(failed));
+      retryTimers.delete(failed);
+      onRetry(failed);
+      return true;
+    },
     setFontSize(size) {
       if (!term) return;
       term.options.fontSize = size;

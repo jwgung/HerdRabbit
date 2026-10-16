@@ -1,4 +1,4 @@
-import { outputTextForUpdate } from "./ui-model.js?v=1.2.64";
+import { outputTextForUpdate } from "./ui-model.js?v=1.2.65";
 
 const CONVERSATION_MESSAGES = new Set(["conversation-changed", "conversation-unavailable"]);
 const PROMPT_MESSAGES = new Set(["prompt", "prompt-unavailable"]);
@@ -23,6 +23,15 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
   let attached = null;
   const attachListeners = new Set();
   const reconnectListeners = new Set();
+  // Whether the socket is live, for the strip that says why the terminal is not:
+  // { state: "idle" | "connecting" | "ready" | "waiting" | "paused" | "signed-out",
+  //   since, retryAt, failed }. `failed` from a socket closing until one is ready.
+  let connectionState = { state: "idle", since: Date.now(), retryAt: null, failed: false };
+  const stateListeners = new Set();
+  function setConnectionState(state, extra = {}) {
+    connectionState = { state, since: Date.now(), retryAt: null, failed: connectionState.failed, ...extra };
+    for (const listener of stateListeners) listener(connectionState);
+  }
   // Panes whose conversation this page watches (the Chat lens on screen), sent
   // again on every new socket, and who hears their changes.
   const conversations = new Set();
@@ -51,6 +60,7 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
     if (suspended || socket || (!wanted && !attached && conversations.size === 0 && prompts.size === 0)) return;
     const current = new WebSocketImpl(url);
     socket = current;
+    setConnectionState("connecting");
     current.onopen = () => current.send(JSON.stringify({ type: "auth", ...credentials() }));
     current.onmessage = ({ data }) => {
       if (socket !== current) return;
@@ -60,6 +70,7 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
           ready = true;
           retryDelay = 250;
           snapshot = null;
+          setConnectionState("ready", { failed: false });
           if (wanted) transmit({ type: "watch", ...wanted });
           statusKey = JSON.stringify(statusIds);
           transmit({ type: "watch-statuses", paneIds: statusIds });
@@ -105,10 +116,17 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
       statusKey = null;
       const error = new Error("Terminal disconnected. Unconfirmed input was not resent.");
       rejectPending(error);
-      if (event.code === 4001) { suspended = true; onAuthenticationRequired(); return; }
+      if (event.code === 4001) {
+        suspended = true;
+        setConnectionState("signed-out", { failed: true });
+        onAuthenticationRequired();
+        return;
+      }
       if (!suspended) {
         onDisconnect(error);
+        clearTimeout(retry);
         retry = setTimeout(connect, retryDelay);
+        setConnectionState("waiting", { failed: true, retryAt: Date.now() + retryDelay });
         retryDelay = Math.min(retryDelay * 2, 5000);
       }
     };
@@ -116,6 +134,30 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
   return {
     onAttach(listener) { attachListeners.add(listener); },
     onReconnect(listener) { reconnectListeners.add(listener); },
+    // Hears each change of the socket's state (see setConnectionState), and the current one now.
+    onConnectionState(listener) { stateListeners.add(listener); listener(connectionState); },
+    get connectionState() { return connectionState; },
+    // Reconnect pressed: the wait is skipped and the backoff starts over. A
+    // socket still opening is dropped for a fresh one, as it may never open.
+    reconnectNow() {
+      if (ready && socket?.readyState === WebSocketImpl.OPEN) return;
+      clearTimeout(retry);
+      retry = null;
+      retryDelay = 250;
+      suspended = false;
+      const stale = socket;
+      if (stale) {
+        socket = null;
+        ready = false;
+        snapshot = null;
+        statusKey = null;
+        stale.onclose = null;
+        stale.onmessage = null;
+        try { stale.close(); } catch {}
+        rejectPending(new Error("Terminal disconnected. Unconfirmed input was not resent."));
+      }
+      connect();
+    },
     onConversation(listener) { conversationListeners.add(listener); },
     // Hears when the pane's transcript (Claude's or Codex's) changes, until unwatched.
     watchConversation(paneId) {
@@ -203,6 +245,8 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
       suspended = true;
       clearTimeout(retry);
       socket?.close();
+      // A sign-in that ran out stays said while the page asks for a new one.
+      if (connectionState.state !== "signed-out") setConnectionState("paused", { failed: false });
     },
   };
 }

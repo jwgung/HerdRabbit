@@ -1057,6 +1057,84 @@ body.sidebar-collapsed .terminal-panel {
   display: none;
 }
 
+/* Why the terminal is not live, over its top edge: laid over the screen, not
+   above it, so showing it never resizes the pane. */
+.terminal-status {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warning);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.3);
+  font-size: 14px;
+}
+
+.terminal-status[hidden] {
+  display: none;
+}
+
+/* A read-only mirror, or an attach still opening: said, not alarmed -- a
+   small note in the corner that covers as little of the screen as it can and
+   leaves taps to the terminal under it. */
+.terminal-status.is-quiet {
+  left: auto;
+  max-width: calc(100% - 16px);
+  padding: 2px 10px;
+  border-left-width: 1px;
+  color: var(--muted);
+  box-shadow: none;
+  font-size: 12px;
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+.terminal-status.is-quiet .terminal-status-reason {
+  padding: 2px 0;
+}
+
+.terminal-status-reason {
+  min-width: 0;
+  margin: 0;
+  padding: 6px 0;
+  overflow-wrap: anywhere;
+}
+
+.terminal-status-countdown {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.terminal-status button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+.terminal-status button[hidden] {
+  display: none;
+}
+
+/* The find bar sits at the top too: the strip steps below it. */
+.terminal-stage:has(.terminal-find:not([hidden])) .terminal-status {
+  top: 54px;
+}
+
 .quick-keys {
   display: flex;
   flex-wrap: wrap;
@@ -1466,7 +1544,6 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 }
 
 .ai-accounts-panel p { margin: 0; }
-
 
 /* The panels set a display of their own, which beats the hidden attribute; the
    same reason .file-panel[hidden] exists. Without this an idle dialog shows an
@@ -2709,4 +2786,9 @@ body.is-sidebar-dragging * {
   border-radius: 8px;
   background: color-mix(in srgb, var(--accent) 9%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* The copy bar steps below the strip that says why the terminal is not live. */
+.terminal-stage:has(.terminal-status:not([hidden])) .terminal-copy-bar {
+  top: 64px;
 }

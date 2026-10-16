@@ -107,7 +107,8 @@
 
 .terminal-stage[data-lens="chat"] .terminal-xterm,
 .terminal-stage[data-lens="chat"] .terminal-message,
-.terminal-stage[data-lens="chat"] .terminal-held {
+.terminal-stage[data-lens="chat"] .terminal-held,
+.terminal-stage[data-lens="chat"] .terminal-status {
   display: none;
 }
 

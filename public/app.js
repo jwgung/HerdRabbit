@@ -1,6 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.64";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.64";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.64";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.65";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.65";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.65";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -52,7 +52,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyMachinesNotice,
-} from "./ui-model.js?v=1.2.64";
+} from "./ui-model.js?v=1.2.65";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -63,43 +63,44 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.64";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.64";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.64";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.64";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.64";
-import { createChatFind } from "./chat/chat-find.js?v=1.2.64";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.64";
+} from "./browse-preference.js?v=1.2.65";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.65";
+import { terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.2.65";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.65";
+import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.65";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.65";
+import { createChatFind } from "./chat/chat-find.js?v=1.2.65";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.65";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.64";
-import { chatAgent } from "./lens-preference.js?v=1.2.64";
-import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop } from "./chat/chat-activity.js?v=1.2.64";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.64";
+} from "./chat-font-preference.js?v=1.2.65";
+import { chatAgent } from "./lens-preference.js?v=1.2.65";
+import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop } from "./chat/chat-activity.js?v=1.2.65";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.65";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.64";
+} from "./pane-preference.js?v=1.2.65";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.64";
+} from "./workspace-preference.js?v=1.2.65";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.64";
+} from "./terminal-preference.js?v=1.2.65";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.64";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.64";
+} from "./completion-preference.js?v=1.2.65";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.65";
 import {
   attachSidebarDrag,
   dropScope,
@@ -108,15 +109,15 @@ import {
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.2.64";
-import { renamePaneKeys } from "./pane-rename.js?v=1.2.64";
-import { renamePaneLenses } from "./lens-preference.js?v=1.2.64";
+} from "./sidebar-drag.js?v=1.2.65";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.65";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.65";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.64";
-import { createAtFilesPopup } from "./composer-at-files.js?v=1.2.64";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.64";
+} from "./input-history-preference.js?v=1.2.65";
+import { createAtFilesPopup } from "./composer-at-files.js?v=1.2.65";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.65";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -132,16 +133,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.64";
+} from "./key-bar-preference.js?v=1.2.65";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.64";
+} from "./launch-session.js?v=1.2.65";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.64";
+} from "./push-notifications.js?v=1.2.65";
 
 function browserStorage() {
   try {
@@ -366,6 +367,10 @@ const elements = {
   terminalMessage: document.querySelector("#terminal-message"),
   terminalXterm: document.querySelector("#terminal-xterm"),
   terminalHeld: document.querySelector("#terminal-held"),
+  terminalStatus: document.querySelector("#terminal-status"),
+  terminalStatusText: document.querySelector("#terminal-status-text"),
+  terminalStatusCountdown: document.querySelector("#terminal-status-countdown"),
+  terminalReconnect: document.querySelector("#terminal-reconnect"),
   terminalStage: document.querySelector(".terminal-stage"),
   chatHost: document.querySelector("#chat-host"),
   promptDock: document.querySelector("#prompt-dock"),
@@ -3205,6 +3210,8 @@ async function refreshSnapshot() {
 function refreshTerminal({ streamPayload = null } = {}) {
   const paneId = state.selectedPaneId;
   if (!state.authenticated || document.hidden) return;
+  // Another pane may have its own reason, or none.
+  if (paneId !== state.renderedPaneId) renderTerminalStatus();
   if (!paneId) {
     // The pane on screen went away and nothing took its place.
     if (state.renderedPaneId) {
@@ -3318,13 +3325,17 @@ const attachedTerminal = createAttachedTerminal({
   xterm,
   fontSize: state.terminalFontSize,
   // A pane that cannot attach is mirrored from the polled screen instead.
-  onFallback: (paneId) => {
+  onFallback: (paneId, problem) => {
+    terminalAttachProblems.set(paneId, problem);
+    if (terminalAttach?.paneId === paneId) terminalAttach = { paneId, state: "failed", since: Date.now(), problem };
+    renderTerminalStatus();
     if (paneId !== state.selectedPaneId) return;
     showTerminalMessage("Loading output…");
     void refreshTerminal();
   },
-  onStateChange: ({ paneId, held, dropped }) => {
+  onStateChange: ({ paneId, held, ready, dropped }) => {
     if (paneId !== state.selectedPaneId) return;
+    noteTerminalAttach(paneId, held ? "held" : ready ? "live" : "attaching");
     elements.terminalHeld.hidden = !held;
     if (dropped) setFeedback("Typing did not reach the terminal while it reconnected. Check the screen before typing again.", true);
   },
@@ -3335,6 +3346,93 @@ const attachedTerminal = createAttachedTerminal({
   onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
   onViewMoved: () => terminalFind?.forgetPlace(),
 });
+
+// The strip over the Terminal lens that says why the terminal is not live:
+// the socket is down, or the pane on screen could not attach. Quiet during a
+// normal connect, gone as soon as the terminal is live again. A held pane has
+// its own strip (#terminal-held), and the Chat lens shows neither.
+// The pane on screen's attach ({ paneId, state, since, problem }), and why each
+// pane last failed to attach (cleared once it attaches).
+let terminalAttach = null;
+const terminalAttachProblems = new Map();
+let terminalConnectionState = terminalStream.connectionState;
+let terminalStatusTimer = null;
+let terminalStatusShown = null;
+
+function noteTerminalAttach(paneId, next) {
+  if (next === "live") terminalAttachProblems.delete(paneId);
+  const same = terminalAttach?.paneId === paneId;
+  const problem = next === "live" ? null : (same ? terminalAttach.problem : null) ?? terminalAttachProblems.get(paneId) ?? null;
+  const since = same && terminalAttach.state === next ? terminalAttach.since : Date.now();
+  terminalAttach = { paneId, state: next, since, problem };
+  renderTerminalStatus();
+}
+
+function terminalMachine(paneId) {
+  const serverId = paneServerId(paneId);
+  if (!serverId || serverId === "local") return null;
+  return array(state.snapshot?.servers).find((item) => item.id === serverId)?.name || null;
+}
+
+function renderTerminalStatus() {
+  window.clearTimeout(terminalStatusTimer);
+  terminalStatusTimer = null;
+  const paneId = state.selectedPaneId;
+  let attach = null;
+  if (paneId && terminalAttach?.paneId === paneId) attach = terminalAttach;
+  else if (paneId && terminalAttachProblems.has(paneId)) {
+    attach = { paneId, state: "failed", since: 0, problem: terminalAttachProblems.get(paneId) };
+  }
+  const signedOut = terminalConnectionState.state === "signed-out";
+  const { status, recheckAt } = (state.authenticated && !document.hidden) || signedOut
+    ? terminalStatus({
+      connection: terminalConnectionState,
+      attach: attach && { ...attach, machine: terminalMachine(paneId) },
+      offline: navigator.onLine === false,
+    })
+    : { status: null, recheckAt: null };
+  terminalStatusShown = status;
+  elements.terminalStatus.hidden = !status;
+  if (status) {
+    // Only a changed reason is announced; the countdown ticks silently.
+    const { reason, countdown } = terminalStatusParts(status);
+    if (elements.terminalStatusText.textContent !== reason) elements.terminalStatusText.textContent = reason;
+    elements.terminalStatusCountdown.textContent = countdown;
+    elements.terminalStatus.dataset.target = status.target;
+    elements.terminalStatus.classList.toggle("is-quiet", Boolean(status.quiet));
+    elements.terminalReconnect.hidden = !status.reconnect;
+  }
+  if (recheckAt !== null) {
+    terminalStatusTimer = window.setTimeout(renderTerminalStatus, Math.max(50, Math.min(1000, recheckAt - Date.now())));
+  }
+}
+
+terminalStream.onConnectionState((next) => {
+  terminalConnectionState = next;
+  renderTerminalStatus();
+});
+
+elements.terminalReconnect.addEventListener("click", () => {
+  const status = terminalStatusShown;
+  if (!status?.reconnect) return;
+  if (status.target === "connection") {
+    terminalStream.reconnectNow();
+    return;
+  }
+  const paneId = state.selectedPaneId;
+  if (!paneId) return;
+  state.terminalParked = null;
+  // A pane waiting out its retry is tried now; one still attaching is asked again.
+  if (!attachedTerminal.retryNow(paneId)) void refreshTerminal();
+  renderTerminalStatus();
+});
+
+// The network coming back is worth trying at once, not at the end of the wait.
+window.addEventListener("online", () => {
+  if (state.authenticated && !document.hidden) terminalStream.reconnectNow();
+  renderTerminalStatus();
+});
+window.addEventListener("offline", () => renderTerminalStatus());
 
 // A phone keyboard takes the bottom of the screen. The page shrinks to what is
 // still visible, so the composer and key bar sit just above the keyboard
