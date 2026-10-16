@@ -23,6 +23,9 @@ export const FRONTMATTER_READ_BYTES = 4 * 1024;
 export const MAX_LISTED_COMMANDS = 500;
 // Folders below a commands folder followed at most (`a:b:c:name`).
 export const MAX_COMMAND_DEPTH = 3;
+// Folder entries looked at in one listing, however many turn out to be
+// commands: a huge folder costs no more than this.
+export const MAX_SCANNED_ENTRIES = 5000;
 export const COMMANDS_CACHE_MS = 10_000;
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_DESCRIPTION_LENGTH = 200;
@@ -225,7 +228,7 @@ export class SlashCommandCatalog {
 
   async #found(agent, cwd) {
     const isProtected = await this.guard.matcher();
-    const scan = { out: [], isProtected };
+    const scan = { out: [], isProtected, scanned: 0 };
     if (agent === "codex") {
       const base = await this.#real(this.codexDir);
       if (base) await this.#commands(scan, posix.join(this.codexDir, "prompts"), base, { prefix: "prompts:", source: "user", depth: 0 });
@@ -265,10 +268,14 @@ export class SlashCommandCatalog {
     return real;
   }
 
-  async #entries(folder) {
+  async #entries(scan, folder) {
+    const left = MAX_SCANNED_ENTRIES - scan.scanned;
+    if (left <= 0) return [];
     try {
       const entries = await this.fs.readdir(folder, { withFileTypes: true });
-      return entries.map((entry) => entry.name).filter((name) => !name.startsWith(".")).sort();
+      const names = entries.map((entry) => entry.name).filter((name) => !name.startsWith(".")).sort().slice(0, left);
+      scan.scanned += names.length;
+      return names;
     } catch {
       return [];
     }
@@ -297,6 +304,9 @@ export class SlashCommandCatalog {
     let handle;
     try {
       handle = await this.fs.open(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      // A folder above it swapped for a link after `real` was checked would
+      // open another file: where it can be told, it must still be `real`.
+      if (((await this.#opened(handle)) ?? real) !== real) return "";
       const info = await handle.stat();
       if (!info.isFile() || info.size > MAX_COMMAND_FILE_BYTES) return "";
       const buffer = Buffer.alloc(Math.min(FRONTMATTER_READ_BYTES, info.size));
@@ -309,6 +319,15 @@ export class SlashCommandCatalog {
     }
   }
 
+  // The real path of an open file, where the system tells it (Linux); null elsewhere.
+  async #opened(handle) {
+    try {
+      return await this.fs.realpath(`/proc/self/fd/${handle.fd}`);
+    } catch {
+      return null;
+    }
+  }
+
   #add(scan, name, description, source) {
     if (scan.out.length >= MAX_LISTED_COMMANDS || !isCommandName(name)) return;
     scan.out.push({ name, description, source });
@@ -318,7 +337,7 @@ export class SlashCommandCatalog {
   async #skills(scan, folder, base, { prefix, source }) {
     const root = await this.#within(scan, folder, base);
     if (!root || (await this.#kind(root)) !== "directory") return;
-    for (const name of await this.#entries(root)) {
+    for (const name of await this.#entries(scan, root)) {
       if (scan.out.length >= MAX_LISTED_COMMANDS) return;
       const skill = await this.#within(scan, posix.join(root, name), root);
       if (!skill || skill === root || (await this.#kind(skill)) !== "directory") continue;
@@ -338,7 +357,7 @@ export class SlashCommandCatalog {
     const walk = async (directory, parts) => {
       if (visited.has(directory)) return;
       visited.add(directory);
-      for (const name of await this.#entries(directory)) {
+      for (const name of await this.#entries(scan, directory)) {
         if (scan.out.length >= MAX_LISTED_COMMANDS) return;
         const real = await this.#within(scan, posix.join(directory, name), root);
         if (!real) continue;

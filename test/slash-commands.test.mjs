@@ -11,6 +11,7 @@ import {
   CLAUDE_BUILT_IN_COMMANDS,
   CODEX_BUILT_IN_COMMANDS,
   MAX_COMMAND_FILE_BYTES,
+  MAX_SCANNED_ENTRIES,
   SlashCommandCatalog,
   commandSummary,
   parseFrontmatter,
@@ -256,4 +257,32 @@ test("the commands route needs a signed-in session", async (context) => {
   const response = await fetch(`${app.baseUrl}/api/panes/w1%3Ap1/commands`);
   assert.equal(response.status, 401);
   assert.equal((await response.json()).error.code, "authentication_required");
+});
+
+test("a folder with a great many entries is looked at only so far", async (context) => {
+  const root = await mkdtemp(join(tmpdir(), "hr-slash-many-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, "home");
+  const commands = join(home, ".claude", "commands");
+  await mkdir(commands, { recursive: true });
+  await Promise.all(Array.from({ length: MAX_SCANNED_ENTRIES + 50 }, (_, i) => writeFile(join(commands, `n${String(i).padStart(5, "0")}.txt`), "")));
+  await writeFile(join(commands, "zz-last.md"), "---\ndescription: past the limit\n---\n");
+  const spy = spyFs();
+  const catalog = new SlashCommandCatalog({ env: { HOME: home }, guard: localProtectedPaths({ env: { HOME: home }, home }), fs: spy.fs });
+  const answer = await catalog.list({ agent: "claude", cwd: null });
+  assert.deepEqual(names(answer, "user"), [], "a command past the scan limit was still read");
+  assert.ok(!spy.opened.some((path) => path.endsWith("zz-last.md")));
+});
+
+test("a file that is not the one checked, once open, is not read", { skip: process.platform !== "linux" }, async (context) => {
+  const { root, home, project } = await tree();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const spy = spyFs();
+  // stands in for a folder above swapped for a link between the check and the open
+  const outside = join(root, "outside.md");
+  await writeFile(outside, "---\ndescription: SECRET-OUTSIDE\n---\n");
+  const fs = { ...spy.fs, open: (path, flags) => spy.fs.open(path.endsWith("SKILL.md") ? outside : path, flags) };
+  const catalog = new SlashCommandCatalog({ env: { HOME: home }, guard: localProtectedPaths({ env: { HOME: home }, home }), fs });
+  const answer = await catalog.list({ agent: "claude", cwd: project });
+  assert.ok(answer.commands.every((command) => !command.description.includes("SECRET-OUTSIDE")), "the swapped file's text went out");
 });
