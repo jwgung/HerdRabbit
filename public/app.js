@@ -1,6 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.61";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.61";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.61";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.62";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.62";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.62";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -52,7 +52,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyMachinesNotice,
-} from "./ui-model.js?v=1.2.61";
+} from "./ui-model.js?v=1.2.62";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -63,43 +63,43 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.61";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.61";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.61";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.61";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.61";
-import { createChatFind } from "./chat/chat-find.js?v=1.2.61";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.61";
+} from "./browse-preference.js?v=1.2.62";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.62";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.62";
+import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.62";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.62";
+import { createChatFind } from "./chat/chat-find.js?v=1.2.62";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.62";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.61";
-import { chatAgent } from "./lens-preference.js?v=1.2.61";
-import { composerEscapeStops, showsStop } from "./chat/chat-activity.js?v=1.2.61";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.61";
+} from "./chat-font-preference.js?v=1.2.62";
+import { chatAgent } from "./lens-preference.js?v=1.2.62";
+import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop } from "./chat/chat-activity.js?v=1.2.62";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.62";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.61";
+} from "./pane-preference.js?v=1.2.62";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.61";
+} from "./workspace-preference.js?v=1.2.62";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.61";
+} from "./terminal-preference.js?v=1.2.62";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.61";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.61";
+} from "./completion-preference.js?v=1.2.62";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.62";
 import {
   attachSidebarDrag,
   dropScope,
@@ -108,15 +108,15 @@ import {
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.2.61";
-import { renamePaneKeys } from "./pane-rename.js?v=1.2.61";
-import { renamePaneLenses } from "./lens-preference.js?v=1.2.61";
+} from "./sidebar-drag.js?v=1.2.62";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.62";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.62";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.61";
-import { createAtFilesPopup } from "./composer-at-files.js?v=1.2.61";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.61";
+} from "./input-history-preference.js?v=1.2.62";
+import { createAtFilesPopup } from "./composer-at-files.js?v=1.2.62";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.62";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -132,16 +132,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.61";
+} from "./key-bar-preference.js?v=1.2.62";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.61";
+} from "./launch-session.js?v=1.2.62";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.61";
+} from "./push-notifications.js?v=1.2.62";
 
 function browserStorage() {
   try {
@@ -375,7 +375,6 @@ const elements = {
   quickKeys: document.querySelector(".quick-keys"),
   inputForm: document.querySelector("#input-form"),
   sendButton: document.querySelector("#input-form .send-button"),
-  stopButton: document.querySelector("#stop-button"),
   terminalInput: document.querySelector("#terminal-input"),
   composerFiles: document.querySelector("#composer-files"),
   actionFeedback: document.querySelector("#action-feedback"),
@@ -2957,7 +2956,7 @@ function renderPaneHeading(pane, tab, workspace) {
     stopTarget = { paneId: null, agent: null, status: null };
     chatLens.select(null);
     promptDock?.select(null);
-    syncStopButton();
+    syncSendButton();
     return;
   }
 
@@ -2966,7 +2965,7 @@ function renderPaneHeading(pane, tab, workspace) {
   stopTarget = { paneId, agent: chatAgent(pane, agent), status: agentStatus(agent, pane) };
   chatLens.select(paneId, { agent: chatAgent(pane, agent), status: agentStatus(agent, pane) });
   promptDock?.select(paneId, { agent: chatAgent(pane, agent), status: agentStatus(agent, pane) });
-  syncStopButton();
+  syncSendButton();
   const workspaceLabel = displayRecordLabel(workspace, "Project");
   const tabLabel = displayTabLabel(tab);
 
@@ -3346,6 +3345,10 @@ const attachedTerminal = createAttachedTerminal({
 // takes less.
 const KEYBOARD_MIN_HEIGHT_PX = 120;
 let phoneKeyboardOpen = false;
+// A phone keyboard put away leaves the composer focused: Send reads that as
+// out of the composer (and may turn into Stop) until the composer is tapped
+// or focused again.
+let composerKeyboardDismissed = false;
 if (window.visualViewport) {
   const viewport = window.visualViewport;
   const unobstructedHeights = new Map();
@@ -3359,7 +3362,13 @@ if (window.visualViewport) {
     const open = usesTouchInputEnvironment() && typing && viewport.height < unobstructed - KEYBOARD_MIN_HEIGHT_PX;
     if (open) document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
     else document.documentElement.style.removeProperty("--app-height");
+    const dismissed = phoneKeyboardOpen && !open && document.activeElement === elements.terminalInput;
     phoneKeyboardOpen = open;
+    if (open) composerKeyboardDismissed = false;
+    if (dismissed) {
+      composerKeyboardDismissed = true;
+      syncSendButton();
+    }
     attachedTerminal.setKeyboardOpen(open);
     // The browser may have scrolled the page to show the composer; the page
     // now fits, so it goes back to the top.
@@ -3433,7 +3442,7 @@ const chatLens = createChatLens({
     // terminal fits again once it is back.
     elements.terminalPanel.dataset.lens = lens;
     promptDock?.setLens(lens);
-    syncStopButton();
+    syncSendButton();
     // Each lens has its own find bar, and each bar its own pane: a switch
     // closes the other lens's, and a pane switch the chat's.
     if (lens === "chat") terminalFind?.close();
@@ -3666,8 +3675,8 @@ elements.inputForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = elements.terminalInput.value;
   const paneId = state.selectedPaneId;
-  const submitButton = elements.sendButton;
-  submitButton.disabled = true;
+  composerSending = true;
+  syncSendButton();
   setFeedback("Sending…");
   // The Chat lens shows the message on its way and goes to the end at once.
   // The text itself shows only once the server says it was no password answer.
@@ -3696,7 +3705,12 @@ elements.inputForm.addEventListener("submit", async (event) => {
     setFeedback(error.message, true);
   } finally {
     if (paneId) releaseComposerDraft(paneId, { sent: delivered, text, secret });
-    submitButton.disabled = false;
+    composerSending = false;
+    // On a desktop the composer gets focus back after a click on Send, so
+    // the button stays Send and a second click cannot stop what was just
+    // sent. A touch screen keeps its keyboard down (focusComposer no-ops).
+    focusComposer();
+    syncSendButton();
   }
 });
 
@@ -3707,7 +3721,7 @@ elements.terminalInput.addEventListener("keydown", (event) => {
   if (composerEscapeStops({
     key: event.key, isComposing: event.isComposing, keyCode: event.keyCode,
     ctrlKey: event.ctrlKey, altKey: event.altKey, metaKey: event.metaKey, shiftKey: event.shiftKey,
-    stopShown: !elements.stopButton.hidden,
+    stopShown: stopReady(),
     ownedElsewhere: atFiles.isOpen || Boolean(chatFind?.open) || Boolean(document.querySelector("dialog[open]")),
   })) {
     event.preventDefault();
@@ -3756,7 +3770,7 @@ elements.terminalInput.addEventListener("keydown", (event) => {
   });
   if (action === "submit") {
     event.preventDefault();
-    if (!elements.sendButton.disabled) elements.inputForm.requestSubmit();
+    if (!composerSending) elements.inputForm.requestSubmit();
   } else if (action === "newline") {
     event.preventDefault();
     const next = insertNewlineAtSelection(
@@ -3845,34 +3859,76 @@ async function sendCommandKey(key) {
   }
 }
 
-// Stop: the key bar's Esc for the Chat lens, which has no key bar. It shows
-// beside Send while the selected Claude or Codex pane works, so a draft can
-// still go out (the agent queues it) and Send never turns into Stop under a
-// finger. Esc interrupts without losing the conversation: no confirmation.
+// Send doubles as Stop: the key bar's Esc for the Chat lens, which has no key
+// bar. While the selected Claude or Codex pane works and the composer is not
+// focused, the button shows Stop; typing in the composer makes it Send again,
+// so a draft can still go out (the agent queues it). Esc interrupts without
+// losing the conversation: no confirmation.
 const STOP_BUSY_MS = 1_000;
 // Panes whose Stop is still sending: busy is per pane, so a slow Esc to one
-// does not hold another pane's Stop.
+// does not hold another pane's Stop, and never holds Send.
 const stoppingPanes = new Set();
+// A message on its way: Send waits for it.
+let composerSending = false;
+// The mode a press started in, kept until its click: pressing the button moves
+// focus out of the composer, which must not turn a press on Send into Stop.
+let pressedSendMode = null;
+let pressedSendModeTimer = null;
 
-function syncStopButton() {
-  const shown = Boolean(stopTarget.paneId) && stopTarget.paneId === state.selectedPaneId &&
+// The selected pane is a working agent in the Chat lens.
+function stopReady() {
+  return Boolean(stopTarget.paneId) && stopTarget.paneId === state.selectedPaneId &&
     showsStop({ lens: chatLens.lens, agent: stopTarget.agent, status: stopTarget.status });
-  elements.stopButton.hidden = !shown;
-  const busy = stoppingPanes.has(state.selectedPaneId);
-  elements.stopButton.disabled = busy;
-  if (busy) elements.stopButton.setAttribute("aria-busy", "true");
-  else elements.stopButton.removeAttribute("aria-busy");
+}
+
+// Whether the composer is where the person is: in it, or on Send having
+// tabbed there from it (a keyboard press on Send means sending the draft).
+// Send focused by a pointer press is not: that press chose its mode already.
+let sendFocusedByPointer = false;
+function composerFocused() {
+  const active = document.activeElement;
+  if (active === elements.sendButton) return !sendFocusedByPointer;
+  return active === elements.terminalInput && !composerKeyboardDismissed;
+}
+
+function sendButtonMode() {
+  // A message on its way keeps the button Send (and busy): a second press
+  // then can never stop the work it is starting.
+  if (composerSending || stopTarget.paneId !== state.selectedPaneId) return "send";
+  return sendButtonModeFor({ lens: chatLens.lens, agent: stopTarget.agent, status: stopTarget.status,
+    composerFocused: composerFocused() });
+}
+
+function syncSendButton() {
+  const button = elements.sendButton;
+  const mode = pressedSendMode ?? sendButtonMode();
+  const stop = mode === "stop";
+  const busy = stop && stoppingPanes.has(state.selectedPaneId);
+  button.dataset.mode = mode;
+  button.setAttribute("aria-label", stop ? "Stop" : "Send");
+  button.title = stop ? "Stop (Esc)" : "Send";
+  button.disabled = stop ? busy : composerSending;
+  if (busy) button.setAttribute("aria-busy", "true");
+  else button.removeAttribute("aria-busy");
+}
+
+function releasePressedSendMode() {
+  window.clearTimeout(pressedSendModeTimer);
+  pressedSendModeTimer = null;
+  if (pressedSendMode === null) return;
+  pressedSendMode = null;
+  syncSendButton();
 }
 
 async function stopAgent() {
   const paneId = state.selectedPaneId;
-  if (elements.stopButton.hidden || !state.authenticated || !paneId || stoppingPanes.has(paneId)) return;
+  if (!stopReady() || !state.authenticated || !paneId || stoppingPanes.has(paneId)) return;
   // Busy until the Esc has gone, and for a moment at least; then ready again,
   // as Claude may need a second Esc. Stop does not queue behind another key
   // on its way (a slow link, a stuck request): the Esc goes at once, to the
   // pane it was pressed for, and is never dropped for waiting.
   stoppingPanes.add(paneId);
-  syncStopButton();
+  syncSendButton();
   const shortest = new Promise((resolve) => window.setTimeout(resolve, STOP_BUSY_MS));
   clearKeyModifiers();
   try {
@@ -3883,13 +3939,52 @@ async function stopAgent() {
   } finally {
     await shortest;
     stoppingPanes.delete(paneId);
-    syncStopButton();
+    syncSendButton();
   }
 }
 
-// A mouse click keeps the composer focused, as the key bar does.
-elements.stopButton.addEventListener("mousedown", (event) => event.preventDefault());
-elements.stopButton.addEventListener("click", () => void stopAgent());
+// The press decides: at pointerdown, before focus leaves the composer, a press
+// is Send if the composer is focused and Stop if not (while the agent works).
+elements.sendButton.addEventListener("pointerdown", () => {
+  // The mode is what the button shows as it is pressed (Send when tabbed to
+  // from the composer); the pointer's own focus counts only after.
+  const mode = sendButtonMode();
+  sendFocusedByPointer = true;
+  if (elements.sendButton.disabled) return;
+  window.clearTimeout(pressedSendModeTimer);
+  pressedSendMode = mode;
+  syncSendButton();
+});
+elements.sendButton.addEventListener("pointercancel", releasePressedSendMode);
+elements.sendButton.addEventListener("focus", () => syncSendButton());
+elements.sendButton.addEventListener("blur", () => { sendFocusedByPointer = false; syncSendButton(); });
+// A press let go off the button has no click: its mode goes a moment later.
+window.addEventListener("pointerup", () => {
+  if (pressedSendMode === null) return;
+  window.clearTimeout(pressedSendModeTimer);
+  pressedSendModeTimer = window.setTimeout(releasePressedSendMode, 1_000);
+});
+elements.sendButton.addEventListener("click", (event) => {
+  const mode = pressedSendMode ?? sendButtonMode();
+  releasePressedSendMode();
+  if (mode !== "stop") return; // the form sends the draft
+  event.preventDefault();
+  void stopAgent();
+});
+// A press never moves focus into the composer: focus there ends any press.
+elements.terminalInput.addEventListener("focus", () => {
+  composerKeyboardDismissed = false;
+  window.clearTimeout(pressedSendModeTimer);
+  pressedSendMode = null;
+  syncSendButton();
+});
+elements.terminalInput.addEventListener("blur", () => syncSendButton());
+// A tap on a still-focused composer brings the phone keyboard back.
+elements.terminalInput.addEventListener("pointerdown", () => {
+  if (!composerKeyboardDismissed) return;
+  composerKeyboardDismissed = false;
+  syncSendButton();
+});
 
 // Keep the composer focused when using the screen keyboard with a mouse.
 elements.quickKeys.addEventListener("mousedown", (event) => {
