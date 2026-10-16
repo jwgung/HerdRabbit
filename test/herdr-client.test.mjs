@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  namesImage,
   HerdrClient,
   HerdrCommandError,
   InputValidationError,
@@ -114,6 +115,74 @@ test("submits text through Herdr's atomic pane run command", async () => {
   assert.deepEqual(fake.calls.map((call) => call.args), [
     ["pane", "run", "w1:p2", "$(touch /tmp/not-run)"],
   ]);
+});
+
+test("a message naming an image gets its Enter a moment after the text, so the agent attaches it first", async () => {
+  const ok = { stdout: "", stderr: "" };
+  const fake = recordingRunner([ok, ok]);
+  const waited = [];
+  const client = new HerdrClient({ runner: fake.runner, imageSettleMs: 700, sleep: async (ms) => { waited.push(ms); } });
+  const text = "look at /home/me/.local/share/herdrabbit/files/pasted-2026-10-15T00-44-38.png please";
+  await client.sendText("w1:p2", text, { submit: true });
+  assert.deepEqual(fake.calls.map((call) => call.args), [
+    ["pane", "send-text", "w1:p2", text],
+    ["pane", "send-keys", "w1:p2", "enter"],
+  ]);
+  assert.deepEqual(waited, [700]);
+});
+
+test("input to one pane goes in order: a message waiting on its Enter is not cut into", async () => {
+  const ok = { stdout: "", stderr: "" };
+  const fake = recordingRunner([ok, ok, ok, ok, ok]);
+  let release;
+  const client = new HerdrClient({ runner: fake.runner, sleep: () => new Promise((resolve) => { release = resolve; }) });
+  const image = client.sendText("w1:p2", "see /tmp/a.png", { submit: true });
+  const next = client.sendText("w1:p2", "and then this", { submit: true });
+  const keys = client.sendKeys("w1:p2", ["esc"]);
+  const other = client.sendText("w1:p3", "another pane", { submit: true });
+  await other;
+  // another pane is not held up; this one waits behind the image's Enter
+  assert.deepEqual(fake.calls.map((call) => call.args), [
+    ["pane", "send-text", "w1:p2", "see /tmp/a.png"],
+    ["pane", "run", "w1:p3", "another pane"],
+  ]);
+  release();
+  await Promise.all([image, next, keys]);
+  assert.deepEqual(fake.calls.map((call) => call.args).filter((args) => args[2] === "w1:p2"), [
+    ["pane", "send-text", "w1:p2", "see /tmp/a.png"],
+    ["pane", "send-keys", "w1:p2", "enter"],
+    ["pane", "run", "w1:p2", "and then this"],
+    ["pane", "send-keys", "w1:p2", "esc"],
+  ]);
+});
+
+test("the order holds across clients made for the same Herdr, as the bridge makes one per call", async () => {
+  const ok = { stdout: "", stderr: "" };
+  const fake = recordingRunner([ok, ok, ok]);
+  let release;
+  const first = new HerdrClient({ runner: fake.runner, sessionName: "work", sleep: () => new Promise((resolve) => { release = resolve; }) });
+  const second = new HerdrClient({ runner: fake.runner, sessionName: "work" });
+  const image = first.sendText("w9:p1", "see /tmp/a.png", { submit: true });
+  const next = second.sendText("w9:p1", "after", { submit: true });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(fake.calls.filter((call) => call.args.includes("w9:p1")).length, 1, "the second client cut in");
+  release();
+  await Promise.all([image, next]);
+  assert.deepEqual(fake.calls.map((call) => call.args.filter((arg) => !arg.startsWith("--session"))).filter((args) => args.includes("w9:p1")), [
+    ["pane", "send-text", "w9:p1", "see /tmp/a.png"],
+    ["pane", "send-keys", "w9:p1", "enter"],
+    ["pane", "run", "w9:p1", "after"],
+  ]);
+});
+
+test("tells an image path in a message from other text", async () => {
+  for (const text of ["/tmp/a.png", "see ~/shots/b.JPG", "./c.webp and more", '"/x y/d.gif"', "(/p/e.jpeg)", "@shots/a.png", '@"my folder/a.png" now', "@/tmp/b.webp",
+    "확인해 줘: /tmp/a.png, 그리고", "look at /tmp/a.png.", "[/tmp/a.png]", "@shots/a.png,", "see /tmp/a.png?"]) {
+    assert.equal(namesImage(text), true, text);
+  }
+  for (const text of ["no image here", "image.png", "/tmp/notes.md", "a.png.txt at /tmp/f.png.bak", "https://x.test/a.png", "@src/app.js", "me@x.png"]) {
+    assert.equal(namesImage(text), false, text);
+  }
 });
 
 test("accepts an empty successful response when sending terminal keys", async () => {
