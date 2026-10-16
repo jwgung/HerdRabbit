@@ -706,7 +706,7 @@ export class HerdrClient {
   #inOrder(paneId, send) {
     // One queue per pane of one Herdr, shared by every client made for it
     // (the bridge makes one per call): keyed by the socket or session too.
-    const key = `${this.socketPath ?? ""}\0${this.sessionName ?? ""}\0${paneId}`;
+    const key = `${this.binary}\0${this.socketPath ?? ""}\0${this.sessionName ?? ""}\0${paneId}`;
     const before = PANE_INPUTS.get(key) ?? Promise.resolve();
     const run = before.catch(() => {}).then(send);
     const settled = run.catch(() => {});
