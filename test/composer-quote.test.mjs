@@ -55,3 +55,10 @@ test("many short lines are capped as they go in, marks and all", () => {
   assert.ok(block.startsWith("> x\n> x"));
   assert.notEqual(insertQuote("", 0, 0, text, { limit: 8000 }), null, "it fits an empty message");
 });
+
+test("a cut never splits an emoji", () => {
+  // "> " + 7 x, then an emoji (two UTF-16 units) across the cut
+  const block = quoteBlock(`${"x".repeat(7)}😀😀😀`, 11);
+  assert.equal(block, `> ${"x".repeat(7)}…\n\n`);
+  assert.doesNotMatch(block, /[\ud800-\udbff](?![\udc00-\udfff])/u);
+});

@@ -12,7 +12,13 @@ export function quoteBlock(text, cap = MAX_QUOTED_CHARS) {
   if (!lines.join("").trim()) return "";
   const quoted = lines.map((line) => `> ${line}`.trimEnd());
   let block = quoted.join("\n");
-  if (block.length > cap) block = `${block.slice(0, cap - 1).trimEnd()}…`;
+  if (block.length > cap) {
+    // cut on a whole character: never half of an emoji's surrogate pair
+    let end = cap - 1;
+    const last = block.charCodeAt(end - 1);
+    if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+    block = `${block.slice(0, end).trimEnd()}…`;
+  }
   return `${block}\n\n`;
 }
 
