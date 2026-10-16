@@ -3,6 +3,8 @@
 // a pending bubble until the transcript has it.
 
 // How long a sent message waits for the transcript before its bubble goes.
+import { CHAT_AGENTS } from "../lens-preference.js?v=1.2.63";
+
 export const PENDING_MS = 30_000;
 // How long a send alone (no status yet) keeps the working row up.
 export const OPTIMISTIC_MS = 30_000;
@@ -61,4 +63,27 @@ export function settlePending(pending, turns, now = Date.now(), maxAge = PENDING
     const wanted = comparableText(item.text);
     return said.filter((text) => text === wanted).length <= item.baseline;
   });
+}
+
+// Whether the composer shows Stop: the Chat lens is on a Claude or Codex pane
+// whose agent herdr says is working. A blocked agent has its card instead, and
+// a send no status has answered yet is only a guess, so neither shows it.
+export function showsStop({ lens, agent, status }) {
+  return lens === "chat" && CHAT_AGENTS.includes(String(agent ?? "").toLowerCase()) && status === "working";
+}
+
+// What the composer's Send button does: Stop while Stop shows and the composer
+// is not focused, Send otherwise. Typing in the composer always gets Send.
+export function sendButtonMode({ lens, agent, status, composerFocused = false }) {
+  return !composerFocused && showsStop({ lens, agent, status }) ? "stop" : "send";
+}
+
+// Whether Esc in the composer stops the agent, as the Stop button does. Only a
+// plain Esc while Stop shows, and never while something else answers Esc: an
+// IME composing, the @ file list, the find bar or a dialog.
+export function composerEscapeStops({ key, isComposing = false, keyCode = 0, ctrlKey = false, altKey = false,
+  metaKey = false, shiftKey = false, stopShown = false, ownedElsewhere = false }) {
+  if (key !== "Escape" || isComposing || keyCode === 229) return false;
+  if (ctrlKey || altKey || metaKey || shiftKey) return false;
+  return stopShown && !ownedElsewhere;
 }

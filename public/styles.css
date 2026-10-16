@@ -1165,6 +1165,32 @@ body.sidebar-collapsed .terminal-panel {
   stroke-width: 1.8;
 }
 
+/* Send turns into Stop while the agent works in the Chat lens and the composer
+   is not focused: a filled square in the danger colour on a plain button, so it
+   reads as "interrupt", not as another send. */
+.send-button .stop-icon,
+.send-button[data-mode="stop"] .send-icon-now {
+  display: none;
+}
+
+.send-button[data-mode="stop"] .stop-icon {
+  display: block;
+  fill: currentColor;
+  stroke: none;
+}
+
+.send-button[data-mode="stop"],
+.send-button[data-mode="stop"]:hover {
+  border-color: var(--line);
+  background: var(--surface-raised);
+  color: var(--danger);
+}
+
+.send-button[data-mode="stop"]:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
 .server-field {
   display: grid;
   gap: 6px;

@@ -339,6 +339,26 @@ function publicCommandError(error) {
   return new HerdrCommandError("Herdr command failed", { cause: error });
 }
 
+// The input still going to each pane: text and keys for one pane go in the
+// order they came, so a message waiting on its Enter is never cut into.
+const PANE_INPUTS = new Map();
+
+// Enough for Claude Code to read a pasted image path before its Enter.
+const IMAGE_SETTLE_MS = 700;
+// A path to an image file, as an upload or a path link puts in a message.
+const IMAGE_EXTENSION = "(?:png|jpe?g|gif|webp|bmp|heic|heif|tiff?)";
+// Before it the start, a space or an opening bracket; after it the end, a
+// space, a closing bracket or sentence punctuation ("see /tmp/a.png, then").
+const IMAGE_PATH_RE = new RegExp(`(?:^|[\\s([{<])(?:~|\\.{0,2})?/[^\\s"'\\]})>]*\\.${IMAGE_EXTENSION}(?=$|[\\s)\\]}>]|[,.;:!?](?:$|\\s))`, "iu");
+// a quoted one may hold spaces: "/my shots/a.png"
+const QUOTED_IMAGE_PATH_RE = new RegExp(`(["'])(?:~|\\.{0,2})?/[^"'\\n]*\\.${IMAGE_EXTENSION}\\1`, "iu");
+// an @ reference to one, relative or not, quoted or not: @shots/a.png
+const AT_IMAGE_RE = new RegExp(`(?:^|[\\s([{])@(?:"[^"\\n]*\\.${IMAGE_EXTENSION}"|[^\\s"\\]})]*\\.${IMAGE_EXTENSION})(?=$|[\\s)\\]}]|[,.;:!?](?:$|\\s))`, "iu");
+export function namesImage(text) {
+  const value = String(text ?? "");
+  return IMAGE_PATH_RE.test(value) || QUOTED_IMAGE_PATH_RE.test(value) || AT_IMAGE_RE.test(value);
+}
+
 export class HerdrClient {
   constructor({
     binary = "herdr",
@@ -346,8 +366,14 @@ export class HerdrClient {
     runner = execFileAsync,
     sessionName = null,
     socketPath = null,
+    // How long an agent gets to take in a pasted image before its Enter.
+    imageSettleMs = IMAGE_SETTLE_MS,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   } = {}) {
     this.binary = binary;
+    this.imageSettleMs = imageSettleMs;
+    this.sleep = sleep;
+
     this.timeoutMs = timeoutMs;
     this.runner = runner;
     this.sessionName = sessionName === null
@@ -676,9 +702,34 @@ export class HerdrClient {
     };
   }
 
+  // Runs `send` once the pane's earlier input has gone.
+  #inOrder(paneId, send) {
+    // One queue per pane of one Herdr, shared by every client made for it
+    // (the bridge makes one per call): keyed by the socket or session too.
+    const key = `${this.binary}\0${this.socketPath ?? ""}\0${this.sessionName ?? ""}\0${paneId}`;
+    const before = PANE_INPUTS.get(key) ?? Promise.resolve();
+    const run = before.catch(() => {}).then(send);
+    const settled = run.catch(() => {});
+    PANE_INPUTS.set(key, settled);
+    settled.then(() => { if (PANE_INPUTS.get(key) === settled) PANE_INPUTS.delete(key); });
+    return run;
+  }
+
   async sendText(paneId, text, { submit = false } = {}) {
     const safePaneId = validatePaneId(paneId);
     const safeText = validateText(text);
+    return this.#inOrder(safePaneId, () => this.#sendText(safePaneId, safeText, submit));
+  }
+
+  async #sendText(safePaneId, safeText, submit) {
+    if (submit && namesImage(safeText)) {
+      // Claude Code turns a pasted image path into an attachment ([Image #1])
+      // and drops an Enter that arrives while it does: the text goes first,
+      // the Enter after a moment, so the message is sent in one go.
+      await this.#run(["pane", "send-text", safePaneId, safeText], { json: false });
+      await this.sleep(this.imageSettleMs);
+      return this.#run(["pane", "send-keys", safePaneId, "enter"], { json: false });
+    }
     if (submit) {
       return this.#run(["pane", "run", safePaneId, safeText], {
         json: false,
@@ -691,6 +742,10 @@ export class HerdrClient {
   async sendKeys(paneId, keys) {
     const safePaneId = validatePaneId(paneId);
     const safeKeys = validateKeys(keys);
+    return this.#inOrder(safePaneId, () => this.#sendKeys(safePaneId, safeKeys));
+  }
+
+  async #sendKeys(safePaneId, safeKeys) {
     // Herdr's named-key parser (0.8.2 through 0.9.3) omits these navigation keys. Its
     // send-text API writes bytes directly to the PTY, without paste wrapping.
     const groups = [];
