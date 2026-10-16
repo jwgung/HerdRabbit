@@ -254,6 +254,23 @@ http://127.0.0.1:38787
 
 한 줄 설치 스크립트는 Web Push와 WebAuthn 런타임 의존성을 자동 설치합니다. 저장소를 직접 복제했거나 업데이트했다면 `npm ci --omit=dev`를 실행하세요.
 
+### Herdr 플러그인으로 설치
+
+HerdRabbit을 [Herdr 플러그인](https://herdr.dev/)으로도 설치할 수 있습니다 (Herdr 0.9.0 이상, `PATH`에 Node.js 22+와 npm 필요).
+
+```bash
+herdr plugin install ultivis-iot/HerdRabbit
+```
+
+- **빌드:** 설치를 확인하면 Herdr가 자신이 관리하는 플러그인 체크아웃에서 `npm ci --omit=dev`를 실행합니다.
+- **시작:** Herdr가 시작할 때마다(라이브 핸드오프 뒤 포함) 이미 응답하는 HerdRabbit이 없으면 백그라운드로 HerdRabbit을 띄웁니다. systemd 서비스(`herdrabbit.service` 또는 이전 이름 `herdr-web-local.service`)가 실행 중이면 아무것도 하지 않으므로 둘이 함께 돌지 않습니다.
+- **액션:** `herdr plugin action invoke herdrabbit.start`, `herdrabbit.stop`, `herdrabbit.status`, `herdrabbit.restart`. stop은 플러그인이 직접 띄운 서버만 멈추고 systemd 서비스는 건드리지 않습니다. `herdr plugin update` 뒤에도 서버가 이전 체크아웃에서 돌고 있으면 status가 알려 주니 restart하세요.
+- **연결 패인:** `herdr plugin pane open --plugin herdrabbit --entrypoint connect`는 페이지 주소(이 PC 주소와, 포트를 전달하는 Tailscale Serve HTTPS 주소가 있으면 그 주소), 비밀번호 설정 여부, 설정 방법을 보여 줍니다. `qrencode`가 설치돼 있으면 휴대폰 주소의 QR 코드도 그립니다.
+- **비밀번호:** `herdr plugin pane open --plugin herdrabbit --entrypoint password`가 숨김 입력으로 비밀번호를 묻고 플러그인 서버를 다시 시작합니다. 비밀번호는 플러그인 설정 파일에 저장되지 않습니다.
+- **설정:** `herdr plugin config-dir herdrabbit`이 `.env`가 있는 폴더를 알려 줍니다. 첫 시작 때 주석만 있는 템플릿으로 만들어집니다. [환경 변수](#환경-변수)의 `HERDR_WEB_*`와 `HERDR_BIN`을 한 줄에 하나씩 `KEY=VALUE`로 적고 restart하세요. 서버 로그와 pid 파일은 체크아웃이 아니라 플러그인 상태 폴더에 둡니다.
+
+Linux에서는 [한 줄 자동 설치](#한-줄-자동-설치)의 systemd 서비스가 여전히 권장 경로입니다. Herdr 없이도 로그인 때 시작하고 Tailscale Serve도 등록해 줍니다. 서비스 설치기는 Linux 전용이므로 macOS에서는 이 플러그인으로 HerdRabbit을 띄우면 됩니다. 어느 쪽이든 휴대폰에서는 Tailscale Serve로 접속합니다. [Tailscale Serve로 HTTPS 제공](#tailscale-serve로-https-제공)을 보세요.
+
 ## 비밀번호와 Passkey 인증
 
 비밀번호는 HerdRabbit 인스턴스별로 하나만 사용하며 계정명은 입력하지 않습니다. Linux 계정은 서비스를 실행한 사용자로 결정됩니다.

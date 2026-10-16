@@ -5,12 +5,13 @@ import {
   defaultAuthFilePath,
   writePasswordConfiguration,
 } from "../src/password-auth.mjs";
+import { SYSTEMD_UNITS } from "../src/plugin-runner.mjs";
 import { promptForNewPassword } from "./password-prompt.mjs";
 
 const execFileAsync = promisify(execFile);
 
 async function restartInstalledService() {
-  for (const unit of ["herdrabbit.service", "herdr-web-local.service"]) {
+  for (const unit of SYSTEMD_UNITS) {
     try {
       await execFileAsync("systemctl", ["--user", "try-restart", unit]);
       return true;

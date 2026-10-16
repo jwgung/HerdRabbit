@@ -256,6 +256,23 @@ http://127.0.0.1:38787
 
 The one-line installer installs the Web Push and WebAuthn runtime dependencies automatically. Run `npm ci --omit=dev` after a manual clone or update.
 
+### Install as a Herdr plugin
+
+HerdRabbit can also be installed as a [Herdr plugin](https://herdr.dev/) (Herdr 0.9.0 or newer, Node.js 22+ and npm on `PATH`):
+
+```bash
+herdr plugin install ultivis-iot/HerdRabbit
+```
+
+- **Build:** after you confirm, Herdr runs `npm ci --omit=dev` in its own checkout of the plugin.
+- **Startup:** each time Herdr starts (and after a live handoff), the plugin starts HerdRabbit in the background unless a HerdRabbit already answers. It does nothing while the systemd service (`herdrabbit.service`, or the older `herdr-web-local.service`) is active, so the two never run side by side.
+- **Actions:** `herdr plugin action invoke herdrabbit.start`, `herdrabbit.stop`, `herdrabbit.status` and `herdrabbit.restart`. Stop only ever ends the server the plugin started itself; it never touches the systemd service. Status also says when the running server is still on an older checkout after `herdr plugin update`, so you know to restart it.
+- **Connect pane:** `herdr plugin pane open --plugin herdrabbit --entrypoint connect` shows the page addresses (this PC, and the Tailscale Serve HTTPS address when one forwards to the port), whether a password is set, and how to set one. With `qrencode` installed it also draws a QR code for the phone address.
+- **Password:** `herdr plugin pane open --plugin herdrabbit --entrypoint password` asks for it without echoing and restarts the plugin's server. The password is never written to the plugin's settings.
+- **Settings:** `herdr plugin config-dir herdrabbit` prints the folder holding `.env`, created on first start as a commented template. It takes the `HERDR_WEB_*` variables from [Configuration](#configuration) and `HERDR_BIN`, one `KEY=VALUE` per line; restart afterwards. The server log and its pid file live in the plugin's state folder, not in the checkout.
+
+The systemd service from the [quick install](#quick-install) remains the recommended way on Linux: it starts at login without Herdr and also registers Tailscale Serve. The service installer is Linux-only, so on macOS the plugin is the way to keep HerdRabbit running. Either way, a phone still reaches the page through Tailscale Serve; see [Tailscale Serve HTTPS](#tailscale-serve-https).
+
 ## Password and Passkey authentication
 
 Run this as the same Linux user that owns the service:
