@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, mkdtemp, open, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -285,4 +285,28 @@ test("a file that is not the one checked, once open, is not read", { skip: proce
   const catalog = new SlashCommandCatalog({ env: { HOME: home }, guard: localProtectedPaths({ env: { HOME: home }, home }), fs });
   const answer = await catalog.list({ agent: "claude", cwd: project });
   assert.ok(answer.commands.every((command) => !command.description.includes("SECRET-OUTSIDE")), "the swapped file's text went out");
+});
+
+test("a pane in a checkout's subfolder gets the checkout root's commands and project plugins too", async (context) => {
+  const { root, home, project, claude } = await tree();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(project, ".git"));
+  const inner = join(project, "src", "lib");
+  await mkdir(join(inner, ".claude", "commands"), { recursive: true });
+  await writeFile(join(inner, ".claude", "commands", "build.md"), "---\ndescription: Build the lib\n---\n");
+  // a plugin installed for the checkout's root
+  const manifest = join(claude, "plugins", "installed_plugins.json");
+  const installed = JSON.parse(await readFile(manifest, "utf8"));
+  installed.plugins["other@market"][0].projectPath = project;
+  await writeFile(manifest, JSON.stringify(installed));
+  const catalog = new SlashCommandCatalog({ env: { HOME: home }, guard: localProtectedPaths({ env: { HOME: home }, home }), fs: spyFs().fs });
+  const answer = await catalog.list({ agent: "claude", cwd: inner });
+  assert.deepEqual(names(answer, "project"), ["build", "ship", "deploy"]);
+  assert.equal(answer.commands.find((command) => command.name === "build").description, "Build the lib", "the nearest folder's wins");
+  assert.ok(names(answer, "plugin").includes("other:elsewhere"), "the root's project plugin is missing");
+
+  // outside a git checkout only the pane's own folder counts
+  await rm(join(project, ".git"), { recursive: true });
+  const plain = new SlashCommandCatalog({ env: { HOME: home }, guard: localProtectedPaths({ env: { HOME: home }, home }), fs: spyFs().fs });
+  assert.deepEqual(names(await plain.list({ agent: "claude", cwd: inner }), "project"), ["build"]);
 });

@@ -28,6 +28,8 @@ export const MAX_COMMAND_DEPTH = 3;
 export const MAX_SCANNED_ENTRIES = 5000;
 export const COMMANDS_CACHE_MS = 10_000;
 const MAX_MANIFEST_BYTES = 256 * 1024;
+// Folders above a pane's folder looked at for the project's root.
+const MAX_PROJECT_LEVELS = 8;
 const MAX_DESCRIPTION_LENGTH = 200;
 // What a typed `/name` can be: no spaces, quotes or slashes.
 const COMMAND_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/u;
@@ -235,21 +237,38 @@ export class SlashCommandCatalog {
       return scan.out;
     }
     const userDir = await this.#real(this.claudeDir);
-    if (cwd) {
-      const base = await this.#real(cwd);
-      // A pane in the home folder: its project folder is the user's own.
-      const own = base ? await this.#real(posix.join(base, ".claude")) : null;
-      if (base && !(own && own === userDir)) {
-        await this.#skills(scan, posix.join(cwd, ".claude", "skills"), base, { prefix: "", source: "project" });
-        await this.#commands(scan, posix.join(cwd, ".claude", "commands"), base, { prefix: "", source: "project" });
-      }
+    const projects = cwd ? await this.#projectFolders(cwd, userDir) : [];
+    for (const base of projects) {
+      await this.#skills(scan, posix.join(base, ".claude", "skills"), base, { prefix: "", source: "project" });
+      await this.#commands(scan, posix.join(base, ".claude", "commands"), base, { prefix: "", source: "project" });
     }
     if (userDir) {
       await this.#skills(scan, posix.join(userDir, "skills"), userDir, { prefix: "", source: "user" });
       await this.#commands(scan, posix.join(userDir, "commands"), userDir, { prefix: "", source: "user" });
-      await this.#plugins(scan, userDir, cwd);
+      await this.#plugins(scan, userDir, projects);
     }
     return scan.out;
+  }
+
+  // The project folders a pane in `cwd` takes commands from, nearest first:
+  // `cwd` and, inside a git checkout, each folder above it up to the
+  // checkout's root (a pane in `app/src` gets `app`'s too). The home folder,
+  // whose `.claude` is the user's own, is never one.
+  async #projectFolders(cwd, userDir) {
+    const start = await this.#real(cwd);
+    if (!start) return [];
+    const isHome = async (folder) => Boolean(userDir) && (await this.#real(posix.join(folder, ".claude"))) === userDir;
+    const chain = [];
+    for (let folder = start, level = 0; level <= MAX_PROJECT_LEVELS; level += 1) {
+      if (await isHome(folder)) break;
+      chain.push(folder);
+      if (await this.#real(posix.join(folder, ".git"))) return chain;
+      const parent = posix.dirname(folder);
+      if (parent === folder) break;
+      folder = parent;
+    }
+    // not in a git checkout (or its root is too far up): the pane's own folder only
+    return chain.slice(0, 1);
   }
 
   async #real(path) {
@@ -376,8 +395,8 @@ export class SlashCommandCatalog {
 
   // Claude Code's installed plugins, from its installed_plugins.json: each
   // one's skills and commands, named `plugin:name`. A plugin installed for
-  // one project counts only in that project.
-  async #plugins(scan, base, cwd) {
+  // one project counts only in that project (`projects`, the pane's project folders).
+  async #plugins(scan, base, projects) {
     const pluginsDir = await this.#within(scan, posix.join(base, "plugins"), base);
     if (!pluginsDir) return;
     const manifest = await this.#within(scan, posix.join(pluginsDir, "installed_plugins.json"), pluginsDir);
@@ -389,7 +408,6 @@ export class SlashCommandCatalog {
       return;
     }
     const plugins = installed?.plugins && typeof installed.plugins === "object" ? installed.plugins : {};
-    const realCwd = cwd ? await this.#real(cwd) : null;
     for (const [id, installs] of Object.entries(plugins).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
       const plugin = id.split("@", 1)[0];
       if (!isCommandName(plugin) || plugin.includes(":")) continue;
@@ -398,7 +416,7 @@ export class SlashCommandCatalog {
         const scope = install.scope ?? "user";
         if (scope !== "user") {
           const project = typeof install.projectPath === "string" ? await this.#real(install.projectPath) : null;
-          if (!project || project !== realCwd) continue;
+          if (!project || !projects.includes(project)) continue;
         }
         const root = await this.#within(scan, install.installPath, pluginsDir);
         if (!root || (await this.#kind(root)) !== "directory") continue;
