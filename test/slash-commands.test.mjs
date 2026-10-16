@@ -310,3 +310,14 @@ test("a pane in a checkout's subfolder gets the checkout root's commands and pro
   const plain = new SlashCommandCatalog({ env: { HOME: home }, guard: localProtectedPaths({ env: { HOME: home }, home }), fs: spyFs().fs });
   assert.deepEqual(names(await plain.list({ agent: "claude", cwd: inner }), "project"), ["build"]);
 });
+
+test("a huge project folder takes nothing from the user's own commands", async (context) => {
+  const { root, home, project } = await tree();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const commands = join(project, ".claude", "commands");
+  await Promise.all(Array.from({ length: MAX_SCANNED_ENTRIES + 50 }, (_, i) => writeFile(join(commands, `n${String(i).padStart(5, "0")}.txt`), "")));
+  const catalog = new SlashCommandCatalog({ env: { HOME: home }, guard: localProtectedPaths({ env: { HOME: home }, home }), fs: spyFs().fs });
+  const answer = await catalog.list({ agent: "claude", cwd: project });
+  assert.deepEqual(names(answer, "user"), ["alpha", "beta", "a:b:c:deep", "frontend:component", "huge"]);
+  assert.deepEqual(names(answer, "plugin"), ["tools:lint", "tools:fmt"]);
+});

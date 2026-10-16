@@ -23,9 +23,12 @@ export const FRONTMATTER_READ_BYTES = 4 * 1024;
 export const MAX_LISTED_COMMANDS = 500;
 // Folders below a commands folder followed at most (`a:b:c:name`).
 export const MAX_COMMAND_DEPTH = 3;
-// Folder entries looked at in one listing, however many turn out to be
-// commands: a huge folder costs no more than this.
+// Folder entries looked at under one skills or commands folder, however many
+// turn out to be commands: a huge folder costs no more than this, and takes
+// nothing from the folders after it.
 export const MAX_SCANNED_ENTRIES = 5000;
+// and under all of them together, in one listing
+export const MAX_TOTAL_SCANNED_ENTRIES = 20_000;
 export const COMMANDS_CACHE_MS = 10_000;
 const MAX_MANIFEST_BYTES = 256 * 1024;
 // Folders above a pane's folder looked at for the project's root.
@@ -287,13 +290,15 @@ export class SlashCommandCatalog {
     return real;
   }
 
-  async #entries(scan, folder) {
-    const left = MAX_SCANNED_ENTRIES - scan.scanned;
+  // `budget` is the one skills or commands folder's own allowance ({ left }).
+  async #entries(scan, folder, budget) {
+    const left = Math.min(budget.left, MAX_TOTAL_SCANNED_ENTRIES - scan.scanned);
     if (left <= 0) return [];
     try {
       const entries = await this.fs.readdir(folder, { withFileTypes: true });
       const names = entries.map((entry) => entry.name).filter((name) => !name.startsWith(".")).sort().slice(0, left);
       scan.scanned += names.length;
+      budget.left -= names.length;
       return names;
     } catch {
       return [];
@@ -356,7 +361,7 @@ export class SlashCommandCatalog {
   async #skills(scan, folder, base, { prefix, source }) {
     const root = await this.#within(scan, folder, base);
     if (!root || (await this.#kind(root)) !== "directory") return;
-    for (const name of await this.#entries(scan, root)) {
+    for (const name of await this.#entries(scan, root, { left: MAX_SCANNED_ENTRIES })) {
       if (scan.out.length >= MAX_LISTED_COMMANDS) return;
       const skill = await this.#within(scan, posix.join(root, name), root);
       if (!skill || skill === root || (await this.#kind(skill)) !== "directory") continue;
@@ -373,10 +378,11 @@ export class SlashCommandCatalog {
     const root = await this.#within(scan, folder, base);
     if (!root || (await this.#kind(root)) !== "directory") return;
     const visited = new Set();
+    const budget = { left: MAX_SCANNED_ENTRIES };
     const walk = async (directory, parts) => {
       if (visited.has(directory)) return;
       visited.add(directory);
-      for (const name of await this.#entries(scan, directory)) {
+      for (const name of await this.#entries(scan, directory, budget)) {
         if (scan.out.length >= MAX_LISTED_COMMANDS) return;
         const real = await this.#within(scan, posix.join(directory, name), root);
         if (!real) continue;
