@@ -478,11 +478,32 @@ test("reads the question over Claude's task list and session rule", () => {
 
 Enter to select · Tab/Arrow keys to navigate · Esc to cancel
 `;
-  const tasks = (rows) => `────────────────────────────── 세션 이름 ─\n\n${rows}\n`;
+  // Claude's frame spans the pane: as wide as the hint above it
+  const tasks = (rows) => `${"─".repeat(49)} 세션 이름 ─\n\n${rows}\n`;
   for (const rows of ["", "  3 tasks (0 done, 3 open)\n  ◻ 준비\n  ◻ 구현\n  ◻ 검증"]) {
     assert.deepEqual(labels(parseClaudePrompt(question + tasks(rows))), ["만들지 않음 (Recommended)", "만듦"]);
   }
   assert.equal(parseClaudePrompt(`${question}\n⏺ Done.\n──── user@host:~/project ─\n`), null);
+});
+
+test("a titled line of output after an answered approval is output, not Claude's frame", () => {
+  // the frame itself still closes a live prompt, whatever the pane's width
+  const widest = Math.max(...approvalScreen().split("\n").map((line) => line.trim().length));
+  const frame = (name) => `${"─".repeat(Math.max(3, widest - name.length - 3))} ${name} ─`;
+  assert.equal(parseClaudePrompt(`${approvalScreen()}\n${frame("my-session")}\n`)?.kind, "approval");
+  // a narrow pane with a long session name: a short rule, still the frame
+  assert.equal(parseClaudePrompt(`${approvalScreen()}\n${frame("adopt-herdr-web-ui-features-and-more-words-here")}\n`)?.kind, "approval");
+  // output shaped like a titled rule ends it
+  for (const line of ["──── Ran npm test ────", "──── build finished ─", "──── FAILURES ─",
+    `${"─".repeat(12)} test results ${"─".repeat(12)}`, `${"─".repeat(30)} results ${"─".repeat(5)}`,
+    // shaped and as wide as the frame, but indented as Claude shows a tool's output
+    `     ${"─".repeat(widest + 20)} build finished ─`]) {
+    assert.equal(parseClaudePrompt(`${approvalScreen()}\n${line}\n`), null, line);
+  }
+  // the same text drawn from the edge earlier on screen does not make an
+  // indented copy of it at the end the frame
+  const framed = `${"─".repeat(Math.max(3, widest - 12))} my-session ─`;
+  assert.equal(parseClaudePrompt(`${framed}\n${approvalScreen()}\n     ${framed}\n`), null);
 });
 
 test("reads Claude's unnumbered menus, answered from the cursor", () => {
