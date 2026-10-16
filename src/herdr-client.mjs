@@ -367,6 +367,9 @@ export class HerdrClient {
     this.binary = binary;
     this.imageSettleMs = imageSettleMs;
     this.sleep = sleep;
+    // paneId -> the input still going to it: text and keys for one pane go in
+    // the order they came, so a message waiting on its Enter is never cut into.
+    this.inputs = new Map();
     this.timeoutMs = timeoutMs;
     this.runner = runner;
     this.sessionName = sessionName === null
@@ -695,9 +698,23 @@ export class HerdrClient {
     };
   }
 
+  // Runs `send` once the pane's earlier input has gone.
+  #inOrder(paneId, send) {
+    const before = this.inputs.get(paneId) ?? Promise.resolve();
+    const run = before.catch(() => {}).then(send);
+    const settled = run.catch(() => {});
+    this.inputs.set(paneId, settled);
+    settled.then(() => { if (this.inputs.get(paneId) === settled) this.inputs.delete(paneId); });
+    return run;
+  }
+
   async sendText(paneId, text, { submit = false } = {}) {
     const safePaneId = validatePaneId(paneId);
     const safeText = validateText(text);
+    return this.#inOrder(safePaneId, () => this.#sendText(safePaneId, safeText, submit));
+  }
+
+  async #sendText(safePaneId, safeText, submit) {
     if (submit && namesImage(safeText)) {
       // Claude Code turns a pasted image path into an attachment ([Image #1])
       // and drops an Enter that arrives while it does: the text goes first,
@@ -718,6 +735,10 @@ export class HerdrClient {
   async sendKeys(paneId, keys) {
     const safePaneId = validatePaneId(paneId);
     const safeKeys = validateKeys(keys);
+    return this.#inOrder(safePaneId, () => this.#sendKeys(safePaneId, safeKeys));
+  }
+
+  async #sendKeys(safePaneId, safeKeys) {
     // Herdr's named-key parser (0.8.2 through 0.9.3) omits these navigation keys. Its
     // send-text API writes bytes directly to the PTY, without paste wrapping.
     const groups = [];

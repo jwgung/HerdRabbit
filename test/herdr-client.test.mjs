@@ -131,6 +131,31 @@ test("a message naming an image gets its Enter a moment after the text, so the a
   assert.deepEqual(waited, [700]);
 });
 
+test("input to one pane goes in order: a message waiting on its Enter is not cut into", async () => {
+  const ok = { stdout: "", stderr: "" };
+  const fake = recordingRunner([ok, ok, ok, ok, ok]);
+  let release;
+  const client = new HerdrClient({ runner: fake.runner, sleep: () => new Promise((resolve) => { release = resolve; }) });
+  const image = client.sendText("w1:p2", "see /tmp/a.png", { submit: true });
+  const next = client.sendText("w1:p2", "and then this", { submit: true });
+  const keys = client.sendKeys("w1:p2", ["esc"]);
+  const other = client.sendText("w1:p3", "another pane", { submit: true });
+  await other;
+  // another pane is not held up; this one waits behind the image's Enter
+  assert.deepEqual(fake.calls.map((call) => call.args), [
+    ["pane", "send-text", "w1:p2", "see /tmp/a.png"],
+    ["pane", "run", "w1:p3", "another pane"],
+  ]);
+  release();
+  await Promise.all([image, next, keys]);
+  assert.deepEqual(fake.calls.map((call) => call.args).filter((args) => args[2] === "w1:p2"), [
+    ["pane", "send-text", "w1:p2", "see /tmp/a.png"],
+    ["pane", "send-keys", "w1:p2", "enter"],
+    ["pane", "run", "w1:p2", "and then this"],
+    ["pane", "send-keys", "w1:p2", "esc"],
+  ]);
+});
+
 test("tells an image path in a message from other text", async () => {
   for (const text of ["/tmp/a.png", "see ~/shots/b.JPG", "./c.webp and more", '"/x y/d.gif"', "(/p/e.jpeg)", "@shots/a.png", '@"my folder/a.png" now', "@/tmp/b.webp"]) {
     assert.equal(namesImage(text), true, text);
