@@ -507,8 +507,6 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     term?.write("\x1bc");
   }
 
-  // The clipboard API needs a secure page; over plain HTTP the older copy
-  // command still works from a tap. `onCopy(ok)` hears how it went.
   // The selection goes to the page's composer as a quote; `onQuote(text)`.
   function quoteSelection() {
     const text = term.getSelection();
@@ -516,6 +514,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     if (text) onQuote(text);
   }
 
+  // The clipboard API needs a secure page; over plain HTTP the older copy
+  // command still works from a tap. `onCopy(ok)` hears how it went.
   async function copySelection() {
     const text = term.getSelection();
     term.clearSelection();
