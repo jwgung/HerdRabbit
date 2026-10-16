@@ -1,6 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.65";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.65";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.65";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.66";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.66";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.66";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -52,7 +52,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyMachinesNotice,
-} from "./ui-model.js?v=1.2.65";
+} from "./ui-model.js?v=1.2.66";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -63,44 +63,44 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.65";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.65";
-import { terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.2.65";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.65";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.65";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.65";
-import { createChatFind } from "./chat/chat-find.js?v=1.2.65";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.65";
+} from "./browse-preference.js?v=1.2.66";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.66";
+import { terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.2.66";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.66";
+import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.66";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.66";
+import { createChatFind } from "./chat/chat-find.js?v=1.2.66";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.66";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.65";
-import { chatAgent } from "./lens-preference.js?v=1.2.65";
-import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop } from "./chat/chat-activity.js?v=1.2.65";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.65";
+} from "./chat-font-preference.js?v=1.2.66";
+import { chatAgent } from "./lens-preference.js?v=1.2.66";
+import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop } from "./chat/chat-activity.js?v=1.2.66";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.66";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.65";
+} from "./pane-preference.js?v=1.2.66";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.65";
+} from "./workspace-preference.js?v=1.2.66";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.65";
+} from "./terminal-preference.js?v=1.2.66";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.65";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.65";
+} from "./completion-preference.js?v=1.2.66";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.66";
 import {
   attachSidebarDrag,
   dropScope,
@@ -109,15 +109,16 @@ import {
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.2.65";
-import { renamePaneKeys } from "./pane-rename.js?v=1.2.65";
-import { renamePaneLenses } from "./lens-preference.js?v=1.2.65";
+} from "./sidebar-drag.js?v=1.2.66";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.66";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.66";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.65";
-import { createAtFilesPopup } from "./composer-at-files.js?v=1.2.65";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.65";
+} from "./input-history-preference.js?v=1.2.66";
+import { createAtFilesPopup } from "./composer-at-files.js?v=1.2.66";
+import { insertQuote } from "./composer-quote.js?v=1.2.66";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.66";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -133,16 +134,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.65";
+} from "./key-bar-preference.js?v=1.2.66";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.65";
+} from "./launch-session.js?v=1.2.66";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.65";
+} from "./push-notifications.js?v=1.2.66";
 
 function browserStorage() {
   try {
@@ -3319,6 +3320,29 @@ const terminalStream = terminalConnection({
 let terminalFind = null;
 let chatFind = null;
 
+// The terminal's selection goes into the selected pane's draft as a Markdown
+// quote, at the caret, and the user types the question below it.
+function quoteIntoComposer(text) {
+  const input = elements.terminalInput;
+  if (input.disabled) {
+    setFeedback("The message box is not available.", true);
+    return;
+  }
+  syncComposerDraft();
+  const next = insertQuote(input.value, input.selectionStart, input.selectionEnd, text, { limit: input.maxLength });
+  if (!next) {
+    setFeedback(String(text).trim() ? "The quote does not fit in the message. Shorten the message or select less." : "Nothing to quote.", true);
+    return;
+  }
+  input.value = next.value;
+  input.setSelectionRange(next.caret, next.caret);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  saveComposerDraft();
+  focusComposer();
+  input.setSelectionRange(next.caret, next.caret);
+  input.scrollTop = input.scrollHeight;
+}
+
 const attachedTerminal = createAttachedTerminal({
   host: elements.terminalXterm,
   connection: terminalStream,
@@ -3344,6 +3368,7 @@ const attachedTerminal = createAttachedTerminal({
   onFontSizeChange: applyTerminalFontSize,
   onRetry: (paneId) => { if (paneId === state.selectedPaneId) void refreshTerminal(); },
   onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
+  onQuote: quoteIntoComposer,
   onViewMoved: () => terminalFind?.forgetPlace(),
 });
 

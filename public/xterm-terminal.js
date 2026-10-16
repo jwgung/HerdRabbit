@@ -1,11 +1,11 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.65";
-import { findScreenLinks } from "./terminal-links.js?v=1.2.65";
-import { createTouchScroller } from "./touch-scroll.js?v=1.2.65";
-import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.65";
-import { findOccurrences } from "./terminal-find.js?v=1.2.65";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.66";
+import { findScreenLinks } from "./terminal-links.js?v=1.2.66";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.66";
+import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.66";
+import { findOccurrences } from "./terminal-find.js?v=1.2.66";
 
 const RESIZE_DEBOUNCE_MS = 80;
 // herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
@@ -65,7 +65,7 @@ const MIRROR_SCROLLBACK = 1000;
 export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
   onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer"),
   isLinkablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {},
-  onCopy = () => {}, onViewMoved = () => {} }) {
+  onCopy = () => {}, onQuote = () => {}, onViewMoved = () => {} }) {
   const { Terminal, FitAddon, UnicodeGraphemesAddon } = xterm;
   let term = null;
   // The finger scroll; a glide stops when the pane changes or goes away.
@@ -225,11 +225,18 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     copyButton.type = "button";
     copyButton.textContent = "Copy";
     copyButton.addEventListener("click", () => void copySelection());
+    const quoteButton = host.ownerDocument.createElement("button");
+    quoteButton.type = "button";
+    quoteButton.className = "terminal-quote-button";
+    quoteButton.textContent = "\u201C";
+    quoteButton.setAttribute("aria-label", "Quote in message");
+    quoteButton.title = "Quote in message";
+    quoteButton.addEventListener("click", () => quoteSelection());
     const dismissButton = host.ownerDocument.createElement("button");
     dismissButton.type = "button";
     dismissButton.textContent = "Cancel";
     dismissButton.addEventListener("click", () => term.clearSelection());
-    copyBar.append(copyButton, dismissButton);
+    copyBar.append(copyButton, quoteButton, dismissButton);
     host.append(copyBar);
     // The bar offers to copy whatever is selected, by mouse or by finger.
     term.onSelectionChange(() => { copyBar.hidden = !term.hasSelection() || Boolean(selecting); });
@@ -502,6 +509,13 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
 
   // The clipboard API needs a secure page; over plain HTTP the older copy
   // command still works from a tap. `onCopy(ok)` hears how it went.
+  // The selection goes to the page's composer as a quote; `onQuote(text)`.
+  function quoteSelection() {
+    const text = term.getSelection();
+    term.clearSelection();
+    if (text) onQuote(text);
+  }
+
   async function copySelection() {
     const text = term.getSelection();
     term.clearSelection();
