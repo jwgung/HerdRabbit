@@ -507,11 +507,11 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     term?.write("\x1bc");
   }
 
-  // The selection goes to the page's composer as a quote; `onQuote(text)`.
+  // The selection goes to the page's composer as a quote; `onQuote(text)`
+  // says whether it went in, and only then is the selection let go.
   function quoteSelection() {
     const text = term.getSelection();
-    term.clearSelection();
-    if (text) onQuote(text);
+    if (text && onQuote(text) !== false) term.clearSelection();
   }
 
   // The clipboard API needs a secure page; over plain HTTP the older copy

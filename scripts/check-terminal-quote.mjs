@@ -89,6 +89,20 @@ try {
     await page.waitForFunction(() => document.querySelector("#terminal-xterm .xterm-rows")?.textContent.replace(/\u00a0/gu, " ").includes("error: build failed"));
     assert.equal(await input.inputValue(), expected, "the quote stays in the pane's draft");
 
+    // A quote that does not fit says so and keeps the selection, to copy or
+    // quote again after making room.
+    // (a small limit here stands in for a full 8,000-character draft)
+    await input.evaluate((el) => { el.maxLength = 30; });
+    const full = "almost full draft";
+    await input.fill(full);
+    await select();
+    await quote.click();
+    await page.waitForFunction(() => /does not fit/u.test(document.querySelector("#action-feedback")?.textContent ?? ""));
+    assert.equal(await input.inputValue(), full, "a quote that does not fit went in anyway");
+    assert.equal(await page.locator(".terminal-copy-bar").isVisible(), true, "the selection was dropped though nothing was quoted");
+    await input.evaluate((el) => { el.maxLength = 8000; });
+    await page.evaluate(() => getSelection().removeAllRanges());
+
     // A second quote goes in at the caret, set apart from the text before it.
     await input.fill("why?");
     await input.evaluate((el) => el.setSelectionRange(4, 4));
@@ -99,7 +113,7 @@ try {
     assert.deepEqual(await input.evaluate((el) => el.selectionStart), second.length);
     assert.deepEqual(sent, []);
     assert.deepEqual(errors, []);
-    console.log({ mobile, quoted: true, caretAtEnd: true, selectionCleared: true, draftKept: true, nothingSent: true });
+    console.log({ mobile, quoted: true, caretAtEnd: true, selectionCleared: true, draftKept: true, nothingSent: true, keptOnFailure: true });
     await context.close();
   }
 } finally {

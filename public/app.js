@@ -3322,17 +3322,19 @@ let chatFind = null;
 
 // The terminal's selection goes into the selected pane's draft as a Markdown
 // quote, at the caret, and the user types the question below it.
+// Whether the quote went in: when it did not, the terminal keeps its
+// selection so it can be copied or quoted again.
 function quoteIntoComposer(text) {
   const input = elements.terminalInput;
   if (input.disabled) {
     setFeedback("The message box is not available.", true);
-    return;
+    return false;
   }
   syncComposerDraft();
   const next = insertQuote(input.value, input.selectionStart, input.selectionEnd, text, { limit: input.maxLength });
   if (!next) {
     setFeedback(String(text).trim() ? "The quote does not fit in the message. Shorten the message or select less." : "Nothing to quote.", true);
-    return;
+    return false;
   }
   input.value = next.value;
   input.setSelectionRange(next.caret, next.caret);
@@ -3341,6 +3343,7 @@ function quoteIntoComposer(text) {
   focusComposer();
   input.setSelectionRange(next.caret, next.caret);
   input.scrollTop = input.scrollHeight;
+  return true;
 }
 
 const attachedTerminal = createAttachedTerminal({
