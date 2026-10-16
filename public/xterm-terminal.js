@@ -531,14 +531,19 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
 
   // A pane that failed for now is tried again once its wait is over, even if
   // nothing else on the page asks for it.
-  let retryTimer = null;
+  // One wait per pane: Reconnect on one, or another failing, leaves the
+  // others' own retries alone.
+  const retryTimers = new Map();
   function fallBack(until, problem) {
     const failed = paneId;
     unavailable.set(failed, until);
     stop();
     onFallback(failed, { ...problem, retryAt: until });
-    clearTimeout(retryTimer);
-    if (Number.isFinite(until)) retryTimer = setTimeout(() => onRetry(failed), Math.max(0, until - Date.now()) + 50);
+    clearTimeout(retryTimers.get(failed));
+    retryTimers.delete(failed);
+    if (Number.isFinite(until)) {
+      retryTimers.set(failed, setTimeout(() => { retryTimers.delete(failed); onRetry(failed); }, Math.max(0, until - Date.now()) + 50));
+    }
   }
 
   function drawFrame(frame) {
@@ -643,7 +648,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     retryNow(failed) {
       if (!failed || !unavailable.has(failed)) return false;
       unavailable.delete(failed);
-      clearTimeout(retryTimer);
+      clearTimeout(retryTimers.get(failed));
+      retryTimers.delete(failed);
       onRetry(failed);
       return true;
     },

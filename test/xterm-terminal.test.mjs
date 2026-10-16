@@ -568,6 +568,19 @@ test("a mirrored screen is not trusted while a frame is held back or before it i
   assert.equal(view.screenText().fresh, false, "a held frame");
 });
 
+test("Reconnect on one failed pane leaves another's own retry alone", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { view, receive, retries } = setup();
+  view.show("a");
+  receive({ type: "attach-unavailable", pane_id: "a", code: "server_unavailable" });
+  view.show("b");
+  receive({ type: "attach-unavailable", pane_id: "b", code: "server_unavailable" });
+  assert.equal(view.retryNow("a"), true);
+  assert.deepEqual(retries, ["a"]);
+  context.mock.timers.tick(6_000);
+  assert.deepEqual(retries, ["a", "b"], "b still came back on its own");
+});
+
 test("a failed attach tells the page why and until when, and Reconnect tries it now", (context) => {
   context.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const { view, receive, retries, problems } = setup();
