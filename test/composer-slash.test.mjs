@@ -91,13 +91,19 @@ test("asks for the pane's commands only for Claude Code and Codex, and keeps the
   });
   const found = await source.lookUp({ start: 0, end: 4, query: "com" });
   assert.deepEqual(found.matches.map((command) => command.name), ["commit", "compact", "recompile"]);
-  assert.deepEqual(found.where, { paneId: "w1:p1", agent: "claude" });
+  assert.deepEqual(found.where, { paneId: "w1:p1", agent: "claude", cwd: null });
   await source.lookUp({ start: 0, end: 3, query: "co" });
   assert.deepEqual(asked, ["w1:p1"], "the list was kept");
   clock = 20_000;
   await source.lookUp({ start: 0, end: 3, query: "co" });
   assert.deepEqual(asked, ["w1:p1", "w1:p1"], "an old list is asked again");
   assert.equal(source.stillCurrent(found.where), true);
+
+  // the pane moved to another project: that folder's commands, asked at once
+  context = { paneId: "w1:p1", agent: "claude", cwd: "/work/other" };
+  assert.equal(source.stillCurrent(found.where), false, "the folder changed");
+  await source.lookUp({ start: 0, end: 3, query: "co" });
+  assert.deepEqual(asked, ["w1:p1", "w1:p1", "w1:p1"], "the old folder's list was kept for the new one");
 
   context = { paneId: "w1:p1", agent: "codex" };
   assert.equal(source.stillCurrent(found.where), false, "the agent changed");
@@ -132,5 +138,5 @@ test("draws each row with its name, description and source", () => {
   ]);
   const odd = element("li");
   source.renderItem(odd, { name: "x", source: "<b>" }, doc);
-  assert.equal(odd.dataset.source, "built-in", "an unknown source is not shown");
+  assert.equal(odd.dataset.source, "other", "an unknown source is shown as another one");
 });

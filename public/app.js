@@ -501,7 +501,8 @@ const composerPopup = createComposerPopup({
       context: () => {
         const paneId = state.selectedPaneId;
         if (!paneId) return null;
-        return { paneId, agent: chatAgent(selectedRecords().pane, agentForPane(paneId)) };
+        const pane = selectedRecords().pane;
+        return { paneId, agent: chatAgent(pane, agentForPane(paneId)), cwd: pane?.foreground_cwd || pane?.cwd || null };
       },
       fetchCommands: (paneId) => api(`/api/panes/${encodeURIComponent(paneId)}/commands`),
     }),
