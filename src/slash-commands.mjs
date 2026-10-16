@@ -1,0 +1,406 @@
+// The `/` commands a pane's agent takes, for the composer's command list:
+// Claude Code's and Codex's own, and the skills, commands and prompts the
+// user, the pane's project and the installed Claude plugins add.
+//
+// Only names and one-line descriptions ever leave here. What is opened is
+// limited to the Markdown files those commands live in (their frontmatter,
+// the first few KB) and Claude's installed_plugins.json -- never a
+// transcript, history, settings or sign-in file. Every path is compared by
+// its real path: an entry that leads out of the folder it was found in (a
+// link elsewhere) is skipped, and HerdRabbit's protected paths are refused
+// whatever leads to them.
+import { constants } from "node:fs";
+import { open, readdir, realpath, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { posix } from "node:path";
+import { defaultProtectedPaths } from "./protected-paths.mjs";
+
+export const COMMAND_AGENTS = Object.freeze(["claude", "codex"]);
+// A command file larger than this is listed by its name alone, unread.
+export const MAX_COMMAND_FILE_BYTES = 64 * 1024;
+// Of a command file, only this much is read: the frontmatter and the first lines.
+export const FRONTMATTER_READ_BYTES = 4 * 1024;
+export const MAX_LISTED_COMMANDS = 500;
+// Folders below a commands folder followed at most (`a:b:c:name`).
+export const MAX_COMMAND_DEPTH = 3;
+export const COMMANDS_CACHE_MS = 10_000;
+const MAX_MANIFEST_BYTES = 256 * 1024;
+const MAX_DESCRIPTION_LENGTH = 200;
+// What a typed `/name` can be: no spaces, quotes or slashes.
+const COMMAND_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/u;
+
+const builtIn = (entries) => Object.freeze(entries.map(([name, description]) => Object.freeze({ name, description, source: "built-in" })));
+
+// Claude Code's own commands, the well-known ones.
+export const CLAUDE_BUILT_IN_COMMANDS = builtIn([
+  ["add-dir", "Add another working directory"],
+  ["agents", "Manage subagents"],
+  ["bug", "Report a bug to Anthropic"],
+  ["clear", "Clear the conversation history"],
+  ["compact", "Compact the conversation, with optional focus instructions"],
+  ["config", "Open the settings"],
+  ["context", "Show what fills the context window"],
+  ["cost", "Show the session's token cost"],
+  ["doctor", "Check the Claude Code installation"],
+  ["exit", "Exit Claude Code"],
+  ["export", "Export the conversation to a file or the clipboard"],
+  ["help", "Show help and the available commands"],
+  ["hooks", "Manage hooks"],
+  ["ide", "Manage IDE integrations"],
+  ["init", "Create a CLAUDE.md for this project"],
+  ["login", "Sign in to an Anthropic account"],
+  ["logout", "Sign out"],
+  ["mcp", "Manage MCP servers"],
+  ["memory", "Edit CLAUDE.md memory files"],
+  ["model", "Choose the model"],
+  ["output-style", "Choose the output style"],
+  ["permissions", "View and change tool permissions"],
+  ["plugin", "Manage plugins"],
+  ["pr-comments", "Show a pull request's comments"],
+  ["release-notes", "Show the release notes"],
+  ["resume", "Resume an earlier conversation"],
+  ["review", "Review a pull request"],
+  ["rewind", "Rewind the conversation and code"],
+  ["security-review", "Review pending changes for security issues"],
+  ["status", "Show version, model, account and connections"],
+  ["statusline", "Set up the status line"],
+  ["terminal-setup", "Set up Shift+Enter for newlines"],
+  ["todos", "Show the current todo items"],
+  ["usage", "Show plan usage limits"],
+  ["vim", "Toggle Vim editing mode"],
+]);
+
+// The Codex CLI's own commands, the well-known ones.
+export const CODEX_BUILT_IN_COMMANDS = builtIn([
+  ["approvals", "Choose what Codex may do without asking"],
+  ["compact", "Summarize the conversation to free context"],
+  ["diff", "Show the git diff, untracked files included"],
+  ["exit", "Exit Codex"],
+  ["feedback", "Send logs to the Codex maintainers"],
+  ["init", "Create an AGENTS.md for this project"],
+  ["logout", "Sign out of Codex"],
+  ["mcp", "List the configured MCP tools"],
+  ["mention", "Mention a file"],
+  ["model", "Choose the model and reasoning effort"],
+  ["new", "Start a new chat"],
+  ["quit", "Exit Codex"],
+  ["review", "Review the current changes"],
+  ["status", "Show the session's settings and token usage"],
+]);
+
+export function builtInCommands(agent) {
+  if (agent === "claude") return CLAUDE_BUILT_IN_COMMANDS;
+  if (agent === "codex") return CODEX_BUILT_IN_COMMANDS;
+  return [];
+}
+
+function unquote(value) {
+  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+    return value.slice(1, -1).replace(/\\(["\\])/gu, "$1").replace(/\\n/gu, " ");
+  }
+  if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) return value.slice(1, -1).replace(/''/gu, "'");
+  // A plain value ends at a comment.
+  return value.replace(/\s+#.*$/u, "");
+}
+
+// The `name` and `description` of a Markdown file's YAML frontmatter, and the
+// body after it. Only top-level `key: value` pairs are read: plain, quoted,
+// folded or literal (`>`, `|`) and plain values continued on indented lines.
+// A frontmatter cut off before its closing `---` (the file was only read in
+// part) gives what it has, without its last, possibly cut, line.
+export function parseFrontmatter(text) {
+  const source = String(text ?? "").replace(/^\uFEFF/u, "");
+  const lines = source.split(/\r?\n/u);
+  if (lines[0]?.trim() !== "---") return { fields: {}, body: source };
+  const end = lines.findIndex((line, index) => index > 0 && /^(---|\.\.\.)\s*$/u.test(line));
+  const head = end < 0 ? lines.slice(1, -1) : lines.slice(1, end);
+  const body = end < 0 ? "" : lines.slice(end + 1).join("\n");
+  const fields = {};
+  for (let index = 0; index < head.length; index += 1) {
+    const match = /^([A-Za-z_][\w-]*)[ \t]*:(?:[ \t]+(.*)|[ \t]*)$/u.exec(head[index]);
+    if (!match) continue;
+    const key = match[1];
+    const raw = (match[2] ?? "").trim();
+    const continued = [];
+    while (index + 1 < head.length && (/^[ \t]+\S/u.test(head[index + 1]) || head[index + 1].trim() === "")) {
+      continued.push(head[index + 1].trim());
+      index += 1;
+    }
+    if (key !== "name" && key !== "description") continue;
+    let value;
+    if (/^[|>][+-]?\d*$/u.test(raw)) value = continued.filter(Boolean).join(" ");
+    else value = unquote([raw, ...continued.filter(Boolean)].join(" ").trim());
+    fields[key] = oneLine(value);
+  }
+  return { fields, body };
+}
+
+// One line of plain text, cut to a length a list row can show.
+function oneLine(value, limit = MAX_DESCRIPTION_LENGTH) {
+  // eslint-disable-next-line no-control-regex
+  const flat = String(value ?? "").replace(/[\u0000-\u001f\u007f]+/gu, " ").replace(/\s+/gu, " ").trim();
+  return flat.length > limit ? `${flat.slice(0, limit - 1).trimEnd()}…` : flat;
+}
+
+// A command's name and description from the start of its file: the
+// frontmatter's, else `fallbackName` and the first line of the body that is
+// not empty (a heading's text without its `#`).
+export function commandSummary(text, fallbackName) {
+  const { fields, body } = parseFrontmatter(text);
+  let description = fields.description || "";
+  if (!description) {
+    const lines = body.split(/\r?\n/u);
+    // The last line may have been cut where the read stopped.
+    if (lines.length > 1 && !/\n$/u.test(body)) lines.pop();
+    const first = lines.map((line) => line.trim()).find((line) => line && !/^(```|~~~|<!--)/u.test(line));
+    description = first ? first.replace(/^(#+|>|[-*+])\s*/u, "") : "";
+  }
+  return { name: fields.name || fallbackName, description: oneLine(description) };
+}
+
+export function isCommandName(name) {
+  return typeof name === "string" && COMMAND_NAME.test(name);
+}
+
+function inside(path, folder) {
+  return path === folder || path.startsWith(folder === "/" ? "/" : `${folder}/`);
+}
+
+const nodeFs = { open, readdir, realpath, stat };
+
+// The commands each pane's agent takes, kept a little while per agent and
+// folder. `fs` is the file calls used (open, readdir, realpath, stat), so a
+// test can see what is opened.
+export class SlashCommandCatalog {
+  constructor({
+    env = process.env,
+    home = env.HOME || homedir(),
+    guard = defaultProtectedPaths(),
+    ttlMs = COMMANDS_CACHE_MS,
+    now = () => Date.now(),
+    fs = nodeFs,
+  } = {}) {
+    this.claudeDir = posix.resolve(env.CLAUDE_CONFIG_DIR || posix.join(home, ".claude"));
+    this.codexDir = posix.resolve(env.CODEX_HOME || posix.join(home, ".codex"));
+    this.guard = guard;
+    this.ttlMs = ttlMs;
+    this.now = now;
+    this.fs = fs;
+    this.cache = new Map();
+  }
+
+  // { agent, commands: [{ name, description, source }] }. An agent other than
+  // Claude Code or Codex has none; a pane on another PC (`remote`) gets the
+  // agent's own commands only, since its files are that PC's.
+  async list({ agent, cwd = null, remote = false } = {}) {
+    const name = typeof agent === "string" ? agent.trim().toLowerCase() : "";
+    if (!COMMAND_AGENTS.includes(name)) return { agent: null, commands: [] };
+    if (remote) return { agent: name, commands: [...builtInCommands(name)], remote: true };
+    const folder = typeof cwd === "string" && cwd.startsWith("/") && cwd.length <= 4096 ? posix.resolve(cwd) : null;
+    const key = JSON.stringify([name, folder]);
+    const at = this.now();
+    const cached = this.cache.get(key);
+    if (cached && at - cached.at <= this.ttlMs) return cached.answer;
+    const answer = (async () => {
+      const found = await this.#found(name, folder);
+      const seen = new Set();
+      const commands = [];
+      // The first of a name wins: the project's, the user's, a plugin's, then the agent's own.
+      for (const command of [...found, ...builtInCommands(name)]) {
+        if (seen.has(command.name)) continue;
+        seen.add(command.name);
+        commands.push({ name: command.name, description: command.description, source: command.source });
+      }
+      return { agent: name, commands };
+    })();
+    if (this.cache.size > 64) this.cache.clear();
+    this.cache.set(key, { at, answer });
+    try {
+      return await answer;
+    } catch (error) {
+      this.cache.delete(key);
+      throw error;
+    }
+  }
+
+  async #found(agent, cwd) {
+    const isProtected = await this.guard.matcher();
+    const scan = { out: [], isProtected };
+    if (agent === "codex") {
+      const base = await this.#real(this.codexDir);
+      if (base) await this.#commands(scan, posix.join(this.codexDir, "prompts"), base, { prefix: "prompts:", source: "user", depth: 0 });
+      return scan.out;
+    }
+    const userDir = await this.#real(this.claudeDir);
+    if (cwd) {
+      const base = await this.#real(cwd);
+      // A pane in the home folder: its project folder is the user's own.
+      const own = base ? await this.#real(posix.join(base, ".claude")) : null;
+      if (base && !(own && own === userDir)) {
+        await this.#skills(scan, posix.join(cwd, ".claude", "skills"), base, { prefix: "", source: "project" });
+        await this.#commands(scan, posix.join(cwd, ".claude", "commands"), base, { prefix: "", source: "project" });
+      }
+    }
+    if (userDir) {
+      await this.#skills(scan, posix.join(userDir, "skills"), userDir, { prefix: "", source: "user" });
+      await this.#commands(scan, posix.join(userDir, "commands"), userDir, { prefix: "", source: "user" });
+      await this.#plugins(scan, userDir, cwd);
+    }
+    return scan.out;
+  }
+
+  async #real(path) {
+    try {
+      return await this.fs.realpath(path);
+    } catch {
+      return null;
+    }
+  }
+
+  // The real path of `path` when it stays inside `folder` (a real path) and
+  // is not protected; null otherwise, or when it does not exist.
+  async #within(scan, path, folder) {
+    const real = await this.#real(path);
+    if (!real || !inside(real, folder) || scan.isProtected(real)) return null;
+    return real;
+  }
+
+  async #entries(folder) {
+    try {
+      const entries = await this.fs.readdir(folder, { withFileTypes: true });
+      return entries.map((entry) => entry.name).filter((name) => !name.startsWith(".")).sort();
+    } catch {
+      return [];
+    }
+  }
+
+  async #kind(real) {
+    try {
+      const info = await this.fs.stat(real);
+      return info.isDirectory() ? "directory" : info.isFile() ? "file" : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // The start of a Markdown file, or "" when it is too large to read or
+  // cannot be. Opened without following links and without waiting on
+  // anything that is not a plain file.
+  async #head(real) {
+    if (!real.endsWith(".md")) return "";
+    try {
+      const info = await this.fs.stat(real);
+      if (!info.isFile() || info.size > MAX_COMMAND_FILE_BYTES) return "";
+    } catch {
+      return "";
+    }
+    let handle;
+    try {
+      handle = await this.fs.open(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      const info = await handle.stat();
+      if (!info.isFile() || info.size > MAX_COMMAND_FILE_BYTES) return "";
+      const buffer = Buffer.alloc(Math.min(FRONTMATTER_READ_BYTES, info.size));
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+      return buffer.subarray(0, bytesRead).toString("utf8");
+    } catch {
+      return "";
+    } finally {
+      await handle?.close().catch(() => {});
+    }
+  }
+
+  #add(scan, name, description, source) {
+    if (scan.out.length >= MAX_LISTED_COMMANDS || !isCommandName(name)) return;
+    scan.out.push({ name, description, source });
+  }
+
+  // `<folder>/<skill>/SKILL.md`, named by its frontmatter or its folder.
+  async #skills(scan, folder, base, { prefix, source }) {
+    const root = await this.#within(scan, folder, base);
+    if (!root || (await this.#kind(root)) !== "directory") return;
+    for (const name of await this.#entries(root)) {
+      if (scan.out.length >= MAX_LISTED_COMMANDS) return;
+      const skill = await this.#within(scan, posix.join(root, name), root);
+      if (!skill || skill === root || (await this.#kind(skill)) !== "directory") continue;
+      const file = await this.#within(scan, posix.join(skill, "SKILL.md"), root);
+      if (!file) continue;
+      const summary = commandSummary(await this.#head(file), name);
+      const own = isCommandName(summary.name) && !summary.name.includes(":") ? summary.name : name;
+      this.#add(scan, `${prefix}${own}`, summary.description, source);
+    }
+  }
+
+  // `<folder>/**/*.md`, a file in a subfolder named `sub:name`.
+  async #commands(scan, folder, base, { prefix, source, depth = MAX_COMMAND_DEPTH }) {
+    const root = await this.#within(scan, folder, base);
+    if (!root || (await this.#kind(root)) !== "directory") return;
+    const visited = new Set();
+    const walk = async (directory, parts) => {
+      if (visited.has(directory)) return;
+      visited.add(directory);
+      for (const name of await this.#entries(directory)) {
+        if (scan.out.length >= MAX_LISTED_COMMANDS) return;
+        const real = await this.#within(scan, posix.join(directory, name), root);
+        if (!real) continue;
+        const kind = await this.#kind(real);
+        if (kind === "directory") {
+          if (parts.length < depth) await walk(real, [...parts, name]);
+        } else if (kind === "file" && name.endsWith(".md") && name.length > 3) {
+          const command = [...parts, name.slice(0, -3)].join(":");
+          const summary = commandSummary(await this.#head(real), command);
+          this.#add(scan, `${prefix}${command}`, summary.description, source);
+        }
+      }
+    };
+    await walk(root, []);
+  }
+
+  // Claude Code's installed plugins, from its installed_plugins.json: each
+  // one's skills and commands, named `plugin:name`. A plugin installed for
+  // one project counts only in that project.
+  async #plugins(scan, base, cwd) {
+    const pluginsDir = await this.#within(scan, posix.join(base, "plugins"), base);
+    if (!pluginsDir) return;
+    const manifest = await this.#within(scan, posix.join(pluginsDir, "installed_plugins.json"), pluginsDir);
+    if (!manifest) return;
+    let installed;
+    try {
+      installed = JSON.parse(await this.#readManifest(manifest));
+    } catch {
+      return;
+    }
+    const plugins = installed?.plugins && typeof installed.plugins === "object" ? installed.plugins : {};
+    const realCwd = cwd ? await this.#real(cwd) : null;
+    for (const [id, installs] of Object.entries(plugins).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      const plugin = id.split("@", 1)[0];
+      if (!isCommandName(plugin) || plugin.includes(":")) continue;
+      for (const install of Array.isArray(installs) ? installs : []) {
+        if (typeof install?.installPath !== "string" || !install.installPath.startsWith("/")) continue;
+        const scope = install.scope ?? "user";
+        if (scope !== "user") {
+          const project = typeof install.projectPath === "string" ? await this.#real(install.projectPath) : null;
+          if (!project || project !== realCwd) continue;
+        }
+        const root = await this.#within(scan, install.installPath, pluginsDir);
+        if (!root || (await this.#kind(root)) !== "directory") continue;
+        await this.#skills(scan, posix.join(root, "skills"), root, { prefix: `${plugin}:`, source: "plugin" });
+        await this.#commands(scan, posix.join(root, "commands"), root, { prefix: `${plugin}:`, source: "plugin" });
+        break;
+      }
+    }
+  }
+
+  async #readManifest(real) {
+    if ((await this.#kind(real)) !== "file") return "";
+    const handle = await this.fs.open(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const info = await handle.stat();
+      if (!info.isFile() || info.size > MAX_MANIFEST_BYTES) return "";
+      const buffer = Buffer.alloc(info.size);
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+      return buffer.subarray(0, bytesRead).toString("utf8");
+    } finally {
+      await handle.close().catch(() => {});
+    }
+  }
+}

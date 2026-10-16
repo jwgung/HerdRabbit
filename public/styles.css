@@ -2474,8 +2474,44 @@ body.is-resizing-sidebar {
   font-weight: 600;
 }
 
+/* `/` commands in the same list: the name, a one-line description cut to
+   fit, and where the command comes from. */
+.composer-command {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  font-size: 0.85rem;
+  overflow-wrap: normal;
+}
+
+.composer-command-name {
+  flex: none;
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+.composer-command-description {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-command-source {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
 @media (pointer: coarse) {
-  .composer-file {
+  .composer-file,
+  .composer-command {
     padding: 11px 12px;
   }
 }
