@@ -1018,16 +1018,9 @@ body.sidebar-collapsed .terminal-panel {
   background: transparent;
 }
 
-.terminal-copy-bar button:first-child,
-.terminal-copy-bar .terminal-quote-button {
+.terminal-copy-bar button:first-child {
   color: var(--accent-ink);
   background: var(--accent);
-}
-
-.terminal-copy-bar .terminal-quote-button {
-  padding: 0 12px;
-  font-size: 22px;
-  line-height: 1;
 }
 
 .terminal-xterm .xterm {
