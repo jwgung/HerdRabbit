@@ -3,8 +3,8 @@
 // own folder, the way their own prompts do.
 //
 // The parts that decide what is typed, where it is looked up and what goes in
-// are plain functions; createAtFilesPopup wires them to the textarea and the
-// list above it.
+// are plain functions; atFilesSource hands them to the list above the
+// composer (composer-popup.js).
 
 export const MAX_AT_MATCHES = 50;
 export const AT_DEBOUNCE_MS = 120;
@@ -134,198 +134,45 @@ export function createListingCache({ ttlMs = AT_CACHE_MS, now = () => Date.now()
   };
 }
 
-// The popup itself. `context()` says where the selected pane is
-// ({ server, cwd }) or null; `fetchListing(server, dir, prefix)` brings a listing back
-// or throws. Nothing here ever reports an error: no pane, no folder or a
-// listing that fails just means no list.
-export function createAtFilesPopup({ input, listElement, context, fetchListing, document: doc = globalThis.document }) {
+// The `@` source of the composer's list (composer-popup.js). `context()` says
+// where the selected pane is ({ server, cwd }) or null;
+// `fetchListing(server, dir, prefix)` brings a listing back or throws. No
+// pane, no folder or a listing that fails just means no list.
+export function atFilesSource({ context, fetchListing }) {
   const cache = createListingCache();
-  const state = { token: null, matches: [], active: 0, open: false, timer: null, generation: 0, dismissed: null, composing: false };
-
-  input.setAttribute("aria-autocomplete", "list");
-  input.setAttribute("aria-controls", listElement.id);
-  input.setAttribute("aria-expanded", "false");
-
-  function close() {
-    window.clearTimeout(state.timer);
-    state.timer = null;
-    state.generation += 1;
-    state.open = false;
-    state.matches = [];
-    state.token = null;
-    listElement.hidden = true;
-    listElement.replaceChildren();
-    input.setAttribute("aria-expanded", "false");
-    input.removeAttribute("aria-activedescendant");
-  }
-
-  function markActive() {
-    [...listElement.children].forEach((item, index) => {
-      const active = index === state.active;
-      item.setAttribute("aria-selected", String(active));
-      if (active) {
-        input.setAttribute("aria-activedescendant", item.id);
-        item.scrollIntoView?.({ block: "nearest" });
+  return {
+    label: "Files",
+    debounceMs: AT_DEBOUNCE_MS,
+    parse: parseAtQuery,
+    async lookUp(token) {
+      const where = context();
+      const dir = where ? resolveAtDirectory(where.cwd, token.dir) : null;
+      if (!dir) return null;
+      let entries = cache.get(where.server, dir, token.prefix);
+      if (!entries) {
+        try {
+          const listing = await fetchListing(where.server, dir, token.prefix);
+          cache.set(where.server, dir, token.prefix, listing);
+          entries = listing?.entries || [];
+        } catch {
+          entries = [];
+        }
       }
-    });
-  }
-
-  function render() {
-    listElement.replaceChildren();
-    if (state.matches.length === 0) {
-      close();
-      return;
-    }
-    state.matches.forEach((entry, index) => {
-      const item = doc.createElement("li");
-      item.id = `${listElement.id}-${index}`;
+      return { matches: matchingEntries(entries, token.prefix), where: { server: where.server, cwd: where.cwd } };
+    },
+    // The pane's folder changed (a `cd`) since: the names are another folder's.
+    stillCurrent(where) {
+      const now = context();
+      return Boolean(now) && now.server === where?.server && now.cwd === where?.cwd;
+    },
+    sameToken: (a, b) => a.start === b.start && a.end === b.end && a.query === b.query && a.quoted === b.quoted,
+    apply: applyAtCompletion,
+    renderItem(item, entry, doc) {
       item.className = "file-suggestion composer-file";
       item.dataset.kind = entry.kind;
-      item.setAttribute("role", "option");
       const name = doc.createElement("span");
       name.textContent = entry.kind === "directory" ? `${entry.name}/` : entry.name;
       item.append(name);
-      // mousedown keeps the composer focused (and a phone's keyboard up);
-      // the click that follows picks the name.
-      item.addEventListener("mousedown", (event) => event.preventDefault());
-      item.addEventListener("click", (event) => {
-        event.preventDefault();
-        accept(index);
-      });
-      listElement.append(item);
-    });
-    state.open = true;
-    listElement.hidden = false;
-    input.setAttribute("aria-expanded", "true");
-    markActive();
-  }
-
-  async function lookUp(token, generation) {
-    const where = context();
-    const dir = where ? resolveAtDirectory(where.cwd, token.dir) : null;
-    if (!dir) {
-      close();
-      return;
-    }
-    let entries = cache.get(where.server, dir, token.prefix);
-    if (!entries) {
-      try {
-        const listing = await fetchListing(where.server, dir, token.prefix);
-        cache.set(where.server, dir, token.prefix, listing);
-        entries = listing?.entries || [];
-      } catch {
-        entries = [];
-      }
-    }
-    // The caret moved on, or the list was closed, while this was asked.
-    if (generation !== state.generation) return;
-    state.token = token;
-    state.where = { server: where.server, cwd: where.cwd };
-    state.matches = matchingEntries(entries, token.prefix);
-    state.active = 0;
-    render();
-  }
-
-  function update({ now = false } = {}) {
-    window.clearTimeout(state.timer);
-    state.timer = null;
-    if (state.composing) return;
-    const token = parseAtQuery(input.value, input.selectionStart, input.selectionEnd);
-    if (!token) {
-      state.dismissed = null;
-      close();
-      return;
-    }
-    if (state.dismissed === token.start) {
-      close();
-      return;
-    }
-    state.dismissed = null;
-    const generation = ++state.generation;
-    const run = () => void lookUp(token, generation);
-    if (now) run();
-    else state.timer = window.setTimeout(run, AT_DEBOUNCE_MS);
-  }
-
-  function accept(index = state.active) {
-    const entry = state.matches[index];
-    const token = state.token;
-    if (!entry || !token) return;
-    // Typed on, or moved, since this list was drawn: it belongs to another
-    // reference. Nothing is put in; the list catches up instead.
-    const now = parseAtQuery(input.value, input.selectionStart, input.selectionEnd);
-    // The pane's folder changed (a `cd`) since: the names are another folder's.
-    const where = context();
-    const moved = !where || where.server !== state.where?.server || where.cwd !== state.where?.cwd;
-    if (moved || !now || now.start !== token.start || now.end !== token.end || now.query !== token.query || now.quoted !== token.quoted) {
-      update({ now: true });
-      return;
-    }
-    const next = applyAtCompletion(input.value, token, entry);
-    // Set by script, the value would pass the composer's maxlength; a name
-    // that does not fit is not put in.
-    if (input.maxLength > 0 && next.value.length > input.maxLength) {
-      close();
-      return;
-    }
-    close();
-    input.value = next.value;
-    input.setSelectionRange(next.caret, next.caret);
-    // The composer's own listeners (draft, size, history) see it as typing;
-    // that also brings up a folder's contents.
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.focus({ preventScroll: true });
-  }
-
-  // Whether the key was the popup's. Called first by the composer's own
-  // keydown, so a handled key never reaches send, newline or history.
-  function handleKeydown(event) {
-    if (!state.open || event.isComposing || event.keyCode === 229 || event.defaultPrevented) return false;
-    const plain = !event.ctrlKey && !event.altKey && !event.metaKey;
-    if (!plain) return false;
-    const count = state.matches.length;
-    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && !event.shiftKey) {
-      state.active = (state.active + (event.key === "ArrowDown" ? 1 : -1) + count) % count;
-      markActive();
-    } else if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
-      accept();
-    } else if (event.key === "Escape") {
-      state.dismissed = state.token?.start ?? null;
-      close();
-    } else {
-      return false;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    return true;
-  }
-
-  input.addEventListener("input", (event) => {
-    if (event.isComposing) return;
-    update();
-  });
-  input.addEventListener("compositionstart", () => {
-    state.composing = true;
-  });
-  input.addEventListener("compositionend", () => {
-    state.composing = false;
-    update();
-  });
-  // The caret moved without typing: a click, or the arrows along the line.
-  input.addEventListener("click", () => update({ now: true }));
-  input.addEventListener("keyup", (event) => {
-    if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) update({ now: true });
-  });
-  input.addEventListener("blur", () => {
-    state.composing = false;
-    close();
-  });
-
-  return {
-    handleKeydown,
-    close,
-    get isOpen() {
-      return state.open;
     },
   };
 }

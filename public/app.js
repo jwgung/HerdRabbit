@@ -1,6 +1,6 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.67";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.67";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.67";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.68";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.68";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.68";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -52,7 +52,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyMachinesNotice,
-} from "./ui-model.js?v=1.2.67";
+} from "./ui-model.js?v=1.2.68";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -63,44 +63,44 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.67";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.67";
-import { terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.2.67";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.67";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.67";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.67";
-import { createChatFind } from "./chat/chat-find.js?v=1.2.67";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.67";
+} from "./browse-preference.js?v=1.2.68";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.68";
+import { terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.2.68";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.68";
+import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.68";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.68";
+import { createChatFind } from "./chat/chat-find.js?v=1.2.68";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.68";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.67";
-import { chatAgent } from "./lens-preference.js?v=1.2.67";
-import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop } from "./chat/chat-activity.js?v=1.2.67";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.67";
+} from "./chat-font-preference.js?v=1.2.68";
+import { chatAgent } from "./lens-preference.js?v=1.2.68";
+import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop } from "./chat/chat-activity.js?v=1.2.68";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.68";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.67";
+} from "./pane-preference.js?v=1.2.68";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.67";
+} from "./workspace-preference.js?v=1.2.68";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.67";
+} from "./terminal-preference.js?v=1.2.68";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.67";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.67";
+} from "./completion-preference.js?v=1.2.68";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.68";
 import {
   attachSidebarDrag,
   dropScope,
@@ -109,15 +109,17 @@ import {
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.2.67";
-import { renamePaneKeys } from "./pane-rename.js?v=1.2.67";
-import { renamePaneLenses } from "./lens-preference.js?v=1.2.67";
+} from "./sidebar-drag.js?v=1.2.68";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.68";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.68";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.67";
-import { createAtFilesPopup } from "./composer-at-files.js?v=1.2.67";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.67";
+} from "./input-history-preference.js?v=1.2.68";
+import { atFilesSource } from "./composer-at-files.js?v=1.2.68";
+import { createComposerPopup } from "./composer-popup.js?v=1.2.68";
+import { slashCommandsSource } from "./composer-slash.js?v=1.2.68";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.68";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -133,16 +135,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.67";
+} from "./key-bar-preference.js?v=1.2.68";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.67";
+} from "./launch-session.js?v=1.2.68";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.67";
+} from "./push-notifications.js?v=1.2.68";
 
 function browserStorage() {
   try {
@@ -475,22 +477,36 @@ const state = {
   connectPc: null,
 };
 
-// `@` file references: a list of names in the pane's folder above the composer.
-// Its keys come first in the composer's keydown, so a name picked with Enter
-// is never also sent.
-const atFiles = createAtFilesPopup({
+// The list above the composer: `@` file references (names in the pane's
+// folder) and, at the start of the text, the `/` commands of the pane's
+// agent. Its keys come first in the composer's keydown, so a row picked with
+// Enter is never also sent.
+const composerPopup = createComposerPopup({
   input: elements.terminalInput,
   listElement: elements.composerFiles,
-  context: () => {
-    const paneId = state.selectedPaneId;
-    if (!paneId) return null;
-    const pane = selectedRecords().pane;
-    const cwd = pane?.foreground_cwd || pane?.cwd;
-    if (typeof cwd !== "string" || !cwd.startsWith("/")) return null;
-    return { server: paneServerId(paneId) || "local", cwd };
-  },
-  // The Files tab's own request, for the pane's machine instead of the tab's.
-  fetchListing: (server, path, prefix) => fetchListing(path, { prefix, server }),
+  sources: [
+    atFilesSource({
+      context: () => {
+        const paneId = state.selectedPaneId;
+        if (!paneId) return null;
+        const pane = selectedRecords().pane;
+        const cwd = pane?.foreground_cwd || pane?.cwd;
+        if (typeof cwd !== "string" || !cwd.startsWith("/")) return null;
+        return { server: paneServerId(paneId) || "local", cwd };
+      },
+      // The Files tab's own request, for the pane's machine instead of the tab's.
+      fetchListing: (server, path, prefix) => fetchListing(path, { prefix, server }),
+    }),
+    slashCommandsSource({
+      context: () => {
+        const paneId = state.selectedPaneId;
+        if (!paneId) return null;
+        const pane = selectedRecords().pane;
+        return { paneId, agent: chatAgent(pane, agentForPane(paneId)), cwd: pane?.foreground_cwd || pane?.cwd || null };
+      },
+      fetchCommands: (paneId) => api(`/api/panes/${encodeURIComponent(paneId)}/commands`),
+    }),
+  ],
 });
 
 // Dragging in the sidebar: what was dropped shows where it landed at once,
@@ -1065,7 +1081,7 @@ function syncComposerDraft() {
   if (paneId) draftBlocked.delete(paneId);
   resetInputHistoryNavigation();
   const text = paneId ? composerDrafts.get(paneId) : "";
-  atFiles.close();
+  composerPopup.close();
   if (elements.terminalInput.value !== text) {
     elements.terminalInput.value = text;
     resizeTerminalInput();
@@ -3762,7 +3778,7 @@ document.querySelector("#terminal-take-over").addEventListener("click", () => at
 
 function clearComposer() {
   if (draftPaneId) draftBlocked.delete(draftPaneId);
-  atFiles.close();
+  composerPopup.close();
   elements.terminalInput.value = "";
   window.clearTimeout(terminalInputResizeTimer);
   terminalInputResizeTimer = null;
@@ -3813,14 +3829,14 @@ elements.inputForm.addEventListener("submit", async (event) => {
 });
 
 elements.terminalInput.addEventListener("keydown", (event) => {
-  if (atFiles.handleKeydown(event)) return;
+  if (composerPopup.handleKeydown(event)) return;
   // Esc in the composer stops the agent, as it does in the terminal, unless
   // the @ list (answered above), the find bar or a dialog has Esc first.
   if (composerEscapeStops({
     key: event.key, isComposing: event.isComposing, keyCode: event.keyCode,
     ctrlKey: event.ctrlKey, altKey: event.altKey, metaKey: event.metaKey, shiftKey: event.shiftKey,
     stopShown: stopReady(),
-    ownedElsewhere: atFiles.isOpen || Boolean(chatFind?.open) || Boolean(document.querySelector("dialog[open]")),
+    ownedElsewhere: composerPopup.isOpen || Boolean(chatFind?.open) || Boolean(document.querySelector("dialog[open]")),
   })) {
     event.preventDefault();
     event.stopPropagation();

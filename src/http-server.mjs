@@ -32,6 +32,8 @@ import { ConversationMonitor } from "./conversation/monitor.mjs";
 import { ConversationService } from "./conversation/service.mjs";
 import { errorResponse } from "./error-response.mjs";
 import { PromptService } from "./prompt/service.mjs";
+import { paneAgentName } from "./conversation/service.mjs";
+import { SlashCommandCatalog } from "./slash-commands.mjs";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
 const SIMPLEWEBAUTHN_BROWSER_BUNDLE = fileURLToPath(new URL(
@@ -62,6 +64,8 @@ const STATIC_FILES = new Map([
   ["/key-combinations.js", { path: `${PUBLIC_DIR}/key-combinations.js`, type: "text/javascript; charset=utf-8" }],
   ["/file-preview.js", { path: `${PUBLIC_DIR}/file-preview.js`, type: "text/javascript; charset=utf-8" }],
   ["/composer-at-files.js", { path: `${PUBLIC_DIR}/composer-at-files.js`, type: "text/javascript; charset=utf-8" }],
+  ["/composer-popup.js", { path: `${PUBLIC_DIR}/composer-popup.js`, type: "text/javascript; charset=utf-8" }],
+  ["/composer-slash.js", { path: `${PUBLIC_DIR}/composer-slash.js`, type: "text/javascript; charset=utf-8" }],
   ["/ui-model.js", { path: `${PUBLIC_DIR}/ui-model.js`, type: "text/javascript; charset=utf-8" }],
   ["/pane-preference.js", { path: `${PUBLIC_DIR}/pane-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/browse-preference.js", { path: `${PUBLIC_DIR}/browse-preference.js`, type: "text/javascript; charset=utf-8" }],
@@ -532,6 +536,9 @@ export function createHerdrHttpServer({
   conversations = null,
   // Prompt cards (src/prompt/): a blocked pane's approval or question.
   prompts = null,
+  // The `/` commands a pane's agent takes (src/slash-commands.mjs): names
+  // and descriptions only, read from this machine's skill and command files.
+  slashCommands = null,
   // PCs connected with Connect PC (src/server-profiles.mjs), the tailnet look
   // that finds them (`discover`), and what PCs announced about themselves.
   profiles = null,
@@ -559,6 +566,7 @@ export function createHerdrHttpServer({
   }
   const conversationService = conversations ?? new ConversationService({ herdr });
   const conversationMonitor = new ConversationMonitor({ resolve: (paneId) => conversationService.resolve(paneId) });
+  const slashCommandCatalog = slashCommands ?? new SlashCommandCatalog({ guard: protectedPaths });
   const promptService = prompts ?? new PromptService({ herdr, details: (paneId, snapshot) => conversationService.pendingAsk(paneId, snapshot) });
 
   // A message sent while the pane asks for a password is that password: the
@@ -1305,6 +1313,25 @@ export function createHerdrHttpServer({
         sendJson(response, 200, await conversationService.toolOutput(
           decodePaneId(toolOutputMatch[1]), decodePaneId(toolOutputMatch[2]),
         ));
+        return;
+      }
+
+      // The `/` commands the pane's agent takes, for the composer's list:
+      // names, descriptions and where each comes from, never a file's body.
+      // A pane on a connected PC gets its agent's own commands only.
+      const commandsMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/commands$/);
+      if (method === "GET" && commandsMatch) {
+        requireSameOrigin(request);
+        const paneId = decodePaneId(commandsMatch[1]);
+        const snapshot = await herdr.snapshot();
+        const pane = (snapshot?.panes ?? []).find((candidate) => candidate?.pane_id === paneId);
+        if (!pane) throw new HttpError(404, "pane_not_found", "That pane is gone.");
+        const serverId = typeof pane.server_id === "string" && pane.server_id ? pane.server_id : LOCAL_SERVER;
+        const cwd = [pane.foreground_cwd, pane.cwd].find((value) => typeof value === "string" && value.startsWith("/")) ?? null;
+        const reported = (snapshot?.agents ?? []).find((candidate) => candidate?.pane_id === paneId)?.agent;
+        sendJson(response, 200, await slashCommandCatalog.list({
+          agent: paneAgentName(pane) ?? reported, cwd, remote: serverId !== LOCAL_SERVER || paneId.includes("!"),
+        }));
         return;
       }
 
