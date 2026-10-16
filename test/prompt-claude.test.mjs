@@ -495,7 +495,9 @@ test("a titled line of output after an answered approval is output, not Claude's
   assert.equal(parseClaudePrompt(`${approvalScreen()}\n${frame("adopt-herdr-web-ui-features-and-more-words-here")}\n`)?.kind, "approval");
   // output shaped like a titled rule ends it
   for (const line of ["──── Ran npm test ────", "──── build finished ─", "──── FAILURES ─",
-    `${"─".repeat(12)} test results ${"─".repeat(12)}`, `${"─".repeat(30)} results ${"─".repeat(5)}`]) {
+    `${"─".repeat(12)} test results ${"─".repeat(12)}`, `${"─".repeat(30)} results ${"─".repeat(5)}`,
+    // shaped and as wide as the frame, but indented as Claude shows a tool's output
+    `     ${"─".repeat(widest + 20)} build finished ─`]) {
     assert.equal(parseClaudePrompt(`${approvalScreen()}\n${line}\n`), null, line);
   }
 });
