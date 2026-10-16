@@ -65,7 +65,7 @@ import {
   writeNavigatorWidth,
 } from "./browse-preference.js?v=1.2.65";
 import { terminalConnection } from "./terminal-connection.js?v=1.2.65";
-import { terminalStatus } from "./terminal-status.js?v=1.2.65";
+import { terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.2.65";
 import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.65";
 import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.65";
 import { createChatLens } from "./chat/chat-view.js?v=1.2.65";
@@ -3395,9 +3395,9 @@ function renderTerminalStatus() {
   elements.terminalStatus.hidden = !status;
   if (status) {
     // Only a changed reason is announced; the countdown ticks silently.
-    const reason = status.countdown ? status.text.replace(/\.$/u, "") : status.text;
+    const { reason, countdown } = terminalStatusParts(status);
     if (elements.terminalStatusText.textContent !== reason) elements.terminalStatusText.textContent = reason;
-    elements.terminalStatusCountdown.textContent = status.countdown ? ` — ${status.countdown}` : "";
+    elements.terminalStatusCountdown.textContent = countdown;
     elements.terminalStatus.dataset.target = status.target;
     elements.terminalStatus.classList.toggle("is-quiet", Boolean(status.quiet));
     elements.terminalReconnect.hidden = !status.reconnect;

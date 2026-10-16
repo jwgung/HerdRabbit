@@ -104,7 +104,16 @@ export function terminalStatus({ connection, attach = null, offline = false, now
 }
 
 // The strip's whole sentence, as a screen reader and a test read it.
+// The strip's two parts: the reason (announced when it changes) and the
+// countdown after it (ticking silently).
+export function terminalStatusParts(status) {
+  if (!status) return { reason: "", countdown: "" };
+  return status.countdown
+    ? { reason: status.text.replace(/\.$/u, ""), countdown: ` — ${status.countdown}` }
+    : { reason: status.text, countdown: "" };
+}
+
 export function terminalStatusSentence(status) {
-  if (!status) return "";
-  return status.countdown ? `${status.text.replace(/\.$/u, "")} — ${status.countdown}` : status.text;
+  const { reason, countdown } = terminalStatusParts(status);
+  return reason + countdown;
 }

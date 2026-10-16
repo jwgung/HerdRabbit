@@ -1545,7 +1545,6 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .ai-accounts-panel p { margin: 0; }
 
-
 /* The panels set a display of their own, which beats the hidden attribute; the
    same reason .file-panel[hidden] exists. Without this an idle dialog shows an
    empty sign-in panel and an empty confirmation under the lists. */
