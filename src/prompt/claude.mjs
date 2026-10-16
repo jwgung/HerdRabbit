@@ -328,10 +328,17 @@ function parseClaudeConfirm(screen) {
 const CLAUDE_TASKS_HEAD_RE = /^(\d+) tasks \(\d+ done, (?:\d+ in progress, )?\d+ open\)$/;
 const CLAUDE_TASK_ROW_RE = /^[◻◼✔]\s/;
 const CLAUDE_TASKS_MORE_RE = /^…\s\+\d+ pending$/;
-// Claude Code's input-box frame, named after the session: a long rule from
-// the left, the name, one dash ("──────────────── my-session ─"). A short or
-// otherwise shaped titled line ("──── Ran npm test ────") is output, not frame.
-const LABELED_RULE_RE = /^─{20,} \S(?:.*\S)? ─$/;
+// Claude Code's input-box frame, named after the session: a rule, the name,
+// one dash ("──────────────── my-session ─"), across the whole pane. How long
+// its rule is depends on the pane's width and the name, so its width is what
+// tells it from a titled line of output ("──── build finished ─"), which does
+// not span the pane; one shaped otherwise ("──── Ran npm test ────") never is.
+const LABELED_RULE_RE = /^─{3,} \S(?:.*\S)? ─$/;
+function isClaudeFrame(line, shown) {
+  if (!LABELED_RULE_RE.test(line)) return false;
+  const widest = Math.max(...shown.map((item) => stringWidth(item)));
+  return stringWidth(line) >= widest - 1;
+}
 const CLAUDE_HINT_TAIL_RE = /\besc to (?:cancel|exit|go back)\b/i;
 function withoutClaudeTasks(shown) {
   let end = shown.length;
@@ -350,7 +357,7 @@ function withoutClaudeTasks(shown) {
     }
     if (list && rows > 0 && rows <= total) end = head;
   }
-  if (LABELED_RULE_RE.test(shown[end - 1] ?? "")) end -= 1;
+  if (isClaudeFrame(shown[end - 1] ?? "", shown)) end -= 1;
   // the rule (Claude's input-box frame, named after the session) closes a
   // prompt: one ending in its key hint, or the answers' review ending in Cancel
   const closes = (line) => CLAUDE_HINT_TAIL_RE.test(line) || CLAUDE_SUBMIT_CANCEL_RE.test(line);
