@@ -328,7 +328,10 @@ function parseClaudeConfirm(screen) {
 const CLAUDE_TASKS_HEAD_RE = /^(\d+) tasks \(\d+ done, (?:\d+ in progress, )?\d+ open\)$/;
 const CLAUDE_TASK_ROW_RE = /^[◻◼✔]\s/;
 const CLAUDE_TASKS_MORE_RE = /^…\s\+\d+ pending$/;
-const LABELED_RULE_RE = /^─{3,}\s.*─$/;
+// Claude Code's input-box frame, named after the session: a long rule from
+// the left, the name, one dash ("──────────────── my-session ─"). A short or
+// otherwise shaped titled line ("──── Ran npm test ────") is output, not frame.
+const LABELED_RULE_RE = /^─{20,} \S(?:.*\S)? ─$/;
 const CLAUDE_HINT_TAIL_RE = /\besc to (?:cancel|exit|go back)\b/i;
 function withoutClaudeTasks(shown) {
   let end = shown.length;

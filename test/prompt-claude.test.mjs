@@ -485,6 +485,16 @@ Enter to select · Tab/Arrow keys to navigate · Esc to cancel
   assert.equal(parseClaudePrompt(`${question}\n⏺ Done.\n──── user@host:~/project ─\n`), null);
 });
 
+test("a titled line of output after an answered approval is output, not Claude's frame", () => {
+  // the frame itself still closes a live prompt
+  assert.equal(parseClaudePrompt(`${approvalScreen()}\n${"─".repeat(40)} my-session ─\n`)?.kind, "approval");
+  // output shaped like a titled rule ends it
+  for (const line of ["──── Ran npm test ────", "──── build finished ─", "──── FAILURES ─",
+    `${"─".repeat(12)} test results ${"─".repeat(12)}`, `${"─".repeat(30)} results ${"─".repeat(5)}`]) {
+    assert.equal(parseClaudePrompt(`${approvalScreen()}\n${line}\n`), null, line);
+  }
+});
+
 test("reads Claude's unnumbered menus, answered from the cursor", () => {
   const trust = (selected = 0, after = "") => `
 ❯ claude
