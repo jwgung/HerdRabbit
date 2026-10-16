@@ -10,18 +10,18 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>HerdRabbit</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <script src="/theme.js?v=1.2.64"></script>
+    <script src="/theme.js?v=1.2.65"></script>
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/rabbit-outline-32-v33.png" />
     <link rel="icon" type="image/svg+xml" href="/icons/rabbit-outline-v33.svg" />
     <link rel="apple-touch-icon" href="/icons/rabbit-outline-app-180-v35.png" />
     <link rel="stylesheet" href="/ui/ui.css" />
-    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.64" />
-    <link rel="stylesheet" href="/styles.css?v=1.2.64" />
-    <link rel="stylesheet" href="/chat/chat-view.css?v=1.2.64" />
-    <link rel="stylesheet" href="/chat/prompt-card.css?v=1.2.64" />
-    <link rel="stylesheet" href="/key-bar.css?v=1.2.64" />
-    <script src="/vendor/simplewebauthn-browser.js?v=1.2.64"></script>
-    <script type="module" src="/app.js?v=1.2.64"></script>
+    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.65" />
+    <link rel="stylesheet" href="/styles.css?v=1.2.65" />
+    <link rel="stylesheet" href="/chat/chat-view.css?v=1.2.65" />
+    <link rel="stylesheet" href="/chat/prompt-card.css?v=1.2.65" />
+    <link rel="stylesheet" href="/key-bar.css?v=1.2.65" />
+    <script src="/vendor/simplewebauthn-browser.js?v=1.2.65"></script>
+    <script type="module" src="/app.js?v=1.2.65"></script>
   </head>
   <body class="auth-pending">
     <main class="shell">
@@ -181,6 +181,10 @@
           <div id="chat-host" class="chat-host" aria-label="Conversation"></div>
           <p id="terminal-message" class="terminal-message" role="status" aria-live="polite">Loading projects…</p>
           <div id="terminal-xterm" class="terminal-xterm" hidden></div>
+          <div id="terminal-status" class="terminal-status" role="status" aria-live="polite" hidden>
+            <p class="terminal-status-reason"><span id="terminal-status-text"></span><span id="terminal-status-countdown" class="terminal-status-countdown" aria-hidden="true"></span></p>
+            <button id="terminal-reconnect" type="button">Reconnect</button>
+          </div>
           <form id="terminal-find" class="terminal-find" role="search" aria-label="Find in terminal" hidden>
             <svg class="terminal-find-icon" aria-hidden="true" viewBox="0 0 20 20" focusable="false">
               <circle cx="8.5" cy="8.5" r="5" />

@@ -51,6 +51,7 @@ const STATIC_FILES = new Map([
   ["/path-links.js", { path: `${PUBLIC_DIR}/path-links.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-links.js", { path: `${PUBLIC_DIR}/terminal-links.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-connection.js", { path: `${PUBLIC_DIR}/terminal-connection.js`, type: "text/javascript; charset=utf-8" }],
+  ["/terminal-status.js", { path: `${PUBLIC_DIR}/terminal-status.js`, type: "text/javascript; charset=utf-8" }],
   ["/xterm-terminal.js", { path: `${PUBLIC_DIR}/xterm-terminal.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-widths.js", { path: `${PUBLIC_DIR}/terminal-widths.js`, type: "text/javascript; charset=utf-8" }],
   ["/touch-scroll.js", { path: `${PUBLIC_DIR}/touch-scroll.js`, type: "text/javascript; charset=utf-8" }],

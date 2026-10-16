@@ -117,6 +117,7 @@ function setup() {
     classList: { toggle: (name, on) => (on ? classes.add(name) : classes.delete(name)), remove: (name) => classes.delete(name) },
   };
   const fallbacks = [];
+  const problems = [];
   const states = [];
   const retries = [];
   const copies = [];
@@ -124,14 +125,14 @@ function setup() {
   const view = createAttachedTerminal({
     host, connection, fontSize: 12,
     xterm: { Terminal: class extends Terminal { constructor(options) { super(options); term = this; } }, FitAddon, UnicodeGraphemesAddon, WebLinksAddon },
-    onFallback: (paneId) => fallbacks.push(paneId),
+    onFallback: (paneId, problem) => { fallbacks.push(paneId); problems.push(problem); },
     onStateChange: (state) => states.push(state),
     onRetry: (paneId) => retries.push(paneId),
     onCopy: (ok) => copies.push(ok),
   });
   const receive = (message) => { for (const listener of listeners.attach) listener(message); };
   const reconnect = () => { for (const listener of listeners.reconnect) listener(); };
-  return { view, sent, host, body, ownerDocument, classes, fallbacks, states, retries, copies, receive, reconnect, connection, term: () => term };
+  return { view, sent, host, body, ownerDocument, classes, fallbacks, problems, states, retries, copies, receive, reconnect, connection, term: () => term };
 }
 
 test("shows a pane at the frame's size, writes only its stream, and acknowledges once xterm has drawn it", () => {
@@ -565,4 +566,27 @@ test("a mirrored screen is not trusted while a frame is held back or before it i
   view.mirror("m2", "x");
   view.mirror("m2", "[sudo] password for me:");
   assert.equal(view.screenText().fresh, false, "a held frame");
+});
+
+test("a failed attach tells the page why and until when, and Reconnect tries it now", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { view, receive, retries, problems } = setup();
+  view.show("a");
+  receive({ type: "attach-unavailable", pane_id: "a", code: "server_unavailable", message: "Herdr socket is unavailable" });
+  assert.deepEqual(problems, [{ code: "server_unavailable", message: "Herdr socket is unavailable", retryAt: Date.now() + 5_000 }]);
+  assert.equal(view.show("a"), false);
+  assert.equal(view.retryNow("a"), true);
+  assert.deepEqual(retries, ["a"], "asked to show it again now");
+  assert.equal(view.show("a"), true, "and it attaches");
+  context.mock.timers.tick(10_000);
+  assert.deepEqual(retries, ["a"], "the skipped wait does not fire later");
+  assert.equal(view.retryNow("a"), false, "a pane that is not waiting has nothing to skip");
+  receive({ type: "pty-exit", pane_id: "a", code: 0 });
+  assert.equal(problems.at(-1).code, "ended", "an attach herdr ended says so");
+  view.show("b");
+  receive({ type: "attach-error", pane_id: "b", message: "spawn failed" });
+  assert.equal(problems.at(-1).code, "attach_failed", "an error without a code is a failed attach");
+  view.show("c");
+  receive({ type: "attach-unavailable", pane_id: "c", code: "attach_unsupported" });
+  assert.equal(problems.at(-1).retryAt, Infinity, "never tried again");
 });

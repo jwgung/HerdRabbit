@@ -193,3 +193,55 @@ test("a watched prompt is asked for on every socket, only its cards are heard, a
   assert.deepEqual(sockets[1].sent.at(-1), { type: "watch-prompt", paneId: "w1:p1" }, "after an unwatch it can be watched again");
   connection.pause();
 });
+
+test("the socket's state is told as it changes, and Reconnect skips the wait and starts the backoff over", async () => {
+  const sockets = [];
+  class Socket {
+    static OPEN = 1;
+    readyState = 0;
+    bufferedAmount = 0;
+    sent = [];
+    constructor() { sockets.push(this); }
+    send(message) { this.sent.push(JSON.parse(message)); }
+    open() { this.readyState = 1; this.onopen(); }
+    receive(message) { this.onmessage({ data: JSON.stringify(message) }); }
+    close(code = 1006) { this.readyState = 3; this.onclose?.({ code }); }
+  }
+  const connection = terminalConnection({ WebSocketImpl: Socket, url: "ws://localhost/api/terminal",
+    credentials: () => ({ csrf: "write", launchToken: "launch" }), onOutput() {}, onDisconnect() {}, onAuthenticationRequired() {} });
+  const states = [];
+  connection.onConnectionState((state) => states.push(state));
+  assert.equal(states.at(-1).state, "idle");
+  connection.attach("w1:p1", { cols: 80, rows: 24 });
+  assert.equal(states.at(-1).state, "connecting");
+  assert.equal(states.at(-1).failed, false);
+  sockets[0].open();
+  sockets[0].receive({ type: "ready" });
+  assert.equal(states.at(-1).state, "ready");
+  for (let index = 0; index < 4; index += 1) {
+    sockets.at(-1).close();
+    assert.equal(states.at(-1).state, "waiting");
+    assert.equal(states.at(-1).failed, true);
+    connection.reconnectNow();
+    assert.equal(states.at(-1).state, "connecting", "Reconnect connects at once");
+    assert.equal(states.at(-1).failed, true, "still after a failure until a socket is ready");
+  }
+  assert.equal(sockets.length, 5);
+  // A socket that never opens is given up for a fresh one.
+  connection.reconnectNow();
+  assert.equal(sockets.length, 6);
+  sockets.at(-1).close();
+  const waited = states.at(-1);
+  assert.ok(waited.retryAt - Date.now() <= 250, "the backoff started over");
+  connection.reconnectNow();
+  sockets.at(-1).open();
+  sockets.at(-1).receive({ type: "ready" });
+  assert.deepEqual([states.at(-1).state, states.at(-1).failed], ["ready", false]);
+  const before = sockets.length;
+  connection.reconnectNow();
+  assert.equal(sockets.length, before, "a live socket is left alone");
+  sockets.at(-1).close(4001);
+  assert.equal(states.at(-1).state, "signed-out");
+  connection.pause();
+  assert.equal(states.at(-1).state, "signed-out", "the page asking for a sign-in does not hide why");
+});
