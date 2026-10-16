@@ -357,3 +357,90 @@ test("herdr-plugin.toml declares the plugin, its build, startup, actions and pan
     assert.deepEqual(entry.command, ["node", "scripts/plugin.mjs", entry.id]);
   }
 });
+
+test("a second startup waits for our live server instead of spawning another", async () => {
+  const machine = fakeMachine({
+    files: { "/cfg/.env": "", "/state/server.json": serverRecord() },
+    processes: { 777: `node ${ROOT}/src/index.mjs` },
+  });
+  let probes = 0;
+  machine.deps.probe = async () => (++probes > 3 ? { herdrabbit: true, authRequired: true } : null);
+  const before = machine.files.get("/state/server.json");
+  const { result } = await start(machine.deps);
+  assert.equal(result, "running");
+  assert.equal(machine.spawned.length, 0);
+  assert.equal(machine.files.get("/state/server.json"), before);
+});
+
+test("an answer from someone else is not recorded when our spawned pid died", async () => {
+  const machine = fakeMachine({ afterSpawn: "exit", files: { "/cfg/.env": "" } });
+  machine.deps.spawnServer = async (options) => {
+    machine.spawned.push(options);
+    machine.answer = { herdrabbit: true, authRequired: true };
+    return 4242;
+  };
+  const { result, lines } = await start(machine.deps);
+  assert.equal(result, "failed");
+  assert.equal(machine.files.has("/state/server.json"), false);
+  assert.match(lines.at(-1), /server\.log/u);
+});
+
+test("the startup hook restarts our server running from an old checkout", async () => {
+  const old = "/plugins/herdrabbit/v1";
+  const machine = fakeMachine({
+    files: { "/cfg/.env": "", "/state/server.json": serverRecord(old) },
+    processes: { 777: ["node", `${old}/src/index.mjs`] },
+    answer: { herdrabbit: true, authRequired: true },
+  });
+  machine.deps.signal = (pid, name) => {
+    machine.signals.push([pid, name]);
+    machine.processes.delete(pid);
+    machine.answer = null;
+  };
+  const { result } = await start(machine.deps, { restartStale: true });
+  assert.equal(result, "started");
+  assert.deepEqual(machine.signals, [[777, "SIGTERM"]]);
+  assert.equal(machine.spawned.length, 1);
+  assert.equal(JSON.parse(machine.files.get("/state/server.json")).root, ROOT);
+});
+
+test("start without the startup hook, or for a server that is not ours, never restarts", async () => {
+  const old = "/plugins/herdrabbit/v1";
+  const answering = { herdrabbit: true, authRequired: true };
+  const plain = fakeMachine({
+    files: { "/cfg/.env": "", "/state/server.json": serverRecord(old) },
+    processes: { 777: ["node", `${old}/src/index.mjs`] },
+    answer: answering,
+  });
+  assert.equal((await start(plain.deps)).result, "running");
+  assert.deepEqual(plain.signals, []);
+  const foreign = fakeMachine({
+    files: { "/cfg/.env": "", "/state/server.json": serverRecord(old) },
+    processes: { 777: ["bash"] },
+    answer: answering,
+  });
+  assert.equal((await start(foreign.deps, { restartStale: true })).result, "running");
+  assert.deepEqual(foreign.signals, []);
+  assert.equal(foreign.spawned.length, 0);
+});
+
+test("a pid whose other argument merely contains the entry path is not ours", () => {
+  const record = { pid: 1, root: ROOT };
+  const entry = `${ROOT}/src/index.mjs`;
+  assert.equal(isOurServer(["node", entry], record), true);
+  assert.equal(isOurServer(["node", `${entry}.bak`], record), false);
+  assert.equal(isOurServer(["vim", `/tmp${entry}`], record), false);
+  assert.equal(isOurServer(["sh", "-c", `node ${entry}`], record), false);
+  assert.equal(isOurServer(`node ${entry}`, record), true);
+  assert.equal(isOurServer(`node ${entry} --x`, record), true);
+  assert.equal(isOurServer(`node /tmp${entry}`, record), false);
+  assert.equal(isOurServer(`vim ${entry}.bak`, record), false);
+  assert.equal(isOurServer(["node", entry], { pid: 1, root: "relative" }), false);
+});
+
+test("the connect pane quotes the checkout path in the cd command", async () => {
+  const machine = fakeMachine({ files: { "/cfg/.env": "" } });
+  machine.deps.env = { ...ENV, HERDR_PLUGIN_ROOT: "/my plugins/it's here" };
+  const { lines } = await connect(machine.deps);
+  assert.ok(lines.includes(`  또는 터미널에서: cd '/my plugins/it'\\''s here' && npm run password`));
+});

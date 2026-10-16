@@ -46,7 +46,7 @@ async function probe(host, port) {
 async function processCommand(pid) {
   try {
     if (process.platform === "linux") {
-      return (await readFile(`/proc/${pid}/cmdline`, "utf8")).replaceAll("\0", " ");
+      return (await readFile(`/proc/${pid}/cmdline`, "utf8")).split("\0").filter(Boolean);
     }
     const { stdout } = await execFileAsync("ps", ["-o", "args=", "-p", String(pid)], { timeout: 5_000 });
     return stdout.trim() || null;
@@ -146,7 +146,7 @@ async function password() {
 }
 
 const commands = {
-  startup: runner.start,
+  startup: (d) => runner.start(d, { restartStale: true }),
   start: runner.start,
   stop: runner.stop,
   restart: runner.restart,

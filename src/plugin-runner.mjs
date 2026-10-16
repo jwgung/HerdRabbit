@@ -6,7 +6,7 @@
 // The systemd service stays the main way to run HerdRabbit on Linux. The
 // plugin steps aside whenever that service, or any HerdRabbit at all, already
 // answers on the configured address.
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { hostPort, parseHost, parsePort } from "./config.mjs";
 
 // Both names: the current unit and the one older installers wrote.
@@ -151,9 +151,21 @@ async function readServerRecord(deps, paths) {
 
 // Ours only when that pid still runs HerdRabbit's entry point from the
 // checkout we started it from. A recycled pid fails this and is left alone.
+// `commandLine` is the argv array (Linux: /proc/<pid>/cmdline split on NUL) and
+// must hold the entry path as one whole argument. A plain string (macOS
+// `ps -o args=`) cannot be split reliably, so the entry path must be a whole
+// space-delimited token: at the start or after a space, at the end or before one.
 export function isOurServer(commandLine, record) {
-  if (typeof commandLine !== "string" || !record) return false;
-  return commandLine.includes(join(record.root, "src", "index.mjs"));
+  if (!record || typeof record.root !== "string" || !isAbsolute(record.root)) return false;
+  const entry = join(resolve(record.root), "src", "index.mjs");
+  if (Array.isArray(commandLine)) return commandLine.includes(entry);
+  if (typeof commandLine !== "string") return false;
+  return (` ${commandLine} `).includes(` ${entry} `);
+}
+
+// A path as one shell word, safe to copy even with spaces or quotes in it.
+export function shellQuote(text) {
+  return `'${String(text).replaceAll("'", "'\\''")}'`;
 }
 
 async function ourServer(deps, paths) {
@@ -180,9 +192,11 @@ function staleRootNote(record, root) {
   ];
 }
 
-// startup hook and the start action: idempotent, so a Herdr restart or live
-// handoff that runs it again changes nothing while HerdRabbit answers.
-export async function start(deps) {
+// The startup hook (`restartStale`) also replaces a plugin-started server that
+// still runs from a checkout the plugin update has moved away from.
+// Idempotent otherwise: a Herdr restart or live handoff that runs it again
+// changes nothing while HerdRabbit answers, and never starts a second server.
+export async function start(deps, { restartStale = false } = {}) {
   const paths = pluginPaths(deps.env, deps.fallbackRoot);
   const { settings, host, port, created } = await loadSettings(deps, paths);
   const lines = created ? [`설정 파일을 만들었습니다: ${paths.envFile}`] : [];
@@ -194,11 +208,21 @@ export async function start(deps) {
     return { result: "systemd", lines };
   }
 
-  const answer = await deps.probe(probeHost(host), port);
+  let answer = await deps.probe(probeHost(host), port);
+  let { record: known, running: knownRunning } = await ourServer(deps, paths);
   if (answer?.herdrabbit) {
-    const { record, running } = await ourServer(deps, paths);
+    if (restartStale && knownRunning && resolve(known.root) !== resolve(paths.root)) {
+      lines.push(`플러그인이 업데이트돼 이전 체크아웃(${known.root})의 서버를 다시 시작합니다.`);
+      const stopped = await stop(deps);
+      lines.push(...stopped.lines);
+      if (stopped.result === "stopping") return { result: "stopping", lines };
+      answer = await deps.probe(probeHost(host), port);
+      ({ record: known, running: knownRunning } = await ourServer(deps, paths));
+    }
+  }
+  if (answer?.herdrabbit) {
     lines.push(`HerdRabbit이 이미 ${url}에서 응답합니다. 새로 시작하지 않습니다.`);
-    if (running) lines.push(...staleRootNote(record, paths.root));
+    if (knownRunning) lines.push(...staleRootNote(known, paths.root));
     return { result: "running", lines };
   }
   if (answer) {
@@ -206,16 +230,39 @@ export async function start(deps) {
     return { result: "port-taken", lines };
   }
 
+  // Our own server is alive but not answering yet (a second startup during
+  // a handoff): wait for it instead of starting another and overwriting its record.
+  if (knownRunning) {
+    const up = await waitUntil(deps, START_TIMEOUT_MS, async () => {
+      if ((await deps.probe(probeHost(host), port))?.herdrabbit) return "up";
+      if (!isOurServer(await deps.processCommand(known.pid), known)) return "exited";
+      return null;
+    });
+    if (up === "up") {
+      lines.push(`HerdRabbit(pid ${known.pid})이 이미 시작돼 ${url}에서 응답합니다. 새로 시작하지 않습니다.`);
+      return { result: "running", lines };
+    }
+    if (up === "exited") {
+      await deps.rm(paths.serverFile);
+      lines.push(`먼저 시작된 HerdRabbit(pid ${known.pid})이 종료됐습니다. 로그를 확인하세요: ${paths.logFile}`);
+    } else {
+      lines.push(`먼저 시작된 HerdRabbit(pid ${known.pid})이 ${START_TIMEOUT_MS / 1000}초 안에 응답하지 않았습니다. 로그: ${paths.logFile}`);
+    }
+    return { result: "failed", lines };
+  }
+
   const tailnetHost = await deps.tailnetHostname().catch(() => "");
   const env = serverEnvironment(deps.env, settings, { tailnetHost });
   await deps.mkdir(paths.stateDir);
   const pid = await deps.spawnServer({ root: paths.root, entry: paths.entry, env, logFile: paths.logFile });
-  const record = { pid, root: paths.root, host, port, startedAt: new Date(deps.now()).toISOString() };
+  const record = { pid, root: resolve(paths.root), host, port, startedAt: new Date(deps.now()).toISOString() };
   await deps.writeFile(paths.serverFile, `${JSON.stringify(record, null, 2)}\n`);
 
+  // Our pid must still run before an answer counts as ours: if it died (the
+  // port was taken meanwhile) whatever answers is someone else's server.
   const outcome = await waitUntil(deps, START_TIMEOUT_MS, async () => {
-    if ((await deps.probe(probeHost(host), port))?.herdrabbit) return "up";
     if (!isOurServer(await deps.processCommand(pid), record)) return "exited";
+    if ((await deps.probe(probeHost(host), port))?.herdrabbit) return "up";
     return null;
   });
   if (outcome === "up") {
@@ -335,7 +382,7 @@ export async function connect(deps) {
     lines.push("비밀번호: 서버가 응답하지 않아 확인할 수 없습니다.");
   }
   lines.push("비밀번호 설정: herdr plugin pane open --plugin herdrabbit --entrypoint password");
-  lines.push(`  또는 터미널에서: cd ${paths.root} && npm run password`);
+  lines.push(`  또는 터미널에서: cd ${shellQuote(paths.root)} && npm run password`);
 
   const qr = [];
   const qrUrl = remote[0];
