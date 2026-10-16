@@ -62,7 +62,6 @@ const STATIC_FILES = new Map([
   ["/key-combinations.js", { path: `${PUBLIC_DIR}/key-combinations.js`, type: "text/javascript; charset=utf-8" }],
   ["/file-preview.js", { path: `${PUBLIC_DIR}/file-preview.js`, type: "text/javascript; charset=utf-8" }],
   ["/composer-at-files.js", { path: `${PUBLIC_DIR}/composer-at-files.js`, type: "text/javascript; charset=utf-8" }],
-  ["/composer-quote.js", { path: `${PUBLIC_DIR}/composer-quote.js`, type: "text/javascript; charset=utf-8" }],
   ["/ui-model.js", { path: `${PUBLIC_DIR}/ui-model.js`, type: "text/javascript; charset=utf-8" }],
   ["/pane-preference.js", { path: `${PUBLIC_DIR}/pane-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/browse-preference.js", { path: `${PUBLIC_DIR}/browse-preference.js`, type: "text/javascript; charset=utf-8" }],
