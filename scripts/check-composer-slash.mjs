@@ -191,8 +191,17 @@ try {
     }, null, { timeout: 5_000 });
     await reset();
 
-    // a Codex pane offers Codex's commands and the user's prompts
-    await openPane("w1:p3");
+    // a list dismissed with Escape in one pane does not hold in the next
+    await page.keyboard.type("/mo");
+    await startsWith(["/model"]);
+    await page.keyboard.press("Escape");
+    await closed();
+
+    // a Codex pane offers Codex's commands and the user's prompts (reached
+    // in the page, as a user would, after that Escape)
+    await page.evaluate(() => document.querySelector('.pane-button[data-pane-id="w1:p3"]').click());
+    await page.waitForFunction(() => document.querySelector("#terminal-input").value === "");
+    await input.focus();
     await page.keyboard.type("/pro");
     await startsWith(["/prompts:fix"]);
     await page.keyboard.press("Enter");

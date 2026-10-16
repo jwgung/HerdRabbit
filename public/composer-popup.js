@@ -202,7 +202,12 @@ export function createComposerPopup({ input, listElement, sources, document: doc
 
   return {
     handleKeydown,
-    close,
+    // From outside (another pane's draft, a sent message), an Escape on the
+    // text that was there no longer holds.
+    close() {
+      state.dismissed = null;
+      close();
+    },
     get isOpen() {
       return state.open;
     },
