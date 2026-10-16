@@ -339,15 +339,21 @@ function publicCommandError(error) {
   return new HerdrCommandError("Herdr command failed", { cause: error });
 }
 
+// The input still going to each pane: text and keys for one pane go in the
+// order they came, so a message waiting on its Enter is never cut into.
+const PANE_INPUTS = new Map();
+
 // Enough for Claude Code to read a pasted image path before its Enter.
 const IMAGE_SETTLE_MS = 700;
 // A path to an image file, as an upload or a path link puts in a message.
 const IMAGE_EXTENSION = "(?:png|jpe?g|gif|webp|bmp|heic|heif|tiff?)";
-const IMAGE_PATH_RE = new RegExp(`(?:^|[\\s(])(?:~|\\.{0,2})?/[^\\s"']*\\.${IMAGE_EXTENSION}(?=$|[\\s)])`, "iu");
+// Before it the start, a space or an opening bracket; after it the end, a
+// space, a closing bracket or sentence punctuation ("see /tmp/a.png, then").
+const IMAGE_PATH_RE = new RegExp(`(?:^|[\\s([{<])(?:~|\\.{0,2})?/[^\\s"'\\]})>]*\\.${IMAGE_EXTENSION}(?=$|[\\s)\\]}>]|[,.;:!?](?:$|\\s))`, "iu");
 // a quoted one may hold spaces: "/my shots/a.png"
 const QUOTED_IMAGE_PATH_RE = new RegExp(`(["'])(?:~|\\.{0,2})?/[^"'\\n]*\\.${IMAGE_EXTENSION}\\1`, "iu");
 // an @ reference to one, relative or not, quoted or not: @shots/a.png
-const AT_IMAGE_RE = new RegExp(`(?:^|\\s)@(?:"[^"\\n]*\\.${IMAGE_EXTENSION}"|[^\\s"]*\\.${IMAGE_EXTENSION})(?=$|\\s)`, "iu");
+const AT_IMAGE_RE = new RegExp(`(?:^|[\\s([{])@(?:"[^"\\n]*\\.${IMAGE_EXTENSION}"|[^\\s"\\]})]*\\.${IMAGE_EXTENSION})(?=$|[\\s)\\]}]|[,.;:!?](?:$|\\s))`, "iu");
 export function namesImage(text) {
   const value = String(text ?? "");
   return IMAGE_PATH_RE.test(value) || QUOTED_IMAGE_PATH_RE.test(value) || AT_IMAGE_RE.test(value);
@@ -367,9 +373,7 @@ export class HerdrClient {
     this.binary = binary;
     this.imageSettleMs = imageSettleMs;
     this.sleep = sleep;
-    // paneId -> the input still going to it: text and keys for one pane go in
-    // the order they came, so a message waiting on its Enter is never cut into.
-    this.inputs = new Map();
+
     this.timeoutMs = timeoutMs;
     this.runner = runner;
     this.sessionName = sessionName === null
@@ -700,11 +704,14 @@ export class HerdrClient {
 
   // Runs `send` once the pane's earlier input has gone.
   #inOrder(paneId, send) {
-    const before = this.inputs.get(paneId) ?? Promise.resolve();
+    // One queue per pane of one Herdr, shared by every client made for it
+    // (the bridge makes one per call): keyed by the socket or session too.
+    const key = `${this.socketPath ?? ""}\0${this.sessionName ?? ""}\0${paneId}`;
+    const before = PANE_INPUTS.get(key) ?? Promise.resolve();
     const run = before.catch(() => {}).then(send);
     const settled = run.catch(() => {});
-    this.inputs.set(paneId, settled);
-    settled.then(() => { if (this.inputs.get(paneId) === settled) this.inputs.delete(paneId); });
+    PANE_INPUTS.set(key, settled);
+    settled.then(() => { if (PANE_INPUTS.get(key) === settled) PANE_INPUTS.delete(key); });
     return run;
   }
 

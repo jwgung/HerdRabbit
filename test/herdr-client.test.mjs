@@ -156,8 +156,28 @@ test("input to one pane goes in order: a message waiting on its Enter is not cut
   ]);
 });
 
+test("the order holds across clients made for the same Herdr, as the bridge makes one per call", async () => {
+  const ok = { stdout: "", stderr: "" };
+  const fake = recordingRunner([ok, ok, ok]);
+  let release;
+  const first = new HerdrClient({ runner: fake.runner, sessionName: "work", sleep: () => new Promise((resolve) => { release = resolve; }) });
+  const second = new HerdrClient({ runner: fake.runner, sessionName: "work" });
+  const image = first.sendText("w9:p1", "see /tmp/a.png", { submit: true });
+  const next = second.sendText("w9:p1", "after", { submit: true });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(fake.calls.filter((call) => call.args.includes("w9:p1")).length, 1, "the second client cut in");
+  release();
+  await Promise.all([image, next]);
+  assert.deepEqual(fake.calls.map((call) => call.args.filter((arg) => !arg.startsWith("--session"))).filter((args) => args.includes("w9:p1")), [
+    ["pane", "send-text", "w9:p1", "see /tmp/a.png"],
+    ["pane", "send-keys", "w9:p1", "enter"],
+    ["pane", "run", "w9:p1", "after"],
+  ]);
+});
+
 test("tells an image path in a message from other text", async () => {
-  for (const text of ["/tmp/a.png", "see ~/shots/b.JPG", "./c.webp and more", '"/x y/d.gif"', "(/p/e.jpeg)", "@shots/a.png", '@"my folder/a.png" now', "@/tmp/b.webp"]) {
+  for (const text of ["/tmp/a.png", "see ~/shots/b.JPG", "./c.webp and more", '"/x y/d.gif"', "(/p/e.jpeg)", "@shots/a.png", '@"my folder/a.png" now', "@/tmp/b.webp",
+    "확인해 줘: /tmp/a.png, 그리고", "look at /tmp/a.png.", "[/tmp/a.png]", "@shots/a.png,", "see /tmp/a.png?"]) {
     assert.equal(namesImage(text), true, text);
   }
   for (const text of ["no image here", "image.png", "/tmp/notes.md", "a.png.txt at /tmp/f.png.bak", "https://x.test/a.png", "@src/app.js", "me@x.png"]) {
