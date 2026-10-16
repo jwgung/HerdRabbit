@@ -3,15 +3,17 @@
 export const MAX_QUOTED_CHARS = 4000;
 
 // Each line gets "> ", terminal padding is dropped from the line ends, and
-// blank lines at the end go; text longer than `cap` is cut with "…". Ends with
-// a blank line, so the message goes on below the quote. "" when nothing is left.
+// blank lines at the end go; a quote longer than `cap` (counted with its
+// "> " marks, as it goes in) is cut with "…". Ends with a blank line, so the
+// message goes on below the quote. "" when nothing is left.
 export function quoteBlock(text, cap = MAX_QUOTED_CHARS) {
   const lines = String(text).split(/\r\n|\r|\n/u).map((line) => line.trimEnd());
   while (lines.length && lines[lines.length - 1] === "") lines.pop();
-  let body = lines.join("\n");
-  if (!body.trim()) return "";
-  if (body.length > cap) body = `${body.slice(0, cap - 1).trimEnd()}…`;
-  return `${body.split("\n").map((line) => `> ${line}`.trimEnd()).join("\n")}\n\n`;
+  if (!lines.join("").trim()) return "";
+  const quoted = lines.map((line) => `> ${line}`.trimEnd());
+  let block = quoted.join("\n");
+  if (block.length > cap) block = `${block.slice(0, cap - 1).trimEnd()}…`;
+  return `${block}\n\n`;
 }
 
 // The composer's value with the quote put in at the caret (or over the

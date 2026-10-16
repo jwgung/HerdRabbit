@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { insertQuote, quoteBlock } from "../public/composer-quote.js";
+import { MAX_QUOTED_CHARS, insertQuote, quoteBlock } from "../public/composer-quote.js";
 
 test("prefixes every line and ends with a blank line", () => {
   assert.equal(quoteBlock("Error: boom\n  at x (a.js:1)"), "> Error: boom\n>   at x (a.js:1)\n\n");
@@ -15,8 +15,9 @@ test("drops terminal padding, keeps inner blank lines, trims trailing blank line
 });
 
 test("cuts long text with an ellipsis", () => {
+  // the cap counts the quote as it goes in, "> " included
   const block = quoteBlock("x".repeat(50), 10);
-  assert.equal(block, `> ${"x".repeat(9)}…\n\n`);
+  assert.equal(block, `> ${"x".repeat(7)}…\n\n`);
 });
 
 test("inserts into an empty composer", () => {
@@ -44,4 +45,13 @@ test("refuses what would pass the limit, and empty text", () => {
   const big = insertQuote("", 0, 0, "y".repeat(9000));
   assert.ok(big.value.length <= 8000);
   assert.ok(big.value.includes("…"));
+});
+
+test("many short lines are capped as they go in, marks and all", () => {
+  const text = Array.from({ length: 2000 }, () => "x").join("\n");
+  const block = quoteBlock(text);
+  assert.ok(block.length <= MAX_QUOTED_CHARS + 2, `quote is ${block.length} characters`);
+  assert.ok(block.endsWith("…\n\n"));
+  assert.ok(block.startsWith("> x\n> x"));
+  assert.notEqual(insertQuote("", 0, 0, text, { limit: 8000 }), null, "it fits an empty message");
 });
