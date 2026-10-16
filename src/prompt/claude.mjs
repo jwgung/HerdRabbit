@@ -334,16 +334,17 @@ const CLAUDE_TASKS_MORE_RE = /^…\s\+\d+ pending$/;
 // tells it from a titled line of output ("──── build finished ─"), which does
 // not span the pane; one shaped otherwise ("──── Ran npm test ────") never is.
 const LABELED_RULE_RE = /^─{3,} \S(?:.*\S)? ─$/;
-// `edge`: the lines that start at the pane's left edge. Claude shows a tool's
-// output indented under "⎿"; only its frame starts at column 0, and spans the
-// pane (at least as wide as the widest line, give or take one).
-function isClaudeFrame(line, shown, edge) {
-  if (!LABELED_RULE_RE.test(line) || !edge.has(line)) return false;
+// `atEdge`: whether that line starts at the pane's left edge. Claude shows a
+// tool's output indented under "⎿"; only its frame starts at column 0, and
+// spans the pane (at least as wide as the widest line, give or take one).
+function isClaudeFrame(line, shown, atEdge) {
+  if (!LABELED_RULE_RE.test(line) || !atEdge) return false;
   const widest = Math.max(...shown.map((item) => stringWidth(item)));
   return stringWidth(line) >= widest - 1;
 }
 const CLAUDE_HINT_TAIL_RE = /\besc to (?:cancel|exit|go back)\b/i;
-function withoutClaudeTasks(shown, edge = new Set(shown)) {
+// `edges[i]`: whether shown[i] starts at the pane's left edge.
+function withoutClaudeTasks(shown, edges = shown.map(() => true)) {
   let end = shown.length;
   const head = findLastIndex(shown, (line) => CLAUDE_TASKS_HEAD_RE.test(line));
   if (head >= 0) {
@@ -360,7 +361,7 @@ function withoutClaudeTasks(shown, edge = new Set(shown)) {
     }
     if (list && rows > 0 && rows <= total) end = head;
   }
-  if (isClaudeFrame(shown[end - 1] ?? "", shown, edge)) end -= 1;
+  if (isClaudeFrame(shown[end - 1] ?? "", shown, edges[end - 1] === true)) end -= 1;
   // the rule (Claude's input-box frame, named after the session) closes a
   // prompt: one ending in its key hint, or the answers' review ending in Cancel
   const closes = (line) => CLAUDE_HINT_TAIL_RE.test(line) || CLAUDE_SUBMIT_CANCEL_RE.test(line);
@@ -370,11 +371,13 @@ function withoutClaudeTasks(shown, edge = new Set(shown)) {
 // Whether the prompt still owns the end of the screen: an answered menu
 // above later output is no card.
 function promptTailIsActive(prompt, screen) {
-  const raw = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const visible = raw.map(cleanLine).filter((line) => line && !isDivider(line));
-  // the lines drawn from the left edge, as Claude draws its frame
-  const edge = new Set(raw.filter((line) => line !== "" && !/^\s/u.test(line)).map(cleanLine));
-  const shown = withoutClaudeTasks(visible, edge);
+  // each visible line with whether it is drawn from the left edge, as
+  // Claude draws its frame (kept per line, not per text)
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/)
+    .map((raw) => ({ line: cleanLine(raw), atEdge: raw !== "" && !/^\s/u.test(raw) }))
+    .filter(({ line }) => line && !isDivider(line));
+  const visible = lines.map(({ line }) => line);
+  const shown = withoutClaudeTasks(visible, lines.map(({ atEdge }) => atEdge));
   const ends = (re) => hintEnds(shown, re);
   switch (prompt.responder) {
     case "claude-question": return ends(CLAUDE_ASK_HINT_RE);

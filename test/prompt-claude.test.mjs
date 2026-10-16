@@ -500,6 +500,10 @@ test("a titled line of output after an answered approval is output, not Claude's
     `     ${"─".repeat(widest + 20)} build finished ─`]) {
     assert.equal(parseClaudePrompt(`${approvalScreen()}\n${line}\n`), null, line);
   }
+  // the same text drawn from the edge earlier on screen does not make an
+  // indented copy of it at the end the frame
+  const framed = `${"─".repeat(Math.max(3, widest - 12))} my-session ─`;
+  assert.equal(parseClaudePrompt(`${framed}\n${approvalScreen()}\n     ${framed}\n`), null);
 });
 
 test("reads Claude's unnumbered menus, answered from the cursor", () => {
