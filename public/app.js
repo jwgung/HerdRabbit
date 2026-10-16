@@ -3892,7 +3892,9 @@ function composerFocused() {
 }
 
 function sendButtonMode() {
-  if (stopTarget.paneId !== state.selectedPaneId) return "send";
+  // A message on its way keeps the button Send (and busy): a second press
+  // then can never stop the work it is starting.
+  if (composerSending || stopTarget.paneId !== state.selectedPaneId) return "send";
   return sendButtonModeFor({ lens: chatLens.lens, agent: stopTarget.agent, status: stopTarget.status,
     composerFocused: composerFocused() });
 }

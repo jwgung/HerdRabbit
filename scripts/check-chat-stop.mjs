@@ -51,7 +51,8 @@ const herdr = {
     };
   },
   async readPane() { return "$ "; },
-  async sendText(paneId, text) { herdr.sent.push({ paneId, text }); },
+  async sendText(paneId, text) {
+    if (herdr.slowTextMs) await new Promise((resolve) => setTimeout(resolve, herdr.slowTextMs)); herdr.sent.push({ paneId, text }); },
   // a slow link: a key takes this long to reach the pane
   slowMs: 0,
   async sendKeys(paneId, keys) {
@@ -185,6 +186,21 @@ try {
       await page.waitForFunction(() => document.querySelector("#terminal-input").value === "", null, { timeout: 5_000 });
     }
 
+    // While a message is on its way the button stays Send and busy: a quick
+    // second press cannot stop the work it starts.
+    herdr.slowTextMs = 1_200;
+    await input.fill("on its way");
+    await button.click();
+    await page.waitForTimeout(300);
+    await looksLike("send");
+    assert.equal(await button.isDisabled(), true, "Send was pressable again while its message was on its way");
+    await button.click({ force: true }).catch(() => {});
+    const gone = Date.now() + 5_000;
+    while (!texts().includes("on its way") && Date.now() < gone) await page.waitForTimeout(50);
+    await sentKeys(0);
+    herdr.slowTextMs = 0;
+    await page.waitForFunction(() => document.querySelector("#terminal-input").value === "", null, { timeout: 5_000 });
+
     // Out of the composer a press sends one Esc, keeps the draft, and is busy for a moment.
     await input.fill("a draft that stays");
     await blur();
@@ -227,7 +243,7 @@ try {
     assert.equal(await button.getAttribute("aria-busy"), null, "Stop stayed busy after a refused Esc");
     assert.notEqual((await page.locator("#action-feedback").textContent()).trim(), "", "a refused Esc said nothing");
     herdr.failKeys = false;
-    assert.deepEqual(texts().filter((text) => !text.startsWith("tabbed and")), ["hello there"], "Stop never sent the draft");
+    assert.deepEqual(texts().filter((text) => !text.startsWith("tabbed and") && text !== "on its way"), ["hello there"], "Stop never sent the draft");
 
     // Esc in the composer stops too.
     await input.focus();
@@ -266,6 +282,21 @@ try {
     herdr.status = "working";
     await blur();
     await looksLike("stop");
+
+    if (mobile) {
+      // The phone keyboard put away with the composer still focused counts
+      // as out of the composer: Stop. A tap back into the composer is Send.
+      await input.focus();
+      await looksLike("send");
+      await page.setViewportSize({ width: 390, height: 480 });
+      await page.waitForTimeout(500);
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.waitForTimeout(500);
+      assert.equal(await page.evaluate(() => document.activeElement?.id), "terminal-input", "the composer kept focus");
+      await looksLike("stop");
+      await input.tap();
+      await looksLike("send");
+    }
 
     assert.deepEqual(errors, [], "no page errors");
     results.push({ mobile, send: true, stop: true, again: true, slow: true, refused: true, escape: true, atList: true, terminal: true, idle: true });
