@@ -494,6 +494,21 @@
       </div>
     </dialog>
 
+    <dialog id="update-dialog" class="app-dialog update-dialog" aria-labelledby="update-title">
+      <div class="dialog-form">
+        <div class="dialog-heading">
+          <h2 id="update-title">Update</h2>
+          <p>New versions come from the main branch of HerdRabbit on GitHub. Updating runs update.sh on that PC and restarts its HerdRabbit service.</p>
+        </div>
+        <div id="update-list" class="update-list"></div>
+        <p id="update-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="update-close" class="secondary-button" type="button">Close</button>
+          <button id="update-check" class="secondary-button" type="button">Check</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="passkey-password-dialog" class="app-dialog" aria-labelledby="passkey-password-title">
       <form id="passkey-password-form" class="dialog-form">
         <div class="dialog-heading">

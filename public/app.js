@@ -1,6 +1,7 @@
 import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.70";
 import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.70";
 import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.70";
+import { createUpdatePanel } from "./app-update.js?v=1.2.70";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -804,6 +805,7 @@ const BELL_ICON = ["M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8h18c0-1-3-1-3-8Z", "M10 20h4
 const KEYBOARD_ICON = ["M2.5 6h19v12h-19z", "M6 9.5h.01M9 9.5h.01M12 9.5h.01M15 9.5h.01M18 9.5h.01M6 12.5h.01M18 12.5h.01M8.5 15h7"];
 const PASSKEY_ICON = ["M8 15a4 4 0 1 1 3.9-5H21v3h-2v2h-3v-2h-4.1A4 4 0 0 1 8 15Z", "M8 11h.01"];
 const DEVICES_ICON = ["M4 5h16v10H4z", "M8 19h8", "M12 15v4"];
+const UPDATE_ICON = ["M12 3v12", "M7 10l5 5 5-5", "M5 20h14"];
 const GEAR_ICON = [
   "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
   "M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z",
@@ -817,6 +819,9 @@ const settingsMenu = {
   themeLabel: "Switch to light mode",
   themeIcon: SUN_ICON,
   push: null,
+  // In-app update: whether the Update item shows, and whether some PC has a
+  // newer version (a dot on the ⚙ button).
+  update: { visible: false, available: false },
 };
 
 function buildSettingsMenu() {
@@ -844,6 +849,7 @@ function buildSettingsMenu() {
           openKeyBarDialog();
         },
       },
+      { key: "update", label: "Update", paths: UPDATE_ICON, onSelect: () => updatePanel.open() },
       { separator: true, key: "separator" },
       {
         key: "passkeys",
@@ -883,12 +889,41 @@ function syncSettingsMenu() {
   }
   const theme = item("theme");
   setLabel(theme, settingsMenu.themeLabel, settingsMenu.themeIcon);
+  const update = item("update");
+  update.hidden = !settingsMenu.update.visible;
+  setLabel(update, settingsMenu.update.available ? "Update available" : "Update");
+  update.classList.toggle("has-update", settingsMenu.update.available);
+  const summary = menu.querySelector("summary");
+  summary.classList.toggle("has-update", settingsMenu.update.available);
+  summary.setAttribute("aria-label", settingsMenu.update.available ? "Settings (update available)" : "Settings");
   // Sign-in belongs to the HerdRabbit the browser is talking to; a linked
   // machine has none. Removing needs no WebAuthn, so a browser without it still
   // gets the list: that is how a lost device's passkey is taken off elsewhere.
   for (const key of ["passkeys", "sessions"]) item(key).hidden = !state.authRequired;
   menu.querySelector('[role="separator"]').hidden = !state.authRequired;
 }
+
+// The PCs the Update window lists: this one, then each connected PC.
+const updatePanel = createUpdatePanel({
+  api,
+  dialog: document.querySelector("#update-dialog"),
+  list: document.querySelector("#update-list"),
+  feedback: document.querySelector("#update-feedback"),
+  checkButton: document.querySelector("#update-check"),
+  servers: () => {
+    const listed = snapshotRecords().servers;
+    const local = listed.find((server) => server.id === "local");
+    return [
+      { id: "local", name: local?.machine ? `This PC (${local.machine})` : "This PC" },
+      ...listed.filter((server) => server.transport === "link").map((server) => ({ id: server.id, name: server.name || server.id })),
+    ];
+  },
+  onChange: (available) => {
+    settingsMenu.update = { visible: updatePanel.visible(), available };
+    syncSettingsMenu();
+  },
+});
+document.querySelector("#update-close").addEventListener("click", () => document.querySelector("#update-dialog").close());
 
 function syncThemeItem() {
   const currentTheme = window.herdrTheme?.current() || "dark";
@@ -6229,6 +6264,8 @@ async function initializeApplication() {
   showNavigatorTab(readNavigatorTab(browsePathStorage));
   await refreshSnapshot();
   void resumeAiLogins();
+  // Each time the app opens, and on Check: never on a timer.
+  void updatePanel.resume().then(() => updatePanel.refresh());
   refreshTerminal();
   if (notificationPanePreference) {
     const cleanUrl = new URL(window.location.href);

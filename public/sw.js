@@ -53,6 +53,7 @@ const APP_SHELL = [
   "/styles.css?v=1.2.70",
   "/theme.js?v=1.2.70",
   "/app.js?v=1.2.70",
+  "/app-update.js?v=1.2.70",
   "/vendor/simplewebauthn-browser.js?v=1.2.70",
   "/terminal-links.js?v=1.2.70",
   "/terminal-connection.js?v=1.2.70",
