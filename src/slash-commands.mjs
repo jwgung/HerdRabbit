@@ -13,7 +13,7 @@ import { constants } from "node:fs";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { posix } from "node:path";
-import { paneAgentName } from "./conversation/service.mjs";
+import { paneAgentName } from "./pane-agent.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 
 export const COMMAND_AGENTS = Object.freeze(["claude", "codex"]);
