@@ -60,6 +60,7 @@ function services(work, overrides = {}) {
     if (file === "systemctl") {
       assert.equal(args[0], "--user");
       if (args[1] === "show") {
+        if (state.unknownUnits?.includes(args[2])) return { code: 1, stdout: "" };
         const loaded = args[2] === state.loaded;
         return { code: 0, stdout: [
           `LoadState=${loaded ? "loaded" : "not-found"}`,
@@ -377,4 +378,12 @@ test("run starts forwarded from this page are limited per PC", () => {
   assert.throws(() => allow("local"), { status: 429 });
   now = 60_000;
   allow("local");
+});
+
+test("a PC with only the older service unit is still its service, even when systemctl fails on the newer name", async (context) => {
+  const repo = await scratch(context);
+  await repo.publish("Upstream");
+  const fake = services(repo.work, { loaded: "herdr-web-local.service", unknownUnits: ["herdrabbit.service"] });
+  const result = await updater(repo, fake).check();
+  assert.notEqual(result.blocked, "not_service", "the older unit was never looked at");
 });

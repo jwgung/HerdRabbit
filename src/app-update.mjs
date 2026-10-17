@@ -232,7 +232,8 @@ export class AppUpdater {
       const { code: exit, stdout } = await this.#systemctl(
         "show", unit, "--property=LoadState", "--property=WorkingDirectory", "--property=MainPID",
       );
-      if (exit !== 0) return false;
+      // a unit systemctl cannot tell about is not this one; the next may be
+      if (exit !== 0) continue;
       const values = properties(stdout);
       if (values.LoadState !== "loaded") continue;
       if (!values.WorkingDirectory) return false;
