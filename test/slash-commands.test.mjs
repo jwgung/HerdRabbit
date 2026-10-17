@@ -185,7 +185,7 @@ test("lists Codex's own commands and the user's prompts", async (context) => {
   assert.deepEqual(spy.opened, [join(home, ".codex", "prompts", "fix.md")]);
 });
 
-test("gives other agents nothing, and a remote pane its agent's own commands only", async (context) => {
+test("gives other agents nothing", async (context) => {
   const { root, home, project } = await tree();
   context.after(() => rm(root, { recursive: true, force: true }));
   const spy = spyFs();
@@ -193,9 +193,6 @@ test("gives other agents nothing, and a remote pane its agent's own commands onl
   for (const agent of [null, undefined, "", "bash", "gemini", 3]) {
     assert.deepEqual(await catalog.list({ agent, cwd: project }), { agent: null, commands: [] });
   }
-  const remote = await catalog.list({ agent: "claude", cwd: project, remote: true });
-  assert.equal(remote.remote, true);
-  assert.deepEqual(remote.commands.map((command) => command.source), CLAUDE_BUILT_IN_COMMANDS.map(() => "built-in"));
   assert.deepEqual(spy.opened, []);
   assert.deepEqual(spy.listed, []);
 });

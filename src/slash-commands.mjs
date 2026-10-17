@@ -242,13 +242,12 @@ export class SlashCommandCatalog {
     this.cache = new Map();
   }
 
-  // { agent, commands: [{ name, description, source }] }. An agent other than
-  // Claude Code or Codex has none; a pane on another PC (`remote`) gets the
-  // agent's own commands only, since its files are that PC's.
-  async list({ agent, cwd = null, remote = false } = {}) {
+  // { agent, commands: [{ name, description, source }] } for a pane on this
+  // PC (one on a connected PC asks there: listRemote). An agent other than
+  // Claude Code or Codex has none.
+  async list({ agent, cwd = null } = {}) {
     const name = agentName(agent);
     if (!COMMAND_AGENTS.includes(name)) return { agent: null, commands: [] };
-    if (remote) return { agent: name, commands: [...builtInCommands(name)], remote: true };
     const folder = typeof cwd === "string" && cwd.startsWith("/") && cwd.length <= 4096 ? posix.resolve(cwd) : null;
     const key = JSON.stringify([name, folder]);
     const at = this.now();
