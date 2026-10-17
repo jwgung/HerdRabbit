@@ -50,6 +50,7 @@ function peerHerdr(calls, snapshotOverrides = {}) {
       return { match: MATCH, total: 2, contentRevision: 2 };
     },
     async paneReveal(id, request) { calls.push(["paneReveal", id, request]); return { scrolled: true }; },
+    async paneScrollToBottom(id) { calls.push(["paneScrollToBottom", id]); return { scroll: { offset_from_bottom: 0 } }; },
     async createWorkspace(label, sessionId) { calls.push(["createWorkspace", label, sessionId]); },
     async renameWorkspace(id, label) { calls.push(["renameWorkspace", id, label]); },
     async closeWorkspace(id) { calls.push(["closeWorkspace", id]); },
@@ -365,6 +366,8 @@ test("find and reveal run on the connected PC, and a changed history stays a sta
   await assert.rejects(() => herdr.paneFind(`${LINK_ID}!${PANE}`, { query: "needle", direction: "backward", previous: MATCH, contentRevision: 1 }), { code: "stale_content" });
   assert.deepEqual(await herdr.paneReveal(`${LINK_ID}!${PANE}`, { match: MATCH, contentRevision: 2 }), { scrolled: true });
   assert.equal(calls.find((call) => call[0] === "paneReveal")[1], PANE);
+  assert.deepEqual(await herdr.paneScrollToBottom(`${LINK_ID}!${PANE}`), { scroll: { offset_from_bottom: 0 } });
+  assert.equal(calls.find((call) => call[0] === "paneScrollToBottom")[1], PANE);
   // what the peer would not take is refused there too
   await assert.rejects(() => herdr.paneFind(`${LINK_ID}!${PANE}`, { query: "" }));
 });

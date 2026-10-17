@@ -695,6 +695,15 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       host.classList.toggle("is-keyboard-open", open);
       if (!open) fitNow();
     },
+    // Brings the viewport to the newest output: a mirror's own scrollback, and
+    // any frame it held back meanwhile. True when a pane is attached (herdr's
+    // view of it is the server's to move).
+    scrollToBottom() {
+      if (!term || host.hidden) return false;
+      term.scrollToBottom();
+      drawHeldFrame();
+      return Boolean(paneId);
+    },
     // Scrolls herdr's history of the attached pane by a screen, up for -1.
     // False when no pane is attached: a mirror shows its current screen only.
     scrollPage(direction) {

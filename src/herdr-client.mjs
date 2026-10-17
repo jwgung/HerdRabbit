@@ -629,6 +629,17 @@ export class HerdrClient {
     return { scroll: scrollInfo(scrolled?.pane?.scroll) ?? { ...now, offset_from_bottom: offset } };
   }
 
+  // Scrolls the pane's view, which every client of the pane shares, down to
+  // the newest output; nothing is sent when it is there already (or herdr
+  // gives no view position). Answers the view as it is.
+  async paneScrollToBottom(paneId) {
+    const safePaneId = validatePaneId(paneId);
+    const now = await this.#paneScroll(safePaneId);
+    if (!now || now.offset_from_bottom === 0) return { scroll: now };
+    const scrolled = await this.#call("pane.scroll", { pane_id: safePaneId, offset_from_bottom: 0 });
+    return { scroll: scrollInfo(scrolled?.pane?.scroll) ?? { ...now, offset_from_bottom: 0 } };
+  }
+
   // The pane's processes as herdr sees them (its shell and the foreground
   // group, each with pid and argv): where a Codex pane's rollout is open.
   async paneProcessInfo(paneId) {

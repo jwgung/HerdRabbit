@@ -131,6 +131,21 @@ test("a reveal scrolls the shared view so the match sits a third of the way down
   assert.deepEqual(answer, { scroll: { offset_from_bottom: 26, max_offset_from_bottom: 168, viewport_rows: 40 } });
 });
 
+test("scrolling to the bottom moves the shared view to offset 0, and sends nothing when it is there", async (context) => {
+  const herdr = await fakeHerdrSocket(context, herdrPane({ offset: 30 }));
+  const answer = await socketClient(herdr.socketPath).paneScrollToBottom("w1:p1");
+  assert.deepEqual(herdr.requests, [
+    { method: "pane.get", params: { pane_id: "w1:p1" } },
+    { method: "pane.scroll", params: { pane_id: "w1:p1", offset_from_bottom: 0 } },
+  ]);
+  assert.deepEqual(answer, { scroll: { offset_from_bottom: 0, max_offset_from_bottom: 168, viewport_rows: 40 } });
+
+  const atBottom = await fakeHerdrSocket(context, herdrPane());
+  const same = await socketClient(atBottom.socketPath).paneScrollToBottom("w1:p1");
+  assert.equal(atBottom.requests.some((request) => request.method === "pane.scroll"), false);
+  assert.equal(same.scroll.offset_from_bottom, 0);
+});
+
 test("a reveal leaves a match already on screen where it is", async (context) => {
   const herdr = await fakeHerdrSocket(context, herdrPane());
   const match = { start: { row: 206, col: 7 }, end: { row: 206, col: 12 } };
@@ -421,6 +436,27 @@ test("the reveal route needs the write token, checks what it is given and moves 
   const conflict = await post({ match, contentRevision: 4 });
   assert.equal(conflict.status, 409);
   assert.equal((await conflict.json()).error.code, "stale_content");
+});
+
+test("the scroll-bottom route needs the write token and moves the view through herdr", async (context) => {
+  const calls = [];
+  const herdr = {
+    async snapshot() { return { workspaces: [], tabs: [], panes: [] }; },
+    async paneScrollToBottom(...args) { calls.push(args); return { scroll: { offset_from_bottom: 0, max_offset_from_bottom: 30, viewport_rows: 20 } }; },
+  };
+  const baseUrl = await startServer(context, herdr);
+  const post = (headers = {}) => fetch(`${baseUrl}/api/panes/hs_x~w1%3Ap2/scroll-bottom`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: baseUrl, "X-Herdr-CSRF": "fixed-test-token", ...headers },
+    body: "{}",
+  });
+  assert.equal((await post({ "X-Herdr-CSRF": "wrong" })).status, 403);
+  assert.equal((await post({ Origin: "https://evil.example" })).status, 403);
+  assert.deepEqual(calls, []);
+  const response = await post();
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { scroll: { offset_from_bottom: 0, max_offset_from_bottom: 30, viewport_rows: 20 } });
+  assert.deepEqual(calls, [["hs_x~w1:p2"]]);
 });
 
 // Screen rows as xterm-terminal.js reads them; a Hangul syllable takes two cells.

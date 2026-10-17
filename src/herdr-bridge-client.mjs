@@ -283,6 +283,11 @@ export class HerdrBridgeClient {
     return this.#clientForSession(target.sessionName).paneReveal(target.localId, request);
   }
 
+  async paneScrollToBottom(paneId) {
+    const target = this.#targetForScopedId(paneId, validation.validatePaneId);
+    return this.#clientForSession(target.sessionName).paneScrollToBottom(target.localId);
+  }
+
   async terminalTarget(paneId, timeoutMs) {
     const target = this.#targetForScopedId(paneId, validation.validatePaneId);
     return this.#clientForSession(target.sessionName).terminalTarget(target.localId, timeoutMs);

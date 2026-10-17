@@ -394,6 +394,12 @@ export class LinkClient {
     return this.#search(`/api/link/panes/${encodeURIComponent(paneId)}/reveal`, request);
   }
 
+  // A PC that does not name scroll_bottom has no such route: nothing is asked.
+  async paneScrollToBottom(paneId) {
+    if (!this.#features.has("scroll_bottom")) return { scroll: null };
+    return this.#search(`/api/link/panes/${encodeURIComponent(paneId)}/scroll-bottom`, {});
+  }
+
   async #search(path, request) {
     try {
       return await this.#request(path, { method: "POST", body: request, timeoutMs: this.timeouts.write, codes: FIND_CODES });

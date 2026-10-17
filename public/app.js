@@ -3521,6 +3521,17 @@ async function conversationRequest(path, { etag } = {}) {
 const TERMINAL_PARK_MS = 5 * 60_000;
 let terminalParkTimer = null;
 
+// Back from the Chat lens, the terminal shows the newest output: herdr's
+// shared view of the pane goes to the bottom (asked of the server), and so
+// does xterm's own viewport. A terminal let go while parked attaches again
+// right after, so it counts too; a mirror has no herdr view to move.
+let lastLens = { lens: null, paneId: null };
+function showNewestTerminalOutput(paneId) {
+  const attached = attachedTerminal.scrollToBottom();
+  if (!attached && state.terminalParked !== paneId) return;
+  api(`/api/panes/${encodeURIComponent(paneId)}/scroll-bottom`, { method: "POST", body: {} }).catch(() => {});
+}
+
 function scheduleTerminalPark(lens, paneId) {
   window.clearTimeout(terminalParkTimer);
   terminalParkTimer = null;
@@ -3551,6 +3562,9 @@ const chatLens = createChatLens({
   onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
   onChatDrawn: (chat, drawn) => chatFind?.redrawn(chat, drawn),
   onLensChange: (lens, paneId) => {
+    const fromChat = lastLens.lens === "chat" && lastLens.paneId === paneId && lens === "terminal";
+    lastLens = { lens, paneId };
+    if (fromChat) showNewestTerminalOutput(paneId);
     scheduleTerminalPark(lens, paneId);
     // The key bar drives the terminal: the Chat lens hides it, and the
     // terminal fits again once it is back.
