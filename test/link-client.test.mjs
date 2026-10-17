@@ -8,7 +8,7 @@ import { PeerIdentity } from "../src/peer-identity.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
 import { HerdrCommandError, InputValidationError } from "../src/herdr-client.mjs";
 import { LINK_PROTOCOL } from "../src/link-protocol.mjs";
-import { CLAUDE_BUILT_IN_COMMANDS, SlashCommandCatalog } from "../src/slash-commands.mjs";
+import { CLAUDE_BUILT_IN_COMMANDS, MAX_REMOTE_COMMANDS, SlashCommandCatalog } from "../src/slash-commands.mjs";
 
 const HUB_VERSION = "1.2.0";
 const LINK_ID = "link_11111111-1111-1111-1111-111111111111";
@@ -418,7 +418,7 @@ test("what a connected PC lists is cleaned on the hub, and a list for another ag
   await settled(herdr);
   const ask = () => herdr.paneCommands(`${LINK_ID}!${PANE}`);
   const { commands } = await hubCatalog().listRemote({ agent: "claude", key: "p", ask });
-  assert.ok(commands.length <= 500);
+  assert.ok(commands.length <= MAX_REMOTE_COMMANDS);
   assert.deepEqual(commands[0], { name: "long", description: `${"x".repeat(199)}…`, source: "other" });
   assert.deepEqual(commands[1], { name: "plain", description: "", source: "plugin" });
   assert.equal(commands[2].name, "cmd0");

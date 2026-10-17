@@ -11,6 +11,8 @@ import {
   CLAUDE_BUILT_IN_COMMANDS,
   CODEX_BUILT_IN_COMMANDS,
   MAX_COMMAND_FILE_BYTES,
+  MAX_LISTED_COMMANDS,
+  MAX_REMOTE_COMMANDS,
   MAX_SCANNED_ENTRIES,
   SlashCommandCatalog,
   cleanRemoteCommands,
@@ -265,7 +267,13 @@ test("a connected PC's list is held to what a list here could be", () => {
     { name: "odd", description: "", source: "other" },
   ]);
   const many = cleanRemoteCommands({ agent: "claude", commands: Array.from({ length: 900 }, (_, n) => ({ name: `c${n}`, source: "user" })) }, "claude");
-  assert.equal(many.length, 500);
+  assert.equal(many.length, MAX_REMOTE_COMMANDS);
+  // a full list of found commands keeps the agent's own after it
+  const full = cleanRemoteCommands({
+    agent: "claude",
+    commands: [...Array.from({ length: MAX_LISTED_COMMANDS }, (_, n) => ({ name: `c${n}`, source: "user" })), ...CLAUDE_BUILT_IN_COMMANDS.map((command) => ({ ...command, source: "built-in" }))],
+  }, "claude");
+  assert.ok(full.some((command) => command.name === CLAUDE_BUILT_IN_COMMANDS.at(-1).name), "the agent's own were cut off a full list");
 });
 
 test("GET /api/panes/:id/commands asks a connected PC for its pane's list, and falls back to the agent's own", async (context) => {

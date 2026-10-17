@@ -188,14 +188,18 @@ export function paneCommandTarget(snapshot, paneId) {
 
 // What a connected PC said its pane's agent takes, held to what a list here
 // could have been: the agent this hub sees in the pane, at most
-// MAX_LISTED_COMMANDS names a typed `/name` can be, each once, a one-line
+// MAX_REMOTE_COMMANDS names a typed `/name` can be, each once, a one-line
 // description and a known source. Only those three fields are kept. Null
 // when the answer is not a list for `agent`, or holds no command at all.
+// A PC's list is its found commands (MAX_LISTED_COMMANDS at most) and then
+// its agent's own, which must not be cut off the end.
+export const MAX_REMOTE_COMMANDS = MAX_LISTED_COMMANDS + 100;
+
 export function cleanRemoteCommands(answer, agent) {
   if (!answer || typeof answer !== "object" || answer.agent !== agent || !Array.isArray(answer.commands)) return null;
   const seen = new Set();
   const commands = [];
-  for (const command of answer.commands.slice(0, MAX_LISTED_COMMANDS)) {
+  for (const command of answer.commands.slice(0, MAX_REMOTE_COMMANDS)) {
     if (!command || typeof command !== "object" || !isCommandName(command.name) || seen.has(command.name)) continue;
     seen.add(command.name);
     commands.push({
