@@ -250,6 +250,9 @@ export class MultiServerClient {
   paneFind(id, request) { return this.invoke("paneFind", id, [request]); }
   paneReveal(id, request) { return this.invoke("paneReveal", id, [request]); }
   paneScrollToBottom(id) { return this.invoke("paneScrollToBottom", id, []); }
+  // A connected PC's pane: that PC's own `/` commands (src/link-client.mjs).
+  // This machine's are listed by the page's own catalog, not asked of Herdr.
+  paneCommands(id) { return this.invoke("paneCommands", id, []); }
   sendText(id, text, options) { return this.invoke("sendText", id, [text, options]); }
   sendKeys(id, keys) { return this.invoke("sendKeys", id, [keys]); }
   async watchStatuses(paneIds, onStatus, onError) {

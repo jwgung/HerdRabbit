@@ -400,6 +400,15 @@ export class LinkClient {
     return this.#search(`/api/link/panes/${encodeURIComponent(paneId)}/scroll-bottom`, {});
   }
 
+  // The `/` commands one of the PC's panes takes, which it builds from its
+  // own files and snapshot. A PC that does not name commands has no such
+  // route: nothing is asked, and null says so.
+  async paneCommands(paneId) {
+    await this.#ready();
+    if (!this.#features.has("commands")) return null;
+    return this.#request(`/api/link/panes/${encodeURIComponent(paneId)}/commands`, { timeoutMs: this.timeouts.read });
+  }
+
   async #search(path, request) {
     try {
       return await this.#request(path, { method: "POST", body: request, timeoutMs: this.timeouts.write, codes: FIND_CODES });

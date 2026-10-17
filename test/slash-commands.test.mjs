@@ -13,6 +13,7 @@ import {
   MAX_COMMAND_FILE_BYTES,
   MAX_SCANNED_ENTRIES,
   SlashCommandCatalog,
+  cleanRemoteCommands,
   commandSummary,
   parseFrontmatter,
 } from "../src/slash-commands.mjs";
@@ -247,6 +248,60 @@ test("GET /api/panes/:id/commands answers for the pane's agent and folder", asyn
   assert.deepEqual(names(remote).length, CLAUDE_BUILT_IN_COMMANDS.length);
   assert.equal((await get("w1:gone")).status, 404);
   assert.equal((await get("w1:p1", { Origin: "https://evil.example" })).status, 403);
+});
+
+test("a connected PC's list is held to what a list here could be", () => {
+  assert.equal(cleanRemoteCommands(null, "claude"), null);
+  assert.equal(cleanRemoteCommands("nope", "claude"), null);
+  assert.equal(cleanRemoteCommands({ agent: "claude", commands: "ship" }, "claude"), null);
+  assert.equal(cleanRemoteCommands({ agent: "codex", commands: [{ name: "ship" }] }, "claude"), null, "another agent's list");
+  assert.equal(cleanRemoteCommands({ agent: "claude", commands: [null, 3, { name: "a b" }, { name: "x/y" }] }, "claude"), null, "nothing usable");
+  const cleaned = cleanRemoteCommands({
+    agent: "claude",
+    commands: [null, { name: "ship", description: "Ship\n\tit", source: "plugin", body: "SECRET" }, { name: "ship", description: "again" }, { name: "odd", source: "elsewhere" }],
+  }, "claude");
+  assert.deepEqual(cleaned, [
+    { name: "ship", description: "Ship it", source: "plugin" },
+    { name: "odd", description: "", source: "other" },
+  ]);
+  const many = cleanRemoteCommands({ agent: "claude", commands: Array.from({ length: 900 }, (_, n) => ({ name: `c${n}`, source: "user" })) }, "claude");
+  assert.equal(many.length, 500);
+});
+
+test("GET /api/panes/:id/commands asks a connected PC for its pane's list, and falls back to the agent's own", async (context) => {
+  const asked = [];
+  let answer = { agent: "claude", commands: [{ name: "ship", description: "Ship it", source: "project" }] };
+  const herdr = {
+    async snapshot() {
+      return {
+        workspaces: [], tabs: [], agents: [],
+        panes: [
+          { pane_id: "link_lab!w1:p1", agent: "claude", cwd: "/work", server_id: "link_lab" },
+          { pane_id: "link_lab!w1:p2", agent: "claude", cwd: "/work", server_id: "link_lab" },
+          { pane_id: "link_lab!w1:p3", agent: "codex", server_id: "link_lab" },
+        ],
+      };
+    },
+    async paneCommands(paneId) {
+      asked.push(paneId);
+      if (paneId.endsWith("p2")) throw Object.assign(new Error("offline"), { code: "link_offline" });
+      return answer;
+    },
+  };
+  const slashCommands = new SlashCommandCatalog({ env: { HOME: "/nonexistent-herdrabbit-home" }, fs: { open: () => assert.fail("opened a file"), readdir: () => assert.fail("listed a folder"), realpath, stat } });
+  const app = await startServer(herdr, { slashCommands });
+  context.after(() => new Promise((resolve) => app.server.close(resolve)));
+  const get = async (paneId) => (await fetch(`${app.baseUrl}/api/panes/${encodeURIComponent(paneId)}/commands`)).json();
+
+  assert.deepEqual(await get("link_lab!w1:p1"), { agent: "claude", commands: answer.commands, remote: true });
+  // kept a little while: not asked again
+  answer = { agent: "claude", commands: [{ name: "other", description: "", source: "user" }] };
+  assert.equal((await get("link_lab!w1:p1")).commands[0].name, "ship");
+  assert.deepEqual(asked, ["link_lab!w1:p1"]);
+  // a PC that cannot be reached: the agent's own, the composer still gets a list
+  assert.deepEqual((await get("link_lab!w1:p2")).commands, [...CLAUDE_BUILT_IN_COMMANDS]);
+  // a Claude list for a pane the hub sees running Codex is not taken
+  assert.deepEqual((await get("link_lab!w1:p3")).commands, [...CODEX_BUILT_IN_COMMANDS]);
 });
 
 test("the commands route needs a signed-in session", async (context) => {

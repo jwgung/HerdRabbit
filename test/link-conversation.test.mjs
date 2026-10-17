@@ -21,7 +21,7 @@ import { MultiServerClient } from "../src/multi-server-client.mjs";
 import { PeerIdentity } from "../src/peer-identity.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
 
-const VERSION = "1.2.69";
+const VERSION = "1.2.70";
 const SESSION = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
 const PANE = "hs_ZGVmYXVsdA~w1:p1";
 const LINKED = `link_1!${PANE}`;
@@ -101,12 +101,20 @@ async function startDesk(context, { link = (routes) => routes } = {}) {
     async readPane(paneId, options) { reads.push([paneId, options]); return planScreen; },
   };
   const conversations = new ConversationService({ herdr, localStore: localTranscriptStore({ configDir, codexHome: join(root, "codex") }) });
+  // B's own `/` command list, as a fake that says what it was asked.
+  const commandsAsked = [];
+  const slashCommands = {
+    async list(query) {
+      commandsAsked.push(query);
+      return { agent: query.agent ?? null, commands: query.agent === "claude" ? [{ name: "desk-skill", description: "On the desk", source: "user" }] : [] };
+    },
+  };
   const server = createPeerServer({
     peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
-    link: link(linkRoutes({ client: herdr, conversations, version: VERSION, serverName: "desk" })),
+    link: link(linkRoutes({ client: herdr, conversations, slashCommands, version: VERSION, serverName: "desk" })),
     logger: { error() {} },
   });
-  return { address: await listen(context, server), herdr, transcript, project };
+  return { address: await listen(context, server), herdr, transcript, project, commandsAsked };
 }
 
 // A: the page, with B connected, read through its own browser API.
@@ -263,6 +271,19 @@ test("a plan card for a connected PC's pane shows the whole plan from B's transc
   assert.equal(bad.status, 400);
 });
 
+test("A's composer lists a connected PC's pane's / commands as B builds them", async (context) => {
+  const desk = await startDesk(context);
+  const { get } = await startHub(context, desk.address);
+  const answer = await (await get(pane("/commands"))).json();
+  assert.deepEqual(answer, { agent: "claude", commands: [{ name: "desk-skill", description: "On the desk", source: "user" }], remote: true });
+  // B decided the agent and folder from its own snapshot, for its own pane id
+  assert.deepEqual(desk.commandsAsked, [{ agent: "claude", cwd: "/work/desk" }]);
+  // a pane with no agent there asks nothing
+  const shell = await (await get(`/api/panes/${encodeURIComponent("link_1!hs_ZGVmYXVsdA~w1:p2")}/commands`)).json();
+  assert.deepEqual(shell, { agent: null, commands: [] });
+  assert.equal(desk.commandsAsked.length, 1);
+});
+
 test("a connected PC from before this says to update it", async (context) => {
   // An older HerdRabbit names no features in its hello and has none of the
   // conversation routes (every one is its 404 not_found).
@@ -286,6 +307,12 @@ test("a connected PC from before this says to update it", async (context) => {
   // the terminal's jump to the newest output is not asked of it at all
   assert.deepEqual(await herdr.paneScrollToBottom(LINKED), { scroll: null });
   assert.ok(!asked.some((path) => path.endsWith("/scroll-bottom")), "an older PC was asked to scroll");
+  // nor its / commands: the composer lists the agent's own
+  const commands = await (await get(pane("/commands"))).json();
+  assert.equal(commands.agent, "claude");
+  assert.ok(commands.commands.length > 0 && commands.commands.every((command) => command.source === "built-in"));
+  assert.ok(!asked.some((path) => path.endsWith("/commands")), "an older PC was asked for its commands");
+  assert.deepEqual(desk.commandsAsked, []);
   const response = await get(pane("/conversation"));
   assert.equal(response.status, 404);
   assert.deepEqual((await response.json()).error.details, { reason: "linked_pc_old" });
