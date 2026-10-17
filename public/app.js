@@ -3555,6 +3555,8 @@ const chatLens = createChatLens({
     // The key bar drives the terminal: the Chat lens hides it, and the
     // terminal fits again once it is back.
     elements.terminalPanel.dataset.lens = lens;
+    // the composer's text size goes with the lens
+    resizeTerminalInput();
     promptDock?.setLens(lens);
     syncSendButton();
     // Each lens has its own find bar, and each bar its own pane: a switch
@@ -3735,6 +3737,9 @@ function applyChatFontSize(size, { save = true } = {}) {
   chatFontSize = size;
   elements.terminalStage.style.setProperty("--chat-scale", String(chatScale(size)));
   elements.terminalStage.dataset.chatFontSize = String(size);
+  // the composer takes the chat's size in the Chat lens
+  document.documentElement.style.setProperty("--chat-font-size", `${size}px`);
+  resizeTerminalInput();
   if (save) writeChatFontSize(panePreferenceStorage, size);
   if (scroller) scroller.scrollTop = atEnd ? scroller.scrollHeight : share * scroller.scrollHeight;
 }
