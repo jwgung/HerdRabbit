@@ -8,6 +8,7 @@ import { PeerIdentity } from "../src/peer-identity.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
 import { HerdrCommandError, InputValidationError } from "../src/herdr-client.mjs";
 import { LINK_PROTOCOL } from "../src/link-protocol.mjs";
+import { CLAUDE_BUILT_IN_COMMANDS, MAX_REMOTE_COMMANDS, SlashCommandCatalog } from "../src/slash-commands.mjs";
 
 const HUB_VERSION = "1.2.0";
 const LINK_ID = "link_11111111-1111-1111-1111-111111111111";
@@ -60,8 +61,8 @@ function peerHerdr(calls, snapshotOverrides = {}) {
   };
 }
 
-async function startLinkedPeer(context, { calls = [], version = HUB_VERSION, herdr, herdrVersion, protocol } = {}) {
-  let link = linkRoutes({ client: herdr ?? peerHerdr(calls), version, herdrVersion, serverName: "dev-box" });
+async function startLinkedPeer(context, { calls = [], version = HUB_VERSION, herdr, herdrVersion, protocol, slashCommands } = {}) {
+  let link = linkRoutes({ client: herdr ?? peerHerdr(calls), version, herdrVersion, serverName: "dev-box", slashCommands });
   if (protocol !== undefined) {
     // A PC on another link protocol: the same routes, answering a different number.
     const routes = link;
@@ -370,6 +371,84 @@ test("find and reveal run on the connected PC, and a changed history stays a sta
   assert.equal(calls.find((call) => call[0] === "paneScrollToBottom")[1], PANE);
   // what the peer would not take is refused there too
   await assert.rejects(() => herdr.paneFind(`${LINK_ID}!${PANE}`, { query: "" }));
+});
+
+// The connected PC's own catalog, as a fake that says what it was asked.
+function peerCatalog(commands) {
+  const asked = [];
+  return { asked, async list(query) { asked.push(query); return { agent: query.agent, commands }; } };
+}
+
+// The hub's catalog: a remote list never reads this PC's files.
+const hubCatalog = () => new SlashCommandCatalog({ env: { HOME: "/nonexistent-herdrabbit-home" } });
+
+test("a connected PC lists its pane's / commands itself, for the agent and folder its own snapshot gives", async (context) => {
+  const calls = [];
+  const slashCommands = peerCatalog([{ name: "ship", description: "Ship it", source: "project" }]);
+  const { address } = await startLinkedPeer(context, {
+    calls, slashCommands,
+    herdr: peerHerdr(calls, { panes: [{ pane_id: PANE, workspace_id: `${SESSION}~wB`, agent: "claude", cwd: "/work/desk" }] }),
+  });
+  const { herdr } = hubFor(address);
+  await settled(herdr);
+  assert.deepEqual(await herdr.paneCommands(`${LINK_ID}!${PANE}`), { agent: "claude", commands: [{ name: "ship", description: "Ship it", source: "project" }] });
+  // asked with the pane's id there, and only the PC's own view of it
+  assert.deepEqual(slashCommands.asked, [{ agent: "claude", cwd: "/work/desk" }]);
+  const listed = await hubCatalog().listRemote({ agent: "claude", key: `${LINK_ID}!${PANE}`, ask: () => herdr.paneCommands(`${LINK_ID}!${PANE}`) });
+  assert.deepEqual(listed, { agent: "claude", commands: [{ name: "ship", description: "Ship it", source: "project" }], remote: true });
+});
+
+test("what a connected PC lists is cleaned on the hub, and a list for another agent is not taken", async (context) => {
+  const many = Array.from({ length: 600 }, (_, n) => ({ name: `cmd${n}`, description: "d", source: "user" }));
+  const slashCommands = peerCatalog([
+    { name: "long", description: "x".repeat(500), source: "evil", path: "/home/me/.claude/skills/long/SKILL.md" },
+    { name: "bad name", description: "spaces", source: "user" },
+    { name: "../up", description: "slashes", source: "user" },
+    { name: 5, description: "a number", source: "user" },
+    { name: "long", description: "again", source: "user" },
+    { name: "plain", description: 42, source: "plugin" },
+    ...many,
+  ]);
+  const calls = [];
+  const { address } = await startLinkedPeer(context, {
+    calls, slashCommands,
+    herdr: peerHerdr(calls, { panes: [{ pane_id: PANE, workspace_id: `${SESSION}~wB`, agent: "claude" }] }),
+  });
+  const { herdr } = hubFor(address);
+  await settled(herdr);
+  const ask = () => herdr.paneCommands(`${LINK_ID}!${PANE}`);
+  const { commands } = await hubCatalog().listRemote({ agent: "claude", key: "p", ask });
+  assert.ok(commands.length <= MAX_REMOTE_COMMANDS);
+  assert.deepEqual(commands[0], { name: "long", description: `${"x".repeat(199)}…`, source: "other" });
+  assert.deepEqual(commands[1], { name: "plain", description: "", source: "plugin" });
+  assert.equal(commands[2].name, "cmd0");
+  for (const command of commands) assert.deepEqual(Object.keys(command), ["name", "description", "source"]);
+  // the hub sees a Codex pane there: Claude's list is not that pane's
+  const other = await hubCatalog().listRemote({ agent: "codex", key: "p", ask });
+  assert.ok(other.commands.every((command) => command.source === "built-in"));
+});
+
+test("a connected PC that does not list / commands is not asked, and the pane gets its agent's own", async () => {
+  const asked = [];
+  const client = peerClient(async (url) => {
+    asked.push(new URL(url).pathname);
+    return new Response(JSON.stringify({ agent: "claude", commands: [] }), { status: 200 });
+  });
+  assert.equal(await client.paneCommands("p1"), null);
+  assert.deepEqual(asked, []);
+  const listed = await hubCatalog().listRemote({ agent: "claude", key: "p1", ask: () => client.paneCommands("p1") });
+  assert.deepEqual(listed.commands, [...CLAUDE_BUILT_IN_COMMANDS]);
+});
+
+test("a connected PC that fails or does not answer in time gives the agent's own commands, kept a while", async () => {
+  let asks = 0;
+  const catalog = hubCatalog();
+  const ask = async () => { asks += 1; throw new HerdrCommandError("did not answer in time", { code: "link_timeout" }); };
+  const listed = await catalog.listRemote({ agent: "Claude", key: "p1", ask });
+  assert.deepEqual(listed, { agent: "claude", commands: [...CLAUDE_BUILT_IN_COMMANDS], remote: true });
+  await catalog.listRemote({ agent: "claude", key: "p1", ask });
+  assert.equal(asks, 1, "asked again within the cache's time");
+  assert.deepEqual(await catalog.listRemote({ agent: "bash", key: "p1", ask }), { agent: null, commands: [] });
 });
 
 test("a connected PC from before find went over the link says it is too old", async () => {

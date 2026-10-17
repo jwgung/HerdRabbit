@@ -23,10 +23,10 @@ function fakePeer(overrides = {}) {
   };
 }
 
-async function startPeer(context, client, version = "1.2.0") {
+async function startPeer(context, client, version = "1.2.0", { slashCommands, allowed = ["127.0.0.1"] } = {}) {
   const server = createPeerServer({
-    peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
-    link: linkRoutes({ client, version, serverName: "dev-box" }),
+    peer: new PeerIdentity({ addresses: allowed }),
+    link: linkRoutes({ client, version, serverName: "dev-box", slashCommands }),
     logger: { error() {} },
   });
   server.listen(0, "127.0.0.1");
@@ -46,8 +46,53 @@ test("announces what it is and what it will report", async (context) => {
     server_name: "dev-box",
     herdr_version: null,
     // without this PC's conversations, it offers no chat
-    features: ["scroll_bottom"],
+    features: ["scroll_bottom", "commands"],
   });
+});
+
+// This PC's catalog, as a fake that says what it was asked.
+function fakeCatalog(commands = [{ name: "ship", description: "Ship it", source: "project", path: "/home/me/.claude/skills/ship/SKILL.md" }]) {
+  const asked = [];
+  return {
+    asked,
+    async list(query) {
+      asked.push(query);
+      return { agent: query.agent ?? null, commands: query.agent ? commands : [], remote: false, extra: "not for the hub" };
+    },
+  };
+}
+
+test("lists a pane's / commands for the agent and folder this PC's own snapshot gives it", async (context) => {
+  const client = fakePeer({
+    async snapshot() {
+      return {
+        panes: [{ pane_id: PANE, agent: "claude", cwd: "/work", foreground_cwd: "/work/app" }, { pane_id: "hs_x~w1:p2", cwd: "/tmp" }],
+        agents: [{ pane_id: "hs_x~w1:p2", agent: "codex" }],
+      };
+    },
+  });
+  const slashCommands = fakeCatalog();
+  const base = await startPeer(context, client, "1.2.0", { slashCommands });
+  const url = (pane, query = "") => `${base}/api/link/panes/${encodeURIComponent(pane)}/commands${query}`;
+  // what the hub might add to the request is not what decides
+  const answer = await (await fetch(`${url(PANE)}?agent=codex&cwd=/etc`, { headers: asHub })).json();
+  assert.deepEqual(answer, { agent: "claude", commands: [{ name: "ship", description: "Ship it", source: "project" }] });
+  assert.deepEqual(slashCommands.asked, [{ agent: "claude", cwd: "/work/app" }]);
+  // an agent herdr reports beside the pane counts too
+  await fetch(url("hs_x~w1:p2"), { headers: asHub });
+  assert.deepEqual(slashCommands.asked.at(-1), { agent: "codex", cwd: "/tmp" });
+  // a pane this PC does not list, or one it reaches through another, is not answered
+  assert.equal((await fetch(url("hs_x~w1:gone"), { headers: asHub })).status, 404);
+  assert.equal((await fetch(url(`link_other!${PANE}`), { headers: asHub })).status, 404);
+  assert.equal(slashCommands.asked.length, 2);
+});
+
+test("answers a pane's / commands only to a PC it lets in", async (context) => {
+  const slashCommands = fakeCatalog();
+  const base = await startPeer(context, fakePeer(), "1.2.0", { slashCommands, allowed: ["100.64.0.9"] });
+  const response = await fetch(`${base}/api/link/panes/${encodeURIComponent(PANE)}/commands`, { headers: asHub });
+  assert.equal(response.status, 403);
+  assert.deepEqual(slashCommands.asked, []);
 });
 
 test("carries the handshake with every snapshot", async (context) => {

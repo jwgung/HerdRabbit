@@ -26,6 +26,7 @@ import { announcementWriter, readAnnouncements } from "./announcement-store.mjs"
 import { announceToHub } from "./link-announce.mjs";
 import { isProtectedPath, localProtectedPaths } from "./protected-paths.mjs";
 import { ConversationService } from "./conversation/service.mjs";
+import { SlashCommandCatalog } from "./slash-commands.mjs";
 
 const config = readConfig();
 const leafWarning = legacyLeafWarning(config);
@@ -111,6 +112,9 @@ const herdr = new MultiServerClient({
 // connected to this one, for this PC's own panes (its link refuses any other).
 // One service for both, so a transcript found for one is found for the other.
 const conversations = new ConversationService({ herdr });
+// Panes' `/` commands: this PC's page lists them, and so does a PC that
+// connected to this one, for this PC's own panes. One catalog for both.
+const slashCommands = new SlashCommandCatalog({ guard: protectedPaths });
 // Only this machine's panes decide whether a switch here would disturb anything.
 const aiAccounts = new AiAccounts({ directory: config.aiAccountsDir, runningAgents: () => runningAgentsIn(local) });
 const notificationMonitor = new AgentNotificationMonitor({ herdr, push });
@@ -155,6 +159,7 @@ const { server } = createHerdrHttpServer({
   },
   files,
   conversations,
+  slashCommands,
   auth,
   passkeys,
   push,
@@ -183,7 +188,7 @@ const peerServer = config.peerHost ? createPeerServer({
     loginOf: (address) => tailnetLoginOf(address),
   }),
   link: linkRoutes({
-    client: local, files, aiAccounts, attach: linkAttach, conversations, version: hubVersion, herdrVersion: () => herdrVersion,
+    client: local, files, aiAccounts, attach: linkAttach, conversations, slashCommands, version: hubVersion, herdrVersion: () => herdrVersion,
     serverName: hostname(), maxTransferBytes: config.maxTransferBytes, protectedPaths,
   }),
   attach: linkAttach,

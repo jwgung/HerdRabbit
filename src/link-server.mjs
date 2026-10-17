@@ -9,6 +9,7 @@ import { LINK_PROTOCOL } from "./link-protocol.mjs";
 import { directoryFingerprint, fileAccessError, listDirectory, openFile } from "./file-browser.mjs";
 import { validateTransferName } from "./file-store.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
+import { SlashCommandCatalog, paneCommandTarget } from "./slash-commands.mjs";
 
 // Undici tears a response down after five idle minutes, and a quiet terminal
 // easily goes that long, so the stream says something well before then.
@@ -69,12 +70,15 @@ async function sendFile(response, file) {
 // terminal a pane has before a hub attaches to it on the same port.
 // `conversations` is this PC's own ConversationService (the one its page
 // uses): a hub's Chat reads this PC's transcripts through it, here.
+// `slashCommands` is this PC's own SlashCommandCatalog (the one its page
+// uses): a hub's composer lists a pane's `/` commands through it.
 export function linkRoutes({
-  client, files = null, aiAccounts = null, attach = null, conversations = null, version, herdrVersion = () => null, serverName = "",
+  client, files = null, aiAccounts = null, attach = null, conversations = null, slashCommands = null, version, herdrVersion = () => null, serverName = "",
   maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024, protectedPaths = defaultProtectedPaths(),
   maxStatusStreams = MAX_STATUS_STREAMS,
 }) {
   let openStreams = 0;
+  const commandCatalog = slashCommands ?? new SlashCommandCatalog({ guard: protectedPaths });
 
   function hello() {
     return {
@@ -87,7 +91,7 @@ export function linkRoutes({
       herdr_version: herdrVersion(),
       // What this PC answers beyond the protocol's base, so a hub asks only
       // for what is there. A PC from before this list says nothing.
-      features: conversations ? ["conversation", "scroll_bottom"] : ["scroll_bottom"],
+      features: conversations ? ["conversation", "scroll_bottom", "commands"] : ["scroll_bottom", "commands"],
     };
   }
 
@@ -214,6 +218,23 @@ export function linkRoutes({
       url.pathname.match(/^\/api\/link\/panes\/([^/]+)\/(?:conversation(?:\/(signature)|\/tools\/([^/]+))?|(pending-ask))$/u);
     if (conversationMatch) {
       await conversation(request, response, url, conversationMatch);
+      return true;
+    }
+
+    // The `/` commands one of this PC's panes takes, for a hub's composer:
+    // built here from this PC's own files, for the agent and folder this PC's
+    // own snapshot gives the pane -- the hub names only the pane. Names,
+    // descriptions and sources only, as this PC's page gets them.
+    const commandsMatch = method === "GET" && url.pathname.match(/^\/api\/link\/panes\/([^/]+)\/commands$/u);
+    if (commandsMatch) {
+      const paneId = decodePaneId(commandsMatch[1]);
+      const target = paneId.includes("!") ? null : paneCommandTarget(await client.snapshot(), paneId);
+      if (!target) throw new HttpError(404, "pane_not_found", "That pane is gone.");
+      const answer = await commandCatalog.list({ agent: target.agent, cwd: target.cwd });
+      sendJson(response, 200, {
+        agent: answer.agent,
+        commands: answer.commands.map(({ name, description, source }) => ({ name, description, source })),
+      });
       return true;
     }
 

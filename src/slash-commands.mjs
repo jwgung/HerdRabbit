@@ -13,6 +13,7 @@ import { constants } from "node:fs";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { posix } from "node:path";
+import { paneAgentName } from "./pane-agent.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 
 export const COMMAND_AGENTS = Object.freeze(["claude", "codex"]);
@@ -36,6 +37,10 @@ const MAX_PROJECT_LEVELS = 8;
 const MAX_DESCRIPTION_LENGTH = 200;
 // What a typed `/name` can be: no spaces, quotes or slashes.
 const COMMAND_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/u;
+
+// Where a listed command comes from. A connected PC naming anything else
+// is passed on as "other".
+export const COMMAND_SOURCES = Object.freeze(["built-in", "user", "project", "plugin"]);
 
 const builtIn = (entries) => Object.freeze(entries.map(([name, description]) => Object.freeze({ name, description, source: "built-in" })));
 
@@ -170,6 +175,46 @@ export function isCommandName(name) {
   return typeof name === "string" && COMMAND_NAME.test(name);
 }
 
+// The agent and folder of a pane as `snapshot` reports them, or null for a
+// pane it does not list: what a pane's command list is built for. A
+// connected PC answers this from its own snapshot, never from what it is asked.
+export function paneCommandTarget(snapshot, paneId) {
+  const pane = (snapshot?.panes ?? []).find((candidate) => candidate?.pane_id === paneId);
+  if (!pane) return null;
+  const cwd = [pane.foreground_cwd, pane.cwd].find((value) => typeof value === "string" && value.startsWith("/")) ?? null;
+  const reported = (snapshot?.agents ?? []).find((candidate) => candidate?.pane_id === paneId)?.agent;
+  return { pane, agent: paneAgentName(pane) ?? reported ?? null, cwd };
+}
+
+// What a connected PC said its pane's agent takes, held to what a list here
+// could have been: the agent this hub sees in the pane, at most
+// MAX_REMOTE_COMMANDS names a typed `/name` can be, each once, a one-line
+// description and a known source. Only those three fields are kept. Null
+// when the answer is not a list for `agent`, or holds no command at all.
+// A PC's list is its found commands (MAX_LISTED_COMMANDS at most) and then
+// its agent's own, which must not be cut off the end.
+export const MAX_REMOTE_COMMANDS = MAX_LISTED_COMMANDS + 100;
+
+export function cleanRemoteCommands(answer, agent) {
+  if (!answer || typeof answer !== "object" || answer.agent !== agent || !Array.isArray(answer.commands)) return null;
+  const seen = new Set();
+  const commands = [];
+  for (const command of answer.commands.slice(0, MAX_REMOTE_COMMANDS)) {
+    if (!command || typeof command !== "object" || !isCommandName(command.name) || seen.has(command.name)) continue;
+    seen.add(command.name);
+    commands.push({
+      name: command.name,
+      description: typeof command.description === "string" ? oneLine(command.description) : "",
+      source: COMMAND_SOURCES.includes(command.source) ? command.source : "other",
+    });
+  }
+  return commands.length ? commands : null;
+}
+
+function agentName(agent) {
+  return typeof agent === "string" ? agent.trim().toLowerCase() : "";
+}
+
 function inside(path, folder) {
   return path === folder || path.startsWith(folder === "/" ? "/" : `${folder}/`);
 }
@@ -197,13 +242,12 @@ export class SlashCommandCatalog {
     this.cache = new Map();
   }
 
-  // { agent, commands: [{ name, description, source }] }. An agent other than
-  // Claude Code or Codex has none; a pane on another PC (`remote`) gets the
-  // agent's own commands only, since its files are that PC's.
-  async list({ agent, cwd = null, remote = false } = {}) {
-    const name = typeof agent === "string" ? agent.trim().toLowerCase() : "";
+  // { agent, commands: [{ name, description, source }] } for a pane on this
+  // PC (one on a connected PC asks there: listRemote). An agent other than
+  // Claude Code or Codex has none.
+  async list({ agent, cwd = null } = {}) {
+    const name = agentName(agent);
     if (!COMMAND_AGENTS.includes(name)) return { agent: null, commands: [] };
-    if (remote) return { agent: name, commands: [...builtInCommands(name)], remote: true };
     const folder = typeof cwd === "string" && cwd.startsWith("/") && cwd.length <= 4096 ? posix.resolve(cwd) : null;
     const key = JSON.stringify([name, folder]);
     const at = this.now();
@@ -229,6 +273,30 @@ export class SlashCommandCatalog {
       this.cache.delete(key);
       throw error;
     }
+  }
+
+  // A pane on a connected PC: that PC's own list, which `ask` gets from it
+  // (its own files, its own snapshot's agent and folder), cleaned here and
+  // kept as long as a list of this PC's under `key` (the pane). A PC that does
+  // not answer this (`ask` gives null), cannot be reached, fails or answers
+  // something unusable gives the agent's own commands, as before: the
+  // composer always gets a list. Never throws.
+  async listRemote({ agent, key, ask }) {
+    const name = agentName(agent);
+    if (!COMMAND_AGENTS.includes(name)) return { agent: null, commands: [] };
+    const cacheKey = JSON.stringify(["remote", String(key), name]);
+    const at = this.now();
+    const cached = this.cache.get(cacheKey);
+    if (cached && at - cached.at <= this.ttlMs) return cached.answer;
+    const answer = (async () => {
+      let said = null;
+      try { said = await ask(); } catch { said = null; }
+      const commands = cleanRemoteCommands(said, name);
+      return { agent: name, commands: commands ?? [...builtInCommands(name)], remote: true };
+    })();
+    if (this.cache.size > 64) this.cache.clear();
+    this.cache.set(cacheKey, { at, answer });
+    return answer;
   }
 
   async #found(agent, cwd) {

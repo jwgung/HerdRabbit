@@ -32,8 +32,7 @@ import { ConversationMonitor } from "./conversation/monitor.mjs";
 import { ConversationService } from "./conversation/service.mjs";
 import { errorResponse } from "./error-response.mjs";
 import { PromptService } from "./prompt/service.mjs";
-import { paneAgentName } from "./conversation/service.mjs";
-import { SlashCommandCatalog } from "./slash-commands.mjs";
+import { SlashCommandCatalog, paneCommandTarget } from "./slash-commands.mjs";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
 const SIMPLEWEBAUTHN_BROWSER_BUNDLE = fileURLToPath(new URL(
@@ -1318,19 +1317,24 @@ export function createHerdrHttpServer({
 
       // The `/` commands the pane's agent takes, for the composer's list:
       // names, descriptions and where each comes from, never a file's body.
-      // A pane on a connected PC gets its agent's own commands only.
+      // A pane on a connected PC gets that PC's own list, which it builds from
+      // its own files and snapshot; one that cannot say gets its agent's own
+      // commands only.
       const commandsMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/commands$/);
       if (method === "GET" && commandsMatch) {
         requireSameOrigin(request);
         const paneId = decodePaneId(commandsMatch[1]);
-        const snapshot = await herdr.snapshot();
-        const pane = (snapshot?.panes ?? []).find((candidate) => candidate?.pane_id === paneId);
-        if (!pane) throw new HttpError(404, "pane_not_found", "That pane is gone.");
-        const serverId = typeof pane.server_id === "string" && pane.server_id ? pane.server_id : LOCAL_SERVER;
-        const cwd = [pane.foreground_cwd, pane.cwd].find((value) => typeof value === "string" && value.startsWith("/")) ?? null;
-        const reported = (snapshot?.agents ?? []).find((candidate) => candidate?.pane_id === paneId)?.agent;
-        sendJson(response, 200, await slashCommandCatalog.list({
-          agent: paneAgentName(pane) ?? reported, cwd, remote: serverId !== LOCAL_SERVER || paneId.includes("!"),
+        const target = paneCommandTarget(await herdr.snapshot(), paneId);
+        if (!target) throw new HttpError(404, "pane_not_found", "That pane is gone.");
+        const serverId = typeof target.pane.server_id === "string" && target.pane.server_id ? target.pane.server_id : LOCAL_SERVER;
+        if (serverId === LOCAL_SERVER && !paneId.includes("!")) {
+          sendJson(response, 200, await slashCommandCatalog.list({ agent: target.agent, cwd: target.cwd }));
+          return;
+        }
+        sendJson(response, 200, await slashCommandCatalog.listRemote({
+          agent: target.agent,
+          key: paneId,
+          ask: () => typeof herdr.paneCommands === "function" ? herdr.paneCommands(paneId) : null,
         }));
         return;
       }
