@@ -262,11 +262,13 @@ export class AppUpdater {
     ]);
     // The remote's address is compared and never repeated: it may carry a token.
     const officialOrigin = origin.code === 0 && this.originAllowed(origin.stdout.trim());
+    // An address that is not the official one is never even reached: no
+    // connection, no credential helper, nothing fetched from it.
+    if (!officialOrigin) return answer({ blocked: "wrong_origin" });
     const fetched = await this.#git("fetch", "--quiet", "--no-tags", "origin", "main");
     const precondition = !service ? "not_service"
-      : !officialOrigin ? "wrong_origin"
-        : branch.stdout.trim() !== "main" ? "not_main"
-          : status.code !== 0 || status.stdout.trim() !== "" ? "local_changes" : null;
+      : branch.stdout.trim() !== "main" ? "not_main"
+        : status.code !== 0 || status.stdout.trim() !== "" ? "local_changes" : null;
     if (fetched.code !== 0) return answer({ blocked: precondition, error: "fetch_failed" });
     const latestSha = (await this.#git("rev-parse", "--short", "FETCH_HEAD")).stdout.trim();
     // Something on origin this checkout does not have.

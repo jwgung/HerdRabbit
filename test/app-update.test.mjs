@@ -157,8 +157,10 @@ test("only the service's own process, in this checkout, may update", async (cont
 test("an origin update.sh does not update from blocks it, and is never repeated", async (context) => {
   const repo = await scratch(context);
   await repo.publish("Upstream");
-  const result = await updater(repo, services(repo.work), { originAllowed: () => false }).check();
+  const fake = services(repo.work);
+  const result = await updater(repo, fake, { originAllowed: () => false }).check();
   assert.equal(result.blocked, "wrong_origin");
+  assert.equal(fetches(fake), 0, "an address that is not the official one was fetched from");
   assert.doesNotMatch(JSON.stringify(result), /origin\.git/u);
 });
 
