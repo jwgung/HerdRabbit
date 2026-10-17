@@ -654,6 +654,10 @@ sh ./update.sh
 
 서비스 워커가 새 앱 셸을 감지하면 페이지를 한 번 다시 로드합니다. 장시간 열려 있던 탭은 직접 새로고침하는 것이 좋습니다.
 
+### 앱에서 업데이트
+
+페이지는 열 때마다, 그리고 **⚙ → Update**에서 **Check**를 누를 때 새 버전을 확인합니다(주기적으로 확인하지 않습니다). 서비스가 쓰는 checkout에서 origin의 `main`을 받아 지금 실행 중인 것과 비교합니다. 새 버전이 있으면 ⚙ 버튼에 점이 찍히고, Update 창에 실행 중인 버전과 최신 버전, 그 사이의 커밋 제목, 그리고 `update.sh`가 멈출 경우 그 이유가 나옵니다: systemd 사용자 서비스로 실행 중이 아님, origin이 ultivis-iot/HerdRabbit이 아님, `main`이 아님, 로컬 수정, 갈라진 로컬 `main`, 이미 실행 중인 업데이트. **Update**는 먼저 확인을 받은 뒤 같은 `update.sh`를 `systemd-run --user`로 서비스 밖의 별도 유닛에서 실행하므로, 마지막의 서비스 재시작이 업데이트를 멈추지 않습니다. 페이지는 로그를 따라가고 재시작을 기다렸다가 새 버전으로 다시 로드합니다. 실패하면 그렇다고 알리고 로그를 남깁니다(`update.sh`가 스스로 되돌립니다). 로그와 결과는 `~/.local/share/herdrabbit/update/`에 남습니다. Update 창은 Connect PC로 붙인 PC도 각각의 버전·변경·이유와 함께 보여주고, 거기서 **Update**를 누르면 그 PC의 `update.sh`가 실행됩니다. 이 페이지는 어느 PC인지만 보냅니다. 이 기능 이전 버전의 PC에는 "Update it there (older version)"이 나옵니다. 업데이트 시작에는 이 페이지의 로그인 세션이 필요하고, PC마다 1분에 한 번만 시작할 수 있습니다.
+
 ## 검증과 개발
 
 전체 정적 검사와 테스트를 실행합니다. `npm run check`는 `src`, `public`, `scripts` 아래 스크립트와 `install.sh`, `update.sh`를 찾아 문법을 검사하므로 새 파일을 따로 등록할 필요가 없습니다. GitHub Actions가 모든 PR과 `main` push에서 `npm run verify`를 실행합니다.

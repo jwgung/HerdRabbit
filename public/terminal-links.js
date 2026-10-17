@@ -4,7 +4,7 @@
 // words are paths is path-links.js's to say, the same as in the chat; what is
 // the terminal's own is the screen: an address or a path cut at a row's end
 // goes on in the next row.
-import { MAX_QUOTED, findPaths, isFileName, linkableLabel, trimPunctuation, trimTrailingSlashes } from "./path-links.js?v=1.2.70";
+import { MAX_QUOTED, findPaths, isFileName, linkableLabel, trimPunctuation, trimTrailingSlashes } from "./path-links.js?v=1.2.71";
 
 function trimUrlPunctuation(label) {
   let cleaned = label;

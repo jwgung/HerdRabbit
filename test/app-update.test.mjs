@@ -271,8 +271,8 @@ test("the run records how update.sh ended and keeps its output as the log", asyn
 test("what a connected PC says about its update is held to the shape shown here", () => {
   const cleaned = cleanCheck({
     checkedAt: "2026-10-17T00:00:00.000Z",
-    current: { sha: "abc1234", version: "1.2.70", extra: "x" },
-    latest: { sha: "<script>", version: "1.2.71" },
+    current: { sha: "abc1234", version: "2.0.0", extra: "x" },
+    latest: { sha: "<script>", version: "2.0.1" },
     available: "yes",
     notes: [...Array.from({ length: 40 }, (_, index) => `note ${index}`), 42, "x".repeat(500), "bad\u001b[2Jline"],
     blocked: "Local changes!",
@@ -280,8 +280,8 @@ test("what a connected PC says about its update is held to the shape shown here"
     remote: "https://token@github.com/x",
   });
   assert.equal(cleaned.available, false);
-  assert.deepEqual(cleaned.current, { sha: "abc1234", version: "1.2.70" });
-  assert.deepEqual(cleaned.latest, { sha: null, version: "1.2.71" });
+  assert.deepEqual(cleaned.current, { sha: "abc1234", version: "2.0.0" });
+  assert.deepEqual(cleaned.latest, { sha: null, version: "2.0.1" });
   assert.equal(cleaned.notes.length, MAX_NOTES);
   assert.equal(cleaned.blocked, null);
   assert.equal(cleaned.error, "fetch_failed");

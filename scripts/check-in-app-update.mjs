@@ -18,7 +18,7 @@ const OLD = "link_22222222-2222-2222-2222-222222222222";
 const world = { phase: "available", outcome: "succeeded", polls: 0, starts: 0 };
 
 const check = (fields) => ({
-  checkedAt: new Date().toISOString(), current: { sha: "abc1234", version: "1.2.70" }, latest: { sha: "def5678", version: "1.2.71" },
+  checkedAt: new Date().toISOString(), current: { sha: "abc1234", version: "2.0.0" }, latest: { sha: "def5678", version: "2.0.1" },
   available: true, notes: ["Update HerdRabbit from the settings menu", "Fix the sidebar"], blocked: null, error: null, ...fields,
 });
 const idle = { state: "idle", startedAt: null, finishedAt: null, exitCode: null, reason: null, log: "" };
@@ -26,29 +26,29 @@ const idle = { state: "idle", startedAt: null, finishedAt: null, exitCode: null,
 const updater = {
   async check() {
     return world.phase === "updated"
-      ? check({ current: { sha: "def5678", version: "1.2.71" }, available: false, notes: [] })
+      ? check({ current: { sha: "def5678", version: "2.0.1" }, available: false, notes: [] })
       : check();
   },
   async runStatus() {
-    if (world.phase === "available") return { ...idle, version: "1.2.70" };
+    if (world.phase === "available") return { ...idle, version: "2.0.0" };
     if (world.phase === "updated") {
-      return { ...idle, state: "succeeded", finishedAt: new Date().toISOString(), version: "1.2.71", log: "  > Updated to def5678." };
+      return { ...idle, state: "succeeded", finishedAt: new Date().toISOString(), version: "2.0.1", log: "  > Updated to def5678." };
     }
     world.polls += 1;
     const log = ["  > Fetching main in /home/me/HerdRabbit", "  > Updating Herdr", "  > Verifying the updated code"]
       .slice(0, Math.min(3, world.polls)).join("\n");
-    if (world.polls < 3) return { ...idle, state: "running", startedAt: new Date().toISOString(), log, version: "1.2.70" };
+    if (world.polls < 3) return { ...idle, state: "running", startedAt: new Date().toISOString(), log, version: "2.0.0" };
     if (world.outcome === "failed") {
-      return { ...idle, state: "failed", exitCode: 1, reason: "script_failed", log: `${log}\n  x verification failed; rolled back to abc1234`, version: "1.2.70" };
+      return { ...idle, state: "failed", exitCode: 1, reason: "script_failed", log: `${log}\n  x verification failed; rolled back to abc1234`, version: "2.0.0" };
     }
     world.phase = "updated";
-    return { ...idle, state: "succeeded", log: `${log}\n  > Updated to def5678.`, version: "1.2.71" };
+    return { ...idle, state: "succeeded", log: `${log}\n  > Updated to def5678.`, version: "2.0.1" };
   },
   async start() {
     world.starts += 1;
     world.phase = "running";
     world.polls = 0;
-    return { ...idle, state: "running", startedAt: new Date().toISOString(), version: "1.2.70" };
+    return { ...idle, state: "running", startedAt: new Date().toISOString(), version: "2.0.0" };
   },
 };
 
@@ -73,8 +73,8 @@ const herdr = {
   updateClient(id) {
     if (id === LINK) {
       return {
-        async updateCheck() { return check({ current: { sha: "1111111", version: "1.2.60" }, notes: ["Remote change"], blocked: "local_changes" }); },
-        async updateStatus() { return { ...idle, version: "1.2.60" }; },
+        async updateCheck() { return check({ current: { sha: "1111111", version: "1.9.0" }, notes: ["Remote change"], blocked: "local_changes" }); },
+        async updateStatus() { return { ...idle, version: "1.9.0" }; },
         async updateRun() { throw new Error("not expected"); },
       };
     }
@@ -119,7 +119,7 @@ try {
     await dialog.waitFor({ state: "visible" });
     const local = dialog.locator('.update-server[data-server-id="local"]');
     assert.match(await local.locator("strong").textContent(), /This PC \(testbox\)/u);
-    assert.match(await local.locator(".update-versions").textContent(), /Running 1\.2\.70 \(abc1234\) · Latest 1\.2\.71 \(def5678\)/u);
+    assert.match(await local.locator(".update-versions").textContent(), /Running 2\.0\.0 \(abc1234\) · Latest 2\.0\.1 \(def5678\)/u);
     assert.deepEqual(await local.locator(".update-notes li").allTextContents(),
       ["Update HerdRabbit from the settings menu", "Fix the sidebar"]);
 
@@ -152,7 +152,7 @@ try {
     });
     await local.locator(".update-run").click();
     assert.equal(dialogs.length, 1);
-    assert.match(dialogs[0], /^Update This PC \(testbox\) to 1\.2\.71 \(def5678\)\?/u);
+    assert.match(dialogs[0], /^Update This PC \(testbox\) to 2\.0\.1 \(def5678\)\?/u);
     assert.match(dialogs[0], /restarts HerdRabbit/u);
     assert.match(dialogs[0], /previous version back/u);
     await page.waitForFunction(() => /Updating/u.test(document.querySelector(".update-run-state")?.textContent ?? ""));
@@ -172,7 +172,7 @@ try {
       const after = page.locator('#update-dialog .update-server[data-server-id="local"]');
       await after.waitFor({ state: "visible" });
       assert.equal((await after.locator(".update-status").textContent()).trim(), "Up to date.");
-      assert.match(await after.locator(".update-versions").textContent(), /Running 1\.2\.71/u);
+      assert.match(await after.locator(".update-versions").textContent(), /Running 2\.0\.1/u);
       assert.match(await after.locator(".update-log").textContent(), /Updated to def5678/u, "the finished run is still shown");
     } else {
       await page.waitForFunction(() => /update failed/u.test(document.querySelector(".update-run-state")?.textContent ?? ""), null, { timeout: 20_000 });

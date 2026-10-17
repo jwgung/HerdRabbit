@@ -14,7 +14,7 @@ import { PaneAttachments } from "../src/pane-attachments.mjs";
 import { PeerIdentity } from "../src/peer-identity.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
 
-const VERSION = "1.2.70";
+const VERSION = "1.2.71";
 const SESSION = "hs_ZGVmYXVsdA";
 const PANE = `${SESSION}~w1:p1`;
 

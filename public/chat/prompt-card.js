@@ -10,7 +10,7 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/PromptCard.tsx
 // and PromptCard.css, rewritten as plain DOM code without React.
-import { agentLabel } from "./chat-activity.js?v=1.2.70";
+import { agentLabel } from "./chat-activity.js?v=1.2.71";
 
 // After an answer, the card is looked for once more this much later.
 const RECHECK_AFTER_ANSWER_MS = 1_500;

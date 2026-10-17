@@ -20,8 +20,8 @@ function noisyUpdater(calls) {
       calls.push(["check", options]);
       return {
         checkedAt: "2026-10-17T00:00:00.000Z",
-        current: { sha: "abc1234", version: "1.2.70" },
-        latest: { sha: "def5678", version: "1.2.71", url: "https://token@github.com/x" },
+        current: { sha: "abc1234", version: "2.0.0" },
+        latest: { sha: "def5678", version: "2.0.1", url: "https://token@github.com/x" },
         available: true,
         notes: [...Array.from({ length: 45 }, (_, index) => `Change ${index}`), "y".repeat(900), { evil: true }],
         blocked: null,
@@ -31,11 +31,11 @@ function noisyUpdater(calls) {
     },
     async runStatus() {
       calls.push(["runStatus"]);
-      return { state: "running", startedAt: "2026-10-17T00:00:00.000Z", finishedAt: null, exitCode: null, log: "x\n".repeat(20_000), version: "1.2.70", boot: "abc" };
+      return { state: "running", startedAt: "2026-10-17T00:00:00.000Z", finishedAt: null, exitCode: null, log: "x\n".repeat(20_000), version: "2.0.0", boot: "abc" };
     },
     async start() {
       calls.push(["start"]);
-      return { state: "running", log: "", version: "1.2.70" };
+      return { state: "running", log: "", version: "2.0.0" };
     },
   };
 }
@@ -43,7 +43,7 @@ function noisyUpdater(calls) {
 async function startPeer(context, { updater = null, allowed = ["127.0.0.1"] } = {}) {
   const server = createPeerServer({
     peer: new PeerIdentity({ addresses: allowed }),
-    link: linkRoutes({ client: herdr, updater, version: "1.2.70", serverName: "dev-box" }),
+    link: linkRoutes({ client: herdr, updater, version: "2.0.0", serverName: "dev-box" }),
     logger: { error() {} },
   });
   server.listen(0, "127.0.0.1");
@@ -52,7 +52,7 @@ async function startPeer(context, { updater = null, allowed = ["127.0.0.1"] } = 
   return `http://127.0.0.1:${server.address().port}`;
 }
 
-const client = (address) => new LinkClient({ profile: { id: LINK_ID, name: "Dev box", address }, hubVersion: "1.2.70" });
+const client = (address) => new LinkClient({ profile: { id: LINK_ID, name: "Dev box", address }, hubVersion: "2.0.0" });
 
 test("a PC with in-app update names it among its features", async (context) => {
   const withUpdate = await startPeer(context, { updater: noisyUpdater([]) });
@@ -69,7 +69,7 @@ test("the hub asks a connected PC about its update and keeps only what it shows"
   const check = await link.updateCheck({ fresh: true });
   assert.equal(check.notes.length, 30);
   assert.ok(check.notes.every((note) => typeof note === "string" && note.length <= 200));
-  assert.deepEqual(check.latest, { sha: "def5678", version: "1.2.71" });
+  assert.deepEqual(check.latest, { sha: "def5678", version: "2.0.1" });
   assert.doesNotMatch(JSON.stringify(check), /token/u);
   const status = await link.updateStatus();
   assert.equal(status.state, "running");

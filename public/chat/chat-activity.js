@@ -3,7 +3,7 @@
 // a pending bubble until the transcript has it.
 
 // How long a sent message waits for the transcript before its bubble goes.
-import { CHAT_AGENTS } from "../lens-preference.js?v=1.2.70";
+import { CHAT_AGENTS } from "../lens-preference.js?v=1.2.71";
 
 export const PENDING_MS = 30_000;
 // How long a send alone (no status yet) keeps the working row up.

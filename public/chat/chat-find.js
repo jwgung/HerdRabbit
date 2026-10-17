@@ -7,7 +7,7 @@
 // The bar's behavior follows herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatFind.tsx and
 // src/lib/chatSearch.ts, rewritten to mark the drawn page text in place.
-import { MAX_FIND_QUERY_LENGTH, findIsCaseSensitive, foldForFind } from "../terminal-find.js?v=1.2.70";
+import { MAX_FIND_QUERY_LENGTH, findIsCaseSensitive, foldForFind } from "../terminal-find.js?v=1.2.71";
 
 const DEBOUNCE_MS = 150;
 // A reader this close to the bottom of the chat is "at the bottom": a new find

@@ -6,10 +6,10 @@ import { createHerdrHttpServer } from "../src/http-server.mjs";
 const LINK = "link_11111111-1111-1111-1111-111111111111";
 const OLD = "link_22222222-2222-2222-2222-222222222222";
 const CHECK = {
-  checkedAt: "2026-10-17T00:00:00.000Z", current: { sha: "abc1234", version: "1.2.70" },
-  latest: { sha: "def5678", version: "1.2.71" }, available: true, notes: ["Release 1.2.71"], blocked: null, error: null,
+  checkedAt: "2026-10-17T00:00:00.000Z", current: { sha: "abc1234", version: "2.0.0" },
+  latest: { sha: "def5678", version: "2.0.1" }, available: true, notes: ["Release 2.0.1"], blocked: null, error: null,
 };
-const IDLE = { state: "idle", startedAt: null, finishedAt: null, exitCode: null, reason: null, log: "", version: "1.2.70" };
+const IDLE = { state: "idle", startedAt: null, finishedAt: null, exitCode: null, reason: null, log: "", version: "2.0.0" };
 
 function fakeUpdater(calls) {
   return {
@@ -23,7 +23,7 @@ async function fixture(context, { updater = undefined } = {}) {
   const calls = [];
   const remoteCalls = [];
   const remote = {
-    async updateCheck(options) { remoteCalls.push(["check", options]); return { ...CHECK, current: { sha: "1111111", version: "1.2.60" } }; },
+    async updateCheck(options) { remoteCalls.push(["check", options]); return { ...CHECK, current: { sha: "1111111", version: "1.9.0" } }; },
     async updateStatus() { remoteCalls.push(["status"]); return { ...IDLE, state: "running", log: "  > Fetching main" }; },
     async updateRun() { remoteCalls.push(["run"]); return { ...IDLE, state: "running" }; },
   };
@@ -79,7 +79,7 @@ test("this PC's check and run status answer for it, with which run of the server
   assert.deepEqual(calls, [["check", { fresh: false }], ["check", { fresh: true }]]);
   const status = await (await get("/api/update/run")).json();
   assert.equal(status.state, "idle");
-  assert.equal(status.version, "1.2.70");
+  assert.equal(status.version, "2.0.0");
   assert.match(status.boot, /^[A-Za-z0-9_-]{12}$/u);
 });
 
@@ -114,7 +114,7 @@ test("a connected PC is asked about and updated through its link, by id alone", 
   const check = await (await get(`/api/update?server=${LINK}&fresh=1`)).json();
   assert.equal(check.server, LINK);
   assert.equal(check.supported, true);
-  assert.equal(check.current.version, "1.2.60");
+  assert.equal(check.current.version, "1.9.0");
   const status = await (await get(`/api/update/run?server=${LINK}`)).json();
   assert.equal(status.state, "running");
   assert.equal("boot" in status, false, "only this PC says which run of it answered");
