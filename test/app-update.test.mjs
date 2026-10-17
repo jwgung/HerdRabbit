@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile, chmod } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile, chmod, symlink, lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -214,12 +214,79 @@ test("starting runs update.sh in a unit of its own, with a fixed command line", 
   assert.equal(fetches(fake), before);
   // Its unit gone without a word: cut short, not running for ever.
   fake.active = "inactive";
+  now += 11_000;
   const ended = await subject.runStatus();
   assert.equal(ended.state, "failed");
   assert.equal(ended.reason, "interrupted");
   // And not started again within the minute.
   now += 5_000;
   await assert.rejects(subject.start(), { status: 429, code: "too_many_requests" });
+});
+
+test("a run being started is not interrupted before its unit exists", async (context) => {
+  const repo = await scratch(context);
+  await repo.publish("Release 1.0.1", "1.0.1");
+  const fake = services(repo.work);
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  const inner = fake.exec;
+  fake.exec = async (file, args, options) => {
+    if (file === "systemd-run") { fake.calls.push(["systemd-run-pending"]); await pending; }
+    return inner(file, args, options);
+  };
+  let now = 1_700_000_000_000;
+  const subject = updater(repo, fake, { now: () => now });
+  const starting = subject.start();
+  // Wait until the record is written and systemd-run is pending.
+  while (!fake.calls.some((call) => call[0] === "systemd-run-pending")) await new Promise((resolve) => setImmediate(resolve));
+  fake.active = "inactive";
+  assert.equal((await subject.runStatus()).state, "running");
+  now += 30_000;
+  assert.equal((await subject.runStatus()).state, "running", "still starting, however long");
+  fake.active = "active";
+  release();
+  assert.equal((await starting).state, "running");
+  const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
+  assert.match(record.unit, /^herdrabbit-update-/u);
+  // A fresh run is also given a moment after systemd-run returns.
+  fake.active = "inactive";
+  now = 1_700_000_000_000 + 1_000;
+  assert.equal((await subject.runStatus()).state, "running");
+});
+
+test("a symlinked update.log is refused and its target left alone", async (context) => {
+  const repo = await scratch(context);
+  await repo.publish("Upstream");
+  const fake = services(repo.work);
+  await mkdir(repo.stateDir, { mode: 0o700 });
+  const target = join(repo.root, "victim.txt");
+  await writeFile(target, "precious");
+  await symlink(target, join(repo.stateDir, "update.log"));
+  await assert.rejects(updater(repo, fake).start(), { code: "update_state_unsafe" });
+  assert.equal(await readFile(target, "utf8"), "precious");
+  assert.equal(fake.calls.filter((call) => call[0] === "systemd-run").length, 0);
+});
+
+test("a symlinked state folder is refused", async (context) => {
+  const repo = await scratch(context);
+  await repo.publish("Upstream");
+  const fake = services(repo.work);
+  const real = join(repo.root, "elsewhere");
+  await mkdir(real);
+  await symlink(real, repo.stateDir);
+  await assert.rejects(updater(repo, fake).start(), { code: "update_state_unsafe" });
+  assert.equal((await lstat(repo.stateDir)).isSymbolicLink(), true);
+  assert.deepEqual(await (await import("node:fs/promises")).readdir(real), []);
+  assert.equal(fake.calls.filter((call) => call[0] === "systemd-run").length, 0);
+});
+
+test("the state folder is made private", async (context) => {
+  const repo = await scratch(context);
+  await repo.publish("Upstream");
+  await mkdir(repo.stateDir, { mode: 0o755 });
+  await chmod(repo.stateDir, 0o755);
+  await updater(repo, services(repo.work)).start();
+  assert.equal((await lstat(repo.stateDir)).mode & 0o777, 0o700);
 });
 
 test("an update that would stop is refused before anything starts", async (context) => {

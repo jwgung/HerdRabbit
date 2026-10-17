@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir, open, readFile, realpath, rename, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { chmod, lstat, mkdir, open, readFile, realpath, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HttpError } from "./http-basics.mjs";
@@ -22,6 +23,7 @@ const GIT_TIMEOUT_MS = 30_000;
 const SYSTEMCTL_TIMEOUT_MS = 10_000;
 // One start a minute, whoever asks: a run takes longer than that anyway.
 export const RUN_INTERVAL_MS = 60_000;
+const START_GRACE_MS = 10_000;
 // The service units update.sh restarts, in the order it looks for them.
 export const SERVICE_UNITS = ["herdrabbit.service", "herdr-web-local.service"];
 // The only origins update.sh updates from.
@@ -120,10 +122,38 @@ function properties(text) {
 // The run's record, kept beside its log: written as "running" here before
 // the run starts, and as its end by the run itself (runUpdateScript), which
 // outlives this process.
+// Files in the state folder are created by this process and never followed
+// through a link someone else left there.
+const NOFOLLOW = fsConstants.O_NOFOLLOW ?? 0;
+
+async function writeFileSafely(path, content, flags) {
+  const handle = await open(path, flags | fsConstants.O_WRONLY | fsConstants.O_CREAT | NOFOLLOW, 0o600);
+  try {
+    if (content) await handle.writeFile(content);
+  } finally {
+    await handle.close();
+  }
+}
+
+// The state folder must be a real directory of this user, not a link.
+async function checkStateDir(stateDir, { create = false } = {}) {
+  const unsafe = () => new HttpError(500, "update_state_unsafe", "The update state folder is not safe to use.");
+  if (create) await mkdir(stateDir, { recursive: true, mode: 0o700 });
+  let info;
+  try {
+    info = await lstat(stateDir);
+  } catch {
+    throw unsafe();
+  }
+  if (info.isSymbolicLink() || !info.isDirectory()) throw unsafe();
+  if (typeof process.getuid === "function" && info.uid !== process.getuid()) throw unsafe();
+  if (create) await chmod(stateDir, 0o700);
+}
+
 async function writeRecord(stateDir, record) {
   const path = join(stateDir, "update-state.json");
   const temporary = `${path}.${process.pid}.${randomBytes(4).toString("hex")}`;
-  await writeFile(temporary, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+  await writeFileSafely(temporary, `${JSON.stringify(record)}\n`, fsConstants.O_EXCL);
   await rename(temporary, path);
 }
 
@@ -280,9 +310,24 @@ export class AppUpdater {
 
   // The run as this PC's page and a hub see it: state, the end of its log,
   // and the version this process runs, which changes once the restart is done.
-  async runStatus() {
+  runStatus() {
+    return this.#status(false);
+  }
+
+  // `starting` is start() asking about an earlier run; otherwise a run being
+  // started right now (its unit not yet created) is not an interrupted one.
+  async #status(starting) {
     let record = await readRecord(this.stateDir);
-    if (record?.state === "running" && typeof record.unit === "string" && UNIT.test(record.unit)) {
+    const settling = !starting && (this.#starting
+      || this.now() - Date.parse(record?.startedAt ?? "") < START_GRACE_MS);
+    if (record?.state === "running" && !settling) {
+      const named = typeof record.unit === "string" && UNIT.test(record.unit);
+      if (!named) {
+        record = { ...record, state: "failed", reason: "interrupted", finishedAt: new Date(this.now()).toISOString() };
+        await writeRecord(this.stateDir, record).catch(() => {});
+      }
+    }
+    if (record?.state === "running" && !settling && typeof record.unit === "string" && UNIT.test(record.unit)) {
       // A run whose unit is gone without saying how it ended was cut short
       // (a reboot, a kill); it is not left "running" for ever.
       const { code: exit, stdout } = await this.#systemctl("is-active", record.unit);
@@ -315,7 +360,7 @@ export class AppUpdater {
     if (this.#starting) throw new HttpError(409, "update_running", "An update is already starting.");
     this.#starting = true;
     try {
-      if ((await this.runStatus()).state === "running") {
+      if ((await this.#status(true)).state === "running") {
         throw new HttpError(409, "update_running", "An update is already running.");
       }
       if (this.now() - this.#lastStart < RUN_INTERVAL_MS) {
@@ -330,9 +375,14 @@ export class AppUpdater {
       this.#lastStart = this.now();
       const startedAt = new Date(this.now()).toISOString();
       const unit = `herdrabbit-update-${this.now()}`;
-      await mkdir(this.stateDir, { recursive: true, mode: 0o700 });
-      await writeFile(this.logFile, "", { mode: 0o600 });
-      const record = { state: "running", unit, startedAt, finishedAt: null, exitCode: null, reason: null };
+      await checkStateDir(this.stateDir, { create: true });
+      try {
+        await writeFileSafely(this.logFile, "", fsConstants.O_TRUNC);
+      } catch {
+        throw new HttpError(500, "update_state_unsafe", "The update log cannot be written safely.");
+      }
+      // The unit is named in the record only once systemd-run has made it.
+      const record = { state: "running", unit: null, startedAt, finishedAt: null, exitCode: null, reason: null };
       await writeRecord(this.stateDir, record);
       // npm and node next to the Node this runs on, wherever the user's
       // manager would otherwise look for them.
@@ -349,7 +399,10 @@ export class AppUpdater {
         });
         throw new HttpError(502, "update_start_failed", "Could not start the update.");
       }
-      return this.runStatus();
+      // The run may already have ended; its outcome is not overwritten.
+      const current = await readRecord(this.stateDir);
+      if (current?.state === "running") await writeRecord(this.stateDir, { ...current, unit });
+      return this.#status(false);
     } finally {
       this.#starting = false;
     }
@@ -362,7 +415,8 @@ export async function runUpdateScript({
   repository = REPOSITORY, stateDir, script = join(repository, "update.sh"), spawnImpl = spawn, now = () => Date.now(),
 }) {
   const logFile = join(stateDir, "update.log");
-  const log = await open(logFile, "a");
+  await checkStateDir(stateDir);
+  const log = await open(logFile, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | NOFOLLOW, 0o600);
   const exitCode = await new Promise((resolve) => {
     const child = spawnImpl("sh", [script], { cwd: repository, stdio: ["ignore", log.fd, log.fd] });
     child.once("error", () => resolve(-1));
@@ -380,10 +434,11 @@ export async function runUpdateScript({
   return exitCode;
 }
 
-// One run start per PC per window, as this hub forwards them.
+// One run start per PC per window, as this hub forwards them. `limit(key)`
+// takes the slot; `limit.release(key)` gives it back when nothing started.
 export function runLimiter(windowMs = RUN_INTERVAL_MS, now = () => Date.now()) {
   const last = new Map();
-  return (key) => {
+  const limit = (key) => {
     const at = last.get(key);
     if (at !== undefined && now() - at < windowMs) {
       throw new HttpError(429, "too_many_requests", "An update was started a moment ago. Try again in a minute.");
@@ -391,4 +446,6 @@ export function runLimiter(windowMs = RUN_INTERVAL_MS, now = () => Date.now()) {
     if (last.size > 256) last.clear();
     last.set(key, now());
   };
+  limit.release = (key) => { last.delete(key); };
+  return limit;
 }

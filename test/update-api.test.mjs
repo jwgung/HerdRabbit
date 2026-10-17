@@ -133,6 +133,35 @@ test("a connected PC is asked about and updated through its link, by id alone", 
   assert.equal((await get("/api/update?server=nope")).status, 404);
 });
 
+test("a PC that cannot update, or a run that did not start, does not use up the minute", async (context) => {
+  const { post, remoteCalls } = await fixture(context);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await post({ server: OLD });
+    assert.equal(response.status, 501);
+    assert.equal((await response.json()).error.code, "link_unsupported");
+  }
+  assert.deepEqual(remoteCalls, []);
+  // A real run afterwards is allowed, and only then is the minute taken.
+  assert.equal((await post({ server: LINK })).status, 202);
+  assert.equal((await post({ server: LINK })).status, 429);
+});
+
+test("a refused local start does not use up the minute", async (context) => {
+  let refuse = true;
+  const calls = [];
+  const updater = {
+    ...fakeUpdater(calls),
+    async start() {
+      if (refuse) throw Object.assign(new Error("up to date"), { status: 409, code: "up_to_date", expose: true });
+      return { ...IDLE, state: "running" };
+    },
+  };
+  const { post } = await fixture(context, { updater });
+  assert.notEqual((await post({})).status, 202);
+  refuse = false;
+  assert.equal((await post({})).status, 202);
+});
+
 test("a PC that cannot update itself says so", async (context) => {
   const { get, post } = await fixture(context, { updater: null });
   assert.deepEqual(await (await get("/api/update")).json(), { server: "local", supported: false });

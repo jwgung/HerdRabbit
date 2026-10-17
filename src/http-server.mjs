@@ -883,11 +883,18 @@ export function createHerdrHttpServer({
           const body = await readJsonBody(request, maxBodyBytes);
           const { serverId, remote } = updateSource(body.server);
           if (!remote && !updater) throw new HttpError(404, "update_unavailable", "This PC cannot update itself from here.");
-          updateRuns(serverId);
           if (remote && typeof remote.updateRun !== "function") {
             throw new HttpError(501, "link_unsupported", "That PC is too old to be updated from here; update it there.");
           }
-          const status = remote ? await remote.updateRun() : await updater.start();
+          // The slot is taken for the attempt and given back when nothing started.
+          updateRuns(serverId);
+          let status;
+          try {
+            status = remote ? await remote.updateRun() : await updater.start();
+          } catch (error) {
+            updateRuns.release(serverId);
+            throw error;
+          }
           sendJson(response, 202, { ...status, server: serverId, supported: true });
           return;
         }
