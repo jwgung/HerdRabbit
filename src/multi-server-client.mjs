@@ -249,6 +249,7 @@ export class MultiServerClient {
   // The answer names no ids, only history cells: nothing to put a prefix on.
   paneFind(id, request) { return this.invoke("paneFind", id, [request]); }
   paneReveal(id, request) { return this.invoke("paneReveal", id, [request]); }
+  paneScrollToBottom(id) { return this.invoke("paneScrollToBottom", id, []); }
   sendText(id, text, options) { return this.invoke("sendText", id, [text, options]); }
   sendKeys(id, keys) { return this.invoke("sendKeys", id, [keys]); }
   async watchStatuses(paneIds, onStatus, onError) {

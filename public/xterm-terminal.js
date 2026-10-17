@@ -1,11 +1,11 @@
 // The selected pane's terminal, as herdr draws it: the server's `herdr terminal
 // attach` stream written into xterm.js, with typing and size going back to it.
 // Adapted from herdr-web-ui (MIT), src/components/PaneTerminal.tsx.
-import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.68";
-import { findScreenLinks } from "./terminal-links.js?v=1.2.68";
-import { createTouchScroller } from "./touch-scroll.js?v=1.2.68";
-import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.68";
-import { findOccurrences } from "./terminal-find.js?v=1.2.68";
+import { matchHerdrWidths } from "./terminal-widths.js?v=1.2.69";
+import { findScreenLinks } from "./terminal-links.js?v=1.2.69";
+import { createTouchScroller } from "./touch-scroll.js?v=1.2.69";
+import { cellAt, selectionRun } from "./terminal-selection.js?v=1.2.69";
+import { findOccurrences } from "./terminal-find.js?v=1.2.69";
 
 const RESIZE_DEBOUNCE_MS = 80;
 // herdr scrolls this many lines per wheel notch (measured on herdr 0.9.3).
@@ -694,6 +694,15 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       else host.style.removeProperty("--terminal-full-height");
       host.classList.toggle("is-keyboard-open", open);
       if (!open) fitNow();
+    },
+    // Brings the viewport to the newest output: a mirror's own scrollback, and
+    // any frame it held back meanwhile. True when a pane is attached (herdr's
+    // view of it is the server's to move).
+    scrollToBottom() {
+      if (!term || host.hidden) return false;
+      term.scrollToBottom();
+      drawHeldFrame();
+      return Boolean(paneId);
     },
     // Scrolls herdr's history of the attached pane by a screen, up for -1.
     // False when no pane is attached: a mirror shows its current screen only.

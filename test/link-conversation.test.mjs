@@ -21,7 +21,7 @@ import { MultiServerClient } from "../src/multi-server-client.mjs";
 import { PeerIdentity } from "../src/peer-identity.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
 
-const VERSION = "1.2.68";
+const VERSION = "1.2.69";
 const SESSION = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
 const PANE = "hs_ZGVmYXVsdA~w1:p1";
 const LINKED = `link_1!${PANE}`;
@@ -266,9 +266,11 @@ test("a plan card for a connected PC's pane shows the whole plan from B's transc
 test("a connected PC from before this says to update it", async (context) => {
   // An older HerdRabbit names no features in its hello and has none of the
   // conversation routes (every one is its 404 not_found).
+  const asked = [];
   const desk = await startDesk(context, {
     link: (routes) => async (request, response, url, method) => {
-      if (/\/(conversation|pending-ask)/u.test(url.pathname)) throw new HttpError(404, "not_found", "Not found");
+      asked.push(url.pathname);
+      if (/\/(conversation|pending-ask|scroll-bottom)/u.test(url.pathname)) throw new HttpError(404, "not_found", "Not found");
       const end = response.end.bind(response);
       response.end = (body, ...rest) => {
         if (typeof body === "string" && body.includes('"features"')) {
@@ -280,7 +282,10 @@ test("a connected PC from before this says to update it", async (context) => {
       return routes(request, response, url, method);
     },
   });
-  const { get, conversations, origin } = await startHub(context, desk.address);
+  const { get, herdr, conversations, origin } = await startHub(context, desk.address);
+  // the terminal's jump to the newest output is not asked of it at all
+  assert.deepEqual(await herdr.paneScrollToBottom(LINKED), { scroll: null });
+  assert.ok(!asked.some((path) => path.endsWith("/scroll-bottom")), "an older PC was asked to scroll");
   const response = await get(pane("/conversation"));
   assert.equal(response.status, 404);
   assert.deepEqual((await response.json()).error.details, { reason: "linked_pc_old" });

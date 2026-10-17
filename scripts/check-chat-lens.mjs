@@ -49,6 +49,8 @@ snapshot.agents.find((agent) => agent.pane_id === "w1:p1").state = "done";
 
 const ptys = [];
 const sentTexts = [];
+const scrollBottoms = [];
+let failScrollBottoms = 0;
 const attachments = new PaneAttachments({
   log: () => {},
   options: { holdMs: 5, heldRetryMs: 60_000, relookupForMs: 200 },
@@ -71,6 +73,15 @@ const herdr = {
   async readPane() { return "screen\n$ "; },
   async sendText(paneId, text) { sentTexts.push({ paneId, text }); },
   async sendKeys() {},
+  // the shared view of the pane going to the newest output, as the page asks
+  async paneScrollToBottom(paneId) {
+    scrollBottoms.push(paneId);
+    if (failScrollBottoms > 0) {
+      failScrollBottoms -= 1;
+      throw new Error("herdr went away for a moment");
+    }
+    return { scroll: null };
+  },
 };
 const { server } = createHerdrHttpServer({
   herdr,
@@ -85,6 +96,7 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
 try {
   for (const mobile of [false, true]) {
     ptys.length = 0;
+    scrollBottoms.length = 0;
     const context = await browser.newContext({ serviceWorkers: "block", hasTouch: mobile, isMobile: mobile,
       viewport: { width: mobile ? 390 : 1280, height: 844 } });
     const page = await context.newPage();
@@ -104,6 +116,12 @@ try {
     const typesSince = (count, types) => frames.slice(count).filter((frame) => types.includes(frame.type)).map((frame) => frame.type);
     const shows = (text) => page.waitForFunction((wanted) => document.querySelector("#terminal-xterm .xterm-rows")?.textContent.replace(/ /gu, " ").includes(wanted), text);
     const lens = () => page.locator(".terminal-stage").getAttribute("data-lens");
+    const expectScrollBottoms = async (wanted, message) => {
+      const deadline = Date.now() + 3000;
+      while (scrollBottoms.length < wanted.length && Date.now() < deadline) await page.waitForTimeout(50);
+      await page.waitForTimeout(150);
+      assert.deepEqual(scrollBottoms, wanted, message);
+    };
     const chat = page.locator('.chat-pane[data-pane-id="w1:p1"]');
     const scroller = chat.locator(".chat-scroll");
 
@@ -185,9 +203,11 @@ try {
     const framesBefore = frames.length;
     const ptysBefore = ptys.length;
     const readsBefore = reads.length;
+    assert.deepEqual(scrollBottoms, [], "loading the page scrolls nothing");
     await page.locator("#lens-terminal").click();
     assert.equal(await lens(), "terminal");
     assert.equal(await page.locator("#terminal-xterm").isVisible(), true);
+    await expectScrollBottoms(["w1:p1"], "going from the chat to the terminal shows its newest output");
     assert.equal(await chat.isVisible(), false);
     await page.waitForTimeout(300);
     assert.equal(await page.locator("#terminal-input").inputValue(), "draft kept across lenses");
@@ -199,6 +219,15 @@ try {
     await page.locator("#terminal-input").focus();
     await page.keyboard.press("Control+j");
     assert.equal(await lens(), "terminal");
+    await page.keyboard.press("Control+j");
+    assert.equal(await lens(), "chat");
+    await page.waitForTimeout(300);
+    await expectScrollBottoms(["w1:p1", "w1:p1"], "only a switch from the chat asks, never one back to it");
+    // a request that fails is asked once more a moment later
+    failScrollBottoms = 1;
+    await page.keyboard.press("Control+j");
+    assert.equal(await lens(), "terminal");
+    await expectScrollBottoms(["w1:p1", "w1:p1", "w1:p1", "w1:p1"], "a failed jump to the newest output was not tried again");
     await page.keyboard.press("Control+j");
     assert.equal(await lens(), "chat");
     await page.waitForTimeout(300);
@@ -253,10 +282,13 @@ try {
     assert.equal(await lens(), "terminal");
 
     // The last lens is remembered per pane.
+    scrollBottoms.length = 0;
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
     await shows("ready terminal");
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
     assert.equal(await lens(), "terminal", "the lens chosen last for the pane comes back");
+    await page.waitForTimeout(300);
+    assert.deepEqual(scrollBottoms, [], "a page loaded in the terminal lens scrolls nothing");
     // On a wide window each lens button shows its icon and word on one line,
     // centred on each other.
     if (!mobile) {

@@ -1411,6 +1411,15 @@ export function createHerdrHttpServer({
         return;
       }
 
+      // Scrolls the pane's shared view to the newest output (the page asks when
+      // the reader goes from the Chat lens to the Terminal lens).
+      const scrollBottomMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/scroll-bottom$/);
+      if (method === "POST" && scrollBottomMatch) {
+        requireWriteAuthorization(request, csrfToken);
+        sendJson(response, 200, await herdr.paneScrollToBottom(decodePaneId(scrollBottomMatch[1])));
+        return;
+      }
+
       if (
         method !== "GET" &&
         method !== "HEAD" &&

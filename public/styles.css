@@ -1152,7 +1152,9 @@ body.sidebar-collapsed .terminal-panel {
 }
 
 .input-composer {
-  --composer-row-height: max(44px, calc(var(--terminal-font-size) * 1.5 + 24px));
+  /* the text size of the lens in view: the terminal's, or the chat's in the Chat lens */
+  --composer-font-size: var(--terminal-font-size);
+  --composer-row-height: max(44px, calc(var(--composer-font-size) * 1.5 + 24px));
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1181,7 +1183,7 @@ body.sidebar-collapsed .terminal-panel {
   padding: 11px 12px;
   background: var(--surface);
   color: var(--input-text);
-  font-size: var(--terminal-font-size);
+  font-size: var(--composer-font-size);
   line-height: 1.5;
 }
 
@@ -2756,6 +2758,10 @@ body.is-resizing-sidebar {
 
 .terminal-panel[data-lens="chat"] .quick-keys {
   display: none;
+}
+
+.terminal-panel[data-lens="chat"] .input-composer {
+  --composer-font-size: var(--chat-font-size, var(--terminal-font-size));
 }
 
 /* Dragging in the sidebar. A held row is not text: a long press picks it up

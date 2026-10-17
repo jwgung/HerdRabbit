@@ -87,7 +87,7 @@ export function linkRoutes({
       herdr_version: herdrVersion(),
       // What this PC answers beyond the protocol's base, so a hub asks only
       // for what is there. A PC from before this list says nothing.
-      features: conversations ? ["conversation"] : [],
+      features: conversations ? ["conversation", "scroll_bottom"] : ["scroll_bottom"],
     };
   }
 
@@ -217,7 +217,7 @@ export function linkRoutes({
       return true;
     }
 
-    const paneMatch = url.pathname.match(/^\/api\/link\/panes\/([^/]+)\/(output|text|keys|terminal|find|reveal)$/u);
+    const paneMatch = url.pathname.match(/^\/api\/link\/panes\/([^/]+)\/(output|text|keys|terminal|find|reveal|scroll-bottom)$/u);
     if (paneMatch) {
       const paneId = decodePaneId(paneMatch[1]);
       // Which terminal the pane has, never how to run it: the herdr binary and
@@ -264,6 +264,10 @@ export function linkRoutes({
           ...(body.coverRows === undefined ? {} : { coverRows: body.coverRows }),
         });
         sendJson(response, 200, await client.paneReveal(paneId, reveal));
+        return true;
+      }
+      if (method === "POST" && paneMatch[2] === "scroll-bottom") {
+        sendJson(response, 200, await client.paneScrollToBottom(paneId));
         return true;
       }
       if (method === "POST" && paneMatch[2] === "keys") {
