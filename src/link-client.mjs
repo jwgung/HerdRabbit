@@ -7,6 +7,7 @@ import { AiAccountError } from "./ai-accounts.mjs";
 import { subscribeLinkStatuses } from "./link-status-stream.mjs";
 import { openRemotePty } from "./link-attach.mjs";
 import { ConversationError, ConversationUnavailable, HistoryChanged, TOOL_ID } from "./conversation/pages.mjs";
+import { cleanCheck, cleanRunStatus } from "./app-update.mjs";
 
 // fileIdle: how long a file being passed on may go quiet before it fails
 const TIMEOUTS = { hello: 5_000, snapshot: 8_000, read: 6_000, write: 6_000, fileIdle: 60_000 };
@@ -28,6 +29,10 @@ function tooOld(address, what) {
 const FIND_CODES = new Set(["stale_content", "pane_not_found", "invalid_herdr_response", "herdr_timeout", "not_found"]);
 const TERMINAL_CODES = new Set(["pane_not_found", "pane_not_restored", "no_terminal", "attach_unsupported", "not_found"]);
 const gridSize = (value) => validSize(value) ? value : undefined;
+// Why a connected PC would not start its update, passed on with its code.
+const UPDATE_CODES = new Set([
+  "update_running", "too_many_requests", "update_check_failed", "up_to_date", "update_blocked", "update_start_failed",
+]);
 
 // What a connected PC answers about one pane's conversation and this hub
 // passes on as it is: why there is none, a cursor from another transcript,
@@ -407,6 +412,29 @@ export class LinkClient {
     await this.#ready();
     if (!this.#features.has("commands")) return null;
     return this.#request(`/api/link/panes/${encodeURIComponent(paneId)}/commands`, { timeoutMs: this.timeouts.read });
+  }
+
+  // The PC's own update. A PC that does not name `update` has no such
+  // routes: nothing is asked, and null says it is too old to be updated
+  // from here. What comes back is held to the shape this hub shows.
+  async updateCheck({ fresh = false } = {}) {
+    await this.#ready();
+    if (!this.#features.has("update")) return null;
+    return cleanCheck(await this.#request(`/api/link/update${fresh ? "?fresh=1" : ""}`, { timeoutMs: 45_000 }));
+  }
+
+  async updateStatus() {
+    await this.#ready();
+    if (!this.#features.has("update")) return null;
+    return cleanRunStatus(await this.#request("/api/link/update/run", { timeoutMs: this.timeouts.read }));
+  }
+
+  async updateRun() {
+    await this.#ready();
+    if (!this.#features.has("update")) throw tooOld(this.address, "updating from here");
+    return cleanRunStatus(await this.#request("/api/link/update/run", {
+      method: "POST", timeoutMs: 60_000, codes: UPDATE_CODES,
+    }));
   }
 
   async #search(path, request) {

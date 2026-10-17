@@ -202,6 +202,14 @@ export class MultiServerClient {
     }
   }
 
+  // A connected PC's own update goes through its link; this PC's is the
+  // caller's. Null for this PC and for a PC no longer configured.
+  updateClient(serverId) {
+    this.syncEntries();
+    const entry = serverId === "local" ? null : this.entries.get(serverId);
+    return entry?.client ?? null;
+  }
+
   // Account routes address a server the same way: a connected PC switches its
   // own accounts. Local is the caller's.
   aiAccountsClient(serverId) {
