@@ -375,7 +375,6 @@ export class AppUpdater {
       if (check.error) throw new HttpError(409, "update_check_failed", "Could not check origin for a new version.");
       if (!check.available) throw new HttpError(409, "up_to_date", "Already up to date.");
       if (check.blocked) throw new HttpError(409, "update_blocked", `This update cannot run here (${check.blocked}).`);
-      this.#lastStart = this.now();
       const startedAt = new Date(this.now()).toISOString();
       const unit = `herdrabbit-update-${this.now()}`;
       await checkStateDir(this.stateDir, { create: true });
@@ -402,6 +401,8 @@ export class AppUpdater {
         });
         throw new HttpError(502, "update_start_failed", "Could not start the update.");
       }
+      // Only a run that started counts against the minute.
+      this.#lastStart = this.now();
       // The run may already have ended; its outcome is not overwritten.
       const current = await readRecord(this.stateDir);
       if (current?.state === "running") await writeRecord(this.stateDir, { ...current, unit });
@@ -420,12 +421,19 @@ export async function runUpdateScript({
   const logFile = join(stateDir, "update.log");
   await checkStateDir(stateDir);
   const log = await open(logFile, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | NOFOLLOW, 0o600);
+  // A start that throws at once (no shell, no file) is a failed run all the
+  // same: the log is closed and the outcome written either way.
   const exitCode = await new Promise((resolve) => {
-    const child = spawnImpl("sh", [script], { cwd: repository, stdio: ["ignore", log.fd, log.fd] });
+    let child;
+    try {
+      child = spawnImpl("sh", [script], { cwd: repository, stdio: ["ignore", log.fd, log.fd] });
+    } catch {
+      resolve(-1);
+      return;
+    }
     child.once("error", () => resolve(-1));
     child.once("close", (exit) => resolve(Number.isInteger(exit) ? exit : -1));
-  });
-  await log.close();
+  }).finally(() => log.close().catch(() => {}));
   const record = await readRecord(stateDir) ?? {};
   await writeRecord(stateDir, {
     ...record,

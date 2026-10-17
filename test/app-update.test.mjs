@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile, chmod, symlink, lstat } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  AppUpdater, MAX_LOG_BYTES, MAX_NOTES, cleanCheck, cleanLog, cleanRunStatus, execCommand, runLimiter, runUpdateScript,
+  AppUpdater, MAX_LOG_BYTES, MAX_NOTES, OFFICIAL_ORIGINS, SERVICE_UNITS, cleanCheck, cleanLog, cleanRunStatus, execCommand, runLimiter, runUpdateScript,
 } from "../src/app-update.mjs";
 
 // Git runs for real, in a scratch checkout whose origin is a bare repository
@@ -311,6 +311,30 @@ test("a unit that does not start is a failed run", async (context) => {
   const status = await subject.runStatus();
   assert.equal(status.state, "failed");
   assert.equal(status.reason, "start_failed");
+  // nothing started, so the minute is not used up: a second try goes ahead
+  await assert.rejects(subject.start(), { status: 502, code: "update_start_failed" });
+});
+
+test("a run whose shell cannot even be started is recorded as failed, not left running", async (context) => {
+  const repo = await scratch(context);
+  const subject = updater(repo, services(repo.work));
+  await repo.publish("Upstream");
+  await subject.start();
+  const exit = await runUpdateScript({
+    repository: repo.work, stateDir: repo.stateDir, script: join(repo.root, "never.sh"),
+    spawnImpl: () => { throw new Error("spawn EMFILE"); },
+  });
+  assert.equal(exit, -1);
+  const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
+  assert.equal(record.state, "failed");
+  assert.equal(record.reason, "script_failed");
+});
+
+test("the service units and official addresses here are the ones update.sh uses", async () => {
+  const script = await readFile(new URL("../update.sh", import.meta.url), "utf8");
+  for (const unit of SERVICE_UNITS) assert.match(script, new RegExp(`UPDATE_SERVICE=${unit.replace(".", "\\.")}`, "u"), `${unit} is not in update.sh`);
+  const allowed = script.match(/^\s*(https:\/\/github\.com\/ultivis-iot[^)]*)\)\s*;;/mu)?.[1].split("|").map((origin) => origin.trim());
+  assert.deepEqual(new Set(allowed), OFFICIAL_ORIGINS, "update.sh and the app allow different origins");
 });
 
 test("the run records how update.sh ended and keeps its output as the log", async (context) => {
