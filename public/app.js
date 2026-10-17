@@ -3519,17 +3519,24 @@ async function conversationRequest(path, { etag } = {}) {
 // After this long in the Chat lens without the terminal, the terminal is let
 // go (detached); switching back attaches it again and herdr redraws it.
 const TERMINAL_PARK_MS = 5 * 60_000;
+const SCROLL_BOTTOM_RETRY_MS = 1_000;
 let terminalParkTimer = null;
 
 // Back from the Chat lens, the terminal shows the newest output: herdr's
 // shared view of the pane goes to the bottom (asked of the server), and so
 // does xterm's own viewport. A terminal let go while parked attaches again
 // right after, so it counts too; a mirror has no herdr view to move.
-let lastLens = { lens: null, paneId: null };
-function showNewestTerminalOutput(paneId) {
+// A request that fails is tried once more a moment later, while the pane is
+// still the one in view in the terminal.
+function showNewestTerminalOutput(paneId, { retry = true } = {}) {
   const attached = attachedTerminal.scrollToBottom();
   if (!attached && state.terminalParked !== paneId) return;
-  api(`/api/panes/${encodeURIComponent(paneId)}/scroll-bottom`, { method: "POST", body: {} }).catch(() => {});
+  api(`/api/panes/${encodeURIComponent(paneId)}/scroll-bottom`, { method: "POST", body: {} }).catch(() => {
+    if (!retry) return;
+    window.setTimeout(() => {
+      if (chatLens.lens === "terminal" && state.selectedPaneId === paneId) showNewestTerminalOutput(paneId, { retry: false });
+    }, SCROLL_BOTTOM_RETRY_MS);
+  });
 }
 
 function scheduleTerminalPark(lens, paneId) {
@@ -3561,10 +3568,9 @@ const chatLens = createChatLens({
   onOpenPath: openTerminalPath,
   onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
   onChatDrawn: (chat, drawn) => chatFind?.redrawn(chat, drawn),
-  onLensChange: (lens, paneId) => {
-    const fromChat = lastLens.lens === "chat" && lastLens.paneId === paneId && lens === "terminal";
-    lastLens = { lens, paneId };
-    if (fromChat) showNewestTerminalOutput(paneId);
+  onLensChange: (lens, paneId, previous) => {
+    // `previous` follows a pane renamed under it (a move to another workspace)
+    if (lens === "terminal" && previous?.lens === "chat" && previous.paneId === paneId) showNewestTerminalOutput(paneId);
     scheduleTerminalPark(lens, paneId);
     // The key bar drives the terminal: the Chat lens hides it, and the
     // terminal fits again once it is back.

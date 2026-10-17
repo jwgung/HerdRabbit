@@ -50,6 +50,7 @@ snapshot.agents.find((agent) => agent.pane_id === "w1:p1").state = "done";
 const ptys = [];
 const sentTexts = [];
 const scrollBottoms = [];
+let failScrollBottoms = 0;
 const attachments = new PaneAttachments({
   log: () => {},
   options: { holdMs: 5, heldRetryMs: 60_000, relookupForMs: 200 },
@@ -73,7 +74,14 @@ const herdr = {
   async sendText(paneId, text) { sentTexts.push({ paneId, text }); },
   async sendKeys() {},
   // the shared view of the pane going to the newest output, as the page asks
-  async paneScrollToBottom(paneId) { scrollBottoms.push(paneId); return { scroll: null }; },
+  async paneScrollToBottom(paneId) {
+    scrollBottoms.push(paneId);
+    if (failScrollBottoms > 0) {
+      failScrollBottoms -= 1;
+      throw new Error("herdr went away for a moment");
+    }
+    return { scroll: null };
+  },
 };
 const { server } = createHerdrHttpServer({
   herdr,
@@ -215,6 +223,14 @@ try {
     assert.equal(await lens(), "chat");
     await page.waitForTimeout(300);
     await expectScrollBottoms(["w1:p1", "w1:p1"], "only a switch from the chat asks, never one back to it");
+    // a request that fails is asked once more a moment later
+    failScrollBottoms = 1;
+    await page.keyboard.press("Control+j");
+    assert.equal(await lens(), "terminal");
+    await expectScrollBottoms(["w1:p1", "w1:p1", "w1:p1", "w1:p1"], "a failed jump to the newest output was not tried again");
+    await page.keyboard.press("Control+j");
+    assert.equal(await lens(), "chat");
+    await page.waitForTimeout(300);
     assert.deepEqual(typesSince(framesBefore, ["attach", "detach", "watch", "unwatch", "take-over"]), [], "no terminal traffic on a switch");
     assert.equal(ptys.length, ptysBefore, "the terminal stayed attached");
     // Only the chat's own watch follows it on and off screen; a read on its

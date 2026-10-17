@@ -837,8 +837,9 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
     group.hidden = paneId === null;
     watch(lens === "chat" ? paneId : null);
     if (changed) {
+      const previous = reported;
       reported = { lens, paneId };
-      onLensChange(lens, paneId);
+      onLensChange(lens, paneId, previous);
     }
   }
 
