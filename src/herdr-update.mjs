@@ -76,6 +76,8 @@ export function plainNotes(text) {
     .replace(/\r\n?/gu, "\n")
     .replace(/\u001b\[[0-9;?]*[A-Za-z]/gu, "")
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/gu, "")
+    // and no direction marks that could make one line read as another
+    .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, "")
     .replace(/\[([^\]\n]*)\]\([^)\n]*\)/gu, "$1")
     .replace(/^#{1,6}[ \t]+/gmu, "")
     .replace(/\*\*|__|`/gu, "")

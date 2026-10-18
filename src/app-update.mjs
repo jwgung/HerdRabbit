@@ -171,7 +171,7 @@ export async function readRecord(stateDir, name = "update-state.json") {
 export async function readLogTail(path) {
   let handle;
   try {
-    handle = await open(path, "r");
+    handle = await open(path, fsConstants.O_RDONLY | NOFOLLOW);
     const { size } = await handle.stat();
     const length = Math.min(size, 64 * 1024);
     const buffer = Buffer.alloc(length);

@@ -412,3 +412,7 @@ test("the page puts the dot up for a newer Herdr alone, and its confirm says pan
   assert.match(herdrBlockedText("managed_install"), /package manager/u);
   assert.match(herdrErrorText("manifest_failed"), /herdr\.dev/u);
 });
+
+test("notes carry no direction marks that could disguise a line", () => {
+  assert.equal(plainNotes("safe \u202eexe.txt\u202c and \u2066x\u2069"), "safe exe.txt and x");
+});
