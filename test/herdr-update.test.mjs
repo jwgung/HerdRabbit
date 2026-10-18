@@ -163,6 +163,9 @@ test("the manifest reader stops at the size cap even without a length", async ()
   await assert.rejects(fetchManifest(MANIFEST_URLS.stable, async () => new Response(body)), /too large/u);
   assert.ok(pulled <= MAX_MANIFEST_BYTES / (64 * 1024) + 2, `read ${pulled} chunks`);
   assert.deepEqual(parseManifest(JSON.stringify({ version: "1.2.3-rc.1", notes: 42 })), { version: "1.2.3-rc.1", notes: "" });
+  // any SemVer: hyphens inside a prerelease, build metadata
+  for (const version of ["1.2.3-beta-1", "1.0.0+linux", "1.0.0-rc.1+b.2"]) assert.equal(parseManifest(JSON.stringify({ version })).version, version);
+  for (const version of ["1.0", "1.0.0-", "v1.0.0"]) assert.throws(() => parseManifest(JSON.stringify({ version })));
 });
 
 test("notes are plain text, without control characters, and bounded", () => {
