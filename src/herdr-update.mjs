@@ -172,10 +172,13 @@ export class HerdrUpdater {
   constructor({
     binary = "herdr", stateDir, exec = execCommand, fetchImpl = fetch, now = () => Date.now(),
     platform = process.platform, environment = process.env, nodeBin = process.execPath, repository = REPOSITORY,
-    isExecutable = canExecute, resolvePath = realpath, busy = async () => false,
+    isExecutable = canExecute, resolvePath = realpath, busy = async () => false, onVersion = () => {},
   }) {
     if (!stateDir) throw new TypeError("stateDir is required");
     this.binary = String(binary || "herdr");
+    // Told each Herdr version a check reads: after `herdr update` this service
+    // keeps running, and what it reports must follow.
+    this.onVersion = onVersion;
     this.stateDir = stateDir;
     this.exec = exec;
     this.fetchImpl = fetchImpl;
@@ -238,6 +241,7 @@ export class HerdrUpdater {
       this.#precondition(binary),
     ]);
     const current = version.code === 0 ? versionFrom(version.stdout) : null;
+    if (current) this.onVersion(current);
     // A Herdr from before channels follows stable.
     const channel = channelShown.code === 0 && channelShown.stdout.trim() === "preview" ? "preview" : "stable";
     let manifest;

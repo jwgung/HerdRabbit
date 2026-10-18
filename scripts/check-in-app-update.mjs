@@ -206,7 +206,14 @@ async function checkHerdr() {
   });
   const herdrIdle = { state: "idle", startedAt: null, finishedAt: null, exitCode: null, reason: null, detail: null, log: "" };
   const appUpdater = {
-    async check() { return { ...upToDate, herdr: herdrCheck() }; },
+    async check() {
+      // the look again after a run, failing once when the outcome asks for it
+      if (herdrWorld.outcome === "recheck_fails" && herdrWorld.version === "0.9.5" && !herdrWorld.recheckFailed) {
+        herdrWorld.recheckFailed = true;
+        throw new Error("origin went away for a moment");
+      }
+      return { ...upToDate, herdr: herdrCheck() };
+    },
     async runStatus() { return { ...idle, version: "2.0.0" }; },
     async start() { throw new Error("not expected"); },
   };
@@ -248,8 +255,8 @@ async function checkHerdr() {
     },
   };
 
-  for (const outcome of ["succeeded", "refused"]) {
-    Object.assign(herdrWorld, { version: "0.9.3", polls: 0, starts: 0, outcome });
+  for (const outcome of ["succeeded", "refused", "recheck_fails"]) {
+    Object.assign(herdrWorld, { version: "0.9.3", polls: 0, starts: 0, outcome, recheckFailed: false });
     const { server } = createHerdrHttpServer({ herdr: herdrClient, updater: appUpdater, herdrUpdater, logger: { info() {}, error() {} } });
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
@@ -308,6 +315,11 @@ async function checkHerdr() {
       assert.match(await row.locator(".update-herdr-log").textContent(), /Done\./u);
       // devbox still has a newer Herdr, so the dot stays for it.
       assert.equal(await page.locator(".settings-button.has-update").count(), 1);
+    } else if (outcome === "recheck_fails") {
+      // the run ended well but the look again failed: the buttons are not left busy
+      await page.waitForFunction(() => /Herdr updated/u.test(document.querySelector(".update-herdr-run-state")?.textContent ?? ""), null, { timeout: 20_000 });
+      assert.ok(herdrWorld.recheckFailed, "the look again was not asked");
+      await page.waitForFunction(() => !document.querySelector('.update-server[data-server-id="local"] .update-herdr-run')?.disabled);
     } else {
       await page.waitForFunction(() => /will not update itself/u.test(document.querySelector(".update-herdr-run-state")?.textContent ?? ""), null, { timeout: 20_000 });
       assert.equal(await row.locator(".update-herdr-run-state").getAttribute("data-error"), "true");

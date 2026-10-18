@@ -93,7 +93,8 @@ const announcements = await (async () => {
 })();
 const files = await FileStore.load(config.filesDir, { maxBytes: config.maxTransferBytes });
 const hubVersion = readAppVersion();
-// Read once: the updater restarts this service after it updates Herdr.
+// Read at start, and again by each Herdr update check (Update Herdr does not
+// restart this service).
 let herdrVersion = null;
 void readHerdrVersion(config.herdrBin).then((version) => {
   herdrVersion = version;
@@ -128,6 +129,7 @@ const herdrUpdater = new HerdrUpdater({
   binary: config.herdrBin,
   stateDir: config.updateDir,
   busy: async () => updater.starting || (await updater.runStatus()).state === "running",
+  onVersion: (version) => { herdrVersion = version; },
 });
 const updater = new AppUpdater({ version: hubVersion, stateDir: config.updateDir, herdr: herdrUpdater });
 // Without node-pty's native module this PC's panes are read-only mirrors of

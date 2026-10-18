@@ -224,7 +224,8 @@ export function createUpdatePanel({
         changed();
         continue;
       }
-      if (next.state === "succeeded") await checkOne(id, true);
+      // a re-check that fails leaves the buttons usable all the same
+      if (next.state === "succeeded") await checkOne(id, true).catch(() => {});
       break;
     }
     item.herdrRun.tracking = false;
@@ -275,7 +276,7 @@ export function createUpdatePanel({
         reload();
         return;
       }
-      if (next.state === "succeeded") await checkOne(id, true);
+      if (next.state === "succeeded") await checkOne(id, true).catch(() => {});
       break;
     }
     item.run.tracking = false;

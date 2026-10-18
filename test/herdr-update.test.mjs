@@ -86,8 +86,11 @@ test("versions compare as semver does, prereleases included", () => {
 test("a newer Herdr on the stable channel is an update, with its notes as plain text", async (context) => {
   const dir = await scratch(context);
   const fake = fakes();
-  const result = await updater(dir, fake).check();
+  const told = [];
+  const result = await updater(dir, fake, { onVersion: (version) => told.push(version) }).check();
   assert.equal(result.current, "0.9.3");
+  // what this service reports follows the Herdr it finds, without a restart
+  assert.deepEqual(told, ["0.9.3"]);
   assert.equal(result.latest, "0.9.5");
   assert.equal(result.channel, "stable");
   assert.equal(result.available, true);
