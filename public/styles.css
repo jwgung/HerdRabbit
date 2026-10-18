@@ -520,6 +520,31 @@ body.sidebar-collapsed .terminal-panel {
   width: 210px;
 }
 
+/* A newer version somewhere: a dot on the ⚙ button and on its menu item. */
+.settings-button.has-update,
+.settings-menu .sidebar-action-item.has-update {
+  position: relative;
+}
+
+.settings-button.has-update::after,
+.settings-menu .sidebar-action-item.has-update::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--navigator-surface);
+}
+
+.settings-menu .sidebar-action-item.has-update::after {
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+}
+
 #add-menu .sidebar-action-item {
   display: block;
 }
@@ -1561,6 +1586,84 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 }
 
 .ai-account-identity strong { font-size: 14px; }
+
+/* Update: one block per PC, with what changed and, during a run, its log. */
+.update-dialog { max-height: 90dvh; overflow-y: auto; }
+
+.update-list {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.update-server {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+
+.update-list > :first-child { border-top: 0; }
+
+.update-server-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.update-server-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+
+.update-badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.update-versions,
+.update-status,
+.update-run-state {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.update-status[data-error="true"],
+.update-run-state[data-error="true"] { color: var(--danger); }
+
+.update-notes {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 160px;
+  overflow-y: auto;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.update-actions { display: flex; justify-content: flex-end; }
+
+.update-progress { display: grid; gap: 6px; min-width: 0; }
+
+.update-log {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 7px;
+  color: var(--terminal-text);
+  background: var(--terminal-bg);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 
 /* Passkeys: one bordered list, like AI accounts, with the password under it. */
 .passkeys-dialog { max-height: 90dvh; overflow-y: auto; }

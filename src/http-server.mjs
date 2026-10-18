@@ -33,6 +33,7 @@ import { ConversationService } from "./conversation/service.mjs";
 import { errorResponse } from "./error-response.mjs";
 import { PromptService } from "./prompt/service.mjs";
 import { SlashCommandCatalog, paneCommandTarget } from "./slash-commands.mjs";
+import { runLimiter } from "./app-update.mjs";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
 const SIMPLEWEBAUTHN_BROWSER_BUNDLE = fileURLToPath(new URL(
@@ -50,6 +51,7 @@ const STATIC_FILES = new Map([
   ["/", { path: `${PUBLIC_DIR}/index.html`, type: "text/html; charset=utf-8" }],
   ["/app.js", { path: `${PUBLIC_DIR}/app.js`, type: "text/javascript; charset=utf-8" }],
   ["/path-links.js", { path: `${PUBLIC_DIR}/path-links.js`, type: "text/javascript; charset=utf-8" }],
+  ["/app-update.js", { path: `${PUBLIC_DIR}/app-update.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-links.js", { path: `${PUBLIC_DIR}/terminal-links.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-connection.js", { path: `${PUBLIC_DIR}/terminal-connection.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-status.js", { path: `${PUBLIC_DIR}/terminal-status.js`, type: "text/javascript; charset=utf-8" }],
@@ -116,6 +118,9 @@ const STATIC_FILES = new Map([
   ["/icons/notification-icon-192.png", { path: `${PUBLIC_DIR}/icons/notification-icon-192.png`, type: "image/png" }],
   ["/icons/notification-badge-96.png", { path: `${PUBLIC_DIR}/icons/notification-badge-96.png`, type: "image/png" }],
 ]);
+// Which run of this process answered: a page that started an update reloads
+// once a different one answers after the restart.
+const BOOT_ID = randomBytes(9).toString("base64url");
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 const DEFAULT_OUTPUT_LINES = 200;
 const MAX_OUTPUT_LINES = MAX_PANE_READ_LINES - 1;
@@ -545,6 +550,9 @@ export function createHerdrHttpServer({
   announcements = null,
   // This PC's own Connect PC port, { address, allowed }, or null when closed.
   connectPc = null,
+  // In-app update (src/app-update.mjs): this PC's AppUpdater, or null when it
+  // cannot update itself from the page. A connected PC's goes over its link.
+  updater = null,
   csrfToken = randomBytes(32).toString("base64url"),
   maxBodyBytes = 16 * 1024,
   maxTransferBytes = Infinity,
@@ -848,6 +856,46 @@ export function createHerdrHttpServer({
         }
         if (method === "DELETE" && id && id !== "test" && id !== "discover") {
           sendJson(response, 200, { profiles: await profiles.remove(id) });
+          return;
+        }
+        throw new HttpError(405, "method_not_allowed", "Method not allowed");
+      }
+
+      // In-app update, of this PC or of a connected PC. The request names a
+      // PC and nothing else: what is fetched, run and restarted is fixed on
+      // the PC that runs it.
+      if (url.pathname === "/api/update" || url.pathname === "/api/update/run") {
+        const run = url.pathname === "/api/update/run";
+        if (method === "GET") {
+          requireSameOrigin(request);
+          const { serverId, remote } = updateSource(url.searchParams.get("server"));
+          const fresh = url.searchParams.get("fresh") === "1";
+          const answer = remote
+            ? (await (run ? remote.updateStatus?.() : remote.updateCheck?.({ fresh }))) ?? null
+            : updater ? await (run ? updater.runStatus() : updater.check({ fresh })) : null;
+          sendJson(response, 200, answer === null
+            ? { server: serverId, supported: false }
+            : { ...answer, server: serverId, supported: true, ...(remote || !run ? {} : { boot: BOOT_ID }) });
+          return;
+        }
+        if (method === "POST" && run) {
+          requireWriteAuthorization(request, csrfToken);
+          const body = await readJsonBody(request, maxBodyBytes);
+          const { serverId, remote } = updateSource(body.server);
+          if (!remote && !updater) throw new HttpError(404, "update_unavailable", "This PC cannot update itself from here.");
+          if (remote && typeof remote.updateRun !== "function") {
+            throw new HttpError(501, "link_unsupported", "That PC is too old to be updated from here; update it there.");
+          }
+          // The slot is taken for the attempt and given back when nothing started.
+          updateRuns(serverId);
+          let status;
+          try {
+            status = remote ? await remote.updateRun() : await updater.start();
+          } catch (error) {
+            updateRuns.release(serverId);
+            throw error;
+          }
+          sendJson(response, 202, { ...status, server: serverId, supported: true });
           return;
         }
         throw new HttpError(405, "method_not_allowed", "Method not allowed");
@@ -1477,6 +1525,15 @@ export function createHerdrHttpServer({
     return { serverId: value, source };
   }
 
+  function updateSource(value) {
+    if (value === undefined || value === null || value === "" || value === LOCAL_SERVER) {
+      return { serverId: LOCAL_SERVER, remote: null };
+    }
+    const remote = typeof value === "string" ? herdr.updateClient?.(value) : null;
+    if (!remote) throw new HttpError(404, "unknown_server", "That server is no longer configured.");
+    return { serverId: value, remote };
+  }
+
   function accountsSource(value) {
     if (value === undefined || value === null || value === "" || value === LOCAL_SERVER) {
       return { serverId: LOCAL_SERVER, source: aiAccounts };
@@ -1518,6 +1575,8 @@ export function createHerdrHttpServer({
   }
 
   const tickets = downloadTickets();
+  // One run started per PC a minute, from this page, on top of each PC's own limit.
+  const updateRuns = runLimiter(60_000, now);
   const withDirectorySlot = directoryReadLimiter(4);
   const outputWatcher = terminalOutputWatcher({ herdr, outputWindow, outputReadLines });
   attachTerminalWebSocket({

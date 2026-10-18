@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 const userFacingSources = [
   "../public/index.html",
   "../public/app.js",
+  "../public/app-update.js",
   "../public/ui-model.js",
   "../public/push-notifications.js",
   "../public/sw.js",

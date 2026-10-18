@@ -72,8 +72,10 @@ async function sendFile(response, file) {
 // uses): a hub's Chat reads this PC's transcripts through it, here.
 // `slashCommands` is this PC's own SlashCommandCatalog (the one its page
 // uses): a hub's composer lists a pane's `/` commands through it.
+// `updater` is this PC's own AppUpdater (src/app-update.mjs): a hub checks
+// for and starts an update of this PC through it, never naming anything.
 export function linkRoutes({
-  client, files = null, aiAccounts = null, attach = null, conversations = null, slashCommands = null, version, herdrVersion = () => null, serverName = "",
+  client, files = null, aiAccounts = null, attach = null, conversations = null, slashCommands = null, updater = null, version, herdrVersion = () => null, serverName = "",
   maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024, protectedPaths = defaultProtectedPaths(),
   maxStatusStreams = MAX_STATUS_STREAMS,
 }) {
@@ -91,7 +93,9 @@ export function linkRoutes({
       herdr_version: herdrVersion(),
       // What this PC answers beyond the protocol's base, so a hub asks only
       // for what is there. A PC from before this list says nothing.
-      features: conversations ? ["conversation", "scroll_bottom", "commands"] : ["scroll_bottom", "commands"],
+      features: [
+        ...(conversations ? ["conversation"] : []), "scroll_bottom", "commands", ...(updater ? ["update"] : []),
+      ],
     };
   }
 
@@ -210,6 +214,23 @@ export function linkRoutes({
       // The handshake rides along so the hub re-checks compatibility on every
       // poll without paying for a second round trip.
       sendJson(response, 200, { hello: hello(), snapshot: await client.snapshot() });
+      return true;
+    }
+
+    // This PC's own update: whether origin has a newer main, starting
+    // update.sh, and how that run goes. Nothing in the request is used but
+    // whether the check may be a fresher one.
+    if (url.pathname === "/api/link/update" || url.pathname === "/api/link/update/run") {
+      if (!updater) throw new HttpError(404, "not_found", "Not found");
+      if (method === "GET" && url.pathname === "/api/link/update") {
+        sendJson(response, 200, await updater.check({ fresh: url.searchParams.get("fresh") === "1" }));
+      } else if (method === "GET") {
+        sendJson(response, 200, await updater.runStatus());
+      } else if (method === "POST" && url.pathname === "/api/link/update/run") {
+        sendJson(response, 202, await updater.start());
+      } else {
+        throw new HttpError(405, "method_not_allowed", "Method not allowed");
+      }
       return true;
     }
 

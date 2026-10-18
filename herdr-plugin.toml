@@ -3,7 +3,7 @@
 # Linux; while it runs, the startup hook and the start action do nothing.
 id = "herdrabbit"
 name = "HerdRabbit"
-version = "1.2.70"
+version = "1.2.71"
 min_herdr_version = "0.9.0"
 description = "Open your Herdr sessions from a phone or another PC (PWA over Tailscale)."
 platforms = ["linux", "macos"]

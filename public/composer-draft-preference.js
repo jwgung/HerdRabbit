@@ -2,8 +2,8 @@
 // pane keeps the message typed but not sent. The drafts live in memory and are
 // mirrored to localStorage, a bounded number of panes and a bounded size each.
 // Only unsent text goes here: whoever sends a message clears it first.
-import { secretPrompt } from "./secret-prompt.js?v=1.2.70";
-import { paneRenames } from "./pane-rename.js?v=1.2.70";
+import { secretPrompt } from "./secret-prompt.js?v=1.2.71";
+import { paneRenames } from "./pane-rename.js?v=1.2.71";
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "herdrbridge-composer-drafts";
 export const MAX_DRAFT_LENGTH = 8_000;

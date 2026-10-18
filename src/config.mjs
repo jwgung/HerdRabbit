@@ -67,6 +67,14 @@ function defaultFilesDirectory(environment) {
   return join(dataHome, "herdrabbit", "files");
 }
 
+// The in-app update's log and outcome (src/app-update.mjs). Not a secret, and
+// kept with the uploads rather than the settings: the run writes it from
+// outside the service.
+function defaultUpdateDirectory(environment) {
+  const dataHome = environment.XDG_DATA_HOME || join(homedir(), ".local", "share");
+  return join(dataHome, "herdrabbit", "update");
+}
+
 // One spelling per address, so "0:0:0:0:0:0:0:0", "::0" and "::" are the same
 // address everywhere they are compared -- and the same text a Host header
 // carries for it.
@@ -250,6 +258,7 @@ export function readConfig(environment = process.env) {
     ...dataPaths(environment),
     extraAllowedHosts: parseAllowedHosts(environment.HERDR_WEB_ALLOWED_HOSTS),
     filesDir: defaultFilesDirectory(environment),
+    updateDir: defaultUpdateDirectory(environment),
     commandTimeoutMs: 5_000,
     maxBodyBytes: 16 * 1024,
     maxTransferBytes: parseMaxTransferBytes(environment.HERDR_WEB_MAX_TRANSFER_MB),

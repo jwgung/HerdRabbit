@@ -1,7 +1,7 @@
 // Adapted from herdr-web-ui (MIT), src/lib/keyBar.ts: the key bar as a list of
 // items the user can add to, remove from and reorder, kept in localStorage.
 // Key names are herdr's (esc, pageup, f5 ...), checked with key-combinations.js.
-import { combinedTerminalKey } from "./key-combinations.js?v=1.2.70";
+import { combinedTerminalKey } from "./key-combinations.js?v=1.2.71";
 
 export const KEY_BAR_STORAGE_KEY = "herdrbridge-key-bar";
 export const KEY_BAR_ITEMS_MAX = 40;

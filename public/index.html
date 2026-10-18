@@ -10,18 +10,18 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>HerdRabbit</title>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <script src="/theme.js?v=1.2.70"></script>
+    <script src="/theme.js?v=1.2.71"></script>
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/rabbit-outline-32-v33.png" />
     <link rel="icon" type="image/svg+xml" href="/icons/rabbit-outline-v33.svg" />
     <link rel="apple-touch-icon" href="/icons/rabbit-outline-app-180-v35.png" />
     <link rel="stylesheet" href="/ui/ui.css" />
-    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.70" />
-    <link rel="stylesheet" href="/styles.css?v=1.2.70" />
-    <link rel="stylesheet" href="/chat/chat-view.css?v=1.2.70" />
-    <link rel="stylesheet" href="/chat/prompt-card.css?v=1.2.70" />
-    <link rel="stylesheet" href="/key-bar.css?v=1.2.70" />
-    <script src="/vendor/simplewebauthn-browser.js?v=1.2.70"></script>
-    <script type="module" src="/app.js?v=1.2.70"></script>
+    <link rel="stylesheet" href="/vendor/xterm.css?v=1.2.71" />
+    <link rel="stylesheet" href="/styles.css?v=1.2.71" />
+    <link rel="stylesheet" href="/chat/chat-view.css?v=1.2.71" />
+    <link rel="stylesheet" href="/chat/prompt-card.css?v=1.2.71" />
+    <link rel="stylesheet" href="/key-bar.css?v=1.2.71" />
+    <script src="/vendor/simplewebauthn-browser.js?v=1.2.71"></script>
+    <script type="module" src="/app.js?v=1.2.71"></script>
   </head>
   <body class="auth-pending">
     <main class="shell">
@@ -490,6 +490,21 @@
           <button id="sessions-close" class="secondary-button" type="button">Close</button>
           <button id="sessions-end-this" class="secondary-button" type="button" hidden>Sign out this device</button>
           <button id="sessions-end-all" class="secondary-button" type="button">Sign out everywhere</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="update-dialog" class="app-dialog update-dialog" aria-labelledby="update-title">
+      <div class="dialog-form">
+        <div class="dialog-heading">
+          <h2 id="update-title">Update</h2>
+          <p>New versions come from the main branch of HerdRabbit on GitHub. Updating runs update.sh on that PC and restarts its HerdRabbit service.</p>
+        </div>
+        <div id="update-list" class="update-list"></div>
+        <p id="update-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="update-close" class="secondary-button" type="button">Close</button>
+          <button id="update-check" class="secondary-button" type="button">Check</button>
         </div>
       </div>
     </dialog>

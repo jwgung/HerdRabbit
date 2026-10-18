@@ -566,6 +566,10 @@ Run as the Linux account that installed the service. The updater uses its own di
 
 The Service Worker reloads the page once when it activates a new app shell. Manually refresh a tab that has remained open for a long time.
 
+### Update from the app
+
+The page checks for a new version each time it opens, and again when you press **Check** in **⚙ → Update** (never on a timer). It fetches `main` from origin in the service's own checkout and compares it with what runs. A newer version puts a dot on the ⚙ button; the Update window shows the running and latest versions, the commit subjects in between, and, when `update.sh` would stop, why: not running as the systemd user service, an origin other than ultivis-iot/HerdRabbit, not on `main`, local changes, a local `main` that diverged, or an update already running. **Update** asks first, then runs the same `update.sh` with `systemd-run --user` in a unit of its own, outside the service, so the restart it ends with does not stop it. The page follows its log, waits out the restart and reloads into the new version; a failed run says so and keeps its log (`update.sh` rolls back by itself). The log and outcome are kept in `~/.local/share/herdrabbit/update/`. The Update window lists every PC connected with Connect PC too, each with its own versions, changes and reason, and **Update** there runs that PC's own `update.sh`; this page sends only which PC. A PC on a version from before this says "Update it there (older version)". Starting an update needs a signed-in session on this page; one run per PC a minute.
+
 ## Verification and development
 
 ```bash
