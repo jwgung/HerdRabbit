@@ -395,3 +395,16 @@ test("HerdRabbit's check carries Herdr's, and neither update starts while the ot
   const plain = new AppUpdater({ version: "1.0.0", repository: dir.root, stateDir: dir.stateDir, exec: async () => ({ code: 1, stdout: "" }) });
   assert.equal("herdr" in await plain.check(), false);
 });
+
+test("the page puts the dot up for a newer Herdr alone, and its confirm says panes are handed off", async () => {
+  const { anyUpdate, herdrConfirmText, herdrBlockedText, herdrErrorText } = await import("../public/app-update.js");
+  assert.equal(anyUpdate([{ supported: true, available: false, herdr: { available: true } }]), true);
+  assert.equal(anyUpdate([{ supported: true, available: false, herdr: null }]), false);
+  assert.equal(anyUpdate([{ supported: false, herdr: { available: true } }]), false);
+  const text = herdrConfirmText("devbox", { current: "0.9.3", latest: "0.9.5" });
+  assert.match(text, /^Update Herdr on devbox from 0\.9\.3 to 0\.9\.5\?/u);
+  assert.match(text, /handoff/u);
+  assert.match(text, /keep running/u);
+  assert.match(herdrBlockedText("managed_install"), /package manager/u);
+  assert.match(herdrErrorText("manifest_failed"), /herdr\.dev/u);
+});

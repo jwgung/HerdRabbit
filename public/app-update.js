@@ -3,6 +3,9 @@
 // pressed, never on a timer. Update runs update.sh on that PC (the server
 // starts it outside its own service), and this page follows the run: through
 // the restart for this PC, after which it reloads into the new version.
+// Each PC also has a Herdr row: the Herdr it runs against the newest on its
+// channel, and Update Herdr, which runs `herdr update --handoff` there and is
+// followed the same way, without a restart.
 
 export const BLOCKED_TEXT = {
   running: "An update is already running.",
@@ -17,6 +20,27 @@ export const ERROR_TEXT = {
   fetch_failed: "Could not reach origin to check for a new version.",
   not_git: "This HerdRabbit is not a git checkout, so it cannot update itself.",
 };
+
+export const HERDR_BLOCKED_TEXT = {
+  running: "An update is already running.",
+  unsupported_platform: "Herdr can be updated from here on Linux only. Run herdr update on that PC.",
+  no_systemd_run: "systemd-run is not available here, so Herdr cannot be updated from the page. Run herdr update on that PC.",
+  managed_install: "Herdr was installed with a package manager (Homebrew, Nix or mise). Update it with that package manager.",
+};
+
+export const HERDR_ERROR_TEXT = {
+  herdr_missing: "Herdr was not found where HerdRabbit looks for it.",
+  manifest_failed: "Could not reach herdr.dev to check for a new Herdr.",
+  version_unknown: "Could not read the installed Herdr's version.",
+};
+
+export function herdrBlockedText(code) {
+  return HERDR_BLOCKED_TEXT[code] ?? "Herdr cannot be updated here right now.";
+}
+
+export function herdrErrorText(code) {
+  return HERDR_ERROR_TEXT[code] ?? "Could not check for a new Herdr.";
+}
 
 export function blockedText(code) {
   return BLOCKED_TEXT[code] ?? "This PC cannot run the update right now.";
@@ -34,7 +58,8 @@ export function revisionText(revision) {
 
 // Whether the ⚙ button carries a dot: some PC has something newer.
 export function anyUpdate(results) {
-  return [...results].some((result) => result?.supported === true && result.available === true);
+  return [...results].some((result) => result?.supported === true &&
+    (result.available === true || result.herdr?.available === true));
 }
 
 export function confirmText(name, check) {
@@ -47,7 +72,23 @@ export function confirmText(name, check) {
   ].join("\n");
 }
 
+export function herdrConfirmText(name, herdr) {
+  return [
+    `Update Herdr on ${name} from ${herdr?.current ?? "unknown"} to ${herdr?.latest ?? "the newest version"}?`,
+    "",
+    "herdr update --handoff downloads the new Herdr and hands the running panes over to it live: " +
+      "agents and shells keep running. It can take a moment.",
+  ].join("\n");
+}
+
 const RECENT_RUN_MS = 30 * 60_000;
+
+const HERDR_RUN_TEXT = {
+  running: "Updating Herdr…",
+  succeeded: "Herdr updated.",
+  failed: "The Herdr update failed. The installed Herdr keeps running; the log says why.",
+  refused: "Herdr will not update itself here:",
+};
 
 const RUN_TEXT = {
   running: "Updating…",
@@ -71,14 +112,15 @@ export function createUpdatePanel({
   confirm = (text) => window.confirm(text), reload = () => window.location.reload(),
   pollMs = 1_500, giveUpMs = 15 * 60_000,
 }) {
-  // Per PC: { check, error, run: { status, tracking, waiting } }.
+  // Per PC: { check, error, run, herdrRun }, a run being
+  // { status, tracking, waiting }.
   const entries = new Map();
   // Which run of this PC's server the page was loaded from.
   let baseline = null;
   let checking = false;
 
   const entry = (id) => {
-    if (!entries.has(id)) entries.set(id, { check: null, error: null, run: null });
+    if (!entries.has(id)) entries.set(id, { check: null, error: null, run: null, herdrRun: null });
     return entries.get(id);
   };
   const query = (id, fresh = false) => `server=${encodeURIComponent(id)}${fresh ? "&fresh=1" : ""}`;
@@ -132,12 +174,68 @@ export function createUpdatePanel({
         entry("local").run = { status, tracking: false, waiting: false };
       }
     } catch { /* checked again with the rest */ }
+    try {
+      const status = await api(`/api/update/herdr/run?${query("local")}`);
+      if (status.supported === false) return;
+      if (status.state === "running") void trackHerdr("local", status);
+      else if (status.state !== "idle" && Date.now() - Date.parse(status.finishedAt) < RECENT_RUN_MS) {
+        entry("local").herdrRun = { status, tracking: false, waiting: false };
+      }
+    } catch { /* shown again once checked */ }
+  }
+
+  const busy = (item) => item.run?.tracking === true || item.herdrRun?.tracking === true;
+
+  async function runHerdr(id) {
+    const server = servers().find((item) => item.id === id);
+    const item = entry(id);
+    if (!server || !item.check?.herdr?.available || busy(item)) return;
+    if (!confirm(herdrConfirmText(server.name, item.check.herdr))) return;
+    feedback.textContent = "";
+    try {
+      const status = await api("/api/update/herdr/run", { method: "POST", body: { server: id } });
+      void trackHerdr(id, status);
+    } catch (error) {
+      feedback.textContent = error.message || "Could not start the Herdr update.";
+      feedback.dataset.error = "true";
+    }
+  }
+
+  // Polls Herdr's run until it ends, then checks that PC again so the new
+  // version shows. HerdRabbit does not restart; a missed answer is retried.
+  async function trackHerdr(id, status) {
+    const item = entry(id);
+    item.herdrRun = { status, tracking: true, waiting: false };
+    changed();
+    const started = Date.now();
+    while (Date.now() - started < giveUpMs) {
+      await sleep(pollMs);
+      let next;
+      try {
+        next = await api(`/api/update/herdr/run?${query(id)}`);
+      } catch (error) {
+        if (error.code === "authentication_required") break;
+        item.herdrRun.waiting = true;
+        changed();
+        continue;
+      }
+      item.herdrRun = { status: next, tracking: next.state === "running", waiting: false };
+      if (next.state === "running") {
+        changed();
+        continue;
+      }
+      if (next.state === "succeeded") await checkOne(id, true);
+      break;
+    }
+    item.herdrRun.tracking = false;
+    item.herdrRun.waiting = false;
+    changed();
   }
 
   async function run(id) {
     const server = servers().find((item) => item.id === id);
     const item = entry(id);
-    if (!server || !item.check?.available || item.run?.tracking) return;
+    if (!server || !item.check?.available || busy(item)) return;
     if (!confirm(confirmText(server.name, item.check))) return;
     feedback.textContent = "";
     try {
@@ -230,13 +328,15 @@ export function createUpdatePanel({
       if (check.available && !check.blocked && !check.error) {
         const button = element("button", "primary-button update-run", "Update");
         button.type = "button";
-        button.disabled = item.run?.tracking === true;
+        button.disabled = busy(item);
         button.addEventListener("click", () => void run(server.id));
         const actions = element("div", "update-actions");
         actions.append(button);
         section.append(actions);
       }
     }
+
+    if (check?.supported && "herdr" in check) section.append(renderHerdr(server, item));
 
     const runStatus = item.run?.status;
     if (item.run && runStatus) {
@@ -252,6 +352,69 @@ export function createUpdatePanel({
       section.append(progress);
     }
     return section;
+  }
+
+  function renderHerdr(server, item) {
+    const herdr = item.check.herdr;
+    const row = element("div", "update-herdr");
+    const heading = element("div", "update-herdr-heading");
+    heading.append(element("strong", "", "Herdr"));
+    if (herdr?.available) heading.append(element("span", "update-badge", "Update available"));
+    row.append(heading);
+    const status = element("p", "update-status update-herdr-status");
+    if (!herdr) {
+      status.textContent = "Could not check Herdr.";
+      status.dataset.error = "true";
+      row.append(status);
+      return row;
+    }
+    const channel = herdr.channel === "preview" ? " (preview)" : "";
+    row.append(element("p", "update-versions update-herdr-versions",
+      `Running ${herdr.current ?? "unknown"} · Latest ${herdr.latest ?? "unknown"}${channel}`));
+    row.append(status);
+    if (herdr.error) {
+      status.textContent = herdrErrorText(herdr.error);
+      status.dataset.error = "true";
+    } else if (!herdr.available) {
+      status.textContent = "Up to date.";
+    } else if (herdr.blocked) {
+      status.textContent = herdrBlockedText(herdr.blocked);
+      status.dataset.error = "true";
+    } else {
+      status.textContent = "A new Herdr is ready to install.";
+    }
+    if (herdr.available && herdr.notes) {
+      const notes = element("details", "update-herdr-notes");
+      notes.append(element("summary", "", `What's new in Herdr ${herdr.latest}`));
+      notes.append(element("p", "update-herdr-notes-text", herdr.notes));
+      row.append(notes);
+    }
+    if (herdr.available && !herdr.blocked && !herdr.error) {
+      const button = element("button", "secondary-button update-herdr-run", "Update Herdr");
+      button.type = "button";
+      button.disabled = busy(item);
+      button.addEventListener("click", () => void runHerdr(server.id));
+      const actions = element("div", "update-actions");
+      actions.append(button);
+      row.append(actions);
+    }
+    const run = item.herdrRun;
+    if (run?.status) {
+      const progress = element("div", "update-progress");
+      const refused = run.status.state === "failed" && run.status.reason === "self_update_refused";
+      const text = run.waiting ? "Waiting for an answer…"
+        : refused ? HERDR_RUN_TEXT.refused : HERDR_RUN_TEXT[run.status.state] ?? "";
+      const state = element("p", "update-run-state update-herdr-run-state", text);
+      state.setAttribute("role", "status");
+      if (run.status.state === "failed" && !run.waiting) state.dataset.error = "true";
+      progress.append(state);
+      if (run.status.state === "failed" && run.status.detail) {
+        progress.append(element("p", "update-herdr-detail", run.status.detail));
+      }
+      if (run.status.log) progress.append(element("pre", "update-log update-herdr-log", run.status.log));
+      row.append(progress);
+    }
+    return row;
   }
 
   function render() {
@@ -275,5 +438,5 @@ export function createUpdatePanel({
   // itself, or there are other PCs to look at.
   const visible = () => servers().length > 1 || entries.get("local")?.check?.supported === true;
 
-  return { refresh, resume, open, render, run, visible, hasUpdate: () => anyUpdate([...entries.values()].map((item) => item.check)) };
+  return { refresh, resume, open, render, run, runHerdr, visible, hasUpdate: () => anyUpdate([...entries.values()].map((item) => item.check)) };
 }
