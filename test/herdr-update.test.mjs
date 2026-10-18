@@ -24,6 +24,8 @@ const SERVICE_ENV = {
   HERDR_SOCKET_PATH: "/home/me/.config/herdr/herdr.sock",
   HERDR_WEB_PORT: "38787",
   SECRET_TOKEN: "do-not-pass",
+  XDG_CONFIG_HOME: "/home/me/.cfg",
+  XDG_RUNTIME_DIR: "relative/not-taken",
 };
 const NOTES = "### Fixed\n- **Prefix** shortcuts work again. See [the notes](https://example.invalid/x).\n\u001b[31mred\u001b[0m\u0007";
 
@@ -97,7 +99,7 @@ test("a newer Herdr on the stable channel is an update, with its notes as plain 
   assert.ok(fake.urls[0].options.signal instanceof AbortSignal);
   // Herdr's own questions get PATH and HOME and nothing else.
   for (const call of fake.calls.filter((entry) => entry.file === BIN)) {
-    assert.deepEqual(call.options.env, { PATH: `/opt/herdr/bin:${SERVICE_ENV.PATH}`, HOME: "/home/me" });
+    assert.deepEqual(call.options.env, { PATH: `/opt/herdr/bin:${SERVICE_ENV.PATH}`, HOME: "/home/me", XDG_CONFIG_HOME: "/home/me/.cfg" });
   }
 });
 
@@ -152,11 +154,11 @@ test("the manifest reader stops at the size cap even without a length", async ()
     pull(controller) {
       pulled += 1;
       controller.enqueue(new Uint8Array(64 * 1024));
-      if (pulled > 100) controller.close();
+      if (pulled > 200) controller.close();
     },
   });
   await assert.rejects(fetchManifest(MANIFEST_URLS.stable, async () => new Response(body)), /too large/u);
-  assert.ok(pulled < 10, `read ${pulled} chunks`);
+  assert.ok(pulled <= MAX_MANIFEST_BYTES / (64 * 1024) + 2, `read ${pulled} chunks`);
   assert.deepEqual(parseManifest(JSON.stringify({ version: "1.2.3-rc.1", notes: 42 })), { version: "1.2.3-rc.1", notes: "" });
 });
 
@@ -217,7 +219,7 @@ test("while HerdRabbit updates, Herdr is not looked at and says so", async (cont
   assert.equal(fetchCount(fake), 0);
 });
 
-test("a start runs herdr update in its own unit with only PATH and HOME", async (context) => {
+test("a start runs herdr update in its own unit with only PATH, HOME and the XDG folders", async (context) => {
   const dir = await scratch(context);
   const fake = fakes();
   const subject = updater(dir, fake);
@@ -229,6 +231,8 @@ test("a start runs herdr update in its own unit with only PATH and HOME", async 
     "--property=WorkingDirectory=/home/me",
     `--setenv=PATH=/opt/herdr/bin:${SERVICE_ENV.PATH}`,
     "--setenv=HOME=/home/me",
+    // where Herdr keeps its config and sockets goes along; a relative one does not
+    "--setenv=XDG_CONFIG_HOME=/home/me/.cfg",
     "/opt/node/bin/node", "/srv/herdrabbit/scripts/run-herdr-update.mjs", dir.stateDir, BIN,
   ]);
   assert.equal(run.options.env, undefined, "systemd-run itself is not handed this service's environment");
@@ -294,7 +298,7 @@ function fakeSpawn(output, exit) {
   return { calls, spawnImpl };
 }
 
-test("the run gives Herdr only PATH and HOME and records how it ended", async (context) => {
+test("the run gives Herdr only PATH, HOME and the XDG folders and records how it ended", async (context) => {
   const dir = await scratch(context);
   const subject = updater(dir, fakes());
   await subject.start();
@@ -306,7 +310,7 @@ test("the run gives Herdr only PATH and HOME and records how it ended", async (c
   assert.equal(calls.length, 1);
   assert.equal(calls[0].file, BIN);
   assert.deepEqual(calls[0].args, ["update", "--handoff"]);
-  assert.deepEqual(calls[0].options.env, { PATH: "/opt/herdr/bin:/usr/bin", HOME: "/home/me" });
+  assert.deepEqual(calls[0].options.env, { PATH: "/opt/herdr/bin:/usr/bin", HOME: "/home/me", XDG_CONFIG_HOME: "/home/me/.cfg" });
   assert.equal(calls[0].options.cwd, "/home/me");
   const status = await subject.runStatus();
   assert.equal(status.state, "succeeded");

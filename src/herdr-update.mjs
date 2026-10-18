@@ -15,7 +15,8 @@ import { compareHerdrVersions, parseHerdrVersion } from "./herdr-version.mjs";
 // herdr.dev has a newer Herdr for the channel this PC follows, and running
 // `herdr update --handoff` for it from the page. Herdr stays its own updater;
 // this asks what it would ask, and starts it outside this service, in a unit
-// of its own with nothing of this service's environment but PATH and HOME.
+// of its own with nothing of this service's environment but PATH, HOME and
+// the XDG folders that say where Herdr keeps its config and sockets.
 
 // The only places a newer Herdr is looked up, as Herdr itself does. Never
 // taken from settings or from a request.
@@ -24,7 +25,21 @@ export const MANIFEST_URLS = Object.freeze({
   preview: "https://herdr.dev/preview.json",
 });
 export const MANIFEST_TIMEOUT_MS = 10_000;
-export const MAX_MANIFEST_BYTES = 256 * 1024;
+// herdr.dev's manifest carries the release notes (some 190 KB in 2026-10).
+export const MAX_MANIFEST_BYTES = 1024 * 1024;
+// Where Herdr finds its config and sockets when they are not the defaults:
+// without them `--handoff` could not reach the running server.
+export const HERDR_LOCATION_VARIABLES = Object.freeze(["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"]);
+
+// PATH, HOME and those folders, as absolute paths only; nothing else.
+function herdrEnvironment(environment, path) {
+  const env = { PATH: path, HOME: environment.HOME || homedir() };
+  for (const name of HERDR_LOCATION_VARIABLES) {
+    const value = environment[name];
+    if (typeof value === "string" && isAbsolute(value) && !/[\0\n]/u.test(value)) env[name] = value;
+  }
+  return env;
+}
 export const MAX_HERDR_NOTES = 1_500;
 export const MAX_DETAIL = 300;
 export const HERDR_STATE_FILE = "herdr-update-state.json";
@@ -192,14 +207,11 @@ export class HerdrUpdater {
     return null;
   }
 
-  // All Herdr is given, here and in the run: PATH (its own folder first) and
-  // HOME. Nothing of this service's HERDR_* settings, or of a pane this
-  // service was started from, reaches it.
+  // All Herdr is given, here and in the run: PATH (its own folder first),
+  // HOME and the XDG folders. Nothing of this service's HERDR_* settings, or
+  // of a pane this service was started from, reaches it.
   environmentFor(binary) {
-    return {
-      PATH: [dirname(binary), this.environment.PATH].filter(Boolean).join(":"),
-      HOME: this.environment.HOME || homedir(),
-    };
+    return herdrEnvironment(this.environment, [dirname(binary), this.environment.PATH].filter(Boolean).join(":"));
   }
 
   async #precondition(binary) {
@@ -339,8 +351,7 @@ export class HerdrUpdater {
       const started = await this.exec("systemd-run", [
         "--user", `--unit=${unit}`, "--collect", "--quiet",
         `--property=WorkingDirectory=${environment.HOME}`,
-        `--setenv=PATH=${environment.PATH}`,
-        `--setenv=HOME=${environment.HOME}`,
+        ...Object.entries(environment).map(([name, value]) => `--setenv=${name}=${value}`),
         this.nodeBin, join(this.repository, "scripts", "run-herdr-update.mjs"), this.stateDir, binary,
       ], { timeout: COMMAND_TIMEOUT_MS });
       if (started.code !== 0) {
@@ -394,7 +405,7 @@ export async function runHerdrUpdateScript({
   if (typeof binary !== "string" || !isAbsolute(binary)) throw new TypeError("binary must be an absolute path");
   const logFile = join(stateDir, HERDR_LOG_FILE);
   await checkStateDir(stateDir);
-  const env = { PATH: environment.PATH ?? "", HOME: environment.HOME || homedir() };
+  const env = herdrEnvironment(environment, environment.PATH ?? "");
   const log = await open(logFile, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | NOFOLLOW, 0o600);
   // Only what this run wrote explains it.
   const { size: offset } = await log.stat();
