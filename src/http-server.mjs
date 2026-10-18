@@ -553,6 +553,8 @@ export function createHerdrHttpServer({
   // In-app update (src/app-update.mjs): this PC's AppUpdater, or null when it
   // cannot update itself from the page. A connected PC's goes over its link.
   updater = null,
+  // Herdr's own update on this PC (src/herdr-update.mjs), or null.
+  herdrUpdater = null,
   csrfToken = randomBytes(32).toString("base64url"),
   maxBodyBytes = 16 * 1024,
   maxTransferBytes = Infinity,
@@ -893,6 +895,42 @@ export function createHerdrHttpServer({
             status = remote ? await remote.updateRun() : await updater.start();
           } catch (error) {
             updateRuns.release(serverId);
+            throw error;
+          }
+          sendJson(response, 202, { ...status, server: serverId, supported: true });
+          return;
+        }
+        throw new HttpError(405, "method_not_allowed", "Method not allowed");
+      }
+
+      // Herdr's own update, of this PC or of a connected PC. Its check comes
+      // with HerdRabbit's above; this is the run. Again only a PC is named.
+      if (url.pathname === "/api/update/herdr/run") {
+        if (method === "GET") {
+          requireSameOrigin(request);
+          const { serverId, remote } = updateSource(url.searchParams.get("server"));
+          const answer = remote
+            ? (await remote.herdrUpdateStatus?.()) ?? null
+            : herdrUpdater ? await herdrUpdater.runStatus() : null;
+          sendJson(response, 200, answer === null
+            ? { server: serverId, supported: false }
+            : { ...answer, server: serverId, supported: true });
+          return;
+        }
+        if (method === "POST") {
+          requireWriteAuthorization(request, csrfToken);
+          const body = await readJsonBody(request, maxBodyBytes);
+          const { serverId, remote } = updateSource(body.server);
+          if (!remote && !herdrUpdater) throw new HttpError(404, "update_unavailable", "This PC cannot update Herdr from here.");
+          if (remote && typeof remote.herdrUpdateRun !== "function") {
+            throw new HttpError(501, "link_unsupported", "That PC is too old to update Herdr from here; update it there.");
+          }
+          herdrRuns(serverId);
+          let status;
+          try {
+            status = remote ? await remote.herdrUpdateRun() : await herdrUpdater.start();
+          } catch (error) {
+            herdrRuns.release(serverId);
             throw error;
           }
           sendJson(response, 202, { ...status, server: serverId, supported: true });
@@ -1577,6 +1615,7 @@ export function createHerdrHttpServer({
   const tickets = downloadTickets();
   // One run started per PC a minute, from this page, on top of each PC's own limit.
   const updateRuns = runLimiter(60_000, now);
+  const herdrRuns = runLimiter(60_000, now);
   const withDirectorySlot = directoryReadLimiter(4);
   const outputWatcher = terminalOutputWatcher({ herdr, outputWindow, outputReadLines });
   attachTerminalWebSocket({

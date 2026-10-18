@@ -40,10 +40,10 @@ function noisyUpdater(calls) {
   };
 }
 
-async function startPeer(context, { updater = null, allowed = ["127.0.0.1"] } = {}) {
+async function startPeer(context, { updater = null, herdrUpdater = null, allowed = ["127.0.0.1"] } = {}) {
   const server = createPeerServer({
     peer: new PeerIdentity({ addresses: allowed }),
-    link: linkRoutes({ client: herdr, updater, version: "2.0.0", serverName: "dev-box" }),
+    link: linkRoutes({ client: herdr, updater, herdrUpdater, version: "2.0.0", serverName: "dev-box" }),
     logger: { error() {} },
   });
   server.listen(0, "127.0.0.1");
@@ -116,4 +116,75 @@ test("the hub reaches a connected PC's update through its own link, and never th
   assert.equal(multi.updateClient(LINK_ID).marker, "link");
   assert.equal(multi.updateClient("local"), null);
   assert.equal(multi.updateClient("link_00000000-0000-0000-0000-000000000000"), null);
+});
+
+// A connected PC that updates Herdr too, again saying more than it should.
+function noisyHerdr(calls) {
+  return {
+    async runStatus() {
+      calls.push(["herdrStatus"]);
+      return { state: "failed", reason: "self_update_refused", detail: `self-update is disabled\u0007${"d".repeat(900)}`, log: "x\n".repeat(20_000), unit: "herdr-update-1" };
+    },
+    async start() { calls.push(["herdrStart"]); return { state: "running", log: "" }; },
+  };
+}
+
+function updaterWithHerdr(calls) {
+  const base = noisyUpdater(calls);
+  return {
+    ...base,
+    async check(options) {
+      return {
+        ...await base.check(options),
+        herdr: {
+          checkedAt: "2026-10-19T00:00:00.000Z", current: "0.9.3", latest: "0.9.5<img>", channel: "preview",
+          available: true, notes: `### Fixed\n${"n".repeat(5_000)}`, blocked: null, error: null, path: "/home/me/.local/bin/herdr",
+        },
+      };
+    },
+  };
+}
+
+test("a PC that updates Herdr names it, and the hub keeps only what it shows", async (context) => {
+  const calls = [];
+  const address = await startPeer(context, { updater: updaterWithHerdr(calls), herdrUpdater: noisyHerdr(calls) });
+  assert.deepEqual((await (await fetch(`${address}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "update", "herdr_update"]);
+  const link = client(address);
+  const check = await link.updateCheck();
+  assert.equal(check.herdr.current, "0.9.3");
+  assert.equal(check.herdr.latest, null, "a version that is not one is dropped");
+  assert.equal(check.herdr.channel, "preview");
+  assert.ok(check.herdr.notes.length <= 1_500);
+  assert.equal("path" in check.herdr, false);
+  const status = await link.herdrUpdateStatus();
+  assert.equal(status.reason, "self_update_refused");
+  assert.ok(status.detail.length <= 300);
+  assert.doesNotMatch(status.detail, /\u0007/u);
+  assert.ok(Buffer.byteLength(status.log) <= MAX_LOG_BYTES);
+  assert.equal("unit" in status, false);
+  assert.equal((await link.herdrUpdateRun()).state, "running");
+  assert.deepEqual(calls.filter((call) => call[0].startsWith("herdr")), [["herdrStatus"], ["herdrStart"]]);
+});
+
+test("a PC without Herdr updates shows only HerdRabbit's, and is too old to update Herdr from here", async (context) => {
+  const calls = [];
+  // It even sends a Herdr part; without the feature the hub does not pass it on.
+  const address = await startPeer(context, { updater: updaterWithHerdr(calls) });
+  const link = client(address);
+  assert.equal("herdr" in await link.updateCheck(), false);
+  assert.equal(await link.herdrUpdateStatus(), null);
+  await assert.rejects(link.herdrUpdateRun(), { code: "link_unsupported" });
+  assert.equal((await fetch(`${address}/api/link/update/herdr/run`)).status, 404);
+});
+
+test("a PC that refuses a Herdr run says why, and the Herdr route is let in like every link route", async (context) => {
+  const herdrUpdater = { ...noisyHerdr([]), async start() { throw new HttpError(409, "update_running", "A HerdRabbit update is running."); } };
+  const link = client(await startPeer(context, { updater: noisyUpdater([]), herdrUpdater }));
+  await assert.rejects(link.herdrUpdateRun(), { code: "update_running", message: "A HerdRabbit update is running." });
+  const calls = [];
+  const closed = await startPeer(context, { updater: noisyUpdater(calls), herdrUpdater: noisyHerdr(calls), allowed: ["100.64.0.9"] });
+  for (const method of ["GET", "POST"]) {
+    assert.equal((await fetch(`${closed}/api/link/update/herdr/run`, { method })).status, 403, method);
+  }
+  assert.deepEqual(calls, []);
 });

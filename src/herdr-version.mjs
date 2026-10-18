@@ -37,6 +37,18 @@ function comparePrerelease(left, right) {
   return 0;
 }
 
+// Which of two versions is newer, as semver orders them: below zero when
+// `left` is older, zero when equal, null when either is not a version.
+export function compareHerdrVersions(left, right) {
+  const a = parseHerdrVersion(left);
+  const b = parseHerdrVersion(right);
+  if (!a || !b) return null;
+  for (let index = 0; index < 3; index += 1) {
+    if (a.core[index] !== b.core[index]) return a.core[index] - b.core[index];
+  }
+  return comparePrerelease(a.prerelease, b.prerelease);
+}
+
 export function herdrVersionSupported(version, minimum = MIN_HERDR_VERSION) {
   const actual = parseHerdrVersion(version);
   const required = parseHerdrVersion(minimum);

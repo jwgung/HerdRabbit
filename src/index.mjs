@@ -28,6 +28,7 @@ import { isProtectedPath, localProtectedPaths } from "./protected-paths.mjs";
 import { ConversationService } from "./conversation/service.mjs";
 import { SlashCommandCatalog } from "./slash-commands.mjs";
 import { AppUpdater } from "./app-update.mjs";
+import { HerdrUpdater } from "./herdr-update.mjs";
 
 const config = readConfig();
 const leafWarning = legacyLeafWarning(config);
@@ -121,7 +122,14 @@ const aiAccounts = new AiAccounts({ directory: config.aiAccountsDir, runningAgen
 const notificationMonitor = new AgentNotificationMonitor({ herdr, push });
 // In-app update: this checkout against origin's main, and update.sh run from
 // the page (or from a PC this one is connected to) in a unit of its own.
-const updater = new AppUpdater({ version: hubVersion, stateDir: config.updateDir });
+// Herdr's own update sits beside it: checked at the same moments, run with
+// `herdr update --handoff` in a unit of its own, never while update.sh runs.
+const herdrUpdater = new HerdrUpdater({
+  binary: config.herdrBin,
+  stateDir: config.updateDir,
+  busy: async () => updater.starting || (await updater.runStatus()).state === "running",
+});
+const updater = new AppUpdater({ version: hubVersion, stateDir: config.updateDir, herdr: herdrUpdater });
 // Without node-pty's native module this PC's panes are read-only mirrors of
 // their screens. A connected PC's panes still attach: that PC runs the pty.
 const nodePty = await loadNodePty();
@@ -150,6 +158,7 @@ const { server } = createHerdrHttpServer({
   announcements,
   connectPc,
   updater,
+  herdrUpdater,
   // Only this PC goes looking; what it finds is offered, never added by itself.
   discover: async (known) => {
     const announced = announcements.list();
@@ -193,7 +202,7 @@ const peerServer = config.peerHost ? createPeerServer({
     loginOf: (address) => tailnetLoginOf(address),
   }),
   link: linkRoutes({
-    client: local, files, aiAccounts, attach: linkAttach, conversations, slashCommands, updater, version: hubVersion, herdrVersion: () => herdrVersion,
+    client: local, files, aiAccounts, attach: linkAttach, conversations, slashCommands, updater, herdrUpdater, version: hubVersion, herdrVersion: () => herdrVersion,
     serverName: hostname(), maxTransferBytes: config.maxTransferBytes, protectedPaths,
   }),
   attach: linkAttach,

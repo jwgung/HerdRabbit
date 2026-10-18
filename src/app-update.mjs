@@ -52,7 +52,7 @@ export function execCommand(file, args, { cwd, env, timeout = GIT_TIMEOUT_MS } =
 
 // What a connected PC (or a log) says, made fit for a line on the page:
 // no control characters, bounded length.
-function line(text, limit = MAX_NOTE_LENGTH) {
+export function line(text, limit = MAX_NOTE_LENGTH) {
   return String(text ?? "").replace(/[\u0000-\u001f\u007f]/gu, " ").trim().slice(0, limit);
 }
 
@@ -124,9 +124,9 @@ function properties(text) {
 // outlives this process.
 // Files in the state folder are created by this process and never followed
 // through a link someone else left there.
-const NOFOLLOW = fsConstants.O_NOFOLLOW ?? 0;
+export const NOFOLLOW = fsConstants.O_NOFOLLOW ?? 0;
 
-async function writeFileSafely(path, content, flags) {
+export async function writeFileSafely(path, content, flags) {
   const handle = await open(path, flags | fsConstants.O_WRONLY | fsConstants.O_CREAT | NOFOLLOW, 0o600);
   try {
     if (content) await handle.writeFile(content);
@@ -136,7 +136,7 @@ async function writeFileSafely(path, content, flags) {
 }
 
 // The state folder must be a real directory of this user, not a link.
-async function checkStateDir(stateDir, { create = false } = {}) {
+export async function checkStateDir(stateDir, { create = false } = {}) {
   const unsafe = () => new HttpError(500, "update_state_unsafe", "The update state folder is not safe to use.");
   if (create) await mkdir(stateDir, { recursive: true, mode: 0o700 });
   let info;
@@ -150,23 +150,25 @@ async function checkStateDir(stateDir, { create = false } = {}) {
   if (create) await chmod(stateDir, 0o700);
 }
 
-async function writeRecord(stateDir, record) {
-  const path = join(stateDir, "update-state.json");
+// Herdr's own update (src/herdr-update.mjs) keeps its record and log beside
+// these, under names of its own, with the same care.
+export async function writeRecord(stateDir, record, name = "update-state.json") {
+  const path = join(stateDir, name);
   const temporary = `${path}.${process.pid}.${randomBytes(4).toString("hex")}`;
   await writeFileSafely(temporary, `${JSON.stringify(record)}\n`, fsConstants.O_EXCL);
   await rename(temporary, path);
 }
 
-async function readRecord(stateDir) {
+export async function readRecord(stateDir, name = "update-state.json") {
   try {
-    const record = JSON.parse(await readFile(join(stateDir, "update-state.json"), "utf8"));
+    const record = JSON.parse(await readFile(join(stateDir, name), "utf8"));
     return record && typeof record === "object" && RUN_STATES.has(record.state) ? record : null;
   } catch {
     return null;
   }
 }
 
-async function readLogTail(path) {
+export async function readLogTail(path) {
   let handle;
   try {
     handle = await open(path, "r");
@@ -195,6 +197,9 @@ export class AppUpdater {
     version, repository = REPOSITORY, stateDir, exec = execCommand, now = () => Date.now(),
     pid = process.pid, platform = process.platform, environment = process.env, nodeBin = process.execPath,
     originAllowed = (url) => OFFICIAL_ORIGINS.has(url),
+    // Herdr's own update (HerdrUpdater), checked with this one and never run
+    // at the same time as it.
+    herdr = null,
   }) {
     if (!stateDir) throw new TypeError("stateDir is required");
     this.version = version;
@@ -207,6 +212,7 @@ export class AppUpdater {
     this.environment = environment;
     this.nodeBin = nodeBin;
     this.originAllowed = originAllowed;
+    this.herdr = herdr;
     this.logFile = join(stateDir, "update.log");
   }
 
@@ -291,10 +297,28 @@ export class AppUpdater {
     });
   }
 
+  // A run being started right now, before its record says so.
+  get starting() {
+    return this.#starting;
+  }
+
+  // HerdRabbit's answer and Herdr's, asked at the same moments. Herdr's is
+  // left out when this PC has no Herdr updater.
+  async check({ fresh = false } = {}) {
+    const herdr = this.herdr?.check({ fresh }).catch(() => null);
+    const [answer, herdrAnswer] = await Promise.all([this.#check({ fresh }), herdr]);
+    return this.herdr ? { ...answer, herdr: herdrAnswer } : answer;
+  }
+
+  async #herdrRunning() {
+    return Boolean(this.herdr) && (this.herdr.starting || (await this.herdr.runStatus()).state === "running");
+  }
+
   // Coalesced: one look at origin at a time, and a recent one is the answer.
   // While an update runs nothing is fetched: update.sh owns FETCH_HEAD then.
-  async check({ fresh = false } = {}) {
-    const running = (await this.runStatus()).state === "running";
+  // A Herdr update counts as one: update.sh would update Herdr too.
+  async #check({ fresh = false } = {}) {
+    const running = (await this.runStatus()).state === "running" || await this.#herdrRunning();
     const reuse = fresh ? FRESH_CHECK_REUSE_MS : CHECK_REUSE_MS;
     let result = this.#last?.result;
     if (!running && (!this.#last || this.now() - this.#last.at >= reuse)) {
@@ -366,12 +390,13 @@ export class AppUpdater {
       if ((await this.#status(true)).state === "running") {
         throw new HttpError(409, "update_running", "An update is already running.");
       }
+      if (await this.#herdrRunning()) throw new HttpError(409, "update_running", "A Herdr update is running.");
       if (this.now() - this.#lastStart < RUN_INTERVAL_MS) {
         throw new HttpError(429, "too_many_requests", "An update was started a moment ago. Try again in a minute.");
       }
       // Asked again right before starting: what was true when the page loaded may not be now.
       this.#last = null;
-      const check = await this.check();
+      const check = await this.#check();
       if (check.error) throw new HttpError(409, "update_check_failed", "Could not check origin for a new version.");
       if (!check.available) throw new HttpError(409, "up_to_date", "Already up to date.");
       if (check.blocked) throw new HttpError(409, "update_blocked", `This update cannot run here (${check.blocked}).`);

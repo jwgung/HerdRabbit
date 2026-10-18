@@ -8,6 +8,7 @@ import { subscribeLinkStatuses } from "./link-status-stream.mjs";
 import { openRemotePty } from "./link-attach.mjs";
 import { ConversationError, ConversationUnavailable, HistoryChanged, TOOL_ID } from "./conversation/pages.mjs";
 import { cleanCheck, cleanRunStatus } from "./app-update.mjs";
+import { cleanHerdrCheck, cleanHerdrRunStatus } from "./herdr-update.mjs";
 
 // fileIdle: how long a file being passed on may go quiet before it fails
 const TIMEOUTS = { hello: 5_000, snapshot: 8_000, read: 6_000, write: 6_000, fileIdle: 60_000 };
@@ -420,7 +421,11 @@ export class LinkClient {
   async updateCheck({ fresh = false } = {}) {
     await this.#ready();
     if (!this.#features.has("update")) return null;
-    return cleanCheck(await this.#request(`/api/link/update${fresh ? "?fresh=1" : ""}`, { timeoutMs: 45_000 }));
+    const answer = await this.#request(`/api/link/update${fresh ? "?fresh=1" : ""}`, { timeoutMs: 45_000 });
+    // Herdr's part only from a PC that says it updates Herdr.
+    return this.#features.has("herdr_update")
+      ? { ...cleanCheck(answer), herdr: cleanHerdrCheck(answer?.herdr) }
+      : cleanCheck(answer);
   }
 
   async updateStatus() {
@@ -433,6 +438,21 @@ export class LinkClient {
     await this.#ready();
     if (!this.#features.has("update")) throw tooOld(this.address, "updating from here");
     return cleanRunStatus(await this.#request("/api/link/update/run", {
+      method: "POST", timeoutMs: 60_000, codes: UPDATE_CODES,
+    }));
+  }
+
+  // Herdr's own update on the PC, for a PC that names `herdr_update`.
+  async herdrUpdateStatus() {
+    await this.#ready();
+    if (!this.#features.has("herdr_update")) return null;
+    return cleanHerdrRunStatus(await this.#request("/api/link/update/herdr/run", { timeoutMs: this.timeouts.read }));
+  }
+
+  async herdrUpdateRun() {
+    await this.#ready();
+    if (!this.#features.has("herdr_update")) throw tooOld(this.address, "updating Herdr from here");
+    return cleanHerdrRunStatus(await this.#request("/api/link/update/herdr/run", {
       method: "POST", timeoutMs: 60_000, codes: UPDATE_CODES,
     }));
   }
