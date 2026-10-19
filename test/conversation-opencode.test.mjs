@@ -433,3 +433,45 @@ test("a reported subagent's session shows its top-level session's conversation, 
   await assert.rejects(conversations.page("w1:p3"), (error) => error.reason === "no_session_id");
   assert.deepEqual(await localOpencodeStore({ path }).locate({ session: ORPHAN }), { session: ORPHAN, child: true });
 });
+
+test("a range with more messages than a page holds is paged back whole: the cursor is the oldest message returned", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  for (let n = 0; n < 12; n++) fixture.exchange(SESSION, n);
+  const total = fixture.db.prepare("SELECT COUNT(*) AS n FROM message WHERE session_id = ?").get(SESSION).n;
+  const store = localOpencodeStore({ path, maxMessages: 5 });
+  const seen = [];
+  let page = await store.page(SESSION);
+  for (let guard = 0; guard < 50; guard++) {
+    assert.ok(page.turns.length > 0);
+    seen.unshift(...texts(page.turns));
+    if (page.cursor === null) break;
+    page = await store.page(SESSION, { before: page.cursor });
+  }
+  assert.equal(page.cursor, null);
+  const expected = [];
+  for (let n = 0; n < 12; n++) expected.push(`prompt ${n}`, `answer ${n}`);
+  assert.equal(total, expected.length);
+  assert.deepEqual(seen, expected, "every message exactly once, in order");
+});
+
+test("changing the undo target to an id of the same length changes the identity, the ETag and the signature", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  for (let n = 0; n < 3; n++) fixture.exchange(SESSION, n);
+  const [first, second] = fixture.db.prepare("SELECT id FROM message WHERE session_id = ? ORDER BY time_created, id LIMIT 2 OFFSET 2").all(SESSION);
+  const store = localOpencodeStore({ path });
+  const conversations = service(path, [{ pane_id: "w1:p1", agent: "opencode", cwd: "/work/other", agent_session: { agent: "opencode", kind: "id", value: SESSION } }]);
+  const revertTo = (id) => fixture.db.prepare("UPDATE session SET revert = ? WHERE id = ?").run(JSON.stringify({ messageID: id }), SESSION);
+  revertTo(first.id);
+  const one = await store.stat(SESSION);
+  const page = await store.page(SESSION);
+  const signature = await conversations.signature("w1:p1");
+  // only the revert column changes: same length, same time_updated, same counts
+  revertTo(second.id);
+  assert.equal(first.id.length, second.id.length);
+  const two = await store.stat(SESSION);
+  assert.notEqual(two.identity, one.identity);
+  assert.notEqual((await store.page(SESSION)).version, page.version);
+  assert.notEqual(await conversations.signature("w1:p1"), signature);
+});

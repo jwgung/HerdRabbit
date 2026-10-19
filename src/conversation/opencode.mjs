@@ -319,7 +319,7 @@ function revertOf(db, row) {
 // This machine's OpenCode database, read only. As a store it answers
 // stat(session) with an identity that changes whenever the session does, so
 // the monitor and a hub's signature poll treat it as they treat a file.
-export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat, importSqlite = () => import("node:sqlite") } = {}) {
+export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat, importSqlite = () => import("node:sqlite"), maxMessages = MAX_PAGE_MESSAGES } = {}) {
   let sqlite;
   const loadSqlite = () => (sqlite ??= Promise.resolve().then(importSqlite).catch(() => null));
   // dev:ino -> whether that database has the tables and columns read here
@@ -410,7 +410,9 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
     const seq = db.shape.events ? db.statement("sequence").get(session)?.seq ?? "" : "";
     const parts = db.statement("partsChanged").get(session) ?? {};
     const messages = db.statement("messagesChanged").get(session) ?? {};
-    return [seq, row.time_updated, string(row.revert).length, parts.updated ?? "", parts.parts ?? 0,
+    // the undo target itself, not its length: another message of the same length is another history
+    const revert = createHash("sha256").update(string(row.revert)).digest("base64url").slice(0, 12);
+    return [seq, row.time_updated, revert, parts.updated ?? "", parts.parts ?? 0,
       messages.updated ?? "", messages.messages ?? 0].join(":");
   }
 
@@ -459,9 +461,15 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
   // is, what crosses into JavaScript is bounded: a large row comes reduced, the
   // parts stop at MAX_PAGE_BYTES (counted as pageBytes counts them) and
   // MAX_PAGE_PARTS, the newest kept.
+  // When the range holds more than maxMessages, the newest maxMessages come and
+  // `start` is the oldest of them, so the next page continues right before it.
   function readMessages(db, session, from, to) {
-    const where = named(session, from, to);
-    const messages = db.statement("messages").all({ ...where, large: LARGE_ROW_BYTES, rows: MAX_PAGE_MESSAGES }).reverse().map((row) => ({
+    const rows = db.statement("messages").all({ ...named(session, from, to), large: LARGE_ROW_BYTES, rows: maxMessages + 1 });
+    const cut = rows.length > maxMessages;
+    if (cut) rows.pop();
+    const start = cut ? keyOf(rows.at(-1)) : from;
+    const where = named(session, start, to);
+    const messages = rows.reverse().map((row) => ({
       id: String(row.id),
       time: Number(row.time_created),
       info: parse(string(row.data)),
@@ -478,7 +486,7 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
       const brief = part.reduced ? { output_size: part.output_size, output_preview: part.output_preview } : null;
       message.parts.push({ id: String(part.id), data: parse(string(part.data)), ...(brief ? { brief } : {}) });
     }
-    return messages;
+    return { messages, start };
   }
 
   return {
@@ -555,7 +563,8 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
           const newest = pageStart(db, session, end, BEGINNING);
           start = held !== null && !before(held, newest) ? held : newest;
         }
-        const messages = before(start, end) ? readMessages(db, session, start, end) : [];
+        let messages = [];
+        if (before(start, end)) ({ messages, start } = readMessages(db, session, start, end));
         const page = {
           source: OPENCODE_SESSION.source,
           turns: parseOpencodeTurns(messages),
