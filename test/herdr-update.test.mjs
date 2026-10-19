@@ -10,7 +10,7 @@ import {
   cleanHerdrCheck, cleanHerdrRunStatus, fetchManifest, parseManifest, plainNotes, runHerdrUpdateScript,
 } from "../src/herdr-update.mjs";
 import { compareHerdrVersions } from "../src/herdr-version.mjs";
-import { AppUpdater, MAX_LOG_BYTES } from "../src/app-update.mjs";
+import { AppUpdater, MAX_LOG_BYTES, MAX_RUN_MS } from "../src/app-update.mjs";
 
 // Herdr, systemd-run, systemctl and herdr.dev are all answered here: no real
 // Herdr runs, nothing is started, nothing goes over the network.
@@ -421,4 +421,19 @@ test("the page puts the dot up for a newer Herdr alone, and its confirm says pan
 
 test("notes carry no direction marks that could disguise a line", () => {
   assert.equal(plainNotes("safe \u202eexe.txt\u202c and \u2066x\u2069"), "safe exe.txt and x");
+});
+
+test("a run systemctl cannot tell about is not left running past any update's length", async (context) => {
+  const dir = await scratch(context);
+  const fake = fakes();
+  const subject = updater(dir, fake);
+  await subject.start();
+  // systemctl answers nothing (its bus is away): the run may still be going
+  fake.active = "";
+  subject.advance(20_000);
+  assert.equal((await subject.runStatus()).state, "running");
+  subject.advance(MAX_RUN_MS);
+  const ended = await subject.runStatus();
+  assert.equal(ended.state, "failed");
+  assert.equal(ended.reason, "interrupted");
 });

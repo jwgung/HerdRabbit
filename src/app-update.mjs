@@ -24,6 +24,9 @@ const SYSTEMCTL_TIMEOUT_MS = 10_000;
 // One start a minute, whoever asks: a run takes longer than that anyway.
 export const RUN_INTERVAL_MS = 60_000;
 const START_GRACE_MS = 10_000;
+// No update takes this long: a run still "running" after it ended unseen
+// (systemctl could not say) and is not allowed to block the next for ever.
+export const MAX_RUN_MS = 60 * 60_000;
 // The service units update.sh restarts, in the order it looks for them.
 export const SERVICE_UNITS = ["herdrabbit.service", "herdr-web-local.service"];
 // The only origins update.sh updates from.
@@ -359,7 +362,8 @@ export class AppUpdater {
       // (a reboot, a kill); it is not left "running" for ever.
       const { code: exit, stdout } = await this.#systemctl("is-active", record.unit);
       const state = stdout.trim();
-      if (exit !== 0 && state !== "" && state !== "active" && state !== "activating" && state !== "deactivating") {
+      const overdue = this.now() - Date.parse(record.startedAt ?? "") > MAX_RUN_MS;
+      if (overdue || (exit !== 0 && state !== "" && state !== "active" && state !== "activating" && state !== "deactivating")) {
         const again = await readRecord(this.stateDir);
         if (again?.state === "running") {
           record = { ...again, state: "failed", reason: "interrupted", finishedAt: new Date(this.now()).toISOString() };

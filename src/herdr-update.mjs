@@ -6,7 +6,7 @@ import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HttpError } from "./http-basics.mjs";
 import {
-  CHECK_REUSE_MS, FRESH_CHECK_REUSE_MS, NOFOLLOW, RUN_INTERVAL_MS, RUN_STATES,
+  CHECK_REUSE_MS, FRESH_CHECK_REUSE_MS, MAX_RUN_MS, NOFOLLOW, RUN_INTERVAL_MS, RUN_STATES,
   checkStateDir, cleanLog, execCommand, line, readLogTail, readRecord, writeFileSafely, writeRecord,
 } from "./app-update.mjs";
 import { compareHerdrVersions, parseHerdrVersion } from "./herdr-version.mjs";
@@ -296,7 +296,8 @@ export class HerdrUpdater {
       if (named) {
         const { code: exit, stdout } = await this.exec("systemctl", ["--user", "is-active", record.unit], { timeout: COMMAND_TIMEOUT_MS });
         const state = stdout.trim();
-        gone = exit !== 0 && state !== "" && state !== "active" && state !== "activating" && state !== "deactivating";
+        const overdue = this.now() - Date.parse(record.startedAt ?? "") > MAX_RUN_MS;
+        gone = overdue || (exit !== 0 && state !== "" && state !== "active" && state !== "activating" && state !== "deactivating");
       }
       if (gone) {
         const again = named ? await readRecord(this.stateDir, HERDR_STATE_FILE) : record;
