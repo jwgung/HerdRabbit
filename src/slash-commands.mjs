@@ -371,8 +371,8 @@ export class SlashCommandCatalog {
 
   // The project folders a pane in `cwd` takes commands from, nearest first:
   // `cwd` and, inside a git checkout, each folder above it up to the
-  // checkout's root (a pane in `app/src` gets `app`'s too). The home folder,
-  // whose `.claude` is the user's own, is never one.
+  // checkout's root (a pane in `app/src` gets `app`'s too). A folder `isHome`
+  // calls the agent's home (Claude's `~/.claude`, the user's own) is never one.
   async #projectFolders(cwd, isHome) {
     const start = await this.#real(cwd);
     if (!start) return [];
