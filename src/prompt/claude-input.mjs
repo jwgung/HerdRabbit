@@ -47,6 +47,9 @@ function squashed(text) {
 export function restoredDraftStep(box, restored, before = null) {
   const wanted = squashed(restored);
   const now = squashed(box?.text);
+  // A screen that cannot be read halfway through clearing may hide a piece
+  // still there: the send is refused rather than typed after it.
+  if (!box && before !== null) return { stuck: true };
   if (!box || !wanted || !now) return { done: true };
   if (before === null) return now === wanted ? { keys: ["ctrl+k", "ctrl+u"] } : { done: true };
   if (!wanted.startsWith(now)) return { done: true };

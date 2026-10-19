@@ -170,3 +170,9 @@ test("a real screen with the stopped message put back is read and cleared", () =
   assert.deepEqual(restoredDraftStep(box, "reply with only the word ok"), { keys: ["ctrl+k", "ctrl+u"] });
 });
 
+test("a screen that cannot be read halfway through clearing refuses the send", () => {
+  const before = { text: "long long long", rows: 2 };
+  assert.deepEqual(restoredDraftStep(null, "long long long long", before), { stuck: true });
+  // before any key, an unreadable screen just lets the message go as it would have
+  assert.deepEqual(restoredDraftStep(null, "long long long long"), { done: true });
+});
