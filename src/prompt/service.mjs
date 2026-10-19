@@ -34,8 +34,11 @@ const MISSING_TICKS = 3;
 // Each agent's own readers, by the name herdr gives it.
 const READERS = { claude: parseClaudePrompt, codex: parseCodexPrompt, opencode: parseOpencodePrompt };
 // How each reader reads the screen: OpenCode's selected permission button is
-// known only by its colour, so its screen comes with its styles.
+// known only by its colour, so its screen comes with its styles, from the
+// visible screen (herdr's detection snapshot drops the styles; checked on
+// OpenCode 1.18.34).
 const READ_FORMATS = { opencode: "ansi" };
+const READ_SOURCES = { opencode: "visible" };
 // The card's whole words, from the agent's own record of the call it waits on.
 const FILLERS = { claude: fillClaudeCard, opencode: fillOpencodeCard };
 
@@ -140,7 +143,7 @@ export class PromptService {
     const reader = readerName(agent);
     const blocked = agent.status === "blocked";
     if (!reader && !blocked) return null;
-    const screen = await this.herdr.readPane(paneId, { lines: SCREEN_LINES, format: READ_FORMATS[reader] ?? "text", source: "detection" });
+    const screen = await this.herdr.readPane(paneId, { lines: SCREEN_LINES, format: READ_FORMATS[reader] ?? "text", source: READ_SOURCES[reader] ?? "detection" });
     const card = reader ? READERS[reader](screen) ?? null : null;
     if (card || !blocked) return card;
     return parseFallbackPrompt(screen, { agent: reader ?? agent.name });
