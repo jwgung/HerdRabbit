@@ -235,6 +235,8 @@ export class ConversationService {
       // a session herdr reports that OpenCode has not written yet reads as no turns
       return { paneId, serverId, agent, format, store, session: reported, path: null, key: found.key };
     }
+    // a subagent's session whose top-level session is not there: no conversation of the pane's to show
+    if (found.value.child) throw new ConversationUnavailable("no_session_id");
     const { session, found: written } = found.value;
     return { paneId, serverId, agent, format, store, session, path: written ? session : null, key: found.key };
   }

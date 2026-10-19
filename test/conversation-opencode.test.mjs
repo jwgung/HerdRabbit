@@ -4,11 +4,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, realpath, rm, utimes } from "node:fs/promises";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, StatementSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MAX_PAGE_PROMPTS, TOOL_OUTPUT_PREVIEW_CHARS } from "../src/conversation/pages.mjs";
+import { MAX_PAGE_PROMPTS, TOOL_OUTPUT_MAX_CHARS, TOOL_OUTPUT_PREVIEW_CHARS } from "../src/conversation/pages.mjs";
 import {
+  LARGE_ROW_BYTES,
+  LARGE_TEXT_CHARS,
   STATEMENTS,
   defaultOpencodeDb,
   localOpencodeStore,
@@ -324,4 +326,110 @@ test("a database migrated in place is checked again, though its inode is the sam
   const later = new Date(Date.now() + 5000);
   await utimes(path, later, later);
   await assert.rejects(store.locate({ session: SESSION }), (error) => error.reason === "unsupported_opencode_version");
+});
+
+test("a 50 MB tool output is never read whole: the page holds its preview, the whole output is fetched capped", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  const huge = "y".repeat(50 * 1024 * 1024);
+  const words = "w".repeat(LARGE_TEXT_CHARS * 4);
+  fixture.message(SESSION, { role: "user" }, [
+    { type: "text", text: "dump it" },
+    { type: "file", mime: "image/png", url: `data:image/png;base64,${"A".repeat(LARGE_ROW_BYTES * 2)}` },
+  ]);
+  fixture.message(SESSION, { role: "assistant", modelID: "model-a" }, [
+    { type: "tool", tool: "bash", state: { status: "completed", input: { command: "cat big.log" }, output: huge, title: "cat big.log", metadata: { output: huge } } },
+    { type: "tool", tool: "write", state: { status: "completed", input: { filePath: "/work/app/big.txt", content: "z".repeat(LARGE_ROW_BYTES * 2) }, output: "Wrote file" } },
+    { type: "reasoning", text: words },
+    { type: "text", text: "done" },
+  ]);
+  const store = localOpencodeStore({ path });
+  const started = performance.now();
+  const page = await store.page(SESSION);
+  const elapsed = performance.now() - started;
+  assert.ok(JSON.stringify(page).length < 2 * LARGE_TEXT_CHARS + 64 * 1024, "the answer stays small");
+  assert.ok(elapsed < 5000, `read in ${elapsed} ms`);
+  assert.deepEqual(page.turns[0].parts, [{ kind: "image", media_type: "image/png" }, { kind: "text", text: "dump it" }]);
+  const [bash, write, thinking, answer] = page.turns[1].parts;
+  assert.equal(bash.summary, "cat big.log");
+  assert.deepEqual([bash.output, bash.output_size, bash.output_truncated, bash.output_large], [huge.slice(0, TOOL_OUTPUT_PREVIEW_CHARS), huge.length, true, true]);
+  assert.match(bash.id, /^prt_/u);
+  assert.deepEqual([write.output, write.output_large, write.input_truncated], ["Wrote file", true, true]);
+  assert.equal(thinking.text_truncated, true);
+  assert.equal(thinking.text, `${words.slice(0, LARGE_TEXT_CHARS)}\n…`);
+  assert.deepEqual(answer, { kind: "text", text: "done" });
+
+  const whole = await store.toolOutput(SESSION, bash.id);
+  assert.equal(whole.size, huge.length);
+  assert.equal(whole.output.length, TOOL_OUTPUT_MAX_CHARS);
+  assert.equal(whole.output, huge.slice(0, TOOL_OUTPUT_MAX_CHARS));
+});
+
+test("one page reads its parts in one query and stops at the page's byte budget, newest kept", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  for (let n = 0; n < 20; n++) fixture.exchange(SESSION, n);
+  const large = "o".repeat(LARGE_ROW_BYTES + 1024);
+  const calls = [];
+  const all = StatementSync.prototype.all;
+  StatementSync.prototype.all = function (...args) {
+    calls.push(this.sourceSQL);
+    return all.apply(this, args);
+  };
+  context.after(() => { StatementSync.prototype.all = all; });
+  const store = localOpencodeStore({ path });
+  await store.page(SESSION);
+  assert.equal(calls.filter((sql) => sql === STATEMENTS.parts).length, 1, "the parts of 40 messages in one read");
+  StatementSync.prototype.all = all;
+
+  // one prompt whose parts cost more than a page reads: the newest parts within the budget
+  const tools = Array.from({ length: 80 }, (_, n) => ({ type: "tool", tool: "bash", state: { status: "completed", input: { command: `step ${n}` }, output: large } }));
+  fixture.exchange(SESSION, 20, tools);
+  const page = await store.page(SESSION);
+  const shown = page.turns.at(-1).parts.filter((part) => part.kind === "tool");
+  assert.ok(shown.length > 0 && shown.length <= (16 * 1024 * 1024) / LARGE_ROW_BYTES, `${shown.length} tools`);
+  assert.equal(shown.at(-1).summary, "step 79");
+  assert.equal(page.turns.at(-1).parts.at(-1).text, "answer 20");
+});
+
+test("undoing to either of two messages of one millisecond starts two different histories", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  for (let n = 0; n < 3; n++) fixture.exchange(SESSION, n);
+  const [first, second] = fixture.db.prepare("SELECT id, time_created FROM message WHERE session_id = ? ORDER BY time_created, id LIMIT 2 OFFSET 2").all(SESSION);
+  fixture.db.prepare("UPDATE message SET time_created = ? WHERE id = ?").run(first.time_created, second.id);
+  const store = localOpencodeStore({ path });
+  fixture.revert(SESSION, first.id);
+  const one = await store.page(SESSION);
+  fixture.revert(SESSION, second.id);
+  const other = await store.page(SESSION);
+  assert.notEqual(one.history_id, other.history_id);
+  assert.match(one.history_id, /^[^:]+$/u, "a history id holds no cursor separator");
+  // the part undone to names the history too
+  fixture.db.prepare("UPDATE session SET revert = ? WHERE id = ?").run(JSON.stringify({ messageID: second.id, partID: "prt_00000099AAAAAAAAAAAAAAAAAA" }), SESSION);
+  const part = await store.page(SESSION);
+  assert.notEqual(part.history_id, other.history_id);
+});
+
+test("a reported subagent's session shows its top-level session's conversation, else no session", async (context) => {
+  const { path, fixture } = await world(context);
+  const ORPHAN = "ses_0004AAAAAAAAAAAAAAAAAAAAAA";
+  const GRANDCHILD = "ses_0005AAAAAAAAAAAAAAAAAAAAAA";
+  fixture.session(SESSION, { directory: "/work/app" });
+  fixture.exchange(SESSION, 1);
+  fixture.session(CHILD, { directory: "/work/app", parent: SESSION });
+  fixture.exchange(CHILD, 2);
+  fixture.session(GRANDCHILD, { directory: "/work/app", parent: CHILD });
+  fixture.exchange(GRANDCHILD, 3);
+  fixture.session(ORPHAN, { directory: "/work/app", parent: "ses_0404AAAAAAAAAAAAAAAAAAAAAA" });
+  fixture.exchange(ORPHAN, 4);
+  const conversations = service(path, [
+    { pane_id: "w1:p1", agent: "opencode", cwd: "/work/app", agent_session: reportedId(CHILD) },
+    { pane_id: "w1:p2", agent: "opencode", cwd: "/work/app", agent_session: reportedId(GRANDCHILD) },
+    { pane_id: "w1:p3", agent: "opencode", cwd: "/work/app", agent_session: reportedId(ORPHAN) },
+  ]);
+  assert.deepEqual(texts((await conversations.page("w1:p1")).turns), ["prompt 1", "answer 1"]);
+  assert.deepEqual(texts((await conversations.page("w1:p2")).turns), ["prompt 1", "answer 1"]);
+  await assert.rejects(conversations.page("w1:p3"), (error) => error.reason === "no_session_id");
+  assert.deepEqual(await localOpencodeStore({ path }).locate({ session: ORPHAN }), { session: ORPHAN, child: true });
 });

@@ -11,6 +11,7 @@
 // STATEMENTS ever run here, all of them on session, message, part and
 // event_sequence; no statement is built from what a request names, and
 // nothing else is read. A test holds this list to that.
+import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -22,6 +23,7 @@ import {
   MAX_PAGE_PROMPTS,
   TOOL_ID,
   TOOL_OUTPUT_MAX_CHARS,
+  TOOL_OUTPUT_PREVIEW_CHARS,
   answerVersion,
   record,
   remember,
@@ -41,6 +43,28 @@ export function defaultOpencodeDb(environment = process.env, home = homedir()) {
   return join(data, "opencode", "opencode.db");
 }
 
+// A part (or message) row larger than this is never read whole: SQLite hands
+// over a reduced copy instead (see PART_BRIEF), and a page counts it at this size.
+export const LARGE_ROW_BYTES = 256 * 1024;
+// What a reduced text or reasoning part keeps of its words.
+export const LARGE_TEXT_CHARS = 64 * 1024;
+// How many parts and messages one page reads at most.
+const MAX_PAGE_PARTS = 5000;
+const MAX_PAGE_MESSAGES = 5000;
+
+// The messages of one page: a session's message keys from $fromTime/$fromId
+// (included) to $toTime/$toId (excluded).
+const RANGE = "session_id = $session AND (time_created > $fromTime OR (time_created = $fromTime AND id >= $fromId)) AND (time_created < $toTime OR (time_created = $toTime AND id < $toId))";
+// What a tool part answered (its output, error or running output), as text, of the row `data`.
+const outputOf = (data) => `CASE ${data} ->> '$.state.status' WHEN 'completed' THEN CASE WHEN json_type(${data}, '$.state.output') = 'text' THEN ${data} ->> '$.state.output' END WHEN 'error' THEN CASE WHEN json_type(${data}, '$.state.error') = 'text' THEN ${data} ->> '$.state.error' END WHEN 'running' THEN CASE WHEN json_type(${data}, '$.state.metadata.output') = 'text' THEN ${data} ->> '$.state.metadata.output' END END`;
+// A large part as a page reads it: a tool call without its output (and
+// without its input, when that alone is too large), text cut at
+// $textChars, anything else its type and mime only.
+const TOOL_BRIEF = "json_remove(p.data, '$.state.output', '$.state.metadata', '$.state.attachments', '$.state.error', '$.state.raw')";
+const PART_BRIEF = `CASE p.data ->> '$.type' WHEN 'tool' THEN CASE WHEN octet_length(${TOOL_BRIEF}) <= $large THEN ${TOOL_BRIEF} ELSE json_remove(${TOOL_BRIEF}, '$.state.input') END WHEN 'text' THEN json_set(json_remove(p.data, '$.metadata'), '$.text', substr(p.data ->> '$.text', 1, $textChars)) WHEN 'reasoning' THEN json_set(json_remove(p.data, '$.metadata'), '$.text', substr(p.data ->> '$.text', 1, $textChars)) ELSE json_object('type', p.data ->> '$.type', 'mime', p.data ->> '$.mime') END`;
+// A large message as a page reads it: the fields parseOpencodeTurns and opencodeMetadata read.
+const MESSAGE_BRIEF = "json_object('role', data ->> '$.role', 'time', data -> '$.time', 'summary', CASE WHEN json_type(data, '$.summary') = 'true' THEN json('true') END, 'modelID', data ->> '$.modelID', 'variant', data ->> '$.variant', 'tokens', data -> '$.tokens', 'error', data -> '$.error')";
+
 // Every statement this module runs. Nothing else is prepared.
 export const STATEMENTS = Object.freeze({
   // the columns of one of the tables below (TABLES), checked once per database file
@@ -54,10 +78,15 @@ export const STATEMENTS = Object.freeze({
   message: "SELECT id, time_created FROM message WHERE id = ? AND session_id = ?",
   // the prompts before `end`, newest first: the keys a page may start at
   promptsBefore: "SELECT id, time_created FROM message WHERE session_id = ? AND (time_created < ? OR (time_created = ? AND id < ?)) AND json_extract(data, '$.role') = 'user' ORDER BY time_created DESC, id DESC LIMIT ?",
-  pageBytes: "SELECT COALESCE(SUM(LENGTH(data)), 0) AS bytes FROM part WHERE message_id IN (SELECT id FROM message WHERE session_id = ? AND (time_created > ? OR (time_created = ? AND id >= ?)) AND (time_created < ? OR (time_created = ? AND id < ?)))",
-  messages: "SELECT id, time_created, data FROM message WHERE session_id = ? AND (time_created > ? OR (time_created = ? AND id >= ?)) AND (time_created < ? OR (time_created = ? AND id < ?)) ORDER BY time_created, id",
-  parts: "SELECT id, data FROM part WHERE message_id = ? ORDER BY id",
-  toolPart: "SELECT data FROM part WHERE id = ? AND session_id = ?",
+  // what a page's rows cost to read (a large row at $large), and how many parts it has: lengths only, no data
+  pageBytes: `SELECT (SELECT COALESCE(SUM(MIN(octet_length(data), $large)), 0) FROM message WHERE ${RANGE}) + (SELECT COALESCE(SUM(MIN(octet_length(data), $large)), 0) FROM part WHERE message_id IN (SELECT id FROM message WHERE ${RANGE})) AS bytes, (SELECT COUNT(*) FROM part WHERE message_id IN (SELECT id FROM message WHERE ${RANGE})) AS parts`,
+  // a page's messages, newest first, at most $rows; a large one reduced
+  messages: `SELECT id, time_created, CASE WHEN octet_length(data) <= $large THEN data ELSE ${MESSAGE_BRIEF} END AS data FROM message WHERE ${RANGE} ORDER BY time_created DESC, id DESC LIMIT $rows`,
+  // all parts of a page's messages in one read, newest first, while their cost stays within $budget and
+  // their number within $rows; a large one reduced, with its output's length and first $preview characters
+  parts: `SELECT p.id AS id, p.message_id AS message_id, CASE WHEN octet_length(p.data) <= $large THEN p.data ELSE ${PART_BRIEF} END AS data, octet_length(p.data) > $large AS reduced, CASE WHEN octet_length(p.data) > $large THEN length(${outputOf("p.data")}) END AS output_size, CASE WHEN octet_length(p.data) > $large THEN substr(${outputOf("p.data")}, 1, $preview) END AS output_preview FROM (SELECT id, SUM(MIN(octet_length(data), $large)) OVER (ORDER BY message_id DESC, id DESC ROWS UNBOUNDED PRECEDING) AS running FROM part WHERE message_id IN (SELECT id FROM message WHERE ${RANGE})) AS chosen JOIN part AS p ON p.id = chosen.id WHERE chosen.running <= $budget ORDER BY chosen.running LIMIT $rows`,
+  // one tool call's output: at most $max characters of it, and its whole length
+  toolPart: `SELECT kind, substr(output, 1, $max) AS output, length(output) AS size FROM (SELECT data ->> '$.type' AS kind, ${outputOf("data")} AS output FROM part WHERE id = $id AND session_id = $session)`,
 });
 
 // The tables (and columns) the statements read; a database without one of
@@ -78,6 +107,8 @@ const END = Object.freeze({ time: Number.MAX_SAFE_INTEGER, id: "" });
 
 // How much of a page's parts one read takes at most, before it holds fewer prompts.
 const MAX_PAGE_BYTES = 16 * 1024 * 1024;
+// How far up a reported subagent's session is followed to its top-level session.
+const MAX_SESSION_DEPTH = 8;
 
 export const NEEDS_NEWER_NODE = "opencode_needs_newer_node";
 
@@ -130,7 +161,9 @@ function opencodeToolSummary(name, input, title) {
   return (first || title || name).replace(/\s+/gu, " ").trim().slice(0, 120) || name;
 }
 
-function toolPart(id, data) {
+// `brief`: a part too large to read whole ({ output_size, output_preview }),
+// read without its output (or its input) by SQLite.
+function toolPart(id, data, brief = null) {
   const name = string(data.tool) || "tool";
   const state = record(data.state);
   const input = record(state.input);
@@ -148,8 +181,18 @@ function toolPart(id, data) {
     ...toolInputFields(patch ?? JSON.stringify(normal, null, 2)),
     output: "",
   };
-  const output = toolOutputOf(state);
-  if (output) setToolOutput(part, output);
+  if (brief) {
+    // the output is fetched by id, at most TOOL_OUTPUT_MAX_CHARS of it
+    const size = Number(brief.output_size ?? 0);
+    part.output = string(brief.output_preview);
+    part.output_size = size;
+    if (size > part.output.length) part.output_truncated = true;
+    part.output_large = true;
+    if (!("input" in state)) part.input_truncated = true;
+  } else {
+    const output = toolOutputOf(state);
+    if (output) setToolOutput(part, output);
+  }
   if (state.status === "error") part.error = true;
   return part;
 }
@@ -170,7 +213,10 @@ function errorText(error) {
   return message ? `Error: ${message}` : "";
 }
 
-// A session's messages, oldest first ({ id, time, info, parts: [{ id, data }] }),
+// Words of a part too large to read whole, cut by SQLite at LARGE_TEXT_CHARS.
+const cut = (text, brief) => brief && text.length >= LARGE_TEXT_CHARS ? `${text}\n…` : text;
+
+// A session's messages, oldest first ({ id, time, info, parts: [{ id, data, brief? }] }),
 // as turns shaped as the Claude parser's: a user turn per prompt; the
 // agent's text, reasoning and tool calls, over however many steps, in one
 // assistant turn. A compaction marks where the history was folded, with the
@@ -186,9 +232,9 @@ export function parseOpencodeTurns(messages) {
       const parts = [];
       const images = [];
       compact = null;
-      for (const { data } of message.parts) {
+      for (const { data, brief } of message.parts) {
         if (data.type === "text" && !data.synthetic && !data.ignored && string(data.text).trim()) {
-          parts.push({ kind: "text", text: data.text });
+          parts.push({ kind: "text", text: cut(data.text, brief), ...(brief ? { text_truncated: true } : {}) });
         } else if (data.type === "file" && IMAGE_TYPES.has(data.mime)) {
           images.push({ kind: "image", media_type: data.mime });
         } else if (data.type === "compaction") {
@@ -215,13 +261,13 @@ export function parseOpencodeTurns(messages) {
     }
     const end = iso(time.completed);
     if (end) turn.end_ts = end;
-    for (const { id, data } of message.parts) {
+    for (const { id, data, brief } of message.parts) {
       if (data.type === "text" && !data.synthetic && !data.ignored && string(data.text).trim()) {
-        turn.parts.push({ kind: "text", text: data.text });
+        turn.parts.push({ kind: "text", text: cut(data.text, brief), ...(brief ? { text_truncated: true } : {}) });
       } else if (data.type === "reasoning" && string(data.text).trim()) {
-        turn.parts.push({ kind: "thinking", text: data.text });
+        turn.parts.push({ kind: "thinking", text: cut(data.text, brief), ...(brief ? { text_truncated: true } : {}) });
       } else if (data.type === "tool") {
-        turn.parts.push(toolPart(id, data));
+        turn.parts.push(toolPart(id, data, brief));
       }
       // step marks, snapshots, patches and the rest are OpenCode's bookkeeping
     }
@@ -257,16 +303,17 @@ export function opencodeMetadata(messages) {
 
 const keyOf = (row) => ({ time: Number(row.time_created), id: String(row.id) });
 const before = (a, b) => a.time < b.time || (a.time === b.time && a.id < b.id);
-const range = (from, to) => [from.time, from.time, from.id, to.time, to.time, to.id];
+// the same range as RANGE's named parameters
+const named = (session, from, to) => ({ session, fromTime: from.time, fromId: from.id, toTime: to.time, toId: to.id });
 
 // Where a session's shown history ends: an undo hides the reverted messages
-// until OpenCode drops them.
+// until OpenCode drops them. { key, part }: the message undone to, and the part in it.
 function revertOf(db, row) {
   const revert = parse(string(row.revert));
   const id = string(revert.messageID);
   if (!MESSAGE_ID.test(id)) return null;
   const found = db.statement("message").get(id, row.id);
-  return found ? keyOf(found) : null;
+  return found ? { key: keyOf(found), part: string(revert.partID) } : null;
 }
 
 // This machine's OpenCode database, read only. As a store it answers
@@ -371,7 +418,10 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
   // across an undo starts over.
   function historyOf(db, row) {
     const revert = revertOf(db, row);
-    return { id: revert ? `${row.id}-r${revert.time.toString(36)}` : String(row.id), end: revert ?? END };
+    if (!revert) return { id: String(row.id), end: END };
+    // the message (and part) undone to name it: two messages of one millisecond are two histories
+    const mark = createHash("sha256").update(`${revert.key.id}\0${revert.part}`).digest("base64url").slice(0, 12);
+    return { id: `${row.id}-r${revert.key.time.toString(36)}-${mark}`, end: revert.key };
   }
 
   function parseCursor(db, history, session, cursor) {
@@ -394,21 +444,41 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
       .map(keyOf).filter((key) => !before(key, floor));
     let take = Math.min(prompts.length, MAX_PAGE_PROMPTS);
     let start = prompts.length > MAX_PAGE_PROMPTS ? prompts[MAX_PAGE_PROMPTS - 1] : floor;
-    const bytes = (from) => Number(db.statement("pageBytes").get(session, ...range(from, end))?.bytes ?? 0);
-    while (take > 1 && bytes(start) > MAX_PAGE_BYTES) {
+    const tooLarge = (from) => {
+      const cost = db.statement("pageBytes").get({ ...named(session, from, end), large: LARGE_ROW_BYTES }) ?? {};
+      return Number(cost.bytes ?? 0) > MAX_PAGE_BYTES || Number(cost.parts ?? 0) > MAX_PAGE_PARTS;
+    };
+    while (take > 1 && tooLarge(start)) {
       take = Math.floor(take / 2);
       start = prompts[take - 1];
     }
     return start;
   }
 
+  // The page's messages and their parts, in two reads. However large a part
+  // is, what crosses into JavaScript is bounded: a large row comes reduced, the
+  // parts stop at MAX_PAGE_BYTES (counted as pageBytes counts them) and
+  // MAX_PAGE_PARTS, the newest kept.
   function readMessages(db, session, from, to) {
-    return db.statement("messages").all(session, ...range(from, to)).map((row) => ({
+    const where = named(session, from, to);
+    const messages = db.statement("messages").all({ ...where, large: LARGE_ROW_BYTES, rows: MAX_PAGE_MESSAGES }).reverse().map((row) => ({
       id: String(row.id),
       time: Number(row.time_created),
       info: parse(string(row.data)),
-      parts: db.statement("parts").all(row.id).map((part) => ({ id: String(part.id), data: parse(string(part.data)) })),
+      parts: [],
     }));
+    const byId = new Map(messages.map((message) => [message.id, message]));
+    const parts = db.statement("parts").all({
+      ...where, large: LARGE_ROW_BYTES, textChars: LARGE_TEXT_CHARS, preview: TOOL_OUTPUT_PREVIEW_CHARS,
+      budget: MAX_PAGE_BYTES, rows: MAX_PAGE_PARTS,
+    });
+    for (const part of parts.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+      const message = byId.get(String(part.message_id));
+      if (!message) continue;
+      const brief = part.reduced ? { output_size: part.output_size, output_preview: part.output_preview } : null;
+      message.parts.push({ id: String(part.id), data: parse(string(part.data)), ...(brief ? { brief } : {}) });
+    }
+    return messages;
   }
 
   return {
@@ -417,17 +487,23 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
     path,
 
     // The session a pane shows: the one herdr reports, when it is a top-level
-    // session of this database; else, with none reported, the newest
+    // session of this database; a subagent's session reported reads as the
+    // top-level session it belongs to. Else, with none reported, the newest
     // top-level session started in the pane's folder. { session, found }:
-    // found false for a reported session not written yet. Null when nothing
-    // tells.
+    // found false for a reported session not written yet; { child } for a
+    // reported subagent's session whose top-level session is not there. Null
+    // when nothing tells.
     async locate({ session = null, cwd = null, taken = [] } = {}) {
       return withDb((db) => {
         if (typeof session === "string" && OPENCODE_SESSION_ID.test(session)) {
-          const row = db.statement("session").get(session);
-          if (row && row.parent_id == null) return { session, found: true };
+          let row = db.statement("session").get(session);
           if (!row) return { session, found: false };
-          // a child session is a subagent's, never the pane's
+          for (let depth = 0; row && row.parent_id != null && depth < MAX_SESSION_DEPTH; depth++) {
+            const parent = String(row.parent_id);
+            row = OPENCODE_SESSION_ID.test(parent) ? db.statement("session").get(parent) : null;
+          }
+          if (row && row.parent_id == null) return { session: String(row.id), found: true };
+          return { session, child: true };
         }
         if (typeof cwd !== "string" || !isAbsolute(cwd)) return null;
         const row = db.statement(db.shape.archive ? "newestInDirectory" : "newestInDirectoryAny").get(cwd);
@@ -498,13 +574,11 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
     // The whole output of one tool call (a part's id), as { output, size }, or null.
     async toolOutput(session, toolId) {
       if (typeof toolId !== "string" || !TOOL_ID.test(toolId)) return null;
+      // SQLite cuts the output: a 50 MB one never crosses into JavaScript whole
       const found = await withDb((db) => {
-        const row = db.statement("toolPart").get(toolId, session);
-        if (!row) return null;
-        const data = parse(string(row.data));
-        if (data.type !== "tool") return null;
-        const output = toolOutputOf(record(data.state));
-        return { output: output.slice(0, TOOL_OUTPUT_MAX_CHARS), size: output.length };
+        const row = db.statement("toolPart").get({ id: toolId, session, max: TOOL_OUTPUT_MAX_CHARS });
+        if (!row || row.kind !== "tool") return null;
+        return { output: string(row.output), size: Number(row.size ?? 0) };
       });
       return found ?? null;
     },
