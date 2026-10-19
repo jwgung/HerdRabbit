@@ -6,6 +6,11 @@
 // be updated from here. Update asks first, then follows the run's log through
 // a restart (the server not answering for a while) and reloads once a new
 // version answers. A run that fails says so and keeps its log.
+// Then Herdr: with HerdRabbit up to date, a newer Herdr alone puts the dot
+// up; its row shows the versions, notes folded away, and Update Herdr asks
+// first, follows the run's log, and checks again so the new Herdr shows.
+// A connected PC whose Herdr came from a package manager says
+// so; a refused run shows Herdr's own words.
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
@@ -185,7 +190,144 @@ try {
     server.closeAllConnections();
     server.close();
   }
+  await checkHerdr();
   console.log("in-app update check passed");
 } finally {
   await browser.close();
+}
+
+async function checkHerdr() {
+  const herdrWorld = { version: "0.9.3", polls: 0, starts: 0, outcome: "succeeded" };
+  const upToDate = check({ latest: { sha: "abc1234", version: "2.0.0" }, available: false, notes: [] });
+  const herdrCheck = () => ({
+    checkedAt: new Date().toISOString(), current: herdrWorld.version, latest: "0.9.5", channel: "stable",
+    available: herdrWorld.version !== "0.9.5",
+    notes: herdrWorld.version !== "0.9.5" ? "Fixed\n- Prefix shortcuts work again." : "", blocked: null, error: null,
+  });
+  const herdrIdle = { state: "idle", startedAt: null, finishedAt: null, exitCode: null, reason: null, detail: null, log: "" };
+  const appUpdater = {
+    async check() {
+      // the look again after a run, failing once when the outcome asks for it
+      if (herdrWorld.outcome === "recheck_fails" && herdrWorld.version === "0.9.5" && !herdrWorld.recheckFailed) {
+        herdrWorld.recheckFailed = true;
+        throw new Error("origin went away for a moment");
+      }
+      return { ...upToDate, herdr: herdrCheck() };
+    },
+    async runStatus() { return { ...idle, version: "2.0.0" }; },
+    async start() { throw new Error("not expected"); },
+  };
+  const herdrUpdater = {
+    async runStatus() {
+      if (herdrWorld.starts === 0) return herdrIdle;
+      herdrWorld.polls += 1;
+      const log = ["Downloading herdr 0.9.5", "Installing", "Handing off 3 panes"].slice(0, Math.min(3, herdrWorld.polls)).join("\n");
+      if (herdrWorld.polls < 3) return { ...herdrIdle, state: "running", startedAt: new Date().toISOString(), log };
+      if (herdrWorld.outcome === "refused") {
+        return {
+          ...herdrIdle, state: "failed", exitCode: 1, reason: "self_update_refused", finishedAt: new Date().toISOString(),
+          detail: "self-update is disabled for Homebrew installs; run brew update && brew upgrade herdr", log,
+        };
+      }
+      herdrWorld.version = "0.9.5";
+      return { ...herdrIdle, state: "succeeded", exitCode: 0, finishedAt: new Date().toISOString(), log: `${log}\nDone.` };
+    },
+    async start() {
+      herdrWorld.starts += 1;
+      herdrWorld.polls = 0;
+      return { ...herdrIdle, state: "running", startedAt: new Date().toISOString() };
+    },
+  };
+  const herdrClient = {
+    ...herdr,
+    updateClient(id) {
+      if (id === LINK) {
+        return {
+          async updateCheck() {
+            return { ...upToDate, herdr: { ...herdrCheck(), current: "0.9.3", available: true, blocked: "managed_install" } };
+          },
+          async updateStatus() { return { ...idle, version: "2.0.0" }; },
+          async herdrUpdateStatus() { return herdrIdle; },
+          async herdrUpdateRun() { throw new Error("not expected"); },
+        };
+      }
+      return herdr.updateClient(id);
+    },
+  };
+
+  for (const outcome of ["succeeded", "refused", "recheck_fails"]) {
+    Object.assign(herdrWorld, { version: "0.9.3", polls: 0, starts: 0, outcome, recheckFailed: false });
+    const { server } = createHerdrHttpServer({ herdr: herdrClient, updater: appUpdater, herdrUpdater, logger: { info() {}, error() {} } });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const url = `http://127.0.0.1:${server.address().port}`;
+    const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 900 } });
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const dialogs = [];
+    page.on("dialog", async (dialog) => {
+      dialogs.push(dialog.message());
+      await dialog.accept();
+    });
+    await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
+    // HerdRabbit is up to date everywhere: the dot is Herdr's.
+    await page.waitForSelector(".settings-button.has-update");
+    await page.locator(".settings-button").click();
+    await page.locator('.settings-menu [data-action="update"]').click();
+    const dialog = page.locator("#update-dialog");
+    await dialog.waitFor({ state: "visible" });
+    const local = dialog.locator('.update-server[data-server-id="local"]');
+    assert.equal((await local.locator(".update-status").first().textContent()).trim(), "Up to date.");
+    assert.equal(await local.locator(".update-run").count(), 0);
+    const row = local.locator(".update-herdr");
+    assert.equal((await row.locator(".update-herdr-versions").textContent()).trim(), "Running 0.9.3 · Latest 0.9.5");
+    assert.equal((await row.locator(".update-herdr-status").textContent()).trim(), "A new Herdr is ready to install.");
+    // Notes are folded away until opened.
+    const notes = row.locator(".update-herdr-notes");
+    assert.equal(await notes.evaluate((node) => node.open), false);
+    await notes.locator("summary").click();
+    assert.match(await notes.locator(".update-herdr-notes-text").textContent(), /Prefix shortcuts work again/u);
+
+    // A Homebrew Herdr on devbox is updated with Homebrew: no button.
+    const remote = dialog.locator(`.update-server[data-server-id="${LINK}"] .update-herdr`);
+    assert.match(await remote.locator(".update-herdr-status").textContent(), /package manager/u);
+    assert.equal(await remote.locator(".update-herdr-run").count(), 0);
+    // oldbox says nothing about Herdr.
+    assert.equal(await dialog.locator(`.update-server[data-server-id="${OLD}"] .update-herdr`).count(), 0);
+
+    await row.locator(".update-herdr-run").click();
+    assert.equal(dialogs.length, 1);
+    assert.match(dialogs[0], /^Update Herdr on This PC \(testbox\) from 0\.9\.3 to 0\.9\.5\?/u);
+    assert.match(dialogs[0], /hands the running panes over to it live/u);
+    assert.match(dialogs[0], /agents and shells keep running/u);
+    assert.match(dialogs[0], /can take a moment/u);
+    await page.waitForFunction(() => /Updating Herdr/u.test(document.querySelector(".update-herdr-run-state")?.textContent ?? ""));
+    await page.waitForFunction(() => /Installing/u.test(document.querySelector(".update-herdr-log")?.textContent ?? ""));
+    assert.equal(herdrWorld.starts, 1);
+    assert.equal(await local.locator(".update-herdr-run").isDisabled(), true, "one run at a time");
+
+    if (outcome === "succeeded") {
+      await page.waitForFunction(() => /Herdr updated/u.test(document.querySelector(".update-herdr-run-state")?.textContent ?? ""), null, { timeout: 20_000 });
+      await page.waitForFunction(() => /Running 0\.9\.5/u.test(document.querySelector('.update-server[data-server-id="local"] .update-herdr-versions')?.textContent ?? ""));
+      assert.equal((await row.locator(".update-herdr-status").textContent()).trim(), "Up to date.");
+      assert.equal(await row.locator(".update-herdr-run").count(), 0);
+      assert.match(await row.locator(".update-herdr-log").textContent(), /Done\./u);
+      // devbox still has a newer Herdr, so the dot stays for it.
+      assert.equal(await page.locator(".settings-button.has-update").count(), 1);
+    } else if (outcome === "recheck_fails") {
+      // the run ended well but the look again failed: the buttons are not left busy
+      await page.waitForFunction(() => /Herdr updated/u.test(document.querySelector(".update-herdr-run-state")?.textContent ?? ""), null, { timeout: 20_000 });
+      assert.ok(herdrWorld.recheckFailed, "the look again was not asked");
+      await page.waitForFunction(() => !document.querySelector('.update-server[data-server-id="local"] .update-herdr-run')?.disabled);
+    } else {
+      await page.waitForFunction(() => /will not update itself/u.test(document.querySelector(".update-herdr-run-state")?.textContent ?? ""), null, { timeout: 20_000 });
+      assert.equal(await row.locator(".update-herdr-run-state").getAttribute("data-error"), "true");
+      assert.match(await row.locator(".update-herdr-detail").textContent(), /brew upgrade herdr/u);
+    }
+    assert.deepEqual(errors, []);
+    await context.close();
+    server.closeAllConnections();
+    server.close();
+  }
 }

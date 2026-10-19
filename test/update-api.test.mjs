@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
+import { HttpError } from "../src/http-basics.mjs";
 
 const LINK = "link_11111111-1111-1111-1111-111111111111";
 const OLD = "link_22222222-2222-2222-2222-222222222222";
@@ -19,13 +20,24 @@ function fakeUpdater(calls) {
   };
 }
 
-async function fixture(context, { updater = undefined } = {}) {
+const HERDR_IDLE = { state: "idle", startedAt: null, finishedAt: null, exitCode: null, reason: null, detail: null, log: "" };
+
+function fakeHerdrUpdater(calls) {
+  return {
+    async runStatus() { calls.push(["herdrStatus"]); return HERDR_IDLE; },
+    async start() { calls.push(["herdrStart"]); return { ...HERDR_IDLE, state: "running" }; },
+  };
+}
+
+async function fixture(context, { updater = undefined, herdrUpdater = undefined } = {}) {
   const calls = [];
   const remoteCalls = [];
   const remote = {
     async updateCheck(options) { remoteCalls.push(["check", options]); return { ...CHECK, current: { sha: "1111111", version: "1.9.0" } }; },
     async updateStatus() { remoteCalls.push(["status"]); return { ...IDLE, state: "running", log: "  > Fetching main" }; },
     async updateRun() { remoteCalls.push(["run"]); return { ...IDLE, state: "running" }; },
+    async herdrUpdateStatus() { remoteCalls.push(["herdrStatus"]); return { ...HERDR_IDLE, state: "running", log: "Downloading" }; },
+    async herdrUpdateRun() { remoteCalls.push(["herdrRun"]); return { ...HERDR_IDLE, state: "running" }; },
   };
   // A connected PC from before in-app update: its link says no.
   const old = { async updateCheck() { return null; }, async updateStatus() { return null; } };
@@ -44,6 +56,7 @@ async function fixture(context, { updater = undefined } = {}) {
       onSessionsEnded: () => () => {},
     },
     updater: updater === undefined ? fakeUpdater(calls) : updater,
+    herdrUpdater: herdrUpdater === undefined ? fakeHerdrUpdater(calls) : herdrUpdater,
   });
   app.server.listen(0, "127.0.0.1");
   await once(app.server, "listening");
@@ -51,7 +64,7 @@ async function fixture(context, { updater = undefined } = {}) {
   const origin = `http://127.0.0.1:${app.server.address().port}`;
   const session = { Cookie: "session=valid", "X-Herdr-Launch-Token": "launch" };
   const get = (path, headers = {}) => fetch(`${origin}${path}`, { headers: { ...session, ...headers } });
-  const post = (body, headers = {}) => fetch(`${origin}/api/update/run`, {
+  const post = (body, headers = {}, path = "/api/update/run") => fetch(`${origin}${path}`, {
     method: "POST",
     headers: { ...session, "Content-Type": "application/json", "X-Herdr-CSRF": "csrf", Origin: origin, ...headers },
     body: JSON.stringify(body),
@@ -166,6 +179,76 @@ test("a PC that cannot update itself says so", async (context) => {
   const { get, post } = await fixture(context, { updater: null });
   assert.deepEqual(await (await get("/api/update")).json(), { server: "local", supported: false });
   const response = await post({});
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).error.code, "update_unavailable");
+});
+
+const HERDR_RUN = "/api/update/herdr/run";
+
+test("the Herdr run route sits behind the sign-in, the same origin and the write token", async (context) => {
+  const { origin, get, post, calls } = await fixture(context);
+  for (const method of ["GET", "POST"]) {
+    const response = await fetch(`${origin}${HERDR_RUN}`, {
+      method, headers: { "Content-Type": "application/json", "X-Herdr-CSRF": "csrf" }, body: method === "POST" ? "{}" : undefined,
+    });
+    assert.equal(response.status, 401, method);
+  }
+  assert.equal((await get(HERDR_RUN, { Origin: "https://evil.example" })).status, 403);
+  assert.equal((await post({}, { "X-Herdr-CSRF": "wrong" }, HERDR_RUN)).status, 403);
+  assert.equal((await post({}, { Origin: "https://evil.example" }, HERDR_RUN)).status, 403);
+  assert.equal((await post({}, { "Sec-Fetch-Site": "cross-site" }, HERDR_RUN)).status, 403);
+  assert.deepEqual(calls, []);
+  assert.equal((await fetch(`${origin}${HERDR_RUN}`, { method: "PUT", headers: { Cookie: "session=valid", "X-Herdr-Launch-Token": "launch" } })).status, 405);
+});
+
+test("this PC's Herdr run answers and starts once a minute, apart from HerdRabbit's", async (context) => {
+  const { get, post, calls } = await fixture(context);
+  assert.deepEqual(await (await get(HERDR_RUN)).json(), { ...HERDR_IDLE, server: "local", supported: true });
+  let response = await post({}, {}, HERDR_RUN);
+  assert.equal(response.status, 202);
+  assert.deepEqual(await response.json(), { ...HERDR_IDLE, state: "running", server: "local", supported: true });
+  response = await post({ server: "local" }, {}, HERDR_RUN);
+  assert.equal(response.status, 429);
+  // HerdRabbit's own limit is its own; the PC itself refuses a second run.
+  assert.equal((await post({})).status, 202);
+  assert.deepEqual(calls, [["herdrStatus"], ["herdrStart"], ["start"]]);
+});
+
+test("a connected PC's Herdr is updated through its link; an older one is too old for it", async (context) => {
+  const { get, post, remoteCalls, calls } = await fixture(context);
+  const status = await (await get(`${HERDR_RUN}?server=${LINK}`)).json();
+  assert.equal(status.state, "running");
+  assert.equal(status.server, LINK);
+  assert.equal((await post({ server: LINK, binary: "/tmp/evil" }, {}, HERDR_RUN)).status, 202);
+  assert.deepEqual(remoteCalls, [["herdrStatus"], ["herdrRun"]]);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(await (await get(`${HERDR_RUN}?server=${OLD}`)).json(), { server: OLD, supported: false });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await post({ server: OLD }, {}, HERDR_RUN);
+    assert.equal(response.status, 501);
+    assert.equal((await response.json()).error.code, "link_unsupported");
+  }
+  assert.equal((await post({ server: "link_33333333-3333-3333-3333-333333333333" }, {}, HERDR_RUN)).status, 404);
+});
+
+test("a refused Herdr start does not use up the minute, and no Herdr updater says so", async (context) => {
+  let refuse = true;
+  const calls = [];
+  const herdrUpdater = {
+    ...fakeHerdrUpdater(calls),
+    async start() {
+      if (refuse) throw new HttpError(409, "update_running", "A HerdRabbit update is running.");
+      return { ...HERDR_IDLE, state: "running" };
+    },
+  };
+  const { post } = await fixture(context, { herdrUpdater });
+  assert.equal((await post({}, {}, HERDR_RUN)).status, 409);
+  refuse = false;
+  assert.equal((await post({}, {}, HERDR_RUN)).status, 202);
+
+  const none = await fixture(context, { herdrUpdater: null });
+  assert.deepEqual(await (await none.get(HERDR_RUN)).json(), { server: "local", supported: false });
+  const response = await none.post({}, {}, HERDR_RUN);
   assert.equal(response.status, 404);
   assert.equal((await response.json()).error.code, "update_unavailable");
 });

@@ -75,7 +75,7 @@ async function sendFile(response, file) {
 // `updater` is this PC's own AppUpdater (src/app-update.mjs): a hub checks
 // for and starts an update of this PC through it, never naming anything.
 export function linkRoutes({
-  client, files = null, aiAccounts = null, attach = null, conversations = null, slashCommands = null, updater = null, version, herdrVersion = () => null, serverName = "",
+  client, files = null, aiAccounts = null, attach = null, conversations = null, slashCommands = null, updater = null, herdrUpdater = null, version, herdrVersion = () => null, serverName = "",
   maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024, protectedPaths = defaultProtectedPaths(),
   maxStatusStreams = MAX_STATUS_STREAMS,
 }) {
@@ -95,6 +95,8 @@ export function linkRoutes({
       // for what is there. A PC from before this list says nothing.
       features: [
         ...(conversations ? ["conversation"] : []), "scroll_bottom", "commands", ...(updater ? ["update"] : []),
+        // Herdr's check rides on the update answer: without it there is none to ask
+        ...(updater && herdrUpdater ? ["herdr_update"] : []),
       ],
     };
   }
@@ -231,6 +233,16 @@ export function linkRoutes({
       } else {
         throw new HttpError(405, "method_not_allowed", "Method not allowed");
       }
+      return true;
+    }
+
+    // Herdr's own update on this PC: its run and how it goes. Its check is
+    // part of the update check above.
+    if (url.pathname === "/api/link/update/herdr/run") {
+      if (!herdrUpdater) throw new HttpError(404, "not_found", "Not found");
+      if (method === "GET") sendJson(response, 200, await herdrUpdater.runStatus());
+      else if (method === "POST") sendJson(response, 202, await herdrUpdater.start());
+      else throw new HttpError(405, "method_not_allowed", "Method not allowed");
       return true;
     }
 

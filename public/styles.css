@@ -1649,6 +1649,39 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .update-actions { display: flex; justify-content: flex-end; }
 
+/* Herdr's row inside a PC's block: its versions, notes folded away, its run. */
+.update-herdr {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  min-width: 0;
+}
+
+.update-herdr-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+.update-herdr-heading strong { font-size: 13px; }
+
+.update-herdr-notes { font-size: 13px; min-width: 0; }
+
+.update-herdr-notes summary { cursor: pointer; color: var(--muted); }
+
+.update-herdr-notes-text {
+  margin: 6px 0 0;
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.update-herdr-detail {
+  margin: 0;
+  font-size: 12px;
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
 .update-progress { display: grid; gap: 6px; min-width: 0; }
 
 .update-log {
