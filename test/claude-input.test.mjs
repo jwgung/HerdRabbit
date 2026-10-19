@@ -55,8 +55,8 @@ test("only the stopped message itself is cleared, never text typed in the termin
   assert.deepEqual(restoredDraftStep(box(["line one", ""]), "line one\nline two", first), { keys: ["backspace", "ctrl+u"] });
   // the keys changed nothing: refuse rather than run the two together
   assert.deepEqual(restoredDraftStep(first, "line one\nline two", first), { stuck: true });
-  // what is left is not the message's start: leave it
-  assert.deepEqual(restoredDraftStep(box(["typed"]), "line one\nline two", first), { done: true });
+  // what is left is not the message's start (something else changed it): refuse
+  assert.deepEqual(restoredDraftStep(box(["typed"]), "line one\nline two", first), { stuck: true });
 });
 
 // A Claude pane as the client sees it through herdr: what its box holds, the
@@ -145,7 +145,7 @@ test("a box the keys cannot empty refuses the send, and the next send looks agai
   assert.deepEqual(commands(pane), ["read", "run w1:p1 next"]);
 });
 
-test("a screen that cannot be read is no reason not to send", async () => {
+test("a screen that cannot be read after a Stop refuses the send: the stopped message may be there", async () => {
   const pane = claudePane([""]);
   const runner = async (binary, args) => {
     if (args.includes("read")) throw Object.assign(new Error("gone"), { stderr: "" });
@@ -154,8 +154,8 @@ test("a screen that cannot be read is no reason not to send", async () => {
   const client = new HerdrClient({ runner, sleep: async () => {}, sessionName: "stopdraft-e" });
   await client.sendText("w1:p1", "one", { submit: true });
   await client.sendKeys("w1:p1", ["esc"]);
-  await client.sendText("w1:p1", "two", { submit: true });
-  assert.deepEqual(commands(pane).filter((item) => item !== "read"), ["run w1:p1 one", "send-keys w1:p1 esc", "run w1:p1 two"]);
+  await assert.rejects(client.sendText("w1:p1", "two", { submit: true }), (error) => error.code === "input_not_empty");
+  assert.deepEqual(commands(pane).filter((item) => item !== "read"), ["run w1:p1 one", "send-keys w1:p1 esc"]);
 });
 
 // A real Claude Code 2.1 screen (captured in a test herdr session) right after
@@ -193,7 +193,7 @@ test("only a wrap's whitespace is forgiven when comparing the box with the stopp
   // later looks: a prefix cut at a wrap, but not a squashed one
   const first = box(["hello", "world"]);
   assert.deepEqual(restoredDraftStep(box(["hello"]), "hello world", first), { keys: ["backspace", "ctrl+u"] });
-  assert.deepEqual(restoredDraftStep(box(["helloworl"]), "hello world", first), { done: true });
+  assert.deepEqual(restoredDraftStep(box(["helloworl"]), "hello world", first), { stuck: true });
 });
 
 test("a message put back over many rows is read whole and cleared to the end", async () => {
@@ -210,5 +210,24 @@ test("a message put back over many rows is read whole and cleared to the end", a
   const lines = Number(read[read.indexOf("--lines") + 1]);
   assert.ok(lines >= 400, `the look read only ${lines} lines`);
   assert.ok(commands(pane).includes("run w1:p1 next"));
+});
+
+// Real Claude Code 2.1 boxes read with their styles (pane read --format ansi):
+// empty with its dim tip, and a long message wrapped over rows.
+const REAL_EMPTY_ANSI = ["\u001b[0m\u001b[38;5;7m\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u001b[0m", "\u276f\u00a0\u001b[0m\u001b[2mTry \"edit <filepath> to...\"\u001b[0m", "\u001b[0m\u001b[38;5;7m\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u001b[0m"].join("\n");
+const REAL_WRAPPED_ANSI = ["\u001b[0m\u001b[38;5;7m\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u001b[0m", "\u276f\u00a0long long long long long long long long long long long long long long long long long long", "  long long long long long long long long long long long long long long long long long", "  long long long long long long long long long long long long long long long long long long", "  long long long long long long long end", "\u001b[0m\u001b[38;5;7m\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u001b[0m"].join("\n");
+
+test("an empty box's dim tip reads as empty, typed words do not", () => {
+  assert.deepEqual(claudeInputBox(REAL_EMPTY_ANSI), { text: "", rows: 1, empty: true });
+  const wrapped = claudeInputBox(REAL_WRAPPED_ANSI);
+  assert.equal(wrapped.empty, undefined);
+  assert.ok(wrapped.rows > 1);
+  // cleared to its tip halfway through: done
+  assert.deepEqual(restoredDraftStep(claudeInputBox(REAL_EMPTY_ANSI), "long long", wrapped), { done: true });
+});
+
+test("halfway through clearing, words that are no piece of the stopped message refuse the send", () => {
+  const before = { text: "hello world again", rows: 1 };
+  assert.deepEqual(restoredDraftStep({ text: "something else", rows: 1 }, "hello world again", before), { stuck: true });
 });
 

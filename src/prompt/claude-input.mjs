@@ -14,18 +14,25 @@ import { ANSI_RE } from "./screen.mjs";
 const PROMPT_RE = /^❯(?:[ \u00a0]|$)/u;
 // The box's rules: plain, or named after the session ("──── my-session ─").
 const RULE_RE = /^─{3,}(?: \S(?:.*\S)? ─)?$/u;
+// The prompt row's text when it starts dim: Claude's tip in an empty box.
+const DIM_TIP_RE = /^(?:\u001b\[0m)*\u001b\[2m/u;
 
 // The box's text (rows joined by "\n", the prompt mark and indent dropped) and
 // how many rows it takes, or null when the screen shows no input box: the
 // last "❯" row with a rule right above it and one somewhere below it.
 export function claudeInputBox(screen) {
-  const lines = String(screen ?? "").replace(ANSI_RE, "").split(/\r?\n/u).map((line) => line.replace(/\s+$/u, ""));
+  const raw = String(screen ?? "").split(/\r?\n/u);
+  const lines = raw.map((line) => line.replace(ANSI_RE, "").replace(/\s+$/u, ""));
   const at = lines.findLastIndex((line) => PROMPT_RE.test(line));
   if (at < 1 || !RULE_RE.test(lines[at - 1].trim())) return null;
+  // An empty box shows a tip in dim text ("Try …"); on a screen read with its
+  // styles that is told from words typed there, which are not dim.
+  const placeholder = DIM_TIP_RE.test(raw[at].replace(/^\u276f[ \u00a0]?/u, ""));
   const rows = [lines[at].replace(/^❯[ \u00a0]?/u, "")];
   let end = at + 1;
   for (; end < lines.length && !RULE_RE.test(lines[end].trim()); end += 1) rows.push(lines[end].replace(/^ {1,2}/u, ""));
   if (end >= lines.length) return null;
+  if (placeholder) return { text: "", rows: 1, empty: true };
   return { text: rows.join("\n").replace(/\s+$/u, ""), rows: rows.length };
 }
 
@@ -66,10 +73,14 @@ export function restoredDraftStep(box, restored, before = null) {
   // A screen that cannot be read halfway through clearing may hide a piece
   // still there: the send is refused rather than typed after it.
   if (!box && before !== null) return { stuck: true };
-  if (!box || !wanted || !now) return { done: true };
+  // empty (its tip showing, or nothing): there is nothing to type after
+  if (box?.empty || (box && !now)) return { done: true };
+  if (!box || !wanted) return { done: true };
   if (before === null) return matchedLength(box.text, wanted) === wanted.length ? { keys: ["ctrl+k", "ctrl+u"] } : { done: true };
   const matched = matchedLength(box.text, wanted);
-  if (matched < 0) return { done: true };
+  // Not a piece of the stopped message any more, nor empty: something else
+  // changed it while it was being cleared. Refused rather than typed after.
+  if (matched < 0) return { stuck: true };
   const shorter = matched < matchedLength(before.text, wanted) || box.rows < before.rows;
   return shorter ? { keys: ["backspace", "ctrl+u"] } : { stuck: true };
 }

@@ -353,7 +353,7 @@ const INPUT_SETTLE_MS = 150;
 // Enough of the screen to hold Claude's whole input box with the longest
 // message the composer sends (8,000 characters) wrapped on a narrow pane, and
 // enough rounds to empty it a row or two at a time.
-const RESTORED_READ_LINES = 400;
+const RESTORED_READ_LINES = 1000;
 const MAX_CLEAR_ROUNDS = 400;
 
 // Enough for Claude Code to read a pasted image path before its Enter.
@@ -776,23 +776,29 @@ export class HerdrClient {
   // one is not typed after it. Text it holds otherwise is left alone; a box
   // the keys cannot empty refuses the send (the composer keeps the draft).
   async #clearRestoredMessage(safePaneId, restored) {
-    const look = async () => {
-      try {
-        return claudeInputBox(await this.readPane(safePaneId, { lines: RESTORED_READ_LINES, format: "text", source: "detection" }));
-      } catch {
-        return null;
-      }
-    };
+    // Read with its styles, so an empty box's dim tip is told from typed words.
+    // A screen that cannot be read refuses the send: the stopped message may
+    // still be there.
+    const look = async () => claudeInputBox(await this.readPane(safePaneId, { lines: RESTORED_READ_LINES, format: "ansi" }));
     let before = null;
-    let box = await look();
-    for (let round = 0; round < MAX_CLEAR_ROUNDS; round += 1) {
+    let box;
+    try {
+      box = await look();
+    } catch {
+      box = undefined;
+    }
+    for (let round = 0; box !== undefined && round < MAX_CLEAR_ROUNDS; round += 1) {
       const step = restoredDraftStep(box, restored, before);
       if (step.done) return;
       if (step.stuck) break;
       await this.#sendKeys(safePaneId, step.keys);
       await this.sleep(this.inputSettleMs);
       before = box;
-      box = await look();
+      try {
+        box = await look();
+      } catch {
+        break;
+      }
     }
     throw new HerdrCommandError("Claude's input box still holds the stopped message. Clear it in the terminal, then send again.",
       { code: "input_not_empty" });
