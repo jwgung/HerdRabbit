@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_PAGE_PROMPTS, TOOL_OUTPUT_MAX_CHARS, TOOL_OUTPUT_PREVIEW_CHARS } from "../src/conversation/pages.mjs";
 import {
+  IDENTITY_RECHECK_MS,
   LARGE_ROW_BYTES,
   LARGE_TEXT_CHARS,
   STATEMENTS,
@@ -475,3 +476,19 @@ test("changing the undo target to an id of the same length changes the identity,
   assert.notEqual((await store.page(SESSION)).version, page.version);
   assert.notEqual(await conversations.signature("w1:p1"), signature);
 });
+
+test("a write the file stats do not show is still seen within a couple of seconds", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  const message = fixture.exchange(SESSION, 1);
+  let clock = 1_000_000;
+  // the files' size and time look the same before and after the write
+  const statFile = async () => ({ dev: 1, ino: 2, size: 4096, mtimeMs: 5 });
+  const store = localOpencodeStore({ path, statFile, now: () => clock });
+  const first = await store.stat(SESSION);
+  fixture.part(SESSION, message, { type: "text", text: "more" });
+  assert.equal((await store.stat(SESSION)).identity, first.identity, "read again at once (the stats alone keep it)");
+  clock += IDENTITY_RECHECK_MS;
+  assert.notEqual((await store.stat(SESSION)).identity, first.identity, "the write was never seen");
+});
+

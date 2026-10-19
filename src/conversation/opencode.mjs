@@ -51,6 +51,8 @@ export const LARGE_TEXT_CHARS = 64 * 1024;
 // How many parts and messages one page reads at most.
 const MAX_PAGE_PARTS = 5000;
 const MAX_PAGE_MESSAGES = 5000;
+// The longest a session's identity is trusted from unchanged file stats alone.
+export const IDENTITY_RECHECK_MS = 2_000;
 
 // The messages of one page: a session's message keys from $fromTime/$fromId
 // (included) to $toTime/$toId (excluded).
@@ -319,7 +321,7 @@ function revertOf(db, row) {
 // This machine's OpenCode database, read only. As a store it answers
 // stat(session) with an identity that changes whenever the session does, so
 // the monitor and a hub's signature poll treat it as they treat a file.
-export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat, importSqlite = () => import("node:sqlite"), maxMessages = MAX_PAGE_MESSAGES } = {}) {
+export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat, importSqlite = () => import("node:sqlite"), maxMessages = MAX_PAGE_MESSAGES, now = () => Date.now() } = {}) {
   let sqlite;
   const loadSqlite = () => (sqlite ??= Promise.resolve().then(importSqlite).catch(() => null));
   // dev:ino -> whether that database has the tables and columns read here
@@ -522,12 +524,14 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
     },
 
     // { identity, size, mtimeMs } of the session, or null when it is gone or
-    // the database cannot be read. Read again only when the database's files changed.
+    // the database cannot be read. Read again when the database's files
+    // changed, and at least every IDENTITY_RECHECK_MS: a write the files'
+    // size and time do not show (same size, same millisecond) is seen soon.
     async stat(session) {
       if (typeof session !== "string" || !OPENCODE_SESSION_ID.test(session)) return null;
       const seen = await files();
       const known = identities.get(session);
-      if (known?.files === seen) return known.value;
+      if (known?.files === seen && now() - known.at < IDENTITY_RECHECK_MS) return known.value;
       let value = null;
       try {
         const identity = await withDb((db) => identityIn(db, session));
@@ -536,7 +540,7 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
         if (error instanceof ConversationUnavailable) throw error;
         value = null;
       }
-      remember(identities, session, { files: seen, value }, 64);
+      remember(identities, session, { files: seen, value, at: now() }, 64);
       return value;
     },
 
