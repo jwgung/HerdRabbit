@@ -47,7 +47,7 @@ export const STATEMENTS = Object.freeze({
   columns: "SELECT name FROM pragma_table_info(?)",
   session: "SELECT id, parent_id, directory, revert, time_updated FROM session WHERE id = ?",
   newestInDirectory: "SELECT id FROM session WHERE directory = ? AND parent_id IS NULL AND time_archived IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1",
-  newestInDirectoryUnarchived: "SELECT id FROM session WHERE directory = ? AND parent_id IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1",
+  newestInDirectoryAny: "SELECT id FROM session WHERE directory = ? AND parent_id IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1",
   sequence: "SELECT seq FROM event_sequence WHERE aggregate_id = ?",
   partsChanged: "SELECT MAX(time_updated) AS updated, COUNT(*) AS parts FROM part WHERE session_id = ?",
   messagesChanged: "SELECT MAX(time_updated) AS updated, COUNT(*) AS messages FROM message WHERE session_id = ?",
@@ -140,12 +140,13 @@ function toolPart(id, data) {
   const input = record(state.input);
   const patch = typeof input.patchText === "string" ? patchText(input.patchText) : null;
   const normal = renamed(input);
+  const files = patch !== null ? patchFiles(patch) : [];
   const part = {
     kind: "tool",
     id: TOOL_ID.test(id) ? id : null,
     name,
-    summary: patch !== null && patchFiles(patch).length > 0
-      ? patchFiles(patch).join(", ").slice(0, 120)
+    summary: files.length > 0
+      ? files.join(", ").slice(0, 120)
       : opencodeToolSummary(name, normal, string(state.title)),
     // a patch reads as the patch itself, as Codex's does
     ...toolInputFields(patch ?? JSON.stringify(normal, null, 2)),
@@ -429,7 +430,7 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
           // a child session is a subagent's, never the pane's
         }
         if (typeof cwd !== "string" || !isAbsolute(cwd)) return null;
-        const row = db.statement(db.shape.archive ? "newestInDirectory" : "newestInDirectoryUnarchived").get(cwd);
+        const row = db.statement(db.shape.archive ? "newestInDirectory" : "newestInDirectoryAny").get(cwd);
         return row && OPENCODE_SESSION_ID.test(String(row.id)) ? { session: String(row.id), found: true } : null;
       });
     },

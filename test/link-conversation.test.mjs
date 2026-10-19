@@ -381,3 +381,25 @@ test("a connected PC's Codex pane reads as a chat too, found there by its thread
   assert.match(words, /codex answer 2/u);
   assert.doesNotMatch(words, /rollout-2026/u, "B's file path stays on B");
 });
+
+test("a connected PC that does not know OpenCode says to update it, not that chat is unsupported", async (context) => {
+  // An older HerdRabbit has the conversation routes but answers an agent it
+  // does not know as not_supported_agent.
+  const desk = await startDesk(context, {
+    link: (routes) => async (request, response, url, method) => {
+      if (/\/(conversation|pending-ask)/u.test(url.pathname) && url.pathname.includes(encodeURIComponent(OPENCODE_PANE))) {
+        throw new ConversationUnavailable("not_supported_agent");
+      }
+      return routes(request, response, url, method);
+    },
+  });
+  const { get, conversations } = await startHub(context, desk.address);
+  const opencode = `/api/panes/${encodeURIComponent(`link_1!${OPENCODE_PANE}`)}`;
+  const response = await get(`${opencode}/conversation`);
+  assert.equal(response.status, 404);
+  assert.deepEqual((await response.json()).error.details, { reason: "linked_pc_old" });
+  await assert.rejects(conversations.toolOutput(`link_1!${OPENCODE_PANE}`, "toolu_big"), (error) => error.reason === "linked_pc_old");
+  // a pane whose agent this hub does not support keeps the PC's own answer
+  const shell = await (await get(`/api/panes/${encodeURIComponent("link_1!hs_ZGVmYXVsdA~w1:p2")}/conversation`)).json();
+  assert.equal(shell.error.details.reason, "not_supported_agent");
+});

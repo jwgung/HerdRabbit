@@ -230,3 +230,20 @@ test("the monitor stats remote files more slowly, reports unavailability, and ru
   assert.equal(monitor.running, false);
   monitor.stop();
 });
+
+test("the monitor tells a watcher when a store cannot read the conversation's version", async () => {
+  const { ConversationUnavailable } = await import("../src/conversation/pages.mjs");
+  const store = { remote: false, stat: async () => { throw new ConversationUnavailable("unsupported_opencode_version"); } };
+  const monitor = new ConversationMonitor({
+    resolve: async () => ({ serverId: "local", store, session: SESSION, path: SESSION }),
+    statIntervalMs: 5,
+    now: () => Date.now(),
+  });
+  const heard = [];
+  const stop = monitor.watch("w1:p1", (signature) => heard.push(signature));
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  stop();
+  monitor.stop();
+  // heard once: the same unreadable version is not announced again each tick
+  assert.equal(heard.length, 1);
+});

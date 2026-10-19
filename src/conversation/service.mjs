@@ -1,8 +1,8 @@
 // A pane's conversation, from the pane id the browser knows: which agent it
 // runs (Claude Code, Codex or OpenCode, each with its own format), which file
-// (or, for OpenCode, which session of its database) of this machine's holds it, and the page or tool output asked for. A PC connected
-// with Connect PC reads
-// its own transcripts: its panes' pages, tool output, change signature and
+// (or, for OpenCode, which session of its database) of this machine's holds
+// it, and the page or tool output asked for. A PC connected with Connect PC
+// reads its own transcripts: its panes' pages, tool output, change signature and
 // pending plan or question are asked of it over its link, never read here.
 import { createHash, randomUUID } from "node:crypto";
 import { CLAUDE_TRANSCRIPT, SESSION_ID, locateClaudeTranscript, pendingClaudeAsk, readTail } from "./claude.mjs";
@@ -66,10 +66,17 @@ export class ConversationService {
 
   // A connected PC that cannot be reached has no conversation to show here;
   // what it said itself about a pane (ConversationError) is passed on as it is.
-  async #relay(work) {
+  async #relay(work, paneId = null) {
     try {
       return await work();
     } catch (error) {
+      // A PC from before an agent was supported answers "not supported" for it;
+      // this hub knows the agent is one it supports, so that PC needs updating.
+      if (error instanceof ConversationUnavailable && error.reason === "not_supported_agent" && paneId !== null) {
+        let pane = null;
+        try { pane = ((await this.herdr.snapshot())?.panes ?? []).find((candidate) => candidate?.pane_id === paneId); } catch { /* keeps its own answer */ }
+        if (pane && FORMATS[paneAgentName(pane)]) throw new ConversationUnavailable("linked_pc_old");
+      }
       if (error instanceof ConversationError) throw error;
       throw new ConversationUnavailable("server_unavailable");
     }
@@ -267,7 +274,7 @@ export class ConversationService {
 
   async page(paneId, { before, since, ifNoneMatch } = {}) {
     const linked = typeof paneId === "string" && paneId.length <= 512 ? this.#linked(paneId) : null;
-    if (linked) return this.#relay(() => linked.client.conversationPage(linked.id, { before, since, ifNoneMatch }));
+    if (linked) return this.#relay(() => linked.client.conversationPage(linked.id, { before, since, ifNoneMatch }), paneId);
     const target = await this.resolve(paneId);
     if (target.path === null) {
       // the agent writes the file with its first message: until then there is
@@ -295,7 +302,7 @@ export class ConversationService {
       throw new ConversationError(400, "invalid_tool_id", "That tool call id is not valid.");
     }
     const linked = typeof paneId === "string" && paneId.length <= 512 ? this.#linked(paneId) : null;
-    if (linked) return this.#relay(() => linked.client.conversationToolOutput(linked.id, toolId));
+    if (linked) return this.#relay(() => linked.client.conversationToolOutput(linked.id, toolId), paneId);
     const target = await this.resolve(paneId);
     if (target.path === null) throw new ConversationError(404, "tool_output_not_found", "That tool call has no output.");
     let found;
