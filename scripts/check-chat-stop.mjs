@@ -5,12 +5,14 @@
 // else, the draft stays and Stop is busy for a moment, never Send). In the
 // Terminal lens and once the agent is idle it stays Send. Esc in the composer
 // stops as well, but not while the `@` file list is open (that Esc only closes
-// the list). Runs against an in-process fake herdr and a transcript in a
+// the list). A message sent after a Stop that Claude got run together with the
+// stopped one (its input box held that one) shows once, with nothing left
+// "Sending…". Runs against an in-process fake herdr and a transcript in a
 // temporary Claude folder.
 // CHAT_STOP_SCREENSHOTS=<folder> keeps pictures of the composer in both themes.
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
@@ -298,8 +300,54 @@ try {
       await looksLike("send");
     }
 
+    // Send, Stop at once, send again: Claude Code put the stopped message back
+    // in its input box, so the transcript has the two as one message. It shows
+    // once, and no bubble stays "Sending…".
+    const chat = page.locator('.chat-pane[data-pane-id="w1:p1"]');
+    const stopped = mobile ? "ㄱㄱㄱㄲ" : "ㄱㄱㄱ";
+    const next = `잠깐, 먼저 메인에 어디까지 올라감 지금? (${mobile ? "phone" : "desktop"})`;
+    const sendNow = async (text) => {
+      await input.fill(text);
+      await looksLike("send");
+      await button.click();
+      const by = Date.now() + 5_000;
+      while (!texts().includes(text) && Date.now() < by) await page.waitForTimeout(50);
+      assert.ok(texts().includes(text), `${text} was not sent`);
+      await page.waitForFunction(() => document.querySelector("#terminal-input").value === "", null, { timeout: 5_000 });
+    };
+    // the messages sent above reach the transcript first, as they would
+    const second = mobile ? 41 : 31;
+    await appendFile(join(transcripts, `${SESSION}.jsonl`), texts().map((text, index) => JSON.stringify(
+      { type: "user", uuid: `e${second}-${index}`, parentUuid: null, timestamp: at(second - 10 + index), message: { role: "user", content: text } },
+    )).join("\n") + "\n");
+    await page.waitForFunction(() => !document.querySelector(".chat-turn-user.is-pending"), null, { timeout: 8_000 });
+    await sendNow(stopped);
+    await chat.locator(".chat-turn-user.is-pending").filter({ hasText: stopped }).waitFor({ state: "visible", timeout: 5_000 });
+    await blur();
+    await looksLike("stop");
+    const escBefore = keys().length;
+    await button.click();
+    const escBy = Date.now() + 5_000;
+    while (keys().length === escBefore && Date.now() < escBy) await page.waitForTimeout(50);
+    assert.deepEqual(keys().at(-1), ["esc"], "Stop sent Esc");
+    await ready();
+    await input.focus();
+    await sendNow(next);
+    await chat.locator(".chat-turn-user.is-pending").filter({ hasText: next }).waitFor({ state: "visible", timeout: 5_000 });
+    await appendFile(join(transcripts, `${SESSION}.jsonl`), [
+      { type: "user", uuid: `u${second}`, parentUuid: null, timestamp: at(second), message: { role: "user", content: `${stopped}${next}` } },
+      { type: "assistant", timestamp: at(second + 2), message: { role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text: `Answered ${second}.` }] } },
+    ].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    await chat.locator(".chat-turn-user:not(.is-pending)").filter({ hasText: `${stopped}${next}` }).waitFor({ state: "visible", timeout: 8_000 });
+    // the message sent last resolves as soon as it shows; the stopped one,
+    // which never reached the transcript alone, goes a few seconds later
+    await page.waitForFunction((text) => ![...document.querySelectorAll(".chat-turn-user.is-pending")].some((item) => item.textContent.includes(text)),
+      next, { timeout: 2_000 });
+    await page.waitForFunction(() => !document.querySelector(".chat-turn-user.is-pending"), null, { timeout: 10_000 });
+    assert.equal(await chat.locator(".chat-turn-user").filter({ hasText: next }).count(), 1, "the message shows once");
+
     assert.deepEqual(errors, [], "no page errors");
-    results.push({ mobile, send: true, stop: true, again: true, slow: true, refused: true, escape: true, atList: true, terminal: true, idle: true });
+    results.push({ mobile, send: true, stop: true, again: true, slow: true, refused: true, escape: true, atList: true, terminal: true, idle: true, restored: true });
     await context.close();
   }
 } finally {

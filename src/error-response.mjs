@@ -39,7 +39,7 @@ export function errorResponse(error) {
   if (error instanceof HerdrCommandError) {
     return {
       status: error.code === "herdr_timeout" ? 504
-        : error.code === "split_session" || error.code === "stale_content" ? 409
+        : error.code === "split_session" || error.code === "stale_content" || error.code === "input_not_empty" ? 409
           : error.code === "link_unsupported" ? 501 : 502,
       code: error.code,
       message: error.message,
