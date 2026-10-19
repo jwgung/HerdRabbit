@@ -1,4 +1,4 @@
-// The Chat lens: an agent pane's conversation (Claude Code's or Codex's)
+// The Chat lens: an agent pane's conversation (Claude Code's, Codex's or OpenCode's)
 // drawn as turns, beside the
 // pane's terminal in the same place. Switching lenses only shows one and hides
 // the other: the terminal stays attached, and the chat keeps what it read.
@@ -6,8 +6,8 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatView.tsx and
 // ChatView.css, rewritten as plain DOM code without React.
-import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.73";
-import { lineDiff } from "./diff.js?v=1.2.73";
+import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.74";
+import { lineDiff } from "./diff.js?v=1.2.74";
 import {
   formatWorkDuration,
   commandText,
@@ -23,17 +23,17 @@ import {
   workStartsOpen,
   workSummary,
   workTitle,
-} from "./work-blocks.js?v=1.2.73";
-import { paneRenames } from "../pane-rename.js?v=1.2.73";
-import { ConversationLoader } from "./conversation-refresh.js?v=1.2.73";
-import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.73";
+} from "./work-blocks.js?v=1.2.74";
+import { paneRenames } from "../pane-rename.js?v=1.2.74";
+import { ConversationLoader } from "./conversation-refresh.js?v=1.2.74";
+import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.74";
 import {
   chatMayBecomeAvailable,
   chatUnavailableText,
   chooseLens,
   readPaneLens,
   writePaneLens,
-} from "../lens-preference.js?v=1.2.73";
+} from "../lens-preference.js?v=1.2.74";
 
 // Scrolling this close to the top reads the page before it.
 const LOAD_OLDER_PX = 400;
@@ -230,7 +230,7 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
 
   function todoList(items) {
     const list = element(document, "ul", { className: "chat-todos" });
-    const words = { completed: "done", in_progress: "in progress", pending: "to do" };
+    const words = { completed: "done", in_progress: "in progress", pending: "to do", cancelled: "cancelled" };
     for (const item of items) {
       const row = element(document, "li", { className: `chat-todo is-${item.status}` });
       row.append(element(document, "span", { className: "chat-todo-mark", attrs: { "aria-hidden": "true" } }));
@@ -239,6 +239,27 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
       list.append(row);
     }
     return list;
+  }
+
+  function questionList(questions) {
+    const list = element(document, "div", { className: "chat-questions" });
+    for (const question of questions) {
+      if (question === null || typeof question !== "object" || typeof question.question !== "string") continue;
+      list.append(element(document, "p", { className: "chat-question", text: question.question }));
+      const options = Array.isArray(question.options) ? question.options.filter((option) => typeof option?.label === "string") : [];
+      if (options.length > 0) {
+        const choices = element(document, "ul", { className: "chat-question-options" });
+        for (const option of options) {
+          const row = element(document, "li", { text: option.label });
+          if (typeof option.description === "string" && option.description) {
+            row.append(element(document, "span", { className: "chat-tool-meta", text: ` — ${option.description}` }));
+          }
+          choices.append(row);
+        }
+        list.append(choices);
+      }
+    }
+    return list.childElementCount > 0 ? list : null;
   }
 
   function toolInput(part) {
@@ -254,6 +275,11 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     }
     const input = parseToolInput(part.input ?? "");
     if (input === null) { io.append(raw()); return io; }
+    // OpenCode's question: what it asked and the choices it gave; the answer is the output
+    if (part.name === "question" && Array.isArray(input.questions)) {
+      const shown = questionList(input.questions);
+      if (shown !== null) { io.append(shown); return io; }
+    }
     const text = (key) => (typeof input[key] === "string" ? input[key] : undefined);
     const path = text("file_path") ?? text("notebook_path") ?? text("path");
     // Claude's Bash and Codex's exec_command (`cmd`) or shell (an argv)

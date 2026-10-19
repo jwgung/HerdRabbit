@@ -113,8 +113,13 @@ export class ConversationMonitor {
         return;
       }
       this.#publish(paneId, state, `file\0${target.serverId}\0${target.path}\0${stat.identity}\0${stat.size}\0${stat.mtimeMs}`);
-    } catch {
-      // A PC that dropped its connection says nothing new; the next stat asks again.
+    } catch (error) {
+      // A database this version cannot read (OpenCode) is news: a new signature
+      // makes an open chat read again and learn why. Anything else (a PC that
+      // dropped its connection) says nothing new; the next stat asks again.
+      if (error instanceof ConversationUnavailable && this.panes.get(paneId) === state && state.target === target) {
+        this.#publish(paneId, state, `unavailable\0${error.reason}`);
+      }
     } finally {
       state.statting = false;
       state.nextStat = this.now() + (target.store.remote ? this.remoteStatIntervalMs : 0);

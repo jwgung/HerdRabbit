@@ -72,6 +72,7 @@ test("the working row shows while the agent works, or briefly after a send, neve
   assert.equal(workingText(now - 72_000, now), "Claude is working · 1m 12s");
   assert.equal(workingText(null, now), "Claude is working");
   assert.equal(workingText(now - 5_000, now, "codex"), "Codex is working · 5s");
+  assert.equal(workingText(now - 5_000, now, "opencode"), "OpenCode is working · 5s");
   assert.equal(workingText(null, now, "gemini"), "The agent is working");
 });
 

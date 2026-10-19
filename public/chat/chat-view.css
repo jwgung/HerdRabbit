@@ -566,9 +566,30 @@ pre.chat-tool-io,
   background: var(--done);
 }
 
-.chat-todo.is-completed {
+.chat-todo.is-completed,
+.chat-todo.is-cancelled {
   color: var(--muted);
   text-decoration: line-through;
+}
+
+.chat-todo.is-cancelled .chat-todo-mark {
+  border-style: dashed;
+}
+
+.chat-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-question {
+  margin: 0;
+  font-weight: 600;
+}
+
+.chat-question-options {
+  margin: 0;
+  padding-left: 20px;
 }
 
 .sr-only {

@@ -19,13 +19,16 @@ import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { linkRoutes } from "../src/link-server.mjs";
 import { MultiServerClient } from "../src/multi-server-client.mjs";
 import { PeerIdentity } from "../src/peer-identity.mjs";
+import { opencodeDb } from "./fixtures/opencode-db.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
 
-const VERSION = "1.2.73";
+const VERSION = "1.2.74";
 const SESSION = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
 const PANE = "hs_ZGVmYXVsdA~w1:p1";
 const LINKED = `link_1!${PANE}`;
 const CODEX_PANE = "hs_ZGVmYXVsdA~w1:p3";
+const OPENCODE_PANE = "hs_ZGVmYXVsdA~w1:p4";
+const OPENCODE_SESSION = "ses_0001AAAAAAAAAAAAAAAAAAAAAA";
 const THREAD = "019da5c2-66fd-7021-b565-5e94406b028e";
 const codexTask = (n) => [
   { type: "event_msg", payload: { type: "task_started", turn_id: `t${n}` } },
@@ -84,8 +87,15 @@ async function startDesk(context, { link = (routes) => routes } = {}) {
     { type: "session_meta", payload: { id: THREAD, cwd: "/work/desk", source: "cli" } },
     ...codexTask(1), ...codexTask(2),
   ]));
+  // An OpenCode database, its session reported by herdr's OpenCode plugin.
+  const opencode = opencodeDb(join(root, "opencode.db"));
+  context.after(() => opencode.close());
+  opencode.session(OPENCODE_SESSION, { directory: "/work/desk" });
+  opencode.exchange(OPENCODE_SESSION, 1, [{ type: "tool", tool: "bash", state: { status: "completed", input: { command: "ls" }, output: "a\nb" } }]);
   const reads = [];
   const panes = [
+    { pane_id: OPENCODE_PANE, agent: "opencode", agent_status: "idle", cwd: "/work/desk",
+      agent_session: { agent: "opencode", kind: "id", source: "herdr:opencode", value: OPENCODE_SESSION } },
     { pane_id: CODEX_PANE, agent: "codex", agent_status: "idle", cwd: "/work/desk", agent_session: { agent: "codex", kind: "id", value: THREAD } },
     { pane_id: PANE, agent: "claude", agent_status: "blocked", cwd: "/work/desk", agent_session: { agent: "claude", kind: "id", value: SESSION } },
     { pane_id: "hs_ZGVmYXVsdA~w1:p2", agent: null, cwd: "/work/desk" },
@@ -100,7 +110,7 @@ async function startDesk(context, { link = (routes) => routes } = {}) {
     },
     async readPane(paneId, options) { reads.push([paneId, options]); return planScreen; },
   };
-  const conversations = new ConversationService({ herdr, localStore: localTranscriptStore({ configDir, codexHome: join(root, "codex") }) });
+  const conversations = new ConversationService({ herdr, localStore: localTranscriptStore({ configDir, codexHome: join(root, "codex"), opencodeDb: join(root, "opencode.db") }) });
   // B's own `/` command list, as a fake that says what it was asked.
   const commandsAsked = [];
   const slashCommands = {
@@ -114,7 +124,7 @@ async function startDesk(context, { link = (routes) => routes } = {}) {
     link: link(linkRoutes({ client: herdr, conversations, slashCommands, version: VERSION, serverName: "desk" })),
     logger: { error() {} },
   });
-  return { address: await listen(context, server), herdr, transcript, project, commandsAsked };
+  return { address: await listen(context, server), herdr, transcript, project, commandsAsked, opencode };
 }
 
 // A: the page, with B connected, read through its own browser API.
@@ -189,6 +199,27 @@ test("A relays a tool's whole output, and B's reasons a pane has none", async (c
     assert.equal(response.status, 404);
     assert.deepEqual((await response.json()).error.details, { reason });
   }
+});
+
+test("A relays a connected PC's OpenCode pane, read from B's own database", async (context) => {
+  const desk = await startDesk(context);
+  const { get } = await startHub(context, desk.address);
+  const linked = `/api/panes/${encodeURIComponent(`link_1!${OPENCODE_PANE}`)}`;
+  const response = await get(`${linked}/conversation`);
+  assert.equal(response.status, 200);
+  const page = await response.json();
+  assert.equal(page.source, "opencode-session");
+  assert.deepEqual(page.turns.map((turn) => turn.role), ["user", "assistant"]);
+  const tool = page.turns[1].parts.find((part) => part.kind === "tool");
+  assert.equal(tool.summary, "ls");
+  assert.deepEqual(await (await get(`${linked}/conversation/tools/${tool.id}`)).json(), { id: tool.id, output: "a\nb", output_size: 3, truncated: false });
+  assert.equal((await get(`${linked}/conversation`, { "If-None-Match": `"${page.version}"` })).status, 304);
+  const signature = async () => (await (await fetch(`${desk.address}/api/link/panes/${encodeURIComponent(OPENCODE_PANE)}/conversation/signature`)).json()).signature;
+  const before = await signature();
+  desk.opencode.exchange(OPENCODE_SESSION, 2);
+  assert.notEqual(await signature(), before);
+  const grown = await (await get(`${linked}/conversation`)).json();
+  assert.equal(grown.turns.at(-1).parts.at(-1).text, "answer 2");
 });
 
 test("B answers only for its own panes, never for a server it reaches itself", async (context) => {
@@ -349,4 +380,26 @@ test("a connected PC's Codex pane reads as a chat too, found there by its thread
   assert.match(words, /codex prompt 1/u);
   assert.match(words, /codex answer 2/u);
   assert.doesNotMatch(words, /rollout-2026/u, "B's file path stays on B");
+});
+
+test("a connected PC that does not know OpenCode says to update it, not that chat is unsupported", async (context) => {
+  // An older HerdRabbit has the conversation routes but answers an agent it
+  // does not know as not_supported_agent.
+  const desk = await startDesk(context, {
+    link: (routes) => async (request, response, url, method) => {
+      if (/\/(conversation|pending-ask)/u.test(url.pathname) && url.pathname.includes(encodeURIComponent(OPENCODE_PANE))) {
+        throw new ConversationUnavailable("not_supported_agent");
+      }
+      return routes(request, response, url, method);
+    },
+  });
+  const { get, conversations } = await startHub(context, desk.address);
+  const opencode = `/api/panes/${encodeURIComponent(`link_1!${OPENCODE_PANE}`)}`;
+  const response = await get(`${opencode}/conversation`);
+  assert.equal(response.status, 404);
+  assert.deepEqual((await response.json()).error.details, { reason: "linked_pc_old" });
+  await assert.rejects(conversations.toolOutput(`link_1!${OPENCODE_PANE}`, "toolu_big"), (error) => error.reason === "linked_pc_old");
+  // a pane whose agent this hub does not support keeps the PC's own answer
+  const shell = await (await get(`/api/panes/${encodeURIComponent("link_1!hs_ZGVmYXVsdA~w1:p2")}/conversation`)).json();
+  assert.equal(shell.error.details.reason, "not_supported_agent");
 });

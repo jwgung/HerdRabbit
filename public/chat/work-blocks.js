@@ -6,8 +6,9 @@
 //
 // Ported from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/lib/workBlocks.ts,
-// src/lib/toolVerbs.ts and src/lib/todos.ts, reduced to Claude Code's and
-// Codex's tools.
+// src/lib/toolVerbs.ts and src/lib/todos.ts, reduced to Claude Code's,
+// Codex's and OpenCode's tools (the server gives OpenCode's inputs Claude's
+// field names).
 
 // { work: parts, answer: text parts }
 export function splitTurn(parts) {
@@ -153,13 +154,14 @@ export function isCommandTool(name) {
 }
 
 // ---------------------------------------------------------------------------
-// Todos: Claude Code's TodoWrite sends the whole list every time.
+// Todos: Claude Code's TodoWrite and OpenCode's todowrite send the whole list
+// every time.
 
 export function isTodoTool(name) {
-  return name === "TodoWrite";
+  return name === "TodoWrite" || name === "todowrite";
 }
 
-const TODO_STATUSES = new Set(["pending", "in_progress", "completed"]);
+const TODO_STATUSES = new Set(["pending", "in_progress", "completed", "cancelled"]);
 
 // [{ label, status }] from a TodoWrite call's input, or null.
 export function todoItems(input) {
@@ -173,7 +175,7 @@ export function todoItems(input) {
   });
 }
 
-// "3/5 done" for a TodoWrite row; null for any other tool.
+// "3/5 done" for a todo list row; null for any other tool.
 export function todoCallSummary(part) {
   if (!isTodoTool(part.name)) return null;
   const items = todoItems(part.input);

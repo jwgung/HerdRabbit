@@ -108,3 +108,22 @@ test("a TodoWrite call reads as its list", () => {
   assert.equal(todoCallSummary(tool("Bash", { command: "x" })), null);
   assert.equal(todoItems("not json"), null);
 });
+
+test("an OpenCode todowrite call reads as its list too, a cancelled item as cancelled", () => {
+  const call = tool("todowrite", { todos: [
+    { content: "plan", status: "completed", priority: "high", id: "1" }, { content: "drop", status: "cancelled", priority: "low", id: "2" },
+    { content: "build", status: "pending", priority: "medium", id: "3" },
+  ] });
+  assert.deepEqual(todoItems(call.input), [
+    { label: "plan", status: "completed" }, { label: "drop", status: "cancelled" }, { label: "build", status: "pending" },
+  ]);
+  assert.equal(todoCallSummary(call), "1/3 done");
+  assert.equal(workSummary([call, tool("bash", { command: "ls" })]), "1 command", "a todo list is no edit");
+});
+
+test("OpenCode's tools read with the verbs Claude's do, by the names the server gives their fields", () => {
+  assert.equal(toolVerb({ ...tool("read", { file_path: "/a.js" }), summary: "/a.js" }), "Read");
+  assert.equal(toolVerb({ ...tool("edit", { file_path: "/a.js", old_string: "a", new_string: "b" }), summary: "/a.js" }), "Edited");
+  assert.equal(toolVerb({ ...tool("bash", { command: "npm test", description: "Run" }), summary: "npm test" }), "Ran");
+  assert.equal(workSummary([tool("grep", { pattern: "x" }), tool("glob", { pattern: "*" }), tool("write", { file_path: "/b" })]), "1 edit · 2 file reads");
+});

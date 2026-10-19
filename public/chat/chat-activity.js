@@ -1,10 +1,8 @@
 // What the end of the Chat lens says while the agent works: a "Claude is
-// working" (or "Codex is working") row with the time it has taken, and the message just sent shown as
+// working" (or "Codex is working", "OpenCode is working") row with the time it has taken, and the message just sent shown as
 // a pending bubble until the transcript has it.
 
 // How long a sent message waits for the transcript before its bubble goes.
-import { CHAT_AGENTS } from "../lens-preference.js?v=1.2.73";
-
 export const PENDING_MS = 30_000;
 // How long a send alone (no status yet) keeps the working row up.
 export const OPTIMISTIC_MS = 30_000;
@@ -27,7 +25,7 @@ export function formatElapsed(ms) {
 }
 
 // The name a row or card gives the agent herdr names.
-const AGENT_LABELS = { claude: "Claude", codex: "Codex" };
+const AGENT_LABELS = { claude: "Claude", codex: "Codex", opencode: "OpenCode" };
 export function agentLabel(agent) {
   return AGENT_LABELS[String(agent ?? "").toLowerCase()] ?? "The agent";
 }
@@ -113,11 +111,15 @@ export function settlePending(pending, turns, now = Date.now(), maxAge = PENDING
   });
 }
 
+// The agents whose chat offers Stop: Esc interrupts them. OpenCode's chat is
+// read-only for now.
+const STOP_AGENTS = Object.freeze(["claude", "codex"]);
+
 // Whether the composer shows Stop: the Chat lens is on a Claude or Codex pane
 // whose agent herdr says is working. A blocked agent has its card instead, and
 // a send no status has answered yet is only a guess, so neither shows it.
 export function showsStop({ lens, agent, status }) {
-  return lens === "chat" && CHAT_AGENTS.includes(String(agent ?? "").toLowerCase()) && status === "working";
+  return lens === "chat" && STOP_AGENTS.includes(String(agent ?? "").toLowerCase()) && status === "working";
 }
 
 // What the composer's Send button does: Stop while Stop shows and the composer

@@ -1,12 +1,13 @@
 // A pane's conversation, from the pane id the browser knows: which agent it
-// runs (Claude Code or Codex, each with its own format), which file of this
-// machine's holds it, and the page or tool output asked for. A PC connected
-// with Connect PC reads
-// its own transcripts: its panes' pages, tool output, change signature and
+// runs (Claude Code, Codex or OpenCode, each with its own format), which file
+// (or, for OpenCode, which session of its database) of this machine's holds
+// it, and the page or tool output asked for. A PC connected with Connect PC
+// reads its own transcripts: its panes' pages, tool output, change signature and
 // pending plan or question are asked of it over its link, never read here.
 import { createHash, randomUUID } from "node:crypto";
 import { CLAUDE_TRANSCRIPT, SESSION_ID, locateClaudeTranscript, pendingClaudeAsk, readTail } from "./claude.mjs";
 import { CODEX_TRANSCRIPT, THREAD_ID, isCodexProcess, locateCodexRollout } from "./codex.mjs";
+import { OPENCODE_SESSION, OPENCODE_SESSION_ID } from "./opencode.mjs";
 import {
   ConversationError,
   ConversationUnavailable,
@@ -27,7 +28,7 @@ const MISSING_LOCATE_TTL_MS = 2_000;
 // The screen a Codex pane is matched by, as a last resort.
 const MATCH_SCREEN_LINES = 400;
 
-const FORMATS = { claude: CLAUDE_TRANSCRIPT, codex: CODEX_TRANSCRIPT };
+const FORMATS = { claude: CLAUDE_TRANSCRIPT, codex: CODEX_TRANSCRIPT, opencode: OPENCODE_SESSION };
 
 // What a link's client must answer for its panes' conversations to be relayed.
 const LINK_CALLS = ["conversationPage", "conversationToolOutput", "conversationSignature", "conversationPendingAsk"];
@@ -65,10 +66,17 @@ export class ConversationService {
 
   // A connected PC that cannot be reached has no conversation to show here;
   // what it said itself about a pane (ConversationError) is passed on as it is.
-  async #relay(work) {
+  async #relay(work, paneId = null) {
     try {
       return await work();
     } catch (error) {
+      // A PC from before an agent was supported answers "not supported" for it;
+      // this hub knows the agent is one it supports, so that PC needs updating.
+      if (error instanceof ConversationUnavailable && error.reason === "not_supported_agent" && paneId !== null) {
+        let pane = null;
+        try { pane = ((await this.herdr.snapshot())?.panes ?? []).find((candidate) => candidate?.pane_id === paneId); } catch { /* keeps its own answer */ }
+        if (pane && FORMATS[paneAgentName(pane)]) throw new ConversationUnavailable("linked_pc_old");
+      }
       if (error instanceof ConversationError) throw error;
       throw new ConversationUnavailable("server_unavailable");
     }
@@ -185,7 +193,52 @@ export class ConversationService {
         () => locateClaudeTranscript(store, session, cwds));
       return { paneId, serverId, agent, format, store, session, path: found.value, key: found.key };
     }
+    if (agent === "opencode") return this.#resolveOpencode(paneId, { serverId, agent, format, own, pane, panes: snapshot?.panes ?? [] });
     return this.#resolveCodex(paneId, { serverId, agent, format, own, cwds });
+  }
+
+  // OpenCode's session is a row of its database: the store is that database,
+  // the "path" the session's id. Herdr's OpenCode plugin reports the session
+  // shown; with none reported, the newest one begun in the pane's folder.
+  async #resolveOpencode(paneId, { serverId, agent, format, own, pane, panes }) {
+    const store = this.#store(serverId)?.opencode;
+    if (!store) throw this.#noStore();
+    const reportedBy = (candidate) => candidate && (candidate.kind === undefined || candidate.kind === "id")
+      && typeof candidate.value === "string" && OPENCODE_SESSION_ID.test(candidate.value) ? candidate.value : null;
+    const reported = reportedBy(own);
+    // herdr named a session but not one that can be read: showing the folder's newest instead would show another conversation
+    if (reported === null && own && own.value !== undefined && own.value !== null && own.value !== "") {
+      throw new ConversationUnavailable("no_session_id");
+    }
+    const cwdOf = (candidate) => [candidate.foreground_cwd, candidate.cwd]
+      .find((value) => typeof value === "string" && value.startsWith("/") && value.length <= 4096) ?? null;
+    const cwd = cwdOf(pane);
+    // Without a reported id the folder's newest session is the pane's only if no other
+    // OpenCode pane of that folder could equally claim it.
+    const taken = [];
+    if (reported === null && cwd !== null) {
+      for (const peer of panes) {
+        if (!peer || peer === pane || peer.pane_id === paneId || paneAgentName(peer) !== "opencode") continue;
+        const peerServer = typeof peer.server_id === "string" && peer.server_id ? peer.server_id : LOCAL;
+        if (peerServer !== serverId || cwdOf(peer) !== cwd) continue;
+        const session = peer.agent_session && typeof peer.agent_session === "object" ? peer.agent_session : null;
+        const peerId = reportedBy(session && (typeof session.agent !== "string" || session.agent.toLowerCase() === "opencode") ? session : null);
+        if (peerId === null) throw new ConversationUnavailable("no_session_id");
+        taken.push(peerId);
+      }
+      taken.sort();
+    }
+    const found = await this.#located(`opencode\0${serverId}\0${reported ?? ""}\0${reported ? "" : cwd ?? ""}\0${taken.join(",")}`,
+      () => store.locate({ session: reported, cwd: reported ? null : cwd, taken }));
+    if (found.value === null) {
+      if (reported === null) throw new ConversationUnavailable("no_session_id");
+      // a session herdr reports that OpenCode has not written yet reads as no turns
+      return { paneId, serverId, agent, format, store, session: reported, path: null, key: found.key };
+    }
+    // a subagent's session whose top-level session is not there: no conversation of the pane's to show
+    if (found.value.child) throw new ConversationUnavailable("no_session_id");
+    const { session, found: written } = found.value;
+    return { paneId, serverId, agent, format, store, session, path: written ? session : null, key: found.key };
   }
 
   async #resolveCodex(paneId, { serverId, agent, format, own, cwds }) {
@@ -245,7 +298,7 @@ export class ConversationService {
 
   async page(paneId, { before, since, ifNoneMatch } = {}) {
     const linked = typeof paneId === "string" && paneId.length <= 512 ? this.#linked(paneId) : null;
-    if (linked) return this.#relay(() => linked.client.conversationPage(linked.id, { before, since, ifNoneMatch }));
+    if (linked) return this.#relay(() => linked.client.conversationPage(linked.id, { before, since, ifNoneMatch }), paneId);
     const target = await this.resolve(paneId);
     if (target.path === null) {
       // the agent writes the file with its first message: until then there is
@@ -259,6 +312,7 @@ export class ConversationService {
       };
     }
     try {
+      if (target.agent === "opencode") return await target.store.page(target.path, { before, since, ifNoneMatch });
       return await transcriptPage(target.format, target.store, target.path, { before, since, ifNoneMatch });
     } catch (error) {
       if (error instanceof ConversationUnavailable) this.forget(target);
@@ -272,12 +326,14 @@ export class ConversationService {
       throw new ConversationError(400, "invalid_tool_id", "That tool call id is not valid.");
     }
     const linked = typeof paneId === "string" && paneId.length <= 512 ? this.#linked(paneId) : null;
-    if (linked) return this.#relay(() => linked.client.conversationToolOutput(linked.id, toolId));
+    if (linked) return this.#relay(() => linked.client.conversationToolOutput(linked.id, toolId), paneId);
     const target = await this.resolve(paneId);
     if (target.path === null) throw new ConversationError(404, "tool_output_not_found", "That tool call has no output.");
     let found;
     try {
-      found = await transcriptToolOutput(target.format, target.store, target.path, toolId);
+      found = target.agent === "opencode"
+        ? await target.store.toolOutput(target.path, toolId)
+        : await transcriptToolOutput(target.format, target.store, target.path, toolId);
     } catch (error) {
       if (error instanceof ConversationUnavailable) this.forget(target);
       throw error;
