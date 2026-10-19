@@ -22,8 +22,11 @@
 //
 // A dialog open over the session (ctrl+p's commands, the session list, the
 // model picker, ...) takes every key while the panel only dims under it: no
-// card then. Checked on 1.18.34: the panel's words and colours stay readable
-// (dimmed) under such a dialog, and the dialog's title row ends in "esc".
+// card then, nor the fallback (opencodeDialogOpen). Checked on 1.18.34: the
+// panel's words and colours stay readable (dimmed) under such a dialog; the
+// dialog's title row ends in "esc", its search box ("Search" until something
+// is typed there) is two rows under it, and the dialog is a box of its own
+// background over the dimmed session.
 import { secretPrompt } from "../secret-prompt.mjs";
 import {
   ANSI_RE,
@@ -39,6 +42,8 @@ import {
 
 // the panel's left bar, and a line of it with nothing else
 const BAR_RE = /^\s*┃ ?/u;
+// Whether a raw line is drawn with such a bar (a panel's, or a message box's).
+const inPanel = (rawLine) => BAR_RE.test(String(rawLine ?? "").replace(ANSI_RE, ""));
 
 const PERMISSION_HEADER_RE = /^△\s+Permission required$/u;
 const ALWAYS_HEADER_RE = /^△\s+Always allow$/u;
@@ -54,8 +59,10 @@ const REJECT_ASK = "Tell OpenCode what to do differently";
 const TITLE_ICON_RE = /^[→✱#%◈←⟳⚙]\s+/u;
 // An open dialog's title row: its title, then "esc" at its right edge
 // ("Commands … esc", "Sessions … esc", "Select model … esc"), and maybe the
-// session's scrollbar beside it.
+// session's scrollbar beside it. Not one of a panel's (┃) rows.
 const DIALOG_TITLE_RE = /^\s*\S.*\S\s{2,}esc$/u;
+// the dialog's search box before anything is typed in it
+const DIALOG_SEARCH = "Search";
 const SCROLLBAR_RE = /\s+[█▐▌▕│]$/u;
 // text without its spaces, to compare words a narrow pane wrapped
 const squash = (value) => String(value ?? "").replace(/\s+/gu, "");
@@ -141,9 +148,41 @@ function nearEnd(lines, index, count = 3) {
   return shownIndices(lines).slice(-count).includes(index);
 }
 
-// Whether a dialog is open over the session: its keys are the dialog's.
-function dialogOpen(lines) {
-  return lines.some((line) => DIALOG_TITLE_RE.test(line.replace(SCROLLBAR_RE, "")));
+// Whether a dialog is open over the session: its keys are the dialog's. A
+// title row ending in "esc" is not enough (a line of output, a command or a
+// diff in a panel can end so too): the dialog's search box is two rows under
+// it (a blank row between), at the title's column, or (its text typed over) the title sits on a box of
+// its own background that goes on down under it.
+function dialogOpen(raw) {
+  const plainLine = (index) => String(raw[index] ?? "").replace(ANSI_RE, "").replace(/\s+$/u, "").replace(SCROLLBAR_RE, "");
+  for (let index = 0; index < raw.length; index += 1) {
+    if (inPanel(raw[index])) continue;
+    const title = plainLine(index);
+    if (!DIALOG_TITLE_RE.test(title)) continue;
+    const column = title.search(/\S/u);
+    const searched = !inPanel(raw[index + 2]) && !plainLine(index + 1).trim()
+      && plainLine(index + 2).trim() === DIALOG_SEARCH && plainLine(index + 2).search(/\S/u) === column;
+    if (searched || onDialogBox(raw, index, column, title.length - 1)) return true;
+  }
+  return false;
+}
+
+// Whether the title row's text, from `column` to its "esc" at `end`, sits on
+// one background unlike the row's left edge, and the row under it has that
+// background at the title's column: the dialog's box. Read without styles, no.
+function onDialogBox(raw, index, column, end) {
+  const row = styledLine(raw[index]);
+  const box = row.bgs[column];
+  if (!box || box === row.bgs[0] || row.bgs[end] !== box) return false;
+  const under = typeof raw[index + 1] === "string" ? styledLine(raw[index + 1]) : null;
+  return Boolean(under) && under.bgs[column] === box && under.bgs[0] !== box;
+}
+
+// Whether `screen` has a dialog open over OpenCode's session: its keys
+// (Enter runs the dialog's highlighted entry) are the dialog's, so no card is
+// shown for it at all, not even the fallback.
+export function opencodeDialogOpen(screen) {
+  return dialogOpen(screenLines(String(screen ?? "")).raw);
 }
 
 // The button selected in a row of buttons, by colour: the one button whose
@@ -269,8 +308,8 @@ function rejectBox(lines) {
 // Whether `screen` still shows the Reject panel with exactly `text` in its
 // box: what a typed message waits on before its Enter goes.
 function rejectHolds(screen, text) {
-  const { lines } = screenLines(String(screen ?? ""));
-  if (dialogOpen(lines)) return false;
+  const { raw, lines } = screenLines(String(screen ?? ""));
+  if (dialogOpen(raw)) return false;
   const typed = rejectBox(lines);
   return typeof typed === "string" && typed.length > 0 && squash(typed) === squash(text);
 }
@@ -308,28 +347,39 @@ function digitKey(index) {
   return String(index + 1);
 }
 
-// Whether a raw line is one of the panel's: drawn with its bar.
-const inPanel = (rawLine) => BAR_RE.test(String(rawLine ?? "").replace(ANSI_RE, ""));
 // the questions' tabs: each header, then "Confirm"
 const TAB_ROW_RE = /\S\s{2,}Confirm$/u;
 
+// The bar's colours on a raw line ("" for none): a panel's own bar is drawn
+// in one colour on one background, a message box's above it in others.
+function barStyle(rawLine) {
+  const line = styledLine(String(rawLine ?? ""));
+  const at = line.text.indexOf("┃");
+  return at < 0 ? null : `${line.fgs[at]}/${line.bgs[at]}`;
+}
+
 // The question: its paragraphs above the first row, each the lines it wraps
 // onto, up to the panel's top (or its row of tabs). Paragraphs are kept apart
-// by a blank line; without the panel's bar only the nearest one is taken.
+// by a blank line; without the panel's bar only the nearest one is taken. A
+// line with a bar is the panel's only when its bar is drawn as the first
+// row's is and the session's scrollbar is not at its end: a message box in
+// the conversation right above the panel has a bar too.
 function questionAbove(raw, lines, firstRow) {
+  const bar = barStyle(raw[firstRow]);
+  const inThis = (index) => index >= 0 && inPanel(raw[index]) && !SCROLLBAR_RE.test(lines[index]) && barStyle(raw[index]) === bar;
   const paragraphs = [];
   let at = firstRow - 1;
   while (at >= 0 && firstRow - at <= 40) {
     // the blank lines between: the panel's own, once a paragraph is in
     for (; at >= 0 && !lines[at].trim(); at -= 1) {
-      if (paragraphs.length > 0 && !inPanel(raw[at])) return paragraphs.join("\n\n");
+      if (paragraphs.length > 0 && !inThis(at)) return paragraphs.join("\n\n");
     }
     if (at < 0 || TAB_ROW_RE.test(lines[at].trim())) break;
-    if (paragraphs.length > 0 && !inPanel(raw[at])) break;
+    if (paragraphs.length > 0 && !inThis(at)) break;
     const paragraph = [];
-    for (; at >= 0 && lines[at].trim() && (paragraphs.length === 0 || inPanel(raw[at])); at -= 1) paragraph.unshift(lines[at].trim());
+    for (; at >= 0 && lines[at].trim() && (paragraphs.length === 0 || inThis(at)); at -= 1) paragraph.unshift(lines[at].trim());
     paragraphs.unshift(normalizeText(paragraph.join(" ")));
-    if (!inPanel(raw[at + 1])) break;
+    if (!inThis(at + 1)) break;
   }
   return paragraphs.join("\n\n");
 }
@@ -406,7 +456,7 @@ export function parseOpencodePrompt(screen) {
   const text = String(screen ?? "");
   if (secretPrompt(text.replace(ANSI_RE, "")) !== null) return null;
   const { raw, lines } = screenLines(text);
-  if (dialogOpen(lines)) return null;
+  if (dialogOpen(raw)) return null;
   for (const parse of [parsePermission, parseAlways, parseReject, parseQuestion, parseReview]) {
     const card = parse(raw, lines);
     if (card) return card;

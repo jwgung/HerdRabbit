@@ -18,7 +18,7 @@ import { HttpError } from "../http-basics.mjs";
 import { fillClaudeCard, parseClaudePrompt } from "./claude.mjs";
 import { parseCodexPrompt } from "./codex.mjs";
 import { parseFallbackPrompt } from "./fallback.mjs";
-import { fillOpencodeCard, parseOpencodePrompt } from "./opencode.mjs";
+import { fillOpencodeCard, opencodeDialogOpen, parseOpencodePrompt } from "./opencode.mjs";
 import { InvalidAnswer, answerSteps, moveKeysOf, publicCard, verifiesCursor } from "./screen.mjs";
 
 // The screen's bottom: enough for a long approval panel.
@@ -36,6 +36,10 @@ const MISSING_TICKS = 3;
 
 // Each agent's own readers, by the name herdr gives it.
 const READERS = { claude: parseClaudePrompt, codex: parseCodexPrompt, opencode: parseOpencodePrompt };
+// Screens on which an agent's keys go somewhere no card can see, so no card at
+// all, not even the fallback: an OpenCode dialog (ctrl+p's commands, ...) takes
+// Enter and Esc, and its Enter runs the dialog's highlighted entry.
+const NO_CARD = { opencode: opencodeDialogOpen };
 // How each reader reads the screen: OpenCode's selected permission button is
 // known only by its colour, so its screen comes with its styles, from the
 // visible screen (herdr's detection snapshot drops the styles; checked on
@@ -153,6 +157,7 @@ export class PromptService {
     const blocked = agent.status === "blocked";
     if (!reader && !blocked) return null;
     const screen = await this.#screen(paneId, reader);
+    if (reader && NO_CARD[reader]?.(screen)) return null;
     const card = reader ? READERS[reader](screen) ?? null : null;
     if (card || !blocked) return card;
     return parseFallbackPrompt(screen, { agent: reader ?? agent.name });

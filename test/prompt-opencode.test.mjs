@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseFallbackPrompt } from "../src/prompt/fallback.mjs";
-import { fillOpencodeCard, parseOpencodePrompt, selectedButton, styledLine } from "../src/prompt/opencode.mjs";
+import { fillOpencodeCard, opencodeDialogOpen, parseOpencodePrompt, selectedButton, styledLine } from "../src/prompt/opencode.mjs";
 import { answerSteps, publicCard } from "../src/prompt/screen.mjs";
 import { PromptService } from "../src/prompt/service.mjs";
 import {
@@ -401,11 +401,66 @@ test("real 1.18.34: a dialog open over a prompt (ctrl+p's commands, the sessions
     assert.equal(parseOpencodePrompt(screen), null, name);
     assert.equal(parseOpencodePrompt(plain(screen)), null, `${name}, read without styles`);
   }
-  // a drawn screen with the palette's title row over it, a question too
-  const title = `                     Commands${" ".repeat(41)}esc                  █`;
+  // a drawn screen with the palette's title row and search box over it, a question too
+  const title = `                     Commands${" ".repeat(41)}esc                  █\n${" ".repeat(91)}█\n                     Search${" ".repeat(64)}█`;
   assert.notEqual(parseOpencodePrompt(opencodeQuestionScreen()), null);
   assert.equal(parseOpencodePrompt(`${title}\n${opencodeQuestionScreen()}`), null);
   assert.equal(parseOpencodePrompt(`${title}\n${opencodePermissionScreen()}`), null);
+});
+
+const REAL_DIALOGS = Object.freeze({
+  permissionUnderPalette: REAL.permissionUnderPalette,
+  permissionUnderSessions: REAL.permissionUnderSessions,
+  permissionUnderModels: REAL.permissionUnderModels,
+  alwaysUnderPalette: REAL.alwaysUnderPalette,
+});
+
+test("real 1.18.34: a dialog is told by its search box under its title, or (words typed there) by its own box; a line ending in esc is not one", () => {
+  for (const [name, screen] of Object.entries(REAL_DIALOGS)) {
+    assert.equal(opencodeDialogOpen(screen), true, name);
+    assert.equal(opencodeDialogOpen(plain(screen)), true, `${name}, read without styles`);
+  }
+  assert.equal(opencodeDialogOpen(REAL.permission), false);
+  // words typed in ctrl+p's search box: its title still sits on the dialog's box
+  const typed = REAL.permissionUnderPalette.split("\n");
+  const search = typed.findIndex((line) => plain(line).trim().startsWith("Search"));
+  typed[search] = typed[search].replace("Search", "shar  ");
+  assert.equal(opencodeDialogOpen(typed.join("\n")), true);
+  assert.equal(parseOpencodePrompt(typed.join("\n")), null);
+  // a line of output that ends in "esc", over a permission: the card, not a dialog
+  const output = REAL.permission.split("\n");
+  output[3] = `     Close the dialog              esc${" ".repeat(55)}█`;
+  for (const screen of [output.join("\n"), plain(output.join("\n"))]) {
+    assert.equal(opencodeDialogOpen(screen), false);
+    assert.equal(parseOpencodePrompt(screen)?.title, "Permission required");
+  }
+  // the same with a paragraph of output under it, a word "Search" in it
+  output[4] = "     and the rest of the answer goes on here:";
+  output[5] = "     Search";
+  assert.equal(parseOpencodePrompt(output.join("\n"))?.title, "Permission required");
+  // a permission's command that ends in "esc": the card, with that command
+  const body = REAL.permission.split("\n");
+  const command = body.findIndex((line) => plain(line).includes("$ echo hi"));
+  body[command] = "  ┃  $ printf '%s\\n' keymap  esc";
+  for (const screen of [body.join("\n"), plain(body.join("\n"))]) {
+    const card = parseOpencodePrompt(screen);
+    assert.equal(card?.title, "Permission required");
+    assert.equal(card.body, "$ printf '%s\\n' keymap  esc");
+  }
+});
+
+test("real 1.18.34: a blocked pane under a dialog has no card at all, not even the fallback, and an answer sends nothing", async () => {
+  for (const [name, screen] of Object.entries(REAL_DIALOGS)) {
+    const { herdr, service } = world({ prompt: null });
+    herdr.readPane = async () => screen;
+    assert.equal(await service.card(PANE), null, name);
+    // the card the fallback would have made: Enter there runs the dialog's highlighted entry
+    const fallback = parseFallbackPrompt(screen, { agent: "opencode" });
+    if (fallback) {
+      await assert.rejects(service.answer(PANE, { cardId: publicCard(fallback).id, option: 0 }), { status: 409, code: "prompt_changed" }, name);
+    }
+    assert.deepEqual(herdr.sent, [], name);
+  }
 });
 
 test("real 1.18.34: a question of two paragraphs shows both, and takes the question tool's words", () => {
@@ -423,6 +478,20 @@ test("real 1.18.34: a question of two paragraphs shows both, and takes the quest
   assert.equal(fillOpencodeCard(publicCard(card), asked(longer)).question, longer);
   // another question is not this one
   assert.equal(fillOpencodeCard(publicCard(card), asked("Which target should we use?")).question, card.question);
+});
+
+test("real 1.18.34: a message box right above a question's panel is not its question", () => {
+  const lines = REAL.twoParagraphQuestion.split("\n");
+  const top = lines.findIndex((line, index) => index > 3 && plain(line).trim() === "┃");
+  // the message box's last two lines, then the panel from its top
+  const screen = [lines[0], lines[1], ...lines.slice(top)].join("\n");
+  const question = "We need to pick an export format for the release build.\n\nWhich export format should we use?";
+  assert.equal(parseOpencodePrompt(screen).question, question);
+  assert.equal(parseOpencodePrompt(plain(screen)).question, question, "read without styles: the scrollbar tells");
+  // no scrollbar (a short conversation): the box's bar is drawn in other colours
+  const unscrolled = screen.replaceAll("█", " ");
+  assert.ok(!plain(unscrolled).includes("█"));
+  assert.equal(parseOpencodePrompt(unscrolled).question, question);
 });
 
 // --- cards answered by their own keys look again before each ---------------------
