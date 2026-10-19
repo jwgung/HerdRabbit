@@ -58,10 +58,17 @@ function userEntries(turns) {
 
 // Whether a user turn is the message sent: the same words, or the same words
 // at its end. After a Stop, Claude Code puts the stopped message back in its
-// input box and the next one is typed after it, so Claude gets both as one.
-export function saysSent(said, sent) {
+// input box and the next one is typed after it, so Claude gets both as one,
+// with no space between. So an ending counts only after whitespace, or when
+// what comes before it is a message this page sent earlier (priors).
+export function saysSent(said, sent, priors = []) {
   const wanted = comparableText(sent);
-  return wanted !== "" && (said === wanted || said.endsWith(wanted));
+  if (wanted === "") return false;
+  if (said === wanted) return true;
+  if (!said.endsWith(wanted)) return false;
+  const before = said.slice(0, -wanted.length);
+  if (/\s$/u.test(before)) return true;
+  return priors.some((prior) => comparableText(prior) === before.trim());
 }
 
 // How long a pending message waits on a newer user turn that is not it before
@@ -72,14 +79,14 @@ export const STALE_PENDING_MS = 5_000;
 // transcript had then (its turn comes after that one), how many messages were
 // still on their way before it (their turns come first), and how many user
 // turns already said it (for a transcript where that last turn is gone).
-export function pendingMessage(text, turns, now = Date.now(), ahead = 0) {
+export function pendingMessage(text, turns, now = Date.now(), ahead = 0, priors = []) {
   const entries = userEntries(turns);
   const after = entries.at(-1)?.mark ?? null;
   return {
-    text, at: now, ahead, after,
+    text, at: now, ahead, after, priors: priors.map(comparableText),
     // which turn with that mark it is (one without a time can repeat)
     afterNth: entries.filter((entry) => entry.mark === after).length,
-    baseline: entries.filter((entry) => saysSent(entry.text, text)).length,
+    baseline: entries.filter((entry) => saysSent(entry.text, text, priors)).length,
   };
 }
 
@@ -100,8 +107,8 @@ export function settlePending(pending, turns, now = Date.now(), maxAge = PENDING
   return pending.filter((item) => {
     if (now - item.at > maxAge) return false;
     const after = turnsAfter(item, entries);
-    if (after === null) return entries.filter((entry) => saysSent(entry.text, item.text)).length <= (item.baseline ?? 0);
-    if (after.some((entry) => saysSent(entry.text, item.text))) return false;
+    if (after === null) return entries.filter((entry) => saysSent(entry.text, item.text, item.priors)).length <= (item.baseline ?? 0);
+    if (after.some((entry) => saysSent(entry.text, item.text, item.priors))) return false;
     return !(now - item.at >= STALE_PENDING_MS && after.length > (item.ahead ?? 0));
   });
 }

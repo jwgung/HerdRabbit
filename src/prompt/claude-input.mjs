@@ -29,9 +29,25 @@ export function claudeInputBox(screen) {
   return { text: rows.join("\n").replace(/\s+$/u, ""), rows: rows.length };
 }
 
-// Text as compared here: no whitespace at all, as a long line wraps anywhere.
-function squashed(text) {
-  return String(text ?? "").replace(/\s+/gu, "");
+// Whitespace runs as one space, no space at the ends.
+function collapsed(text) {
+  return String(text ?? "").replace(/\s+/gu, " ").trim();
+}
+
+// How much of the message the box rows spell, in order: the rows are the
+// message wrapped, so each row follows the last either right away (a word
+// cut where the line ended) or after one space (a wrap at a space). Returns
+// the length matched, or -1 when the rows are not the start of the message.
+// Only wrap points are forgiven: "helloworld" is not "hello world".
+function matchedLength(boxText, message) {
+  const rows = String(boxText ?? "").split("\n").map(collapsed).filter(Boolean);
+  let at = 0;
+  for (const [index, row] of rows.entries()) {
+    if (index > 0 && message[at] === " ") at += 1;
+    if (!message.startsWith(row, at)) return -1;
+    at += row.length;
+  }
+  return at;
 }
 
 // The next step in clearing the message put back after a stop, given the box
@@ -45,14 +61,15 @@ function squashed(text) {
 // row the cursor is on; on a row already empty, Backspace joins it to the one
 // above, which Ctrl+U then empties.
 export function restoredDraftStep(box, restored, before = null) {
-  const wanted = squashed(restored);
-  const now = squashed(box?.text);
+  const wanted = collapsed(restored);
+  const now = collapsed(box?.text);
   // A screen that cannot be read halfway through clearing may hide a piece
   // still there: the send is refused rather than typed after it.
   if (!box && before !== null) return { stuck: true };
   if (!box || !wanted || !now) return { done: true };
-  if (before === null) return now === wanted ? { keys: ["ctrl+k", "ctrl+u"] } : { done: true };
-  if (!wanted.startsWith(now)) return { done: true };
-  const shorter = now.length < squashed(before.text).length || box.rows < before.rows;
+  if (before === null) return matchedLength(box.text, wanted) === wanted.length ? { keys: ["ctrl+k", "ctrl+u"] } : { done: true };
+  const matched = matchedLength(box.text, wanted);
+  if (matched < 0) return { done: true };
+  const shorter = matched < matchedLength(before.text, wanted) || box.rows < before.rows;
   return shorter ? { keys: ["backspace", "ctrl+u"] } : { stuck: true };
 }

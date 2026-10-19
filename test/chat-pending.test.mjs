@@ -11,7 +11,7 @@ test("a message Claude got after the one a Stop put back resolves its pending bu
   // input box still held the first, so the transcript has the two as one
   const before = [user("1번부터 시작할까요?"), reply("네")];
   const now = 10_000;
-  const sent = pendingMessage("잠깐, 먼저 메인에 어디까지 올라감 지금?", before, now);
+  const sent = pendingMessage("잠깐, 먼저 메인에 어디까지 올라감 지금?", before, now, 0, ["ㄱㄱㄱㄲ"]);
   const after = [...before, user("ㄱㄱㄱㄲ잠깐, 먼저 메인에 어디까지 올라감 지금?")];
   assert.deepEqual(settlePending([sent], before, now + 100), [sent]);
   assert.deepEqual(settlePending([sent], after, now + 100), [], "the run-together message is the one sent");
@@ -69,4 +69,27 @@ test("a transcript read that no longer has the turn it was sent after falls back
   const fresh = [user("a new session")];
   assert.deepEqual(settlePending([sent], fresh, now + STALE_PENDING_MS + 1), [sent]);
   assert.deepEqual(settlePending([sent], [...fresh, user("x go"), user("go")], now + 10), []);
+});
+
+test("an ending resolves a pending message only at a word boundary or after a message this page sent", () => {
+  assert.equal(saysSent("mongo", "go"), false);
+  assert.equal(saysSent("x go", "go"), true);
+  assert.equal(saysSent("ㄱㄱㄱㄲ잠깐, 먼저", "잠깐, 먼저"), false, "no earlier send known");
+  assert.equal(saysSent("ㄱㄱㄱㄲ잠깐, 먼저", "잠깐, 먼저", ["ㄱㄱㄱㄲ"]), true);
+  assert.equal(saysSent("ㄱㄱㄱㄲ잠깐, 먼저", "잠깐, 먼저", ["다른 것"]), false);
+  const now = 300_000;
+  const earlier = [user("start"), reply("ok")];
+  const sent = pendingMessage("go", earlier, now);
+  assert.deepEqual(settlePending([sent], [...earlier, user("mongo")], now + 100), [sent]);
+});
+
+test("a message run together with one sent from this page earlier resolves; one typed elsewhere goes stale", () => {
+  const before = [user("start"), reply("ok")];
+  const now = 400_000;
+  const withPrior = pendingMessage("잠깐, 먼저 어디까지?", before, now, 0, ["ㄱㄱㄱㄲ"]);
+  const without = pendingMessage("잠깐, 먼저 어디까지?", before, now);
+  const after = [...before, user("ㄱㄱㄱㄲ잠깐, 먼저 어디까지?")];
+  assert.deepEqual(settlePending([withPrior], after, now + 100), []);
+  assert.deepEqual(settlePending([without], after, now + 100), [without]);
+  assert.deepEqual(settlePending([without], after, now + STALE_PENDING_MS), [], "the stale rule still clears it");
 });

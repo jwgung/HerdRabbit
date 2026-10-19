@@ -176,3 +176,22 @@ test("a screen that cannot be read halfway through clearing refuses the send", (
   // before any key, an unreadable screen just lets the message go as it would have
   assert.deepEqual(restoredDraftStep(null, "long long long long"), { done: true });
 });
+
+test("only a wrap's whitespace is forgiven when comparing the box with the stopped message", () => {
+  const box = (rows) => claudeInputBox(claudeScreen(rows));
+  const clear = { keys: ["ctrl+k", "ctrl+u"] };
+  // typed in the terminal without the space: not the stopped message
+  assert.deepEqual(restoredDraftStep(box(["helloworld"]), "hello world"), { done: true });
+  assert.deepEqual(restoredDraftStep(box(["hello", "world"]), "hello world"), clear);
+  // a word cut where the line ended
+  assert.deepEqual(restoredDraftStep(box(["abcdef", "ghi"]), "abcdefghi"), clear);
+  // a wrapped long text, rows split at spaces
+  assert.deepEqual(restoredDraftStep(box(["run the tests and then", "fix the lint now"]), "run the tests and then fix the lint now"), clear);
+  // a run of spaces is one space; a real newline looks like a wrap and is accepted
+  assert.deepEqual(restoredDraftStep(box(["hello  world"]), "hello world"), clear);
+  assert.deepEqual(restoredDraftStep(box(["hello", "world"]), "hello\nworld"), clear);
+  // later looks: a prefix cut at a wrap, but not a squashed one
+  const first = box(["hello", "world"]);
+  assert.deepEqual(restoredDraftStep(box(["hello"]), "hello world", first), { keys: ["backspace", "ctrl+u"] });
+  assert.deepEqual(restoredDraftStep(box(["helloworl"]), "hello world", first), { done: true });
+});

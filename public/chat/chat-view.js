@@ -152,6 +152,9 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
   let workingSince = null;
   let optimisticUntil = 0;
   let pending = [];
+  // the last texts this page sent to the pane (a Stop puts one back in the box)
+  let recentSent = [];
+  const noteSent = (message) => { recentSent = [...recentSent, message.text].slice(-5); };
   // The turns shown when a send whose text shows later went out.
   let turnsAtSend = null;
   let ticker = null;
@@ -671,8 +674,8 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     // back only its own.
     sent(text) {
       const now = Date.now();
-      const message = typeof text === "string" && text.trim() ? pendingMessage(text, loader.history.turns, now, pending.length) : null;
-      if (message) pending = [...pending, message];
+      const message = typeof text === "string" && text.trim() ? pendingMessage(text, loader.history.turns, now, pending.length, recentSent) : null;
+      if (message) { pending = [...pending, message]; noteSent(message); }
       // the transcript as the send went out: pend() places its message after it
       turnsAtSend = message ? null : loader.history.turns;
       optimisticUntil = now + OPTIMISTIC_MS;
@@ -689,9 +692,10 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     // until the transcript has it.
     pend(text) {
       if (typeof text !== "string" || !text.trim()) return null;
-      const message = pendingMessage(text, turnsAtSend ?? loader.history.turns, Date.now(), pending.length);
+      const message = pendingMessage(text, turnsAtSend ?? loader.history.turns, Date.now(), pending.length, recentSent);
       turnsAtSend = null;
       pending = [...pending, message];
+      noteSent(message);
       drawActivity();
       if (stick) keepAtEnd();
       return message;
