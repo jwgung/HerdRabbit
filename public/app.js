@@ -4106,7 +4106,10 @@ async function stopAgent() {
   const shortest = new Promise((resolve) => window.setTimeout(resolve, STOP_BUSY_MS));
   clearKeyModifiers();
   try {
-    await sendKeys(["esc"], paneId, { stop: true });
+    // Only Claude Code puts a stopped message back in its box; the server
+    // looks for it before the next send only after a Stop marked as Claude's.
+    const claude = chatAgent(selectedRecords().pane, agentForPane(paneId)) === "claude";
+    await sendKeys(["esc"], paneId, { stop: claude });
     refreshAfterSubmission();
   } catch (error) {
     setFeedback(error.message, true);

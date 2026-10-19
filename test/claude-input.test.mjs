@@ -44,11 +44,12 @@ test("only the stopped message itself is cleared, never text typed in the termin
   // a long message wraps in the box: the same words
   assert.deepEqual(restoredDraftStep(box(["run the tests and then", "fix the lint"]), "run the tests and then fix the lint"),
     { keys: ["ctrl+k", "ctrl+u"] });
-  // an empty box, another text, more than the message, or no box: send as it is
+  // an empty box: send; another text, more than the message, or no box found:
+  // leave it and refuse rather than run the new message into it
   assert.deepEqual(restoredDraftStep(box([""]), "ㄱㄱㄱㄲ"), { done: true });
-  assert.deepEqual(restoredDraftStep(box(["my own note"]), "ㄱㄱㄱㄲ"), { done: true });
-  assert.deepEqual(restoredDraftStep(box(["ㄱㄱㄱㄲ and more"]), "ㄱㄱㄱㄲ"), { done: true });
-  assert.deepEqual(restoredDraftStep(null, "ㄱㄱㄱㄲ"), { done: true });
+  assert.deepEqual(restoredDraftStep(box(["my own note"]), "ㄱㄱㄱㄲ"), { stuck: true });
+  assert.deepEqual(restoredDraftStep(box(["ㄱㄱㄱㄲ and more"]), "ㄱㄱㄱㄲ"), { stuck: true });
+  assert.deepEqual(restoredDraftStep(null, "ㄱㄱㄱㄲ"), { stuck: true });
   // after the keys: emptied, or a shorter piece of its start left (a row above)
   const first = box(["line one", "line two"]);
   assert.deepEqual(restoredDraftStep(box([""]), "line one\nline two", first), { done: true });
@@ -96,7 +97,7 @@ test("after a Stop, the message Claude put back is cleared before the next one g
   ]);
 });
 
-test("without a Stop, or with the person's own text in the box, nothing is read or cleared", async () => {
+test("without a Stop nothing is read; with the person's own text in the box nothing is cleared and the send is refused", async () => {
   const pane = claudePane([""]);
   const client = new HerdrClient({ runner: pane.runner, sleep: async () => {}, sessionName: "stopdraft-b" });
   await client.sendText("w1:p1", "first", { submit: true });
@@ -106,8 +107,13 @@ test("without a Stop, or with the person's own text in the box, nothing is read 
   pane.calls.length = 0;
   await client.sendKeys("w1:p1", ["esc"], { stop: true });
   pane.rows = ["my own words"]; // typed in the terminal meanwhile
+  await assert.rejects(client.sendText("w1:p1", "third", { submit: true }), (error) => error.code === "input_not_empty");
+  assert.deepEqual(commands(pane), ["send-keys w1:p1 esc", "read"], "the person's words were cleared or typed after");
+  assert.deepEqual(pane.rows, ["my own words"]);
+  pane.rows = [""]; // cleared in the terminal: the next send goes
+  pane.calls.length = 0;
   await client.sendText("w1:p1", "third", { submit: true });
-  assert.deepEqual(commands(pane), ["send-keys w1:p1 esc", "read", "run w1:p1 third"]);
+  assert.equal(pane.sent, "third");
 
   // another key after the Esc changed the box: nothing is cleared for it
   pane.calls.length = 0;
@@ -173,23 +179,23 @@ test("a real screen with the stopped message put back is read and cleared", () =
 test("a screen that cannot be read halfway through clearing refuses the send", () => {
   const before = { text: "long long long", rows: 2 };
   assert.deepEqual(restoredDraftStep(null, "long long long long", before), { stuck: true });
-  // before any key, an unreadable screen just lets the message go as it would have
-  assert.deepEqual(restoredDraftStep(null, "long long long long"), { done: true });
+  // before any key too: the stopped message may be there unseen
+  assert.deepEqual(restoredDraftStep(null, "long long long long"), { stuck: true });
 });
 
 test("only a wrap's whitespace is forgiven when comparing the box with the stopped message", () => {
   const box = (rows) => claudeInputBox(claudeScreen(rows));
   const clear = { keys: ["ctrl+k", "ctrl+u"] };
   // typed in the terminal without the space: not the stopped message
-  assert.deepEqual(restoredDraftStep(box(["helloworld"]), "hello world"), { done: true });
+  assert.deepEqual(restoredDraftStep(box(["helloworld"]), "hello world"), { stuck: true });
   assert.deepEqual(restoredDraftStep(box(["hello", "world"]), "hello world"), clear);
   // a word cut where the line ended
   assert.deepEqual(restoredDraftStep(box(["abcdef", "ghi"]), "abcdefghi"), clear);
   // a wrapped long text, rows split at spaces
   assert.deepEqual(restoredDraftStep(box(["run the tests and then", "fix the lint now"]), "run the tests and then fix the lint now"), clear);
   // within a row every space counts: a whitespace-only edit is someone's own text
-  assert.deepEqual(restoredDraftStep(box(["hello  world"]), "hello world"), { done: true });
-  assert.deepEqual(restoredDraftStep(box(["echo  foo"]), "echo foo"), { done: true });
+  assert.deepEqual(restoredDraftStep(box(["hello  world"]), "hello world"), { stuck: true });
+  assert.deepEqual(restoredDraftStep(box(["echo  foo"]), "echo foo"), { stuck: true });
   // a real newline looks like a wrap and is accepted, blank lines too
   assert.deepEqual(restoredDraftStep(box(["one", "", "two"]), "one\n\ntwo"), clear);
   assert.deepEqual(restoredDraftStep(box(["hello", "world"]), "hello\nworld"), clear);

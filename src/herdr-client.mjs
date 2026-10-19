@@ -809,7 +809,7 @@ export class HerdrClient {
         break;
       }
     }
-    throw new HerdrCommandError("Claude's input box still holds the stopped message. Clear it in the terminal, then send again.",
+    throw new HerdrCommandError("After the Stop, Claude's input box is not empty (or could not be checked). Clear it in the terminal, then send again.",
       { code: "input_not_empty" });
   }
 

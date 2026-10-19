@@ -73,11 +73,15 @@ export function restoredDraftStep(box, restored, before = null) {
   const now = collapsed(box?.text);
   // A screen that cannot be read halfway through clearing may hide a piece
   // still there: the send is refused rather than typed after it.
-  if (!box && before !== null) return { stuck: true };
+  // After a Claude Stop the box must be found: one that cannot be (redrawing,
+  // a dialog over it) may still hold the stopped message.
+  if (!box) return { stuck: true };
   // empty (its tip showing, or nothing): there is nothing to type after
-  if (box?.empty || (box && !now)) return { done: true };
-  if (!box || !wanted) return { done: true };
-  if (before === null) return matchedLength(box.text, wanted) === wanted.length ? { keys: ["ctrl+k", "ctrl+u"] } : { done: true };
+  if (box.empty || !now || !wanted) return { done: true };
+  // On the first look: exactly the stopped message is cleared; anything else
+  // in the box (typed in the terminal) is left alone, and the send refused
+  // rather than run into it.
+  if (before === null) return matchedLength(box.text, wanted) === wanted.length ? { keys: ["ctrl+k", "ctrl+u"] } : { stuck: true };
   const matched = matchedLength(box.text, wanted);
   // Not a piece of the stopped message any more, nor empty: something else
   // changed it while it was being cleared. Refused rather than typed after.
