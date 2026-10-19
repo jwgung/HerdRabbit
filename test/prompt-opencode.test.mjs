@@ -14,6 +14,7 @@ import {
   opencodeRejectScreen,
   opencodeReviewScreen,
 } from "./fixtures/opencode-prompt.mjs";
+import * as REAL from "./fixtures/opencode-dialog-screens.mjs";
 
 const labels = (parsed) => parsed?.options.map((option) => option.label);
 const keys = (steps) => steps.flatMap((step) => step.keys ?? [`text:${step.text}`]);
@@ -81,16 +82,22 @@ test("read without colours, the card shows but only Reject (Esc) answers: the se
   assert.deepEqual(keys(answerSteps(parsed, { option: 2 })), ["esc"]);
 });
 
-test("the selected button is the one on the colour of △; else the one background unlike the others", () => {
+test("the selected button is the one on the colour of △, and only when exactly one is; no guess from a background unlike the others", () => {
+  const BUTTONS = ["Allow once", "Allow always", "Reject"];
   const screen = opencodePermissionScreen({ selected: 1 }).split("\n");
   const row = screen.find((line) => plain(line).includes("Allow once"));
   const header = screen.find((line) => plain(line).includes("Permission required"));
-  assert.equal(selectedButton(row, ["Allow once", "Allow always", "Reject"], header), 1);
-  assert.equal(selectedButton(row, ["Allow once", "Allow always", "Reject"]), 1, "three buttons: the odd one out");
-  // 256 colours and reverse video read too
+  assert.equal(selectedButton(row, BUTTONS, header), 1);
+  // without the colour of △ to go by, the odd background out is no answer
+  assert.equal(selectedButton(row, BUTTONS), null);
+  assert.equal(selectedButton(row, BUTTONS, plain(header)), null);
   const reversed = "┃   \u001b[48;5;236m Allow once \u001b[0m \u001b[7m Allow always \u001b[27m \u001b[48;5;236m Reject \u001b[0m";
-  assert.equal(selectedButton(reversed, ["Allow once", "Allow always", "Reject"]), 1);
-  assert.equal(selectedButton(plain(row), ["Allow once", "Allow always", "Reject"]), null);
+  assert.equal(selectedButton(reversed, BUTTONS, header), null);
+  // two buttons on the warning colour: which is selected cannot be told
+  const warning = "\u001b[48;2;245;167;66m";
+  const twoMarked = `┃  ${warning} Allow once \u001b[0m ${warning} Allow always \u001b[0m \u001b[48;2;40;40;40m Reject \u001b[0m`;
+  assert.equal(selectedButton(twoMarked, BUTTONS, header), null);
+  assert.equal(selectedButton(plain(row), BUTTONS, header), null);
   const styled = styledLine("a\u001b[38;2;1;2;3mb\u001b[0mc");
   assert.equal(styled.text, "abc");
   assert.deepEqual(styled.fgs, ["", "#1,2,3", ""]);
@@ -370,3 +377,98 @@ test("a 16-colour theme's bright colours match: the selected one of two buttons 
   assert.equal(selectedButton(row256, ["Confirm", "Cancel"], header256), 1);
 });
 
+
+// --- real 1.18.34 screens: dialogs, a question of two paragraphs ----------------
+
+const PERMISSION_BUTTONS = ["Allow once", "Allow always", "Reject"];
+const realRow = (screen, text) => screen.split("\n").find((line) => plain(line).includes(text));
+
+test("real 1.18.34: a dialog open over a prompt (ctrl+p's commands, the sessions, the models) is no card: its keys go to the dialog", () => {
+  const alone = parseOpencodePrompt(REAL.permission);
+  assert.equal(alone.title, "Permission required");
+  assert.equal(alone.body, "$ echo hi");
+  assert.equal(alone.selectedIndex, 0);
+  // Under ctrl+p's list the whole panel still shows, dimmed, and the selected
+  // button still carries the (dimmed) colour of △: only the dialog tells.
+  const under = REAL.permissionUnderPalette;
+  assert.equal(selectedButton(realRow(under, "Allow once"), PERMISSION_BUTTONS, realRow(under, "Permission required")), 0);
+  for (const [name, screen] of Object.entries({
+    permissionUnderPalette: REAL.permissionUnderPalette,
+    permissionUnderSessions: REAL.permissionUnderSessions,
+    permissionUnderModels: REAL.permissionUnderModels,
+    alwaysUnderPalette: REAL.alwaysUnderPalette,
+  })) {
+    assert.equal(parseOpencodePrompt(screen), null, name);
+    assert.equal(parseOpencodePrompt(plain(screen)), null, `${name}, read without styles`);
+  }
+  // a drawn screen with the palette's title row over it, a question too
+  const title = `                     Commands${" ".repeat(41)}esc                  █`;
+  assert.notEqual(parseOpencodePrompt(opencodeQuestionScreen()), null);
+  assert.equal(parseOpencodePrompt(`${title}\n${opencodeQuestionScreen()}`), null);
+  assert.equal(parseOpencodePrompt(`${title}\n${opencodePermissionScreen()}`), null);
+});
+
+test("real 1.18.34: a question of two paragraphs shows both, and takes the question tool's words", () => {
+  const card = parseOpencodePrompt(REAL.twoParagraphQuestion);
+  assert.equal(card.kind, "question");
+  // both paragraphs, and nothing of the message above the panel
+  assert.equal(card.question, "We need to pick an export format for the release build.\n\nWhich export format should we use?");
+  assert.deepEqual(labels(card), ["ONNX", "TensorRT"]);
+  const options = [{ label: "ONNX", description: "Open Neural Network Exchange format" }, { label: "TensorRT", description: "NVIDIA TensorRT optimized format" }];
+  const asked = (question) => ({ name: "question", input: { questions: [{ question, header: "Format", options }] } });
+  const whole = "We need to pick an export format for the release build.\n\nWhich export format should we use?";
+  assert.equal(fillOpencodeCard(publicCard(card), asked(whole)).question, whole);
+  // a first paragraph the panel's top cut off: the words on screen are still the call's
+  const longer = `Some context first.\n\n${whole}`;
+  assert.equal(fillOpencodeCard(publicCard(card), asked(longer)).question, longer);
+  // another question is not this one
+  assert.equal(fillOpencodeCard(publicCard(card), asked("Which target should we use?")).question, card.question);
+});
+
+// --- cards answered by their own keys look again before each ---------------------
+
+test("the review's Enter goes only while the review is still on screen", async () => {
+  const { herdr, service } = world({ prompt: { kind: "review", screen: { answers: [["ONNX"]] } } });
+  const card = await service.card(PANE);
+  assert.equal(card.title, "Review your answers");
+  // the review goes (dismissed in the terminal) right after the answer's own look at it
+  const readPane = herdr.readPane;
+  let reads = 0;
+  herdr.readPane = async (paneId, options) => {
+    reads += 1;
+    if (reads === 1) return readPane(paneId, options);
+    delete herdr.prompts[PANE];
+    return "  ┃  ask anything\n";
+  };
+  await assert.rejects(service.answer(PANE, { cardId: card.id, option: 0 }), { status: 409, code: "prompt_changed" });
+  assert.deepEqual(herdr.sent, [], "no Enter into OpenCode's input");
+});
+
+test("a Reject message: typed only while the panel shows, its Enter only while the box holds it", async () => {
+  {
+    const { herdr, service } = world({ prompt: { kind: "reject" } });
+    const card = await service.card(PANE);
+    await service.answer(PANE, { cardId: card.id, text: "use pnpm instead" });
+    assert.deepEqual(herdr.sent.map((item) => item.keys ?? `text:${item.text}`), ["text:use pnpm instead", ["enter"]]);
+    assert.deepEqual(herdr.answered, [{ paneId: PANE, answer: "reject: use pnpm instead" }]);
+  }
+  {
+    // the text went somewhere else (the panel closed meanwhile): no Enter after it
+    const { herdr, service } = world({ prompt: { kind: "reject" } });
+    const card = await service.card(PANE);
+    herdr.sendText = async (paneId, text) => { herdr.sent.push({ paneId, text }); delete herdr.prompts[PANE]; return { ok: true }; };
+    await assert.rejects(service.answer(PANE, { cardId: card.id, text: "!rm -rf build" }), { status: 409, code: "prompt_changed" });
+    assert.deepEqual(herdr.sent.map((item) => item.keys ?? `text:${item.text}`), ["text:!rm -rf build"]);
+  }
+  {
+    // the panel gone before anything is typed: nothing goes
+    const { herdr, service } = world({ prompt: { kind: "reject" } });
+    const card = await service.card(PANE);
+    const readPane = herdr.readPane;
+    let reads = 0;
+    herdr.readPane = async (paneId, options) => { reads += 1; return reads === 1 ? readPane(paneId, options) : "  ┃  ask anything\n"; };
+    await assert.rejects(service.answer(PANE, { cardId: card.id, text: "use pnpm" }), { status: 409, code: "prompt_changed" });
+    await assert.rejects(service.answer(PANE, { cardId: card.id, option: 0 }), { status: 409, code: "prompt_changed" });
+    assert.deepEqual(herdr.sent, []);
+  }
+});

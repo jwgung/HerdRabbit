@@ -81,7 +81,7 @@ import {
   writeChatFontSize,
 } from "./chat-font-preference.js?v=1.2.76";
 import { chatAgent } from "./lens-preference.js?v=1.2.76";
-import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop, stopPresses } from "./chat/chat-activity.js?v=1.2.76";
+import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop, stopFollowUp, stopPresses } from "./chat/chat-activity.js?v=1.2.76";
 import * as xterm from "./vendor/xterm.mjs?v=1.2.76";
 import {
   readPanePreference,
@@ -4119,6 +4119,8 @@ async function stopAgent() {
       await sendKeys(["esc"], paneId);
     }
     refreshAfterSubmission();
+    const followUp = stopFollowUp(agent);
+    if (followUp) void hintIfStillWorking(paneId, followUp);
   } catch (error) {
     setFeedback(error.message, true);
   } finally {
@@ -4126,6 +4128,15 @@ async function stopAgent() {
     stoppingPanes.delete(paneId);
     syncSendButton();
   }
+}
+
+// A moment after an OpenCode Stop: the pane, still selected and still
+// working by a fresh snapshot, gets the hint that its Escs may have gone to a
+// list or the shell mode instead.
+async function hintIfStillWorking(paneId, { afterMs, message }) {
+  await new Promise((resolve) => window.setTimeout(resolve, afterMs));
+  await refreshSnapshot().catch(() => {});
+  if (state.selectedPaneId === paneId && stopTarget.paneId === paneId && stopTarget.status === "working") setFeedback(message);
 }
 
 // The press decides: at pointerdown, before focus leaves the composer, a press

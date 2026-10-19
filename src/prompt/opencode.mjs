@@ -19,6 +19,11 @@
 //
 // The question rows are told apart by colour too, but each takes its own
 // digit (1-9), so they are answered by number and the cursor never matters.
+//
+// A dialog open over the session (ctrl+p's commands, the session list, the
+// model picker, ...) takes every key while the panel only dims under it: no
+// card then. Checked on 1.18.34: the panel's words and colours stay readable
+// (dimmed) under such a dialog, and the dialog's title row ends in "esc".
 import { secretPrompt } from "../secret-prompt.mjs";
 import {
   ANSI_RE,
@@ -47,6 +52,13 @@ const REJECT_HINT_RE = /enter\s+confirm\s+esc\s+cancel\s*$/u;
 const REJECT_ASK = "Tell OpenCode what to do differently";
 // the icon before a permission's title (permission.tsx's info())
 const TITLE_ICON_RE = /^[→✱#%◈←⟳⚙]\s+/u;
+// An open dialog's title row: its title, then "esc" at its right edge
+// ("Commands … esc", "Sessions … esc", "Select model … esc"), and maybe the
+// session's scrollbar beside it.
+const DIALOG_TITLE_RE = /^\s*\S.*\S\s{2,}esc$/u;
+const SCROLLBAR_RE = /\s+[█▐▌▕│]$/u;
+// text without its spaces, to compare words a narrow pane wrapped
+const squash = (value) => String(value ?? "").replace(/\s+/gu, "");
 
 // A question's hints: "⇆ tab" when it has tabs (several questions, or one
 // that takes several answers), "↑↓ select", what Enter does, "esc dismiss".
@@ -129,13 +141,21 @@ function nearEnd(lines, index, count = 3) {
   return shownIndices(lines).slice(-count).includes(index);
 }
 
-// The button selected in a row of buttons, by colour: the one whose background
-// is the colour of the panel's "△" (the theme's warning colour), else the one
-// background unlike all the others'. Null when the colours do not tell.
+// Whether a dialog is open over the session: its keys are the dialog's.
+function dialogOpen(lines) {
+  return lines.some((line) => DIALOG_TITLE_RE.test(line.replace(SCROLLBAR_RE, "")));
+}
+
+// The button selected in a row of buttons, by colour: the one button whose
+// background is the colour of the panel's "△" (the theme's warning colour).
+// Null when the colours do not tell: no colour on "△", or not one button on it.
+// (On 1.18.34 the two match exactly, dimmed under a dialog too; no guess is
+// made from a background merely unlike the others'.)
 export function selectedButton(rawRow, labels, rawHeader) {
   const row = styledLine(rawRow);
-  const header = rawHeader === undefined ? null : styledLine(rawHeader);
+  const header = typeof rawHeader === "string" ? styledLine(rawHeader) : null;
   const warning = header ? header.fgs[header.text.indexOf("△")] ?? "" : "";
+  if (!warning) return null;
   let from = 0;
   const backgrounds = [];
   for (const label of labels) {
@@ -144,12 +164,8 @@ export function selectedButton(rawRow, labels, rawHeader) {
     backgrounds.push(row.bgs[at]);
     from = at + label.length;
   }
-  if (warning) {
-    const marked = backgrounds.flatMap((bg, index) => (bg === warning ? [index] : []));
-    if (marked.length === 1) return marked[0];
-  }
-  const odd = backgrounds.flatMap((bg, index) => (backgrounds.filter((other) => other === bg).length === 1 ? [index] : []));
-  return backgrounds.length >= 3 && odd.length === 1 ? odd[0] : null;
+  const marked = backgrounds.flatMap((bg, index) => (bg === warning ? [index] : []));
+  return marked.length === 1 ? marked[0] : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +255,7 @@ function parseAlways(raw, lines) {
 // what to do differently", a text box, "enter confirm  esc cancel". Enter
 // rejects with what the box holds; Esc goes back to the permission. A box
 // that already holds words typed in the terminal is left to the terminal.
-function parseReject(_raw, lines) {
+function rejectBox(lines) {
   const header = lastHeader(lines, REJECT_HEADER_RE);
   if (header < 0) return null;
   const ask = lines.findIndex((line, index) => index > header && line.trim() === REJECT_ASK);
@@ -247,8 +263,21 @@ function parseReject(_raw, lines) {
   const hint = lines.findLastIndex((line) => REJECT_HINT_RE.test(line));
   if (hint <= ask || !nearEnd(lines, hint)) return null;
   // the box: the words before the hints on their row (wide), or the rows between (narrow)
-  const typed = [lines[hint].replace(REJECT_HINT_RE, ""), ...lines.slice(ask + 1, hint)].map((line) => line.trim()).filter(Boolean);
-  if (typed.length > 0) return null;
+  return [...lines.slice(ask + 1, hint), lines[hint].replace(REJECT_HINT_RE, "")].map((line) => line.trim()).filter(Boolean).join(" ");
+}
+
+// Whether `screen` still shows the Reject panel with exactly `text` in its
+// box: what a typed message waits on before its Enter goes.
+function rejectHolds(screen, text) {
+  const { lines } = screenLines(String(screen ?? ""));
+  if (dialogOpen(lines)) return false;
+  const typed = rejectBox(lines);
+  return typeof typed === "string" && typed.length > 0 && squash(typed) === squash(text);
+}
+
+function parseReject(_raw, lines) {
+  const typed = rejectBox(lines);
+  if (typed === null || typed.length > 0) return null;
   return finishPrompt("opencode", {
     kind: "approval", title: "Reject permission", question: REJECT_ASK, body: null,
     options: [
@@ -262,6 +291,9 @@ function parseReject(_raw, lines) {
     optionSteps: [keySteps([KEY.enter]), keySteps([KEY.escape])],
     // the box has the focus: the message is typed into it and Enter sends it
     customSteps: (text) => [{ text }, ...keySteps([KEY.enter])],
+    // each key goes only while this panel is on screen (and the Enter only
+    // while its box holds the message): else OpenCode's own input takes them
+    checksEachStep: true, holdsText: rejectHolds,
   });
 }
 
@@ -274,6 +306,32 @@ function digitKey(index) {
     throw new InvalidAnswer("Only the first nine options can be answered from here. Answer in the terminal.");
   }
   return String(index + 1);
+}
+
+// Whether a raw line is one of the panel's: drawn with its bar.
+const inPanel = (rawLine) => BAR_RE.test(String(rawLine ?? "").replace(ANSI_RE, ""));
+// the questions' tabs: each header, then "Confirm"
+const TAB_ROW_RE = /\S\s{2,}Confirm$/u;
+
+// The question: its paragraphs above the first row, each the lines it wraps
+// onto, up to the panel's top (or its row of tabs). Paragraphs are kept apart
+// by a blank line; without the panel's bar only the nearest one is taken.
+function questionAbove(raw, lines, firstRow) {
+  const paragraphs = [];
+  let at = firstRow - 1;
+  while (at >= 0 && firstRow - at <= 40) {
+    // the blank lines between: the panel's own, once a paragraph is in
+    for (; at >= 0 && !lines[at].trim(); at -= 1) {
+      if (paragraphs.length > 0 && !inPanel(raw[at])) return paragraphs.join("\n\n");
+    }
+    if (at < 0 || TAB_ROW_RE.test(lines[at].trim())) break;
+    if (paragraphs.length > 0 && !inPanel(raw[at])) break;
+    const paragraph = [];
+    for (; at >= 0 && lines[at].trim() && (paragraphs.length === 0 || inPanel(raw[at])); at -= 1) paragraph.unshift(lines[at].trim());
+    paragraphs.unshift(normalizeText(paragraph.join(" ")));
+    if (!inPanel(raw[at + 1])) break;
+  }
+  return paragraphs.join("\n\n");
 }
 
 // "Which format?" (" (select all that apply)" for several answers), its rows
@@ -291,12 +349,7 @@ function parseQuestion(raw, lines) {
   // A line under "Type your own answer" is its text box open (keys there are
   // typed, not picked) or an answer typed before: left to the terminal.
   if (custom && rows.at(-1).description) return null;
-  // the question: the lines right above the first row, after one blank line
-  const above = [];
-  let at = rows[0].lineIndex - 1;
-  while (at >= 0 && !lines[at].trim()) at -= 1;
-  for (; at >= 0 && lines[at].trim(); at -= 1) above.unshift(lines[at].trim());
-  let question = normalizeText(above.join(" "));
+  let question = questionAbove(raw, lines, rows[0].lineIndex);
   if (!question) return null;
   const marked = MULTIPLE_RE.test(question);
   question = question.replace(MULTIPLE_RE, "");
@@ -342,6 +395,7 @@ function parseReview(_raw, lines) {
     responder: "opencode-review", menuLabels: ["Submit answers", "Dismiss"], selectedIndex: 0,
     checkedOptionIndices: [], customMenuIndex: null,
     optionSteps: [keySteps([KEY.enter]), keySteps([KEY.escape])],
+    checksEachStep: true,
   });
 }
 
@@ -352,6 +406,7 @@ export function parseOpencodePrompt(screen) {
   const text = String(screen ?? "");
   if (secretPrompt(text.replace(ANSI_RE, "")) !== null) return null;
   const { raw, lines } = screenLines(text);
+  if (dialogOpen(lines)) return null;
   for (const parse of [parsePermission, parseAlways, parseReject, parseQuestion, parseReview]) {
     const card = parse(raw, lines);
     if (card) return card;
@@ -364,11 +419,16 @@ export function parseOpencodePrompt(screen) {
 
 const MAX_LINE = 4 * 1024;
 const capped = (value, limit) => (value.length > limit ? `${value.slice(0, limit)}…` : value);
-const squash = (value) => String(value ?? "").replace(/\s+/gu, "");
-// whether the screen's (wrapped, maybe cut) words are the call's
+// whether the screen's (wrapped, maybe cut) words are the call's: an option's
+// label from its start, the question anywhere in it (its paragraphs above may
+// be cut off by the panel's top)
 const shows = (screenText, full) => {
   const shown = squash(screenText).replace(/…$/u, "");
   return shown.length > 0 && squash(full).startsWith(shown);
+};
+const showsQuestion = (screenText, full) => {
+  const shown = squash(screenText).replace(/…$/u, "");
+  return shown.length > 0 && squash(full).includes(shown);
 };
 
 // A question card with the words of the `question` tool call that waits (its
@@ -378,7 +438,7 @@ const shows = (screenText, full) => {
 export function fillOpencodeCard(card, ask) {
   if (!card || card.agent !== "opencode" || card.kind !== "question" || !ask || ask.name !== "question") return card;
   const questions = Array.isArray(ask.input?.questions) ? ask.input.questions : [];
-  const asked = questions.find((item) => item && typeof item.question === "string" && Array.isArray(item.options) && shows(card.question, item.question));
+  const asked = questions.find((item) => item && typeof item.question === "string" && Array.isArray(item.options) && showsQuestion(card.question, item.question));
   if (!asked) return card;
   if (asked.options.length !== card.options.length) return card;
   const options = [];

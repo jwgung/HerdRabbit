@@ -127,6 +127,19 @@ export function stopPresses(agent) {
     : { presses: 1, gapMs: 0 };
 }
 
+// OpenCode's Esc is not always its interrupt: an open autocomplete list, its
+// shell mode ("!") or an input without the focus takes it first, and the two
+// Escs then stop nothing. So a moment after an OpenCode Stop the chat looks
+// again, and says so if the agent still works. A hint, not a retry: another
+// Esc could close what the first one opened.
+export const OPENCODE_STOP_CHECK_MS = 2_500;
+export const OPENCODE_STOP_HINT = "OpenCode is still working. If it should stop, press Stop again or press Esc twice in the terminal.";
+export function stopFollowUp(agent) {
+  return String(agent ?? "").toLowerCase() === "opencode"
+    ? { afterMs: OPENCODE_STOP_CHECK_MS, message: OPENCODE_STOP_HINT }
+    : null;
+}
+
 // Whether the composer shows Stop: the Chat lens is on a Claude, Codex or
 // OpenCode pane whose agent herdr says is working. A blocked agent has its card instead, and
 // a send no status has answered yet is only a guess, so neither shows it.

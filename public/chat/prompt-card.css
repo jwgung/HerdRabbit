@@ -170,6 +170,8 @@
   font-size: 1.07em;
   font-weight: 600;
   overflow-wrap: anywhere;
+  /* a question of several paragraphs keeps them apart */
+  white-space: pre-line;
 }
 
 /* the command, plan or screen lines: the part that gives way when the card is short */

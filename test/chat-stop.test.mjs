@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { OPENCODE_STOP_GAP_MS, composerEscapeStops, sendButtonMode, showsStop, stopPresses } from "../public/chat/chat-activity.js";
+import { OPENCODE_STOP_CHECK_MS, OPENCODE_STOP_GAP_MS, composerEscapeStops, sendButtonMode, showsStop, stopFollowUp, stopPresses } from "../public/chat/chat-activity.js";
 
 const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
@@ -25,6 +25,19 @@ test("Stop sends one Esc to Claude and Codex, and two apart to OpenCode, which i
   assert.deepEqual(stopPresses("OpenCode"), { presses: 2, gapMs: OPENCODE_STOP_GAP_MS });
   // apart enough not to read as one Alt+Esc, well inside OpenCode's 5 seconds
   assert.ok(OPENCODE_STOP_GAP_MS >= 100 && OPENCODE_STOP_GAP_MS <= 2_000);
+});
+
+test("an OpenCode Stop looks again a moment later and hints, if it still works, that its Escs may have gone elsewhere", async () => {
+  // OpenCode's Esc can close its autocomplete or shell mode instead of interrupting
+  const followUp = stopFollowUp("OpenCode");
+  assert.equal(followUp.afterMs, OPENCODE_STOP_CHECK_MS);
+  assert.ok(OPENCODE_STOP_CHECK_MS >= 1_500 && OPENCODE_STOP_CHECK_MS <= 5_000);
+  assert.match(followUp.message, /OpenCode is still working.*Stop again/u);
+  for (const agent of ["claude", "codex", null]) assert.equal(stopFollowUp(agent), null, String(agent));
+  // the page asks for a fresh snapshot and hints only for the pane still selected and still working
+  const app = await read("../public/app.js");
+  assert.match(app, /const followUp = stopFollowUp\(agent\);\s*if \(followUp\) void hintIfStillWorking\(paneId, followUp\);/u);
+  assert.match(app, /async function hintIfStillWorking\(paneId, \{ afterMs, message \}\) \{[\s\S]{0,200}await refreshSnapshot\(\)[\s\S]{0,120}state\.selectedPaneId === paneId && stopTarget\.paneId === paneId && stopTarget\.status === "working"\) setFeedback\(message\);/u);
 });
 
 test("Esc in the composer stops only when Stop shows and nothing else answers Esc", () => {

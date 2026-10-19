@@ -10,6 +10,9 @@
 // (Enter, a typed answer) only once the screen shows the same card with the
 // cursor on the row the moves were for. A multiple choice's answer is several
 // such keys (a tick per option, then →): the screen is looked at before each.
+// A card answered by its own keys that asks for it (OpenCode's Reject message
+// and review) is looked at before each key and each typed text too: the same
+// card still on screen, and once a message is typed, the box holding it.
 import { createHash } from "node:crypto";
 import { HttpError } from "../http-basics.mjs";
 import { fillClaudeCard, parseClaudePrompt } from "./claude.mjs";
@@ -141,11 +144,15 @@ export class PromptService {
     return this.#readScreen(paneId, agent);
   }
 
+  #screen(paneId, reader) {
+    return this.herdr.readPane(paneId, { lines: SCREEN_LINES, format: READ_FORMATS[reader] ?? "text", source: READ_SOURCES[reader] ?? "detection" });
+  }
+
   async #readScreen(paneId, agent) {
     const reader = readerName(agent);
     const blocked = agent.status === "blocked";
     if (!reader && !blocked) return null;
-    const screen = await this.herdr.readPane(paneId, { lines: SCREEN_LINES, format: READ_FORMATS[reader] ?? "text", source: READ_SOURCES[reader] ?? "detection" });
+    const screen = await this.#screen(paneId, reader);
     const card = reader ? READERS[reader](screen) ?? null : null;
     if (card || !blocked) return card;
     return parseFallbackPrompt(screen, { agent: reader ?? agent.name });
@@ -198,9 +205,17 @@ export class PromptService {
     let cursor = parsed.selectedIndex;
     let sent = false;
     let typed = false;
+    let typedText = "";
     let committed = false;
     try {
       for (const [index, step] of steps.entries()) {
+        // a card that checks each step: still on screen (once a message is
+        // typed, its box holding it), or nothing more goes
+        if (parsed.checksEachStep && !(typed
+          ? await this.#holds(paneId, parsed, typedText)
+          : await this.#onRow(paneId, parsed.promptKey ?? parsed.id, parsed.selectedIndex, { anyRow: true }))) {
+          throw promptChanged();
+        }
         const move = step.keys?.every((key) => key === moves.back || key === moves.forward) ?? false;
         // A key that picks or ticks goes only once the screen shows this
         // prompt again with the cursor where the keys so far left it: the menu
@@ -217,7 +232,7 @@ export class PromptService {
         if (step.keys) await this.herdr.sendKeys(paneId, step.keys);
         else await this.herdr.sendText(paneId, step.text);
         sent = true;
-        if (step.text !== undefined) typed = true;
+        if (step.text !== undefined) { typed = true; typedText += step.text; }
         if (!move) committed = true;
         if (move) {
           for (const key of step.keys) cursor = key === moves.forward ? cursor + 1 : Math.max(0, cursor - 1);
@@ -231,11 +246,26 @@ export class PromptService {
     return { ok: true };
   }
 
-  async #onRow(paneId, promptKey, cursor) {
+  // Whether the screen shows the card `promptKey` with the cursor on `cursor`
+  // (any row, with `anyRow`), within the settle time.
+  async #onRow(paneId, promptKey, cursor, { anyRow = false } = {}) {
     const deadline = Date.now() + this.settleMs;
     while (Date.now() < deadline) {
       const shown = await this.read(paneId).catch(() => null);
-      if (shown && (shown.promptKey ?? shown.id) === promptKey && shown.selectedIndex === cursor) return true;
+      if (shown && (shown.promptKey ?? shown.id) === promptKey && (anyRow || shown.selectedIndex === cursor)) return true;
+      await delay(this.lookMs);
+    }
+    return false;
+  }
+
+  // Whether the screen shows the card's text box holding `text`, within the
+  // settle time: the card's reader tells (`holdsText`); one that cannot tell holds nothing.
+  async #holds(paneId, parsed, text) {
+    if (typeof parsed.holdsText !== "function") return false;
+    const deadline = Date.now() + this.settleMs;
+    while (Date.now() < deadline) {
+      const screen = await this.#screen(paneId, parsed.agent).catch(() => null);
+      if (screen !== null && parsed.holdsText(screen, text)) return true;
       await delay(this.lookMs);
     }
     return false;
