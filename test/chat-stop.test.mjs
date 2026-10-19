@@ -37,7 +37,9 @@ test("an OpenCode Stop looks again a moment later and hints, if it still works, 
   // the page asks for a fresh snapshot and hints only for the pane still selected and still working
   const app = await read("../public/app.js");
   assert.match(app, /const followUp = stopFollowUp\(agent\);\s*if \(followUp\) void hintIfStillWorking\(paneId, followUp\);/u);
-  assert.match(app, /async function hintIfStillWorking\(paneId, \{ afterMs, message \}\) \{[\s\S]{0,200}await refreshSnapshot\(\)[\s\S]{0,120}state\.selectedPaneId === paneId && stopTarget\.paneId === paneId && stopTarget\.status === "working"\) setFeedback\(message\);/u);
+  assert.match(app, /async function hintIfStillWorking\(paneId, \{ afterMs, message \}\) \{[\s\S]{0,200}await refreshSnapshot\(\);\s*if \(!\(state\.snapshotAt >= asked\)\) return;\s*if \(state\.selectedPaneId === paneId && stopTarget\.paneId === paneId && stopTarget\.status === "working"\) setFeedback\(message\);/u);
+  // a fresh snapshot is what the hint stands on: refreshSnapshot marks when one arrived
+  assert.match(app, /state\.snapshot = payload\.snapshot \|\| \{\};\s*\/\/[^\n]*\n\s*state\.snapshotAt = Date\.now\(\);/u);
 });
 
 test("Esc in the composer stops only when Stop shows and nothing else answers Esc", () => {

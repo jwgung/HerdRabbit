@@ -167,6 +167,19 @@ try {
     assert.deepEqual(keysSent(), ["esc", "esc"]);
     const gap = stamps[1].at - stamps[0].at;
     assert.ok(gap >= 300 && gap < 5_000, `the two Escs went ${gap} ms apart`);
+    // still working by a fresh snapshot a moment later: the hint to press again
+    await page.waitForFunction(() => /OpenCode is still working/u.test(document.querySelector("#action-feedback")?.textContent ?? ""), null, { timeout: 6_000 });
+
+    // a Stop whose follow-up snapshot fails says nothing: the old status is no evidence
+    await page.evaluate(() => { document.querySelector("#action-feedback").textContent = ""; });
+    await page.waitForTimeout(1_200);
+    await page.waitForFunction(() => document.querySelector("#input-form .send-button")?.dataset.mode === "stop", null, { timeout: 5_000 });
+    const realSnapshot = herdr.snapshot;
+    herdr.snapshot = async () => { throw new Error("herdr went away for a moment"); };
+    await button.click();
+    await page.waitForTimeout(3_500);
+    herdr.snapshot = realSnapshot;
+    assert.doesNotMatch(await page.locator("#action-feedback").textContent(), /OpenCode is still working/u, "a hint from a snapshot that failed");
 
     assert.deepEqual(errors, []);
     results.push({ mobile, banner: !mobile, permissionCard: true, allowOnce: "enter", allowAlways: "left, enter, enter", question: "2 (words from the database)", stop: `esc, esc (${gap} ms apart)` });

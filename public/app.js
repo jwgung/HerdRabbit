@@ -3217,6 +3217,8 @@ async function refreshSnapshot() {
       return state.acknowledgedCompletions.get(id) === agentCompletionIdentity(agentForPane(id), pane);
     }).map(pane => idOf(pane, "pane_id", "id")));
     state.snapshot = payload.snapshot || {};
+    // when a snapshot last arrived (one that failed or was skipped leaves it)
+    state.snapshotAt = Date.now();
     const records = snapshotRecords();
     const paneIds = records.panes.map(pane => idOf(pane, "pane_id", "id"));
     for (const [paneId, event] of liveStatusUpdates) {
@@ -4132,10 +4134,13 @@ async function stopAgent() {
 
 // A moment after an OpenCode Stop: the pane, still selected and still
 // working by a fresh snapshot, gets the hint that its Escs may have gone to a
-// list or the shell mode instead.
+// list or the shell mode instead. A snapshot that could not be had (it failed,
+// or was skipped) says nothing: the status from before the Stop is no evidence.
 async function hintIfStillWorking(paneId, { afterMs, message }) {
   await new Promise((resolve) => window.setTimeout(resolve, afterMs));
-  await refreshSnapshot().catch(() => {});
+  const asked = Date.now();
+  await refreshSnapshot();
+  if (!(state.snapshotAt >= asked)) return;
   if (state.selectedPaneId === paneId && stopTarget.paneId === paneId && stopTarget.status === "working") setFeedback(message);
 }
 
