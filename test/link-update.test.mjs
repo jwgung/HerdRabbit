@@ -149,6 +149,9 @@ test("a PC that updates Herdr names it, and the hub keeps only what it shows", a
   const calls = [];
   const address = await startPeer(context, { updater: updaterWithHerdr(calls), herdrUpdater: noisyHerdr(calls) });
   assert.deepEqual((await (await fetch(`${address}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "update", "herdr_update"]);
+  // Herdr's check comes with the update answer: a PC without one does not name it
+  const alone = await startPeer(context, { herdrUpdater: noisyHerdr([]) });
+  assert.deepEqual((await (await fetch(`${alone}/api/link/hello`)).json()).features, ["scroll_bottom", "commands"]);
   const link = client(address);
   const check = await link.updateCheck();
   assert.equal(check.herdr.current, "0.9.3");

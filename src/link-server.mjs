@@ -95,7 +95,8 @@ export function linkRoutes({
       // for what is there. A PC from before this list says nothing.
       features: [
         ...(conversations ? ["conversation"] : []), "scroll_bottom", "commands", ...(updater ? ["update"] : []),
-        ...(herdrUpdater ? ["herdr_update"] : []),
+        // Herdr's check rides on the update answer: without it there is none to ask
+        ...(updater && herdrUpdater ? ["herdr_update"] : []),
       ],
     };
   }

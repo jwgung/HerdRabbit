@@ -164,14 +164,16 @@ export function createUpdatePanel({
   // (the page was reloaded during one) is followed again.
   async function resume() {
     try {
+      // each update on its own: one this PC cannot run does not stop the other being followed
       const status = await api(`/api/update/run?${query("local")}`);
-      if (status.supported === false) return;
-      baseline = { boot: status.boot ?? null, version: status.version ?? null };
-      if (status.state === "running") void track("local", status);
-      // A run that ended lately is still shown, so the page that reloaded
-      // into the new version can say how it went.
-      else if (status.state !== "idle" && Date.now() - Date.parse(status.finishedAt) < RECENT_RUN_MS) {
-        entry("local").run = { status, tracking: false, waiting: false };
+      if (status.supported !== false) {
+        baseline = { boot: status.boot ?? null, version: status.version ?? null };
+        if (status.state === "running") void track("local", status);
+        // A run that ended lately is still shown, so the page that reloaded
+        // into the new version can say how it went.
+        else if (status.state !== "idle" && Date.now() - Date.parse(status.finishedAt) < RECENT_RUN_MS) {
+          entry("local").run = { status, tracking: false, waiting: false };
+        }
       }
     } catch { /* checked again with the rest */ }
     try {
