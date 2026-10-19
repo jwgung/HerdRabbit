@@ -350,8 +350,11 @@ const PANE_SENT = new Map();
 const MAX_PANE_SENT = 256;
 // How long Claude Code gets to redraw its input box after a key.
 const INPUT_SETTLE_MS = 150;
-// At most this many rounds of keys go to clear a message put back.
-const MAX_CLEAR_ROUNDS = 24;
+// Enough of the screen to hold Claude's whole input box with the longest
+// message the composer sends (8,000 characters) wrapped on a narrow pane, and
+// enough rounds to empty it a row or two at a time.
+const RESTORED_READ_LINES = 400;
+const MAX_CLEAR_ROUNDS = 400;
 
 // Enough for Claude Code to read a pasted image path before its Enter.
 const IMAGE_SETTLE_MS = 700;
@@ -775,7 +778,7 @@ export class HerdrClient {
   async #clearRestoredMessage(safePaneId, restored) {
     const look = async () => {
       try {
-        return claudeInputBox(await this.readPane(safePaneId, { lines: 40, format: "text", source: "detection" }));
+        return claudeInputBox(await this.readPane(safePaneId, { lines: RESTORED_READ_LINES, format: "text", source: "detection" }));
       } catch {
         return null;
       }

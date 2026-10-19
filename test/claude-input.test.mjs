@@ -195,3 +195,20 @@ test("only a wrap's whitespace is forgiven when comparing the box with the stopp
   assert.deepEqual(restoredDraftStep(box(["hello"]), "hello world", first), { keys: ["backspace", "ctrl+u"] });
   assert.deepEqual(restoredDraftStep(box(["helloworl"]), "hello world", first), { done: true });
 });
+
+test("a message put back over many rows is read whole and cleared to the end", async () => {
+  // 60 rows of a long message wrapped on a narrow pane: more than a 40-line look would hold
+  const rows = Array.from({ length: 60 }, (_, n) => `row${n} words words`);
+  const pane = claudePane([""]);
+  const client = new HerdrClient({ runner: pane.runner, sleep: async () => {}, sessionName: "stopdraft-long" });
+  await client.sendText("w1:p1", rows.join(" "), { submit: true });
+  await client.sendKeys("w1:p1", ["esc"]);
+  pane.rows = [...rows];
+  await client.sendText("w1:p1", "next", { submit: true });
+  assert.equal(pane.sent, "next");
+  const read = pane.calls.find((args) => args[1] === "read");
+  const lines = Number(read[read.indexOf("--lines") + 1]);
+  assert.ok(lines >= 400, `the look read only ${lines} lines`);
+  assert.ok(commands(pane).includes("run w1:p1 next"));
+});
+
