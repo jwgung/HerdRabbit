@@ -9,8 +9,9 @@
 // left as it is.
 import { ANSI_RE } from "./screen.mjs";
 
-// Claude's prompt row: "❯ text" from the left edge.
-const PROMPT_RE = /^❯(?: |$)/u;
+// Claude's prompt row: "❯ text" from the left edge. Claude Code draws a
+// no-break space (U+00A0) after the mark, not a plain one.
+const PROMPT_RE = /^❯(?:[ \u00a0]|$)/u;
 // The box's rules: plain, or named after the session ("──── my-session ─").
 const RULE_RE = /^─{3,}(?: \S(?:.*\S)? ─)?$/u;
 
@@ -21,7 +22,7 @@ export function claudeInputBox(screen) {
   const lines = String(screen ?? "").replace(ANSI_RE, "").split(/\r?\n/u).map((line) => line.replace(/\s+$/u, ""));
   const at = lines.findLastIndex((line) => PROMPT_RE.test(line));
   if (at < 1 || !RULE_RE.test(lines[at - 1].trim())) return null;
-  const rows = [lines[at].replace(/^❯ ?/u, "")];
+  const rows = [lines[at].replace(/^❯[ \u00a0]?/u, "")];
   let end = at + 1;
   for (; end < lines.length && !RULE_RE.test(lines[end].trim()); end += 1) rows.push(lines[end].replace(/^ {1,2}/u, ""));
   if (end >= lines.length) return null;

@@ -157,3 +157,16 @@ test("a screen that cannot be read is no reason not to send", async () => {
   await client.sendText("w1:p1", "two", { submit: true });
   assert.deepEqual(commands(pane).filter((item) => item !== "read"), ["run w1:p1 one", "send-keys w1:p1 esc", "run w1:p1 two"]);
 });
+
+// A real Claude Code 2.1 screen (captured in a test herdr session) right after
+// a message was sent and stopped with Esc: the message is back in the box, and
+// the prompt mark is followed by a no-break space (U+00A0), not a plain one.
+const REAL_RESTORED = ["\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", "\u276f\u00a0reply with only the word ok", "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", "  \u23f5\u23f5 auto mode on (shift+tab to cycle)                                                  /rc"].join("\n");
+
+test("a real screen with the stopped message put back is read and cleared", () => {
+  assert.ok(REAL_RESTORED.includes("\u276f\u00a0reply"), "the fixture keeps Claude's no-break space");
+  const box = claudeInputBox(REAL_RESTORED);
+  assert.deepEqual(box, { text: "reply with only the word ok", rows: 1 });
+  assert.deepEqual(restoredDraftStep(box, "reply with only the word ok"), { keys: ["ctrl+k", "ctrl+u"] });
+});
+
