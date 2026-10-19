@@ -40,6 +40,16 @@ import {
   sequentialRows,
 } from "./screen.mjs";
 
+// The OpenCode versions whose TUI this reader was checked against: 1.18.x
+// (built from 1.18.34). The version is the one OpenCode wrote on the pane's
+// session (its database's session.version). Any other version, or none
+// known, gets no card at all, not even the fallback: its panel and keys may
+// differ, and an Enter sent to a screen read wrong could act on something
+// else. Such a pane is answered in its terminal; its chat still reads.
+export function SUPPORTED_OPENCODE_TUI(version) {
+  return typeof version === "string" && /^1\.18\.\d+$/u.test(version);
+}
+
 // the panel's left bar, and a line of it with nothing else
 const BAR_RE = /^\s*┃ ?/u;
 // Whether a raw line is drawn with such a bar (a panel's, or a message box's).

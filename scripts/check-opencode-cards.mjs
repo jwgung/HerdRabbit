@@ -5,7 +5,9 @@
 // OpenCode's "Always allow" check as a card of its own; a question card takes
 // its words from the running question call in OpenCode's database and is
 // answered by its digit; and Stop on a working OpenCode pane sends Esc twice,
-// apart. The screens are drawn from OpenCode 1.18.34's source
+// apart, and its "still working" hint stands only on a snapshot asked for
+// after its moment. The session is written by OpenCode 1.18.34, the version
+// the cards are read for. The screens are drawn from OpenCode 1.18.34's source
 // (test/fixtures/opencode-prompt.mjs), the database is a temporary one with
 // made-up rows, and herdr is an in-process fake: nothing reaches a real herdr
 // or a real OpenCode.
@@ -67,7 +69,8 @@ const conversations = new ConversationService({ herdr: outer, localStore: localT
   configDir: join(root, "claude"), codexHome: join(root, "codex"), opencodeDb: dbPath,
 }) });
 const prompts = new PromptService({ herdr: outer, pollMs: 200, stepDelayMs: 5, lookMs: 20,
-  details: (paneId, snapshot) => conversations.pendingAsk(paneId, snapshot) });
+  details: (paneId, snapshot) => conversations.pendingAsk(paneId, snapshot),
+  agentVersion: (paneId, snapshot) => conversations.agentVersion(paneId, snapshot) });
 const { server } = createHerdrHttpServer({ herdr: outer, attachments, prompts, conversations, logger: { info() {}, error() {} } });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
@@ -82,7 +85,8 @@ try {
     fixture?.close();
     for (const suffix of ["", "-wal", "-shm"]) await rm(`${dbPath}${suffix}`, { force: true });
     fixture = opencodeDb(dbPath);
-    fixture.session(SESSION, { directory: CWD });
+    // the version the cards are read for: OpenCode 1.18.x
+    fixture.session(SESSION, { directory: CWD, version: "1.18.34" });
     for (let n = 0; n < 3; n++) fixture.exchange(SESSION, n);
 
     const context = await browser.newContext({ serviceWorkers: "block", hasTouch: mobile, isMobile: mobile,
@@ -180,6 +184,61 @@ try {
     await page.waitForTimeout(3_500);
     herdr.snapshot = realSnapshot;
     assert.doesNotMatch(await page.locator("#action-feedback").textContent(), /OpenCode is still working/u, "a hint from a snapshot that failed");
+
+    // A snapshot asked for before the Stop, answered "working" only after the
+    // hint's moment, is no evidence: it is waited out and a fresh one asked
+    // for. OpenCode stopped (the fresh one says idle): no hint. Still working
+    // (the fresh one says so too): the hint.
+    for (const fresh of ["idle", "working"]) {
+      await page.evaluate(() => { document.querySelector("#action-feedback").textContent = ""; });
+      await page.waitForTimeout(1_200);
+      await page.waitForFunction(() => document.querySelector("#input-form .send-button")?.dataset.mode === "stop", null, { timeout: 5_000 });
+      let release;
+      const gate = new Promise((resolve) => { release = resolve; });
+      let held = null;
+      let heldAt = 0;
+      // snapshots asked for after the held one say `fresh` (herdr itself
+      // keeps "working", so no live status event says it first)
+      const stopped = async (route) => {
+        const response = await route.fetch();
+        const body = await response.json();
+        for (const pane of body.snapshot?.panes ?? []) if (pane.pane_id === PANE) pane.agent_status = fresh;
+        for (const agent of body.snapshot?.agents ?? []) if (agent.pane_id === PANE) agent.agent_status = fresh;
+        await route.fulfill({ response, json: body });
+      };
+      await page.route("**/api/snapshot", async (route) => {
+        if (held) return stopped(route);
+        // answered now, while OpenCode works; handed to the page only later
+        held = route.fetch();
+        heldAt = Date.now();
+        const response = await held;
+        await gate;
+        await route.fulfill({ response });
+      });
+      while (!held) await page.waitForTimeout(20);
+      herdr.sent.length = 0;
+      stamps.length = 0;
+      await button.click();
+      const clicked = Date.now();
+      const sentBy = Date.now() + 3_000;
+      while (keysSent().length < 2 && Date.now() < sentBy) await page.waitForTimeout(50);
+      assert.deepEqual(keysSent(), ["esc", "esc"]);
+      assert.ok(heldAt < clicked, "the held snapshot was asked for before the Stop");
+      // past the hint's moment (2.5 s after the second Esc), then the old "working" arrives
+      await page.waitForTimeout(Math.max(0, stamps[1].at + 2_500 + 700 - Date.now()));
+      // any hint shown meanwhile counts, even one gone again
+      await page.evaluate(() => {
+        const feedback = document.querySelector("#action-feedback");
+        window.stopHinted = false;
+        new MutationObserver(() => { if (/OpenCode is still working/u.test(feedback.textContent)) window.stopHinted = true; })
+          .observe(feedback, { childList: true, characterData: true, subtree: true });
+      });
+      release();
+      await page.waitForTimeout(2_500);
+      await page.unroute("**/api/snapshot");
+      assert.equal(await page.evaluate(() => window.stopHinted), fresh === "working",
+        fresh === "working" ? "no hint from the fresh snapshot asked for after the one on its way" : "a hint from a snapshot asked for before the Stop");
+    }
 
     assert.deepEqual(errors, []);
     results.push({ mobile, banner: !mobile, permissionCard: true, allowOnce: "enter", allowAlways: "left, enter, enter", question: "2 (words from the database)", stop: `esc, esc (${gap} ms apart)` });

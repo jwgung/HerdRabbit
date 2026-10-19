@@ -74,6 +74,8 @@ export const STATEMENTS = Object.freeze({
   // the columns of one of the tables below (TABLES), checked once per database file
   columns: "SELECT name FROM pragma_table_info(?)",
   session: "SELECT id, parent_id, directory, revert, time_updated FROM session WHERE id = ?",
+  // the OpenCode version that wrote the session: whether a prompt card may read its screen
+  sessionVersion: "SELECT version FROM session WHERE id = ?",
   newestInDirectory: "SELECT id FROM session WHERE directory = ? AND parent_id IS NULL AND time_archived IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1",
   newestInDirectoryAny: "SELECT id FROM session WHERE directory = ? AND parent_id IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1",
   sequence: "SELECT seq FROM event_sequence WHERE aggregate_id = ?",
@@ -108,6 +110,8 @@ const TABLES = Object.freeze({
 });
 // Read when there: an older database has no event log or archive.
 const OPTIONAL = Object.freeze({ event_sequence: ["aggregate_id", "seq"], session: ["time_archived"] });
+// Read when there: the version that wrote a session, for the prompt cards.
+const SESSION_VERSION = "version";
 
 export const UNSUPPORTED = "unsupported_opencode_version";
 
@@ -411,6 +415,7 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
     return {
       events: OPTIONAL.event_sequence.every((column) => events.has(column)),
       archive: OPTIONAL.session.every((column) => sessions.has(column)),
+      version: sessions.has(SESSION_VERSION),
     };
   }
 
@@ -602,6 +607,18 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
         const row = db.statement("pendingQuestion").get({ session, large: PENDING_QUESTION_BYTES });
         const input = row ? parse(string(row.input)) : {};
         return Array.isArray(input.questions) ? { name: "question", input: { questions: input.questions } } : null;
+      });
+      return found ?? null;
+    },
+
+    // The OpenCode version that wrote the session (its `version` column), or
+    // null: no such session, no such column, or not a short version string.
+    async sessionVersion(session) {
+      if (typeof session !== "string" || !OPENCODE_SESSION_ID.test(session)) return null;
+      const found = await withDb((db) => {
+        if (!db.shape.version) return null;
+        const value = db.statement("sessionVersion").get(session)?.version;
+        return typeof value === "string" && value.length <= 64 ? value : null;
       });
       return found ?? null;
     },

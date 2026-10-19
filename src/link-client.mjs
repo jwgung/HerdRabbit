@@ -545,6 +545,19 @@ export class LinkClient {
     return body.signature;
   }
 
+  // The version of the agent the pane runs, as the PC's own record says (an
+  // OpenCode pane's session), or null: what the PC's screen is read against
+  // for a prompt card. Anything that fails, a PC from before this included,
+  // is none, and none is no card.
+  async conversationAgentVersion(paneId) {
+    try {
+      const { body } = await this.#conversation(`/api/link/panes/${encodeURIComponent(paneId)}/agent-version`);
+      return typeof body.version === "string" && body.version.length <= 64 ? body.version : null;
+    } catch {
+      return null;
+    }
+  }
+
   // The plan or question the pane's Claude waits on, { name, input } or null:
   // the whole words a prompt card shows. Anything that fails is none.
   async conversationPendingAsk(paneId) {

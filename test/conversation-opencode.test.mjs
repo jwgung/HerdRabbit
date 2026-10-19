@@ -20,7 +20,9 @@ import {
 } from "../src/conversation/opencode.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
+import { PromptService } from "../src/prompt/service.mjs";
 import { OPENCODE_SCHEMA, opencodeDb } from "./fixtures/opencode-db.mjs";
+import { fakeOpencodeHerdr } from "./fixtures/opencode-prompt.mjs";
 
 const SESSION = "ses_0001AAAAAAAAAAAAAAAAAAAAAA";
 const OTHER = "ses_0002AAAAAAAAAAAAAAAAAAAAAA";
@@ -262,6 +264,8 @@ test("only the fixed statements run, and none reads the tables that hold secrets
   await conversations.signature("w1:p1");
   await conversations.pendingAsk("w1:p1");
   assert.ok(prepared.some((sql) => sql === STATEMENTS.pendingQuestion), "the prompt card's question is read too");
+  assert.equal(await conversations.agentVersion("w1:p1"), "1.0.0");
+  assert.ok(prepared.some((sql) => sql === STATEMENTS.sessionVersion), "and the version that wrote the session");
   assert.ok(prepared.length > 0);
   for (const sql of prepared) assert.ok(allowed.has(sql), sql);
   const answer = JSON.stringify(page);
@@ -517,6 +521,50 @@ test("the question a pane's OpenCode waits on: the newest question call still ru
   assert.equal(await later.pendingAsk("w1:p1"), null);
   // another agent's pane, or none: nothing
   assert.equal(await service(path, [{ pane_id: "w1:p1", agent: "codex" }]).pendingAsk("w1:p1"), null);
+});
+
+test("the OpenCode version a pane's session was written by decides its prompt card: 1.18.x has one, any other version or none has none", async (context) => {
+  const { path, fixture } = await world(context);
+  const versions = { [SESSION]: "1.18.34", [OTHER]: "1.19.0", [CHILD]: "" };
+  for (const [id, version] of Object.entries(versions)) fixture.session(id, { version, directory: `/work/${id}` });
+  const pane = (id) => ({ pane_id: `w1:${id}`, agent: "opencode", agent_status: "blocked", agent_session: { agent: "opencode", kind: "id", value: id } });
+  const cards = async (dbPath) => {
+    const panes = Object.keys(versions).map(pane);
+    const herdr = fakeOpencodeHerdr({ panes, prompts: Object.fromEntries(panes.map((item) => [item.pane_id, { kind: "permission" }])) });
+    const conversations = new ConversationService({
+      herdr,
+      localStore: localTranscriptStore({ configDir: "/nonexistent/claude", codexHome: "/nonexistent/codex", opencodeDb: dbPath }),
+    });
+    const prompts = new PromptService({ herdr, stepDelayMs: 1, lookMs: 2, settleMs: 50,
+      agentVersion: (paneId, snapshot) => conversations.agentVersion(paneId, snapshot) });
+    const shown = {};
+    for (const item of panes) shown[versions[item.agent_session.value] || "none"] = (await prompts.card(item.pane_id))?.title ?? null;
+    // an answer to the card a 1.18 pane would show goes nowhere on the others
+    for (const item of panes.slice(1)) {
+      await assert.rejects(prompts.answer(item.pane_id, { cardId: "opencode:permission", option: 0 }), { status: 409 });
+    }
+    return { shown, sent: herdr.sent, conversations };
+  };
+  const { shown, sent, conversations } = await cards(path);
+  assert.deepEqual(shown, { "1.18.34": "Permission required", "1.19.0": null, none: null });
+  assert.deepEqual(sent, [], "nothing sent to a pane of a version the reader does not know");
+  assert.equal(await conversations.agentVersion("w1:" + SESSION), "1.18.34");
+  assert.equal(await conversations.agentVersion("w1:" + OTHER), "1.19.0");
+  // the database cannot be read: no version, no card
+  const missing = await cards(join(await temp(context), "none.db"));
+  assert.deepEqual(missing.shown, { "1.18.34": null, "1.19.0": null, none: null });
+  assert.deepEqual(missing.sent, []);
+  assert.equal(await missing.conversations.agentVersion("w1:" + SESSION), null);
+});
+
+test("a database whose session table has no version column tells no version, and is still read", async (context) => {
+  const schema = OPENCODE_SCHEMA.replace(" version text NOT NULL,", "");
+  const { path, fixture } = await world(context, { schema });
+  fixture.db.prepare("INSERT INTO session (id, project_id, slug, directory, title, time_created, time_updated) VALUES (?, 'prj_1', 'slug', '/work/app', 'title', 1, 1)").run(SESSION);
+  fixture.exchange(SESSION, 0);
+  const conversations = service(path, [{ pane_id: "w1:p1", agent: "opencode", agent_session: { agent: "opencode", kind: "id", value: SESSION } }]);
+  assert.equal(await conversations.agentVersion("w1:p1"), null);
+  assert.equal((await conversations.page("w1:p1")).turns.length > 0, true, "the chat still reads");
 });
 
 test("the pending question: the newest running question call decides; a too large one is none, never an older one", async (context) => {

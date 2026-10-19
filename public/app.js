@@ -3202,23 +3202,30 @@ function receiveLiveStatus(event) {
   renderPaneHeading(selected.pane, selected.tab, selected.workspace);
 }
 
+// Settles when the snapshot on its way (if any) has arrived or failed.
+let snapshotSettled = Promise.resolve();
+
 async function refreshSnapshot() {
   if (!state.authenticated) return;
   if (state.snapshotBusy || state.mutationBusy || document.hidden) return;
   state.snapshotBusy = true;
+  let settle;
+  snapshotSettled = new Promise((resolve) => { settle = resolve; });
   const previousPaneId = state.selectedPaneId;
   const previousStatus = selectedAgentStatus();
   try {
     await restoreNotificationTarget();
     const statusAtRequest = liveStatusSequence;
+    // when this snapshot was asked for: it shows the panes as they were then, or later
+    const requestedAt = Date.now();
     const payload = await api("/api/snapshot");
     const previouslyAcknowledged = new Set(snapshotRecords().panes.filter(pane => {
       const id = idOf(pane, "pane_id", "id");
       return state.acknowledgedCompletions.get(id) === agentCompletionIdentity(agentForPane(id), pane);
     }).map(pane => idOf(pane, "pane_id", "id")));
     state.snapshot = payload.snapshot || {};
-    // when a snapshot last arrived (one that failed or was skipped leaves it)
-    state.snapshotAt = Date.now();
+    // when the snapshot last arrived was asked for (one that failed or was skipped leaves it)
+    state.snapshotAt = requestedAt;
     const records = snapshotRecords();
     const paneIds = records.panes.map(pane => idOf(pane, "pane_id", "id"));
     for (const [paneId, event] of liveStatusUpdates) {
@@ -3253,6 +3260,7 @@ async function refreshSnapshot() {
     setConnection("error", error.message);
   } finally {
     state.snapshotBusy = false;
+    settle();
   }
 }
 
@@ -4134,12 +4142,17 @@ async function stopAgent() {
 
 // A moment after an OpenCode Stop: the pane, still selected and still
 // working by a fresh snapshot, gets the hint that its Escs may have gone to a
-// list or the shell mode instead. A snapshot that could not be had (it failed,
-// or was skipped) says nothing: the status from before the Stop is no evidence.
+// list or the shell mode instead. Fresh is asked for after this moment: one
+// already on its way was asked for before, so it is waited out and another
+// asked for (a few tries). A snapshot that could not be had (it failed, or was
+// skipped) says nothing: the status from before the Stop is no evidence.
 async function hintIfStillWorking(paneId, { afterMs, message }) {
   await new Promise((resolve) => window.setTimeout(resolve, afterMs));
   const asked = Date.now();
-  await refreshSnapshot();
+  for (let tries = 0; tries < 3 && !(state.snapshotAt >= asked); tries += 1) {
+    if (state.snapshotBusy) await snapshotSettled;
+    else await refreshSnapshot();
+  }
   if (!(state.snapshotAt >= asked)) return;
   if (state.selectedPaneId === paneId && stopTarget.paneId === paneId && stopTarget.status === "working") setFeedback(message);
 }

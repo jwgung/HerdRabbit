@@ -37,9 +37,12 @@ test("an OpenCode Stop looks again a moment later and hints, if it still works, 
   // the page asks for a fresh snapshot and hints only for the pane still selected and still working
   const app = await read("../public/app.js");
   assert.match(app, /const followUp = stopFollowUp\(agent\);\s*if \(followUp\) void hintIfStillWorking\(paneId, followUp\);/u);
-  assert.match(app, /async function hintIfStillWorking\(paneId, \{ afterMs, message \}\) \{[\s\S]{0,200}await refreshSnapshot\(\);\s*if \(!\(state\.snapshotAt >= asked\)\) return;\s*if \(state\.selectedPaneId === paneId && stopTarget\.paneId === paneId && stopTarget\.status === "working"\) setFeedback\(message\);/u);
-  // a fresh snapshot is what the hint stands on: refreshSnapshot marks when one arrived
-  assert.match(app, /state\.snapshot = payload\.snapshot \|\| \{\};\s*\/\/[^\n]*\n\s*state\.snapshotAt = Date\.now\(\);/u);
+  assert.match(app, /async function hintIfStillWorking\(paneId, \{ afterMs, message \}\) \{[\s\S]{0,200}const asked = Date\.now\(\);\s*for \(let tries = 0; tries < 3 && !\(state\.snapshotAt >= asked\); tries \+= 1\) \{\s*if \(state\.snapshotBusy\) await snapshotSettled;\s*else await refreshSnapshot\(\);\s*\}\s*if \(!\(state\.snapshotAt >= asked\)\) return;\s*if \(state\.selectedPaneId === paneId && stopTarget\.paneId === paneId && stopTarget\.status === "working"\) setFeedback\(message\);/u);
+  // a fresh snapshot is what the hint stands on: refreshSnapshot marks when the
+  // one that arrived was asked for, so one asked for before the Stop never counts
+  assert.match(app, /const requestedAt = Date\.now\(\);\s*const payload = await api\("\/api\/snapshot"\);/u);
+  assert.match(app, /state\.snapshot = payload\.snapshot \|\| \{\};\s*\/\/[^\n]*\n\s*state\.snapshotAt = requestedAt;/u);
+  assert.match(app, /finally \{\s*state\.snapshotBusy = false;\s*settle\(\);\s*\}/u);
 });
 
 test("Esc in the composer stops only when Stop shows and nothing else answers Esc", () => {

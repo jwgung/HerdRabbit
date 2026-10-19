@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseFallbackPrompt } from "../src/prompt/fallback.mjs";
-import { fillOpencodeCard, opencodeDialogOpen, parseOpencodePrompt, selectedButton, styledLine } from "../src/prompt/opencode.mjs";
+import { SUPPORTED_OPENCODE_TUI, fillOpencodeCard, opencodeDialogOpen, parseOpencodePrompt, selectedButton, styledLine } from "../src/prompt/opencode.mjs";
 import { answerSteps, publicCard } from "../src/prompt/screen.mjs";
 import { PromptService } from "../src/prompt/service.mjs";
 import {
@@ -228,9 +228,9 @@ test("a question card takes the question tool's whole words when they are the sc
 
 const PANE = "w1:p1";
 
-function world({ status = "blocked", prompt = { kind: "permission" }, details = null } = {}) {
+function world({ status = "blocked", prompt = { kind: "permission" }, details = null, agentVersion = async () => "1.18.34" } = {}) {
   const herdr = fakeOpencodeHerdr({ panes: [{ pane_id: PANE, agent: "opencode", agent_status: status }], prompts: prompt ? { [PANE]: prompt } : {} });
-  const service = new PromptService({ herdr, details, stepDelayMs: 1, lookMs: 2, settleMs: 100, pollMs: 1_000 });
+  const service = new PromptService({ herdr, details, agentVersion, stepDelayMs: 1, lookMs: 2, settleMs: 100, pollMs: 1_000 });
   return { herdr, service };
 }
 
@@ -461,6 +461,51 @@ test("real 1.18.34: a blocked pane under a dialog has no card at all, not even t
     }
     assert.deepEqual(herdr.sent, [], name);
   }
+});
+
+// --- the OpenCode versions the reader knows -----------------------------------
+
+test("the reader is for OpenCode 1.18.x only: the version the pane's session was written by", () => {
+  for (const version of ["1.18.0", "1.18.34", "1.18.120"]) assert.equal(SUPPORTED_OPENCODE_TUI(version), true, version);
+  for (const version of ["1.19.0", "1.17.9", "2.18.34", "1.180.0", "1.18", "1.18.34-beta", "", null, undefined, 1.18]) {
+    assert.equal(SUPPORTED_OPENCODE_TUI(version), false, String(version));
+  }
+});
+
+test("an OpenCode pane of another version, or of none known, has no card at all, not even the fallback, and an answer sends nothing", async () => {
+  const fallbackScreen = "Pick a color (red/green)?\nPress enter to continue";
+  const cases = {
+    "1.19.0": async () => "1.19.0",
+    "no version": async () => null,
+    "version unreadable": async () => { throw new Error("database unavailable"); },
+    "no version reader": null,
+  };
+  for (const [name, agentVersion] of Object.entries(cases)) {
+    // the card a 1.18 pane would show: its permission panel, Enter on Allow once
+    const { herdr, service } = world({ agentVersion });
+    assert.equal(await service.card(PANE), null, name);
+    const shown = publicCard(parseOpencodePrompt(await herdr.readPane(PANE, { format: "ansi", source: "visible" })));
+    await assert.rejects(service.answer(PANE, { cardId: shown.id, option: 0 }), { status: 409, code: "prompt_changed" }, name);
+    // blocked on a screen any reader would take for a prompt: no fallback either
+    herdr.readPane = async () => fallbackScreen;
+    assert.equal(await service.card(PANE), null, name);
+    const fallback = publicCard(parseFallbackPrompt(fallbackScreen, { agent: "opencode" }));
+    await assert.rejects(service.answer(PANE, { cardId: fallback.id, option: 0 }), { status: 409, code: "prompt_changed" }, name);
+    assert.deepEqual(herdr.sent, [], name);
+  }
+  // 1.18.34: the card, answered
+  const { herdr, service } = world({ agentVersion: async () => "1.18.34" });
+  const card = await service.card(PANE);
+  assert.equal(card.title, "Permission required");
+  await service.answer(PANE, { cardId: card.id, option: 0 });
+  assert.deepEqual(herdr.sent.map((item) => item.keys), [["enter"]]);
+});
+
+test("the version is asked of the pane being read, with the snapshot in hand", async () => {
+  const asked = [];
+  const { service } = world({ agentVersion: async (paneId, snapshot) => { asked.push([paneId, Boolean(snapshot)]); return "1.18.34"; } });
+  await service.card(PANE);
+  assert.deepEqual(asked, [[PANE, true]]);
 });
 
 test("real 1.18.34: a question of two paragraphs shows both, and takes the question tool's words", () => {

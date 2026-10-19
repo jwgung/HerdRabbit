@@ -53,6 +53,8 @@ export class ConversationService {
     this.linkStores = new Map();
     // paneId -> { key, ask }: the asking tool call last read from that file version
     this.asks = new Map();
+    // paneId -> { key, version }: the agent version last read for that session state
+    this.versions = new Map();
     // Signatures handed out are hashed with this, so they say nothing of the file.
     this.salt = randomUUID();
   }
@@ -148,6 +150,31 @@ export class ConversationService {
       const ask = pendingClaudeAsk(await readTail(found.store, found.path, stat, ASK_TAIL_BYTES));
       remember(this.asks, paneId, { key, ask }, MAX_REMEMBERED_ASKS);
       return ask;
+    } catch {
+      return null;
+    }
+  }
+
+  // The version of the agent a pane runs, as its own record says, or null:
+  // for an OpenCode pane, the OpenCode version that wrote the pane's session
+  // (its database's session row). What a prompt card's reader was checked
+  // against is told by it; any other pane, or one that cannot be read, has
+  // none. A connected PC's pane is the PC's to read: its screen and its
+  // database are both there.
+  async agentVersion(paneId, snapshot = null) {
+    try {
+      const linked = this.#linked(paneId);
+      if (linked) return typeof linked.client.conversationAgentVersion === "function" ? await linked.client.conversationAgentVersion(linked.id) : null;
+      const found = await this.resolve(paneId, snapshot);
+      if (found.agent !== "opencode" || !found.path) return null;
+      const stat = await found.store.stat(found.session);
+      if (!stat) return null;
+      const key = `${found.serverId}\0opencode\0${found.session}\0${stat.identity}`;
+      const known = this.versions.get(paneId);
+      if (known?.key === key) return known.version;
+      const version = await found.store.sessionVersion(found.session);
+      remember(this.versions, paneId, { key, version }, MAX_REMEMBERED_ASKS);
+      return version;
     } catch {
       return null;
     }

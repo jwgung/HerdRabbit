@@ -1,7 +1,8 @@
 // A pane's prompt card: read off its screen (any status for Claude, Codex and
 // OpenCode panes, whose readers insist on the menu itself being on screen; the generic
 // fallback only while herdr reports the agent blocked), answered by keys sent to the pane, and announced to the pages that
-// watch the pane when it appears, changes or goes.
+// watch the pane when it appears, changes or goes. An OpenCode pane has a card
+// only while it runs a version its reader was checked against (SUPPORTED_OPENCODE_TUI).
 //
 // The answer flow follows herdr-web-ui's (MIT, Copyright (c) 2026 devswha,
 // https://github.com/devswha/herdr-web-ui, server/prompt.ts): the screen is
@@ -20,7 +21,7 @@ import { HttpError } from "../http-basics.mjs";
 import { fillClaudeCard, parseClaudePrompt } from "./claude.mjs";
 import { parseCodexPrompt } from "./codex.mjs";
 import { parseFallbackPrompt } from "./fallback.mjs";
-import { fillOpencodeCard, opencodeDialogOpen, parseOpencodePrompt } from "./opencode.mjs";
+import { SUPPORTED_OPENCODE_TUI, fillOpencodeCard, opencodeDialogOpen, parseOpencodePrompt } from "./opencode.mjs";
 import { InvalidAnswer, answerSteps, moveKeysOf, publicCard, verifiesCursor } from "./screen.mjs";
 
 // The screen's bottom: enough for a long approval panel.
@@ -35,6 +36,8 @@ const MAX_WATCHES = 64;
 const READS_AT_ONCE = 4;
 // Ticks a watched pane may be missing from the snapshot before it is let go.
 const MISSING_TICKS = 3;
+// How long a pane's agent version, once told, stands before it is asked again.
+const VERSION_MS = 2_000;
 
 // What each agent's pane is read with, by the name herdr gives it; what an
 // agent leaves out is SCREEN_DEFAULTS'.
@@ -50,11 +53,15 @@ const MISSING_TICKS = 3;
 //           the styles; checked on OpenCode 1.18.34)
 //   fill:   the card's whole words, from the agent's own record of the call it
 //           waits on
-const SCREEN_DEFAULTS = Object.freeze({ read: null, noCard: () => false, format: "text", source: "detection", fill: null });
+//   supports: (version) => whether the reader knows the screens of that
+//           version of the agent (the pane's own record of it, `agentVersion`);
+//           a pane of any other version, or of none known, has no card at all,
+//           not even the fallback. Absent: any version.
+const SCREEN_DEFAULTS = Object.freeze({ read: null, noCard: () => false, format: "text", source: "detection", fill: null, supports: null });
 const AGENT_SCREENS = Object.freeze(Object.fromEntries(Object.entries({
   claude: { read: parseClaudePrompt, fill: fillClaudeCard },
   codex: { read: parseCodexPrompt },
-  opencode: { read: parseOpencodePrompt, noCard: opencodeDialogOpen, format: "ansi", source: "visible", fill: fillOpencodeCard },
+  opencode: { read: parseOpencodePrompt, noCard: opencodeDialogOpen, format: "ansi", source: "visible", fill: fillOpencodeCard, supports: SUPPORTED_OPENCODE_TUI },
 }).map(([name, screen]) => [name, Object.freeze({ ...SCREEN_DEFAULTS, ...screen })])));
 
 // How the agent named `name` (or none) has its pane read.
@@ -128,10 +135,16 @@ function quietStride(quiet) {
 export class PromptService {
   // `details(paneId, snapshot)`: the call a Claude pane's agent waits on, from
   // its transcript, for the card's whole words (optional); `snapshot` is the
-  // herdr snapshot already in hand, when there is one.
-  constructor({ herdr, details = null, settleMs = 1_500, stepDelayMs = 30, lookMs = 50, pollMs = 1_000 }) {
+  // herdr snapshot already in hand, when there is one. `agentVersion(paneId,
+  // snapshot)`: the version of the agent the pane runs, from its own record,
+  // or null; without it an agent whose reader `supports` only some versions
+  // (OpenCode) has no card.
+  constructor({ herdr, details = null, agentVersion = null, settleMs = 1_500, stepDelayMs = 30, lookMs = 50, pollMs = 1_000 }) {
     this.herdr = herdr;
     this.details = details;
+    this.agentVersion = agentVersion;
+    // paneId -> { version, at }: the agent version last told, for VERSION_MS
+    this.versions = new Map();
     this.settleMs = settleMs;
     this.stepDelayMs = stepDelayMs;
     this.lookMs = lookMs;
@@ -156,9 +169,10 @@ export class PromptService {
   // any other pane only while herdr reports it blocked. The fallback card (any
   // agent) is for blocked panes only. A password prompt is never a card.
   async read(paneId, snapshot = null) {
-    const agent = paneAgent(snapshot ?? await this.herdr.snapshot(), paneId);
+    const given = snapshot ?? await this.herdr.snapshot();
+    const agent = paneAgent(given, paneId);
     if (!agent) throw new HttpError(404, "pane_not_found", "This pane is gone.");
-    return this.#readScreen(paneId, agent);
+    return this.#readScreen(paneId, agent, given);
   }
 
   #screen(paneId, reader) {
@@ -166,16 +180,36 @@ export class PromptService {
     return this.herdr.readPane(paneId, { lines: SCREEN_LINES, format, source });
   }
 
-  async #readScreen(paneId, agent) {
+  async #readScreen(paneId, agent, snapshot = null) {
     const reader = readerName(agent);
     const blocked = agent.status === "blocked";
     if (!reader && !blocked) return null;
+    if (reader && !(await this.#supported(paneId, reader, snapshot))) return null;
     const screen = await this.#screen(paneId, reader);
     const { read, noCard } = screenOf(reader);
     if (reader && noCard(screen)) return null;
     const card = reader ? read(screen) ?? null : null;
     if (card || !blocked) return card;
     return parseFallbackPrompt(screen, { agent: reader ?? agent.name });
+  }
+
+  // Whether the pane's agent is a version its reader knows: always, for a
+  // reader that does not ask; never, when the version cannot be told.
+  // The version is kept for VERSION_MS: an answer looks at the screen every
+  // few milliseconds, and a connected PC's pane is asked over its link.
+  async #supported(paneId, reader, snapshot) {
+    const { supports } = screenOf(reader);
+    if (!supports) return true;
+    if (typeof this.agentVersion !== "function") return false;
+    const known = this.versions.get(paneId);
+    let version = known && Date.now() - known.at < VERSION_MS ? known.version : undefined;
+    if (version === undefined) {
+      try { version = await this.agentVersion(paneId, snapshot); } catch { version = null; }
+      this.versions.delete(paneId);
+      this.versions.set(paneId, { version, at: Date.now() });
+      if (this.versions.size > MAX_WATCHES) this.versions.delete(this.versions.keys().next().value);
+    }
+    return supports(version) === true;
   }
 
   async card(paneId) {
@@ -390,7 +424,7 @@ export class PromptService {
         }
       }
       await eachLimited(reading, READS_AT_ONCE, async ({ entry, agent }) => {
-        const card = await this.#worded(entry.paneId, publicCard(await this.#readScreen(entry.paneId, agent).catch(() => null)), snapshot);
+        const card = await this.#worded(entry.paneId, publicCard(await this.#readScreen(entry.paneId, agent, snapshot).catch(() => null)), snapshot);
         entry.quiet = card ? 0 : (entry.quiet ?? 0) + 1;
         this.#tell(entry, card);
       });
