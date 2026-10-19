@@ -354,6 +354,9 @@ const INPUT_SETTLE_MS = 150;
 // message the composer sends (8,000 characters) wrapped on a narrow pane, and
 // enough rounds to empty it a row or two at a time.
 const RESTORED_READ_LINES = 1000;
+// How long after an Esc Claude Code is given to put the stopped message back
+// before the box is read (it took well under a second in Claude Code 2.1).
+const RESTORE_SETTLE_MS = 1_000;
 const MAX_CLEAR_ROUNDS = 400;
 
 // Enough for Claude Code to read a pasted image path before its Enter.
@@ -383,11 +386,13 @@ export class HerdrClient {
     imageSettleMs = IMAGE_SETTLE_MS,
     inputSettleMs = INPUT_SETTLE_MS,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now = () => Date.now(),
   } = {}) {
     this.binary = binary;
     this.imageSettleMs = imageSettleMs;
     this.inputSettleMs = inputSettleMs;
     this.sleep = sleep;
+    this.now = now;
 
     this.timeoutMs = timeoutMs;
     this.runner = runner;
@@ -758,6 +763,10 @@ export class HerdrClient {
     if (!submit) return this.#submitText(safePaneId, safeText, submit);
     if (before?.stopped) {
       try {
+        // Claude puts the stopped message back a moment after the Esc: a look
+        // straight after it could find the box still empty.
+        const settle = RESTORE_SETTLE_MS - (this.now() - (before.stoppedAt ?? 0));
+        if (settle > 0) await this.sleep(settle);
         await this.#clearRestoredMessage(safePaneId, before.text);
       } catch (error) {
         // still there: the next send looks again
@@ -834,7 +843,10 @@ export class HerdrClient {
       const stop = safeKeys.length > 0 && safeKeys.every((item) => item === "esc");
       if (sent && !stop) PANE_SENT.delete(key);
       const result = await this.#sendKeys(safePaneId, safeKeys);
-      if (sent && stop && PANE_SENT.get(key) === sent) sent.stopped = true;
+      if (sent && stop && PANE_SENT.get(key) === sent) {
+        sent.stopped = true;
+        sent.stoppedAt = this.now();
+      }
       return result;
     });
   }

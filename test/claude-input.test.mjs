@@ -187,8 +187,11 @@ test("only a wrap's whitespace is forgiven when comparing the box with the stopp
   assert.deepEqual(restoredDraftStep(box(["abcdef", "ghi"]), "abcdefghi"), clear);
   // a wrapped long text, rows split at spaces
   assert.deepEqual(restoredDraftStep(box(["run the tests and then", "fix the lint now"]), "run the tests and then fix the lint now"), clear);
-  // a run of spaces is one space; a real newline looks like a wrap and is accepted
-  assert.deepEqual(restoredDraftStep(box(["hello  world"]), "hello world"), clear);
+  // within a row every space counts: a whitespace-only edit is someone's own text
+  assert.deepEqual(restoredDraftStep(box(["hello  world"]), "hello world"), { done: true });
+  assert.deepEqual(restoredDraftStep(box(["echo  foo"]), "echo foo"), { done: true });
+  // a real newline looks like a wrap and is accepted, blank lines too
+  assert.deepEqual(restoredDraftStep(box(["one", "", "two"]), "one\n\ntwo"), clear);
   assert.deepEqual(restoredDraftStep(box(["hello", "world"]), "hello\nworld"), clear);
   // later looks: a prefix cut at a wrap, but not a squashed one
   const first = box(["hello", "world"]);
@@ -246,5 +249,20 @@ test("an Esc that did not go through is no Stop: the next send is not held up", 
   await assert.rejects(client.sendKeys("w1:p1", ["esc"]));
   await client.sendText("w1:p1", "two", { submit: true });
   assert.deepEqual(commands(pane), ["run w1:p1 one", "run w1:p1 two"], "the box was read or cleared after a failed Esc");
+});
+
+test("a send right after the Esc waits for Claude to put the stopped message back before looking", async () => {
+  const pane = claudePane([""]);
+  let clock = 1_000;
+  const slept = [];
+  const client = new HerdrClient({
+    runner: pane.runner, sessionName: "stopdraft-settle", now: () => clock,
+    sleep: async (ms) => { slept.push(ms); clock += ms; },
+  });
+  await client.sendText("w1:p1", "first", { submit: true });
+  await client.sendKeys("w1:p1", ["esc"]);
+  clock += 200; // the next message goes 200 ms after the Esc
+  await client.sendText("w1:p1", "second", { submit: true });
+  assert.ok(slept.includes(800), `waited ${JSON.stringify(slept)} before looking`);
 });
 

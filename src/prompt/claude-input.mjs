@@ -43,14 +43,15 @@ function collapsed(text) {
 
 // How much of the message the box rows spell, in order: the rows are the
 // message wrapped, so each row follows the last either right away (a word
-// cut where the line ended) or after one space (a wrap at a space). Returns
-// the length matched, or -1 when the rows are not the start of the message.
-// Only wrap points are forgiven: "helloworld" is not "hello world".
+// cut where the line ended), after one space (a wrap at a space) or after the
+// message's own line breaks. Within a row every character must match, spaces
+// included. Returns the length matched, or -1 when the rows are not the start
+// of the message: "helloworld" is not "hello world", nor "echo  foo" "echo foo".
 function matchedLength(boxText, message) {
-  const rows = String(boxText ?? "").split("\n").map(collapsed).filter(Boolean);
+  const rows = String(boxText ?? "").split("\n").map((row) => row.replace(/\s+$/u, "")).filter(Boolean);
   let at = 0;
   for (const [index, row] of rows.entries()) {
-    if (index > 0 && message[at] === " ") at += 1;
+    if (index > 0) at += /^(?: |\n+)/u.exec(message.slice(at))?.[0].length ?? 0;
     if (!message.startsWith(row, at)) return -1;
     at += row.length;
   }
@@ -68,7 +69,7 @@ function matchedLength(boxText, message) {
 // row the cursor is on; on a row already empty, Backspace joins it to the one
 // above, which Ctrl+U then empties.
 export function restoredDraftStep(box, restored, before = null) {
-  const wanted = collapsed(restored);
+  const wanted = String(restored ?? "").trim();
   const now = collapsed(box?.text);
   // A screen that cannot be read halfway through clearing may hide a piece
   // still there: the send is refused rather than typed after it.
