@@ -48,6 +48,8 @@ export function defaultOpencodeDb(environment = process.env, home = homedir()) {
 export const LARGE_ROW_BYTES = 256 * 1024;
 // What a reduced text or reasoning part keeps of its words.
 export const LARGE_TEXT_CHARS = 64 * 1024;
+// The largest question tool input read for a prompt card.
+const PENDING_QUESTION_BYTES = 64 * 1024;
 // How many parts and messages one page reads at most.
 const MAX_PAGE_PARTS = 5000;
 const MAX_PAGE_MESSAGES = 5000;
@@ -87,6 +89,8 @@ export const STATEMENTS = Object.freeze({
   // all parts of a page's messages in one read, newest first, while their cost stays within $budget and
   // their number within $rows; a large one reduced, with its output's length and first $preview characters
   parts: `SELECT p.id AS id, p.message_id AS message_id, CASE WHEN octet_length(p.data) <= $large THEN p.data ELSE ${PART_BRIEF} END AS data, octet_length(p.data) > $large AS reduced, CASE WHEN octet_length(p.data) > $large THEN length(${outputOf("p.data")}) END AS output_size, CASE WHEN octet_length(p.data) > $large THEN substr(${outputOf("p.data")}, 1, $preview) END AS output_preview FROM (SELECT id, SUM(MIN(octet_length(data), $large)) OVER (ORDER BY message_id DESC, id DESC ROWS UNBOUNDED PRECEDING) AS running FROM part WHERE message_id IN (SELECT id FROM message WHERE ${RANGE})) AS chosen JOIN part AS p ON p.id = chosen.id WHERE chosen.running <= $budget ORDER BY chosen.running LIMIT $rows`,
+  // the input of the newest question tool call still waiting for its answer, when it is not too large
+  pendingQuestion: "SELECT CASE WHEN octet_length(data ->> '$.state.input') <= $large THEN data ->> '$.state.input' END AS input FROM part WHERE session_id = $session AND data ->> '$.type' = 'tool' AND data ->> '$.tool' = 'question' AND data ->> '$.state.status' = 'running' ORDER BY id DESC LIMIT 1",
   // one tool call's output: at most $max characters of it, and its whole length
   toolPart: `SELECT kind, substr(output, 1, $max) AS output, length(output) AS size FROM (SELECT data ->> '$.type' AS kind, ${outputOf("data")} AS output FROM part WHERE id = $id AND session_id = $session)`,
 });
@@ -582,6 +586,18 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
       });
       if (answer === null) throw new ConversationUnavailable("transcript_missing");
       return answer;
+    },
+
+    // The question the session waits on: its `question` tool call still running,
+    // as { name: "question", input }, or null. A prompt card takes its words.
+    async pendingQuestion(session) {
+      if (typeof session !== "string" || !OPENCODE_SESSION_ID.test(session)) return null;
+      const found = await withDb((db) => {
+        const row = db.statement("pendingQuestion").get({ session, large: PENDING_QUESTION_BYTES });
+        const input = row ? parse(string(row.input)) : {};
+        return Array.isArray(input.questions) ? { name: "question", input: { questions: input.questions } } : null;
+      });
+      return found ?? null;
     },
 
     // The whole output of one tool call (a part's id), as { output, size }, or null.

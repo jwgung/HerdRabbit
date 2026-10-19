@@ -128,8 +128,9 @@ export class ConversationService {
   }
 
   // The plan or question a Claude pane's agent waits on, from its transcript's
-  // tail: { name, input } or null. A pane that is not Claude's, or whose
-  // transcript cannot be read, has none. Read again only when the file changed.
+  // tail, or the question an OpenCode pane's waits on, from its database:
+  // { name, input } or null. Any other pane, or one whose record cannot be
+  // read, has none. Read again only when the file (or session) changed.
   // `snapshot`: a herdr snapshot already in hand, so a watch looking at many
   // panes asks herdr once.
   async pendingAsk(paneId, snapshot = null) {
@@ -137,6 +138,7 @@ export class ConversationService {
       const linked = this.#linked(paneId);
       if (linked) return await linked.client.conversationPendingAsk(linked.id);
       const found = await this.resolve(paneId, snapshot);
+      if (found.agent === "opencode") return found.path ? await this.#pendingQuestion(paneId, found) : null;
       if (found.agent !== "claude" || !found.path) return null;
       const stat = await found.store.stat(found.path);
       if (!stat) return null;
@@ -149,6 +151,19 @@ export class ConversationService {
     } catch {
       return null;
     }
+  }
+
+  // The question an OpenCode session waits on, read again only once the
+  // session changed.
+  async #pendingQuestion(paneId, found) {
+    const stat = await found.store.stat(found.session);
+    if (!stat) return null;
+    const key = `${found.serverId}\0opencode\0${found.session}\0${stat.identity}`;
+    const known = this.asks.get(paneId);
+    if (known?.key === key) return known.ask;
+    const ask = await found.store.pendingQuestion(found.session);
+    remember(this.asks, paneId, { key, ask }, MAX_REMEMBERED_ASKS);
+    return ask;
   }
 
   // Only this machine's transcripts are read here: a connected PC's pane is

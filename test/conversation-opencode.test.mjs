@@ -259,6 +259,8 @@ test("only the fixed statements run, and none reads the tables that hold secrets
   await conversations.page("w1:p2");
   await conversations.toolOutput("w1:p1", page.turns[1].parts[0].id);
   await conversations.signature("w1:p1");
+  await conversations.pendingAsk("w1:p1");
+  assert.ok(prepared.some((sql) => sql === STATEMENTS.pendingQuestion), "the prompt card's question is read too");
   assert.ok(prepared.length > 0);
   for (const sql of prepared) assert.ok(allowed.has(sql), sql);
   const answer = JSON.stringify(page);
@@ -492,3 +494,26 @@ test("a write the file stats do not show is still seen within a couple of second
   assert.notEqual((await store.stat(SESSION)).identity, first.identity, "the write was never seen");
 });
 
+
+test("the question a pane's OpenCode waits on: the newest question call still running, for its prompt card", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  const question = (status, text) => ({ type: "tool", tool: "question", callID: `call_${text}`, state: { status, input: { questions: [{
+    question: text, header: "Format", options: [{ label: "ONNX", description: "Portable." }, { label: "TensorRT", description: "NVIDIA." }],
+  }] }, ...(status === "completed" ? { output: "ONNX" } : {}) } });
+  fixture.exchange(SESSION, 0, [question("completed", "Answered before?")]);
+  const conversations = service(path, [{ pane_id: "w1:p1", agent: "opencode", agent_session: { agent: "opencode", kind: "id", value: SESSION } }]);
+  assert.equal(await conversations.pendingAsk("w1:p1"), null, "an answered question waits on nothing");
+  const message = fixture.exchange(SESSION, 1);
+  const part = fixture.part(SESSION, message, question("running", "Which export format should we use?"));
+  const ask = await conversations.pendingAsk("w1:p1");
+  assert.equal(ask.name, "question");
+  assert.equal(ask.input.questions[0].question, "Which export format should we use?");
+  assert.equal(ask.input.questions[0].options[0].description, "Portable.");
+  fixture.updatePart(SESSION, part, question("completed", "Which export format should we use?"));
+  // the session changed: read again (its identity is rechecked within IDENTITY_RECHECK_MS)
+  const later = service(path, [{ pane_id: "w1:p1", agent: "opencode", agent_session: { agent: "opencode", kind: "id", value: SESSION } }]);
+  assert.equal(await later.pendingAsk("w1:p1"), null);
+  // another agent's pane, or none: nothing
+  assert.equal(await service(path, [{ pane_id: "w1:p1", agent: "codex" }]).pendingAsk("w1:p1"), null);
+});

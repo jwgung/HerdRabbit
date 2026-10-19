@@ -1,5 +1,5 @@
-// A pane's prompt card: read off its screen (any status for Claude and Codex
-// panes, whose readers insist on the menu itself being on screen; the generic
+// A pane's prompt card: read off its screen (any status for Claude, Codex and
+// OpenCode panes, whose readers insist on the menu itself being on screen; the generic
 // fallback only while herdr reports the agent blocked), answered by keys sent to the pane, and announced to the pages that
 // watch the pane when it appears, changes or goes.
 //
@@ -15,7 +15,8 @@ import { HttpError } from "../http-basics.mjs";
 import { fillClaudeCard, parseClaudePrompt } from "./claude.mjs";
 import { parseCodexPrompt } from "./codex.mjs";
 import { parseFallbackPrompt } from "./fallback.mjs";
-import { InvalidAnswer, KEY, answerSteps, publicCard, verifiesCursor } from "./screen.mjs";
+import { fillOpencodeCard, parseOpencodePrompt } from "./opencode.mjs";
+import { InvalidAnswer, answerSteps, moveKeysOf, publicCard, verifiesCursor } from "./screen.mjs";
 
 // The screen's bottom: enough for a long approval panel.
 const SCREEN_LINES = 120;
@@ -31,7 +32,12 @@ const READS_AT_ONCE = 4;
 const MISSING_TICKS = 3;
 
 // Each agent's own readers, by the name herdr gives it.
-const READERS = { claude: parseClaudePrompt, codex: parseCodexPrompt };
+const READERS = { claude: parseClaudePrompt, codex: parseCodexPrompt, opencode: parseOpencodePrompt };
+// How each reader reads the screen: OpenCode's selected permission button is
+// known only by its colour, so its screen comes with its styles.
+const READ_FORMATS = { opencode: "ansi" };
+// The card's whole words, from the agent's own record of the call it waits on.
+const FILLERS = { claude: fillClaudeCard, opencode: fillOpencodeCard };
 
 // The agent's dedicated reader decides from the screen alone, so the pane is
 // read whatever herdr says it is doing (it does not always say blocked while a
@@ -121,7 +127,7 @@ export class PromptService {
   }
 
   // The card the pane shows now, with the reader's bookkeeping, or null. A
-  // Claude or Codex pane is read whatever its status, by its agent's reader;
+  // Claude, Codex or OpenCode pane is read whatever its status, by its agent's reader;
   // any other pane only while herdr reports it blocked. The fallback card (any
   // agent) is for blocked panes only. A password prompt is never a card.
   async read(paneId, snapshot = null) {
@@ -134,7 +140,7 @@ export class PromptService {
     const reader = readerName(agent);
     const blocked = agent.status === "blocked";
     if (!reader && !blocked) return null;
-    const screen = await this.herdr.readPane(paneId, { lines: SCREEN_LINES, format: "text", source: "detection" });
+    const screen = await this.herdr.readPane(paneId, { lines: SCREEN_LINES, format: READ_FORMATS[reader] ?? "text", source: "detection" });
     const card = reader ? READERS[reader](screen) ?? null : null;
     if (card || !blocked) return card;
     return parseFallbackPrompt(screen, { agent: reader ?? agent.name });
@@ -146,13 +152,14 @@ export class PromptService {
     return this.#worded(paneId, publicCard(await this.read(paneId, snapshot)), snapshot);
   }
 
-  // A Claude card's words, whole, from its transcript; the screen's when that
-  // cannot be read.
+  // A Claude card's words, whole, from its transcript, and an OpenCode
+  // question's from its database; the screen's when those cannot be read.
   async #worded(paneId, card, snapshot = null) {
-    if (!card || card.agent !== "claude" || !this.details || (card.kind !== "plan" && card.kind !== "question")) return card;
+    const fill = card && !card.fallback ? FILLERS[card.agent] : undefined;
+    if (!fill || !this.details || (card.kind !== "plan" && card.kind !== "question")) return card;
     let ask = null;
     try { ask = await this.details(paneId, snapshot); } catch { /* the screen's words, then */ }
-    return fillClaudeCard(card, ask);
+    return fill(card, ask);
   }
 
   // Answers one pane at a time, in the order the answers came.
@@ -182,13 +189,14 @@ export class PromptService {
       throw error;
     }
     const verify = verifiesCursor(parsed);
+    const moves = moveKeysOf(parsed);
     let cursor = parsed.selectedIndex;
     let sent = false;
     let typed = false;
     let committed = false;
     try {
       for (const [index, step] of steps.entries()) {
-        const move = step.keys?.every((key) => key === KEY.up || key === KEY.down) ?? false;
+        const move = step.keys?.every((key) => key === moves.back || key === moves.forward) ?? false;
         // A key that picks or ticks goes only once the screen shows this
         // prompt again with the cursor where the keys so far left it: the menu
         // answered in the terminal meanwhile, with another in its place, would
@@ -207,7 +215,7 @@ export class PromptService {
         if (step.text !== undefined) typed = true;
         if (!move) committed = true;
         if (move) {
-          for (const key of step.keys) cursor = key === KEY.down ? cursor + 1 : Math.max(0, cursor - 1);
+          for (const key of step.keys) cursor = key === moves.forward ? cursor + 1 : Math.max(0, cursor - 1);
         }
         if (index < steps.length - 1) await delay(this.stepDelayMs);
       }
@@ -304,7 +312,7 @@ export class PromptService {
         if (agent) entry.missing = 0;
         if (agent && agent.status === "blocked") { entry.quiet = 0; reading.push({ entry, agent }); }
         else if (agent && readerName(agent)) {
-          // A Claude or Codex pane herdr does not call blocked may still wait
+          // A Claude, Codex or OpenCode pane herdr does not call blocked may still wait
           // on a menu, so it is read too -- but less often while nothing has
           // shown: every tick, then every 2nd, then every 4th, until a card,
           // a status change or input (a nudge) brings it back to every tick.
