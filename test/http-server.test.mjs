@@ -424,6 +424,28 @@ test("forwards an authorized, bounded write", async (context) => {
   assert.deepEqual(calls, [["w1:p9", "review this", { submit: true }]]);
 });
 
+test("the keys route passes the Stop mark through and refuses a non-boolean one", async (context) => {
+  const calls = [];
+  const herdr = {
+    async snapshot() { return {}; },
+    async readPane() { return ""; },
+    async sendKeys(...args) { calls.push(args); },
+  };
+  const app = await startServer(herdr);
+  context.after(() => closeServer(app.server));
+  const post = (body) => fetch(`${app.baseUrl}/api/panes/w1%3Ap9/keys`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl },
+    body: JSON.stringify(body),
+  });
+  assert.equal((await post({ keys: ["esc"], stop: true })).status, 200);
+  assert.deepEqual(calls.at(-1), ["w1:p9", ["esc"], { stop: true }]);
+  assert.equal((await post({ keys: ["esc"] })).status, 200);
+  assert.deepEqual(calls.at(-1), ["w1:p9", ["esc"], { stop: false }]);
+  assert.equal((await post({ keys: ["esc"], stop: "yes" })).status, 400);
+  assert.equal(calls.length, 2);
+});
+
 test("forwards an authorized workspace rename", async (context) => {
   const calls = [];
   const herdr = {

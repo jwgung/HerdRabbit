@@ -357,7 +357,7 @@ const RESTORED_READ_LINES = 1000;
 // How long after an Esc Claude Code is given to put the stopped message back
 // before the box is read (it took well under a second in Claude Code 2.1).
 const RESTORE_SETTLE_MS = 1_000;
-const MAX_CLEAR_ROUNDS = 400;
+const MAX_CLEAR_ROUNDS = RESTORED_READ_LINES;
 
 // Enough for Claude Code to read a pasted image path before its Enter.
 const IMAGE_SETTLE_MS = 700;
@@ -831,19 +831,21 @@ export class HerdrClient {
     return this.#run(["pane", "send-text", safePaneId, safeText], { json: false });
   }
 
-  async sendKeys(paneId, keys) {
+  // `stop` marks the Chat lens's Stop button: only its lone Esc is taken for a
+  // Stop. An Esc from anywhere else (a shell, Codex, a closed menu) is a key.
+  async sendKeys(paneId, keys, { stop = false } = {}) {
     const safePaneId = validatePaneId(paneId);
     const safeKeys = validateKeys(keys);
     return this.#inOrder(safePaneId, async () => {
-      // A lone Esc after a message is a Stop, once it has gone through; any
+      // A Stop (a lone Esc sent for the Stop button) after a message counts once it has gone through; any
       // other key changes what the input box holds, so nothing is cleared
       // for it later (forgotten before it goes, whether or not it arrives).
       const key = this.#paneKey(safePaneId);
       const sent = PANE_SENT.get(key);
-      const stop = safeKeys.length > 0 && safeKeys.every((item) => item === "esc");
-      if (sent && !stop) PANE_SENT.delete(key);
+      const isStop = stop === true && safeKeys.length === 1 && safeKeys[0] === "esc";
+      if (sent && !isStop) PANE_SENT.delete(key);
       const result = await this.#sendKeys(safePaneId, safeKeys);
-      if (sent && stop && PANE_SENT.get(key) === sent) {
+      if (sent && isStop && PANE_SENT.get(key) === sent) {
         sent.stopped = true;
         sent.stoppedAt = this.now();
       }
@@ -884,7 +886,15 @@ export class HerdrClient {
   }
 }
 
+// The optional Stop mark on a keys request: absent or a boolean.
+function validateStop(value) {
+  if (value === undefined) return false;
+  if (typeof value !== "boolean") throw new InputValidationError("Invalid stop flag");
+  return value;
+}
+
 export const validation = Object.freeze({
+  validateStop,
   validateHerdrSessionName,
   validatePaneId,
   validateWorkspaceId,

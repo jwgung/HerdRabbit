@@ -60,7 +60,7 @@ test("the Send button doubles as Stop and the press decides which", async () => 
   assert.match(app, /const mode = pressedSendMode \?\? sendButtonMode\(\);[\s\S]{0,160}event\.preventDefault\(\);\s*void stopAgent\(\);/u);
   // the key bar's Esc, sent at once to the pane Stop was pressed for: never
   // queued behind (and dropped for) another key on its way
-  assert.match(app, /const paneId = state\.selectedPaneId;[\s\S]{0,900}await sendKeys\(\["esc"\], paneId\);/u);
+  assert.match(app, /const paneId = state\.selectedPaneId;[\s\S]{0,900}await sendKeys\(\["esc"\], paneId, \{ stop: true \}\);/u);
   // the composer's @ and / list answers Esc before the Stop shortcut
   assert.match(app, /if \(composerPopup\.handleKeydown\(event\)\) return;\s*\/\/ Esc in the composer stops the agent/u);
 });

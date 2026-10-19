@@ -57,10 +57,10 @@ const herdr = {
     if (herdr.slowTextMs) await new Promise((resolve) => setTimeout(resolve, herdr.slowTextMs)); herdr.sent.push({ paneId, text }); },
   // a slow link: a key takes this long to reach the pane
   slowMs: 0,
-  async sendKeys(paneId, keys) {
+  async sendKeys(paneId, keys, options = {}) {
     if (herdr.slowMs) await new Promise((resolve) => setTimeout(resolve, herdr.slowMs));
     if (herdr.failKeys) throw new Error("herdr refused the key");
-    herdr.sent.push({ paneId, keys: [...keys] });
+    herdr.sent.push({ paneId, keys: [...keys], stop: options.stop === true });
   },
 };
 const attachments = new PaneAttachments({
@@ -330,6 +330,7 @@ try {
     const escBy = Date.now() + 5_000;
     while (keys().length === escBefore && Date.now() < escBy) await page.waitForTimeout(50);
     assert.deepEqual(keys().at(-1), ["esc"], "Stop sent Esc");
+    assert.equal(herdr.sent.filter((item) => item.keys).at(-1).stop, true, "Stop marked the Esc as a Stop");
     await ready();
     await input.focus();
     await sendNow(next);

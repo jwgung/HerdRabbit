@@ -298,9 +298,9 @@ export class HerdrBridgeClient {
     return this.#clientForSession(target.sessionName).sendText(target.localId, text, options);
   }
 
-  async sendKeys(paneId, keys) {
+  async sendKeys(paneId, keys, options) {
     const target = this.#targetForScopedId(paneId, validation.validatePaneId);
-    return this.#clientForSession(target.sessionName).sendKeys(target.localId, keys);
+    return this.#clientForSession(target.sessionName).sendKeys(target.localId, keys, options);
   }
 
   async watchStatuses(paneIds, onStatus, onError) {

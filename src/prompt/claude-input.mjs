@@ -69,7 +69,7 @@ function matchedLength(boxText, message) {
 // row the cursor is on; on a row already empty, Backspace joins it to the one
 // above, which Ctrl+U then empties.
 export function restoredDraftStep(box, restored, before = null) {
-  const wanted = String(restored ?? "").trim();
+  const wanted = String(restored ?? "").trimEnd();
   const now = collapsed(box?.text);
   // A screen that cannot be read halfway through clearing may hide a piece
   // still there: the send is refused rather than typed after it.

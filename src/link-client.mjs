@@ -559,9 +559,9 @@ export class LinkClient {
     }
   }
 
-  async sendKeys(paneId, keys) {
+  async sendKeys(paneId, keys, { stop = false } = {}) {
     return this.#request(`/api/link/panes/${encodeURIComponent(paneId)}/keys`, {
-      method: "POST", body: { keys }, timeoutMs: this.timeouts.write,
+      method: "POST", body: stop === true ? { keys, stop: true } : { keys }, timeoutMs: this.timeouts.write,
     });
   }
 

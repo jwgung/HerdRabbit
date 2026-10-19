@@ -3315,9 +3315,9 @@ async function sendText(text, paneId = state.selectedPaneId) {
   return terminalStream.send({ paneId, text, submit: true });
 }
 
-async function sendKeys(keys, paneId = state.selectedPaneId) {
+async function sendKeys(keys, paneId = state.selectedPaneId, { stop = false } = {}) {
   if (!paneId) throw new Error("Select a pane first.");
-  await terminalStream.send({ paneId, keys });
+  await terminalStream.send(stop ? { paneId, keys, stop: true } : { paneId, keys });
 }
 
 function refreshAfterSubmission() {
@@ -4106,7 +4106,7 @@ async function stopAgent() {
   const shortest = new Promise((resolve) => window.setTimeout(resolve, STOP_BUSY_MS));
   clearKeyModifiers();
   try {
-    await sendKeys(["esc"], paneId);
+    await sendKeys(["esc"], paneId, { stop: true });
     refreshAfterSubmission();
   } catch (error) {
     setFeedback(error.message, true);
