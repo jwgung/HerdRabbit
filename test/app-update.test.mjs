@@ -427,3 +427,15 @@ test("a run systemctl cannot tell about is not left running past any update's le
   assert.equal(ended.state, "failed");
   assert.equal(ended.reason, "interrupted");
 });
+
+test("a unit systemctl says is active stays running, however long it takes", async (context) => {
+  const repo = await scratch(context);
+  await repo.publish("Upstream");
+  const fake = services(repo.work);
+  let now = 1_700_000_000_000;
+  const subject = updater(repo, fake, { now: () => now });
+  await subject.start();
+  now += MAX_RUN_MS * 2;
+  assert.equal((await subject.runStatus()).state, "running");
+  await assert.rejects(subject.start(), { status: 409, code: "update_running" });
+});

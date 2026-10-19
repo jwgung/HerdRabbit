@@ -437,3 +437,13 @@ test("a run systemctl cannot tell about is not left running past any update's le
   assert.equal(ended.state, "failed");
   assert.equal(ended.reason, "interrupted");
 });
+
+test("a unit systemctl says is active stays running, however long it takes", async (context) => {
+  const dir = await scratch(context);
+  const fake = fakes();
+  const subject = updater(dir, fake);
+  await subject.start();
+  subject.advance(MAX_RUN_MS * 2);
+  assert.equal((await subject.runStatus()).state, "running");
+  await assert.rejects(subject.start(), { status: 409, code: "update_running" });
+});

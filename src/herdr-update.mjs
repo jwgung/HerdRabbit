@@ -296,7 +296,7 @@ export class HerdrUpdater {
       if (named) {
         const { code: exit, stdout } = await this.exec("systemctl", ["--user", "is-active", record.unit], { timeout: COMMAND_TIMEOUT_MS });
         const state = stdout.trim();
-        const overdue = this.now() - Date.parse(record.startedAt ?? "") > MAX_RUN_MS;
+        const overdue = state === "" && this.now() - Date.parse(record.startedAt ?? "") > MAX_RUN_MS;
         gone = overdue || (exit !== 0 && state !== "" && state !== "active" && state !== "activating" && state !== "deactivating");
       }
       if (gone) {
