@@ -74,7 +74,7 @@ export function chooseLens({ stored = null, chatAvailable = false, compact = fal
 }
 
 // The agents whose conversation the server can read.
-export const CHAT_AGENTS = Object.freeze(["claude", "codex"]);
+export const CHAT_AGENTS = Object.freeze(["claude", "codex", "opencode"]);
 
 function agentNames(pane, agent) {
   return [pane?.agent, pane?.agent_session?.agent, agent?.agent]
@@ -87,7 +87,7 @@ export function isClaudePane(pane, agent) {
 }
 
 // The agent the snapshot names for this pane when the chat can read its
-// conversation ("claude" or "codex"), else null. The pane's own agent comes
+// conversation ("claude", "codex" or "opencode"), else null. The pane's own agent comes
 // first, as the server reads it.
 export function chatAgent(pane, agent) {
   const [name] = agentNames(pane, agent);
@@ -98,7 +98,8 @@ export function chatAgent(pane, agent) {
 const UNAVAILABLE_TEXT = {
   pane_not_found: "Chat is unavailable: this pane is gone.",
   not_claude: "Chat is only for Claude Code panes.",
-  not_supported_agent: "Chat is only for Claude Code and Codex panes.",
+  not_supported_agent: "Chat is only for Claude Code, Codex and OpenCode panes.",
+  unsupported_opencode_version: "Chat can't read this OpenCode version's conversations yet.",
   no_session_id: "Chat appears once the agent reports its session.",
   server_unavailable: "Chat is unavailable: the machine is not connected.",
   linked_pc_old: "Chat needs a newer HerdRabbit on that PC: update it there.",

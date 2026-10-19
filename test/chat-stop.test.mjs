@@ -13,7 +13,8 @@ test("Stop shows only in the Chat lens of a working Claude or Codex pane", () =>
     assert.equal(showsStop({ lens: "chat", agent: "claude", status }), false, String(status));
   }
   assert.equal(showsStop({ lens: "terminal", agent: "claude", status: "working" }), false, "the terminal has its key bar");
-  for (const agent of [null, "", "gemini"]) {
+  // OpenCode's chat is read-only for now: no Stop
+  for (const agent of [null, "", "gemini", "opencode"]) {
     assert.equal(showsStop({ lens: "chat", agent, status: "working" }), false, String(agent));
   }
 });

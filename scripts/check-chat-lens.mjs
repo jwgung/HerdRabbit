@@ -277,7 +277,7 @@ try {
     await page.locator('[data-pane-id="w1:p2"]').first().click();
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "true");
     assert.equal(await lens(), "terminal");
-    assert.equal(await page.locator("#lens-chat").getAttribute("title"), "Chat is only for Claude Code and Codex panes.");
+    assert.equal(await page.locator("#lens-chat").getAttribute("title"), "Chat is only for Claude Code, Codex and OpenCode panes.");
     await page.locator("#lens-chat").click({ force: true });
     assert.equal(await lens(), "terminal");
 
