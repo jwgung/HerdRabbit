@@ -1,22 +1,30 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { composerEscapeStops, sendButtonMode, showsStop } from "../public/chat/chat-activity.js";
+import { OPENCODE_STOP_GAP_MS, composerEscapeStops, sendButtonMode, showsStop, stopPresses } from "../public/chat/chat-activity.js";
 
 const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
-test("Stop shows only in the Chat lens of a working Claude or Codex pane", () => {
-  for (const agent of ["claude", "codex", "Claude"]) {
+test("Stop shows only in the Chat lens of a working Claude, Codex or OpenCode pane", () => {
+  for (const agent of ["claude", "codex", "Claude", "opencode", "OpenCode"]) {
     assert.equal(showsStop({ lens: "chat", agent, status: "working" }), true, agent);
   }
   for (const status of ["idle", "done", "blocked", "unknown", null]) {
     assert.equal(showsStop({ lens: "chat", agent: "claude", status }), false, String(status));
   }
   assert.equal(showsStop({ lens: "terminal", agent: "claude", status: "working" }), false, "the terminal has its key bar");
-  // OpenCode's chat is read-only for now: no Stop
-  for (const agent of [null, "", "gemini", "opencode"]) {
+  for (const agent of [null, "", "gemini"]) {
     assert.equal(showsStop({ lens: "chat", agent, status: "working" }), false, String(agent));
   }
+});
+
+test("Stop sends one Esc to Claude and Codex, and two apart to OpenCode, which interrupts on the second", () => {
+  assert.deepEqual(stopPresses("claude"), { presses: 1, gapMs: 0 });
+  assert.deepEqual(stopPresses("codex"), { presses: 1, gapMs: 0 });
+  assert.deepEqual(stopPresses("opencode"), { presses: 2, gapMs: OPENCODE_STOP_GAP_MS });
+  assert.deepEqual(stopPresses("OpenCode"), { presses: 2, gapMs: OPENCODE_STOP_GAP_MS });
+  // apart enough not to read as one Alt+Esc, well inside OpenCode's 5 seconds
+  assert.ok(OPENCODE_STOP_GAP_MS >= 100 && OPENCODE_STOP_GAP_MS <= 2_000);
 });
 
 test("Esc in the composer stops only when Stop shows and nothing else answers Esc", () => {
@@ -62,6 +70,8 @@ test("the Send button doubles as Stop and the press decides which", async () => 
   // the key bar's Esc, sent at once to the pane Stop was pressed for: never
   // queued behind (and dropped for) another key on its way
   assert.match(app, /const paneId = state\.selectedPaneId;[\s\S]{0,900}await sendKeys\(\["esc"\], paneId, \{ stop: claude \}\);/u);
+  // OpenCode's second Esc goes after the pause, without the Claude mark
+  assert.match(app, /const \{ presses, gapMs \} = stopPresses\(agent\);\s*for \(let press = 1; press < presses; press \+= 1\) \{\s*await new Promise\(\(resolve\) => window\.setTimeout\(resolve, gapMs\)\);\s*await sendKeys\(\["esc"\], paneId\);/u);
   // the composer's @ and / list answers Esc before the Stop shortcut
   assert.match(app, /if \(composerPopup\.handleKeydown\(event\)\) return;\s*\/\/ Esc in the composer stops the agent/u);
 });

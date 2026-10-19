@@ -81,7 +81,7 @@ import {
   writeChatFontSize,
 } from "./chat-font-preference.js?v=1.2.75";
 import { chatAgent } from "./lens-preference.js?v=1.2.75";
-import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop } from "./chat/chat-activity.js?v=1.2.75";
+import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop, stopPresses } from "./chat/chat-activity.js?v=1.2.75";
 import * as xterm from "./vendor/xterm.mjs?v=1.2.75";
 import {
   readPanePreference,
@@ -4109,8 +4109,15 @@ async function stopAgent() {
   try {
     // Only Claude Code puts a stopped message back in its box; the server
     // looks for it before the next send only after a Stop marked as Claude's.
-    const claude = chatAgent(selectedRecords().pane, agentForPane(paneId)) === "claude";
+    const agent = chatAgent(selectedRecords().pane, agentForPane(paneId));
+    const claude = agent === "claude";
     await sendKeys(["esc"], paneId, { stop: claude });
+    // OpenCode stops on a second Esc (within 5 seconds), sent apart from the first
+    const { presses, gapMs } = stopPresses(agent);
+    for (let press = 1; press < presses; press += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, gapMs));
+      await sendKeys(["esc"], paneId);
+    }
     refreshAfterSubmission();
   } catch (error) {
     setFeedback(error.message, true);
