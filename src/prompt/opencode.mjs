@@ -384,25 +384,68 @@ function questionAbove(raw, lines, firstRow) {
   return paragraphs.join("\n\n");
 }
 
+// The question panel's hints at the screen's bottom, and what Enter does there.
+function questionHint(lines) {
+  const hint = lines.findLastIndex((line) => QUESTION_HINT_RE.test(line.trim()));
+  if (hint < 0 || !nearEnd(lines, hint)) return null;
+  const [, enter] = lines[hint].trim().match(QUESTION_HINT_RE);
+  return { hint, enter };
+}
+
+// The question's numbered rows before `end` and its words above them (" (select
+// all that apply)" still on them), or null.
+function questionRows(raw, lines, end) {
+  const rows = menuRows(lines, Math.max(0, end - 64), end);
+  if (!sequentialRows(rows) || rows.length < 1) return null;
+  const question = questionAbove(raw, lines, rows[0].lineIndex);
+  return question ? { rows, question } : null;
+}
+
+// What the open box under "Type your own answer" shows while nothing is typed
+// in it (its placeholder; question.tsx's textarea, indented 3 under the row).
+const BOX_PLACEHOLDER = "Type your own answer";
+
+// Whether `screen` shows the question `asked` (its words, its rows, what Enter
+// does) with the box under its "Type your own answer" open and holding exactly
+// `text`: empty ("") is the box just opened, showing its placeholder. What a
+// typed answer waits on: its text only once the digit opened the box, its
+// Enter only once the box holds the text. Otherwise OpenCode's own input
+// would take them (a leading "!" there runs a shell command).
+function questionBoxHolds(screen, asked, text) {
+  const { raw, lines } = screenLines(String(screen ?? ""));
+  if (dialogOpen(raw)) return false;
+  const found = questionHint(lines);
+  if (!found || found.enter !== asked.enter) return false;
+  const typedRow = `${asked.labels.length}. ${asked.labels.at(-1)}`;
+  const custom = lines.findLastIndex((line, index) => index < found.hint && line.trim() === typedRow);
+  if (custom < 0) return false;
+  const shown = questionRows(raw, lines, custom + 1);
+  if (!shown || shown.question !== asked.question) return false;
+  if (shown.rows.length !== asked.labels.length || shown.rows.some((row, index) => row.label !== asked.labels[index])) return false;
+  // the box: its rows (it wraps, up to six) between the row and the hints
+  const box = lines.slice(custom + 1, found.hint).map((line) => line.trim()).filter(Boolean).join(" ");
+  if (text === "") return box === BOX_PLACEHOLDER;
+  return box.length > 0 && squash(box) === squash(text);
+}
+
 // "Which format?" (" (select all that apply)" for several answers), its rows
 // "1. ONNX" with their descriptions under them, "N. Type your own answer"
 // unless the question forbids one, then the hints. Several questions (or one
 // with several answers) have a row of tabs above, the last "Confirm".
 function parseQuestion(raw, lines) {
-  const hint = lines.findLastIndex((line) => QUESTION_HINT_RE.test(line.trim()));
-  if (hint < 0 || !nearEnd(lines, hint)) return null;
-  const [, enter] = lines[hint].trim().match(QUESTION_HINT_RE);
-  const rows = menuRows(lines, Math.max(0, hint - 64), hint);
-  if (!sequentialRows(rows) || rows.length < 1) return null;
+  const found = questionHint(lines);
+  if (!found) return null;
+  const { hint, enter } = found;
+  const shown = questionRows(raw, lines, hint);
+  if (!shown) return null;
+  const { rows } = shown;
   const multiple = enter === "toggle";
   const custom = CUSTOM_RE.test(rows.at(-1).label);
   // A line under "Type your own answer" is its text box open (keys there are
   // typed, not picked) or an answer typed before: left to the terminal.
   if (custom && rows.at(-1).description) return null;
-  let question = questionAbove(raw, lines, rows[0].lineIndex);
-  if (!question) return null;
-  const marked = MULTIPLE_RE.test(question);
-  question = question.replace(MULTIPLE_RE, "");
+  const marked = MULTIPLE_RE.test(shown.question);
+  const question = shown.question.replace(MULTIPLE_RE, "");
   if (marked !== multiple) return null;
   // Rows a digit cannot reach (a tenth or later) cannot be answered from a
   // card: the terminal (or the fallback card) takes such a question whole
@@ -413,6 +456,7 @@ function parseQuestion(raw, lines) {
   // a question answered before (its tab visited again) marks the pick with " ✓"
   const options = choices.map((row) => ({ label: row.label.replace(/\s+✓$/u, ""), description: row.description ?? null }));
   const typed = custom && !multiple;
+  const asked = { question: shown.question, enter, labels: rows.map((row) => row.label) };
   return finishPrompt("opencode", {
     kind: "question", title: "Question", question, body: null, options,
     multiSelect: multiple, customOptionIndex: typed ? options.length : null,
@@ -423,8 +467,15 @@ function parseQuestion(raw, lines) {
     checkedOptionIndices: multiple ? choices.flatMap((row, index) => (row.checked ? [index] : [])) : [],
     customMenuIndex: typed ? rows.length - 1 : null,
     pickKey: digitKey,
-    // "Type your own answer" by its digit opens its text box; Enter sends what is typed there
-    customSteps: (text) => [...keySteps([digitKey(rows.length - 1)]), { text }, ...keySteps([KEY.enter])],
+    // "Type your own answer" by its digit opens its text box; Enter sends what
+    // is typed there. The text goes only once this question shows its box
+    // open, and the Enter only once the box holds that text (check "box").
+    customSteps: (text) => [
+      ...keySteps([digitKey(rows.length - 1)]),
+      { text, check: "box" },
+      { keys: [KEY.enter], check: "box" },
+    ],
+    holdsText: (screen, text) => questionBoxHolds(screen, asked, text),
   });
 }
 

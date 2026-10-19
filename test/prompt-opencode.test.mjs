@@ -541,3 +541,75 @@ test("a Reject message: typed only while the panel shows, its Enter only while t
     assert.deepEqual(herdr.sent, []);
   }
 });
+
+test("a question's typed answer: its text only once the digit opened this question's box, its Enter only once the box holds it", async () => {
+  const sentOf = (herdr) => herdr.sent.map((item) => item.keys ?? `text:${item.text}`);
+  {
+    // the usual way: digit, text, Enter
+    const { herdr, service } = world({ prompt: { kind: "question" } });
+    const card = await service.card(PANE);
+    await service.answer(PANE, { cardId: card.id, text: "ROCm" });
+    assert.deepEqual(sentOf(herdr), [["3"], "text:ROCm", ["enter"]]);
+    assert.deepEqual(herdr.answered, [{ paneId: PANE, answer: "ROCm" }]);
+  }
+  {
+    // the question closed (answered or dismissed in the terminal) right after the digit:
+    // OpenCode's own input has the focus, so no text and no Enter
+    const { herdr, service } = world({ prompt: { kind: "question" } });
+    const card = await service.card(PANE);
+    const sendKeys = herdr.sendKeys;
+    herdr.sendKeys = async (paneId, keys) => { await sendKeys(paneId, keys); delete herdr.prompts[PANE]; return { ok: true }; };
+    await assert.rejects(service.answer(PANE, { cardId: card.id, text: "!rm -rf build" }), { status: 409, code: "prompt_changed" });
+    assert.deepEqual(sentOf(herdr), [["3"]]);
+  }
+  {
+    // the digit did not open the box (another question took its place): no text
+    const { herdr, service } = world({ prompt: { kind: "question" } });
+    const card = await service.card(PANE);
+    herdr.sendKeys = async (paneId, keys) => {
+      herdr.sent.push({ paneId, keys: [...keys] });
+      herdr.prompts[PANE] = { kind: "question", screen: { question: "Which runtime should we target?" }, typing: "" };
+      return { ok: true };
+    };
+    await assert.rejects(service.answer(PANE, { cardId: card.id, text: "ROCm" }), { status: 409, code: "prompt_changed" });
+    assert.deepEqual(sentOf(herdr), [["3"]]);
+  }
+  {
+    // the box holds other words than the answer (typed in the terminal too): no Enter
+    const { herdr, service } = world({ prompt: { kind: "question" } });
+    const card = await service.card(PANE);
+    const sendText = herdr.sendText;
+    herdr.sendText = async (paneId, text) => { await sendText(paneId, text); herdr.prompts[PANE].typing += "x"; return { ok: true }; };
+    await assert.rejects(service.answer(PANE, { cardId: card.id, text: "ROCm" }), { status: 409, code: "prompt_changed" });
+    assert.deepEqual(sentOf(herdr), [["3"], "text:ROCm"]);
+    assert.deepEqual(herdr.answered, []);
+  }
+  {
+    // the text went to OpenCode's input instead (the question gone after it): no Enter
+    const { herdr, service } = world({ prompt: { kind: "question" } });
+    const card = await service.card(PANE);
+    herdr.sendText = async (paneId, text) => { herdr.sent.push({ paneId, text }); delete herdr.prompts[PANE]; return { ok: true }; };
+    await assert.rejects(service.answer(PANE, { cardId: card.id, text: "ROCm" }), { status: 409, code: "prompt_changed" });
+    assert.deepEqual(sentOf(herdr), [["3"], "text:ROCm"]);
+  }
+});
+
+test("the typed answer's box is told on the question's own screen: open and empty, then holding exactly the text", () => {
+  const card = parseOpencodePrompt(opencodeQuestionScreen());
+  assert.equal(typeof card.holdsText, "function");
+  // before the digit: no box
+  assert.equal(card.holdsText(opencodeQuestionScreen(), ""), false);
+  // the digit opened it: its placeholder
+  assert.equal(card.holdsText(opencodeQuestionScreen({ typing: "" }), ""), true);
+  assert.equal(card.holdsText(opencodeQuestionScreen({ typing: "" }), "ROCm"), false);
+  assert.equal(card.holdsText(opencodeQuestionScreen({ typing: "ROCm" }), "ROCm"), true);
+  assert.equal(card.holdsText(opencodeQuestionScreen({ typing: "ROCmx" }), "ROCm"), false);
+  assert.equal(card.holdsText(opencodeQuestionScreen({ typing: "ROCm" }), ""), false);
+  // another question, other rows, a lone line, a dialog: not this box
+  assert.equal(card.holdsText(opencodeQuestionScreen({ question: "Which runtime?", typing: "ROCm" }), "ROCm"), false);
+  assert.equal(card.holdsText(opencodeQuestionScreen({ options: [["ONNX", "a"], ["CoreML", "b"]], typing: "ROCm" }), "ROCm"), false);
+  assert.equal(card.holdsText("  ┃  ROCm\n", "ROCm"), false);
+  assert.equal(card.holdsText(REAL.permissionUnderPalette, "ROCm"), false);
+  // read without styles it still tells
+  assert.equal(card.holdsText(opencodeQuestionScreen({ typing: "ROCm", ansi: false }), "ROCm"), true);
+});

@@ -12,6 +12,7 @@ import {
   IDENTITY_RECHECK_MS,
   LARGE_ROW_BYTES,
   LARGE_TEXT_CHARS,
+  PENDING_QUESTION_BYTES,
   STATEMENTS,
   defaultOpencodeDb,
   localOpencodeStore,
@@ -516,4 +517,39 @@ test("the question a pane's OpenCode waits on: the newest question call still ru
   assert.equal(await later.pendingAsk("w1:p1"), null);
   // another agent's pane, or none: nothing
   assert.equal(await service(path, [{ pane_id: "w1:p1", agent: "codex" }]).pendingAsk("w1:p1"), null);
+});
+
+test("the pending question: the newest running question call decides; a too large one is none, never an older one", async (context) => {
+  const { fixture, store } = await world(context);
+  fixture.session(SESSION);
+  fixture.session(OTHER);
+  const question = (status, text, extra = "") => ({ type: "tool", tool: "question", callID: `call_${text.length}`, state: { status, input: { questions: [{
+    question: text, header: "Format", options: [{ label: "ONNX", description: `Portable.${extra}` }],
+  }] }, ...(status === "completed" ? { output: "ONNX" } : {}) } });
+  const asked = async () => (await store.pendingQuestion(SESSION))?.input.questions[0].question ?? null;
+  const message = fixture.exchange(SESSION, 0);
+  assert.equal(await asked(), null, "no question call");
+  fixture.part(SESSION, message, question("completed", "Answered?"));
+  assert.equal(await asked(), null, "a completed one is not pending");
+  // another session's running question is not this one's
+  fixture.part(OTHER, fixture.exchange(OTHER, 0), question("running", "Elsewhere?"));
+  assert.equal(await asked(), null);
+  fixture.part(SESSION, message, question("running", "First?"));
+  fixture.part(SESSION, message, question("running", "Second?"));
+  assert.equal(await asked(), "Second?", "several running: the newest");
+  // a newer completed call does not hide the newest running one
+  fixture.part(SESSION, message, question("completed", "Done?"));
+  assert.equal(await asked(), "Second?");
+  // the newest running one too large: none at all, not "Second?"
+  const big = fixture.part(SESSION, message, question("running", "Huge?", "x".repeat(PENDING_QUESTION_BYTES)));
+  assert.equal(await store.pendingQuestion(SESSION), null);
+  // just within the limit it is read
+  const input = JSON.stringify(question("running", "Huge?").state.input);
+  const fits = question("running", "Huge?", "x".repeat(PENDING_QUESTION_BYTES - Buffer.byteLength(input)));
+  assert.equal(Buffer.byteLength(JSON.stringify(fits.state.input)), PENDING_QUESTION_BYTES);
+  fixture.updatePart(SESSION, big, fits);
+  assert.equal(await asked(), "Huge?");
+  // a running call without questions decides too: none
+  fixture.part(SESSION, message, { type: "tool", tool: "question", callID: "call_x", state: { status: "running", input: {} } });
+  assert.equal(await store.pendingQuestion(SESSION), null);
 });

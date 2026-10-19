@@ -12,7 +12,9 @@
 // such keys (a tick per option, then →): the screen is looked at before each.
 // A card answered by its own keys that asks for it (OpenCode's Reject message
 // and review) is looked at before each key and each typed text too: the same
-// card still on screen, and once a message is typed, the box holding it.
+// card still on screen, and once a message is typed, the box holding it. A
+// step may ask that of itself: OpenCode's typed answer to a question types
+// only once its box is open, and sends its Enter only once the box holds it.
 import { createHash } from "node:crypto";
 import { HttpError } from "../http-basics.mjs";
 import { fillClaudeCard, parseClaudePrompt } from "./claude.mjs";
@@ -34,27 +36,38 @@ const READS_AT_ONCE = 4;
 // Ticks a watched pane may be missing from the snapshot before it is let go.
 const MISSING_TICKS = 3;
 
-// Each agent's own readers, by the name herdr gives it.
-const READERS = { claude: parseClaudePrompt, codex: parseCodexPrompt, opencode: parseOpencodePrompt };
-// Screens on which an agent's keys go somewhere no card can see, so no card at
-// all, not even the fallback: an OpenCode dialog (ctrl+p's commands, ...) takes
-// Enter and Esc, and its Enter runs the dialog's highlighted entry.
-const NO_CARD = { opencode: opencodeDialogOpen };
-// How each reader reads the screen: OpenCode's selected permission button is
-// known only by its colour, so its screen comes with its styles, from the
-// visible screen (herdr's detection snapshot drops the styles; checked on
-// OpenCode 1.18.34).
-const READ_FORMATS = { opencode: "ansi" };
-const READ_SOURCES = { opencode: "visible" };
-// The card's whole words, from the agent's own record of the call it waits on.
-const FILLERS = { claude: fillClaudeCard, opencode: fillOpencodeCard };
+// What each agent's pane is read with, by the name herdr gives it; what an
+// agent leaves out is SCREEN_DEFAULTS'.
+//   read:   its own reader (screen → card or null); an agent without one is
+//           read only while blocked, by the fallback
+//   noCard: screens on which its keys go somewhere no card can see, so no card
+//           at all, not even the fallback: an OpenCode dialog (ctrl+p's
+//           commands, ...) takes Enter and Esc, and its Enter runs the dialog's
+//           highlighted entry
+//   format, source: how the screen is read. OpenCode's selected permission
+//           button is known only by its colour, so its screen comes with its
+//           styles, from the visible screen (herdr's detection snapshot drops
+//           the styles; checked on OpenCode 1.18.34)
+//   fill:   the card's whole words, from the agent's own record of the call it
+//           waits on
+const SCREEN_DEFAULTS = Object.freeze({ read: null, noCard: () => false, format: "text", source: "detection", fill: null });
+const AGENT_SCREENS = Object.freeze(Object.fromEntries(Object.entries({
+  claude: { read: parseClaudePrompt, fill: fillClaudeCard },
+  codex: { read: parseCodexPrompt },
+  opencode: { read: parseOpencodePrompt, noCard: opencodeDialogOpen, format: "ansi", source: "visible", fill: fillOpencodeCard },
+}).map(([name, screen]) => [name, Object.freeze({ ...SCREEN_DEFAULTS, ...screen })])));
+
+// How the agent named `name` (or none) has its pane read.
+function screenOf(name) {
+  return typeof name === "string" && Object.hasOwn(AGENT_SCREENS, name) ? AGENT_SCREENS[name] : SCREEN_DEFAULTS;
+}
 
 // The agent's dedicated reader decides from the screen alone, so the pane is
 // read whatever herdr says it is doing (it does not always say blocked while a
 // menu waits); any other agent is read only while blocked.
 function readerName(agent) {
   const name = agent.claude ? "claude" : agent.name;
-  return Object.hasOwn(READERS, name) ? name : null;
+  return screenOf(name).read ? name : null;
 }
 
 // Kept referenced: an answer whose keys are still going out holds the process
@@ -149,7 +162,8 @@ export class PromptService {
   }
 
   #screen(paneId, reader) {
-    return this.herdr.readPane(paneId, { lines: SCREEN_LINES, format: READ_FORMATS[reader] ?? "text", source: READ_SOURCES[reader] ?? "detection" });
+    const { format, source } = screenOf(reader);
+    return this.herdr.readPane(paneId, { lines: SCREEN_LINES, format, source });
   }
 
   async #readScreen(paneId, agent) {
@@ -157,8 +171,9 @@ export class PromptService {
     const blocked = agent.status === "blocked";
     if (!reader && !blocked) return null;
     const screen = await this.#screen(paneId, reader);
-    if (reader && NO_CARD[reader]?.(screen)) return null;
-    const card = reader ? READERS[reader](screen) ?? null : null;
+    const { read, noCard } = screenOf(reader);
+    if (reader && noCard(screen)) return null;
+    const card = reader ? read(screen) ?? null : null;
     if (card || !blocked) return card;
     return parseFallbackPrompt(screen, { agent: reader ?? agent.name });
   }
@@ -172,7 +187,7 @@ export class PromptService {
   // A Claude card's words, whole, from its transcript, and an OpenCode
   // question's from its database; the screen's when those cannot be read.
   async #worded(paneId, card, snapshot = null) {
-    const fill = card && !card.fallback ? FILLERS[card.agent] : undefined;
+    const fill = card && !card.fallback ? screenOf(card.agent).fill : null;
     if (!fill || !this.details || (card.kind !== "plan" && card.kind !== "question")) return card;
     let ask = null;
     try { ask = await this.details(paneId, snapshot); } catch { /* the screen's words, then */ }
@@ -214,11 +229,15 @@ export class PromptService {
     let committed = false;
     try {
       for (const [index, step] of steps.entries()) {
-        // a card that checks each step: still on screen (once a message is
-        // typed, its box holding it), or nothing more goes
-        if (parsed.checksEachStep && !(typed
-          ? await this.#holds(paneId, parsed, typedText)
-          : await this.#onRow(paneId, parsed.promptKey ?? parsed.id, parsed.selectedIndex, { anyRow: true }))) {
+        // A step that is checked: "card", the same card still on screen;
+        // "box", the card's text box holding what is typed so far ("" for a
+        // box just opened). A card that checks each step checks "card" until
+        // a message is typed and "box" after; a step may name its own check
+        // (OpenCode's typed answer: its text and Enter wait on the box). If
+        // the check fails, nothing more goes.
+        const check = step.check ?? (parsed.checksEachStep ? (typed ? "box" : "card") : null);
+        if (check === "box" && !(await this.#holds(paneId, parsed, typedText))) throw promptChanged();
+        if (check === "card" && !(await this.#onRow(paneId, parsed.promptKey ?? parsed.id, parsed.selectedIndex, { anyRow: true }))) {
           throw promptChanged();
         }
         const move = step.keys?.every((key) => key === moves.back || key === moves.forward) ?? false;

@@ -174,7 +174,8 @@ export function visibleLines(screen) {
 
 // The steps that answer `parsed` with `answer`: exactly one of `option`
 // (an index), `options` (indices, for a multiple choice) or `text` (a typed
-// answer). A step is `{ keys: [...] }` or `{ text }`.
+// answer). A step is `{ keys: [...] }` or `{ text }`, either maybe with the
+// `check` the screen must pass before it goes (service.mjs).
 export function answerSteps(parsed, answer) {
   const supplied = ["option", "options", "text"].filter((name) => answer?.[name] !== undefined);
   if (supplied.length !== 1) throw new InvalidAnswer("Exactly one answer is required.");
