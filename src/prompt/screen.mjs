@@ -18,6 +18,7 @@ export const KEY = Object.freeze({ up: "up", down: "down", left: "left", right: 
 // The keys that move a menu's cursor back and forth: up and down, unless the
 // card names its own (OpenCode's permission buttons sit in a row: left and right).
 export const VERTICAL = Object.freeze({ back: KEY.up, forward: KEY.down });
+export const HORIZONTAL = Object.freeze({ back: KEY.left, forward: KEY.right });
 
 export function moveKeysOf(parsed) {
   return parsed?.moveKeys ?? VERTICAL;

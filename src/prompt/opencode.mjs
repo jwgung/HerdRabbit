@@ -22,6 +22,7 @@
 import { secretPrompt } from "../secret-prompt.mjs";
 import {
   ANSI_RE,
+  HORIZONTAL,
   InvalidAnswer,
   KEY,
   finishPrompt,
@@ -84,8 +85,9 @@ export function styledLine(raw) {
           else if (code === 27) inverse = false;
           else if (code === 39) fg = "";
           else if (code === 49) bg = "";
-          else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) fg = `c${code - (code >= 90 ? 60 : 30) + (code >= 90 ? 8 : 0)}`;
-          else if ((code >= 40 && code <= 47) || (code >= 100 && code <= 107)) bg = `c${code - (code >= 100 ? 100 : 40) + (code >= 100 ? 8 : 0)}`;
+          // the 16 colours as the 256-colour numbers they are: 30-37 → 0-7, bright 90-97 → 8-15
+          else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) fg = `c${code >= 90 ? code - 90 + 8 : code - 30}`;
+          else if ((code >= 40 && code <= 47) || (code >= 100 && code <= 107)) bg = `c${code >= 100 ? code - 100 + 8 : code - 40}`;
           else if (code === 38 || code === 48) {
             let color = "";
             if (params[index + 1] === 5) { color = `c${params[index + 2]}`; index += 2; }
@@ -205,7 +207,7 @@ function parsePermission(raw, lines) {
     options: PERMISSION_BUTTONS.map((label) => ({ label, description: null })), multiSelect: false, customOptionIndex: null,
   }, {
     responder: "opencode-permission", menuLabels: [...PERMISSION_BUTTONS], selectedIndex, checkedOptionIndices: [],
-    customMenuIndex: null, moveKeys: { back: KEY.left, forward: KEY.right },
+    customMenuIndex: null, moveKeys: HORIZONTAL,
     // Esc is the prompt's Reject, wherever the selection is
     rejectWithEscapeIndex: 2,
   });
@@ -229,7 +231,7 @@ function parseAlways(raw, lines) {
   }, {
     responder: "opencode-always", menuLabels: [...ALWAYS_BUTTONS],
     selectedIndex: selectedButton(raw[row], ALWAYS_BUTTONS, raw[header]), checkedOptionIndices: [],
-    customMenuIndex: null, moveKeys: { back: KEY.left, forward: KEY.right }, rejectWithEscapeIndex: 1,
+    customMenuIndex: null, moveKeys: HORIZONTAL, rejectWithEscapeIndex: 1,
   });
 }
 

@@ -356,3 +356,14 @@ test("real OpenCode 1.18.34 permission screens read as the card, with the select
   assert.equal(plain.selectedIndex, null);
 });
 
+test("a 16-colour theme's bright colours match: the selected one of two buttons is read", () => {
+  // the warning mark in bright yellow (93) and the selected button on bright yellow (103)
+  const header = "\u001b[93m\u2503\u001b[0m  \u001b[93m\u25b3\u001b[0m Always allow";
+  const row = "\u001b[30;103m Confirm \u001b[0m  \u001b[37;100m Cancel \u001b[0m";
+  assert.equal(selectedButton(row, ["Confirm", "Cancel"], header), 0);
+  // and the same colour in its 256-colour number (38;5;11 / 48;5;11) reads the same
+  const header256 = "\u001b[38;5;11m\u25b3\u001b[0m Always allow";
+  const row256 = "\u001b[37;100m Confirm \u001b[0m  \u001b[30;48;5;11m Cancel \u001b[0m";
+  assert.equal(selectedButton(row256, ["Confirm", "Cancel"], header256), 1);
+});
+
