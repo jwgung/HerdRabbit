@@ -1466,7 +1466,7 @@ export function createHerdrHttpServer({
       if (method === "POST" && keysMatch) {
         requireWriteAuthorization(request, csrfToken);
         const body = await readJsonBody(request, maxBodyBytes);
-        await herdr.sendKeys(decodePaneId(keysMatch[1]), body.keys);
+        await herdr.sendKeys(decodePaneId(keysMatch[1]), body.keys, { stop: validation.validateStop(body.stop) });
         promptService.nudge(decodePaneId(keysMatch[1]));
         sendJson(response, 200, { ok: true });
         return;
@@ -1633,7 +1633,7 @@ export function createHerdrHttpServer({
     },
     async sendInput(message) {
       let secret = false;
-      if (message.keys) await herdr.sendKeys(message.paneId, validation.validateKeys(message.keys));
+      if (message.keys) await herdr.sendKeys(message.paneId, validation.validateKeys(message.keys), { stop: validation.validateStop(message.stop) });
       else {
         const text = validation.validateText(message.text);
         if (message.submit === true) secret = await asksForSecret(message.paneId);

@@ -326,7 +326,7 @@ export function linkRoutes({
       }
       if (method === "POST" && paneMatch[2] === "keys") {
         const body = await readJsonBody(request, maxBodyBytes);
-        await client.sendKeys(paneId, validation.validateKeys(body.keys));
+        await client.sendKeys(paneId, validation.validateKeys(body.keys), { stop: validation.validateStop(body.stop) });
         sendJson(response, 200, { ok: true });
         return true;
       }

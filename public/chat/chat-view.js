@@ -6,8 +6,8 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatView.tsx and
 // ChatView.css, rewritten as plain DOM code without React.
-import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.72";
-import { lineDiff } from "./diff.js?v=1.2.72";
+import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.73";
+import { lineDiff } from "./diff.js?v=1.2.73";
 import {
   formatWorkDuration,
   commandText,
@@ -23,17 +23,17 @@ import {
   workStartsOpen,
   workSummary,
   workTitle,
-} from "./work-blocks.js?v=1.2.72";
-import { paneRenames } from "../pane-rename.js?v=1.2.72";
-import { ConversationLoader } from "./conversation-refresh.js?v=1.2.72";
-import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.72";
+} from "./work-blocks.js?v=1.2.73";
+import { paneRenames } from "../pane-rename.js?v=1.2.73";
+import { ConversationLoader } from "./conversation-refresh.js?v=1.2.73";
+import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.73";
 import {
   chatMayBecomeAvailable,
   chatUnavailableText,
   chooseLens,
   readPaneLens,
   writePaneLens,
-} from "../lens-preference.js?v=1.2.72";
+} from "../lens-preference.js?v=1.2.73";
 
 // Scrolling this close to the top reads the page before it.
 const LOAD_OLDER_PX = 400;
@@ -152,6 +152,11 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
   let workingSince = null;
   let optimisticUntil = 0;
   let pending = [];
+  // the last texts this page sent to the pane (a Stop puts one back in the box)
+  let recentSent = [];
+  const noteSent = (message) => { recentSent = [...recentSent, message.text].slice(-5); };
+  // The turns shown when a send whose text shows later went out.
+  let turnsAtSend = null;
   let ticker = null;
   let activityKey = null;
   let visible = false;
@@ -669,8 +674,10 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     // back only its own.
     sent(text) {
       const now = Date.now();
-      const message = typeof text === "string" && text.trim() ? pendingMessage(text, loader.history.turns, now) : null;
-      if (message) pending = [...pending, message];
+      const message = typeof text === "string" && text.trim() ? pendingMessage(text, loader.history.turns, now, pending.length, recentSent) : null;
+      if (message) { pending = [...pending, message]; noteSent(message); }
+      // the transcript as the send went out: pend() places its message after it
+      turnsAtSend = message ? null : loader.history.turns;
       optimisticUntil = now + OPTIMISTIC_MS;
       if (status !== "working") workingSince = now;
       drawActivity();
@@ -685,8 +692,10 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     // until the transcript has it.
     pend(text) {
       if (typeof text !== "string" || !text.trim()) return null;
-      const message = pendingMessage(text, loader.history.turns, Date.now());
+      const message = pendingMessage(text, turnsAtSend ?? loader.history.turns, Date.now(), pending.length, recentSent);
+      turnsAtSend = null;
       pending = [...pending, message];
+      noteSent(message);
       drawActivity();
       if (stick) keepAtEnd();
       return message;

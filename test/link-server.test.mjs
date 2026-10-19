@@ -18,7 +18,7 @@ function fakePeer(overrides = {}) {
     async snapshot() { calls.push(["snapshot"]); return { herdr_sessions: [{ session_id: "s1" }], panes: [{ pane_id: PANE }] }; },
     async readPane(id, options) { calls.push(["readPane", id, options]); return "pane text"; },
     async sendText(id, text, options) { calls.push(["sendText", id, text, options]); },
-    async sendKeys(id, keys) { calls.push(["sendKeys", id, keys]); },
+    async sendKeys(id, keys, options) { calls.push(["sendKeys", id, keys, ...(options?.stop ? [options] : [])]); },
     ...overrides,
   };
 }
@@ -128,6 +128,10 @@ test("passes input through with the same validation the browser API uses", async
   assert.deepEqual(client.calls.at(-1), ["sendText", PANE, "hello", { submit: true }]);
   assert.equal((await send("keys", { keys: ["enter"] })).status, 200);
   assert.deepEqual(client.calls.at(-1), ["sendKeys", PANE, ["enter"]]);
+
+  assert.equal((await send("keys", { keys: ["esc"], stop: true })).status, 200);
+  assert.deepEqual(client.calls.at(-1), ["sendKeys", PANE, ["esc"], { stop: true }]);
+  assert.equal((await send("keys", { keys: ["esc"], stop: "yes" })).status, 400);
 
   const refused = await send("keys", { keys: ["rm -rf"] });
   assert.equal(refused.status, 400);

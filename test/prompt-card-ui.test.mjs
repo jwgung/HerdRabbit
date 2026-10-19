@@ -81,6 +81,7 @@ test("a pending message waits until the transcript says it once more, or 30 s", 
   const now = 5_000;
   const again = pendingMessage("run the  tests\n", turns, now);
   assert.equal(again.baseline, 1);
+  assert.equal(again.ahead, 0);
   assert.equal(comparableText(" a\n b "), "a b");
   assert.deepEqual(settlePending([again], turns, now + 10), [again]);
   assert.deepEqual(settlePending([again], [...turns, user("run the tests")], now + 10), []);

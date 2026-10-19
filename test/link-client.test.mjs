@@ -44,7 +44,7 @@ function peerHerdr(calls, snapshotOverrides = {}) {
     },
     async readPane(id) { calls.push(["readPane", id]); return "remote output"; },
     async sendText(id, text, options) { calls.push(["sendText", id, text, options]); },
-    async sendKeys(id, keys) { calls.push(["sendKeys", id, keys]); },
+    async sendKeys(id, keys, options) { calls.push(["sendKeys", id, keys, ...(options?.stop ? [options] : [])]); },
     async paneFind(id, request) {
       calls.push(["paneFind", id, request]);
       if (request.contentRevision === 1) throw new HerdrCommandError("The history changed", { code: "stale_content" });
@@ -141,6 +141,11 @@ test("commands reach the connected PC with the prefix taken off again", async (c
   assert.deepEqual(calls.at(-1), ["sendText", PANE, "hello", { submit: true }]);
   await herdr.sendKeys(`${LINK_ID}!${PANE}`, ["enter"]);
   assert.deepEqual(calls.at(-1), ["sendKeys", PANE, ["enter"]]);
+  // the Chat's Stop reaches the connected PC marked as one; a plain Esc does not
+  await herdr.sendKeys(`${LINK_ID}!${PANE}`, ["esc"], { stop: true });
+  assert.deepEqual(calls.at(-1), ["sendKeys", PANE, ["esc"], { stop: true }]);
+  await herdr.sendKeys(`${LINK_ID}!${PANE}`, ["esc"]);
+  assert.deepEqual(calls.at(-1), ["sendKeys", PANE, ["esc"]]);
   assert.equal(localCalls.length, 0, "nothing was routed to the local machine");
 });
 

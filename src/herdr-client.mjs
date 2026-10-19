@@ -4,6 +4,7 @@ import { Buffer } from "node:buffer";
 import { promisify } from "node:util";
 import { subscribeHerdrStatuses } from "./herdr-status-stream.mjs";
 import { callHerdrSocket } from "./herdr-rpc.mjs";
+import { claudeInputBox, restoredDraftStep } from "./prompt/claude-input.mjs";
 
 const execFileAsync = promisify(execFile);
 // Herdr IDs may contain letters (for example wB:p1). Require the exact end
@@ -342,6 +343,24 @@ function publicCommandError(error) {
 // The input still going to each pane: text and keys for one pane go in the
 // order they came, so a message waiting on its Enter is never cut into.
 const PANE_INPUTS = new Map();
+// The last message each pane was sent, and whether an Esc (Stop) followed it:
+// Claude Code puts a message it was stopped on back in its input box, and the
+// next message would be typed after it. Keyed as PANE_INPUTS is.
+const PANE_SENT = new Map();
+const MAX_PANE_SENT = 256;
+// How long Claude Code gets to redraw its input box after a key.
+const INPUT_SETTLE_MS = 150;
+// Enough of the screen to hold Claude's whole input box with the longest
+// message the composer sends (8,000 characters) wrapped on a narrow pane, and
+// enough rounds to empty it a row or two at a time.
+const RESTORED_READ_LINES = 1000;
+// How long after an Esc Claude Code is given to put the stopped message back
+// before the box is read (it took well under a second in Claude Code 2.1).
+const RESTORE_SETTLE_MS = 1_000;
+const MAX_CLEAR_ROUNDS = RESTORED_READ_LINES;
+// The most time clearing may hold the pane's input queue; past it the send is
+// refused as for a box that cannot be emptied.
+export const CLEAR_BUDGET_MS = 20_000;
 
 // Enough for Claude Code to read a pasted image path before its Enter.
 const IMAGE_SETTLE_MS = 700;
@@ -368,11 +387,15 @@ export class HerdrClient {
     socketPath = null,
     // How long an agent gets to take in a pasted image before its Enter.
     imageSettleMs = IMAGE_SETTLE_MS,
+    inputSettleMs = INPUT_SETTLE_MS,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now = () => Date.now(),
   } = {}) {
     this.binary = binary;
     this.imageSettleMs = imageSettleMs;
+    this.inputSettleMs = inputSettleMs;
     this.sleep = sleep;
+    this.now = now;
 
     this.timeoutMs = timeoutMs;
     this.runner = runner;
@@ -713,11 +736,15 @@ export class HerdrClient {
     };
   }
 
+  // One pane of one Herdr, for every client made for it (the bridge makes
+  // one per call): keyed by the socket or session too.
+  #paneKey(paneId) {
+    return `${this.binary}\0${this.socketPath ?? ""}\0${this.sessionName ?? ""}\0${paneId}`;
+  }
+
   // Runs `send` once the pane's earlier input has gone.
   #inOrder(paneId, send) {
-    // One queue per pane of one Herdr, shared by every client made for it
-    // (the bridge makes one per call): keyed by the socket or session too.
-    const key = `${this.binary}\0${this.socketPath ?? ""}\0${this.sessionName ?? ""}\0${paneId}`;
+    const key = this.#paneKey(paneId);
     const before = PANE_INPUTS.get(key) ?? Promise.resolve();
     const run = before.catch(() => {}).then(send);
     const settled = run.catch(() => {});
@@ -733,6 +760,64 @@ export class HerdrClient {
   }
 
   async #sendText(safePaneId, safeText, submit) {
+    const key = this.#paneKey(safePaneId);
+    const before = PANE_SENT.get(key);
+    PANE_SENT.delete(key);
+    if (!submit) return this.#submitText(safePaneId, safeText, submit);
+    if (before?.stopped) {
+      try {
+        // Claude puts the stopped message back a moment after the Esc: a look
+        // straight after it could find the box still empty.
+        const settle = RESTORE_SETTLE_MS - (this.now() - (before.stoppedAt ?? 0));
+        if (settle > 0) await this.sleep(settle);
+        await this.#clearRestoredMessage(safePaneId, before.text);
+      } catch (error) {
+        // still there: the next send looks again
+        PANE_SENT.set(key, before);
+        throw error;
+      }
+    }
+    const result = await this.#submitText(safePaneId, safeText, submit);
+    PANE_SENT.set(key, { text: safeText, stopped: false });
+    if (PANE_SENT.size > MAX_PANE_SENT) PANE_SENT.delete(PANE_SENT.keys().next().value);
+    return result;
+  }
+
+  // After a Stop, Claude Code may hold the stopped message in its input box:
+  // when the box shows exactly that message, it is emptied first, so the new
+  // one is not typed after it. Text it holds otherwise is left alone; a box
+  // the keys cannot empty refuses the send (the composer keeps the draft).
+  async #clearRestoredMessage(safePaneId, restored) {
+    // Read with its styles, so an empty box's dim tip is told from typed words.
+    // A screen that cannot be read refuses the send: the stopped message may
+    // still be there.
+    const look = async () => claudeInputBox(await this.readPane(safePaneId, { lines: RESTORED_READ_LINES, format: "ansi" }));
+    let before = null;
+    const deadline = this.now() + CLEAR_BUDGET_MS;
+    let box;
+    try {
+      box = await look();
+    } catch {
+      box = undefined;
+    }
+    for (let round = 0; box !== undefined && round < MAX_CLEAR_ROUNDS && this.now() < deadline; round += 1) {
+      const step = restoredDraftStep(box, restored, before);
+      if (step.done) return;
+      if (step.stuck) break;
+      await this.#sendKeys(safePaneId, step.keys);
+      await this.sleep(this.inputSettleMs);
+      before = box;
+      try {
+        box = await look();
+      } catch {
+        break;
+      }
+    }
+    throw new HerdrCommandError("After the Stop, Claude's input box is not empty (or could not be checked). Clear it in the terminal, then send again.",
+      { code: "input_not_empty" });
+  }
+
+  async #submitText(safePaneId, safeText, submit) {
     if (submit && namesImage(safeText)) {
       // Claude Code turns a pasted image path into an attachment ([Image #1])
       // and drops an Enter that arrives while it does: the text goes first,
@@ -750,10 +835,26 @@ export class HerdrClient {
     return this.#run(["pane", "send-text", safePaneId, safeText], { json: false });
   }
 
-  async sendKeys(paneId, keys) {
+  // `stop` marks the Chat lens's Stop button: only its lone Esc is taken for a
+  // Stop. An Esc from anywhere else (a shell, Codex, a closed menu) is a key.
+  async sendKeys(paneId, keys, { stop = false } = {}) {
     const safePaneId = validatePaneId(paneId);
     const safeKeys = validateKeys(keys);
-    return this.#inOrder(safePaneId, () => this.#sendKeys(safePaneId, safeKeys));
+    return this.#inOrder(safePaneId, async () => {
+      // A Stop (a lone Esc sent for the Stop button) after a message counts once it has gone through; any
+      // other key changes what the input box holds, so nothing is cleared
+      // for it later (forgotten before it goes, whether or not it arrives).
+      const key = this.#paneKey(safePaneId);
+      const sent = PANE_SENT.get(key);
+      const isStop = stop === true && safeKeys.length === 1 && safeKeys[0] === "esc";
+      if (sent && !isStop) PANE_SENT.delete(key);
+      const result = await this.#sendKeys(safePaneId, safeKeys);
+      if (sent && isStop && PANE_SENT.get(key) === sent) {
+        sent.stopped = true;
+        sent.stoppedAt = this.now();
+      }
+      return result;
+    });
   }
 
   async #sendKeys(safePaneId, safeKeys) {
@@ -789,7 +890,15 @@ export class HerdrClient {
   }
 }
 
+// The optional Stop mark on a keys request: absent or a boolean.
+function validateStop(value) {
+  if (value === undefined) return false;
+  if (typeof value !== "boolean") throw new InputValidationError("Invalid stop flag");
+  return value;
+}
+
 export const validation = Object.freeze({
+  validateStop,
   validateHerdrSessionName,
   validatePaneId,
   validateWorkspaceId,

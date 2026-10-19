@@ -64,6 +64,21 @@ async function fixture(context, overrides = {}, { attachments = null } = {}) {
     endSessions: () => { authenticated = false; for (const listener of endedListeners) listener(); } };
 }
 
+test("a keys message passes the Stop mark to the pane", async (context) => {
+  const delivered = [];
+  const app = await fixture(context, { async sendKeys(paneId, keys, options) { delivered.push({ paneId, keys, ...options }); } });
+  const client = await app.connect();
+  await client.wait(message => message.type === "ready");
+  client.send({ type: "input", id: 1, paneId: "w1:p1", keys: ["esc"], stop: true });
+  await client.wait(message => message.type === "ack" && message.id === 1);
+  client.send({ type: "input", id: 2, paneId: "w1:p1", keys: ["esc"] });
+  await client.wait(message => message.type === "ack" && message.id === 2);
+  assert.deepEqual(delivered, [
+    { paneId: "w1:p1", keys: ["esc"], stop: true },
+    { paneId: "w1:p1", keys: ["esc"], stop: false },
+  ]);
+});
+
 test("WebSocket streams a baseline and deltas, preserving input order without client ACK waits", async context => {
   const app = await fixture(context);
   const client = await app.connect();

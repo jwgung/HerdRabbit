@@ -262,7 +262,7 @@ export class MultiServerClient {
   // This machine's are listed by the page's own catalog, not asked of Herdr.
   paneCommands(id) { return this.invoke("paneCommands", id, []); }
   sendText(id, text, options) { return this.invoke("sendText", id, [text, options]); }
-  sendKeys(id, keys) { return this.invoke("sendKeys", id, [keys]); }
+  sendKeys(id, keys, options) { return this.invoke("sendKeys", id, [keys, options]); }
   async watchStatuses(paneIds, onStatus, onError) {
     const groups = new Map();
     for (const paneId of paneIds) {
