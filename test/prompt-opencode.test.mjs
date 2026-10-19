@@ -417,6 +417,21 @@ const REAL_DIALOGS = Object.freeze({
   alwaysUnderPalette: REAL.alwaysUnderPalette,
 });
 
+test("real 1.18.34: a panel tall enough to reach up beside a dialog (its dimmed bar left of it) does not hide the dialog", () => {
+  // the dialog's rows of ctrl+p's list, with a tall panel's bar drawn on their left
+  const rows = REAL.permissionUnderPalette.split("\n");
+  const last = rows.findIndex((line) => plain(line).includes("Permission required")) - 2;
+  const tall = rows.map((line, index) => (index <= last ? line.replace(/(\u001b\[48;2;4;4;4m)   /u, "$1  ┃") : line));
+  assert.ok(plain(tall[rows.findIndex((line) => plain(line).includes("Commands"))]).startsWith("  ┃"));
+  for (const [name, screen] of Object.entries({ styled: tall.join("\n"), plain: plain(tall.join("\n")) })) {
+    assert.equal(opencodeDialogOpen(screen), true, name);
+    assert.equal(parseOpencodePrompt(screen), null, name);
+  }
+  // its search box's words typed over: told by the dialog's own box
+  const typed = tall.map((line) => line.replace("Search", "shar  ")).join("\n");
+  assert.equal(opencodeDialogOpen(typed), true);
+});
+
 test("real 1.19.3: the session's words left of a dialog are matched by terminal column, Korean (two columns a character) too", () => {
   const lines = REAL.permissionUnderPaletteWithMessages.split("\n");
   const title = lines.findIndex((line) => plain(line).includes("Commands") && plain(line).trimEnd().endsWith("█"));

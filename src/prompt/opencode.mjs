@@ -172,15 +172,17 @@ function dialogOpen(raw) {
   const plainLine = (index) => String(raw[index] ?? "").replace(ANSI_RE, "").replace(/\s+$/u, "").replace(SCROLLBAR_RE, "");
   // where a word starts at index `at` of `line`: the line's start, or two spaces before it
   const wordAt = (line, at) => at >= 0 && /\S/u.test(line[at] ?? "") && (!line.slice(0, at).trim() || /\s{2}$/u.test(line.slice(0, at)));
+  // A panel tall enough reaches up beside the dialog, its dimmed bar on the
+  // dialog's left: a row is looked at whatever its left shows. (A row read for
+  // a dialog that is none only hides the card.)
   for (let index = 0; index < raw.length; index += 1) {
-    if (inPanel(raw[index])) continue;
     const title = plainLine(index);
     if (!DIALOG_TITLE_RE.test(title)) continue;
     const search = plainLine(index + 2);
     const between = plainLine(index + 1);
     const at = search.endsWith(DIALOG_SEARCH) ? search.length - DIALOG_SEARCH.length : -1;
     const column = at >= 0 ? stringWidth(search.slice(0, at)) : -1;
-    const searched = column >= 0 && !inPanel(raw[index + 2]) && wordAt(search, at)
+    const searched = column >= 0 && wordAt(search, at)
       && wordAt(title, indexAtColumn(title, column))
       && (stringWidth(between) <= column || !between.slice(Math.max(0, indexAtColumn(between, column))).trim());
     if (searched || onDialogBox(raw, index, title.length - 1)) return true;
