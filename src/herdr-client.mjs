@@ -358,6 +358,9 @@ const RESTORED_READ_LINES = 1000;
 // before the box is read (it took well under a second in Claude Code 2.1).
 const RESTORE_SETTLE_MS = 1_000;
 const MAX_CLEAR_ROUNDS = RESTORED_READ_LINES;
+// The most time clearing may hold the pane's input queue; past it the send is
+// refused as for a box that cannot be emptied.
+export const CLEAR_BUDGET_MS = 20_000;
 
 // Enough for Claude Code to read a pasted image path before its Enter.
 const IMAGE_SETTLE_MS = 700;
@@ -790,13 +793,14 @@ export class HerdrClient {
     // still be there.
     const look = async () => claudeInputBox(await this.readPane(safePaneId, { lines: RESTORED_READ_LINES, format: "ansi" }));
     let before = null;
+    const deadline = this.now() + CLEAR_BUDGET_MS;
     let box;
     try {
       box = await look();
     } catch {
       box = undefined;
     }
-    for (let round = 0; box !== undefined && round < MAX_CLEAR_ROUNDS; round += 1) {
+    for (let round = 0; box !== undefined && round < MAX_CLEAR_ROUNDS && this.now() < deadline; round += 1) {
       const step = restoredDraftStep(box, restored, before);
       if (step.done) return;
       if (step.stuck) break;

@@ -97,6 +97,39 @@ test("after a Stop, the message Claude put back is cleared before the next one g
   ]);
 });
 
+test("a stopped message that starts with a line break is recognised and cleared", async () => {
+  const box = (rows) => claudeInputBox(claudeScreen(rows));
+  assert.deepEqual(restoredDraftStep(box(["foo"]), "\nfoo"), { keys: ["ctrl+k", "ctrl+u"] });
+  assert.deepEqual(restoredDraftStep(box(["", "foo"]), "\n\nfoo"), { keys: ["ctrl+k", "ctrl+u"] });
+  const pane = claudePane([""]);
+  const client = new HerdrClient({ runner: pane.runner, sleep: async () => {}, sessionName: "stopdraft-nl" });
+  await client.sendText("w1:p1", "\nfoo", { submit: true });
+  await client.sendKeys("w1:p1", ["esc"], { stop: true });
+  assert.deepEqual(pane.rows, ["\nfoo"]);
+  pane.rows = ["foo"];
+  await client.sendText("w1:p1", "next", { submit: true });
+  assert.equal(pane.sent, "next");
+});
+
+test("clearing gives up when its time budget runs out", async () => {
+  const pane = claudePane([""]);
+  let clock = 0;
+  const client = new HerdrClient({
+    runner: pane.runner, sessionName: "stopdraft-budget",
+    now: () => clock, sleep: async (ms) => { clock += ms; },
+    inputSettleMs: 1_000,
+  });
+  const lines = Array.from({ length: 200 }, (_, index) => `line ${index}`);
+  await client.sendText("w1:p1", lines.join("\n"), { submit: true });
+  await client.sendKeys("w1:p1", ["esc"], { stop: true });
+  pane.rows = [...lines]; // put back, one row each
+  pane.calls.length = 0;
+  await assert.rejects(client.sendText("w1:p1", "next", { submit: true }), (error) => error.code === "input_not_empty");
+  assert.ok(clock <= 40_000, `clock ${clock}`);
+  assert.ok(pane.calls.filter((args) => args[1] === "send-keys").length < 40, "kept pressing keys past the budget");
+  assert.notEqual(pane.sent, "next");
+});
+
 test("without a Stop nothing is read; with the person's own text in the box nothing is cleared and the send is refused", async () => {
   const pane = claudePane([""]);
   const client = new HerdrClient({ runner: pane.runner, sleep: async () => {}, sessionName: "stopdraft-b" });

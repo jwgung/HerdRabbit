@@ -59,15 +59,15 @@ function userEntries(turns) {
 // Whether a user turn is the message sent: the same words, or the same words
 // at its end. After a Stop, Claude Code puts the stopped message back in its
 // input box and the next one is typed after it, so Claude gets both as one,
-// with no space between. So an ending counts only after whitespace, or when
-// what comes before it is a message this page sent earlier (priors).
+// with no space between. So an ending counts only when what comes before it
+// is a message this page sent earlier (priors); "do not deploy" is not
+// "deploy", whoever sent it. Anything else waits for the stale rule.
 export function saysSent(said, sent, priors = []) {
   const wanted = comparableText(sent);
   if (wanted === "") return false;
   if (said === wanted) return true;
   if (!said.endsWith(wanted)) return false;
   const before = said.slice(0, -wanted.length);
-  if (/\s$/u.test(before)) return true;
   return priors.some((prior) => comparableText(prior) === before.trim());
 }
 

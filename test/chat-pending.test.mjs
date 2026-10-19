@@ -18,19 +18,19 @@ test("a message Claude got after the one a Stop put back resolves its pending bu
 });
 
 test("matching ignores how whitespace was laid out", () => {
-  assert.equal(saysSent("first part\nrun the tests", "run   the\ntests "), true);
+  assert.equal(saysSent("first part\nrun the tests", "run   the\ntests ", ["first   part"]), true);
   assert.equal(saysSent("run the tests", "run the tests"), true);
   assert.equal(saysSent("run the tests later", "run the tests"), false);
   assert.equal(saysSent("anything", "   "), false);
   const now = 1_000;
-  const sent = pendingMessage("  run\n the tests ", [], now);
+  const sent = pendingMessage("  run\n the tests ", [], now, 0, ["stop."]);
   assert.deepEqual(settlePending([sent], [user("stop. run the   tests")], now + 10), []);
 });
 
 test("an earlier message that says the same, or ends the same, does not resolve a new one", () => {
   const earlier = [user("please run the tests"), reply("done"), user("run the tests"), reply("done again")];
   const now = 50_000;
-  const sent = pendingMessage("run the tests", earlier, now);
+  const sent = pendingMessage("run the tests", earlier, now, 0, ["please"]);
   assert.equal(sent.baseline, 2);
   assert.deepEqual(settlePending([sent], earlier, now + 1_000), [sent]);
   // a newer read of the same transcript (an older page joined above) still waits
@@ -68,12 +68,16 @@ test("a transcript read that no longer has the turn it was sent after falls back
   const sent = pendingMessage("go", earlier, now);
   const fresh = [user("a new session")];
   assert.deepEqual(settlePending([sent], fresh, now + STALE_PENDING_MS + 1), [sent]);
-  assert.deepEqual(settlePending([sent], [...fresh, user("x go"), user("go")], now + 10), []);
+  assert.deepEqual(settlePending([sent], [...fresh, user("go"), user("go")], now + 10), []);
+  assert.deepEqual(settlePending([sent], [...fresh, user("x go")], now + 10), [sent]);
 });
 
-test("an ending resolves a pending message only at a word boundary or after a message this page sent", () => {
+test("an ending resolves a pending message only after a message this page sent", () => {
   assert.equal(saysSent("mongo", "go"), false);
-  assert.equal(saysSent("x go", "go"), true);
+  assert.equal(saysSent("x go", "go"), false, "no earlier send of x");
+  assert.equal(saysSent("x go", "go", ["x"]), true);
+  assert.equal(saysSent("do not deploy", "deploy"), false, "another client may have said it");
+  assert.equal(saysSent("do not deploy", "deploy", ["something else"]), false);
   assert.equal(saysSent("ㄱㄱㄱㄲ잠깐, 먼저", "잠깐, 먼저"), false, "no earlier send known");
   assert.equal(saysSent("ㄱㄱㄱㄲ잠깐, 먼저", "잠깐, 먼저", ["ㄱㄱㄱㄲ"]), true);
   assert.equal(saysSent("ㄱㄱㄱㄲ잠깐, 먼저", "잠깐, 먼저", ["다른 것"]), false);
