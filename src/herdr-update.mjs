@@ -33,10 +33,11 @@ export const HERDR_LOCATION_VARIABLES = Object.freeze(["XDG_CONFIG_HOME", "XDG_D
 
 // PATH, HOME and those folders, as absolute paths only; nothing else.
 function herdrEnvironment(environment, path) {
-  const env = { PATH: path, HOME: environment.HOME || homedir() };
+  const usable = (value) => typeof value === "string" && isAbsolute(value) && !/[\0\r\n]/u.test(value);
+  // HOME is also the unit's working folder: one that is not a usable path is this account's own
+  const env = { PATH: path, HOME: usable(environment.HOME) ? environment.HOME : homedir() };
   for (const name of HERDR_LOCATION_VARIABLES) {
-    const value = environment[name];
-    if (typeof value === "string" && isAbsolute(value) && !/[\0\n]/u.test(value)) env[name] = value;
+    if (usable(environment[name])) env[name] = environment[name];
   }
   return env;
 }

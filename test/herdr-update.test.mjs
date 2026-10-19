@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
@@ -455,4 +456,12 @@ test("a unit systemctl says is active stays running, however long it takes", asy
   subject.advance(MAX_RUN_MS * 2);
   assert.equal((await subject.runStatus()).state, "running");
   await assert.rejects(subject.start(), { status: 409, code: "update_running" });
+});
+
+test("a HOME that is not a usable absolute path is not handed to Herdr or the unit", async (context) => {
+  const dir = await scratch(context);
+  for (const HOME of ["relative/home", "/home/me\n--bad", ""]) {
+    const subject = updater(dir, fakes(), { environment: { ...SERVICE_ENV, HOME } });
+    assert.equal(subject.environmentFor(BIN).HOME, homedir());
+  }
 });
