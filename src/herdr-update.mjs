@@ -386,7 +386,8 @@ async function readOutput(path, offset) {
     const start = Math.max(offset, size - 64 * 1024);
     const buffer = Buffer.alloc(Math.max(0, size - start));
     await handle.read(buffer, 0, buffer.length, start);
-    return cleanLog(buffer.toString("utf8"));
+    // all of it, not the shown tail: a refusal may be followed by many lines
+    return buffer.toString("utf8");
   } catch {
     return "";
   } finally {
@@ -397,7 +398,7 @@ async function readOutput(path, offset) {
 // What Herdr said that explains how the run ended: its refusal when it gave
 // one, otherwise, for a failure, its last line.
 function runDetail(log, failed) {
-  const lines = String(log).split("\n").map((entry) => entry.trim()).filter(Boolean);
+  const lines = String(log).split(/\r?\n/u).map((entry) => line(entry, 4096)).filter(Boolean);
   const refusal = lines.find((entry) => REFUSAL.test(entry));
   if (refusal) return { refused: true, detail: line(refusal, MAX_DETAIL) };
   return { refused: false, detail: failed && lines.length > 0 ? line(lines.at(-1), MAX_DETAIL) : null };

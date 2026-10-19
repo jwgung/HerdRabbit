@@ -338,6 +338,15 @@ test("a package-manager refusal is the run's reason, in Herdr's own words", asyn
     assert.equal(status.reason, "self_update_refused");
     assert.equal(status.detail, refusal);
   }
+  // a refusal followed by more than the shown tail is still the reason
+  {
+    const noisy = `${refusal}\n${Array.from({ length: 80 }, (_, n) => `note ${n}`).join("\n")}\n`;
+    const { spawnImpl } = fakeSpawn(noisy, 0);
+    assert.equal(await runHerdrUpdateScript({ stateDir: dir.stateDir, binary: BIN, spawnImpl, environment: SERVICE_ENV }), 1);
+    const status = await subject.runStatus();
+    assert.equal(status.reason, "self_update_refused");
+    assert.equal(status.detail, refusal);
+  }
   const { spawnImpl } = fakeSpawn("Downloading…\nerror: download failed: 404\n", 2);
   assert.equal(await runHerdrUpdateScript({ stateDir: dir.stateDir, binary: BIN, spawnImpl, environment: SERVICE_ENV }), 2);
   const failed = await subject.runStatus();
