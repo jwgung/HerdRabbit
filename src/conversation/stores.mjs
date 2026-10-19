@@ -7,12 +7,15 @@
 //   read(path, start, length)    -> Buffer (at most `length` bytes)
 //   codex                        -> where Codex rollouts are (codex.mjs's
 //                                   locateCodexRollout lists the calls)
+//   opencode                     -> OpenCode's database (opencode.mjs's
+//                                   localOpencodeStore), a store of its own
 // plus the limits a page read keeps to on that store.
 import { open, readFile, readdir, readlink, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 import { JOB_SHORT_ID, SESSION_ID } from "./claude.mjs";
 import { THREAD_ID } from "./codex.mjs";
+import { defaultOpencodeDb, localOpencodeStore } from "./opencode.mjs";
 
 const MiB = 1024 * 1024;
 // How many project folders a scan looks into at once.
@@ -46,7 +49,7 @@ async function isFile(path, statFile = stat) {
 }
 
 // `statFile`: how a candidate file is looked at (a test counts the calls).
-export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), codexHome = defaultCodexHome(), limits = LOCAL_LIMITS, statFile = stat } = {}) {
+export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), codexHome = defaultCodexHome(), opencodeDb = defaultOpencodeDb(), limits = LOCAL_LIMITS, statFile = stat } = {}) {
   const projects = join(configDir, "projects");
   // session id -> the file a project scan found it in; checked again on every use
   const found = new Map();
@@ -56,6 +59,7 @@ export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), cod
     configDir,
     codexHome,
     codex: localCodexFiles(codexHome),
+    opencode: localOpencodeStore({ path: opencodeDb }),
     ...limits,
     async locate(session, projectDirs) {
       if (!SESSION_ID.test(session)) return null;

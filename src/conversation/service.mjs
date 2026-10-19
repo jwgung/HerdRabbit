@@ -1,12 +1,13 @@
 // A pane's conversation, from the pane id the browser knows: which agent it
-// runs (Claude Code or Codex, each with its own format), which file of this
-// machine's holds it, and the page or tool output asked for. A PC connected
+// runs (Claude Code, Codex or OpenCode, each with its own format), which file
+// (or, for OpenCode, which session of its database) of this machine's holds it, and the page or tool output asked for. A PC connected
 // with Connect PC reads
 // its own transcripts: its panes' pages, tool output, change signature and
 // pending plan or question are asked of it over its link, never read here.
 import { createHash, randomUUID } from "node:crypto";
 import { CLAUDE_TRANSCRIPT, SESSION_ID, locateClaudeTranscript, pendingClaudeAsk, readTail } from "./claude.mjs";
 import { CODEX_TRANSCRIPT, THREAD_ID, isCodexProcess, locateCodexRollout } from "./codex.mjs";
+import { OPENCODE_SESSION, OPENCODE_SESSION_ID } from "./opencode.mjs";
 import {
   ConversationError,
   ConversationUnavailable,
@@ -27,7 +28,7 @@ const MISSING_LOCATE_TTL_MS = 2_000;
 // The screen a Codex pane is matched by, as a last resort.
 const MATCH_SCREEN_LINES = 400;
 
-const FORMATS = { claude: CLAUDE_TRANSCRIPT, codex: CODEX_TRANSCRIPT };
+const FORMATS = { claude: CLAUDE_TRANSCRIPT, codex: CODEX_TRANSCRIPT, opencode: OPENCODE_SESSION };
 
 // What a link's client must answer for its panes' conversations to be relayed.
 const LINK_CALLS = ["conversationPage", "conversationToolOutput", "conversationSignature", "conversationPendingAsk"];
@@ -185,7 +186,28 @@ export class ConversationService {
         () => locateClaudeTranscript(store, session, cwds));
       return { paneId, serverId, agent, format, store, session, path: found.value, key: found.key };
     }
+    if (agent === "opencode") return this.#resolveOpencode(paneId, { serverId, agent, format, own, pane });
     return this.#resolveCodex(paneId, { serverId, agent, format, own, cwds });
+  }
+
+  // OpenCode's session is a row of its database: the store is that database,
+  // the "path" the session's id. Herdr's OpenCode plugin reports the session
+  // shown; with none reported, the newest one begun in the pane's folder.
+  async #resolveOpencode(paneId, { serverId, agent, format, own, pane }) {
+    const store = this.#store(serverId)?.opencode;
+    if (!store) throw this.#noStore();
+    const reported = own && (own.kind === undefined || own.kind === "id") && typeof own.value === "string" && OPENCODE_SESSION_ID.test(own.value)
+      ? own.value : null;
+    const cwd = [pane.foreground_cwd, pane.cwd].find((value) => typeof value === "string" && value.startsWith("/") && value.length <= 4096) ?? null;
+    const found = await this.#located(`opencode\0${serverId}\0${reported ?? ""}\0${reported ? "" : cwd ?? ""}`,
+      () => store.locate({ session: reported, cwd: reported ? null : cwd }));
+    if (found.value === null) {
+      if (reported === null) throw new ConversationUnavailable("no_session_id");
+      // a session herdr reports that OpenCode has not written yet reads as no turns
+      return { paneId, serverId, agent, format, store, session: reported, path: null, key: found.key };
+    }
+    const { session, found: written } = found.value;
+    return { paneId, serverId, agent, format, store, session, path: written ? session : null, key: found.key };
   }
 
   async #resolveCodex(paneId, { serverId, agent, format, own, cwds }) {
@@ -259,6 +281,7 @@ export class ConversationService {
       };
     }
     try {
+      if (target.agent === "opencode") return await target.store.page(target.path, { before, since, ifNoneMatch });
       return await transcriptPage(target.format, target.store, target.path, { before, since, ifNoneMatch });
     } catch (error) {
       if (error instanceof ConversationUnavailable) this.forget(target);
@@ -277,7 +300,9 @@ export class ConversationService {
     if (target.path === null) throw new ConversationError(404, "tool_output_not_found", "That tool call has no output.");
     let found;
     try {
-      found = await transcriptToolOutput(target.format, target.store, target.path, toolId);
+      found = target.agent === "opencode"
+        ? await target.store.toolOutput(target.path, toolId)
+        : await transcriptToolOutput(target.format, target.store, target.path, toolId);
     } catch (error) {
       if (error instanceof ConversationUnavailable) this.forget(target);
       throw error;
