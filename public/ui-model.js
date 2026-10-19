@@ -140,6 +140,21 @@ export function insertPathAtSelection(value, selectionStart, selectionEnd, path)
   return insertTextAtSelection(value, start, end, `${before}${path}${after}`);
 }
 
+// The stored files, newest first by the time shown in each row; files stored
+// at the same moment keep code point order of their names, as the server lists them.
+export function sortUploads(files) {
+  const time = (file) => {
+    const value = Date.parse(file?.modifiedAt);
+    return Number.isNaN(value) ? 0 : value;
+  };
+  const name = (file) => String(file?.name ?? "");
+  return [...files].sort((a, b) => {
+    const diff = time(b) - time(a);
+    if (diff !== 0) return diff;
+    return name(a) < name(b) ? -1 : name(a) > name(b) ? 1 : 0;
+  });
+}
+
 // What a batch of uploads says once it is done. Past one file a count reads
 // faster than a list of names; a file that failed is always named, with why,
 // because that is the one to do something about.

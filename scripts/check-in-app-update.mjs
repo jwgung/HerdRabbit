@@ -179,10 +179,20 @@ try {
       assert.equal((await after.locator(".update-status").textContent()).trim(), "Up to date.");
       assert.match(await after.locator(".update-versions").textContent(), /Running 2\.0\.1/u);
       assert.match(await after.locator(".update-log").textContent(), /Updated to def5678/u, "the finished run is still shown");
+      assert.equal((await after.locator(".update-run-state").textContent()).trim(), "Updated.");
+      assert.equal(await after.locator("details.update-log-fold").evaluate((node) => node.open), false, "a finished run's log is folded away");
+      assert.equal((await after.locator("details.update-log-fold > summary").textContent()).trim(), "Log");
+      // seen once: after closing, the finished run does not come back
+      await page.locator("#update-close").click();
+      await page.locator('.settings-button').click();
+      await page.locator('.settings-menu [data-action="update"]').click();
+      await after.waitFor({ state: "visible" });
+      assert.equal(await after.locator(".update-progress").count(), 0, "a finished run seen once is gone");
     } else {
       await page.waitForFunction(() => /update failed/u.test(document.querySelector(".update-run-state")?.textContent ?? ""), null, { timeout: 20_000 });
       assert.equal(await local.locator(".update-run-state").getAttribute("data-error"), "true");
       assert.match(await local.locator(".update-log").textContent(), /rolled back to abc1234/u);
+      assert.equal(await local.locator("details.update-log-fold").evaluate((node) => node.open), true, "a failed run keeps its log open");
       assert.equal(await page.evaluate(() => window.beforeUpdate), true, "a failed run does not reload");
     }
     assert.deepEqual(errors, []);
@@ -230,7 +240,7 @@ async function checkHerdr() {
         };
       }
       herdrWorld.version = "0.9.5";
-      return { ...herdrIdle, state: "succeeded", exitCode: 0, finishedAt: new Date().toISOString(), log: `${log}\nDone.` };
+      return { ...herdrIdle, state: "succeeded", exitCode: 0, finishedAt: new Date().toISOString(), log: `${log}\nDone.\ninstalled herdr integrations need updating; run herdr integration install claude, herdr integration install codex` };
     },
     async start() {
       herdrWorld.starts += 1;
@@ -313,6 +323,14 @@ async function checkHerdr() {
       assert.equal((await row.locator(".update-herdr-status").textContent()).trim(), "Up to date.");
       assert.equal(await row.locator(".update-herdr-run").count(), 0);
       assert.match(await row.locator(".update-herdr-log").textContent(), /Done\./u);
+      assert.equal(await row.locator("details.update-log-fold").evaluate((node) => node.open), false, "a finished run's log is folded away");
+      assert.match(await row.locator(".update-herdr-integrations").textContent(), /^Herdr asks to update its agent integrations: run the herdr integration install commands shown in the log in a terminal\.$/u);
+      // seen once: after closing, the finished run does not come back
+      await page.locator("#update-close").click();
+      await page.locator(".settings-button").click();
+      await page.locator('.settings-menu [data-action="update"]').click();
+      await dialog.waitFor({ state: "visible" });
+      assert.equal(await row.locator(".update-progress").count(), 0, "a finished Herdr run seen once is gone");
       // devbox still has a newer Herdr, so the dot stays for it.
       assert.equal(await page.locator(".settings-button.has-update").count(), 1);
     } else if (outcome === "recheck_fails") {
@@ -324,6 +342,8 @@ async function checkHerdr() {
       await page.waitForFunction(() => /will not update itself/u.test(document.querySelector(".update-herdr-run-state")?.textContent ?? ""), null, { timeout: 20_000 });
       assert.equal(await row.locator(".update-herdr-run-state").getAttribute("data-error"), "true");
       assert.match(await row.locator(".update-herdr-detail").textContent(), /brew upgrade herdr/u);
+      assert.equal(await row.locator("details.update-log-fold").evaluate((node) => node.open), true, "a failed run keeps its log open");
+      assert.equal(await row.locator(".update-herdr-integrations").count(), 0);
     }
     assert.deepEqual(errors, []);
     await context.close();

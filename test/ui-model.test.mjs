@@ -33,6 +33,7 @@ import {
   selectedPaneIdForSnapshot,
   sidebarPresentation,
   uploadSummary,
+  sortUploads,
   waitsForRemotePane,
   keepsVanishedRemotePane,
   legacyMachinesNotice,
@@ -835,4 +836,17 @@ test("a pane is titled by its session's name, else its folder, never by the agen
     "or carry the title itself",
   );
   assert.equal(paneDisplayTitle("", { cwd: "/w/api", agent: "bash", terminal_title_stripped: "npm run dev" }), "api");
+});
+
+test("the uploads list is newest first, ties by name, and the input is left alone", () => {
+  const files = [
+    { name: "b.txt", modifiedAt: "2026-10-01T10:00:00.000Z" },
+    { name: "z.txt", modifiedAt: "2026-10-03T10:00:00.000Z" },
+    { name: "a.txt", modifiedAt: "2026-10-01T10:00:00.000Z" },
+    { name: "old.txt", modifiedAt: "2026-09-01T10:00:00.000Z" },
+  ];
+  const copy = structuredClone(files);
+  assert.deepEqual(sortUploads(files).map((file) => file.name), ["z.txt", "a.txt", "b.txt", "old.txt"]);
+  assert.deepEqual(files, copy);
+  assert.deepEqual(sortUploads([{ name: "x" }, { name: "y", modifiedAt: "2026-10-01T00:00:00Z" }]).map((file) => file.name), ["y", "x"]);
 });
