@@ -340,7 +340,7 @@ test("a package-manager refusal is the run's reason, in Herdr's own words", asyn
   }
   // a refusal followed by more than the shown tail is still the reason
   {
-    const noisy = `${refusal}\n${Array.from({ length: 80 }, (_, n) => `note ${n}`).join("\n")}\n`;
+    const noisy = `${refusal}\n${Array.from({ length: 80 }, (_, n) => `note ${n}`).join("\n")}\n${"x".repeat(200 * 1024)}\nlast line\n`;
     const { spawnImpl } = fakeSpawn(noisy, 0);
     assert.equal(await runHerdrUpdateScript({ stateDir: dir.stateDir, binary: BIN, spawnImpl, environment: SERVICE_ENV }), 1);
     const status = await subject.runStatus();

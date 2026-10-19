@@ -46,6 +46,8 @@ export const HERDR_STATE_FILE = "herdr-update-state.json";
 export const HERDR_LOG_FILE = "herdr-update.log";
 const COMMAND_TIMEOUT_MS = 10_000;
 const START_GRACE_MS = 10_000;
+// How much of a run's output is searched for Herdr's refusal.
+const MAX_SCANNED_OUTPUT = 4 * 1024 * 1024;
 const HERDR_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const CODE = /^[a-z_]{1,32}$/u;
 const UNIT = /^herdr-update-[0-9]{1,20}$/u;
@@ -337,7 +339,9 @@ export class HerdrUpdater {
       if (this.now() - this.#lastStart < RUN_INTERVAL_MS) {
         throw new HttpError(429, "too_many_requests", "An update was started a moment ago. Try again in a minute.");
       }
-      // Asked again right before starting.
+      // Asked again right before starting: a look already under way may have
+      // begun before what changed, so it is let finish and a new one asked.
+      await this.#checking?.catch(() => {});
       const check = await this.#lookNow();
       if (check.error) throw new HttpError(409, "update_check_failed", "Could not check herdr.dev for a new Herdr.");
       if (!check.available) throw new HttpError(409, "up_to_date", "Herdr is already up to date.");
@@ -383,11 +387,17 @@ async function readOutput(path, offset) {
   try {
     handle = await open(path, fsConstants.O_RDONLY | NOFOLLOW);
     const { size } = await handle.stat();
-    const start = Math.max(offset, size - 64 * 1024);
-    const buffer = Buffer.alloc(Math.max(0, size - start));
-    await handle.read(buffer, 0, buffer.length, start);
-    // all of it, not the shown tail: a refusal may be followed by many lines
-    return buffer.toString("utf8");
+    // All this run wrote, not the shown tail: a refusal may be followed by a
+    // great deal. Past MAX_SCANNED_OUTPUT, its start (where Herdr refuses) and
+    // its end (its last word) are what is read.
+    const read = async (from, length) => {
+      const buffer = Buffer.alloc(Math.max(0, length));
+      await handle.read(buffer, 0, buffer.length, from);
+      return buffer.toString("utf8");
+    };
+    const written = Math.max(0, size - offset);
+    if (written <= MAX_SCANNED_OUTPUT) return await read(offset, written);
+    return `${await read(offset, MAX_SCANNED_OUTPUT / 2)}\n${await read(size - 64 * 1024, 64 * 1024)}`;
   } catch {
     return "";
   } finally {
