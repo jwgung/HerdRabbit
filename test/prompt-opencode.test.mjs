@@ -508,6 +508,33 @@ test("the version is asked of the pane being read, with the snapshot in hand", a
   assert.deepEqual(asked, [[PANE, true]]);
 });
 
+test("another session in the same pane is asked its version again, and an answer always asks it anew", async () => {
+  const versions = { ses_a: "1.18.34", ses_b: "1.19.0" };
+  const asked = [];
+  const panes = [{ pane_id: PANE, agent: "opencode", agent_status: "blocked", agent_session: { agent: "opencode", value: "ses_a" } }];
+  const herdr = fakeOpencodeHerdr({ panes, prompts: { [PANE]: { kind: "permission" } } });
+  const agentVersion = async (paneId, snapshot) => {
+    const session = paneId === PANE ? (snapshot ?? await herdr.snapshot()).panes[0].agent_session.value : null;
+    asked.push(session);
+    return versions[session] ?? null;
+  };
+  const service = new PromptService({ herdr, agentVersion, stepDelayMs: 1, lookMs: 2, settleMs: 100, pollMs: 1_000 });
+  const card = await service.card(PANE);
+  assert.equal(card.title, "Permission required");
+  // within the few seconds a version is kept, the pane now runs a 1.19 session
+  panes[0].agent_session.value = "ses_b";
+  assert.equal(await service.card(PANE), null);
+  await assert.rejects(service.answer(PANE, { cardId: card.id, option: 0 }), { status: 409, code: "prompt_changed" });
+  assert.deepEqual(herdr.sent, []);
+  // back on the 1.18 session: the card, and the answer asks before its keys
+  panes[0].agent_session.value = "ses_a";
+  const again = await service.card(PANE);
+  const before = asked.length;
+  await service.answer(PANE, { cardId: again.id, option: 0 });
+  assert.ok(asked.length > before, "the answer asked the version itself");
+  assert.deepEqual(herdr.sent.map((item) => item.keys), [["enter"]]);
+});
+
 test("real 1.18.34: a question of two paragraphs shows both, and takes the question tool's words", () => {
   const card = parseOpencodePrompt(REAL.twoParagraphQuestion);
   assert.equal(card.kind, "question");

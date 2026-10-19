@@ -123,7 +123,8 @@ export function paneAgent(snapshot, paneId) {
   const name = names.find((item) => typeof item === "string" && item.trim())?.trim().toLowerCase() ?? "unknown";
   const claude = names.some((item) => typeof item === "string" && item.toLowerCase() === "claude");
   const value = agent?.agent_status || agent?.state || pane?.agent_status || pane?.agent_state;
-  return { claude, name, status: KNOWN_STATES.has(value) ? value : "unknown" };
+  const session = [pane?.agent_session?.value, agent?.agent_session?.value].find((item) => typeof item === "string" && item) ?? null;
+  return { claude, name, session, status: KNOWN_STATES.has(value) ? value : "unknown" };
 }
 
 // Ticks between reads of a non-blocked pane that has shown no menu for
@@ -143,7 +144,8 @@ export class PromptService {
     this.herdr = herdr;
     this.details = details;
     this.agentVersion = agentVersion;
-    // paneId -> { version, at }: the agent version last told, for VERSION_MS
+    // paneId + agent session -> { version, at }: the agent version last told,
+    // for VERSION_MS; another session in the same pane is asked again
     this.versions = new Map();
     this.settleMs = settleMs;
     this.stepDelayMs = stepDelayMs;
@@ -168,11 +170,13 @@ export class PromptService {
   // Claude, Codex or OpenCode pane is read whatever its status, by its agent's reader;
   // any other pane only while herdr reports it blocked. The fallback card (any
   // agent) is for blocked panes only. A password prompt is never a card.
-  async read(paneId, snapshot = null) {
+  // `fresh`: the version is asked now, not taken from the last few seconds
+  // (an answer, whose keys go to the pane).
+  async read(paneId, snapshot = null, { fresh = false } = {}) {
     const given = snapshot ?? await this.herdr.snapshot();
     const agent = paneAgent(given, paneId);
     if (!agent) throw new HttpError(404, "pane_not_found", "This pane is gone.");
-    return this.#readScreen(paneId, agent, given);
+    return this.#readScreen(paneId, agent, given, fresh);
   }
 
   #screen(paneId, reader) {
@@ -180,11 +184,11 @@ export class PromptService {
     return this.herdr.readPane(paneId, { lines: SCREEN_LINES, format, source });
   }
 
-  async #readScreen(paneId, agent, snapshot = null) {
+  async #readScreen(paneId, agent, snapshot = null, fresh = false) {
     const reader = readerName(agent);
     const blocked = agent.status === "blocked";
     if (!reader && !blocked) return null;
-    if (reader && !(await this.#supported(paneId, reader, snapshot))) return null;
+    if (reader && !(await this.#supported(paneId, reader, snapshot, agent.session, fresh))) return null;
     const screen = await this.#screen(paneId, reader);
     const { read, noCard } = screenOf(reader);
     if (reader && noCard(screen)) return null;
@@ -195,18 +199,20 @@ export class PromptService {
 
   // Whether the pane's agent is a version its reader knows: always, for a
   // reader that does not ask; never, when the version cannot be told.
-  // The version is kept for VERSION_MS: an answer looks at the screen every
-  // few milliseconds, and a connected PC's pane is asked over its link.
-  async #supported(paneId, reader, snapshot) {
+  // The version is kept for VERSION_MS per pane and agent session: an answer
+  // looks at the screen every few milliseconds, and a connected PC's pane is
+  // asked over its link. `fresh` asks again whatever is kept.
+  async #supported(paneId, reader, snapshot, session = null, fresh = false) {
     const { supports } = screenOf(reader);
     if (!supports) return true;
     if (typeof this.agentVersion !== "function") return false;
-    const known = this.versions.get(paneId);
+    const key = JSON.stringify([paneId, session]);
+    const known = fresh ? null : this.versions.get(key);
     let version = known && Date.now() - known.at < VERSION_MS ? known.version : undefined;
     if (version === undefined) {
       try { version = await this.agentVersion(paneId, snapshot); } catch { version = null; }
-      this.versions.delete(paneId);
-      this.versions.set(paneId, { version, at: Date.now() });
+      this.versions.delete(key);
+      this.versions.set(key, { version, at: Date.now() });
       if (this.versions.size > MAX_WATCHES) this.versions.delete(this.versions.keys().next().value);
     }
     return supports(version) === true;
@@ -245,7 +251,7 @@ export class PromptService {
     const given = JSON.stringify([body.cardId, body.option ?? null, body.options ?? null, body.text ?? null]);
     const last = this.answered.get(paneId);
     if (last && last.answer === given && Date.now() - last.at < this.answeredMs) throw promptChanged();
-    const parsed = await this.read(paneId);
+    const parsed = await this.read(paneId, null, { fresh: true });
     if (!parsed || parsed.id !== body.cardId) throw promptChanged();
     let steps;
     try {
