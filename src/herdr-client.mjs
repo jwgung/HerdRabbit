@@ -825,16 +825,17 @@ export class HerdrClient {
   async sendKeys(paneId, keys) {
     const safePaneId = validatePaneId(paneId);
     const safeKeys = validateKeys(keys);
-    return this.#inOrder(safePaneId, () => {
-      // A lone Esc after a message is a Stop; any other key changes what the
-      // input box holds, so nothing is cleared for it later.
+    return this.#inOrder(safePaneId, async () => {
+      // A lone Esc after a message is a Stop, once it has gone through; any
+      // other key changes what the input box holds, so nothing is cleared
+      // for it later (forgotten before it goes, whether or not it arrives).
       const key = this.#paneKey(safePaneId);
       const sent = PANE_SENT.get(key);
-      if (sent) {
-        if (safeKeys.length > 0 && safeKeys.every((item) => item === "esc")) sent.stopped = true;
-        else PANE_SENT.delete(key);
-      }
-      return this.#sendKeys(safePaneId, safeKeys);
+      const stop = safeKeys.length > 0 && safeKeys.every((item) => item === "esc");
+      if (sent && !stop) PANE_SENT.delete(key);
+      const result = await this.#sendKeys(safePaneId, safeKeys);
+      if (sent && stop && PANE_SENT.get(key) === sent) sent.stopped = true;
+      return result;
     });
   }
 

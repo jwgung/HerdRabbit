@@ -231,3 +231,20 @@ test("halfway through clearing, words that are no piece of the stopped message r
   assert.deepEqual(restoredDraftStep({ text: "something else", rows: 1 }, "hello world again", before), { stuck: true });
 });
 
+test("an Esc that did not go through is no Stop: the next send is not held up", async () => {
+  const pane = claudePane([""]);
+  let failEsc = true;
+  const runner = async (binary, args) => {
+    if (failEsc && args.includes("send-keys") && args.includes("esc")) {
+      failEsc = false;
+      throw Object.assign(new Error("timed out"), { stderr: "" });
+    }
+    return pane.runner(binary, args);
+  };
+  const client = new HerdrClient({ runner, sleep: async () => {}, sessionName: "stopdraft-esc-fail" });
+  await client.sendText("w1:p1", "one", { submit: true });
+  await assert.rejects(client.sendKeys("w1:p1", ["esc"]));
+  await client.sendText("w1:p1", "two", { submit: true });
+  assert.deepEqual(commands(pane), ["run w1:p1 one", "run w1:p1 two"], "the box was read or cleared after a failed Esc");
+});
+
