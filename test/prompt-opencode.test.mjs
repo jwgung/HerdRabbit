@@ -397,6 +397,8 @@ test("real 1.18.34: a dialog open over a prompt (ctrl+p's commands, the sessions
     permissionUnderSessions: REAL.permissionUnderSessions,
     permissionUnderModels: REAL.permissionUnderModels,
     alwaysUnderPalette: REAL.alwaysUnderPalette,
+    // 1.19.3, with the session's dimmed words left of the dialog
+    permissionUnderPaletteWithMessages: REAL.permissionUnderPaletteWithMessages,
   })) {
     assert.equal(parseOpencodePrompt(screen), null, name);
     assert.equal(parseOpencodePrompt(plain(screen)), null, `${name}, read without styles`);
@@ -465,9 +467,9 @@ test("real 1.18.34: a blocked pane under a dialog has no card at all, not even t
 
 // --- the OpenCode versions the reader knows -----------------------------------
 
-test("the reader is for OpenCode 1.18.x only: the version the pane's session was written by", () => {
-  for (const version of ["1.18.0", "1.18.34", "1.18.120"]) assert.equal(SUPPORTED_OPENCODE_TUI(version), true, version);
-  for (const version of ["1.19.0", "1.17.9", "2.18.34", "1.180.0", "1.18", "1.18.34-beta", "", null, undefined, 1.18]) {
+test("the reader is for OpenCode 1.18.x and 1.19.x only: the version the pane's session was written by", () => {
+  for (const version of ["1.18.0", "1.18.34", "1.18.120", "1.19.0", "1.19.3"]) assert.equal(SUPPORTED_OPENCODE_TUI(version), true, version);
+  for (const version of ["1.20.0", "1.17.9", "2.18.34", "1.180.0", "1.190.0", "1.18", "1.19", "1.18.34-beta", "", null, undefined, 1.18]) {
     assert.equal(SUPPORTED_OPENCODE_TUI(version), false, String(version));
   }
 });
@@ -475,7 +477,7 @@ test("the reader is for OpenCode 1.18.x only: the version the pane's session was
 test("an OpenCode pane of another version, or of none known, has no card at all, not even the fallback, and an answer sends nothing", async () => {
   const fallbackScreen = "Pick a color (red/green)?\nPress enter to continue";
   const cases = {
-    "1.19.0": async () => "1.19.0",
+    "1.20.0": async () => "1.20.0",
     "no version": async () => null,
     "version unreadable": async () => { throw new Error("database unavailable"); },
     "no version reader": null,
@@ -509,7 +511,7 @@ test("the version is asked of the pane being read, with the snapshot in hand", a
 });
 
 test("another session in the same pane is asked its version again, and an answer always asks it anew", async () => {
-  const versions = { ses_a: "1.18.34", ses_b: "1.19.0" };
+  const versions = { ses_a: "1.18.34", ses_b: "1.20.0" };
   const asked = [];
   const panes = [{ pane_id: PANE, agent: "opencode", agent_status: "blocked", agent_session: { agent: "opencode", value: "ses_a" } }];
   const herdr = fakeOpencodeHerdr({ panes, prompts: { [PANE]: { kind: "permission" } } });
@@ -521,7 +523,7 @@ test("another session in the same pane is asked its version again, and an answer
   const service = new PromptService({ herdr, agentVersion, stepDelayMs: 1, lookMs: 2, settleMs: 100, pollMs: 1_000 });
   const card = await service.card(PANE);
   assert.equal(card.title, "Permission required");
-  // within the few seconds a version is kept, the pane now runs a 1.19 session
+  // within the few seconds a version is kept, the pane now runs a 1.20 session
   panes[0].agent_session.value = "ses_b";
   assert.equal(await service.card(PANE), null);
   await assert.rejects(service.answer(PANE, { cardId: card.id, option: 0 }), { status: 409, code: "prompt_changed" });

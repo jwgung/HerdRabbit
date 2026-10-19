@@ -523,9 +523,9 @@ test("the question a pane's OpenCode waits on: the newest question call still ru
   assert.equal(await service(path, [{ pane_id: "w1:p1", agent: "codex" }]).pendingAsk("w1:p1"), null);
 });
 
-test("the OpenCode version a pane's session was written by decides its prompt card: 1.18.x has one, any other version or none has none", async (context) => {
+test("the OpenCode version a pane's session was written by decides its prompt card: 1.18.x and 1.19.x have one, any other version or none has none", async (context) => {
   const { path, fixture } = await world(context);
-  const versions = { [SESSION]: "1.18.34", [OTHER]: "1.19.0", [CHILD]: "" };
+  const versions = { [SESSION]: "1.18.34", [OTHER]: "1.20.0", [CHILD]: "" };
   for (const [id, version] of Object.entries(versions)) fixture.session(id, { version, directory: `/work/${id}` });
   const pane = (id) => ({ pane_id: `w1:${id}`, agent: "opencode", agent_status: "blocked", agent_session: { agent: "opencode", kind: "id", value: id } });
   const cards = async (dbPath) => {
@@ -546,13 +546,13 @@ test("the OpenCode version a pane's session was written by decides its prompt ca
     return { shown, sent: herdr.sent, conversations };
   };
   const { shown, sent, conversations } = await cards(path);
-  assert.deepEqual(shown, { "1.18.34": "Permission required", "1.19.0": null, none: null });
+  assert.deepEqual(shown, { "1.18.34": "Permission required", "1.20.0": null, none: null });
   assert.deepEqual(sent, [], "nothing sent to a pane of a version the reader does not know");
   assert.equal(await conversations.agentVersion("w1:" + SESSION), "1.18.34");
-  assert.equal(await conversations.agentVersion("w1:" + OTHER), "1.19.0");
+  assert.equal(await conversations.agentVersion("w1:" + OTHER), "1.20.0");
   // the database cannot be read: no version, no card
   const missing = await cards(join(await temp(context), "none.db"));
-  assert.deepEqual(missing.shown, { "1.18.34": null, "1.19.0": null, none: null });
+  assert.deepEqual(missing.shown, { "1.18.34": null, "1.20.0": null, none: null });
   assert.deepEqual(missing.sent, []);
   assert.equal(await missing.conversations.agentVersion("w1:" + SESSION), null);
 });

@@ -85,7 +85,7 @@ try {
     fixture?.close();
     for (const suffix of ["", "-wal", "-shm"]) await rm(`${dbPath}${suffix}`, { force: true });
     fixture = opencodeDb(dbPath);
-    // the version the cards are read for: OpenCode 1.18.x
+    // a version the cards are read for: OpenCode 1.18.x or 1.19.x
     fixture.session(SESSION, { directory: CWD, version: "1.18.34" });
     for (let n = 0; n < 3; n++) fixture.exchange(SESSION, n);
 

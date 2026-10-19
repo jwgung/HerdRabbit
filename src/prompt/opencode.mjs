@@ -22,7 +22,7 @@
 //
 // A dialog open over the session (ctrl+p's commands, the session list, the
 // model picker, ...) takes every key while the panel only dims under it: no
-// card then, nor the fallback (opencodeDialogOpen). Checked on 1.18.34: the
+// card then, nor the fallback (opencodeDialogOpen). Checked on 1.18.34 and 1.19.3: the
 // panel's words and colours stay readable (dimmed) under such a dialog; the
 // dialog's title row ends in "esc", its search box ("Search" until something
 // is typed there) is two rows under it, and the dialog is a box of its own
@@ -41,13 +41,14 @@ import {
 } from "./screen.mjs";
 
 // The OpenCode versions whose TUI this reader was checked against: 1.18.x
-// (built from 1.18.34). The version is the one OpenCode wrote on the pane's
+// and 1.19.x (built from 1.18.34; 1.19.3 draws the same panels, colours and
+// keys). The version is the one OpenCode wrote on the pane's
 // session (its database's session.version). Any other version, or none
 // known, gets no card at all, not even the fallback: its panel and keys may
 // differ, and an Enter sent to a screen read wrong could act on something
 // else. Such a pane is answered in its terminal; its chat still reads.
 export function SUPPORTED_OPENCODE_TUI(version) {
-  return typeof version === "string" && /^1\.18\.\d+$/u.test(version);
+  return typeof version === "string" && /^1\.(?:18|19)\.\d+$/u.test(version);
 }
 
 // the panel's left bar, and a line of it with nothing else
@@ -162,28 +163,39 @@ function nearEnd(lines, index, count = 3) {
 // title row ending in "esc" is not enough (a line of output, a command or a
 // diff in a panel can end so too): the dialog's search box is two rows under
 // it (a blank row between), at the title's column, or (its text typed over) the title sits on a box of
-// its own background that goes on down under it.
+// its own background that goes on down under it. The dimmed session shows on
+// the dialog's left (its words, once it has some), so the title's column is
+// the dialog's own, not the row's first word.
 function dialogOpen(raw) {
   const plainLine = (index) => String(raw[index] ?? "").replace(ANSI_RE, "").replace(/\s+$/u, "").replace(SCROLLBAR_RE, "");
+  // where a word starts at `column` of `line`: the line's start, or two spaces before it
+  const wordAt = (line, column) => column >= 0 && /\S/u.test(line[column] ?? "") && (!line.slice(0, column).trim() || /\s{2}$/u.test(line.slice(0, column)));
   for (let index = 0; index < raw.length; index += 1) {
     if (inPanel(raw[index])) continue;
     const title = plainLine(index);
     if (!DIALOG_TITLE_RE.test(title)) continue;
-    const column = title.search(/\S/u);
-    const searched = !inPanel(raw[index + 2]) && !plainLine(index + 1).trim()
-      && plainLine(index + 2).trim() === DIALOG_SEARCH && plainLine(index + 2).search(/\S/u) === column;
-    if (searched || onDialogBox(raw, index, column, title.length - 1)) return true;
+    const search = plainLine(index + 2);
+    const column = search.endsWith(DIALOG_SEARCH) ? search.length - DIALOG_SEARCH.length : -1;
+    const searched = !inPanel(raw[index + 2]) && wordAt(search, column) && wordAt(title, column)
+      && !plainLine(index + 1).slice(column).trim();
+    if (searched || onDialogBox(raw, index, title.length - 1)) return true;
   }
   return false;
 }
 
-// Whether the title row's text, from `column` to its "esc" at `end`, sits on
-// one background unlike the row's left edge, and the row under it has that
-// background at the title's column: the dialog's box. Read without styles, no.
-function onDialogBox(raw, index, column, end) {
+// Whether the title row's "esc" at `end` sits on a box of one background that
+// starts right of the row's left edge, the title's text on it, and the row
+// under it has that background where the box starts: the dialog's box. Read
+// without styles, no.
+function onDialogBox(raw, index, end) {
   const row = styledLine(raw[index]);
-  const box = row.bgs[column];
-  if (!box || box === row.bgs[0] || row.bgs[end] !== box) return false;
+  const box = row.bgs[end];
+  if (!box) return false;
+  let column = end;
+  while (column > 0 && row.bgs[column - 1] === box) column -= 1;
+  if (column === 0) return false;
+  const text = String(raw[index]).replace(ANSI_RE, "");
+  if (!text.slice(column, end - 2).trim()) return false;
   const under = typeof raw[index + 1] === "string" ? styledLine(raw[index + 1]) : null;
   return Boolean(under) && under.bgs[column] === box && under.bgs[0] !== box;
 }
