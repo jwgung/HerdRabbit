@@ -18,6 +18,7 @@ import {
   localOpencodeStore,
   parseOpencodeTurns,
 } from "../src/conversation/opencode.mjs";
+import { opencodeRunningVersion } from "../src/conversation/opencode-process.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
 import { PromptService } from "../src/prompt/service.mjs";
@@ -555,6 +556,55 @@ test("the OpenCode version a pane's session was written by decides its prompt ca
   assert.deepEqual(missing.shown, { "1.18.34": null, "1.20.0": null, none: null });
   assert.deepEqual(missing.sent, []);
   assert.equal(await missing.conversations.agentVersion("w1:" + SESSION), null);
+});
+
+test("the version of the OpenCode program running in the pane decides over the session's record; the record where the program cannot tell", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION, { version: "1.19.3", directory: "/work/app" });
+  const panes = [{ pane_id: "w1:p1", agent: "opencode", agent_session: { agent: "opencode", kind: "id", value: SESSION } }];
+  let foreground = [{ pid: 4100, argv: ["opencode"] }];
+  const asked = [];
+  const conversations = new ConversationService({
+    herdr: { async snapshot() { return { panes }; }, async paneProcessInfo(paneId) { asked.push(paneId); return { process_info: { foreground_processes: foreground } }; } },
+    localStore: localTranscriptStore({ configDir: "/nonexistent/claude", codexHome: "/nonexistent/codex", opencodeDb: path }),
+    runningVersion: async (pids) => (pids.includes(4100) ? "1.20.1" : null),
+  });
+  // the session was created by 1.19.3 and is carried on by 1.20.1: 1.20.1
+  assert.equal(await conversations.agentVersion("w1:p1"), "1.20.1");
+  assert.deepEqual(asked, ["w1:p1"]);
+  // no OpenCode program among the pane's processes (or no /proc): the record
+  foreground = [{ pid: 4200, argv: ["bash"] }];
+  assert.equal(await conversations.agentVersion("w1:p1"), "1.19.3");
+  // a session that cannot be read has no version, whatever runs
+  const unknown = new ConversationService({
+    herdr: { async snapshot() { return { panes: [{ ...panes[0], agent_session: { agent: "opencode", kind: "id", value: "ses_missing0000000000000000" } }] }; },
+      async paneProcessInfo() { return { process_info: { foreground_processes: [{ pid: 4100 }] } }; } },
+    localStore: localTranscriptStore({ configDir: "/nonexistent/claude", codexHome: "/nonexistent/codex", opencodeDb: path }),
+    runningVersion: async () => "1.19.3",
+  });
+  assert.equal(await unknown.agentVersion("w1:p1"), null);
+});
+
+test("the running OpenCode program is asked its version once per program file, through /proc/<pid>/exe", async () => {
+  const links = { 10: "/usr/bin/bash", 11: "/home/u/.opencode/bin/opencode (deleted)", 12: "/home/u/.opencode/bin/opencode" };
+  const files = { 11: { dev: 1, ino: 7, size: 100, ctimeMs: 5 }, 12: { dev: 1, ino: 9, size: 120, ctimeMs: 6 }, 10: { dev: 1, ino: 3, size: 1, ctimeMs: 1 } };
+  const pid = (file) => Number(/^\/proc\/(\d+)\/exe$/u.exec(file)[1]);
+  const fs = {
+    async readlink(file) { const target = links[pid(file)]; if (!target) throw new Error("ENOENT"); return target; },
+    async stat(file) { return files[pid(file)]; },
+  };
+  const ran = [];
+  const outputs = { 11: "1.18.34", 12: "1.19.3" };
+  const runningVersion = opencodeRunningVersion({ fs, run: async (file) => { ran.push(file); return outputs[pid(file)] ?? null; } });
+  // bash is not OpenCode; a program replaced on disk still answers for itself
+  assert.equal(await runningVersion([10, 11]), "1.18.34");
+  assert.equal(await runningVersion([11]), "1.18.34");
+  assert.equal(await runningVersion([12]), "1.19.3");
+  assert.deepEqual(ran, ["/proc/11/exe", "/proc/12/exe"], "once per program file");
+  // no such process, no OpenCode among them, nonsense pids: no answer
+  assert.equal(await runningVersion([99]), null);
+  assert.equal(await runningVersion([10]), null);
+  assert.equal(await runningVersion([0, -1, 1.5, "11", null]), null);
 });
 
 test("a database whose session table has no version column tells no version, and is still read", async (context) => {

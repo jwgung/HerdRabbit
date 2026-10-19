@@ -180,10 +180,19 @@ try {
     await page.waitForFunction(() => document.querySelector("#input-form .send-button")?.dataset.mode === "stop", null, { timeout: 5_000 });
     const realSnapshot = herdr.snapshot;
     herdr.snapshot = async () => { throw new Error("herdr went away for a moment"); };
+    // any hint shown from the press on, even one gone again, and one shown
+    // late from a snapshot that works again
+    await page.evaluate(() => {
+      const feedback = document.querySelector("#action-feedback");
+      window.stopHinted = false;
+      new MutationObserver(() => { if (/OpenCode is still working/u.test(feedback.textContent)) window.stopHinted = true; })
+        .observe(feedback, { childList: true, characterData: true, subtree: true });
+    });
     await button.click();
     await page.waitForTimeout(3_500);
     herdr.snapshot = realSnapshot;
-    assert.doesNotMatch(await page.locator("#action-feedback").textContent(), /OpenCode is still working/u, "a hint from a snapshot that failed");
+    await page.waitForTimeout(3_000);
+    assert.equal(await page.evaluate(() => window.stopHinted), false, "a hint from a snapshot that failed");
 
     // A snapshot asked for before the Stop, answered "working" only after the
     // hint's moment, is no evidence: it is waited out and a fresh one asked
