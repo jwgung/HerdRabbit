@@ -13,6 +13,7 @@ import {
   MAX_COMMAND_FILE_BYTES,
   MAX_LISTED_COMMANDS,
   MAX_REMOTE_COMMANDS,
+  OPENCODE_BUILT_IN_COMMANDS,
   MAX_SCANNED_ENTRIES,
   SlashCommandCatalog,
   cleanRemoteCommands,
@@ -183,6 +184,51 @@ test("lists Codex's own commands and the user's prompts", async (context) => {
   assert.equal(answer.commands[0].description, "Fix the bug");
   assert.deepEqual(names(answer, "built-in"), CODEX_BUILT_IN_COMMANDS.map((command) => command.name));
   assert.deepEqual(spy.opened, [join(home, ".codex", "prompts", "fix.md")]);
+});
+
+test("lists OpenCode's own commands and the user's and project's command files, never its config", async (context) => {
+  const { root, home, project } = await tree();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const write = async (path, text) => {
+    await mkdir(join(path, ".."), { recursive: true });
+    await writeFile(path, text);
+  };
+  const xdg = join(root, "xdg");
+  const outside = join(root, "outside");
+  await write(join(xdg, "opencode", "commands", "test.md"), "---\ndescription: Run the tests\n---\nBODY-SECRET\n");
+  await write(join(xdg, "opencode", "command", "legacy.md"), "---\ndescription: Old folder\n---\n");
+  await write(join(xdg, "opencode", "commands", "sub", "nested.md"), "# nested\n");
+  await write(join(xdg, "opencode", "opencode.json"), '{"provider":{"key":"SECRET"}}');
+  await write(join(xdg, "opencode", "opencode.jsonc"), "{}");
+  await write(join(home, ".local", "share", "opencode", "auth.json"), '{"token":"SECRET"}');
+  await write(join(project, ".opencode", "commands", "deploy.md"), "---\ndescription: Deploy it\n---\n");
+  await write(join(project, ".opencode", "command", "old.md"), "# Old project command\n");
+  await write(join(project, ".opencode", "commands", "test.md"), "---\ndescription: Project tests\n---\n");
+  await write(join(project, "opencode.json"), '{"command":{"x":{}}}');
+  await write(join(outside, "stolen.md"), "---\ndescription: from outside\n---\n");
+  await symlink(join(outside, "stolen.md"), join(project, ".opencode", "commands", "away.md"));
+  await symlink(join(xdg, "opencode", "opencode.json"), join(xdg, "opencode", "commands", "cfg.md"));
+  await mkdir(join(project, ".git"), { recursive: true });
+  await mkdir(join(project, "app", "src"), { recursive: true });
+  const spy = spyFs();
+  const env = { HOME: home, XDG_CONFIG_HOME: xdg };
+  const catalog = new SlashCommandCatalog({ env, guard: localProtectedPaths({ env, home }), fs: spy.fs });
+  const answer = await catalog.list({ agent: "OpenCode", cwd: join(project, "app", "src") });
+  assert.equal(answer.agent, "opencode");
+  assert.deepEqual(names(answer, "project"), ["deploy", "test", "old"]);
+  assert.deepEqual(names(answer, "user"), ["legacy"], "the project's /test wins over the user's");
+  assert.equal(answer.commands.find((command) => command.name === "test").description, "Project tests");
+  assert.deepEqual(names(answer, "built-in"), OPENCODE_BUILT_IN_COMMANDS.map((command) => command.name));
+  for (const name of ["compact", "undo", "redo", "sessions", "models", "thinking"]) assert.ok(names(answer, "built-in").includes(name), name);
+  const all = answer.commands.map((command) => command.name);
+  assert.ok(!all.includes("away") && !all.includes("cfg") && !all.includes("nested"), all.join());
+  for (const path of [...spy.opened, ...spy.listed]) assert.doesNotMatch(path, /opencode\.jsonc?$|auth\.json|outside/u, `touched ${path}`);
+  for (const path of spy.opened) assert.match(path, /\.md$/u);
+
+  // the default config folder, ~/.config/opencode
+  await write(join(home, ".config", "opencode", "commands", "home.md"), "# From home config\n");
+  const plain = new SlashCommandCatalog({ env: { HOME: home }, guard: localProtectedPaths({ env: { HOME: home }, home }) });
+  assert.deepEqual(names(await plain.list({ agent: "opencode", cwd: null }), "user"), ["home"]);
 });
 
 test("gives other agents nothing", async (context) => {

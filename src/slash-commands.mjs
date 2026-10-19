@@ -1,5 +1,5 @@
 // The `/` commands a pane's agent takes, for the composer's command list:
-// Claude Code's and Codex's own, and the skills, commands and prompts the
+// Claude Code's, Codex's and OpenCode's own, and the skills, commands and prompts the
 // user, the pane's project and the installed Claude plugins add.
 //
 // Only names and one-line descriptions ever leave here. What is opened is
@@ -16,7 +16,7 @@ import { posix } from "node:path";
 import { paneAgentName } from "./pane-agent.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 
-export const COMMAND_AGENTS = Object.freeze(["claude", "codex"]);
+export const COMMAND_AGENTS = Object.freeze(["claude", "codex", "opencode"]);
 // A command file larger than this is listed by its name alone, unread.
 export const MAX_COMMAND_FILE_BYTES = 64 * 1024;
 // Of a command file, only this much is read: the frontmatter and the first lines.
@@ -101,7 +101,33 @@ export const CODEX_BUILT_IN_COMMANDS = builtIn([
   ["status", "Show the session's settings and token usage"],
 ]);
 
+// OpenCode's own commands (opencode.ai/docs/tui), each alias listed apart.
+export const OPENCODE_BUILT_IN_COMMANDS = builtIn([
+  ["clear", "Begin a fresh session (alias of /new)"],
+  ["compact", "Condense the current session"],
+  ["connect", "Choose a provider and store its API key"],
+  ["continue", "Browse and switch between sessions (alias of /sessions)"],
+  ["details", "Show or hide tool execution details"],
+  ["editor", "Compose a message in your editor"],
+  ["exit", "Close OpenCode"],
+  ["export", "Save the conversation as Markdown and open it in your editor"],
+  ["help", "Display the help dialog"],
+  ["init", "Create or update AGENTS.md"],
+  ["models", "Show the available models"],
+  ["new", "Begin a fresh session"],
+  ["q", "Close OpenCode (alias of /exit)"],
+  ["quit", "Close OpenCode (alias of /exit)"],
+  ["redo", "Restore a message removed by /undo, with its file changes"],
+  ["resume", "Browse and switch between sessions (alias of /sessions)"],
+  ["sessions", "Browse and switch between sessions"],
+  ["summarize", "Condense the current session (alias of /compact)"],
+  ["themes", "Show the available themes"],
+  ["thinking", "Show or hide reasoning blocks"],
+  ["undo", "Remove the last message and its file changes"],
+]);
+
 export function builtInCommands(agent) {
+  if (agent === "opencode") return OPENCODE_BUILT_IN_COMMANDS;
   if (agent === "claude") return CLAUDE_BUILT_IN_COMMANDS;
   if (agent === "codex") return CODEX_BUILT_IN_COMMANDS;
   return [];
@@ -234,6 +260,8 @@ export class SlashCommandCatalog {
     fs = nodeFs,
   } = {}) {
     this.claudeDir = posix.resolve(env.CLAUDE_CONFIG_DIR || posix.join(home, ".claude"));
+    this.home = posix.resolve(home);
+    this.opencodeDir = posix.resolve(env.XDG_CONFIG_HOME && env.XDG_CONFIG_HOME.startsWith("/") ? posix.join(env.XDG_CONFIG_HOME, "opencode") : posix.join(home, ".config", "opencode"));
     this.codexDir = posix.resolve(env.CODEX_HOME || posix.join(home, ".codex"));
     this.guard = guard;
     this.ttlMs = ttlMs;
@@ -244,7 +272,7 @@ export class SlashCommandCatalog {
 
   // { agent, commands: [{ name, description, source }] } for a pane on this
   // PC (one on a connected PC asks there: listRemote). An agent other than
-  // Claude Code or Codex has none.
+  // Claude Code, Codex or OpenCode has none.
   async list({ agent, cwd = null } = {}) {
     const name = agentName(agent);
     if (!COMMAND_AGENTS.includes(name)) return { agent: null, commands: [] };
@@ -302,13 +330,33 @@ export class SlashCommandCatalog {
   async #found(agent, cwd) {
     const isProtected = await this.guard.matcher();
     const scan = { out: [], isProtected, scanned: 0 };
+    if (agent === "opencode") {
+      // opencode.json(c) may hold keys and is never opened: commands defined
+      // there are not listed. Only the Markdown files of the commands folders
+      // (`commands/`, and the older `command/`) are read; subfolders are not.
+      const homeReal = await this.#real(this.home);
+      const projects = cwd ? await this.#projectFolders(cwd, async (folder) => folder === homeReal) : [];
+      for (const base of projects) {
+        for (const dir of ["commands", "command"]) {
+          await this.#commands(scan, posix.join(base, ".opencode", dir), base, { prefix: "", source: "project", depth: 0 });
+        }
+      }
+      const userDir = await this.#real(this.opencodeDir);
+      if (userDir) {
+        for (const dir of ["commands", "command"]) {
+          await this.#commands(scan, posix.join(userDir, dir), userDir, { prefix: "", source: "user", depth: 0 });
+        }
+      }
+      return scan.out;
+    }
     if (agent === "codex") {
       const base = await this.#real(this.codexDir);
       if (base) await this.#commands(scan, posix.join(this.codexDir, "prompts"), base, { prefix: "prompts:", source: "user", depth: 0 });
       return scan.out;
     }
     const userDir = await this.#real(this.claudeDir);
-    const projects = cwd ? await this.#projectFolders(cwd, userDir) : [];
+    const claudeHome = async (folder) => Boolean(userDir) && (await this.#real(posix.join(folder, ".claude"))) === userDir;
+    const projects = cwd ? await this.#projectFolders(cwd, claudeHome) : [];
     for (const base of projects) {
       await this.#skills(scan, posix.join(base, ".claude", "skills"), base, { prefix: "", source: "project" });
       await this.#commands(scan, posix.join(base, ".claude", "commands"), base, { prefix: "", source: "project" });
@@ -325,10 +373,9 @@ export class SlashCommandCatalog {
   // `cwd` and, inside a git checkout, each folder above it up to the
   // checkout's root (a pane in `app/src` gets `app`'s too). The home folder,
   // whose `.claude` is the user's own, is never one.
-  async #projectFolders(cwd, userDir) {
+  async #projectFolders(cwd, isHome) {
     const start = await this.#real(cwd);
     if (!start) return [];
-    const isHome = async (folder) => Boolean(userDir) && (await this.#real(posix.join(folder, ".claude"))) === userDir;
     const chain = [];
     for (let folder = start, level = 0; level <= MAX_PROJECT_LEVELS; level += 1) {
       if (await isHome(folder)) break;
