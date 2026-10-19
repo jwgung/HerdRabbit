@@ -93,13 +93,16 @@ test("can explicitly read plain terminal text", async () => {
   assert.equal(fake.calls[0].args.at(-1), "text");
 });
 
-test("reads the live screen herdr detects agent states on, and no other source", async () => {
-  const fake = recordingRunner([{ stdout: "hello\n", stderr: "" }]);
+test("reads the live screen herdr detects agent states on, the visible screen, and no other source", async () => {
+  const fake = recordingRunner([{ stdout: "hello\n", stderr: "" }, { stdout: "styled\n", stderr: "" }]);
   const client = new HerdrClient({ runner: fake.runner });
 
   await client.readPane("w12:p3", { lines: 120, format: "text", source: "detection" });
   assert.deepEqual(fake.calls[0].args.slice(3, 5), ["--source", "detection"]);
   await assert.rejects(client.readPane("w12:p3", { source: "--raw" }), /Read source/);
+  // the visible screen with its styles, as OpenCode's cards read it
+  await client.readPane("w12:p3", { lines: 120, format: "ansi", source: "visible" });
+  assert.deepEqual(fake.calls.at(-1).args.slice(3, 5), ["--source", "visible"]);
 });
 
 test("submits text through Herdr's atomic pane run command", async () => {

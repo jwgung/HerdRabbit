@@ -273,9 +273,12 @@ function validateReadFormat(format) {
   return format;
 }
 
+// "visible" is the screen as shown, styles and all: OpenCode's selected
+// permission button is told only by its colour, which herdr's detection
+// snapshot drops. A connected PC older than this refuses it (no card there).
 function validateReadSource(source) {
-  if (source !== "recent-unwrapped" && source !== "detection") {
-    throw new InputValidationError("Read source must be recent-unwrapped or detection");
+  if (source !== "recent-unwrapped" && source !== "detection" && source !== "visible") {
+    throw new InputValidationError("Read source must be recent-unwrapped, detection or visible");
   }
   return source;
 }
