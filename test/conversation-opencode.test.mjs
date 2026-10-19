@@ -3,7 +3,7 @@
 // tool output, the change identity, and that only the fixed statements run.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, utimes } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -249,7 +249,7 @@ test("only the fixed statements run, and none reads the tables that hold secrets
   for (let n = 0; n < 3; n++) fixture.exchange(SESSION, n, [{ type: "tool", tool: "bash", state: { status: "completed", input: { command: "ls" }, output: "a" } }]);
   prepared.length = 0;
   const conversations = service(path, [
-    { pane_id: "w1:p1", agent: "opencode", cwd: "/work/app", agent_session: { agent: "opencode", kind: "id", value: SESSION } },
+    { pane_id: "w1:p1", agent: "opencode", cwd: "/work/other", agent_session: { agent: "opencode", kind: "id", value: SESSION } },
     { pane_id: "w1:p2", agent: "opencode", cwd: "/work/app" },
   ]);
   const page = await conversations.page("w1:p1");
@@ -260,4 +260,68 @@ test("only the fixed statements run, and none reads the tables that hold secrets
   for (const sql of prepared) assert.ok(allowed.has(sql), sql);
   const answer = JSON.stringify(page);
   assert.equal(answer.includes("SECRET"), false);
+});
+
+const reportedId = (value) => ({ agent: "opencode", kind: "id", source: "herdr:opencode", value });
+
+test("a reported session id that is not an OpenCode id shows no conversation, not the folder's newest", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION, { directory: "/work/app" });
+  fixture.exchange(SESSION, 1);
+  const conversations = service(path, [
+    { pane_id: "w1:p1", agent: "opencode", cwd: "/work/app", agent_session: reportedId("not-a-session") },
+    { pane_id: "w1:p2", agent: "opencode", cwd: "/work/app", agent_session: { agent: "opencode", kind: "path", value: "/x/y" } },
+  ]);
+  await assert.rejects(conversations.page("w1:p1"), (error) => error.reason === "no_session_id");
+  await assert.rejects(conversations.page("w1:p2"), (error) => error.reason === "no_session_id");
+});
+
+test("the folder's newest session is nobody's when another OpenCode pane of that folder could claim it", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION, { directory: "/work/app" });
+  fixture.exchange(SESSION, 1);
+  fixture.session(OTHER, { directory: "/work/solo" });
+  fixture.exchange(OTHER, 2);
+  const pane = (id, cwd, extra = {}) => ({ pane_id: id, agent: "opencode", cwd, ...extra });
+  const conversations = service(path, [
+    pane("w1:p1", "/work/app"),
+    pane("w1:p2", "/work/app"),
+    pane("w1:p3", "/work/solo"),
+  ]);
+  await assert.rejects(conversations.page("w1:p1"), (error) => error.reason === "no_session_id");
+  await assert.rejects(conversations.page("w1:p2"), (error) => error.reason === "no_session_id");
+  assert.deepEqual(texts((await conversations.page("w1:p3")).turns), ["prompt 2", "answer 2"]);
+  // a peer that reported the newest session leaves the idle pane without it; a peer on another session does not
+  const claimed = service(path, [
+    pane("w1:p1", "/work/app"),
+    pane("w1:p2", "/work/app", { agent_session: reportedId(SESSION) }),
+  ]);
+  await assert.rejects(claimed.page("w1:p1"), (error) => error.reason === "no_session_id");
+  const apart = service(path, [
+    pane("w1:p1", "/work/app"),
+    pane("w1:p2", "/work/app", { agent_session: reportedId(OTHER) }),
+  ]);
+  assert.deepEqual(texts((await apart.page("w1:p1")).turns), ["prompt 1", "answer 1"]);
+});
+
+test("without node:sqlite the store says the Node is too old, not that the session is missing", async (context) => {
+  const directory = await temp(context);
+  const store = localOpencodeStore({ path: join(directory, "opencode.db"), importSqlite: async () => { throw new Error("no such module"); } });
+  await assert.rejects(store.locate({ session: SESSION }), (error) => error.reason === "opencode_needs_newer_node");
+  await assert.rejects(store.stat(SESSION), (error) => error.reason === "opencode_needs_newer_node");
+});
+
+test("a database migrated in place is checked again, though its inode is the same", async (context) => {
+  const directory = await temp(context);
+  const path = join(directory, "opencode.db");
+  const db = new DatabaseSync(path);
+  context.after(() => { try { db.close(); } catch { /* closed */ } });
+  db.exec(OPENCODE_SCHEMA);
+  db.exec("INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated) VALUES ('" + SESSION + "', 'p', 's', '/work/app', 't', '1', 1, 1)");
+  const store = localOpencodeStore({ path });
+  assert.deepEqual(await store.locate({ session: SESSION }), { session: SESSION, found: true });
+  db.exec("ALTER TABLE session DROP COLUMN revert");
+  const later = new Date(Date.now() + 5000);
+  await utimes(path, later, later);
+  await assert.rejects(store.locate({ session: SESSION }), (error) => error.reason === "unsupported_opencode_version");
 });

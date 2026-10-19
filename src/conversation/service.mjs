@@ -193,21 +193,43 @@ export class ConversationService {
         () => locateClaudeTranscript(store, session, cwds));
       return { paneId, serverId, agent, format, store, session, path: found.value, key: found.key };
     }
-    if (agent === "opencode") return this.#resolveOpencode(paneId, { serverId, agent, format, own, pane });
+    if (agent === "opencode") return this.#resolveOpencode(paneId, { serverId, agent, format, own, pane, panes: snapshot?.panes ?? [] });
     return this.#resolveCodex(paneId, { serverId, agent, format, own, cwds });
   }
 
   // OpenCode's session is a row of its database: the store is that database,
   // the "path" the session's id. Herdr's OpenCode plugin reports the session
   // shown; with none reported, the newest one begun in the pane's folder.
-  async #resolveOpencode(paneId, { serverId, agent, format, own, pane }) {
+  async #resolveOpencode(paneId, { serverId, agent, format, own, pane, panes }) {
     const store = this.#store(serverId)?.opencode;
     if (!store) throw this.#noStore();
-    const reported = own && (own.kind === undefined || own.kind === "id") && typeof own.value === "string" && OPENCODE_SESSION_ID.test(own.value)
-      ? own.value : null;
-    const cwd = [pane.foreground_cwd, pane.cwd].find((value) => typeof value === "string" && value.startsWith("/") && value.length <= 4096) ?? null;
-    const found = await this.#located(`opencode\0${serverId}\0${reported ?? ""}\0${reported ? "" : cwd ?? ""}`,
-      () => store.locate({ session: reported, cwd: reported ? null : cwd }));
+    const reportedBy = (candidate) => candidate && (candidate.kind === undefined || candidate.kind === "id")
+      && typeof candidate.value === "string" && OPENCODE_SESSION_ID.test(candidate.value) ? candidate.value : null;
+    const reported = reportedBy(own);
+    // herdr named a session but not one that can be read: showing the folder's newest instead would show another conversation
+    if (reported === null && own && own.value !== undefined && own.value !== null && own.value !== "") {
+      throw new ConversationUnavailable("no_session_id");
+    }
+    const cwdOf = (candidate) => [candidate.foreground_cwd, candidate.cwd]
+      .find((value) => typeof value === "string" && value.startsWith("/") && value.length <= 4096) ?? null;
+    const cwd = cwdOf(pane);
+    // Without a reported id the folder's newest session is the pane's only if no other
+    // OpenCode pane of that folder could equally claim it.
+    const taken = [];
+    if (reported === null && cwd !== null) {
+      for (const peer of panes) {
+        if (!peer || peer === pane || peer.pane_id === paneId || paneAgentName(peer) !== "opencode") continue;
+        const peerServer = typeof peer.server_id === "string" && peer.server_id ? peer.server_id : LOCAL;
+        if (peerServer !== serverId || cwdOf(peer) !== cwd) continue;
+        const session = peer.agent_session && typeof peer.agent_session === "object" ? peer.agent_session : null;
+        const peerId = reportedBy(session && (typeof session.agent !== "string" || session.agent.toLowerCase() === "opencode") ? session : null);
+        if (peerId === null) throw new ConversationUnavailable("no_session_id");
+        taken.push(peerId);
+      }
+      taken.sort();
+    }
+    const found = await this.#located(`opencode\0${serverId}\0${reported ?? ""}\0${reported ? "" : cwd ?? ""}\0${taken.join(",")}`,
+      () => store.locate({ session: reported, cwd: reported ? null : cwd, taken }));
     if (found.value === null) {
       if (reported === null) throw new ConversationUnavailable("no_session_id");
       // a session herdr reports that OpenCode has not written yet reads as no turns

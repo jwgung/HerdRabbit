@@ -79,11 +79,7 @@ const END = Object.freeze({ time: Number.MAX_SAFE_INTEGER, id: "" });
 // How much of a page's parts one read takes at most, before it holds fewer prompts.
 const MAX_PAGE_BYTES = 16 * 1024 * 1024;
 
-let sqlite;
-function loadSqlite() {
-  sqlite ??= import("node:sqlite").catch(() => null);
-  return sqlite;
-}
+export const NEEDS_NEWER_NODE = "opencode_needs_newer_node";
 
 function unsupported() {
   return new ConversationUnavailable(UNSUPPORTED);
@@ -276,7 +272,9 @@ function revertOf(db, row) {
 // This machine's OpenCode database, read only. As a store it answers
 // stat(session) with an identity that changes whenever the session does, so
 // the monitor and a hub's signature poll treat it as they treat a file.
-export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat } = {}) {
+export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat, importSqlite = () => import("node:sqlite") } = {}) {
+  let sqlite;
+  const loadSqlite = () => (sqlite ??= Promise.resolve().then(importSqlite).catch(() => null));
   // dev:ino -> whether that database has the tables and columns read here
   const shapes = new Map();
   // session -> { files, value }: the identity last read, kept while the files did not change
@@ -300,7 +298,8 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
   // not OpenCode's as known here throws unsupported.
   async function withDb(work) {
     const module = await loadSqlite();
-    if (!module?.DatabaseSync) return null;
+    // this Node has no node:sqlite: not the same as a session that is missing
+    if (!module?.DatabaseSync) throw new ConversationUnavailable(NEEDS_NEWER_NODE);
     let info;
     try { info = await statFile(path); } catch { return null; }
     let db;
@@ -323,7 +322,8 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
           return statement;
         },
       };
-      const identity = `${info.dev}:${info.ino}`;
+      // in-place migrations keep the inode: the main file's size and mtime key the check too
+      const identity = `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}`;
       let shape = shapes.get(identity);
       if (shape === undefined) {
         try {
@@ -421,7 +421,7 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
     // top-level session started in the pane's folder. { session, found }:
     // found false for a reported session not written yet. Null when nothing
     // tells.
-    async locate({ session = null, cwd = null } = {}) {
+    async locate({ session = null, cwd = null, taken = [] } = {}) {
       return withDb((db) => {
         if (typeof session === "string" && OPENCODE_SESSION_ID.test(session)) {
           const row = db.statement("session").get(session);
@@ -431,6 +431,8 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
         }
         if (typeof cwd !== "string" || !isAbsolute(cwd)) return null;
         const row = db.statement(db.shape.archive ? "newestInDirectory" : "newestInDirectoryAny").get(cwd);
+        // another pane already shows the newest one: which pane is it is not known
+        if (row && taken.includes(String(row.id))) return null;
         return row && OPENCODE_SESSION_ID.test(String(row.id)) ? { session: String(row.id), found: true } : null;
       });
     },

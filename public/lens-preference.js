@@ -100,6 +100,7 @@ const UNAVAILABLE_TEXT = {
   not_claude: "Chat is only for Claude Code panes.",
   not_supported_agent: "Chat is only for Claude Code, Codex and OpenCode panes.",
   unsupported_opencode_version: "Chat can't read this OpenCode version's conversations yet.",
+  opencode_needs_newer_node: "Chat needs Node 22.5 or newer on this machine to read OpenCode conversations.",
   no_session_id: "Chat appears once the agent reports its session.",
   server_unavailable: "Chat is unavailable: the machine is not connected.",
   linked_pc_old: "Chat needs a newer HerdRabbit on that PC: update it there.",
