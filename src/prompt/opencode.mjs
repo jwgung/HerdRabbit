@@ -28,6 +28,7 @@
 // is typed there) is two rows under it, and the dialog is a box of its own
 // background over the dimmed session.
 import { secretPrompt } from "../secret-prompt.mjs";
+import { indexAtColumn, stringWidth } from "./text-width.mjs";
 import {
   ANSI_RE,
   HORIZONTAL,
@@ -165,19 +166,23 @@ function nearEnd(lines, index, count = 3) {
 // it (a blank row between), at the title's column, or (its text typed over) the title sits on a box of
 // its own background that goes on down under it. The dimmed session shows on
 // the dialog's left (its words, once it has some), so the title's column is
-// the dialog's own, not the row's first word.
+// the dialog's own, not the row's first word, and rows are matched by
+// terminal column: a wide character (Korean, say) takes two.
 function dialogOpen(raw) {
   const plainLine = (index) => String(raw[index] ?? "").replace(ANSI_RE, "").replace(/\s+$/u, "").replace(SCROLLBAR_RE, "");
-  // where a word starts at `column` of `line`: the line's start, or two spaces before it
-  const wordAt = (line, column) => column >= 0 && /\S/u.test(line[column] ?? "") && (!line.slice(0, column).trim() || /\s{2}$/u.test(line.slice(0, column)));
+  // where a word starts at index `at` of `line`: the line's start, or two spaces before it
+  const wordAt = (line, at) => at >= 0 && /\S/u.test(line[at] ?? "") && (!line.slice(0, at).trim() || /\s{2}$/u.test(line.slice(0, at)));
   for (let index = 0; index < raw.length; index += 1) {
     if (inPanel(raw[index])) continue;
     const title = plainLine(index);
     if (!DIALOG_TITLE_RE.test(title)) continue;
     const search = plainLine(index + 2);
-    const column = search.endsWith(DIALOG_SEARCH) ? search.length - DIALOG_SEARCH.length : -1;
-    const searched = !inPanel(raw[index + 2]) && wordAt(search, column) && wordAt(title, column)
-      && !plainLine(index + 1).slice(column).trim();
+    const between = plainLine(index + 1);
+    const at = search.endsWith(DIALOG_SEARCH) ? search.length - DIALOG_SEARCH.length : -1;
+    const column = at >= 0 ? stringWidth(search.slice(0, at)) : -1;
+    const searched = column >= 0 && !inPanel(raw[index + 2]) && wordAt(search, at)
+      && wordAt(title, indexAtColumn(title, column))
+      && (stringWidth(between) <= column || !between.slice(Math.max(0, indexAtColumn(between, column))).trim());
     if (searched || onDialogBox(raw, index, title.length - 1)) return true;
   }
   return false;
@@ -185,19 +190,19 @@ function dialogOpen(raw) {
 
 // Whether the title row's "esc" at `end` sits on a box of one background that
 // starts right of the row's left edge, the title's text on it, and the row
-// under it has that background where the box starts: the dialog's box. Read
-// without styles, no.
+// under it has that background at the box's terminal column: the dialog's
+// box. Read without styles, no.
 function onDialogBox(raw, index, end) {
   const row = styledLine(raw[index]);
   const box = row.bgs[end];
   if (!box) return false;
-  let column = end;
-  while (column > 0 && row.bgs[column - 1] === box) column -= 1;
-  if (column === 0) return false;
-  const text = String(raw[index]).replace(ANSI_RE, "");
-  if (!text.slice(column, end - 2).trim()) return false;
+  let start = end;
+  while (start > 0 && row.bgs[start - 1] === box) start -= 1;
+  if (start === 0 || !row.text.slice(start, end - 2).trim()) return false;
   const under = typeof raw[index + 1] === "string" ? styledLine(raw[index + 1]) : null;
-  return Boolean(under) && under.bgs[column] === box && under.bgs[0] !== box;
+  if (!under) return false;
+  const below = indexAtColumn(under.text, stringWidth(row.text.slice(0, start)));
+  return below > 0 && under.bgs[below] === box && under.bgs[0] !== box;
 }
 
 // Whether `screen` has a dialog open over OpenCode's session: its keys

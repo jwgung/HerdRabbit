@@ -417,6 +417,26 @@ const REAL_DIALOGS = Object.freeze({
   alwaysUnderPalette: REAL.alwaysUnderPalette,
 });
 
+test("real 1.19.3: the session's words left of a dialog are matched by terminal column, Korean (two columns a character) too", () => {
+  const lines = REAL.permissionUnderPaletteWithMessages.split("\n");
+  const title = lines.findIndex((line) => plain(line).includes("Commands") && plain(line).trimEnd().endsWith("█"));
+  const variants = {
+    "the title row": (rows) => { rows[title] = rows[title].replace("hello-1193", "안녕하세요"); },
+    "the search row": (rows) => { rows[title + 2] = rows[title + 2].replace("Build · Q", "빌드 · Q"); },
+    "the row between": (rows) => { rows[title] = rows[title].replace("hello-1193", "안녕하세요"); rows[title + 1] = rows[title + 1].replace("     ", "가나 "); },
+    // words typed in its search box: told by the dialog's own box, with styles
+    "the title row, words typed": (rows) => { rows[title] = rows[title].replace("hello-1193", "안녕하세요"); rows[title + 2] = rows[title + 2].replace("Search", "shar  "); },
+  };
+  for (const [name, change] of Object.entries(variants)) {
+    const rows = [...lines];
+    change(rows);
+    const screen = rows.join("\n");
+    assert.equal(opencodeDialogOpen(screen), true, name);
+    assert.equal(parseOpencodePrompt(screen), null, name);
+    if (!name.endsWith("typed")) assert.equal(parseOpencodePrompt(plain(screen)), null, `${name}, read without styles`);
+  }
+});
+
 test("real 1.18.34: a dialog is told by its search box under its title, or (words typed there) by its own box; a line ending in esc is not one", () => {
   for (const [name, screen] of Object.entries(REAL_DIALOGS)) {
     assert.equal(opencodeDialogOpen(screen), true, name);
