@@ -50,7 +50,9 @@ function readerName(agent) {
   return Object.hasOwn(READERS, name) ? name : null;
 }
 
-const delay = (ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref?.(); });
+// Kept referenced: an answer whose keys are still going out holds the process
+// (and a test) open until they have.
+const delay = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
 function promptChanged() {
   return new HttpError(409, "prompt_changed", "The prompt changed. Look at it again and choose once more.");

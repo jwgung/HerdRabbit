@@ -301,6 +301,11 @@ function parseQuestion(raw, lines) {
   const marked = MULTIPLE_RE.test(question);
   question = question.replace(MULTIPLE_RE, "");
   if (marked !== multiple) return null;
+  // Rows a digit cannot reach (a tenth or later) cannot be answered from a
+  // card: the terminal (or the fallback card) takes such a question whole
+  // rather than a card that offers what it cannot send. A typed answer among
+  // several ticks is left to the terminal too; the card offers the ticks.
+  if (rows.length > MAX_DIGIT_ROWS) return null;
   const choices = custom ? rows.slice(0, -1) : rows;
   // a question answered before (its tab visited again) marks the pick with " ✓"
   const options = choices.map((row) => ({ label: row.label.replace(/\s+✓$/u, ""), description: row.description ?? null }));

@@ -142,15 +142,18 @@ test("reads a question: its rows by number, their descriptions, and a typed answ
   assert.throws(() => answerSteps(parsed, { option: 2 }), /valid option/u);
 });
 
-test("a question that forbids a typed answer has no box; one with more than nine rows answers only the first nine", () => {
+test("a question that forbids a typed answer has no box; one with more than nine rows is no card (a digit cannot reach the tenth)", () => {
   const closed = parseOpencodePrompt(opencodeQuestionScreen({ custom: false }));
   assert.equal(closed.customOptionIndex, null);
   assert.deepEqual(labels(closed), ["ONNX", "TensorRT"]);
   assert.throws(() => answerSteps(closed, { text: "ROCm" }), /typed answer/u);
-  const many = parseOpencodePrompt(opencodeQuestionScreen({ options: Array.from({ length: 10 }, (_, index) => [`Option ${index + 1}`, "A choice."]) }));
-  assert.equal(many.options.length, 10);
-  assert.deepEqual(keys(answerSteps(many, { option: 8 })), ["9"]);
-  assert.throws(() => answerSteps(many, { option: 9 }), /first nine/u);
+  // nine rows in all (eight choices and the typed answer): every one answerable
+  const nine = parseOpencodePrompt(opencodeQuestionScreen({ options: Array.from({ length: 8 }, (_, index) => [`Option ${index + 1}`, "A choice."]) }));
+  assert.equal(nine.options.length, 8);
+  assert.deepEqual(keys(answerSteps(nine, { option: 7 })), ["8"]);
+  assert.deepEqual(keys(answerSteps(nine, { text: "mine" })), ["9", "text:mine", "enter"]);
+  // ten rows: the tenth has no digit, so the card would offer what it cannot send
+  assert.equal(parseOpencodePrompt(opencodeQuestionScreen({ options: Array.from({ length: 10 }, (_, index) => [`Option ${index + 1}`, "A choice."]) })), null);
 });
 
 test("a multiple choice ticks each change by its digit and leaves for Confirm with →; its review submits with Enter", () => {
