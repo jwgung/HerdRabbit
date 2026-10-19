@@ -1684,6 +1684,10 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .update-progress { display: grid; gap: 6px; min-width: 0; }
 
+.update-log-fold { display: grid; gap: 6px; min-width: 0; }
+.update-log-fold > summary { cursor: pointer; color: var(--muted, inherit); font-size: 12px; }
+.update-herdr-integrations { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+
 .update-log {
   margin: 0;
   max-height: 220px;

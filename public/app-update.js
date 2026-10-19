@@ -81,7 +81,53 @@ export function herdrConfirmText(name, herdr) {
   ].join("\n");
 }
 
-const RECENT_RUN_MS = 30 * 60_000;
+export const RECENT_RUN_MS = 30 * 60_000;
+
+export const INTEGRATIONS_NOTE = "Herdr asks to update its agent integrations: run the herdr integration install commands shown in the log in a terminal.";
+
+// A finished run is shown until the person has seen it once. What was seen is
+// remembered per PC and kind by the run's finishedAt; when the browser's
+// storage does not work, only the recent window decides.
+const dismissKey = (serverId, kind) => `herdrabbit.update.seen.${kind}.${serverId}`;
+
+export function runDismissed(storage, serverId, kind, finishedAt) {
+  try {
+    return Boolean(finishedAt) && storage.getItem(dismissKey(serverId, kind)) === finishedAt;
+  } catch {
+    return false;
+  }
+}
+
+export function dismissRun(storage, serverId, kind, finishedAt) {
+  if (!finishedAt) return;
+  try {
+    storage.setItem(dismissKey(serverId, kind), finishedAt);
+  } catch { /* the recent window decides instead */ }
+}
+
+export function isFinished(status) {
+  return Boolean(status) && status.state !== "idle" && status.state !== "running";
+}
+
+// Whether a run the server reports as ended is still worth showing.
+export function showFinishedRun(status, { serverId, kind, storage, now = Date.now() }) {
+  if (!isFinished(status)) return false;
+  const finished = Date.parse(status.finishedAt);
+  if (!(now - finished < RECENT_RUN_MS)) return false;
+  return !runDismissed(storage, serverId, kind, status.finishedAt);
+}
+
+export function needsIntegrations(status) {
+  return isFinished(status) && typeof status.log === "string" && status.log.includes("herdr integration install");
+}
+
+function defaultStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 const HERDR_RUN_TEXT = {
   running: "Updating Herdr…",
@@ -110,7 +156,7 @@ const sleep = (ms) => new Promise((resolve) => { window.setTimeout(resolve, ms);
 export function createUpdatePanel({
   api, dialog, list, feedback, checkButton, servers, onChange = () => {},
   confirm = (text) => window.confirm(text), reload = () => window.location.reload(),
-  pollMs = 1_500, giveUpMs = 15 * 60_000,
+  pollMs = 1_500, giveUpMs = 15 * 60_000, storage = defaultStorage(),
 }) {
   // Per PC: { check, error, run, herdrRun }, a run being
   // { status, tracking, waiting }.
@@ -171,7 +217,7 @@ export function createUpdatePanel({
         if (status.state === "running") void track("local", status);
         // A run that ended lately is still shown, so the page that reloaded
         // into the new version can say how it went.
-        else if (status.state !== "idle" && Date.now() - Date.parse(status.finishedAt) < RECENT_RUN_MS) {
+        else if (showFinishedRun(status, { serverId: "local", kind: "app", storage })) {
           entry("local").run = { status, tracking: false, waiting: false };
         }
       }
@@ -180,7 +226,7 @@ export function createUpdatePanel({
       const status = await api(`/api/update/herdr/run?${query("local")}`);
       if (status.supported === false) return;
       if (status.state === "running") void trackHerdr("local", status);
-      else if (status.state !== "idle" && Date.now() - Date.parse(status.finishedAt) < RECENT_RUN_MS) {
+      else if (showFinishedRun(status, { serverId: "local", kind: "herdr", storage })) {
         entry("local").herdrRun = { status, tracking: false, waiting: false };
       }
     } catch { /* shown again once checked */ }
@@ -286,6 +332,24 @@ export function createUpdatePanel({
     changed();
   }
 
+  // A running log is shown as it comes; a finished one is folded away behind
+  // "Log" unless the run failed, where it explains why.
+  function logBlock(run, status, className, kind, serverId) {
+    const pre = element("pre", className, status.log);
+    if (status.state === "running" || run.waiting) return pre;
+    // seen while the dialog is open: it will not come back on a later opening
+    if (dialog.open) dismissRun(storage, serverId, kind, status.finishedAt);
+    const details = element("details", "update-log-fold");
+    details.open = status.state === "failed" || run.logOpen === true;
+    details.append(element("summary", "", "Log"), pre);
+    details.addEventListener("toggle", () => { run.logOpen = details.open; });
+    return details;
+  }
+
+  function noteSeen(run, kind, serverId) {
+    if (dialog.open && isFinished(run?.status)) dismissRun(storage, serverId, kind, run.status.finishedAt);
+  }
+
   function renderServer(server) {
     const item = entry(server.id);
     const section = element("section", "update-server");
@@ -351,7 +415,8 @@ export function createUpdatePanel({
       state.setAttribute("role", "status");
       if (runStatus.state === "failed" && !item.run.waiting) state.dataset.error = "true";
       progress.append(state);
-      if (runStatus.log) progress.append(element("pre", "update-log", runStatus.log));
+      if (runStatus.log) progress.append(logBlock(item.run, runStatus, "update-log", "app", server.id));
+      noteSeen(item.run, "app", server.id);
       section.append(progress);
     }
     return section;
@@ -414,7 +479,11 @@ export function createUpdatePanel({
       if (run.status.state === "failed" && run.status.detail) {
         progress.append(element("p", "update-herdr-detail", run.status.detail));
       }
-      if (run.status.log) progress.append(element("pre", "update-log update-herdr-log", run.status.log));
+      if (run.status.log) progress.append(logBlock(run, run.status, "update-log update-herdr-log", "herdr", server.id));
+      if (!run.waiting && needsIntegrations(run.status)) {
+        progress.append(element("p", "update-herdr-integrations", INTEGRATIONS_NOTE));
+      }
+      noteSeen(run, "herdr", server.id);
       row.append(progress);
     }
     return row;
@@ -436,6 +505,21 @@ export function createUpdatePanel({
   }
 
   checkButton.addEventListener("click", () => void refresh({ fresh: true }));
+
+  // A finished run was on screen while the dialog was open: closing it puts
+  // it away, so the next opening starts clean.
+  dialog.addEventListener("close", () => {
+    for (const [id, item] of entries) {
+      if (isFinished(item.run?.status) && !item.run.tracking) {
+        dismissRun(storage, id, "app", item.run.status.finishedAt);
+        item.run = null;
+      }
+      if (isFinished(item.herdrRun?.status) && !item.herdrRun.tracking) {
+        dismissRun(storage, id, "herdr", item.herdrRun.status.finishedAt);
+        item.herdrRun = null;
+      }
+    }
+  });
 
   // Shown in the menu once there is something to show: this PC can update
   // itself, or there are other PCs to look at.
