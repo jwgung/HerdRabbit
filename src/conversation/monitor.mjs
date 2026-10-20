@@ -8,7 +8,7 @@
 // Ported from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- server/conversation-monitor.ts.
 import { createHash, randomUUID } from "node:crypto";
-import { ConversationUnavailable } from "./pages.mjs";
+import { ConversationUnavailable, isReadBusy } from "./pages.mjs";
 
 export const STAT_INTERVAL_MS = 250;
 export const REMOTE_STAT_INTERVAL_MS = 1_500;
@@ -117,7 +117,8 @@ export class ConversationMonitor {
       // A database this version cannot read (OpenCode) is news: a new signature
       // makes an open chat read again and learn why. Anything else (a PC that
       // dropped its connection) says nothing new; the next stat asks again.
-      if (error instanceof ConversationUnavailable && this.panes.get(paneId) === state && state.target === target) {
+      // A database busy this time is no news either.
+      if (error instanceof ConversationUnavailable && !isReadBusy(error) && this.panes.get(paneId) === state && state.target === target) {
         this.#publish(paneId, state, `unavailable\0${error.reason}`);
       }
     } finally {
@@ -146,12 +147,12 @@ export class ConversationMonitor {
       }
     } catch (error) {
       if (this.panes.get(paneId) !== state) return;
-      if (error instanceof ConversationUnavailable) {
+      if (error instanceof ConversationUnavailable && !isReadBusy(error)) {
         state.target = null;
         present = false;
         this.#publish(paneId, state, `unavailable\0${error.reason}`);
       }
-      // Anything else (Herdr busy, a PC offline) keeps what was known.
+      // Anything else (Herdr busy, a PC offline, a database busy this time) keeps what was known.
     } finally {
       state.resolving = false;
       state.nextResolve = this.now() + (present ? this.resolveIntervalMs : this.missingResolveIntervalMs);

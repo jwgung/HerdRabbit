@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   LENS_STORAGE_KEY,
   chatMayBecomeAvailable,
+  chatReadBusy,
   chatUnavailableText,
   chooseLens,
   defaultLens,
@@ -86,6 +87,10 @@ test("a Claude pane is known from the snapshot, and an unavailable chat says why
   // a connected PC on an older HerdRabbit: update it there, and Chat comes once it is
   assert.match(chatUnavailableText("linked_pc_old"), /update it there/u);
   assert.equal(chatMayBecomeAvailable("linked_pc_old"), true);
+  // OpenCode's database busy this time: said in the chat, not read as no conversation
+  assert.equal(chatReadBusy("opencode_busy"), true);
+  assert.equal(chatReadBusy("transcript_missing"), false);
+  assert.match(chatUnavailableText("opencode_busy"), /busy/u);
 });
 
 test("a Codex pane has a chat too; other agents do not", () => {

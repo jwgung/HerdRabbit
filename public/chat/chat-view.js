@@ -6,8 +6,8 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatView.tsx and
 // ChatView.css, rewritten as plain DOM code without React.
-import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.77";
-import { lineDiff } from "./diff.js?v=1.2.77";
+import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.78";
+import { lineDiff } from "./diff.js?v=1.2.78";
 import {
   formatWorkDuration,
   commandText,
@@ -23,17 +23,18 @@ import {
   workStartsOpen,
   workSummary,
   workTitle,
-} from "./work-blocks.js?v=1.2.77";
-import { paneRenames } from "../pane-rename.js?v=1.2.77";
-import { ConversationLoader } from "./conversation-refresh.js?v=1.2.77";
-import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.77";
+} from "./work-blocks.js?v=1.2.78";
+import { paneRenames } from "../pane-rename.js?v=1.2.78";
+import { ConversationLoader } from "./conversation-refresh.js?v=1.2.78";
+import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.78";
 import {
   chatMayBecomeAvailable,
+  chatReadBusy,
   chatUnavailableText,
   chooseLens,
   readPaneLens,
   writePaneLens,
-} from "../lens-preference.js?v=1.2.77";
+} from "../lens-preference.js?v=1.2.78";
 
 // Scrolling this close to the top reads the page before it.
 const LOAD_OLDER_PX = 400;
@@ -186,12 +187,15 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
       render({ older });
     },
     onError: (failure, { older }) => {
-      if (failure?.code === "conversation_unavailable") {
-        onAvailability({ available: false, reason: failure.details?.reason ?? null });
+      const reason = failure?.code === "conversation_unavailable" ? failure.details?.reason ?? null : null;
+      // busy this time: the chat keeps what it shows and says so (the backstop reads again)
+      const busy = chatReadBusy(reason);
+      if (failure?.code === "conversation_unavailable" && !busy) {
+        onAvailability({ available: false, reason });
         return;
       }
       if (older) olderState = "failed";
-      else error = failure;
+      else error = busy ? { message: chatUnavailableText(reason) } : failure;
       render({});
     },
   });

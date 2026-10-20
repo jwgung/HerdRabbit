@@ -10,17 +10,20 @@
 // sessions. Only the fixed statements in
 // STATEMENTS ever run here, all of them on session, message, part and
 // event_sequence; no statement is built from what a request names, and
-// nothing else is read. A test holds this list to that.
+// nothing else is read. A test holds this list to that. The reads run in a
+// worker thread (opencode-worker.mjs) with this same code and list.
 import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import { Worker } from "node:worker_threads";
 import { toolSummary } from "./claude.mjs";
 import { patchFiles, patchText } from "./codex.mjs";
 import {
   ConversationUnavailable,
   HistoryChanged,
   MAX_PAGE_PROMPTS,
+  READ_BUSY,
   TOOL_ID,
   TOOL_OUTPUT_MAX_CHARS,
   TOOL_OUTPUT_PREVIEW_CHARS,
@@ -330,79 +333,45 @@ function revertOf(db, row) {
   return found ? { key: keyOf(found), part: string(revert.partID) } : null;
 }
 
-// This machine's OpenCode database, read only. As a store it answers
-// stat(session) with an identity that changes whenever the session does, so
-// the monitor and a hub's signature poll treat it as they treat a file.
-export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat, importSqlite = () => import("node:sqlite"), maxMessages = MAX_PAGE_MESSAGES, now = () => Date.now() } = {}) {
-  let sqlite;
-  const loadSqlite = () => (sqlite ??= Promise.resolve().then(importSqlite).catch(() => null));
-  // dev:ino -> whether that database has the tables and columns read here
+// ---------------------------------------------------------------------------
+// The reads. What touches the database runs in a reader: in a worker thread
+// (opencode-worker.mjs), so a page of thousands of rows and megabytes never
+// holds the server's event loop (HTTP, WebSocket, terminals), else, when no
+// worker can start, here in this thread. Both run the same code below.
+
+// The only way a statement is prepared, in the worker and here alike: by its
+// name in STATEMENTS, never from SQL a request carries. `onPrepare(sql)` sees each one.
+export function statementsOf(db, onPrepare = null) {
+  const prepared = new Map();
+  return {
+    statement(name) {
+      if (typeof name !== "string" || !Object.hasOwn(STATEMENTS, name)) throw new Error(`unknown statement ${String(name)}`);
+      let statement = prepared.get(name);
+      if (!statement) {
+        const sql = STATEMENTS[name];
+        onPrepare?.(sql);
+        statement = db.prepare(sql);
+        prepared.set(name, statement);
+      }
+      return statement;
+    },
+  };
+}
+
+// What a store asks its reader, by name; nothing else is answered.
+export const OPERATIONS = Object.freeze(["locate", "identity", "page", "toolOutput", "pendingQuestion", "sessionVersion"]);
+
+// The reads of one database: read(op, args, file) runs one of OPERATIONS on
+// a short connection, `file` the database file's dev:ino:size:mtime as the
+// store saw it. A database that cannot be opened (none yet, or its WAL index
+// missing) answers null; one whose shape is not OpenCode's as known here
+// throws unsupported. The connection is closed after each read: a database
+// replaced or deleted is never held open, and what cannot be opened reads as
+// it always did.
+export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESSAGES, onPrepare = null }) {
+  // dev:ino:size:mtime -> whether that database has the tables and columns read here
   const shapes = new Map();
-  // session -> { files, value }: the identity last read, kept while the files did not change
-  const identities = new Map();
   const answers = new Map();
-
-  async function files() {
-    const one = async (file) => {
-      try {
-        const info = await statFile(file);
-        return `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}`;
-      } catch {
-        return "-";
-      }
-    };
-    return `${await one(path)}|${await one(`${path}-wal`)}`;
-  }
-
-  // Runs `work(db)` on a short connection. A database that cannot be opened
-  // (none yet, or its WAL index missing) answers null; one whose shape is
-  // not OpenCode's as known here throws unsupported.
-  async function withDb(work) {
-    const module = await loadSqlite();
-    // this Node has no node:sqlite: not the same as a session that is missing
-    if (!module?.DatabaseSync) throw new ConversationUnavailable(NEEDS_NEWER_NODE);
-    let info;
-    try { info = await statFile(path); } catch { return null; }
-    let db;
-    try {
-      db = new module.DatabaseSync(path, { readOnly: true });
-    } catch {
-      return null;
-    }
-    try {
-      const prepared = new Map();
-      const handle = {
-        statement(name) {
-          const sql = STATEMENTS[name];
-          if (sql === undefined) throw new Error(`unknown statement ${name}`);
-          let statement = prepared.get(name);
-          if (!statement) {
-            statement = db.prepare(sql);
-            prepared.set(name, statement);
-          }
-          return statement;
-        },
-      };
-      // in-place migrations keep the inode: the main file's size and mtime key the check too
-      const identity = `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}`;
-      let shape = shapes.get(identity);
-      if (shape === undefined) {
-        try {
-          shape = shapeOf(handle);
-        } catch {
-          // a database locked mid-migration says nothing about its shape yet
-          return null;
-        }
-        // a database not migrated yet is looked at again next time
-        if (shape !== null) remember(shapes, identity, shape, 8);
-      }
-      if (shape === null) throw unsupported();
-      handle.shape = shape;
-      return work(handle);
-    } finally {
-      try { db.close(); } catch { /* already closed */ }
-    }
-  }
 
   function shapeOf(handle) {
     const columns = (table) => new Set(handle.statement("columns").all(table).map((row) => row.name));
@@ -504,6 +473,355 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
     return { messages, start };
   }
 
+  const operations = {
+    // see the store's locate
+    locate(db, { session = null, cwd = null, taken = [] } = {}) {
+      if (typeof session === "string" && OPENCODE_SESSION_ID.test(session)) {
+        let row = db.statement("session").get(session);
+        if (!row) return { session, found: false };
+        for (let depth = 0; row && row.parent_id != null && depth < MAX_SESSION_DEPTH; depth++) {
+          const parent = String(row.parent_id);
+          row = OPENCODE_SESSION_ID.test(parent) ? db.statement("session").get(parent) : null;
+        }
+        if (row && row.parent_id == null) return { session: String(row.id), found: true };
+        return { session, child: true };
+      }
+      if (typeof cwd !== "string" || !isAbsolute(cwd)) return null;
+      const row = db.statement(db.shape.archive ? "newestInDirectory" : "newestInDirectoryAny").get(cwd);
+      // another pane already shows the newest one: which pane is it is not known
+      if (row && Array.isArray(taken) && taken.includes(String(row.id))) return null;
+      return row && OPENCODE_SESSION_ID.test(String(row.id)) ? { session: String(row.id), found: true } : null;
+    },
+
+    identity: identityIn,
+
+    page(db, session, { before: beforeCursor, since, ifNoneMatch } = {}) {
+      const row = db.statement("session").get(session);
+      if (!row) throw new ConversationUnavailable("transcript_missing");
+      const history = historyOf(db, row);
+      const key = `${history.id}\0${beforeCursor ?? ""}\0${since ?? ""}`;
+      const version = answerVersion(`opencode\0${path}\0${key}`, identityIn(db, session));
+      if (versionMatches(ifNoneMatch, version)) return { notModified: true, version };
+      const cached = answers.get(key);
+      if (cached?.version === version) return cached.answer;
+      let start;
+      let end = history.end;
+      if (beforeCursor !== undefined) {
+        end = parseCursor(db, history, session, beforeCursor);
+        const floor = since === undefined ? BEGINNING : parseCursor(db, history, session, since);
+        if (before(end, floor)) throw new HistoryChanged();
+        start = end.time === floor.time && end.id === floor.id ? floor : pageStart(db, session, end, floor);
+      } else {
+        const held = since === undefined ? null : parseCursor(db, history, session, since);
+        const newest = pageStart(db, session, end, BEGINNING);
+        start = held !== null && !before(held, newest) ? held : newest;
+      }
+      let messages = [];
+      if (before(start, end)) ({ messages, start } = readMessages(db, session, start, end));
+      const page = {
+        source: OPENCODE_SESSION.source,
+        turns: parseOpencodeTurns(messages),
+        metadata: opencodeMetadata(messages),
+        cursor: start === BEGINNING ? null : cursorOf(history, start),
+        history_id: history.id,
+        version,
+      };
+      remember(answers, key, { version, answer: page }, 32);
+      return page;
+    },
+
+    toolOutput(db, session, toolId) {
+      // SQLite cuts the output: a 50 MB one never crosses into JavaScript whole
+      const row = db.statement("toolPart").get({ id: toolId, session, max: TOOL_OUTPUT_MAX_CHARS });
+      if (!row || row.kind !== "tool") return null;
+      return { output: string(row.output), size: Number(row.size ?? 0) };
+    },
+
+    pendingQuestion(db, session) {
+      const row = db.statement("pendingQuestion").get({ session, large: PENDING_QUESTION_BYTES });
+      const input = row ? parse(string(row.input)) : {};
+      return Array.isArray(input.questions) ? { name: "question", input: { questions: input.questions } } : null;
+    },
+
+    sessionVersion(db, session) {
+      if (!db.shape.version) return null;
+      const value = db.statement("sessionVersion").get(session)?.version;
+      return typeof value === "string" && value.length <= 64 ? value : null;
+    },
+  };
+
+  return function read(op, args, file) {
+    if (!OPERATIONS.includes(op) || !Array.isArray(args)) throw new Error(`unknown operation ${String(op)}`);
+    let db;
+    try {
+      db = new DatabaseSync(path, { readOnly: true });
+    } catch {
+      return null;
+    }
+    try {
+      const handle = statementsOf(db, onPrepare);
+      // in-place migrations keep the inode: the main file's size and mtime key the check too
+      let shape = shapes.get(file);
+      if (shape === undefined) {
+        try {
+          shape = shapeOf(handle);
+        } catch {
+          // a database locked mid-migration says nothing about its shape yet
+          return null;
+        }
+        // a database not migrated yet is looked at again next time
+        if (shape !== null) remember(shapes, file, shape, 8);
+      }
+      if (shape === null) throw unsupported();
+      handle.shape = shape;
+      return operations[op](handle, ...args);
+    } finally {
+      try { db.close(); } catch { /* already closed */ }
+    }
+  };
+}
+
+// How an error crosses from the worker: the two the service answers by kind, the rest as their words.
+function errorOf(error) {
+  if (error instanceof ConversationUnavailable) return { type: "unavailable", reason: error.reason };
+  if (error instanceof HistoryChanged) return { type: "history" };
+  return { type: "error", message: String(error?.message ?? error) };
+}
+
+function revive(error) {
+  if (error?.type === "unavailable") return new ConversationUnavailable(error.reason);
+  if (error?.type === "history") return new HistoryChanged();
+  return new Error(string(error?.message) || "OpenCode read failed");
+}
+
+// What the worker answers one request with: { id, op, args, file, delayMs } ->
+// { id, ok: true, value } or { id, ok: false, error }. `read` is null when the
+// worker has no node:sqlite. `delayMs` holds the worker that long first (a
+// test's slow read).
+export function answerRequest(read, request) {
+  const { id, op, args, file, delayMs } = record(request);
+  try {
+    if (!OPERATIONS.includes(op) || !Array.isArray(args)) throw new Error(`unknown operation ${String(op)}`);
+    if (Number.isFinite(delayMs) && delayMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+    if (read === null) throw new ConversationUnavailable(NEEDS_NEWER_NODE);
+    return { id, ok: true, value: read(op, args, String(file)) };
+  } catch (error) {
+    return { id, ok: false, error: errorOf(error) };
+  }
+}
+
+const WORKER_URL = new URL("./opencode-worker.mjs", import.meta.url);
+// How long one read may take, from when the worker begins it, before the
+// database counts as too busy to answer this time.
+export const WORKER_TIMEOUT_MS = 10_000;
+// Most requests the client keeps waiting for the worker; more answer BUSY at once.
+export const WORKER_QUEUE_MAX = 32;
+// The client's answer that says: read in this thread (no worker could start).
+const HERE = Symbol("read here");
+// A read that timed out, or that a worker not yet gone keeps from starting:
+// busy this time, not a missing session (pages.mjs READ_BUSY).
+const BUSY = Object.freeze({ ok: false, error: Object.freeze({ type: "unavailable", reason: READ_BUSY }) });
+
+// One long-lived worker, started at the first read and again after it is let
+// go, reads one request at a time: the client keeps the rest in its own queue
+// and sends the next when the last is answered, so a read's `timeoutMs` counts
+// from when the worker is given it, never the time it waited behind others,
+// and nothing waits in a worker's port when that worker is let go. (The cost:
+// one message's round trip between reads.) It never holds the process open
+// while idle; a read waiting on it does.
+//
+// A request also answers BUSY once it has waited `timeoutMs` in the queue.
+// A read past `timeoutMs` lets the worker go and answers BUSY, as does every
+// read queued behind it. A synchronous SQLite read cannot be interrupted, so
+// a worker let go may run on for a while: until it has exited no new worker
+// starts and every read answers BUSY at once, so slow reads never pile up
+// threads. A worker that dies by itself answers its read BUSY and the reads
+// queued behind it go to the next worker. One that cannot be created, or dies
+// before its module loaded, means reading here from then on.
+function workerClient({ createWorker, workerData, timeoutMs }) {
+  // { worker, ready, exited, dropped }
+  let current = null;
+  let here = false;
+  let nextId = 1;
+  // workers let go that have not exited yet
+  let lingering = 0;
+  // { message, resolve, reject }, not yet sent
+  const queue = [];
+  // { id, job, timer }: the request the current worker reads
+  let running = null;
+
+  // Takes the first queued request off the queue and stops its waiting timer.
+  function takeQueued() {
+    const job = queue.shift();
+    clearTimeout(job.waitTimer);
+    return job;
+  }
+
+  function pump() {
+    while (running === null && queue.length > 0) {
+      if (here) {
+        takeQueued().resolve(HERE);
+        continue;
+      }
+      if (current === null) {
+        // the reads queued behind a worker that died go to the next once it is gone
+        if (lingering > 0) return;
+        current = start();
+        if (current === null) continue;
+      }
+      const job = takeQueued();
+      const id = nextId++;
+      const reader = current;
+      try {
+        reader.worker.postMessage({ ...job.message, id });
+      } catch (error) {
+        // a request that cannot be sent (cannot be cloned) is its own failure
+        job.reject(error);
+        continue;
+      }
+      running = { id, job, timer: setTimeout(() => drop(reader, BUSY, { queued: BUSY }), timeoutMs) };
+      reader.worker.ref();
+    }
+    if (running === null) current?.worker.unref();
+  }
+
+  // Lets `reader` go, if it is still the current worker: its read answers
+  // `answer`, the reads queued behind it `queued` (null: they wait for the next worker).
+  function drop(reader, answer, { queued = null } = {}) {
+    if (reader === null || reader !== current) return;
+    current = null;
+    reader.dropped = true;
+    if (!reader.exited) lingering += 1;
+    if (running !== null) {
+      clearTimeout(running.timer);
+      running.job.resolve(answer);
+      running = null;
+    }
+    if (queued !== null) while (queue.length > 0) takeQueued().resolve(queued);
+    reader.worker.unref();
+    try {
+      Promise.resolve(reader.worker.terminate()).catch(() => {});
+    } catch { /* it ends by itself */ }
+    pump();
+  }
+
+  function start() {
+    let worker;
+    try {
+      worker = createWorker(WORKER_URL, { workerData });
+    } catch {
+      here = true;
+      return null;
+    }
+    const reader = { worker, ready: false, exited: false, dropped: false };
+    worker.unref();
+    worker.on("message", (message) => {
+      if (message?.ready === true) {
+        reader.ready = true;
+        return;
+      }
+      if (reader !== current || running === null || message?.id !== running.id) return;
+      const { job, timer } = running;
+      running = null;
+      clearTimeout(timer);
+      job.resolve(message);
+      pump();
+    });
+    // Died by itself. Before its module loaded: read here from then on.
+    const lost = () => {
+      if (reader !== current) return;
+      if (!reader.ready) here = true;
+      drop(reader, reader.ready ? BUSY : HERE);
+    };
+    worker.on("error", lost);
+    worker.on("exit", () => {
+      if (reader.exited) return;
+      reader.exited = true;
+      if (reader.dropped) lingering -= 1;
+      else lost();
+      pump();
+    });
+    return reader;
+  }
+
+  return {
+    request(message) {
+      if (here) return Promise.resolve(HERE);
+      // a worker let go still reads: no second one beside it
+      if (current === null && lingering > 0) return Promise.resolve(BUSY);
+      // a queue this long means the worker cannot keep up: busy at once
+      if (queue.length >= WORKER_QUEUE_MAX) return Promise.resolve(BUSY);
+      return new Promise((resolve, reject) => {
+        const job = { message, resolve, reject, waitTimer: null };
+        // waiting in the queue is bounded by `timeoutMs` too (the dispatch timeout is separate)
+        job.waitTimer = setTimeout(() => {
+          const at = queue.indexOf(job);
+          if (at >= 0) queue.splice(at, 1);
+          resolve(BUSY);
+        }, timeoutMs);
+        job.waitTimer.unref();
+        queue.push(job);
+        pump();
+      });
+    },
+    close() {
+      drop(current, BUSY, { queued: BUSY });
+      while (queue.length > 0) takeQueued().resolve(BUSY);
+    },
+  };
+}
+
+// This machine's OpenCode database, read only. As a store it answers
+// stat(session) with an identity that changes whenever the session does, so
+// the monitor and a hub's signature poll treat it as they treat a file.
+// `createWorker(url, options)`: how its reading worker starts (null: read in
+// this thread); `onPrepare(sql)`: sees each statement prepared, here or in the
+// worker; `requestDelayMs()`: how long the worker waits before each read (tests).
+export function localOpencodeStore({
+  path = defaultOpencodeDb(), statFile = stat, importSqlite = () => import("node:sqlite"), maxMessages = MAX_PAGE_MESSAGES, now = () => Date.now(),
+  createWorker = (url, options) => new Worker(url, options), timeoutMs = WORKER_TIMEOUT_MS, onPrepare = null, requestDelayMs = () => 0,
+} = {}) {
+  let sqlite;
+  const loadSqlite = () => (sqlite ??= Promise.resolve().then(importSqlite).catch(() => null));
+  // session -> { files, value }: the identity last read, kept while the files did not change
+  const identities = new Map();
+  const client = typeof createWorker === "function"
+    ? workerClient({ createWorker, timeoutMs, workerData: { path, maxMessages, trace: typeof onPrepare === "function" } })
+    : null;
+  let local = null;
+
+  async function files() {
+    const one = async (file) => {
+      try {
+        const info = await statFile(file);
+        return `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}`;
+      } catch {
+        return "-";
+      }
+    };
+    return `${await one(path)}|${await one(`${path}-wal`)}`;
+  }
+
+  // Runs one of OPERATIONS in the worker (else here); null when the database
+  // is not there. A worker too busy to answer throws ConversationUnavailable
+  // (READ_BUSY), which no caller remembers as a missing session.
+  async function read(op, ...args) {
+    const module = await loadSqlite();
+    // this Node has no node:sqlite: not the same as a session that is missing
+    if (!module?.DatabaseSync) throw new ConversationUnavailable(NEEDS_NEWER_NODE);
+    let info;
+    try { info = await statFile(path); } catch { return null; }
+    const file = `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}`;
+    const answer = client === null ? HERE : await client.request({ op, args, file, delayMs: requestDelayMs() });
+    if (answer === HERE) {
+      local ??= opencodeReader({ DatabaseSync: module.DatabaseSync, path, maxMessages, onPrepare });
+      return local(op, args, file);
+    }
+    if (typeof onPrepare === "function") for (const sql of answer.prepared ?? []) onPrepare(sql);
+    if (answer.ok) return answer.value;
+    throw revive(answer.error);
+  }
+
   return {
     key: `opencode:${path}`,
     remote: false,
@@ -517,27 +835,12 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
     // reported subagent's session whose top-level session is not there. Null
     // when nothing tells.
     async locate({ session = null, cwd = null, taken = [] } = {}) {
-      return withDb((db) => {
-        if (typeof session === "string" && OPENCODE_SESSION_ID.test(session)) {
-          let row = db.statement("session").get(session);
-          if (!row) return { session, found: false };
-          for (let depth = 0; row && row.parent_id != null && depth < MAX_SESSION_DEPTH; depth++) {
-            const parent = String(row.parent_id);
-            row = OPENCODE_SESSION_ID.test(parent) ? db.statement("session").get(parent) : null;
-          }
-          if (row && row.parent_id == null) return { session: String(row.id), found: true };
-          return { session, child: true };
-        }
-        if (typeof cwd !== "string" || !isAbsolute(cwd)) return null;
-        const row = db.statement(db.shape.archive ? "newestInDirectory" : "newestInDirectoryAny").get(cwd);
-        // another pane already shows the newest one: which pane is it is not known
-        if (row && taken.includes(String(row.id))) return null;
-        return row && OPENCODE_SESSION_ID.test(String(row.id)) ? { session: String(row.id), found: true } : null;
-      });
+      return read("locate", { session, cwd, taken: Array.isArray(taken) ? [...taken] : [] });
     },
 
     // { identity, size, mtimeMs } of the session, or null when it is gone or
-    // the database cannot be read. Read again when the database's files
+    // the database cannot be read; a database too busy to answer (READ_BUSY)
+    // throws and is not remembered. Read again when the database's files
     // changed, and at least every IDENTITY_RECHECK_MS: a write the files'
     // size and time do not show (same size, same millisecond) is seen soon.
     async stat(session) {
@@ -547,7 +850,7 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
       if (known?.files === seen && now() - known.at < IDENTITY_RECHECK_MS) return known.value;
       let value = null;
       try {
-        const identity = await withDb((db) => identityIn(db, session));
+        const identity = await read("identity", session);
         value = identity === null ? null : { identity, size: 0, mtimeMs: 0 };
       } catch (error) {
         if (error instanceof ConversationUnavailable) throw error;
@@ -559,40 +862,7 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
 
     // One page of the session, as transcriptPage answers one.
     async page(session, { before: beforeCursor, since, ifNoneMatch } = {}) {
-      const answer = await withDb((db) => {
-        const row = db.statement("session").get(session);
-        if (!row) throw new ConversationUnavailable("transcript_missing");
-        const history = historyOf(db, row);
-        const key = `${history.id}\0${beforeCursor ?? ""}\0${since ?? ""}`;
-        const version = answerVersion(`opencode\0${path}\0${key}`, identityIn(db, session));
-        if (versionMatches(ifNoneMatch, version)) return { notModified: true, version };
-        const cached = answers.get(key);
-        if (cached?.version === version) return cached.answer;
-        let start;
-        let end = history.end;
-        if (beforeCursor !== undefined) {
-          end = parseCursor(db, history, session, beforeCursor);
-          const floor = since === undefined ? BEGINNING : parseCursor(db, history, session, since);
-          if (before(end, floor)) throw new HistoryChanged();
-          start = end.time === floor.time && end.id === floor.id ? floor : pageStart(db, session, end, floor);
-        } else {
-          const held = since === undefined ? null : parseCursor(db, history, session, since);
-          const newest = pageStart(db, session, end, BEGINNING);
-          start = held !== null && !before(held, newest) ? held : newest;
-        }
-        let messages = [];
-        if (before(start, end)) ({ messages, start } = readMessages(db, session, start, end));
-        const page = {
-          source: OPENCODE_SESSION.source,
-          turns: parseOpencodeTurns(messages),
-          metadata: opencodeMetadata(messages),
-          cursor: start === BEGINNING ? null : cursorOf(history, start),
-          history_id: history.id,
-          version,
-        };
-        remember(answers, key, { version, answer: page }, 32);
-        return page;
-      });
+      const answer = await read("page", session, { before: beforeCursor, since, ifNoneMatch });
       if (answer === null) throw new ConversationUnavailable("transcript_missing");
       return answer;
     },
@@ -603,36 +873,25 @@ export function localOpencodeStore({ path = defaultOpencodeDb(), statFile = stat
     // older running call never stands in). A prompt card takes its words.
     async pendingQuestion(session) {
       if (typeof session !== "string" || !OPENCODE_SESSION_ID.test(session)) return null;
-      const found = await withDb((db) => {
-        const row = db.statement("pendingQuestion").get({ session, large: PENDING_QUESTION_BYTES });
-        const input = row ? parse(string(row.input)) : {};
-        return Array.isArray(input.questions) ? { name: "question", input: { questions: input.questions } } : null;
-      });
-      return found ?? null;
+      return (await read("pendingQuestion", session)) ?? null;
     },
 
     // The OpenCode version that wrote the session (its `version` column), or
     // null: no such session, no such column, or not a short version string.
     async sessionVersion(session) {
       if (typeof session !== "string" || !OPENCODE_SESSION_ID.test(session)) return null;
-      const found = await withDb((db) => {
-        if (!db.shape.version) return null;
-        const value = db.statement("sessionVersion").get(session)?.version;
-        return typeof value === "string" && value.length <= 64 ? value : null;
-      });
-      return found ?? null;
+      return (await read("sessionVersion", session)) ?? null;
     },
 
     // The whole output of one tool call (a part's id), as { output, size }, or null.
     async toolOutput(session, toolId) {
       if (typeof toolId !== "string" || !TOOL_ID.test(toolId)) return null;
-      // SQLite cuts the output: a 50 MB one never crosses into JavaScript whole
-      const found = await withDb((db) => {
-        const row = db.statement("toolPart").get({ id: toolId, session, max: TOOL_OUTPUT_MAX_CHARS });
-        if (!row || row.kind !== "tool") return null;
-        return { output: string(row.output), size: Number(row.size ?? 0) };
-      });
-      return found ?? null;
+      return (await read("toolOutput", session, toolId)) ?? null;
+    },
+
+    // Lets the reading worker go (a later read starts it again).
+    close() {
+      client?.close();
     },
   };
 }

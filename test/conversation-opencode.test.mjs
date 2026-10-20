@@ -3,10 +3,14 @@
 // tool output, the change identity, and that only the fixed statements run.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { mkdtemp, readFile, realpath, rm, utimes } from "node:fs/promises";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
+import { Worker } from "node:worker_threads";
 import { MAX_PAGE_PROMPTS, TOOL_OUTPUT_MAX_CHARS, TOOL_OUTPUT_PREVIEW_CHARS } from "../src/conversation/pages.mjs";
 import {
   IDENTITY_RECHECK_MS,
@@ -14,9 +18,12 @@ import {
   LARGE_TEXT_CHARS,
   PENDING_QUESTION_BYTES,
   STATEMENTS,
+  answerRequest,
   defaultOpencodeDb,
+  WORKER_QUEUE_MAX,
   localOpencodeStore,
   parseOpencodeTurns,
+  statementsOf,
 } from "../src/conversation/opencode.mjs";
 import { opencodeRunningVersion } from "../src/conversation/opencode-process.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
@@ -36,18 +43,27 @@ async function temp(context) {
   return directory;
 }
 
+// A store whose reading worker is let go when the test ends.
+function open(context, options) {
+  const store = localOpencodeStore(options);
+  context.after(() => store.close());
+  return store;
+}
+
 async function world(context, { schema } = {}) {
   const directory = await temp(context);
   const path = join(directory, "opencode.db");
   const fixture = opencodeDb(path, { schema });
   context.after(() => fixture.close());
-  return { path, fixture, store: localOpencodeStore({ path }) };
+  return { path, fixture, store: open(context, { path }) };
 }
 
-function service(path, panes) {
+function service(path, panes, context) {
+  const localStore = localTranscriptStore({ configDir: "/nonexistent/claude", codexHome: "/nonexistent/codex", opencodeDb: path });
+  context?.after(() => localStore.opencode.close());
   return new ConversationService({
     herdr: { async snapshot() { return { panes }; } },
-    localStore: localTranscriptStore({ configDir: "/nonexistent/claude", codexHome: "/nonexistent/codex", opencodeDb: path }),
+    localStore,
   });
 }
 
@@ -72,7 +88,7 @@ test("finds a pane's session by the id herdr reports, else the newest top-level 
     { pane_id: "w1:p2", agent: "opencode", cwd: "/elsewhere", foreground_cwd: "/work/app" },
     { pane_id: "w1:p3", agent: "opencode", cwd: "/work/empty" },
     { pane_id: "w1:p4", agent: "opencode", cwd: "/work/app", agent_session: reported("ses_9999AAAAAAAAAAAAAAAAAAAAAA") },
-  ]);
+  ], context);
   const first = await conversations.page("w1:p1");
   assert.equal(first.source, "opencode-session");
   assert.deepEqual(texts(first.turns), ["prompt 1", "answer 1"]);
@@ -114,7 +130,7 @@ test("reads text, reasoning, tools, todos, questions, images and compactions as 
   fixture.message(SESSION, { role: "assistant", summary: true, modelID: "model-b" }, [{ type: "text", text: "Summary of the work" }]);
   fixture.message(SESSION, { role: "assistant", modelID: "model-b", error: { name: "MessageAbortedError", data: { message: "aborted" } } }, []);
 
-  const page = await localOpencodeStore({ path }).page(SESSION);
+  const page = await open(context, { path }).page(SESSION);
   assert.deepEqual(page.turns.map((turn) => turn.role), ["user", "assistant", "user"]);
   assert.deepEqual(page.turns[0].parts, [{ kind: "image", media_type: "image/png" }, { kind: "text", text: "fix the parser" }]);
   const [thinking, bash, read, edit, grep, todo, question, patch, answer] = page.turns[1].parts;
@@ -141,7 +157,7 @@ test("reads text, reasoning, tools, todos, questions, images and compactions as 
   assert.ok(page.turns[1].end_ts > page.turns[1].ts);
   assert.equal(page.metadata.model, "model-b");
 
-  const store = localOpencodeStore({ path });
+  const store = open(context, { path });
   assert.deepEqual(await store.toolOutput(SESSION, bash.id), { output: long, size: long.length });
   assert.equal(await store.toolOutput(SESSION, "prt_missing"), null);
   assert.equal(await store.toolOutput(OTHER, bash.id), null, "another session's part is not this one's");
@@ -159,7 +175,7 @@ test("pages by message keys: before and since cursors, 409 for another history, 
   const { path, fixture } = await world(context);
   fixture.session(SESSION);
   for (let n = 0; n < 60; n++) fixture.exchange(SESSION, n);
-  const store = localOpencodeStore({ path });
+  const store = open(context, { path });
   const newest = await store.page(SESSION);
   assert.equal(newest.turns.length, MAX_PAGE_PROMPTS * 2);
   assert.equal(newest.turns[0].parts[0].text, "prompt 10");
@@ -202,7 +218,7 @@ test("the identity changes with each write to the session, and only then", async
   fixture.session(SESSION);
   fixture.session(OTHER);
   const message = fixture.exchange(SESSION, 1);
-  const store = localOpencodeStore({ path });
+  const store = open(context, { path });
   const first = await store.stat(SESSION);
   assert.equal(typeof first.identity, "string");
   assert.deepEqual(await store.stat(SESSION), first);
@@ -215,7 +231,7 @@ test("the identity changes with each write to the session, and only then", async
   fixture.exchange(OTHER, 2);
   assert.equal((await store.stat(SESSION)).identity, third.identity, "another session's write is not this one's");
   assert.equal(await store.stat("ses_9999AAAAAAAAAAAAAAAAAAAAAA"), null);
-  assert.equal(await localOpencodeStore({ path: join(path, "..", "none.db") }).stat(SESSION), null);
+  assert.equal(await open(context, { path: join(path, "..", "none.db") }).stat(SESSION), null);
 });
 
 test("a database without the expected columns is an unsupported OpenCode version", async (context) => {
@@ -228,15 +244,38 @@ test("a database without the expected columns is an unsupported OpenCode version
   db.close();
   const conversations = service(path, [
     { pane_id: "w1:p1", agent: "opencode", cwd: "/work/app", agent_session: { agent: "opencode", kind: "id", value: SESSION } },
-  ]);
+  ], context);
   await assert.rejects(conversations.page("w1:p1"), (error) => error.reason === "unsupported_opencode_version");
   assert.match(await conversations.signature("w1:p1"), /^[A-Za-z0-9_-]{22}$/u);
 });
 
+// Every read a store answers, on a session with tool calls.
+async function readAll(store, conversations) {
+  assert.deepEqual(await store.locate({ session: SESSION }), { session: SESSION, found: true });
+  assert.deepEqual(await store.locate({ cwd: "/work/app" }), { session: SESSION, found: true });
+  const page = await store.page(SESSION);
+  assert.equal((await store.toolOutput(SESSION, page.turns[1].parts[0].id)).output, "a");
+  assert.equal(typeof (await store.stat(SESSION)).identity, "string");
+  // the prompt card's question, and the version that wrote the session
+  await store.pendingQuestion(SESSION);
+  assert.equal(await store.sessionVersion(SESSION), "1.0.0");
+  if (conversations) {
+    await conversations.page("w1:p1");
+    await conversations.page("w1:p2");
+    await conversations.toolOutput("w1:p1", page.turns[1].parts[0].id);
+    await conversations.signature("w1:p1");
+    await conversations.pendingAsk("w1:p1");
+    assert.equal(await conversations.agentVersion("w1:p1"), "1.0.0");
+  }
+  return page;
+}
+
 test("only the fixed statements run, and none reads the tables that hold secrets", async (context) => {
-  const source = await readFile(new URL("../src/conversation/opencode.mjs", import.meta.url), "utf8");
-  for (const table of ["account", "control_account", "account_state", "credential", "session_share", "workspace", "permission", "project"]) {
-    assert.equal(new RegExp(`\\b${table}\\b`, "u").test(source), false, `${table} is never named`);
+  for (const file of ["opencode.mjs", "opencode-worker.mjs"]) {
+    const source = await readFile(new URL(`../src/conversation/${file}`, import.meta.url), "utf8");
+    for (const table of ["account", "control_account", "account_state", "credential", "session_share", "workspace", "permission", "project"]) {
+      assert.equal(new RegExp(`\\b${table}\\b`, "u").test(source), false, `${table} is never named in ${file}`);
+    }
   }
   const allowed = new Set(Object.values(STATEMENTS));
   for (const sql of allowed) {
@@ -252,25 +291,369 @@ test("only the fixed statements run, and none reads the tables that hold secrets
   };
   context.after(() => { DatabaseSync.prototype.prepare = prepare; });
   const { path, fixture } = await world(context);
-  fixture.session(SESSION);
+  fixture.session(SESSION, { directory: "/work/app" });
   for (let n = 0; n < 3; n++) fixture.exchange(SESSION, n, [{ type: "tool", tool: "bash", state: { status: "completed", input: { command: "ls" }, output: "a" } }]);
-  prepared.length = 0;
-  const conversations = service(path, [
+  const panes = [
     { pane_id: "w1:p1", agent: "opencode", cwd: "/work/other", agent_session: { agent: "opencode", kind: "id", value: SESSION } },
     { pane_id: "w1:p2", agent: "opencode", cwd: "/work/app" },
-  ]);
-  const page = await conversations.page("w1:p1");
-  await conversations.page("w1:p2");
-  await conversations.toolOutput("w1:p1", page.turns[1].parts[0].id);
-  await conversations.signature("w1:p1");
-  await conversations.pendingAsk("w1:p1");
-  assert.ok(prepared.some((sql) => sql === STATEMENTS.pendingQuestion), "the prompt card's question is read too");
-  assert.equal(await conversations.agentVersion("w1:p1"), "1.0.0");
-  assert.ok(prepared.some((sql) => sql === STATEMENTS.sessionVersion), "and the version that wrote the session");
+  ];
+
+  // read in this thread: what DatabaseSync itself prepares
+  prepared.length = 0;
+  const page = await readAll(open(context, { path, createWorker: null }));
   assert.ok(prepared.length > 0);
   for (const sql of prepared) assert.ok(allowed.has(sql), sql);
-  const answer = JSON.stringify(page);
-  assert.equal(answer.includes("SECRET"), false);
+  for (const name of ["pendingQuestion", "sessionVersion"]) assert.ok(prepared.includes(STATEMENTS[name]), name);
+  assert.equal(JSON.stringify(page).includes("SECRET"), false);
+
+  // read in the worker: what the worker's connection prepared, sent back with each answer
+  prepared.length = 0;
+  const inWorker = [];
+  const conversations = service(path, panes, context);
+  await readAll(open(context, { path, onPrepare: (sql) => inWorker.push(sql) }), conversations);
+  assert.deepEqual(prepared, [], "nothing is prepared in this thread");
+  assert.ok(inWorker.length > 0);
+  for (const sql of inWorker) assert.ok(allowed.has(sql), sql);
+  for (const name of ["pendingQuestion", "sessionVersion"]) assert.ok(inWorker.includes(STATEMENTS[name]), name);
+});
+
+test("a statement is prepared only by its name in STATEMENTS, and the worker answers only its operations", async (context) => {
+  const db = new DatabaseSync(":memory:");
+  context.after(() => db.close());
+  const seen = [];
+  const handle = statementsOf({ prepare: (sql) => { seen.push(sql); return db.prepare("SELECT 1"); } }, (sql) => seen.push(sql));
+  for (const name of ["account", "credential", "toString", "__proto__", "constructor", "SELECT * FROM account", "", null]) {
+    assert.throws(() => handle.statement(name), /unknown statement/u, String(name));
+  }
+  assert.deepEqual(seen, []);
+  handle.statement("session");
+  assert.deepEqual(seen, [STATEMENTS.session, STATEMENTS.session]);
+  // the request handler the worker runs refuses any other operation before touching the database
+  const read = () => assert.fail("never read");
+  for (const op of ["account", "statement", "toString", "__proto__", undefined]) {
+    const answer = answerRequest(read, { id: 1, op, args: [], file: "x" });
+    assert.deepEqual([answer.ok, answer.error.type], [false, "error"], String(op));
+  }
+
+  // and the worker itself, sent a request by hand
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  let worker;
+  const store = open(context, { path, createWorker: (url, options) => (worker = new Worker(url, options)) });
+  assert.equal(typeof (await store.stat(SESSION)).identity, "string");
+  const answers = [];
+  const listen = (message) => { if (message?.id >= 1_000_000) answers.push(message); };
+  worker.on("message", listen);
+  worker.ref();
+  for (const [n, op] of ["account", "statement", "__proto__"].entries()) worker.postMessage({ id: 1_000_000 + n, op, args: ["SELECT * FROM account"], file: "x" });
+  while (answers.length < 3) await new Promise((resolve) => setTimeout(resolve, 10));
+  worker.off("message", listen);
+  worker.unref();
+  for (const answer of answers) assert.match(answer.error.message, /unknown operation/u);
+  assert.equal(answers.some((answer) => answer.ok), false);
+});
+
+test("a slow read in the worker never holds this thread's event loop", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  for (let n = 0; n < 40; n++) fixture.exchange(SESSION, n, [{ type: "tool", tool: "bash", state: { status: "completed", input: { command: "ls" }, output: "o".repeat(LARGE_ROW_BYTES / 2) } }]);
+  // the worker is held 500 ms (synchronously, as a long SQLite read holds it) before it reads the page
+  const store = open(context, { path, requestDelayMs: () => 500 });
+  let ticks = 0;
+  let longest = 0;
+  let last = performance.now();
+  const timer = setInterval(() => {
+    const at = performance.now();
+    longest = Math.max(longest, at - last);
+    last = at;
+    ticks += 1;
+  }, 10);
+  context.after(() => clearInterval(timer));
+  const started = performance.now();
+  const page = await store.page(SESSION);
+  const elapsed = performance.now() - started;
+  clearInterval(timer);
+  assert.equal(page.turns.at(-1).parts.at(-1).text, "answer 39");
+  assert.ok(elapsed >= 500, `read in ${elapsed} ms`);
+  assert.ok(ticks >= 10, `the timer fired ${ticks} times while the page was read`);
+  assert.ok(longest < 400, `the longest gap between ticks was ${longest} ms`);
+});
+
+const busy = (error) => error.reason === "opencode_busy";
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("a read past the timeout reads as a busy database, never a missing session, and a later read starts a new worker", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION, { directory: "/work/app" });
+  fixture.exchange(SESSION, 1);
+  let delay = 5000;
+  let workers = 0;
+  const store = open(context, {
+    path, timeoutMs: 1000, requestDelayMs: () => delay,
+    createWorker: (url, options) => { workers += 1; return new Worker(url, options); },
+  });
+  const started = performance.now();
+  await assert.rejects(store.page(SESSION), busy);
+  assert.ok(performance.now() - started < 4000, "answered at the timeout, not when the read ended");
+  // busy, not "missing": nothing answers null, so nothing remembers the session as gone
+  await assert.rejects(store.stat(SESSION), busy);
+  await assert.rejects(store.locate({ cwd: "/work/app" }), busy);
+  await assert.rejects(store.toolOutput(SESSION, "prt_00000001AAAAAAAAAAAAAAAAAA"), busy);
+  delay = 0;
+  // the dropped worker's wait is interruptible: it is gone by now
+  await pause(300);
+  assert.deepEqual(texts((await store.page(SESSION)).turns), ["prompt 1", "answer 1"]);
+  assert.equal(typeof (await store.stat(SESSION)).identity, "string");
+  assert.ok(workers >= 2, `${workers} workers`);
+});
+
+test("a worker that times out before it is ready is replaced, not given up for this thread", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  fixture.exchange(SESSION, 1);
+  let workers = 0;
+  const store = open(context, {
+    path, timeoutMs: 300,
+    // the first worker never says it is ready (its module hangs while loading)
+    createWorker: (url, options) => {
+      workers += 1;
+      return workers === 1 ? new Worker("setInterval(() => {}, 1000);", { eval: true }) : new Worker(url, options);
+    },
+  });
+  await assert.rejects(store.page(SESSION), busy);
+  // the dropped worker has ended by now
+  await pause(300);
+  assert.deepEqual(texts((await store.page(SESSION)).turns), ["prompt 1", "answer 1"]);
+  assert.equal(workers, 2, "the next read was not given a new worker");
+});
+
+test("reads waiting behind a slow one do not time out for the wait: each read's time starts when the worker takes it", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  fixture.exchange(SESSION, 1);
+  let workers = 0;
+  // each read takes 250 ms, well under the timeout; four at once take 1 s in all
+  // (the last waits 750 ms, still under the timeout that bounds the wait too)
+  const store = open(context, {
+    path, timeoutMs: 1000, requestDelayMs: () => 250,
+    createWorker: (url, options) => { workers += 1; return new Worker(url, options); },
+  });
+  const answers = await Promise.allSettled([0, 1, 2, 3].map(() => store.page(SESSION)));
+  assert.deepEqual(answers.map((answer) => answer.status === "fulfilled" ? "ok" : answer.reason.reason), ["ok", "ok", "ok", "ok"]);
+  assert.equal(workers, 1);
+});
+
+test("a read waits in the queue no longer than the timeout: later ones answer busy once they have waited that long", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  const timeoutMs = 400;
+  // each read takes 0.9 x timeout: under it, but five in a row would queue for ~4 x timeout
+  const worker = [];
+  const store2 = open(context, {
+    path, timeoutMs,
+    createWorker: () => {
+      const fake = new FakeWorker();
+      fake.postMessage = function postMessage(message) {
+        this.sent.push(message);
+        setTimeout(() => this.emit("message", { id: message.id, ok: true, value: { read: this.sent.length } }), timeoutMs * 0.9);
+      };
+      worker.push(fake);
+      return fake;
+    },
+  });
+  const started = performance.now();
+  const answers = await Promise.all([0, 1, 2, 3, 4].map(() => store2.page(SESSION).then(
+    () => ({ ok: true, at: performance.now() - started }),
+    (error) => ({ ok: false, reason: error.reason, at: performance.now() - started }),
+  )));
+  // (which calls are queued first is not the order they were made in)
+  assert.equal(answers.filter((a) => a.ok).length, 2);
+  for (const a of answers.filter((a) => !a.ok)) {
+    assert.equal(a.reason, "opencode_busy");
+    assert.ok(a.at >= timeoutMs - 20 && a.at < timeoutMs * 1.9, `busy after ${a.at} ms, not unbounded`);
+  }
+  assert.equal(worker[0].sent.length, 2, "the busy ones were never sent to the worker");
+  assert.equal(worker.length, 1);
+});
+
+test("a queue over its cap answers busy at once", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  const store = open(context, { path, timeoutMs: 300, createWorker: () => new FakeWorker() });
+  // one read runs (never answered), WORKER_QUEUE_MAX wait behind it
+  const waiting = Array.from({ length: WORKER_QUEUE_MAX + 1 }, () => store.page(SESSION).then(() => "ok", (error) => error.reason));
+  const started = performance.now();
+  const over = await store.page(SESSION).then(() => "ok", (error) => error.reason);
+  assert.equal(over, "opencode_busy");
+  assert.ok(performance.now() - started < 100, "answered at once, not after a timeout");
+  assert.deepEqual(new Set(await Promise.all(waiting)), new Set(["opencode_busy"]));
+});
+
+// A worker as the client sees one: it says it is ready, answers what `answer`
+// says (nothing: a read that never ends), and exits only when the test says so
+// -- as a worker stuck in a SQLite query terminate() cannot interrupt.
+class FakeWorker extends EventEmitter {
+  constructor(answer = () => undefined) {
+    super();
+    this.answer = answer;
+    this.sent = [];
+    this.refs = [];
+    this.terminated = false;
+    setImmediate(() => this.emit("message", { ready: true }));
+  }
+  ref() { this.refs.push("ref"); }
+  unref() { this.refs.push("unref"); }
+  postMessage(message) {
+    this.sent.push(structuredClone(message));
+    const value = this.answer(message);
+    if (value !== undefined) setImmediate(() => this.emit("message", { id: message.id, ok: true, value }));
+  }
+  terminate() {
+    this.terminated = true;
+    return new Promise(() => {});
+  }
+  exit() { this.emit("exit", 1); }
+}
+
+test("while a worker let go has not exited no second one starts, and reads answer busy at once", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  fixture.exchange(SESSION, 1);
+  const created = [];
+  const store = open(context, {
+    path, timeoutMs: 200,
+    // the first never answers and outlives terminate(); the next answers each read
+    createWorker: () => {
+      const worker = created.length === 0 ? new FakeWorker() : new FakeWorker(() => ({ read: created.length }));
+      created.push(worker);
+      return worker;
+    },
+  });
+  // three reads at once: the first times out, the two queued behind it are answered busy with it
+  const first = await Promise.allSettled([store.page(SESSION), store.page(SESSION), store.page(SESSION)]);
+  assert.deepEqual(first.map((answer) => answer.reason?.reason), ["opencode_busy", "opencode_busy", "opencode_busy"]);
+  assert.equal(created.length, 1);
+  assert.equal(created[0].terminated, true);
+  assert.equal(created[0].sent.length, 1, "nothing queued was sent to the worker let go");
+  assert.equal(created[0].refs.at(-1), "unref", "the worker let go does not hold the process");
+  // still running: busy at once, and no new worker beside it
+  const started = performance.now();
+  await assert.rejects(store.page(SESSION), busy);
+  await assert.rejects(store.stat(SESSION), busy);
+  await assert.rejects(store.locate({ session: SESSION }), busy);
+  assert.ok(performance.now() - started < 150, "answered at once, not after a timeout");
+  assert.equal(created.length, 1);
+  // once it has exited, the next read starts a new worker
+  created[0].exit();
+  assert.deepEqual(await store.page(SESSION), { read: 2 });
+  assert.equal(created.length, 2);
+});
+
+test("a worker that dies by itself answers its read busy and its queued reads go to the next worker", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  fixture.exchange(SESSION, 1);
+  const created = [];
+  const store = open(context, {
+    path, timeoutMs: 5000,
+    createWorker: () => {
+      const worker = created.length === 0 ? new FakeWorker() : new FakeWorker((message) => ({ op: message.op }));
+      created.push(worker);
+      return worker;
+    },
+  });
+  const reads = [store.page(SESSION), store.toolOutput(SESSION, "prt_00000001AAAAAAAAAAAAAAAAAA")];
+  await pause(50);
+  created[0].emit("error", new Error("out of memory"));
+  created[0].exit();
+  // which of the two reached the worker first is not fixed (the page looks
+  // at the files first): the one in flight answers busy, the queued one goes
+  // to the next worker and is answered there
+  const settled = await Promise.allSettled(reads);
+  const busy = settled.filter((result) => result.reason?.reason === "opencode_busy");
+  const answered = settled.filter((result) => result.status === "fulfilled");
+  assert.equal(busy.length, 1, JSON.stringify(settled.map((result) => result.status)));
+  assert.equal(answered.length, 1);
+  const answeredOp = settled[0].status === "fulfilled" ? "page" : "toolOutput";
+  assert.deepEqual(answered[0].value, { op: answeredOp });
+  assert.equal(created.length, 2);
+});
+
+test("a request that cannot be sent fails alone: no timer or reference is left, and the next read is answered", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  fixture.exchange(SESSION, 1);
+  const created = [];
+  const store = open(context, {
+    path, timeoutMs: 300,
+    createWorker: () => {
+      const worker = new FakeWorker((message) => ({ op: message.op }));
+      created.push(worker);
+      return worker;
+    },
+  });
+  await assert.rejects(store.page(SESSION, { ifNoneMatch: Symbol("not cloneable") }), (error) => error.name === "DataCloneError");
+  assert.equal(created[0].refs.at(-1), "unref", "the worker idles again");
+  // past the timeout a stale timer would have let the worker go
+  await pause(400);
+  assert.equal(created[0].terminated, false);
+  assert.deepEqual(await store.page(SESSION), { op: "page" });
+  assert.equal(created.length, 1);
+});
+
+test("a read that times out does not show a reported session as an empty chat, nor remember it as missing", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION, { directory: "/work/app" });
+  fixture.exchange(SESSION, 1);
+  let delay = 5000;
+  const opencode = open(context, { path, timeoutMs: 300, requestDelayMs: () => delay });
+  const conversations = new ConversationService({
+    herdr: { async snapshot() { return { panes: [{ pane_id: "w1:p1", agent: "opencode", cwd: "/work/app", agent_session: { agent: "opencode", kind: "id", value: SESSION } }] }; } },
+    localStore: { opencode },
+  });
+  // locate itself times out: busy, not "no turns yet"
+  await assert.rejects(conversations.page("w1:p1"), busy);
+  await assert.rejects(conversations.signature("w1:p1"), busy);
+  delay = 0;
+  await pause(300);
+  // read at once afterwards: nothing was remembered as missing
+  assert.deepEqual(texts((await conversations.page("w1:p1")).turns), ["prompt 1", "answer 1"]);
+  // a page read that times out once located: busy again, and then the conversation is back
+  delay = 5000;
+  await assert.rejects(conversations.page("w1:p1"), busy);
+  delay = 0;
+  await pause(300);
+  assert.deepEqual(texts((await conversations.page("w1:p1")).turns), ["prompt 1", "answer 1"]);
+  assert.equal(typeof (await opencode.stat(SESSION)).identity, "string");
+});
+
+test("without a worker the store reads in this thread", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  fixture.exchange(SESSION, 1);
+  const refused = open(context, { path, createWorker: () => { throw new Error("no threads here"); } });
+  assert.deepEqual(texts((await refused.page(SESSION)).turns), ["prompt 1", "answer 1"]);
+  // a worker whose module does not load: read here from then on
+  let workers = 0;
+  const broken = open(context, { path, createWorker: (url, options) => { workers += 1; return new Worker(new URL("./no-such-module.mjs", url), options); } });
+  assert.deepEqual(texts((await broken.page(SESSION)).turns), ["prompt 1", "answer 1"]);
+  assert.equal(typeof (await broken.stat(SESSION)).identity, "string");
+  assert.equal(workers, 1);
+});
+
+test("an idle worker does not keep the process running", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  fixture.exchange(SESSION, 1);
+  const module = new URL("../src/conversation/opencode.mjs", import.meta.url).href;
+  const script = `const { localOpencodeStore } = await import(${JSON.stringify(module)});
+const store = localOpencodeStore({ path: ${JSON.stringify(path)} });
+const page = await store.page(${JSON.stringify(SESSION)});
+console.log(page.turns.length);`;
+  const started = performance.now();
+  const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", script], { timeout: 20_000 });
+  assert.equal(stdout.trim(), "2");
+  assert.ok(performance.now() - started < 15_000);
 });
 
 const reportedId = (value) => ({ agent: "opencode", kind: "id", source: "herdr:opencode", value });
@@ -282,7 +665,7 @@ test("a reported session id that is not an OpenCode id shows no conversation, no
   const conversations = service(path, [
     { pane_id: "w1:p1", agent: "opencode", cwd: "/work/app", agent_session: reportedId("not-a-session") },
     { pane_id: "w1:p2", agent: "opencode", cwd: "/work/app", agent_session: { agent: "opencode", kind: "path", value: "/x/y" } },
-  ]);
+  ], context);
   await assert.rejects(conversations.page("w1:p1"), (error) => error.reason === "no_session_id");
   await assert.rejects(conversations.page("w1:p2"), (error) => error.reason === "no_session_id");
 });
@@ -298,7 +681,7 @@ test("the folder's newest session is nobody's when another OpenCode pane of that
     pane("w1:p1", "/work/app"),
     pane("w1:p2", "/work/app"),
     pane("w1:p3", "/work/solo"),
-  ]);
+  ], context);
   await assert.rejects(conversations.page("w1:p1"), (error) => error.reason === "no_session_id");
   await assert.rejects(conversations.page("w1:p2"), (error) => error.reason === "no_session_id");
   assert.deepEqual(texts((await conversations.page("w1:p3")).turns), ["prompt 2", "answer 2"]);
@@ -306,18 +689,18 @@ test("the folder's newest session is nobody's when another OpenCode pane of that
   const claimed = service(path, [
     pane("w1:p1", "/work/app"),
     pane("w1:p2", "/work/app", { agent_session: reportedId(SESSION) }),
-  ]);
+  ], context);
   await assert.rejects(claimed.page("w1:p1"), (error) => error.reason === "no_session_id");
   const apart = service(path, [
     pane("w1:p1", "/work/app"),
     pane("w1:p2", "/work/app", { agent_session: reportedId(OTHER) }),
-  ]);
+  ], context);
   assert.deepEqual(texts((await apart.page("w1:p1")).turns), ["prompt 1", "answer 1"]);
 });
 
 test("without node:sqlite the store says the Node is too old, not that the session is missing", async (context) => {
   const directory = await temp(context);
-  const store = localOpencodeStore({ path: join(directory, "opencode.db"), importSqlite: async () => { throw new Error("no such module"); } });
+  const store = open(context, { path: join(directory, "opencode.db"), importSqlite: async () => { throw new Error("no such module"); } });
   await assert.rejects(store.locate({ session: SESSION }), (error) => error.reason === "opencode_needs_newer_node");
   await assert.rejects(store.stat(SESSION), (error) => error.reason === "opencode_needs_newer_node");
 });
@@ -329,7 +712,7 @@ test("a database migrated in place is checked again, though its inode is the sam
   context.after(() => { try { db.close(); } catch { /* closed */ } });
   db.exec(OPENCODE_SCHEMA);
   db.exec("INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated) VALUES ('" + SESSION + "', 'p', 's', '/work/app', 't', '1', 1, 1)");
-  const store = localOpencodeStore({ path });
+  const store = open(context, { path });
   assert.deepEqual(await store.locate({ session: SESSION }), { session: SESSION, found: true });
   db.exec("ALTER TABLE session DROP COLUMN revert");
   const later = new Date(Date.now() + 5000);
@@ -352,7 +735,7 @@ test("a 50 MB tool output is never read whole: the page holds its preview, the w
     { type: "reasoning", text: words },
     { type: "text", text: "done" },
   ]);
-  const store = localOpencodeStore({ path });
+  const store = open(context, { path });
   const started = performance.now();
   const page = await store.page(SESSION);
   const elapsed = performance.now() - started;
@@ -386,7 +769,8 @@ test("one page reads its parts in one query and stops at the page's byte budget,
     return all.apply(this, args);
   };
   context.after(() => { StatementSync.prototype.all = all; });
-  const store = localOpencodeStore({ path });
+  // read in this thread, where its calls are seen
+  const store = open(context, { path, createWorker: null });
   await store.page(SESSION);
   assert.equal(calls.filter((sql) => sql === STATEMENTS.parts).length, 1, "the parts of 40 messages in one read");
   StatementSync.prototype.all = all;
@@ -407,7 +791,7 @@ test("undoing to either of two messages of one millisecond starts two different 
   for (let n = 0; n < 3; n++) fixture.exchange(SESSION, n);
   const [first, second] = fixture.db.prepare("SELECT id, time_created FROM message WHERE session_id = ? ORDER BY time_created, id LIMIT 2 OFFSET 2").all(SESSION);
   fixture.db.prepare("UPDATE message SET time_created = ? WHERE id = ?").run(first.time_created, second.id);
-  const store = localOpencodeStore({ path });
+  const store = open(context, { path });
   fixture.revert(SESSION, first.id);
   const one = await store.page(SESSION);
   fixture.revert(SESSION, second.id);
@@ -436,11 +820,11 @@ test("a reported subagent's session shows its top-level session's conversation, 
     { pane_id: "w1:p1", agent: "opencode", cwd: "/work/app", agent_session: reportedId(CHILD) },
     { pane_id: "w1:p2", agent: "opencode", cwd: "/work/app", agent_session: reportedId(GRANDCHILD) },
     { pane_id: "w1:p3", agent: "opencode", cwd: "/work/app", agent_session: reportedId(ORPHAN) },
-  ]);
+  ], context);
   assert.deepEqual(texts((await conversations.page("w1:p1")).turns), ["prompt 1", "answer 1"]);
   assert.deepEqual(texts((await conversations.page("w1:p2")).turns), ["prompt 1", "answer 1"]);
   await assert.rejects(conversations.page("w1:p3"), (error) => error.reason === "no_session_id");
-  assert.deepEqual(await localOpencodeStore({ path }).locate({ session: ORPHAN }), { session: ORPHAN, child: true });
+  assert.deepEqual(await open(context, { path }).locate({ session: ORPHAN }), { session: ORPHAN, child: true });
 });
 
 test("a range with more messages than a page holds is paged back whole: the cursor is the oldest message returned", async (context) => {
@@ -448,7 +832,7 @@ test("a range with more messages than a page holds is paged back whole: the curs
   fixture.session(SESSION);
   for (let n = 0; n < 12; n++) fixture.exchange(SESSION, n);
   const total = fixture.db.prepare("SELECT COUNT(*) AS n FROM message WHERE session_id = ?").get(SESSION).n;
-  const store = localOpencodeStore({ path, maxMessages: 5 });
+  const store = open(context, { path, maxMessages: 5 });
   const seen = [];
   let page = await store.page(SESSION);
   for (let guard = 0; guard < 50; guard++) {
@@ -469,8 +853,8 @@ test("changing the undo target to an id of the same length changes the identity,
   fixture.session(SESSION);
   for (let n = 0; n < 3; n++) fixture.exchange(SESSION, n);
   const [first, second] = fixture.db.prepare("SELECT id FROM message WHERE session_id = ? ORDER BY time_created, id LIMIT 2 OFFSET 2").all(SESSION);
-  const store = localOpencodeStore({ path });
-  const conversations = service(path, [{ pane_id: "w1:p1", agent: "opencode", cwd: "/work/other", agent_session: { agent: "opencode", kind: "id", value: SESSION } }]);
+  const store = open(context, { path });
+  const conversations = service(path, [{ pane_id: "w1:p1", agent: "opencode", cwd: "/work/other", agent_session: { agent: "opencode", kind: "id", value: SESSION } }], context);
   const revertTo = (id) => fixture.db.prepare("UPDATE session SET revert = ? WHERE id = ?").run(JSON.stringify({ messageID: id }), SESSION);
   revertTo(first.id);
   const one = await store.stat(SESSION);
@@ -492,7 +876,7 @@ test("a write the file stats do not show is still seen within a couple of second
   let clock = 1_000_000;
   // the files' size and time look the same before and after the write
   const statFile = async () => ({ dev: 1, ino: 2, size: 4096, mtimeMs: 5 });
-  const store = localOpencodeStore({ path, statFile, now: () => clock });
+  const store = open(context, { path, statFile, now: () => clock });
   const first = await store.stat(SESSION);
   fixture.part(SESSION, message, { type: "text", text: "more" });
   assert.equal((await store.stat(SESSION)).identity, first.identity, "read again at once (the stats alone keep it)");
