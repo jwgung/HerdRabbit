@@ -278,13 +278,15 @@ The plugin starts with Herdr, so to have HerdRabbit up after login, have Herdr s
 
 ### Moving an existing install to the plugin
 
-This replaces the systemd service written by the one-line installer or `npm run install-service` with the plugin. With Herdr running, first bring the existing install up to date (**⚙ → Update**, or `sh ~/.local/share/herd-rabbit/update.sh`), then run:
+This replaces the systemd service written by the one-line installer or `npm run install-service` with the plugin. Run it on that PC while Herdr is running:
 
 ```bash
-sh ~/.local/share/herd-rabbit/migrate-to-plugin.sh
+curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/migrate-to-plugin.sh | sh
 ```
 
-- It shows what it will do and asks first (pass `--yes` without a terminal).
+Piped like this, it fetches the current HerdRabbit into a temporary folder and runs from there, so an installation of any age moves over without updating it first; the folder is removed afterwards. From an up-to-date checkout, `sh migrate-to-plugin.sh` in it does the same.
+
+- It shows what it will do and asks first (without a terminal, pass `--yes`: `... | sh -s -- --yes`).
 - It installs the plugin with `herdr plugin install ultivis-iot/HerdRabbit` and carries the unit's `HERDR_WEB_*` settings (port, allowed hosts, the Connect PC port and allowed PCs, and so on) into the plugin's `.env`. A value with a double quote or a line break is not carried and is named so you can add it by hand. `HERDR_BIN` is not carried: the plugin uses the Herdr that runs it. The password file, uploads folder and push subscriptions file the service used are written in explicitly, so a different XDG folder in Herdr's environment does not move them. A `.env` that already has settings is left as it is, and then none of the unit's settings are carried; if its address is not the service's, the move stops before the service is touched.
 - It stops the service and starts the plugin on the same address. The port is the same, so the Tailscale Serve address, an installed PWA and other PCs' connections carry on.
 - Once the plugin answers, it disables the service, deletes its unit file when it is in `~/.config/systemd/user`, and deletes the old checkout when it is an unmodified official checkout in the default place (`~/.local/share/herd-rabbit`, or `HERD_RABBIT_INSTALL_DIR`) holding nothing but its installed dependencies. A checkout anywhere else, one with changes, or one holding other ignored files is kept. If the plugin does not answer, the service is started again and nothing is deleted.

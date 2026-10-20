@@ -261,7 +261,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   const yes = args.includes("--yes");
   if (!yes && !process.stdin.isTTY) {
-    console.error("확인할 터미널이 없습니다. --yes를 붙여 실행하세요.");
+    console.error("확인할 터미널이 없습니다. --yes를 붙여 실행하세요 (curl로 받았다면 ... | sh -s -- --yes).");
     process.exit(1);
   }
   const home = process.env.HOME || homedir();
