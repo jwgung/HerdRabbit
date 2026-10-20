@@ -202,6 +202,8 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ## 빠른 시작
 
+[Herdr 플러그인으로 설치](#herdr-플러그인으로-설치)하는 것을 권장합니다. 아래의 한 줄 설치(systemd 서비스)로 이미 설치했다면 [플러그인으로 옮기기](#기존-설치에서-플러그인으로-옮기기)를 보세요.
+
 ### 한 줄 자동 설치
 
 Linux에서 실행합니다. macOS에서는 아래의 직접 실행 방법을 사용해야 합니다.
@@ -256,7 +258,7 @@ http://127.0.0.1:38787
 
 ### Herdr 플러그인으로 설치
 
-HerdRabbit을 [Herdr 플러그인](https://herdr.dev/)으로도 설치할 수 있습니다 (Herdr 0.9.0 이상, `PATH`에 Node.js 22+와 npm 필요).
+HerdRabbit을 [Herdr 플러그인](https://herdr.dev/)으로 설치합니다 (Herdr 0.9.0 이상, `PATH`에 Node.js 22+와 npm 필요). [Herdr 플러그인 마켓플레이스](https://herdr.dev/plugins/)에도 올라 있습니다.
 
 ```bash
 herdr plugin install ultivis-iot/HerdRabbit
@@ -267,9 +269,25 @@ herdr plugin install ultivis-iot/HerdRabbit
 - **액션:** `herdr plugin action invoke herdrabbit.start`, `herdrabbit.stop`, `herdrabbit.status`, `herdrabbit.restart`. stop은 플러그인이 직접 띄운 서버만 멈추고 systemd 서비스는 건드리지 않습니다. `herdr plugin update` 뒤에도 서버가 이전 체크아웃에서 돌고 있으면 status가 알려 주니 restart하세요.
 - **연결 패인:** `herdr plugin pane open --plugin herdrabbit --entrypoint connect`는 페이지 주소(이 PC 주소와, 포트를 전달하는 Tailscale Serve HTTPS 주소가 있으면 그 주소), 비밀번호 설정 여부, 설정 방법을 보여 줍니다. `qrencode`가 설치돼 있으면 휴대폰 주소의 QR 코드도 그립니다.
 - **비밀번호:** `herdr plugin pane open --plugin herdrabbit --entrypoint password`가 숨김 입력으로 비밀번호를 묻고 플러그인 서버를 다시 시작합니다. 비밀번호는 플러그인 설정 파일에 저장되지 않습니다.
-- **설정:** `herdr plugin config-dir herdrabbit`이 `.env`가 있는 폴더를 알려 줍니다. 첫 시작 때 주석만 있는 템플릿으로 만들어집니다. [환경 변수](#환경-변수)의 `HERDR_WEB_*`와 `HERDR_BIN`을 한 줄에 하나씩 `KEY=VALUE`로 적고 restart하세요. 서버 로그와 pid 파일은 체크아웃이 아니라 플러그인 상태 폴더에 둡니다.
+- **설정:** `herdr plugin config-dir herdrabbit`이 `.env`가 있는 폴더를 알려 줍니다. 첫 시작 때 주석만 있는 템플릿으로 만들어집니다. [환경 변수](#환경-변수)의 `HERDR_WEB_*`와 `HERDR_BIN`을 한 줄에 하나씩 `KEY=VALUE`로 적고 restart하세요. 다른 PC가 이 PC에 붙게 하려면 [Connect PC](#herdrabbit이-도는-다른-pc-connect-pc)의 `HERDR_WEB_PEER_*`도 여기에 적습니다. 서버 로그와 pid 파일은 체크아웃이 아니라 플러그인 상태 폴더에 둡니다.
+- **업데이트:** 화면의 **⚙ → Update**가 `herdr plugin update herdrabbit`과 restart 액션을 실행합니다([앱에서 업데이트](#앱에서-업데이트)). 터미널에서는 `herdr plugin update` 뒤 `herdr plugin action invoke herdrabbit.restart`를 실행합니다.
 
-Linux에서는 [한 줄 자동 설치](#한-줄-자동-설치)의 systemd 서비스가 여전히 권장 경로입니다. Herdr 없이도 로그인 때 시작하고 Tailscale Serve도 등록해 줍니다. 서비스 설치기는 Linux 전용이므로 macOS에서는 이 플러그인으로 HerdRabbit을 띄우면 됩니다. 어느 쪽이든 휴대폰에서는 Tailscale Serve로 접속합니다. [Tailscale Serve로 HTTPS 제공](#tailscale-serve로-https-제공)을 보세요.
+플러그인은 Herdr가 시작할 때 함께 시작하므로, 로그인만으로 HerdRabbit을 띄우려면 Herdr도 그때 시작되게 두세요. 휴대폰에서는 Tailscale Serve로 접속합니다. 연결 패인이 등록 명령을 알려 주며, [Tailscale Serve로 HTTPS 제공](#tailscale-serve로-https-제공)에 자세한 내용이 있습니다.
+
+### 기존 설치에서 플러그인으로 옮기기
+
+한 줄 설치나 `npm run install-service`로 만든 systemd 서비스를 플러그인으로 바꿉니다. Herdr가 실행 중일 때, 먼저 기존 설치를 최신으로 올린 뒤(**⚙ → Update** 또는 `sh ~/.local/share/herd-rabbit/update.sh`) 실행하세요.
+
+```bash
+sh ~/.local/share/herd-rabbit/migrate-to-plugin.sh
+```
+
+- 무엇을 할지 보여 주고 확인을 받습니다(터미널이 없으면 `--yes`).
+- `herdr plugin install ultivis-iot/HerdRabbit`으로 플러그인을 설치하고, 서비스 유닛의 `HERDR_WEB_*` 설정(포트, 허용 호스트, Connect PC 포트와 허용한 PC 등)을 플러그인 `.env`로 옮깁니다. `.env`에 이미 설정이 있으면 그대로 둡니다.
+- 서비스를 멈추고 플러그인을 같은 주소에서 시작합니다. 같은 포트라서 Tailscale Serve 주소와 설치한 PWA, 다른 PC에서의 연결이 그대로 이어집니다.
+- 플러그인이 응답하면 서비스 유닛을 끄고 지운 뒤, 기본 위치(`~/.local/share/herd-rabbit`, 또는 `HERD_RABBIT_INSTALL_DIR`)의 수정 없는 공식 체크아웃이면 그 폴더도 지웁니다. 다른 곳의 체크아웃이나 수정이 있는 체크아웃은 남깁니다. 응답하지 않으면 서비스를 다시 켜고 아무것도 지우지 않습니다.
+- 비밀번호, Passkey, 로그인 기기, 붙인 PC(`~/.config/herdr-bridge/`)와 업로드 파일(`~/.local/share/herdrabbit/files`)은 설치 폴더 밖에 있어 그대로입니다.
+- 이전 버전에서 leaf로 설치한 PC는 먼저 `npm run install-service`로 일반 설치로 바꾼 뒤 옮기세요.
 
 ## 비밀번호와 Passkey 인증
 
@@ -654,11 +672,13 @@ sh ./update.sh
 
 서비스를 설치한 Linux 계정으로 실행하세요. 스크립트 자신의 경로(또는 `HERD_RABBIT_INSTALL_DIR`)에서 공식 origin과 수정 없는 `main` 브랜치인지 확인한 뒤 최신 `main`을 받은 뒤 서비스가 쓰는 Herdr를 먼저 업데이트하고(`herdr update --handoff`, 실행 중인 패인 유지), 그다음 코드 반영·의존성 설치·검증·해당 경로의 사용자 서비스 재시작을 수행합니다. Herdr는 파일을 바꾸기 전에 받아 올 코드가 요구하는 최소 버전과 비교합니다. Herdr 업데이트가 실패해도 설치된 Herdr가 충분히 새 버전이면 계속하고, 아니면 아무것도 바꾸지 않고 중단합니다. 중복 실행 잠금이 있으며, 로컬 수정·분기된 커밋이면 아무것도 바꾸기 전에 중단합니다. `main`을 옮긴 뒤 의존성 설치·검증·재시작 중 하나라도 실패하면 이전 커밋으로 되돌리고 그 의존성을 다시 설치하며, 이미 재시작했다면 이전 버전으로 다시 시작합니다. Herdr 자체는 되돌리지 않습니다. Claude 터미널 스크롤백 설정은 검증 뒤에 실행하며 되돌리지 않습니다. 실패하면 재시작 전에 멈추고, 다음 재시작 때 검증된 새 코드가 실행됩니다. 포트·인증·Tailscale 설정과 붙인 PC는 유지합니다. 이전 설치에 `update.sh`가 없다면 처음 한 번 `git pull --ff-only`로 받아오세요. 1.2.10보다 오래된 설치는 디스크에 있던 예전 `update.sh`가 실행되므로 Herdr를 올리지 않습니다. 그 첫 업데이트 전에 Herdr 밖의 터미널에서 `herdr update --handoff`를 실행하세요. Herdr가 0.9.0보다 낮은 동안에는 서버 시작 로그와 머신 Details에 경고가 나옵니다.
 
+플러그인으로 설치했다면 `update.sh` 대신 **⚙ → Update**나 `herdr plugin update`를 씁니다([Herdr 플러그인으로 설치](#herdr-플러그인으로-설치)).
+
 서비스 워커가 새 앱 셸을 감지하면 페이지를 한 번 다시 로드합니다. 장시간 열려 있던 탭은 직접 새로고침하는 것이 좋습니다.
 
 ### 앱에서 업데이트
 
-페이지는 열 때마다, 그리고 **⚙ → Update**에서 **Check**를 누를 때 새 버전을 확인합니다(주기적으로 확인하지 않습니다). 서비스가 쓰는 checkout에서 origin의 `main`을 받아 지금 실행 중인 것과 비교합니다. 새 버전이 있으면 ⚙ 버튼에 점이 찍히고, Update 창에 실행 중인 버전과 최신 버전, 그 사이의 커밋 제목, 그리고 `update.sh`가 멈출 경우 그 이유가 나옵니다: systemd 사용자 서비스로 실행 중이 아님, origin이 ultivis-iot/HerdRabbit이 아님, `main`이 아님, 로컬 수정, 갈라진 로컬 `main`, 이미 실행 중인 업데이트. **Update**는 먼저 확인을 받은 뒤 같은 `update.sh`를 `systemd-run --user`로 서비스 밖의 별도 유닛에서 실행하므로, 마지막의 서비스 재시작이 업데이트를 멈추지 않습니다. 페이지는 로그를 따라가고 재시작을 기다렸다가 새 버전으로 다시 로드합니다. 실패하면 그렇다고 알리고 로그를 열어 둡니다(`update.sh`가 스스로 되돌립니다). 실행 중에는 로그가 실시간으로 보이고, 성공하면 한 줄 결과만 보이며 로그는 **Log** 아래에 접힙니다. 끝난 실행은 한 번 본 뒤에는 다시 나오지 않습니다. 창을 닫으면 그다음 열 때 보이지 않고(PC별로 이 브라우저에 기억하며, 브라우저 저장소를 쓸 수 없으면 최근 30분 안의 것만 보입니다), 실패한 실행도 같습니다. 로그와 결과는 `~/.local/share/herdrabbit/update/`에 남습니다. Update 창은 Connect PC로 붙인 PC도 각각의 버전·변경·이유와 함께 보여주고, 거기서 **Update**를 누르면 그 PC의 `update.sh`가 실행됩니다. 이 페이지는 어느 PC인지만 보냅니다. 이 기능 이전 버전의 PC에는 "Update it there (older version)"이 나옵니다. 업데이트 시작에는 이 페이지의 로그인 세션이 필요하고, PC마다 1분에 한 번만 시작할 수 있습니다.
+페이지는 열 때마다, 그리고 **⚙ → Update**에서 **Check**를 누를 때 새 버전을 확인합니다(주기적으로 확인하지 않습니다). 서비스가 쓰는 checkout에서 origin의 `main`을 받아 지금 실행 중인 것과 비교합니다. 새 버전이 있으면 ⚙ 버튼에 점이 찍히고, Update 창에 실행 중인 버전과 최신 버전, 그 사이의 커밋 제목, 그리고 `update.sh`가 멈출 경우 그 이유가 나옵니다: systemd 사용자 서비스로 실행 중이 아님, origin이 ultivis-iot/HerdRabbit이 아님, `main`이 아님, 로컬 수정, 갈라진 로컬 `main`, 이미 실행 중인 업데이트. **Update**는 먼저 확인을 받은 뒤 같은 `update.sh`를 `systemd-run --user`로 서비스 밖의 별도 유닛에서 실행하므로, 마지막의 서비스 재시작이 업데이트를 멈추지 않습니다. 페이지는 로그를 따라가고 재시작을 기다렸다가 새 버전으로 다시 로드합니다. 실패하면 그렇다고 알리고 로그를 열어 둡니다(`update.sh`가 스스로 되돌립니다). Herdr 플러그인으로 실행 중이면 Herdr가 관리하는 체크아웃을 origin의 `main`과 비교하고(브랜치와 로컬 수정은 보지 않습니다), **Update**는 `herdr plugin update herdrabbit --yes`와 `herdr plugin action invoke herdrabbit.restart`를 서버와 분리된 별도 프로세스로 실행합니다. Herdr는 새 체크아웃에서 빌드하고, 플러그인 업데이트가 실패하면 서버는 그대로 둡니다. 이때 검증 단계와 자동 되돌리기는 없습니다. 실행 중에는 로그가 실시간으로 보이고, 성공하면 한 줄 결과만 보이며 로그는 **Log** 아래에 접힙니다. 끝난 실행은 한 번 본 뒤에는 다시 나오지 않습니다. 창을 닫으면 그다음 열 때 보이지 않고(PC별로 이 브라우저에 기억하며, 브라우저 저장소를 쓸 수 없으면 최근 30분 안의 것만 보입니다), 실패한 실행도 같습니다. 로그와 결과는 `~/.local/share/herdrabbit/update/`에 남습니다. Update 창은 Connect PC로 붙인 PC도 각각의 버전·변경·이유와 함께 보여주고, 거기서 **Update**를 누르면 그 PC의 `update.sh`가 실행됩니다. 이 페이지는 어느 PC인지만 보냅니다. 이 기능 이전 버전의 PC에는 "Update it there (older version)"이 나옵니다. 업데이트 시작에는 이 페이지의 로그인 세션이 필요하고, PC마다 1분에 한 번만 시작할 수 있습니다.
 
 PC마다 **Herdr** 줄도 있습니다. 페이지가 HerdRabbit을 확인하는 같은 때에, 서버는 자신이 쓰는 Herdr(`HERDR_BIN`, 없으면 `PATH`의 `herdr`)에 `--version`과 `channel show`를 묻고, `https://herdr.dev/latest.json`(stable) 또는 `https://herdr.dev/preview.json`(preview)에서 최신 버전과 릴리스 노트를 읽습니다. 이 두 주소는 고정입니다. Herdr만 새 버전이어도 ⚙에 점이 찍힙니다. 이 줄에는 실행 중인 버전과 최신 버전, 접힌 릴리스 노트, **Update Herdr**가 나옵니다. **Update Herdr**는 먼저 확인을 받은 뒤 `herdr update --handoff`를 `systemd-run --user`로 별도 유닛에서 실행하며, `PATH`, `HOME`, 그리고 Herdr의 설정·소켓 위치를 정하는 XDG 폴더(`XDG_CONFIG_HOME` 등, 절대경로일 때만)만 넘깁니다(서비스의 `HERDR_*` 설정은 넘기지 않습니다). 실행 중인 패인은 새 Herdr로 그대로 넘어가므로 에이전트는 계속 실행되고, HerdRabbit은 재시작하지 않습니다. 페이지는 로그를 따라가고 다시 확인해 새 버전을 보여줍니다. Linux가 아니거나 `systemd-run`이 없거나 Herdr를 Homebrew·Nix·mise로 설치한 PC에서는 실행할 수 없습니다(그 패키지 매니저로 업데이트하세요). Herdr가 직접 거절하면 Herdr의 문구를 그대로 보여줍니다. 로그와 결과는 HerdRabbit의 것 옆(`herdr-update.log`, `herdr-update-state.json`)에 남습니다. 한 PC에서는 HerdRabbit과 Herdr 업데이트 중 하나만 실행되고, Herdr 업데이트도 1분에 한 번만 시작할 수 있습니다. HerdRabbit 업데이트는 전처럼 Herdr를 먼저 업데이트합니다. 이 기능 이전 버전의 연결된 PC에는 Herdr 줄이 나오지 않습니다. Herdr 실행도 같은 방식으로 보입니다(결과, 접힌 로그, 한 번 본 뒤에는 사라짐). Herdr 출력이 설치된 Herdr 연동을 업데이트해야 한다고 하면, 로그에 나온 `herdr integration install` 명령을 터미널에서 실행하라는 짧은 안내가 나오며 HerdRabbit이 직접 실행하지는 않습니다.
 

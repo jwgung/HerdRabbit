@@ -5,8 +5,10 @@ import { mkdtemp, mkdir, readFile, rm, writeFile, chmod, symlink, lstat } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  AppUpdater, MAX_LOG_BYTES, MAX_NOTES, MAX_RUN_MS, OFFICIAL_ORIGINS, SERVICE_UNITS, cleanCheck, cleanLog, cleanRunStatus, execCommand, runLimiter, runUpdateScript,
+  AppUpdater, MAX_LOG_BYTES, MAX_NOTES, MAX_RUN_MS, OFFICIAL_ORIGINS, SERVICE_UNITS, cleanCheck, cleanLog, cleanRunStatus, execCommand, runLimiter,
+  runPluginUpdate, runUpdateScript,
 } from "../src/app-update.mjs";
+import { EventEmitter } from "node:events";
 
 // Git runs for real, in a scratch checkout whose origin is a bare repository
 // beside it. The service manager never does: systemctl and systemd-run are
@@ -438,4 +440,137 @@ test("a unit systemctl says is active stays running, however long it takes", asy
   now += MAX_RUN_MS * 2;
   assert.equal((await subject.runStatus()).state, "running");
   await assert.rejects(subject.start(), { status: 409, code: "update_running" });
+});
+
+// Herdr's plugin checkout: a shallow clone left on a commit, on no branch.
+async function pluginCheckout(repo) {
+  const checkout = join(repo.root, "plugin-checkout");
+  git(repo.root, "clone", "--quiet", "--depth", "1", `file://${repo.origin}`, checkout);
+  git(checkout, "checkout", "--quiet", "--detach");
+  git(checkout, "remote", "set-url", "origin", repo.origin);
+  return checkout;
+}
+
+// A child process that has started, with the pid a test gives it.
+function fakeSpawner(pid = 9191) {
+  const calls = [];
+  const spawnImpl = (file, args, options) => {
+    calls.push({ file, args, options });
+    const child = new EventEmitter();
+    child.pid = pid;
+    child.unref = () => { child.unrefed = true; };
+    calls.at(-1).child = child;
+    setImmediate(() => child.emit("spawn"));
+    return child;
+  };
+  return { calls, spawnImpl };
+}
+
+test("a plugin's checkout, on no branch and outside any service, is updated by Herdr", async (context) => {
+  const repo = await scratch(context);
+  const checkout = await pluginCheckout(repo);
+  await repo.publish("Release 1.0.1", "1.0.1");
+  const fake = services(repo.work, { loaded: "none" });
+  const subject = updater({ ...repo, work: checkout }, fake, { plugin: { id: "herdrabbit", binary: "/opt/herdr" } });
+  const result = await subject.check();
+  assert.equal(result.available, true);
+  assert.equal(result.blocked, null);
+  assert.deepEqual(result.notes, ["Release 1.0.1"]);
+  assert.equal(fake.calls.some((call) => call[0] === "systemctl"), false, "a plugin never asks systemd");
+  // Without the plugin the same checkout cannot update itself.
+  assert.equal((await updater({ ...repo, work: checkout }, fake).check()).blocked, "not_service");
+});
+
+test("a plugin run starts detached with a fixed command line and is followed by its pid", async (context) => {
+  const repo = await scratch(context);
+  const checkout = await pluginCheckout(repo);
+  await repo.publish("Release 1.0.1", "1.0.1");
+  const fake = services(repo.work, { loaded: "none" });
+  const spawner = fakeSpawner();
+  let alive = true;
+  let now = 1_700_000_000_000;
+  const subject = updater({ ...repo, work: checkout }, fake, {
+    now: () => now, plugin: { id: "herdrabbit", binary: "/opt/herdr" }, spawnImpl: spawner.spawnImpl, alive: () => alive,
+    environment: { ...GIT_ENV, HOME: repo.root },
+  });
+  assert.equal((await subject.start()).state, "running");
+  assert.equal(fake.calls.some((call) => call[0] === "systemd-run"), false);
+  assert.equal(spawner.calls.length, 1);
+  const [call] = spawner.calls;
+  assert.equal(call.file, "/opt/node/bin/node");
+  assert.deepEqual(call.args, [join(checkout, "scripts", "run-update.mjs"), repo.stateDir, "--plugin", "herdrabbit", "/opt/herdr"]);
+  assert.equal(call.options.detached, true);
+  assert.equal(call.options.cwd, repo.root);
+  assert.equal(call.child.unrefed, true);
+  const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
+  assert.equal(record.pid, 9191);
+  // Still going while its process is; cut short once it is gone without a word.
+  now += 30_000;
+  assert.equal((await subject.runStatus()).state, "running");
+  alive = false;
+  const ended = await subject.runStatus();
+  assert.equal(ended.state, "failed");
+  assert.equal(ended.reason, "interrupted");
+});
+
+test("a plugin run whose process cannot start is a failed run", async (context) => {
+  const repo = await scratch(context);
+  const checkout = await pluginCheckout(repo);
+  await repo.publish("Release 1.0.1", "1.0.1");
+  const subject = updater({ ...repo, work: checkout }, services(repo.work, { loaded: "none" }), {
+    plugin: { id: "herdrabbit", binary: "/opt/herdr" },
+    spawnImpl: () => { throw new Error("spawn EAGAIN"); },
+  });
+  await assert.rejects(subject.start(), { status: 502, code: "update_start_failed" });
+  const status = await subject.runStatus();
+  assert.equal(status.state, "failed");
+  assert.equal(status.reason, "start_failed");
+});
+
+// A stand-in for herdr that writes down what it was asked and fails where told.
+async function fakeHerdr(root, { failUpdate = false, failRestart = false } = {}) {
+  const binary = join(root, "fake-herdr");
+  const asked = join(root, "asked.txt");
+  await writeFile(binary, [
+    "#!/bin/sh",
+    `echo "$*" >> '${asked}'`,
+    `[ "$2" = update ] && { echo 'Updated herdrabbit.'; ${failUpdate ? "exit 4" : "exit 0"}; }`,
+    `[ "$2" = action ] && { echo 'HerdRabbit restarted'; ${failRestart ? "exit 5" : "exit 0"}; }`,
+    "exit 9",
+  ].join("\n"));
+  await chmod(binary, 0o700);
+  return { binary, asked: async () => (await readFile(asked, "utf8")).trim().split("\n") };
+}
+
+test("the plugin run updates the plugin, then restarts it, and records how it ended", async (context) => {
+  const repo = await scratch(context);
+  await mkdir(repo.stateDir, { mode: 0o700 });
+  const herdr = await fakeHerdr(repo.root);
+  assert.equal(await runPluginUpdate({ stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, cwd: repo.root }), 0);
+  assert.deepEqual(await herdr.asked(), ["plugin update herdrabbit --yes", "plugin action invoke herdrabbit.restart"]);
+  const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
+  assert.equal(record.state, "succeeded");
+  const log = await readFile(join(repo.stateDir, "update.log"), "utf8");
+  assert.match(log, /Updated herdrabbit\.\nHerdRabbit restarted/u);
+});
+
+test("a failed plugin update restarts nothing", async (context) => {
+  const repo = await scratch(context);
+  await mkdir(repo.stateDir, { mode: 0o700 });
+  const herdr = await fakeHerdr(repo.root, { failUpdate: true });
+  assert.equal(await runPluginUpdate({ stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, cwd: repo.root }), 4);
+  assert.deepEqual(await herdr.asked(), ["plugin update herdrabbit --yes"]);
+  const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
+  assert.equal(record.state, "failed");
+  assert.equal(record.reason, "script_failed");
+});
+
+test("a plugin that updated but did not restart says so", async (context) => {
+  const repo = await scratch(context);
+  await mkdir(repo.stateDir, { mode: 0o700 });
+  const herdr = await fakeHerdr(repo.root, { failRestart: true });
+  assert.equal(await runPluginUpdate({ stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, cwd: repo.root }), 5);
+  const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
+  assert.equal(record.reason, "restart_failed");
+  await assert.rejects(runPluginUpdate({ stateDir: repo.stateDir, id: "../x", binary: herdr.binary }), TypeError);
 });

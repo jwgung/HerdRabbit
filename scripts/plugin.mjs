@@ -8,7 +8,6 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { hostPort } from "../src/config.mjs";
 import * as runner from "../src/plugin-runner.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -21,25 +20,6 @@ async function systemdActive(unit) {
     return true;
   } catch {
     return false;
-  }
-}
-
-// HerdRabbit's /api/bootstrap answers without a session and names whether a
-// password is required. Anything else answering there is not HerdRabbit.
-async function probe(host, port) {
-  try {
-    const response = await fetch(`http://${hostPort(host, port)}/api/bootstrap`, {
-      redirect: "manual",
-      signal: AbortSignal.timeout(2_000),
-    });
-    let body = null;
-    try {
-      body = await response.json();
-    } catch {}
-    const herdrabbit = response.status === 200 && typeof body?.authRequired === "boolean" && Array.isArray(body?.allowedKeys);
-    return herdrabbit ? { herdrabbit: true, authRequired: body.authRequired } : { herdrabbit: false };
-  } catch {
-    return null;
   }
 }
 
@@ -100,7 +80,7 @@ const deps = {
   mkdir: (path) => mkdir(path, { recursive: true, mode: 0o700 }),
   rm: (path) => rm(path, { force: true }),
   systemdActive,
-  probe,
+  probe: (host, port) => runner.probeHerdRabbit(host, port),
   processCommand,
   spawnServer,
   signal: (pid, name) => process.kill(pid, name),

@@ -10,6 +10,7 @@
     "install-service": "node scripts/install-service.mjs",
     "password": "node scripts/password.mjs",
     "update": "sh update.sh",
+    "migrate-to-plugin": "sh migrate-to-plugin.sh",
     "check": "node scripts/check-syntax.mjs",
     "test": "node --test test/*.test.mjs",
     "verify": "npm run check && npm test",
