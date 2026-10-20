@@ -6,6 +6,7 @@ import { get } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { attemptKey, createHerdrHttpServer, outputReadLines } from "../src/http-server.mjs";
+import { probeHerdRabbit } from "../src/plugin-runner.mjs";
 import {
   createPasswordConfiguration,
   passkeyHandle,
@@ -648,6 +649,17 @@ test("accepts a same-host HTTPS origin from a terminating reverse proxy", async 
 
   assert.equal(response.status, 200);
   assert.equal(calls.length, 1);
+});
+
+test("the plugin's probe knows HerdRabbit with a password set and without one", async (context) => {
+  const herdr = { async snapshot() { return { workspaces: [] }; } };
+  const locked = await startServer(herdr, { auth: new PasswordAuth(await createPasswordConfiguration("secret")) });
+  const open = await startServer(herdr);
+  context.after(() => Promise.all([closeServer(locked.server), closeServer(open.server)]));
+
+  const port = (app) => app.server.address().port;
+  assert.deepEqual(await probeHerdRabbit("127.0.0.1", port(locked)), { herdrabbit: true, authRequired: true });
+  assert.deepEqual(await probeHerdRabbit("127.0.0.1", port(open)), { herdrabbit: true, authRequired: false });
 });
 
 test("requires the configured password before exposing Herdr APIs", async (context) => {

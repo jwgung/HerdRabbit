@@ -109,9 +109,9 @@ export async function loadSettings(deps, paths) {
   return { settings, host, port, created };
 }
 
-// HerdRabbit's /api/bootstrap answers without a session and names whether a
-// password is required. Anything else answering there is not HerdRabbit;
-// nothing answering at all is null.
+// HerdRabbit's /api/bootstrap names whether a password is required; with one
+// set it refuses a request without a session as "authentication_required".
+// Anything else answering there is not HerdRabbit; nothing answering at all is null.
 export async function probeHerdRabbit(host, port, fetchImpl = fetch) {
   try {
     const response = await fetchImpl(`http://${hostPort(host, port)}/api/bootstrap`, {
@@ -122,6 +122,7 @@ export async function probeHerdRabbit(host, port, fetchImpl = fetch) {
     try {
       body = await response.json();
     } catch {}
+    if (response.status === 401 && body?.error?.code === "authentication_required") return { herdrabbit: true, authRequired: true };
     const herdrabbit = response.status === 200 && typeof body?.authRequired === "boolean" && Array.isArray(body?.allowedKeys);
     return herdrabbit ? { herdrabbit: true, authRequired: body.authRequired } : { herdrabbit: false };
   } catch {
