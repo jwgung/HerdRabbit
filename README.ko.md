@@ -202,17 +202,26 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ## 빠른 시작
 
-[Herdr 플러그인으로 설치](#herdr-플러그인으로-설치)하는 것을 권장합니다. 아래의 한 줄 설치(systemd 서비스)로 이미 설치했다면 [플러그인으로 옮기기](#기존-설치에서-플러그인으로-옮기기)를 보세요.
-
 ### 한 줄 자동 설치
 
-Linux에서 실행합니다. macOS에서는 아래의 직접 실행 방법을 사용해야 합니다.
+Linux나 macOS 터미널에서 실행합니다. HerdRabbit을 [Herdr 플러그인](#herdr-플러그인으로-설치)으로 설치합니다.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/install.sh | sh
 ```
 
-스크립트는 `~/.local/share/herd-rabbit`에 저장소를 복제하거나 업데이트한 뒤 아래의 서비스 설치 절차를 실행합니다. 기존 설치 경로에 수정 사항이 있으면 덮어쓰지 않고 중단합니다. `HERD_RABBIT_INSTALL_DIR`로 설치 경로를 바꿀 수 있습니다.
+스크립트가 하는 일:
+
+1. Git, npm, Node.js 22 이상을 확인하고 최신 HerdRabbit을 임시 폴더에 받습니다(끝나면 지웁니다).
+2. 이전 방식(systemd 서비스)으로 설치된 PC면 대신 플러그인으로 옮기고 끝냅니다([플러그인으로 옮기기](#기존-설치에서-플러그인으로-옮기기)).
+3. `herdr`가 없으면 `https://herdr.dev/install.sh`로 설치하고, 0.9.0보다 낮으면 `herdr update --handoff`로 올립니다.
+4. `herdr plugin install ultivis-iot/HerdRabbit`으로 플러그인을 설치합니다.
+5. 빈 포트(`38787` 우선, 없으면 `30000–39999`)를 골라 이 PC의 tailnet 이름과 함께 플러그인 `.env`에 적습니다.
+6. HerdRabbit 비밀번호를 숨김 입력으로 묻습니다(비워 두면 사용 안 함). 이미 있으면 바꾸겠다고 할 때만 묻습니다.
+7. Herdr가 실행 중이면 플러그인을 시작합니다. 아니면 Herdr를 실행할 때 함께 시작합니다.
+8. Tailscale이 실행 중이면 HTTPS Serve를 등록하고, 이 PC 주소와 HTTPS 주소를 출력합니다.
+
+다시 실행하면 비밀번호를 바꾸거나 Tailscale 등록을 다시 할 수 있습니다. 플러그인 설정과 포트는 그대로 둡니다.
 
 ### 저장소에서 수동 설치
 
@@ -276,7 +285,7 @@ herdr plugin install ultivis-iot/HerdRabbit
 
 ### 기존 설치에서 플러그인으로 옮기기
 
-한 줄 설치나 `npm run install-service`로 만든 systemd 서비스를 플러그인으로 바꿉니다. 그 PC에서 Herdr가 실행 중일 때 실행하세요.
+이전 한 줄 설치나 `npm run install-service`로 만든 systemd 서비스를 플러그인으로 바꿉니다. 위의 한 줄 설치도 그런 PC에서는 같은 일을 합니다. 그 PC에서 Herdr가 실행 중일 때 실행하세요.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/migrate-to-plugin.sh | sh

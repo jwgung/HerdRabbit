@@ -193,9 +193,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ## Quick install
 
-Installing it [as a Herdr plugin](#install-as-a-herdr-plugin) is recommended. If you already installed the systemd service with the one-line installer below, see [Moving an existing install to the plugin](#moving-an-existing-install-to-the-plugin).
-
-Run this in a Linux terminal:
+Run this in a Linux or macOS terminal. It installs HerdRabbit [as a Herdr plugin](#install-as-a-herdr-plugin):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/install.sh | sh
@@ -203,21 +201,16 @@ curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/install
 
 The bootstrap script:
 
-1. Checks Linux, Git, and Node.js 22+
-2. Clones or updates HerdRabbit in `~/.local/share/herd-rabbit`
+1. Checks Git, npm and Node.js 22+, and fetches the current HerdRabbit into a temporary folder (removed at the end)
+2. Moves a PC that still has the older systemd service over to the plugin instead ([Moving an existing install to the plugin](#moving-an-existing-install-to-the-plugin)), and stops there
 3. Installs Herdr from `https://herdr.dev/install.sh` when `herdr` is missing, or updates it with `herdr update --handoff` when it is older than 0.9.0
-4. Prompts for an optional HerdRabbit password through the terminal
-5. Selects an unused port, preferring `38787` and then `30000–39999`
-6. Installs and starts `herdrabbit.service` for the current OS user
-7. Registers Tailscale Serve HTTPS when Tailscale is running
-8. Prints the final local port and HTTPS URL
+4. Installs the plugin with `herdr plugin install ultivis-iot/HerdRabbit`
+5. Selects an unused port, preferring `38787` and then `30000–39999`, and writes it with this PC's tailnet name into the plugin's `.env`
+6. Prompts for an optional HerdRabbit password through the terminal (an existing one is kept unless you ask to replace it)
+7. Starts the plugin when Herdr is running; otherwise it starts with Herdr
+8. Registers Tailscale Serve HTTPS when Tailscale is running, and prints the local and HTTPS addresses
 
-The bootstrap refuses to overwrite local changes in an existing installation. Override its installation directory with `HERD_RABBIT_INSTALL_DIR`:
-
-```bash
-HERD_RABBIT_INSTALL_DIR="$HOME/apps/herd-rabbit" \
-  sh -c "$(curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/install.sh)"
-```
+Run it again to change the password or pick up a moved Tailscale setup; the plugin's settings and port are kept.
 
 ### Manual repository install
 
@@ -278,7 +271,7 @@ The plugin starts with Herdr, so to have HerdRabbit up after login, have Herdr s
 
 ### Moving an existing install to the plugin
 
-This replaces the systemd service written by the one-line installer or `npm run install-service` with the plugin. Run it on that PC while Herdr is running:
+This replaces the systemd service written by an earlier one-line installer or `npm run install-service` with the plugin; the one-line installer above does the same on such a PC. Run it on that PC while Herdr is running:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/migrate-to-plugin.sh | sh

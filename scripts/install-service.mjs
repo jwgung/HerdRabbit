@@ -66,7 +66,7 @@ export async function readExistingUnit(serviceFile) {
   }
 }
 
-async function tailscaleDetails() {
+export async function tailscaleDetails() {
   try {
     const { stdout: statusSource } = await execFileAsync(
       "tailscale",
@@ -167,7 +167,7 @@ async function removeLegacyService(unitDirectory) {
 
 // true when HerdRabbit answered, false when something else did, null when the
 // address could not be reached at all.
-async function reachesHerdRabbit(address) {
+export async function reachesHerdRabbit(address) {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       const response = await fetch(address, { redirect: "manual" });
@@ -182,7 +182,7 @@ async function reachesHerdRabbit(address) {
   return null;
 }
 
-function runInteractive(command, args) {
+export function runInteractive(command, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: "inherit" });
     child.once("error", reject);

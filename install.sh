@@ -1,59 +1,40 @@
 #!/bin/sh
+# Installs HerdRabbit as a Herdr plugin:
+#   curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/install.sh | sh
+# The current code is fetched into a temporary folder and runs
+# scripts/install-plugin.mjs from there: it installs or updates Herdr, installs
+# the plugin, and asks for a password. A PC that has the older systemd service
+# is moved over to the plugin instead. The folder is removed afterwards; the
+# plugin itself lives in Herdr's own checkout.
 set -eu
 
 REPOSITORY_URL="https://github.com/ultivis-iot/HerdRabbit.git"
-INSTALL_DIRECTORY="${HERD_RABBIT_INSTALL_DIR:-$HOME/.local/share/herd-rabbit}"
 
-log() {
-    printf '  > %s\n' "$1"
-}
+log() { printf '  > %s\n' "$1"; }
+fail() { printf '  x %s\n' "$1" >&2; exit 1; }
+need() { command -v "$1" >/dev/null 2>&1 || fail "requires '$1'"; }
 
-fail() {
-    printf '  x %s\n' "$1" >&2
-    exit 1
-}
-
-need() {
-    command -v "$1" >/dev/null 2>&1 || fail "requires '$1'"
-}
-
-need git
-need node
-need npm
-
-NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
-if [ "$NODE_MAJOR" -lt 22 ]; then
-    fail "requires Node.js 22 or newer (found $(node --version))"
-fi
-
-case "$(uname -s)" in
-    Linux) ;;
-    *) fail "the automatic service installer currently supports Linux only" ;;
-esac
-
-if [ -e "$INSTALL_DIRECTORY" ]; then
-    [ -d "$INSTALL_DIRECTORY/.git" ] || \
-        fail "$INSTALL_DIRECTORY already exists and is not a Git repository"
-    ORIGIN_URL="$(git -C "$INSTALL_DIRECTORY" remote get-url origin 2>/dev/null || true)"
-    case "$ORIGIN_URL" in
-        "$REPOSITORY_URL"|"https://github.com/ultivis-iot/HerdRabbit") ;;
-        *) fail "$INSTALL_DIRECTORY does not point to $REPOSITORY_URL" ;;
+# Parsed whole before it runs: piped from curl, the shell is still reading it.
+main() {
+    [ "$#" -eq 0 ] || fail "Usage: curl -fsSL <install.sh URL> | sh"
+    need git
+    need node
+    need npm
+    [ "$(node -p 'Number(process.versions.node.split(".")[0])')" -ge 22 ] || fail "requires Node.js 22 or newer (found $(node --version))"
+    case "$(uname -s)" in
+        Linux|Darwin) ;;
+        *) fail "HerdRabbit runs on Linux and macOS" ;;
     esac
-    [ "$(git -C "$INSTALL_DIRECTORY" branch --show-current)" = "main" ] || \
-        fail "$INSTALL_DIRECTORY is not on the main branch"
-    [ -z "$(git -C "$INSTALL_DIRECTORY" status --porcelain)" ] || \
-        fail "$INSTALL_DIRECTORY has local changes; update it manually"
-    log "Updating HerdRabbit in $INSTALL_DIRECTORY"
-    git -C "$INSTALL_DIRECTORY" pull --ff-only origin main
-else
-    log "Installing HerdRabbit in $INSTALL_DIRECTORY"
-    mkdir -p "$(dirname "$INSTALL_DIRECTORY")"
-    git clone --depth 1 "$REPOSITORY_URL" "$INSTALL_DIRECTORY"
-fi
+    (: </dev/tty) 2>/dev/null || fail "an interactive terminal is required for setup"
 
-log "Installing runtime dependencies"
-npm --prefix "$INSTALL_DIRECTORY" ci --omit=dev
+    TEMPORARY="$(mktemp -d)"
+    trap 'rm -rf "$TEMPORARY"' EXIT
+    log "Fetching HerdRabbit into $TEMPORARY"
+    git clone --quiet --depth 1 "$REPOSITORY_URL" "$TEMPORARY/HerdRabbit"
+    npm --prefix "$TEMPORARY/HerdRabbit" ci --omit=dev
+    cd "$HOME"
+    # Only node reads the terminal: the shell goes on reading this script from the pipe.
+    node "$TEMPORARY/HerdRabbit/scripts/install-plugin.mjs" </dev/tty
+}
 
-[ -r /dev/tty ] || fail "an interactive terminal is required for setup"
-log "Starting service setup"
-node "$INSTALL_DIRECTORY/scripts/install-service.mjs" </dev/tty
+main "$@"

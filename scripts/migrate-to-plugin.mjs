@@ -82,7 +82,7 @@ export function hasSettings(text) {
 }
 
 // The service unit this PC runs HerdRabbit from, or null.
-async function findUnit(deps) {
+export async function findUnit(deps) {
   for (const unit of SYSTEMD_UNITS) {
     const { code, stdout } = await deps.run("systemctl", [
       "--user", "show", unit,
@@ -101,7 +101,7 @@ async function findUnit(deps) {
   return null;
 }
 
-async function waitForPage(deps, host, port) {
+export async function waitForPage(deps, host, port) {
   const deadline = deps.now() + PAGE_WAIT_MS;
   for (;;) {
     if ((await deps.probe(probeHost(host), port))?.herdrabbit) return true;
@@ -235,7 +235,7 @@ export async function migrate(deps, { yes = false } = {}) {
   return 0;
 }
 
-function run(file, args, { inherit = false } = {}) {
+export function run(file, args, { inherit = false } = {}) {
   return new Promise((resolve) => {
     if (inherit) {
       const child = spawn(file, args, { stdio: "inherit" });
@@ -247,6 +247,28 @@ function run(file, args, { inherit = false } = {}) {
       resolve({ code: error ? (Number.isInteger(error.code) ? error.code : -1) : 0, stdout: String(stdout ?? "") });
     });
   });
+}
+
+// The machine as migrate() uses it.
+export function defaultDeps() {
+  const home = process.env.HOME || homedir();
+  return {
+    run,
+    readFile: (path) => readFile(path, "utf8"),
+    // A file Herdr made first keeps its mode on a write; the settings are private.
+    writeFile: async (path, text) => {
+      await writeFile(path, text, { mode: 0o600 });
+      await chmod(path, 0o600);
+    },
+    rm: (path, { recursive = false } = {}) => rm(path, { recursive, force: true }),
+    probe: (host, port) => probeHerdRabbit(host, port),
+    confirm: async (label) => /^y(es)?$/iu.test((await readVisibleLine(label)).trim()),
+    log: (text) => console.log(text),
+    now: () => Date.now(),
+    sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+    home,
+    installDirectory: process.env.HERD_RABBIT_INSTALL_DIR || join(home, ".local", "share", "herd-rabbit"),
+  };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -264,22 +286,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.error("확인할 터미널이 없습니다. --yes를 붙여 실행하세요 (curl로 받았다면 ... | sh -s -- --yes).");
     process.exit(1);
   }
-  const home = process.env.HOME || homedir();
-  process.exitCode = await migrate({
-    run,
-    readFile: (path) => readFile(path, "utf8"),
-    // A file Herdr made first keeps its mode on a write; the settings are private.
-    writeFile: async (path, text) => {
-      await writeFile(path, text, { mode: 0o600 });
-      await chmod(path, 0o600);
-    },
-    rm: (path, { recursive = false } = {}) => rm(path, { recursive, force: true }),
-    probe: (host, port) => probeHerdRabbit(host, port),
-    confirm: async (label) => /^y(es)?$/iu.test((await readVisibleLine(label)).trim()),
-    log: (text) => console.log(text),
-    now: () => Date.now(),
-    sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
-    home,
-    installDirectory: process.env.HERD_RABBIT_INSTALL_DIR || join(home, ".local", "share", "herd-rabbit"),
-  }, { yes });
+  process.exitCode = await migrate(defaultDeps(), { yes });
 }
