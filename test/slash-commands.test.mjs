@@ -12,7 +12,9 @@ import {
   CODEX_BUILT_IN_COMMANDS,
   MAX_COMMAND_FILE_BYTES,
   MAX_LISTED_COMMANDS,
+  MAX_OPENCODE_LEVELS,
   MAX_REMOTE_COMMANDS,
+  MAX_SKILL_DEPTH,
   OPENCODE_BUILT_IN_COMMANDS,
   MAX_SCANNED_ENTRIES,
   SlashCommandCatalog,
@@ -215,11 +217,15 @@ test("lists OpenCode's own commands and the user's and project's command files, 
   const catalog = new SlashCommandCatalog({ env, guard: localProtectedPaths({ env, home }), fs: spy.fs });
   const answer = await catalog.list({ agent: "OpenCode", cwd: join(project, "app", "src") });
   assert.equal(answer.agent, "opencode");
-  assert.deepEqual(names(answer, "project"), ["deploy", "test", "old"]);
-  assert.deepEqual(names(answer, "user"), ["legacy"], "the project's /test wins over the user's");
+  // commands first, then skills (the project's .claude/skills, the user's ~/.claude/skills)
+  assert.deepEqual(names(answer, "project"), ["deploy", "test", "old", "ship"]);
+  assert.deepEqual(names(answer, "user"), ["legacy", "alpha"], "the project's /test wins over the user's");
   assert.equal(answer.commands.find((command) => command.name === "test").description, "Project tests");
+  assert.equal(answer.commands.find((command) => command.name === "alpha").description, "Does alpha things");
+  assert.ok(!names(answer).includes("beta"), "a SKILL.md without a name is no skill to OpenCode");
   assert.deepEqual(names(answer, "built-in"), OPENCODE_BUILT_IN_COMMANDS.map((command) => command.name));
   for (const name of ["compact", "undo", "redo", "sessions", "models", "thinking"]) assert.ok(names(answer, "built-in").includes(name), name);
+  assert.doesNotMatch(JSON.stringify(answer), /BODY|SECRET|escaped|from outside/u);
   const all = answer.commands.map((command) => command.name);
   assert.ok(!all.includes("away") && !all.includes("cfg") && !all.includes("nested"), all.join());
   for (const path of [...spy.opened, ...spy.listed]) assert.doesNotMatch(path, /opencode\.jsonc?$|auth\.json|outside/u, `touched ${path}`);
@@ -228,7 +234,143 @@ test("lists OpenCode's own commands and the user's and project's command files, 
   // the default config folder, ~/.config/opencode
   await write(join(home, ".config", "opencode", "commands", "home.md"), "# From home config\n");
   const plain = new SlashCommandCatalog({ env: { HOME: home }, guard: localProtectedPaths({ env: { HOME: home }, home }) });
-  assert.deepEqual(names(await plain.list({ agent: "opencode", cwd: null }), "user"), ["home"]);
+  assert.deepEqual(names(await plain.list({ agent: "opencode", cwd: null }), "user"), ["home", "alpha"]);
+});
+
+test("OpenCode's own list matches its 1.19.3 TUI and server commands", () => {
+  const all = OPENCODE_BUILT_IN_COMMANDS.map((command) => command.name);
+  assert.ok(!all.includes("details"), "1.19.3 has no /details");
+  for (const name of [
+    "review", "init", "agents", "mcps", "status", "skills", "copy", "fork", "rename", "timeline", "timestamps",
+    "variants", "diff", "debug", "update", "workspaces", "move", "org", "warp",
+    "mo", "toggle-thinking", "toggle-timestamps", "customize-opencode",
+  ]) assert.ok(all.includes(name), name);
+  assert.equal(new Set(all).size, all.length);
+  const byName = Object.fromEntries(OPENCODE_BUILT_IN_COMMANDS.map((command) => [command.name, command.description]));
+  assert.equal(byName.review, "review changes [commit|branch|pr], defaults to uncommitted");
+  assert.equal(byName.init, "guided AGENTS.md setup");
+  assert.equal(byName.move, "Move to another project dir");
+  assert.equal(byName.mo, "Switch model (alias of /models)");
+  for (const command of OPENCODE_BUILT_IN_COMMANDS) assert.ok(command.description.length <= 200, command.name);
+});
+
+async function writeTo(path, text) {
+  await mkdir(join(path, ".."), { recursive: true });
+  await writeFile(path, text);
+}
+
+test("lists OpenCode's skills as its /commands, a command's name first", async (context) => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "slash-oc-skills-")));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, "home");
+  const project = join(root, "project");
+  const xdg = join(root, "xdg");
+  await mkdir(join(project, ".git"), { recursive: true });
+  const skill = (folder, text) => writeTo(join(folder, "SKILL.md"), text);
+  await skill(join(project, ".opencode", "skills", "group", "nested"), "---\nname: nested\ndescription: A nested skill\n---\nBODY-SECRET\n");
+  await skill(join(project, ".opencode", "skill", "single"), "---\nname: single-folder\ndescription: From skill/\n---\n");
+  await skill(join(project, ".opencode", "skills", "nameless"), "# No name in the frontmatter\n");
+  await skill(join(project, ".opencode", "skills", "review"), "---\nname: review\ndescription: A skill named like the server's command\n---\n");
+  await skill(join(project, ".opencode", "skills", "deploy"), "---\nname: deploy\ndescription: The skill\n---\n");
+  await writeTo(join(project, ".opencode", "commands", "deploy.md"), "---\ndescription: The command\n---\n");
+  await skill(join(project, ".opencode", "skills", "big"), `---\nname: other-name\n---\n${"x".repeat(MAX_COMMAND_FILE_BYTES)}`);
+  await skill(join(project, ".opencode", "skills", ...Array.from({ length: MAX_SKILL_DEPTH }, (_, n) => `d${n}`)), "---\nname: deepest\n---\n");
+  await skill(join(project, ".opencode", "skills", ...Array.from({ length: MAX_SKILL_DEPTH + 1 }, (_, n) => `d${n}`)), "---\nname: too-deep\n---\n");
+  await skill(join(project, ".claude", "skills", "from-claude"), "---\nname: from-claude\ndescription: Claude's\n---\n");
+  await skill(join(project, ".agents", "skills", "from-agents"), "---\nname: from-agents\ndescription: Agents'\n---\n");
+  await skill(join(home, ".claude", "skills", "home-claude"), "---\nname: home-claude\n---\n");
+  await skill(join(home, ".agents", "skills", "home-agents"), "---\nname: home-agents\n---\n");
+  await skill(join(xdg, "opencode", "skills", "global"), "---\nname: global\ndescription: In the config folder\n---\n");
+  await skill(join(home, ".opencode", "skills", "dot-home"), "---\nname: dot-home\n---\n");
+  // a link out of the skills folder
+  await skill(join(root, "outside", "escaped"), "---\nname: escaped\n---\n");
+  await symlink(join(root, "outside", "escaped"), join(project, ".opencode", "skills", "escape"));
+  const spy = spyFs();
+  const make = (extra = {}) => {
+    const env = { HOME: home, XDG_CONFIG_HOME: xdg, ...extra };
+    return new SlashCommandCatalog({ env, guard: localProtectedPaths({ env, home }), fs: spy.fs });
+  };
+  const answer = await make().list({ agent: "opencode", cwd: project });
+  assert.deepEqual(names(answer, "project"), ["deploy", "from-claude", "from-agents", "single-folder", "big", "deepest", "nested"]);
+  assert.deepEqual(names(answer, "user"), ["home-claude", "home-agents", "dot-home", "global"]);
+  const byName = Object.fromEntries(answer.commands.map((command) => [command.name, command]));
+  assert.equal(byName.deploy.description, "The command", "a command wins over a skill of its name");
+  assert.equal(byName.review.source, "built-in", "the server's /review wins over a skill of its name");
+  assert.equal(byName.nested.description, "A nested skill");
+  assert.equal(byName.big.description, "", "too large to read: listed by its folder's name");
+  assert.equal(byName["customize-opencode"].source, "built-in");
+  for (const absent of ["nameless", "too-deep", "escaped", "other-name"]) assert.ok(!byName[absent], absent);
+  assert.doesNotMatch(JSON.stringify(answer), /BODY-SECRET/u);
+  for (const path of spy.opened) assert.match(path, /\.md$/u);
+
+  // OpenCode's switches: no Claude Code skills, no external skills at all
+  const noClaude = await make({ OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: "1" }).list({ agent: "opencode", cwd: project });
+  assert.ok(!names(noClaude).includes("from-claude") && !names(noClaude).includes("home-claude"));
+  assert.ok(names(noClaude).includes("from-agents") && names(noClaude).includes("home-agents"));
+  const noExternal = await make({ OPENCODE_DISABLE_EXTERNAL_SKILLS: "true" }).list({ agent: "opencode", cwd: project });
+  for (const name of ["from-claude", "home-claude", "from-agents", "home-agents"]) assert.ok(!names(noExternal).includes(name), name);
+  assert.ok(names(noExternal).includes("nested") && names(noExternal).includes("global"));
+});
+
+test("OpenCode's config folders: up to the checkout's root or to /, ~/.opencode and OPENCODE_CONFIG_DIR", async (context) => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "slash-oc-dirs-")));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, "home");
+  const xdg = join(root, "xdg");
+  const top = join(root, "top");
+  const repo = join(top, "repo");
+  const leaf = join(repo, "a", "b");
+  const command = (folder, name, description) => writeTo(join(folder, "commands", `${name}.md`), `---\ndescription: ${description}\n---\n`);
+  await mkdir(leaf, { recursive: true });
+  await command(join(leaf, ".opencode"), "leaf", "In the pane's folder");
+  await command(join(repo, "a", ".opencode"), "middle", "Between");
+  await command(join(repo, ".opencode"), "root", "At the checkout's root");
+  await command(join(top, ".opencode"), "above", "Above the checkout");
+  await command(join(home, ".opencode"), "home-dot", "In ~/.opencode");
+  await writeTo(join(home, ".opencode", "opencode.json"), '{"provider":{"key":"SECRET"}}');
+  const custom = join(root, "custom");
+  await command(custom, "custom", "In OPENCODE_CONFIG_DIR");
+  await writeTo(join(custom, "skills", "custom-skill", "SKILL.md"), "---\nname: custom-skill\n---\n");
+  await writeTo(join(custom, "opencode.jsonc"), "{}");
+  const spy = spyFs();
+  const make = (extra = {}) => {
+    const env = { HOME: home, XDG_CONFIG_HOME: xdg, ...extra };
+    return new SlashCommandCatalog({ env, guard: localProtectedPaths({ env, home }), fs: spy.fs });
+  };
+
+  // not in a checkout: every folder up to /
+  let answer = await make().list({ agent: "opencode", cwd: leaf });
+  for (const name of ["leaf", "middle", "root", "above"]) assert.ok(names(answer, "project").includes(name), name);
+  assert.deepEqual(names(answer, "project").slice(0, 4), ["leaf", "middle", "root", "above"], "nearest first");
+  assert.deepEqual(names(answer, "user"), ["home-dot"], "~/.opencode is always read");
+
+  // in a checkout: up to its root, not above it
+  await mkdir(join(repo, ".git"));
+  answer = await make({ OPENCODE_CONFIG_DIR: custom }).list({ agent: "opencode", cwd: leaf });
+  assert.deepEqual(names(answer, "project"), ["leaf", "middle", "root"]);
+  assert.deepEqual(names(answer, "user"), ["home-dot", "custom", "custom-skill"]);
+
+  // a relative OPENCODE_CONFIG_DIR is not followed; project config switched off
+  answer = await make({ OPENCODE_CONFIG_DIR: "custom", OPENCODE_DISABLE_PROJECT_CONFIG: "1" }).list({ agent: "opencode", cwd: leaf });
+  assert.deepEqual(names(answer, "project"), []);
+  assert.deepEqual(names(answer, "user"), ["home-dot"]);
+
+  // a pane with no folder still gets ~/.opencode's
+  assert.deepEqual(names(await make().list({ agent: "opencode", cwd: null }), "user"), ["home-dot"]);
+  for (const path of [...spy.opened, ...spy.listed]) assert.doesNotMatch(path, /opencode\.jsonc?$|auth\.json/u, `touched ${path}`);
+
+  // so many folders up, and no further
+  const deep = join(root, "deep");
+  const folders = Array.from({ length: MAX_OPENCODE_LEVELS + 8 }, (_, n) => `d${n}`);
+  const bottom = join(deep, ...folders);
+  await mkdir(bottom, { recursive: true });
+  await mkdir(join(deep, ".git"));
+  const last = join(deep, ...folders.slice(0, folders.length - MAX_OPENCODE_LEVELS + 1));
+  await command(join(last, ".opencode"), "farthest", "The last folder looked at");
+  await command(join(last, "..", ".opencode"), "beyond", "One folder too far");
+  answer = await make().list({ agent: "opencode", cwd: bottom });
+  assert.ok(names(answer, "project").includes("farthest"));
+  assert.ok(!names(answer).includes("beyond"));
 });
 
 test("gives other agents nothing", async (context) => {

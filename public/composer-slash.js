@@ -58,7 +58,7 @@ export function applySlashCompletion(value, token, command) {
 // or null; a project's commands go with its folder, so a pane that moves gets
 // the new folder's at once.
 // `fetchCommands(paneId)` brings back { agent, commands } or throws. A pane
-// whose agent is neither Claude Code nor Codex gets no list.
+// whose agent is not Claude Code, Codex or OpenCode gets no list.
 export function slashCommandsSource({ context, fetchCommands, now = () => Date.now() }) {
   const cache = new Map();
   const where = () => {
