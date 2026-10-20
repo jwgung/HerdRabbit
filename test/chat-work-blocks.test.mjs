@@ -133,7 +133,11 @@ test("OpenCode's tools read with the verbs Claude's do, by the names the server 
 });
 
 // A SendUserFile call as the server hands it over once its result is in.
-const sent = (input, extra = {}) => tool("SendUserFile", input, { summary: "SendUserFile", output: "1 file delivered to user.", output_size: 25, ...extra });
+const sent = (input, extra = {}) => {
+  const count = Array.isArray(input.files) ? input.files.length : 1;
+  const output = `${count} ${count === 1 ? "file" : "files"} delivered to user.`;
+  return tool("SendUserFile", input, { summary: "SendUserFile", output, output_size: output.length, ...extra });
+};
 const APK = "/home/me/lifelog/app/build/outputs/apk/release/LoreLog-0.3.14.apk";
 
 test("a SendUserFile call that handed its files over reads as the files and its caption", () => {
@@ -174,7 +178,11 @@ test("a SendUserFile call the card cannot read keeps the tool row: running, fail
     "1 file delivered to user.\n1 file could NOT be delivered to the user:\n  /tmp/big.apk (612 MiB): too large",
   ]) assert.equal(deliveredFiles(sent({ files: [APK] }, { output, output_size: output.length })), null, output);
   // what Claude Code says when the files went, with the lines it adds after
-  for (const output of ["1 file delivered to user.", "2 files delivered to the user.\n  /a → file_uuid: 1\n  /b → file_uuid: 2",
+  // a count other than the call's own files: some did not go
+  assert.equal(deliveredFiles(sent({ files: [APK, "/b"] }, { output: "1 file delivered to user.", output_size: 25 })), null);
+  assert.equal(deliveredFiles(sent({ files: [APK] }, { output: "2 files delivered to user.", output_size: 26 })), null);
+  assert.notEqual(deliveredFiles(sent({ files: [APK, "/b"] }, { output: "2 files delivered to the user.\n  /a → file_uuid: 1\n  /b → file_uuid: 2", output_size: 60 })), null);
+  for (const output of ["1 file delivered to user.",
     "1 file delivered to user.\n  /home/me/failed-error-not-delivered.log → file_uuid: 366a-9b"]) {
     assert.notEqual(deliveredFiles(sent({ files: [APK] }, { output, output_size: output.length })), null, output);
   }
