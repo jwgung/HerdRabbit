@@ -13,7 +13,7 @@ import { ENV_TEMPLATE, parseEnvFile, pluginSettings } from "../src/plugin-runner
 import { findAvailableServicePort, isLocalPortAvailable, PREFERRED_SERVICE_PORT } from "../src/port-selection.mjs";
 import { configureClaude } from "./configure-claude.mjs";
 import { ensureHerdrExecutable } from "./herdr-install.mjs";
-import { reachesHerdRabbit, runInteractive, tailscaleDetails } from "./install-service.mjs";
+import { reachesHerdRabbit, runInteractive, tailscaleDetails } from "./setup-helpers.mjs";
 import { PLUGIN, PLUGIN_SOURCE, defaultDeps, findUnit, hasSettings, migrate, waitForPage } from "./migrate-to-plugin.mjs";
 import { promptForNewPassword } from "./password-prompt.mjs";
 
@@ -31,7 +31,7 @@ export async function installPlugin(deps) {
   const herdr = await deps.ensureHerdr();
   if (deps.platform === "linux" && await findUnit(deps)) {
     say("이 PC에는 이전 방식(systemd 서비스)의 HerdRabbit이 있어 플러그인으로 옮깁니다.");
-    return deps.migrate();
+    return deps.migrate(herdr);
   }
 
   const tailscale = await deps.tailscale();
@@ -94,8 +94,13 @@ export async function installPlugin(deps) {
   }
 
   say(`이 PC에서: http://${host}:${port}`);
+  // Serve forwards the tailnet to whatever answers on the port: only to
+  // HerdRabbit, or to nothing yet when it starts with Herdr later.
+  const other = !started && await deps.probe(host, port);
   if (!tailscale.available) {
     say("Tailscale이 실행 중이 아니라 휴대폰용 HTTPS 등록을 건너뛰었습니다.");
+  } else if (other) {
+    say(`${host}:${port}에 다른 프로그램이 응답해 Tailscale HTTPS 등록을 건너뛰었습니다. 포트를 확인한 뒤 다시 실행하세요.`);
   } else {
     const address = `https://${tailscale.hostname}:${port}`;
     say(`Tailscale HTTPS 포트 ${port}을 등록합니다…`);
@@ -129,7 +134,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exitCode = await installPlugin({
       ...base,
       platform: process.platform,
-      migrate: () => migrate(base),
+      migrate: (herdr) => migrate(base, { herdr }),
       ensureHerdr: () => ensureHerdrExecutable(),
       tailscale: () => tailscaleDetails(),
       findPort: (usedHttpsPorts) => findAvailableServicePort({

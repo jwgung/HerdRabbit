@@ -122,7 +122,9 @@ async function removableCheckout(deps, directory) {
   return status.stdout.split("\n").filter(Boolean).every((entry) => entry === "!! node_modules/");
 }
 
-export async function migrate(deps, { yes = false } = {}) {
+// `herdr`: the Herdr the installer checked (install-plugin.mjs); otherwise
+// the service's own.
+export async function migrate(deps, { yes = false, herdr: checkedHerdr = null } = {}) {
   const say = deps.log;
   const found = await findUnit(deps);
   if (!found) {
@@ -134,7 +136,7 @@ export async function migrate(deps, { yes = false } = {}) {
     say("이 PC는 이전 버전에서 leaf로 설치됐습니다. 먼저 그 폴더에서 npm run install-service를 실행해 일반 설치로 바꾼 뒤 다시 실행하세요.");
     return 1;
   }
-  const herdr = environment.get("HERDR_BIN") || "herdr";
+  const herdr = checkedHerdr || environment.get("HERDR_BIN") || "herdr";
   const host = parseHost(environment.get("HERDR_WEB_HOST"));
   const port = parsePort(environment.get("HERDR_WEB_PORT"));
 

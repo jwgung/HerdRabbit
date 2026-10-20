@@ -30,7 +30,7 @@ function fakePc({
       }
       throw new Error(`unexpected ${file} ${args.join(" ")}`);
     },
-    migrate: async () => { pc.migrated = true; return 0; },
+    migrate: async (herdr) => { pc.migrated = herdr; return 0; },
     ensureHerdr: async () => HERDR,
     tailscale: async () => tailscale,
     probe: async (_host, port) => (port === taken ? { herdrabbit: true } : pc.up ? { herdrabbit: true, authRequired: true } : null),
@@ -70,13 +70,21 @@ test("a new PC gets the plugin on a free port, its tailnet name, a password and 
 test("a PC with the older systemd service is moved over instead", async () => {
   const pc = fakePc({ unit: true });
   assert.equal(await installPlugin(pc.deps), 0);
-  assert.equal(pc.migrated, true);
+  assert.equal(pc.migrated, HERDR, "with the Herdr just checked, not the unit's");
   assert.equal(pc.calls.some((call) => call.includes("plugin install")), false);
   // Not on macOS, where there is no systemd to ask.
   const mac = fakePc({ unit: true, platform: "darwin" });
   assert.equal(await installPlugin(mac.deps), 0);
   assert.equal(mac.migrated, false);
   assert.equal(mac.calls.some((call) => call.startsWith("systemctl")), false);
+});
+
+test("Tailscale Serve is never pointed at a port something else answers on", async () => {
+  const pc = fakePc({ herdrRunning: false, taken: 38790 });
+  pc.deps.probe = async (_host, port) => (port === 38790 ? { herdrabbit: false } : null);
+  assert.equal(await installPlugin(pc.deps), 0);
+  assert.deepEqual(pc.serve, []);
+  assert.ok(pc.logs.some((line) => line.includes("다른 프로그램이 응답해")));
 });
 
 test("run again, the settings, the port and the password stay unless asked", async () => {
