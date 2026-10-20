@@ -178,3 +178,9 @@ test("nothing happens without a service, for a leaf, or when the user says no", 
   const legacy = fakePc({ unit: "herdr-web-local.service" });
   assert.equal(await migrate(legacy.deps), 0);
 });
+
+test("the installer's checked Herdr is used instead of the unit's", async () => {
+  const pc = fakePc();
+  assert.equal(await migrate(pc.deps, { herdr: "/home/me/.local/bin/herdr" }), 0);
+  assert.ok(pc.calls.includes("/home/me/.local/bin/herdr plugin install ultivis-iot/HerdRabbit --yes"));
+});

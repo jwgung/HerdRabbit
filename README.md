@@ -7,7 +7,7 @@ HerdRabbit is a small personal web app for controlling [Herdr](https://herdr.dev
 > [!IMPORTANT]
 > HerdRabbit is a **personal-use tool for one person to access their own Herdr sessions**. It is not a multi-user account system, an authorization boundary between untrusted users, or a public hosting service. Do not expose it directly to the public internet. Use it over a private network such as Tailscale.
 
-HerdRabbit runs once per OS user and may be protected with one instance password. It does not use usernames. The app, repository, and systemd service are all named `HerdRabbit`. Installations that still use the former `herdrabbit.service` name are migrated automatically the next time the installer runs.
+HerdRabbit runs once per OS user and may be protected with one instance password. It does not use usernames. The app, repository, and systemd service are all named `HerdRabbit`. It installs as a Herdr plugin; a PC with the older systemd service (under either `herdrabbit.service` or the former `herdr-web-local.service`) is moved over to the plugin the next time the installer runs.
 
 ## Reusable HTML UI
 
@@ -55,7 +55,7 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 - Install as a responsive PWA with light and dark themes (switched in the ⚙ settings menu)
 - Resize terminal text with `Ctrl`/`Cmd` + wheel, trackpad zoom, or a two-finger mobile gesture
 - Protect an instance with an optional password, Passkey login, a seven-day hard session limit, login on each new PWA window, and a list of signed-in browsers to sign out one by one or all at once
-- Install a per-user systemd service on a collision-free port in `30000–39999`
+- Install as a Herdr plugin on a collision-free port in `30000–39999` (or as a per-user systemd service)
 - Register Tailscale Serve HTTPS during setup when Tailscale is available
 
 Pane splitting, Herdr persistent-session renaming, and multi-user accounts are not currently provided.
@@ -67,7 +67,7 @@ Pane splitting, Herdr persistent-session renaming, and multi-user accounts are n
 - **PWA:** Web App Manifest, Service Worker app-shell caching, responsive standalone UI
 - **Notifications:** standards-based Web Push, Push API, VAPID, and the `web-push` package
 - **Herdr integration:** local `herdr` CLI calls through `execFile` argument arrays without a shell
-- **Process management:** per-user `systemd --user` service on Linux
+- **Process management:** a Herdr plugin started with Herdr (a per-user `systemd --user` service remains an option on Linux)
 - **Private HTTPS:** Tailscale Serve proxying to a loopback HTTP listener
 - **Authentication:** WebAuthn Passkeys through SimpleWebAuthn, `scrypt` password hashes, HMAC-signed sessions, `HttpOnly` cookies, per-window signed launch tokens, CSRF tokens, and same-origin checks
 - **Testing:** Node's built-in `node:test`, integration tests, and a fake Herdr executable
@@ -153,7 +153,7 @@ HerdRabbit calls `herdr session list --json`, reads snapshots from every running
 
 ### Multiple OS users on one server
 
-Each Linux user runs their own installation. `systemd --user` isolates identically named services by OS account, while the installer selects an unused local and Tailscale HTTPS port.
+Each OS user runs their own installation. Herdr plugins and `systemd --user` services are per account, while the installer selects an unused local and Tailscale HTTPS port.
 
 ```text
 alice → 127.0.0.1:38787 → https://server.example.ts.net:38787
@@ -164,7 +164,7 @@ Each instance is still personal: it exposes only the Herdr sessions and configur
 
 ## Requirements
 
-- Linux for automatic systemd service installation; macOS may use direct execution
+- Linux or macOS (the systemd service option is Linux-only)
 - Node.js 22 or newer
 - Git and curl for the one-line installer
 - Herdr 0.9.0 or newer with a running persistent session. The installer and `update.sh` update an older Herdr with `herdr update --handoff`, which keeps running panes alive
@@ -179,7 +179,7 @@ herdr --version
 herdr status server
 ```
 
-If Herdr is absent, the HerdRabbit service installer downloads the official Herdr installer automatically. To install Herdr yourself:
+If Herdr is absent, the HerdRabbit installer downloads the official Herdr installer automatically. To install Herdr yourself:
 
 ```bash
 curl -fsSL https://herdr.dev/install.sh | sh
@@ -193,9 +193,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ## Quick install
 
-Installing it [as a Herdr plugin](#install-as-a-herdr-plugin) is recommended. If you already installed the systemd service with the one-line installer below, see [Moving an existing install to the plugin](#moving-an-existing-install-to-the-plugin).
-
-Run this in a Linux terminal:
+Run this in a Linux or macOS terminal. It installs HerdRabbit [as a Herdr plugin](#install-as-a-herdr-plugin):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/install.sh | sh
@@ -203,21 +201,16 @@ curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/install
 
 The bootstrap script:
 
-1. Checks Linux, Git, and Node.js 22+
-2. Clones or updates HerdRabbit in `~/.local/share/herd-rabbit`
+1. Checks Git, npm and Node.js 22+, and fetches the current HerdRabbit into a temporary folder (removed at the end)
+2. Moves a PC that still has the older systemd service over to the plugin instead ([Moving an existing install to the plugin](#moving-an-existing-install-to-the-plugin)), and stops there
 3. Installs Herdr from `https://herdr.dev/install.sh` when `herdr` is missing, or updates it with `herdr update --handoff` when it is older than 0.9.0
-4. Prompts for an optional HerdRabbit password through the terminal
-5. Selects an unused port, preferring `38787` and then `30000–39999`
-6. Installs and starts `herdrabbit.service` for the current OS user
-7. Registers Tailscale Serve HTTPS when Tailscale is running
-8. Prints the final local port and HTTPS URL
+4. Installs the plugin with `herdr plugin install ultivis-iot/HerdRabbit`
+5. Selects an unused port, preferring `38787` and then `30000–39999`, and writes it with this PC's tailnet name into the plugin's `.env`
+6. Prompts for an optional HerdRabbit password through the terminal (an existing one is kept unless you ask to replace it)
+7. Starts the plugin when Herdr is running; otherwise it starts with Herdr
+8. Registers Tailscale Serve HTTPS when Tailscale is running, and prints the local and HTTPS addresses
 
-The bootstrap refuses to overwrite local changes in an existing installation. Override its installation directory with `HERD_RABBIT_INSTALL_DIR`:
-
-```bash
-HERD_RABBIT_INSTALL_DIR="$HOME/apps/herd-rabbit" \
-  sh -c "$(curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/install.sh)"
-```
+Run it again to change the password or register Tailscale Serve again; the plugin's settings and port are kept. It also sets Claude's terminal mode, as the service installer does.
 
 ### Manual repository install
 
@@ -278,13 +271,15 @@ The plugin starts with Herdr, so to have HerdRabbit up after login, have Herdr s
 
 ### Moving an existing install to the plugin
 
-This replaces the systemd service written by the one-line installer or `npm run install-service` with the plugin. With Herdr running, first bring the existing install up to date (**⚙ → Update**, or `sh ~/.local/share/herd-rabbit/update.sh`), then run:
+This replaces the systemd service written by an earlier one-line installer or `npm run install-service` with the plugin; the one-line installer above does the same on such a PC. Run it on that PC while Herdr is running:
 
 ```bash
-sh ~/.local/share/herd-rabbit/migrate-to-plugin.sh
+curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/migrate-to-plugin.sh | sh
 ```
 
-- It shows what it will do and asks first (pass `--yes` without a terminal).
+It needs `git`, `npm` and Node.js 22+. Piped like this, it fetches the current HerdRabbit into a temporary folder and runs from there, so an installation of any age moves over without updating it first; the folder is removed afterwards. From an up-to-date checkout, `sh migrate-to-plugin.sh` in it does the same.
+
+- It shows what it will do and asks first (without a terminal, pass `--yes`: `... | sh -s -- --yes`).
 - It installs the plugin with `herdr plugin install ultivis-iot/HerdRabbit` and carries the unit's `HERDR_WEB_*` settings (port, allowed hosts, the Connect PC port and allowed PCs, and so on) into the plugin's `.env`. A value with a double quote or a line break is not carried and is named so you can add it by hand. `HERDR_BIN` is not carried: the plugin uses the Herdr that runs it. The password file, uploads folder and push subscriptions file the service used are written in explicitly, so a different XDG folder in Herdr's environment does not move them. A `.env` that already has settings is left as it is, and then none of the unit's settings are carried; if its address is not the service's, the move stops before the service is touched.
 - It stops the service and starts the plugin on the same address. The port is the same, so the Tailscale Serve address, an installed PWA and other PCs' connections carry on.
 - Once the plugin answers, it disables the service, deletes its unit file when it is in `~/.config/systemd/user`, and deletes the old checkout when it is an unmodified official checkout in the default place (`~/.local/share/herd-rabbit`, or `HERD_RABBIT_INSTALL_DIR`) holding nothing but its installed dependencies. A checkout anywhere else, one with changes, or one holding other ignored files is kept. If the plugin does not answer, the service is started again and nothing is deleted.
@@ -603,7 +598,7 @@ npm run check:browser   # Playwright checks against a fake Herdr (needs `npx pla
 npm run dev
 ```
 
-`npm run check` finds every script under `src`, `public` and `scripts` and checks its syntax, along with `install.sh` and `update.sh`, so a new file needs no registration. GitHub Actions runs `npm run verify` on every pull request and on pushes to `main`.
+`npm run check` finds every script under `src`, `public` and `scripts` and checks its syntax, along with `install.sh`, `update.sh` and `migrate-to-plugin.sh`, so a new file needs no registration. GitHub Actions runs `npm run verify` on every pull request and on pushes to `main`.
 
 Tests use a fake Herdr executable and temporary state. They do not write to real terminal panes or create and close real workspaces or sessions.
 

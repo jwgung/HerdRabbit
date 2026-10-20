@@ -18,7 +18,7 @@ async function listScripts(directory) {
 }
 
 const files = (await Promise.all(["src", "public", "scripts"].map(listScripts))).flat();
-const shells = ["install.sh", "update.sh"];
+const shells = ["install.sh", "update.sh", "migrate-to-plugin.sh"];
 const failures = [];
 for (const file of files) {
   await run(process.execPath, ["--check", file], { cwd: root }).catch((error) => failures.push([file, error.stderr]));

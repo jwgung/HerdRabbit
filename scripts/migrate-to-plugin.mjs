@@ -82,7 +82,7 @@ export function hasSettings(text) {
 }
 
 // The service unit this PC runs HerdRabbit from, or null.
-async function findUnit(deps) {
+export async function findUnit(deps) {
   for (const unit of SYSTEMD_UNITS) {
     const { code, stdout } = await deps.run("systemctl", [
       "--user", "show", unit,
@@ -101,7 +101,7 @@ async function findUnit(deps) {
   return null;
 }
 
-async function waitForPage(deps, host, port) {
+export async function waitForPage(deps, host, port) {
   const deadline = deps.now() + PAGE_WAIT_MS;
   for (;;) {
     if ((await deps.probe(probeHost(host), port))?.herdrabbit) return true;
@@ -122,7 +122,9 @@ async function removableCheckout(deps, directory) {
   return status.stdout.split("\n").filter(Boolean).every((entry) => entry === "!! node_modules/");
 }
 
-export async function migrate(deps, { yes = false } = {}) {
+// `herdr`: the Herdr the installer checked (install-plugin.mjs); otherwise
+// the service's own.
+export async function migrate(deps, { yes = false, herdr: checkedHerdr = null } = {}) {
   const say = deps.log;
   const found = await findUnit(deps);
   if (!found) {
@@ -134,7 +136,7 @@ export async function migrate(deps, { yes = false } = {}) {
     say("이 PC는 이전 버전에서 leaf로 설치됐습니다. 먼저 그 폴더에서 npm run install-service를 실행해 일반 설치로 바꾼 뒤 다시 실행하세요.");
     return 1;
   }
-  const herdr = environment.get("HERDR_BIN") || "herdr";
+  const herdr = checkedHerdr || environment.get("HERDR_BIN") || "herdr";
   const host = parseHost(environment.get("HERDR_WEB_HOST"));
   const port = parsePort(environment.get("HERDR_WEB_PORT"));
 
@@ -235,7 +237,7 @@ export async function migrate(deps, { yes = false } = {}) {
   return 0;
 }
 
-function run(file, args, { inherit = false } = {}) {
+export function run(file, args, { inherit = false } = {}) {
   return new Promise((resolve) => {
     if (inherit) {
       const child = spawn(file, args, { stdio: "inherit" });
@@ -249,23 +251,10 @@ function run(file, args, { inherit = false } = {}) {
   });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const args = process.argv.slice(2);
-  if (args.some((arg) => arg !== "--yes")) {
-    console.error("사용법: node scripts/migrate-to-plugin.mjs [--yes]");
-    process.exit(2);
-  }
-  if (process.platform !== "linux") {
-    console.error("systemd 서비스는 Linux에만 있습니다. 이 PC는 herdr plugin install ultivis-iot/HerdRabbit로 설치하세요.");
-    process.exit(1);
-  }
-  const yes = args.includes("--yes");
-  if (!yes && !process.stdin.isTTY) {
-    console.error("확인할 터미널이 없습니다. --yes를 붙여 실행하세요.");
-    process.exit(1);
-  }
+// The machine as migrate() uses it.
+export function defaultDeps() {
   const home = process.env.HOME || homedir();
-  process.exitCode = await migrate({
+  return {
     run,
     readFile: (path) => readFile(path, "utf8"),
     // A file Herdr made first keeps its mode on a write; the settings are private.
@@ -281,5 +270,23 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
     home,
     installDirectory: process.env.HERD_RABBIT_INSTALL_DIR || join(home, ".local", "share", "herd-rabbit"),
-  }, { yes });
+  };
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const args = process.argv.slice(2);
+  if (args.some((arg) => arg !== "--yes")) {
+    console.error("사용법: node scripts/migrate-to-plugin.mjs [--yes]");
+    process.exit(2);
+  }
+  if (process.platform !== "linux") {
+    console.error("systemd 서비스는 Linux에만 있습니다. 이 PC는 herdr plugin install ultivis-iot/HerdRabbit로 설치하세요.");
+    process.exit(1);
+  }
+  const yes = args.includes("--yes");
+  if (!yes && !process.stdin.isTTY) {
+    console.error("확인할 터미널이 없습니다. --yes를 붙여 실행하세요 (curl로 받았다면 ... | sh -s -- --yes).");
+    process.exit(1);
+  }
+  process.exitCode = await migrate(defaultDeps(), { yes });
 }
