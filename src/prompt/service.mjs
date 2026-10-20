@@ -1,7 +1,8 @@
-// A pane's prompt card: read off its screen (any status for Claude and Codex
-// panes, whose readers insist on the menu itself being on screen; the generic
+// A pane's prompt card: read off its screen (any status for Claude, Codex and
+// OpenCode panes, whose readers insist on the menu itself being on screen; the generic
 // fallback only while herdr reports the agent blocked), answered by keys sent to the pane, and announced to the pages that
-// watch the pane when it appears, changes or goes.
+// watch the pane when it appears, changes or goes. An OpenCode pane has a card
+// only while it runs a version its reader was checked against (SUPPORTED_OPENCODE_TUI).
 //
 // The answer flow follows herdr-web-ui's (MIT, Copyright (c) 2026 devswha,
 // https://github.com/devswha/herdr-web-ui, server/prompt.ts): the screen is
@@ -10,12 +11,18 @@
 // (Enter, a typed answer) only once the screen shows the same card with the
 // cursor on the row the moves were for. A multiple choice's answer is several
 // such keys (a tick per option, then →): the screen is looked at before each.
+// A card answered by its own keys that asks for it (OpenCode's Reject message
+// and review) is looked at before each key and each typed text too: the same
+// card still on screen, and once a message is typed, the box holding it. A
+// step may ask that of itself: OpenCode's typed answer to a question types
+// only once its box is open, and sends its Enter only once the box holds it.
 import { createHash } from "node:crypto";
 import { HttpError } from "../http-basics.mjs";
 import { fillClaudeCard, parseClaudePrompt } from "./claude.mjs";
 import { parseCodexPrompt } from "./codex.mjs";
 import { parseFallbackPrompt } from "./fallback.mjs";
-import { InvalidAnswer, KEY, answerSteps, publicCard, verifiesCursor } from "./screen.mjs";
+import { SUPPORTED_OPENCODE_TUI, fillOpencodeCard, opencodeDialogOpen, parseOpencodePrompt } from "./opencode.mjs";
+import { InvalidAnswer, answerSteps, moveKeysOf, publicCard, verifiesCursor } from "./screen.mjs";
 
 // The screen's bottom: enough for a long approval panel.
 const SCREEN_LINES = 120;
@@ -29,19 +36,50 @@ const MAX_WATCHES = 64;
 const READS_AT_ONCE = 4;
 // Ticks a watched pane may be missing from the snapshot before it is let go.
 const MISSING_TICKS = 3;
+// How long a pane's agent version, once told, stands before it is asked again.
+const VERSION_MS = 2_000;
 
-// Each agent's own readers, by the name herdr gives it.
-const READERS = { claude: parseClaudePrompt, codex: parseCodexPrompt };
+// What each agent's pane is read with, by the name herdr gives it; what an
+// agent leaves out is SCREEN_DEFAULTS'.
+//   read:   its own reader (screen → card or null); an agent without one is
+//           read only while blocked, by the fallback
+//   noCard: screens on which its keys go somewhere no card can see, so no card
+//           at all, not even the fallback: an OpenCode dialog (ctrl+p's
+//           commands, ...) takes Enter and Esc, and its Enter runs the dialog's
+//           highlighted entry
+//   format, source: how the screen is read. OpenCode's selected permission
+//           button is known only by its colour, so its screen comes with its
+//           styles, from the visible screen (herdr's detection snapshot drops
+//           the styles; checked on OpenCode 1.18.34)
+//   fill:   the card's whole words, from the agent's own record of the call it
+//           waits on
+//   supports: (version) => whether the reader knows the screens of that
+//           version of the agent (the pane's own record of it, `agentVersion`);
+//           a pane of any other version, or of none known, has no card at all,
+//           not even the fallback. Absent: any version.
+const SCREEN_DEFAULTS = Object.freeze({ read: null, noCard: () => false, format: "text", source: "detection", fill: null, supports: null });
+const AGENT_SCREENS = Object.freeze(Object.fromEntries(Object.entries({
+  claude: { read: parseClaudePrompt, fill: fillClaudeCard },
+  codex: { read: parseCodexPrompt },
+  opencode: { read: parseOpencodePrompt, noCard: opencodeDialogOpen, format: "ansi", source: "visible", fill: fillOpencodeCard, supports: SUPPORTED_OPENCODE_TUI },
+}).map(([name, screen]) => [name, Object.freeze({ ...SCREEN_DEFAULTS, ...screen })])));
+
+// How the agent named `name` (or none) has its pane read.
+function screenOf(name) {
+  return typeof name === "string" && Object.hasOwn(AGENT_SCREENS, name) ? AGENT_SCREENS[name] : SCREEN_DEFAULTS;
+}
 
 // The agent's dedicated reader decides from the screen alone, so the pane is
 // read whatever herdr says it is doing (it does not always say blocked while a
 // menu waits); any other agent is read only while blocked.
 function readerName(agent) {
   const name = agent.claude ? "claude" : agent.name;
-  return Object.hasOwn(READERS, name) ? name : null;
+  return screenOf(name).read ? name : null;
 }
 
-const delay = (ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref?.(); });
+// Kept referenced: an answer whose keys are still going out holds the process
+// (and a test) open until they have.
+const delay = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
 function promptChanged() {
   return new HttpError(409, "prompt_changed", "The prompt changed. Look at it again and choose once more.");
@@ -85,7 +123,8 @@ export function paneAgent(snapshot, paneId) {
   const name = names.find((item) => typeof item === "string" && item.trim())?.trim().toLowerCase() ?? "unknown";
   const claude = names.some((item) => typeof item === "string" && item.toLowerCase() === "claude");
   const value = agent?.agent_status || agent?.state || pane?.agent_status || pane?.agent_state;
-  return { claude, name, status: KNOWN_STATES.has(value) ? value : "unknown" };
+  const session = [pane?.agent_session?.value, agent?.agent_session?.value].find((item) => typeof item === "string" && item) ?? null;
+  return { claude, name, session, status: KNOWN_STATES.has(value) ? value : "unknown" };
 }
 
 // Ticks between reads of a non-blocked pane that has shown no menu for
@@ -97,10 +136,17 @@ function quietStride(quiet) {
 export class PromptService {
   // `details(paneId, snapshot)`: the call a Claude pane's agent waits on, from
   // its transcript, for the card's whole words (optional); `snapshot` is the
-  // herdr snapshot already in hand, when there is one.
-  constructor({ herdr, details = null, settleMs = 1_500, stepDelayMs = 30, lookMs = 50, pollMs = 1_000 }) {
+  // herdr snapshot already in hand, when there is one. `agentVersion(paneId,
+  // snapshot)`: the version of the agent the pane runs, from its own record,
+  // or null; without it an agent whose reader `supports` only some versions
+  // (OpenCode) has no card.
+  constructor({ herdr, details = null, agentVersion = null, settleMs = 1_500, stepDelayMs = 30, lookMs = 50, pollMs = 1_000 }) {
     this.herdr = herdr;
     this.details = details;
+    this.agentVersion = agentVersion;
+    // paneId + agent session -> { version, at }: the agent version last told,
+    // for VERSION_MS; another session in the same pane is asked again
+    this.versions = new Map();
     this.settleMs = settleMs;
     this.stepDelayMs = stepDelayMs;
     this.lookMs = lookMs;
@@ -121,23 +167,55 @@ export class PromptService {
   }
 
   // The card the pane shows now, with the reader's bookkeeping, or null. A
-  // Claude or Codex pane is read whatever its status, by its agent's reader;
+  // Claude, Codex or OpenCode pane is read whatever its status, by its agent's reader;
   // any other pane only while herdr reports it blocked. The fallback card (any
   // agent) is for blocked panes only. A password prompt is never a card.
-  async read(paneId, snapshot = null) {
-    const agent = paneAgent(snapshot ?? await this.herdr.snapshot(), paneId);
+  // `fresh`: the version is asked now, not taken from the last few seconds
+  // (an answer, whose keys go to the pane).
+  async read(paneId, snapshot = null, { fresh = false } = {}) {
+    const given = snapshot ?? await this.herdr.snapshot();
+    const agent = paneAgent(given, paneId);
     if (!agent) throw new HttpError(404, "pane_not_found", "This pane is gone.");
-    return this.#readScreen(paneId, agent);
+    return this.#readScreen(paneId, agent, given, fresh);
   }
 
-  async #readScreen(paneId, agent) {
+  #screen(paneId, reader) {
+    const { format, source } = screenOf(reader);
+    return this.herdr.readPane(paneId, { lines: SCREEN_LINES, format, source });
+  }
+
+  async #readScreen(paneId, agent, snapshot = null, fresh = false) {
     const reader = readerName(agent);
     const blocked = agent.status === "blocked";
     if (!reader && !blocked) return null;
-    const screen = await this.herdr.readPane(paneId, { lines: SCREEN_LINES, format: "text", source: "detection" });
-    const card = reader ? READERS[reader](screen) ?? null : null;
+    if (reader && !(await this.#supported(paneId, reader, snapshot, agent.session, fresh))) return null;
+    const screen = await this.#screen(paneId, reader);
+    const { read, noCard } = screenOf(reader);
+    if (reader && noCard(screen)) return null;
+    const card = reader ? read(screen) ?? null : null;
     if (card || !blocked) return card;
     return parseFallbackPrompt(screen, { agent: reader ?? agent.name });
+  }
+
+  // Whether the pane's agent is a version its reader knows: always, for a
+  // reader that does not ask; never, when the version cannot be told.
+  // The version is kept for VERSION_MS per pane and agent session: an answer
+  // looks at the screen every few milliseconds, and a connected PC's pane is
+  // asked over its link. `fresh` asks again whatever is kept.
+  async #supported(paneId, reader, snapshot, session = null, fresh = false) {
+    const { supports } = screenOf(reader);
+    if (!supports) return true;
+    if (typeof this.agentVersion !== "function") return false;
+    const key = JSON.stringify([paneId, session]);
+    const known = fresh ? null : this.versions.get(key);
+    let version = known && Date.now() - known.at < VERSION_MS ? known.version : undefined;
+    if (version === undefined) {
+      try { version = await this.agentVersion(paneId, snapshot); } catch { version = null; }
+      this.versions.delete(key);
+      this.versions.set(key, { version, at: Date.now() });
+      if (this.versions.size > MAX_WATCHES) this.versions.delete(this.versions.keys().next().value);
+    }
+    return supports(version) === true;
   }
 
   async card(paneId) {
@@ -146,13 +224,14 @@ export class PromptService {
     return this.#worded(paneId, publicCard(await this.read(paneId, snapshot)), snapshot);
   }
 
-  // A Claude card's words, whole, from its transcript; the screen's when that
-  // cannot be read.
+  // A Claude card's words, whole, from its transcript, and an OpenCode
+  // question's from its database; the screen's when those cannot be read.
   async #worded(paneId, card, snapshot = null) {
-    if (!card || card.agent !== "claude" || !this.details || (card.kind !== "plan" && card.kind !== "question")) return card;
+    const fill = card && !card.fallback ? screenOf(card.agent).fill : null;
+    if (!fill || !this.details || (card.kind !== "plan" && card.kind !== "question")) return card;
     let ask = null;
     try { ask = await this.details(paneId, snapshot); } catch { /* the screen's words, then */ }
-    return fillClaudeCard(card, ask);
+    return fill(card, ask);
   }
 
   // Answers one pane at a time, in the order the answers came.
@@ -172,7 +251,7 @@ export class PromptService {
     const given = JSON.stringify([body.cardId, body.option ?? null, body.options ?? null, body.text ?? null]);
     const last = this.answered.get(paneId);
     if (last && last.answer === given && Date.now() - last.at < this.answeredMs) throw promptChanged();
-    const parsed = await this.read(paneId);
+    const parsed = await this.read(paneId, null, { fresh: true });
     if (!parsed || parsed.id !== body.cardId) throw promptChanged();
     let steps;
     try {
@@ -182,13 +261,26 @@ export class PromptService {
       throw error;
     }
     const verify = verifiesCursor(parsed);
+    const moves = moveKeysOf(parsed);
     let cursor = parsed.selectedIndex;
     let sent = false;
     let typed = false;
+    let typedText = "";
     let committed = false;
     try {
       for (const [index, step] of steps.entries()) {
-        const move = step.keys?.every((key) => key === KEY.up || key === KEY.down) ?? false;
+        // A step that is checked: "card", the same card still on screen;
+        // "box", the card's text box holding what is typed so far ("" for a
+        // box just opened). A card that checks each step checks "card" until
+        // a message is typed and "box" after; a step may name its own check
+        // (OpenCode's typed answer: its text and Enter wait on the box). If
+        // the check fails, nothing more goes.
+        const check = step.check ?? (parsed.checksEachStep ? (typed ? "box" : "card") : null);
+        if (check === "box" && !(await this.#holds(paneId, parsed, typedText))) throw promptChanged();
+        if (check === "card" && !(await this.#onRow(paneId, parsed.promptKey ?? parsed.id, parsed.selectedIndex, { anyRow: true }))) {
+          throw promptChanged();
+        }
+        const move = step.keys?.every((key) => key === moves.back || key === moves.forward) ?? false;
         // A key that picks or ticks goes only once the screen shows this
         // prompt again with the cursor where the keys so far left it: the menu
         // answered in the terminal meanwhile, with another in its place, would
@@ -204,10 +296,10 @@ export class PromptService {
         if (step.keys) await this.herdr.sendKeys(paneId, step.keys);
         else await this.herdr.sendText(paneId, step.text);
         sent = true;
-        if (step.text !== undefined) typed = true;
+        if (step.text !== undefined) { typed = true; typedText += step.text; }
         if (!move) committed = true;
         if (move) {
-          for (const key of step.keys) cursor = key === KEY.down ? cursor + 1 : Math.max(0, cursor - 1);
+          for (const key of step.keys) cursor = key === moves.forward ? cursor + 1 : Math.max(0, cursor - 1);
         }
         if (index < steps.length - 1) await delay(this.stepDelayMs);
       }
@@ -218,11 +310,26 @@ export class PromptService {
     return { ok: true };
   }
 
-  async #onRow(paneId, promptKey, cursor) {
+  // Whether the screen shows the card `promptKey` with the cursor on `cursor`
+  // (any row, with `anyRow`), within the settle time.
+  async #onRow(paneId, promptKey, cursor, { anyRow = false } = {}) {
     const deadline = Date.now() + this.settleMs;
     while (Date.now() < deadline) {
       const shown = await this.read(paneId).catch(() => null);
-      if (shown && (shown.promptKey ?? shown.id) === promptKey && shown.selectedIndex === cursor) return true;
+      if (shown && (shown.promptKey ?? shown.id) === promptKey && (anyRow || shown.selectedIndex === cursor)) return true;
+      await delay(this.lookMs);
+    }
+    return false;
+  }
+
+  // Whether the screen shows the card's text box holding `text`, within the
+  // settle time: the card's reader tells (`holdsText`); one that cannot tell holds nothing.
+  async #holds(paneId, parsed, text) {
+    if (typeof parsed.holdsText !== "function") return false;
+    const deadline = Date.now() + this.settleMs;
+    while (Date.now() < deadline) {
+      const screen = await this.#screen(paneId, parsed.agent).catch(() => null);
+      if (screen !== null && parsed.holdsText(screen, text)) return true;
       await delay(this.lookMs);
     }
     return false;
@@ -304,7 +411,7 @@ export class PromptService {
         if (agent) entry.missing = 0;
         if (agent && agent.status === "blocked") { entry.quiet = 0; reading.push({ entry, agent }); }
         else if (agent && readerName(agent)) {
-          // A Claude or Codex pane herdr does not call blocked may still wait
+          // A Claude, Codex or OpenCode pane herdr does not call blocked may still wait
           // on a menu, so it is read too -- but less often while nothing has
           // shown: every tick, then every 2nd, then every 4th, until a card,
           // a status change or input (a nudge) brings it back to every tick.
@@ -323,7 +430,7 @@ export class PromptService {
         }
       }
       await eachLimited(reading, READS_AT_ONCE, async ({ entry, agent }) => {
-        const card = await this.#worded(entry.paneId, publicCard(await this.#readScreen(entry.paneId, agent).catch(() => null)), snapshot);
+        const card = await this.#worded(entry.paneId, publicCard(await this.#readScreen(entry.paneId, agent, snapshot).catch(() => null)), snapshot);
         entry.quiet = card ? 0 : (entry.quiet ?? 0) + 1;
         this.#tell(entry, card);
       });

@@ -22,7 +22,7 @@ import { PeerIdentity } from "../src/peer-identity.mjs";
 import { opencodeDb } from "./fixtures/opencode-db.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
 
-const VERSION = "1.2.75";
+const VERSION = "1.2.76";
 const SESSION = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
 const PANE = "hs_ZGVmYXVsdA~w1:p1";
 const LINKED = `link_1!${PANE}`;
@@ -90,7 +90,7 @@ async function startDesk(context, { link = (routes) => routes } = {}) {
   // An OpenCode database, its session reported by herdr's OpenCode plugin.
   const opencode = opencodeDb(join(root, "opencode.db"));
   context.after(() => opencode.close());
-  opencode.session(OPENCODE_SESSION, { directory: "/work/desk" });
+  opencode.session(OPENCODE_SESSION, { directory: "/work/desk", version: "1.18.34" });
   opencode.exchange(OPENCODE_SESSION, 1, [{ type: "tool", tool: "bash", state: { status: "completed", input: { command: "ls" }, output: "a\nb" } }]);
   const reads = [];
   const panes = [
@@ -224,7 +224,7 @@ test("A relays a connected PC's OpenCode pane, read from B's own database", asyn
 
 test("B answers only for its own panes, never for a server it reaches itself", async (context) => {
   const desk = await startDesk(context);
-  for (const path of ["conversation", "conversation/signature", "conversation/tools/toolu_big", "pending-ask"]) {
+  for (const path of ["conversation", "conversation/signature", "conversation/tools/toolu_big", "pending-ask", "agent-version"]) {
     const response = await fetch(`${desk.address}/api/link/panes/${encodeURIComponent(`other!${PANE}`)}/${path}`);
     assert.equal(response.status, 404, path);
     assert.deepEqual((await response.json()).error.details, { reason: "pane_not_found" }, path);
@@ -380,6 +380,21 @@ test("a connected PC's Codex pane reads as a chat too, found there by its thread
   assert.match(words, /codex prompt 1/u);
   assert.match(words, /codex answer 2/u);
   assert.doesNotMatch(words, /rollout-2026/u, "B's file path stays on B");
+});
+
+test("a connected PC's OpenCode version is read there, where its screen and database are; a PC from before this tells none", async (context) => {
+  const desk = await startDesk(context);
+  const { conversations } = await startHub(context, desk.address);
+  assert.equal(await conversations.agentVersion(`link_1!${OPENCODE_PANE}`), "1.18.34");
+  assert.equal(await conversations.agentVersion(`link_1!${PANE}`), null, "a Claude pane has none");
+  const old = await startDesk(context, {
+    link: (routes) => async (request, response, url, method) => {
+      if (url.pathname.endsWith("/agent-version")) throw new HttpError(404, "not_found", "Not found");
+      return routes(request, response, url, method);
+    },
+  });
+  const hub = await startHub(context, old.address);
+  assert.equal(await hub.conversations.agentVersion(`link_1!${OPENCODE_PANE}`), null);
 });
 
 test("a connected PC that does not know OpenCode says to update it, not that chat is unsupported", async (context) => {

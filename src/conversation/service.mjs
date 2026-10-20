@@ -8,6 +8,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { CLAUDE_TRANSCRIPT, SESSION_ID, locateClaudeTranscript, pendingClaudeAsk, readTail } from "./claude.mjs";
 import { CODEX_TRANSCRIPT, THREAD_ID, isCodexProcess, locateCodexRollout } from "./codex.mjs";
 import { OPENCODE_SESSION, OPENCODE_SESSION_ID } from "./opencode.mjs";
+import { opencodeRunningVersion } from "./opencode-process.mjs";
 import {
   ConversationError,
   ConversationUnavailable,
@@ -44,8 +45,11 @@ export class ConversationService {
     herdr,
     localStore = localTranscriptStore(),
     now = () => Date.now(),
+    runningVersion = opencodeRunningVersion(),
   }) {
     this.herdr = herdr;
+    // pids -> the version of the OpenCode program among them, or null
+    this.runningVersion = runningVersion;
     this.localStore = localStore;
     this.now = now;
     this.located = new Map();
@@ -53,6 +57,8 @@ export class ConversationService {
     this.linkStores = new Map();
     // paneId -> { key, ask }: the asking tool call last read from that file version
     this.asks = new Map();
+    // paneId -> { key, version }: the agent version last read for that session state
+    this.versions = new Map();
     // Signatures handed out are hashed with this, so they say nothing of the file.
     this.salt = randomUUID();
   }
@@ -128,8 +134,9 @@ export class ConversationService {
   }
 
   // The plan or question a Claude pane's agent waits on, from its transcript's
-  // tail: { name, input } or null. A pane that is not Claude's, or whose
-  // transcript cannot be read, has none. Read again only when the file changed.
+  // tail, or the question an OpenCode pane's waits on, from its database:
+  // { name, input } or null. Any other pane, or one whose record cannot be
+  // read, has none. Read again only when the file (or session) changed.
   // `snapshot`: a herdr snapshot already in hand, so a watch looking at many
   // panes asks herdr once.
   async pendingAsk(paneId, snapshot = null) {
@@ -137,6 +144,7 @@ export class ConversationService {
       const linked = this.#linked(paneId);
       if (linked) return await linked.client.conversationPendingAsk(linked.id);
       const found = await this.resolve(paneId, snapshot);
+      if (found.agent === "opencode") return found.path ? await this.#pendingQuestion(paneId, found) : null;
       if (found.agent !== "claude" || !found.path) return null;
       const stat = await found.store.stat(found.path);
       if (!stat) return null;
@@ -149,6 +157,49 @@ export class ConversationService {
     } catch {
       return null;
     }
+  }
+
+  // The version of the agent a pane runs, or null: for an OpenCode pane whose
+  // session is read, the version of the OpenCode program running in the pane
+  // (it draws the screen), or where that cannot be told, the version that
+  // created the pane's session (its database's session row, which a newer
+  // OpenCode carrying the session on leaves as it was). What a prompt card's
+  // reader was checked against is told by it; any other pane, or one that
+  // cannot be read, has none. A connected PC's pane is the PC's to read: its
+  // screen, its processes and its database are all there.
+  async agentVersion(paneId, snapshot = null) {
+    try {
+      const linked = this.#linked(paneId);
+      if (linked) return typeof linked.client.conversationAgentVersion === "function" ? await linked.client.conversationAgentVersion(linked.id) : null;
+      const found = await this.resolve(paneId, snapshot);
+      if (found.agent !== "opencode" || !found.path) return null;
+      const stat = await found.store.stat(found.session);
+      if (!stat) return null;
+      const key = `${found.serverId}\0opencode\0${found.session}\0${stat.identity}`;
+      const known = this.versions.get(paneId);
+      let version = known?.key === key ? known.version : undefined;
+      if (version === undefined) {
+        version = await found.store.sessionVersion(found.session);
+        remember(this.versions, paneId, { key, version }, MAX_REMEMBERED_ASKS);
+      }
+      if (version === null) return null;
+      return (await this.#runningOpencodeVersion(paneId)) ?? version;
+    } catch {
+      return null;
+    }
+  }
+
+  // The question an OpenCode session waits on, read again only once the
+  // session changed.
+  async #pendingQuestion(paneId, found) {
+    const stat = await found.store.stat(found.session);
+    if (!stat) return null;
+    const key = `${found.serverId}\0opencode\0${found.session}\0${stat.identity}`;
+    const known = this.asks.get(paneId);
+    if (known?.key === key) return known.ask;
+    const ask = await found.store.pendingQuestion(found.session);
+    remember(this.asks, paneId, { key, ask }, MAX_REMEMBERED_ASKS);
+    return ask;
   }
 
   // Only this machine's transcripts are read here: a connected PC's pane is
@@ -261,6 +312,19 @@ export class ConversationService {
     }
     // a thread herdr reported that Codex has not written yet reads as no turns
     return { paneId, serverId, agent, format, store, session: thread ?? session?.value ?? "", path: found.value, key: found.key };
+  }
+
+  // The version of the OpenCode program among the pane's processes, by herdr's
+  // process info; null when this herdr or this system cannot tell.
+  async #runningOpencodeVersion(paneId) {
+    if (typeof this.herdr.paneProcessInfo !== "function" || typeof this.runningVersion !== "function") return null;
+    try {
+      const info = await this.herdr.paneProcessInfo(paneId);
+      const processes = info?.process_info?.foreground_processes ?? info?.foreground_processes ?? [];
+      return Array.isArray(processes) ? await this.runningVersion(processes.map((item) => item?.pid)) : null;
+    } catch {
+      return null;
+    }
   }
 
   // The pids of the pane's Codex processes, by herdr's process info; none

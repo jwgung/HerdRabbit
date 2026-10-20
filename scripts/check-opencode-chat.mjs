@@ -3,8 +3,9 @@
 // opencode.db with made-up rows. Prompts read as bubbles, the answer as
 // Markdown, OpenCode's tool calls fold under "Worked for" with their verbs, a
 // todowrite call reads as a to-do list, a command's whole output loads on
-// request, the working row names OpenCode (with no Stop: its chat is read
-// only), and rows written meanwhile land in the open chat. Runs against an
+// request, the working row names OpenCode (and the composer offers Stop:
+// check-opencode-cards.mjs presses it), and rows written meanwhile land in
+// the open chat. Runs against an
 // in-process fake herdr; nothing reaches a real herdr or a real OpenCode.
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -160,9 +161,9 @@ try {
     await block.locator(".chat-tool-more").click();
     await page.waitForFunction(() => [...document.querySelectorAll(".chat-tool-output pre")].some((pre) => pre.textContent.endsWith("end of output")));
 
-    // OpenCode works: the row names it, and the composer has no Stop for it.
+    // OpenCode works: the row names it, and the composer's button is Stop.
     await page.waitForFunction(() => document.querySelector('.chat-pane[data-pane-id="w1:p1"] .chat-working')?.textContent.startsWith("OpenCode is working"), null, { timeout: 5_000 });
-    assert.equal(await page.locator("#input-form .send-button").getAttribute("data-mode"), "send");
+    await page.waitForFunction(() => document.querySelector("#input-form .send-button")?.dataset.mode === "stop", null, { timeout: 5_000 });
 
     // Rows written meanwhile land in the open chat.
     fixture.exchange(SESSION, 30);

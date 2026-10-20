@@ -10,8 +10,8 @@ import { TERMINAL_FONT_SIZE_STORAGE_KEY } from "../public/terminal-preference.js
 
 const card = { id: "abc123def456", agent: "claude", title: "Bash command", options: [{ label: "Yes" }, { label: "No" }], customOptionIndex: null };
 
-test("a Claude or Codex pane is watched for a card whatever its status; other panes only while blocked", () => {
-  for (const agent of ["claude", "codex"]) {
+test("a Claude, Codex or OpenCode pane is watched for a card whatever its status; other panes only while blocked", () => {
+  for (const agent of ["claude", "codex", "opencode"]) {
     for (const status of ["blocked", "idle", "working", "done", "unknown", null]) assert.equal(shouldWatchPrompt(status, agent), true);
   }
   for (const agent of [null, "gemini", "unknown"]) {

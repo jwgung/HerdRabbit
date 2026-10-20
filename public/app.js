@@ -1,7 +1,7 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.75";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.75";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.75";
-import { createUpdatePanel } from "./app-update.js?v=1.2.75";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.2.76";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.2.76";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.2.76";
+import { createUpdatePanel } from "./app-update.js?v=1.2.76";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -54,7 +54,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyMachinesNotice,
-} from "./ui-model.js?v=1.2.75";
+} from "./ui-model.js?v=1.2.76";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -65,44 +65,44 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.2.75";
-import { terminalConnection } from "./terminal-connection.js?v=1.2.75";
-import { terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.2.75";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.75";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.75";
-import { createChatLens } from "./chat/chat-view.js?v=1.2.75";
-import { createChatFind } from "./chat/chat-find.js?v=1.2.75";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.2.75";
+} from "./browse-preference.js?v=1.2.76";
+import { terminalConnection } from "./terminal-connection.js?v=1.2.76";
+import { terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.2.76";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.2.76";
+import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.2.76";
+import { createChatLens } from "./chat/chat-view.js?v=1.2.76";
+import { createChatFind } from "./chat/chat-find.js?v=1.2.76";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.2.76";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.2.75";
-import { chatAgent } from "./lens-preference.js?v=1.2.75";
-import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop } from "./chat/chat-activity.js?v=1.2.75";
-import * as xterm from "./vendor/xterm.mjs?v=1.2.75";
+} from "./chat-font-preference.js?v=1.2.76";
+import { chatAgent } from "./lens-preference.js?v=1.2.76";
+import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop, stopFollowUp, stopPresses } from "./chat/chat-activity.js?v=1.2.76";
+import * as xterm from "./vendor/xterm.mjs?v=1.2.76";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.2.75";
+} from "./pane-preference.js?v=1.2.76";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.2.75";
+} from "./workspace-preference.js?v=1.2.76";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.2.75";
+} from "./terminal-preference.js?v=1.2.76";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.2.75";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.75";
+} from "./completion-preference.js?v=1.2.76";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.2.76";
 import {
   attachSidebarDrag,
   dropScope,
@@ -111,17 +111,17 @@ import {
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.2.75";
-import { renamePaneKeys } from "./pane-rename.js?v=1.2.75";
-import { renamePaneLenses } from "./lens-preference.js?v=1.2.75";
+} from "./sidebar-drag.js?v=1.2.76";
+import { renamePaneKeys } from "./pane-rename.js?v=1.2.76";
+import { renamePaneLenses } from "./lens-preference.js?v=1.2.76";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.2.75";
-import { atFilesSource } from "./composer-at-files.js?v=1.2.75";
-import { createComposerPopup } from "./composer-popup.js?v=1.2.75";
-import { slashCommandsSource } from "./composer-slash.js?v=1.2.75";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.75";
+} from "./input-history-preference.js?v=1.2.76";
+import { atFilesSource } from "./composer-at-files.js?v=1.2.76";
+import { createComposerPopup } from "./composer-popup.js?v=1.2.76";
+import { slashCommandsSource } from "./composer-slash.js?v=1.2.76";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.2.76";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -137,16 +137,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.2.75";
+} from "./key-bar-preference.js?v=1.2.76";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.2.75";
+} from "./launch-session.js?v=1.2.76";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.2.75";
+} from "./push-notifications.js?v=1.2.76";
 
 function browserStorage() {
   try {
@@ -3202,21 +3202,30 @@ function receiveLiveStatus(event) {
   renderPaneHeading(selected.pane, selected.tab, selected.workspace);
 }
 
+// Settles when the snapshot on its way (if any) has arrived or failed.
+let snapshotSettled = Promise.resolve();
+
 async function refreshSnapshot() {
   if (!state.authenticated) return;
   if (state.snapshotBusy || state.mutationBusy || document.hidden) return;
   state.snapshotBusy = true;
+  let settle;
+  snapshotSettled = new Promise((resolve) => { settle = resolve; });
   const previousPaneId = state.selectedPaneId;
   const previousStatus = selectedAgentStatus();
   try {
     await restoreNotificationTarget();
     const statusAtRequest = liveStatusSequence;
+    // when this snapshot was asked for: it shows the panes as they were then, or later
+    const requestedAt = Date.now();
     const payload = await api("/api/snapshot");
     const previouslyAcknowledged = new Set(snapshotRecords().panes.filter(pane => {
       const id = idOf(pane, "pane_id", "id");
       return state.acknowledgedCompletions.get(id) === agentCompletionIdentity(agentForPane(id), pane);
     }).map(pane => idOf(pane, "pane_id", "id")));
     state.snapshot = payload.snapshot || {};
+    // when the snapshot last arrived was asked for (one that failed or was skipped leaves it)
+    state.snapshotAt = requestedAt;
     const records = snapshotRecords();
     const paneIds = records.panes.map(pane => idOf(pane, "pane_id", "id"));
     for (const [paneId, event] of liveStatusUpdates) {
@@ -3251,6 +3260,7 @@ async function refreshSnapshot() {
     setConnection("error", error.message);
   } finally {
     state.snapshotBusy = false;
+    settle();
   }
 }
 
@@ -4109,9 +4119,18 @@ async function stopAgent() {
   try {
     // Only Claude Code puts a stopped message back in its box; the server
     // looks for it before the next send only after a Stop marked as Claude's.
-    const claude = chatAgent(selectedRecords().pane, agentForPane(paneId)) === "claude";
+    const agent = chatAgent(selectedRecords().pane, agentForPane(paneId));
+    const claude = agent === "claude";
     await sendKeys(["esc"], paneId, { stop: claude });
+    // OpenCode stops on a second Esc (within 5 seconds), sent apart from the first
+    const { presses, gapMs } = stopPresses(agent);
+    for (let press = 1; press < presses; press += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, gapMs));
+      await sendKeys(["esc"], paneId);
+    }
     refreshAfterSubmission();
+    const followUp = stopFollowUp(agent);
+    if (followUp) void hintIfStillWorking(paneId, followUp);
   } catch (error) {
     setFeedback(error.message, true);
   } finally {
@@ -4119,6 +4138,23 @@ async function stopAgent() {
     stoppingPanes.delete(paneId);
     syncSendButton();
   }
+}
+
+// A moment after an OpenCode Stop: the pane, still selected and still
+// working by a fresh snapshot, gets the hint that its Escs may have gone to a
+// list or the shell mode instead. Fresh is asked for after this moment: one
+// already on its way was asked for before, so it is waited out and another
+// asked for (a few tries). A snapshot that could not be had (it failed, or was
+// skipped) says nothing: the status from before the Stop is no evidence.
+async function hintIfStillWorking(paneId, { afterMs, message }) {
+  await new Promise((resolve) => window.setTimeout(resolve, afterMs));
+  const asked = Date.now();
+  for (let tries = 0; tries < 3 && !(state.snapshotAt >= asked); tries += 1) {
+    if (state.snapshotBusy) await snapshotSettled;
+    else await refreshSnapshot();
+  }
+  if (!(state.snapshotAt >= asked)) return;
+  if (state.selectedPaneId === paneId && stopTarget.paneId === paneId && stopTarget.status === "working") setFeedback(message);
 }
 
 // The press decides: at pointerdown, before focus leaves the composer, a press

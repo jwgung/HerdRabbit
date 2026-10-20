@@ -13,7 +13,16 @@ const DIVIDER_RE = /^[\s╭╮╰╯├┤┬┴┼─━═╌▔]+$/;
 export const SOLID_RULE_RE = /^[─━]{8,}$/;
 export const NUMBERED_OPTION_RE = /^\s*([›>❯])?\s*(\d+)\.\s+(.+)$/;
 
-export const KEY = Object.freeze({ up: "up", down: "down", enter: "enter", escape: "esc", right: "right", tab: "tab", backtab: "shift+tab" });
+export const KEY = Object.freeze({ up: "up", down: "down", left: "left", right: "right", enter: "enter", escape: "esc", tab: "tab", backtab: "shift+tab" });
+
+// The keys that move a menu's cursor back and forth: up and down, unless the
+// card names its own (OpenCode's permission buttons sit in a row: left and right).
+export const VERTICAL = Object.freeze({ back: KEY.up, forward: KEY.down });
+export const HORIZONTAL = Object.freeze({ back: KEY.left, forward: KEY.right });
+
+export function moveKeysOf(parsed) {
+  return parsed?.moveKeys ?? VERTICAL;
+}
 
 export class InvalidAnswer extends Error {}
 
@@ -139,8 +148,8 @@ export function publicCard(parsed) {
   };
 }
 
-export function navigationKeys(delta) {
-  return Array.from({ length: Math.abs(delta) }, () => delta > 0 ? KEY.down : KEY.up);
+export function navigationKeys(delta, moveKeys = VERTICAL) {
+  return Array.from({ length: Math.abs(delta) }, () => delta > 0 ? moveKeys.forward : moveKeys.back);
 }
 
 export function keySteps(keys) {
@@ -165,7 +174,8 @@ export function visibleLines(screen) {
 
 // The steps that answer `parsed` with `answer`: exactly one of `option`
 // (an index), `options` (indices, for a multiple choice) or `text` (a typed
-// answer). A step is `{ keys: [...] }` or `{ text }`.
+// answer). A step is `{ keys: [...] }` or `{ text }`, either maybe with the
+// `check` the screen must pass before it goes (service.mjs).
 export function answerSteps(parsed, answer) {
   const supplied = ["option", "options", "text"].filter((name) => answer?.[name] !== undefined);
   if (supplied.length !== 1) throw new InvalidAnswer("Exactly one answer is required.");
@@ -179,7 +189,7 @@ export function answerSteps(parsed, answer) {
     if (parsed.customSteps) return parsed.customSteps(text);
     // the row that takes the answer, then whatever opens its text line there
     // (Codex's notes: Tab), the text, and the key that sends it
-    const navigation = navigationKeys(parsed.customMenuIndex - parsed.selectedIndex);
+    const navigation = navigationKeys(parsed.customMenuIndex - parsed.selectedIndex, moveKeysOf(parsed));
     return [
       ...keySteps([...navigation, ...(parsed.typedOpenKeys ?? [])]),
       { text },
@@ -200,7 +210,9 @@ export function answerSteps(parsed, answer) {
     let cursor = parsed.selectedIndex;
     const keys = [];
     for (const optionIndex of toggles) {
-      keys.push(...navigationKeys(optionIndex - cursor), KEY.enter);
+      // a menu whose rows take their own keys (OpenCode's digits) ticks each by it
+      if (parsed.pickKey) keys.push(parsed.pickKey(optionIndex));
+      else keys.push(...navigationKeys(optionIndex - cursor, moveKeysOf(parsed)), KEY.enter);
       cursor = optionIndex;
     }
     // → leaves the choice for the next question or the review of the answers:
@@ -216,7 +228,11 @@ export function answerSteps(parsed, answer) {
   if (parsed.optionSteps) return parsed.optionSteps[index];
   // Codex's "No, and tell Codex what to do differently (esc)" is its Esc
   if (parsed.rejectWithEscapeIndex === index) return keySteps([KEY.escape]);
-  return keySteps([...navigationKeys(index - parsed.selectedIndex), KEY.enter]);
+  if (parsed.pickKey) return keySteps([parsed.pickKey(index)]);
+  // a screen that does not show where the cursor is (OpenCode's buttons read
+  // without their colours) cannot be moved on blind
+  if (!Number.isInteger(parsed.selectedIndex)) throw new InvalidAnswer("The selected option cannot be seen on the screen. Answer in the terminal.");
+  return keySteps([...navigationKeys(index - parsed.selectedIndex, moveKeysOf(parsed)), KEY.enter]);
 }
 
 // Whether an answer's keys move the cursor and should be checked on screen

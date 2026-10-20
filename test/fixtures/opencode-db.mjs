@@ -52,10 +52,10 @@ export function opencodeDb(path, { schema = OPENCODE_SCHEMA } = {}) {
   return {
     db,
     close: () => db.close(),
-    session(id, { directory = "/work/app", parent = null, archived = null, revert = null } = {}) {
+    session(id, { directory = "/work/app", parent = null, archived = null, revert = null, version = "1.0.0" } = {}) {
       const time = tick();
       db.prepare(`INSERT INTO session (id, project_id, parent_id, slug, directory, title, version, time_created, time_updated, time_archived, revert)
-        VALUES (?, 'prj_1', ?, 'slug', ?, 'title', '1.0.0', ?, ?, ?, ?)`).run(id, parent, directory, time, time, archived, revert);
+        VALUES (?, 'prj_1', ?, 'slug', ?, 'title', ?, ?, ?, ?, ?)`).run(id, parent, directory, version, time, time, archived, revert);
       db.prepare("INSERT INTO session_share VALUES (?, 'shr_1', 'SECRET-SHARE', 'https://example.invalid/s', 1, 1)").run(id);
       bump(id);
       return id;

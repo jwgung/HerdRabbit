@@ -113,6 +113,11 @@ test("reads a pane as plain text, not as a revision window", async (context) => 
   const body = await (await fetch(url, { headers: asHub })).json();
   assert.deepEqual(body, { output: "pane text" });
   assert.deepEqual(client.calls.at(-1), ["readPane", PANE, { lines: 40, format: "ansi" }]);
+  // a hub's OpenCode card reads the visible screen with its styles
+  const visible = await fetch(`${url}&source=visible`, { headers: asHub });
+  assert.equal(visible.status, 200);
+  assert.deepEqual(client.calls.at(-1), ["readPane", PANE, { lines: 40, format: "ansi", source: "visible" }]);
+  assert.equal((await fetch(`${url}&source=everything`, { headers: asHub })).status, 400);
 });
 
 test("passes input through with the same validation the browser API uses", async (context) => {

@@ -170,16 +170,21 @@ export function linkRoutes({
     else write("event: ready\ndata: {}\n\n");
   }
 
-  // Pages, a tool's whole output, a change signature and the plan or question
-  // a Claude pane waits on. Only this PC's own panes: an id naming another
+  // Pages, a tool's whole output, a change signature, the plan or question
+  // a Claude pane waits on and the version of the agent a pane runs. Only this PC's own panes: an id naming another
   // server ("server!pane") is one this PC's page lists for a PC or machine
   // it reaches itself, and a hub is not let through to those.
-  async function conversation(request, response, url, [, encodedPane, signature, encodedTool, pendingAsk]) {
+  async function conversation(request, response, url, [, encodedPane, signature, encodedTool, pendingAsk, agentVersion]) {
     if (!conversations) throw new HttpError(501, "conversations_unsupported", "This PC cannot read conversations.");
     const paneId = decodePaneId(encodedPane);
     if (paneId.includes("!")) throw new ConversationUnavailable("pane_not_found");
     if (pendingAsk) {
       sendJson(response, 200, { ask: await conversations.pendingAsk(paneId) });
+      return;
+    }
+    if (agentVersion) {
+      const version = typeof conversations.agentVersion === "function" ? await conversations.agentVersion(paneId) : null;
+      sendJson(response, 200, { version });
       return;
     }
     if (signature) {
@@ -248,7 +253,7 @@ export function linkRoutes({
 
     // A pane's conversation, read here exactly as this PC's page reads it.
     const conversationMatch = method === "GET" &&
-      url.pathname.match(/^\/api\/link\/panes\/([^/]+)\/(?:conversation(?:\/(signature)|\/tools\/([^/]+))?|(pending-ask))$/u);
+      url.pathname.match(/^\/api\/link\/panes\/([^/]+)\/(?:conversation(?:\/(signature)|\/tools\/([^/]+))?|(pending-ask)|(agent-version))$/u);
     if (conversationMatch) {
       await conversation(request, response, url, conversationMatch);
       return true;

@@ -12,14 +12,18 @@ import {
   IDENTITY_RECHECK_MS,
   LARGE_ROW_BYTES,
   LARGE_TEXT_CHARS,
+  PENDING_QUESTION_BYTES,
   STATEMENTS,
   defaultOpencodeDb,
   localOpencodeStore,
   parseOpencodeTurns,
 } from "../src/conversation/opencode.mjs";
+import { opencodeRunningVersion } from "../src/conversation/opencode-process.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
+import { PromptService } from "../src/prompt/service.mjs";
 import { OPENCODE_SCHEMA, opencodeDb } from "./fixtures/opencode-db.mjs";
+import { fakeOpencodeHerdr } from "./fixtures/opencode-prompt.mjs";
 
 const SESSION = "ses_0001AAAAAAAAAAAAAAAAAAAAAA";
 const OTHER = "ses_0002AAAAAAAAAAAAAAAAAAAAAA";
@@ -259,6 +263,10 @@ test("only the fixed statements run, and none reads the tables that hold secrets
   await conversations.page("w1:p2");
   await conversations.toolOutput("w1:p1", page.turns[1].parts[0].id);
   await conversations.signature("w1:p1");
+  await conversations.pendingAsk("w1:p1");
+  assert.ok(prepared.some((sql) => sql === STATEMENTS.pendingQuestion), "the prompt card's question is read too");
+  assert.equal(await conversations.agentVersion("w1:p1"), "1.0.0");
+  assert.ok(prepared.some((sql) => sql === STATEMENTS.sessionVersion), "and the version that wrote the session");
   assert.ok(prepared.length > 0);
   for (const sql of prepared) assert.ok(allowed.has(sql), sql);
   const answer = JSON.stringify(page);
@@ -492,3 +500,154 @@ test("a write the file stats do not show is still seen within a couple of second
   assert.notEqual((await store.stat(SESSION)).identity, first.identity, "the write was never seen");
 });
 
+
+test("the question a pane's OpenCode waits on: the newest question call still running, for its prompt card", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION);
+  const question = (status, text) => ({ type: "tool", tool: "question", callID: `call_${text}`, state: { status, input: { questions: [{
+    question: text, header: "Format", options: [{ label: "ONNX", description: "Portable." }, { label: "TensorRT", description: "NVIDIA." }],
+  }] }, ...(status === "completed" ? { output: "ONNX" } : {}) } });
+  fixture.exchange(SESSION, 0, [question("completed", "Answered before?")]);
+  const conversations = service(path, [{ pane_id: "w1:p1", agent: "opencode", agent_session: { agent: "opencode", kind: "id", value: SESSION } }]);
+  assert.equal(await conversations.pendingAsk("w1:p1"), null, "an answered question waits on nothing");
+  const message = fixture.exchange(SESSION, 1);
+  const part = fixture.part(SESSION, message, question("running", "Which export format should we use?"));
+  const ask = await conversations.pendingAsk("w1:p1");
+  assert.equal(ask.name, "question");
+  assert.equal(ask.input.questions[0].question, "Which export format should we use?");
+  assert.equal(ask.input.questions[0].options[0].description, "Portable.");
+  fixture.updatePart(SESSION, part, question("completed", "Which export format should we use?"));
+  // the session changed: read again (its identity is rechecked within IDENTITY_RECHECK_MS)
+  const later = service(path, [{ pane_id: "w1:p1", agent: "opencode", agent_session: { agent: "opencode", kind: "id", value: SESSION } }]);
+  assert.equal(await later.pendingAsk("w1:p1"), null);
+  // another agent's pane, or none: nothing
+  assert.equal(await service(path, [{ pane_id: "w1:p1", agent: "codex" }]).pendingAsk("w1:p1"), null);
+});
+
+test("the OpenCode version a pane's session was written by decides its prompt card: 1.18.x and 1.19.x have one, any other version or none has none", async (context) => {
+  const { path, fixture } = await world(context);
+  const versions = { [SESSION]: "1.18.34", [OTHER]: "1.20.0", [CHILD]: "" };
+  for (const [id, version] of Object.entries(versions)) fixture.session(id, { version, directory: `/work/${id}` });
+  const pane = (id) => ({ pane_id: `w1:${id}`, agent: "opencode", agent_status: "blocked", agent_session: { agent: "opencode", kind: "id", value: id } });
+  const cards = async (dbPath) => {
+    const panes = Object.keys(versions).map(pane);
+    const herdr = fakeOpencodeHerdr({ panes, prompts: Object.fromEntries(panes.map((item) => [item.pane_id, { kind: "permission" }])) });
+    const conversations = new ConversationService({
+      herdr,
+      localStore: localTranscriptStore({ configDir: "/nonexistent/claude", codexHome: "/nonexistent/codex", opencodeDb: dbPath }),
+    });
+    const prompts = new PromptService({ herdr, stepDelayMs: 1, lookMs: 2, settleMs: 50,
+      agentVersion: (paneId, snapshot) => conversations.agentVersion(paneId, snapshot) });
+    const shown = {};
+    for (const item of panes) shown[versions[item.agent_session.value] || "none"] = (await prompts.card(item.pane_id))?.title ?? null;
+    // an answer to the card a 1.18 pane would show goes nowhere on the others
+    for (const item of panes.slice(1)) {
+      await assert.rejects(prompts.answer(item.pane_id, { cardId: "opencode:permission", option: 0 }), { status: 409 });
+    }
+    return { shown, sent: herdr.sent, conversations };
+  };
+  const { shown, sent, conversations } = await cards(path);
+  assert.deepEqual(shown, { "1.18.34": "Permission required", "1.20.0": null, none: null });
+  assert.deepEqual(sent, [], "nothing sent to a pane of a version the reader does not know");
+  assert.equal(await conversations.agentVersion("w1:" + SESSION), "1.18.34");
+  assert.equal(await conversations.agentVersion("w1:" + OTHER), "1.20.0");
+  // the database cannot be read: no version, no card
+  const missing = await cards(join(await temp(context), "none.db"));
+  assert.deepEqual(missing.shown, { "1.18.34": null, "1.20.0": null, none: null });
+  assert.deepEqual(missing.sent, []);
+  assert.equal(await missing.conversations.agentVersion("w1:" + SESSION), null);
+});
+
+test("the version of the OpenCode program running in the pane decides over the session's record; the record where the program cannot tell", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION, { version: "1.19.3", directory: "/work/app" });
+  const panes = [{ pane_id: "w1:p1", agent: "opencode", agent_session: { agent: "opencode", kind: "id", value: SESSION } }];
+  let foreground = [{ pid: 4100, argv: ["opencode"] }];
+  const asked = [];
+  const conversations = new ConversationService({
+    herdr: { async snapshot() { return { panes }; }, async paneProcessInfo(paneId) { asked.push(paneId); return { process_info: { foreground_processes: foreground } }; } },
+    localStore: localTranscriptStore({ configDir: "/nonexistent/claude", codexHome: "/nonexistent/codex", opencodeDb: path }),
+    runningVersion: async (pids) => (pids.includes(4100) ? "1.20.1" : null),
+  });
+  // the session was created by 1.19.3 and is carried on by 1.20.1: 1.20.1
+  assert.equal(await conversations.agentVersion("w1:p1"), "1.20.1");
+  assert.deepEqual(asked, ["w1:p1"]);
+  // no OpenCode program among the pane's processes (or no /proc): the record
+  foreground = [{ pid: 4200, argv: ["bash"] }];
+  assert.equal(await conversations.agentVersion("w1:p1"), "1.19.3");
+  // a session that cannot be read has no version, whatever runs
+  const unknown = new ConversationService({
+    herdr: { async snapshot() { return { panes: [{ ...panes[0], agent_session: { agent: "opencode", kind: "id", value: "ses_missing0000000000000000" } }] }; },
+      async paneProcessInfo() { return { process_info: { foreground_processes: [{ pid: 4100 }] } }; } },
+    localStore: localTranscriptStore({ configDir: "/nonexistent/claude", codexHome: "/nonexistent/codex", opencodeDb: path }),
+    runningVersion: async () => "1.19.3",
+  });
+  assert.equal(await unknown.agentVersion("w1:p1"), null);
+});
+
+test("the running OpenCode program is asked its version once per program file, through /proc/<pid>/exe", async () => {
+  const links = { 10: "/usr/bin/bash", 11: "/home/u/.opencode/bin/opencode (deleted)", 12: "/home/u/.opencode/bin/opencode" };
+  const files = { 11: { dev: 1, ino: 7, size: 100, ctimeMs: 5 }, 12: { dev: 1, ino: 9, size: 120, ctimeMs: 6 }, 10: { dev: 1, ino: 3, size: 1, ctimeMs: 1 } };
+  const pid = (file) => Number(/^\/proc\/(\d+)\/exe$/u.exec(file)[1]);
+  const fs = {
+    async readlink(file) { const target = links[pid(file)]; if (!target) throw new Error("ENOENT"); return target; },
+    async stat(file) { return files[pid(file)]; },
+  };
+  const ran = [];
+  const outputs = { 11: "1.18.34", 12: "1.19.3" };
+  const runningVersion = opencodeRunningVersion({ fs, run: async (file) => { ran.push(file); return outputs[pid(file)] ?? null; } });
+  // bash is not OpenCode; a program replaced on disk still answers for itself
+  assert.equal(await runningVersion([10, 11]), "1.18.34");
+  assert.equal(await runningVersion([11]), "1.18.34");
+  assert.equal(await runningVersion([12]), "1.19.3");
+  assert.deepEqual(ran, ["/proc/11/exe", "/proc/12/exe"], "once per program file");
+  // no such process, no OpenCode among them, nonsense pids: no answer
+  assert.equal(await runningVersion([99]), null);
+  assert.equal(await runningVersion([10]), null);
+  assert.equal(await runningVersion([0, -1, 1.5, "11", null]), null);
+});
+
+test("a database whose session table has no version column tells no version, and is still read", async (context) => {
+  const schema = OPENCODE_SCHEMA.replace(" version text NOT NULL,", "");
+  const { path, fixture } = await world(context, { schema });
+  fixture.db.prepare("INSERT INTO session (id, project_id, slug, directory, title, time_created, time_updated) VALUES (?, 'prj_1', 'slug', '/work/app', 'title', 1, 1)").run(SESSION);
+  fixture.exchange(SESSION, 0);
+  const conversations = service(path, [{ pane_id: "w1:p1", agent: "opencode", agent_session: { agent: "opencode", kind: "id", value: SESSION } }]);
+  assert.equal(await conversations.agentVersion("w1:p1"), null);
+  assert.equal((await conversations.page("w1:p1")).turns.length > 0, true, "the chat still reads");
+});
+
+test("the pending question: the newest running question call decides; a too large one is none, never an older one", async (context) => {
+  const { fixture, store } = await world(context);
+  fixture.session(SESSION);
+  fixture.session(OTHER);
+  const question = (status, text, extra = "") => ({ type: "tool", tool: "question", callID: `call_${text.length}`, state: { status, input: { questions: [{
+    question: text, header: "Format", options: [{ label: "ONNX", description: `Portable.${extra}` }],
+  }] }, ...(status === "completed" ? { output: "ONNX" } : {}) } });
+  const asked = async () => (await store.pendingQuestion(SESSION))?.input.questions[0].question ?? null;
+  const message = fixture.exchange(SESSION, 0);
+  assert.equal(await asked(), null, "no question call");
+  fixture.part(SESSION, message, question("completed", "Answered?"));
+  assert.equal(await asked(), null, "a completed one is not pending");
+  // another session's running question is not this one's
+  fixture.part(OTHER, fixture.exchange(OTHER, 0), question("running", "Elsewhere?"));
+  assert.equal(await asked(), null);
+  fixture.part(SESSION, message, question("running", "First?"));
+  fixture.part(SESSION, message, question("running", "Second?"));
+  assert.equal(await asked(), "Second?", "several running: the newest");
+  // a newer completed call does not hide the newest running one
+  fixture.part(SESSION, message, question("completed", "Done?"));
+  assert.equal(await asked(), "Second?");
+  // the newest running one too large: none at all, not "Second?"
+  const big = fixture.part(SESSION, message, question("running", "Huge?", "x".repeat(PENDING_QUESTION_BYTES)));
+  assert.equal(await store.pendingQuestion(SESSION), null);
+  // just within the limit it is read
+  const input = JSON.stringify(question("running", "Huge?").state.input);
+  const fits = question("running", "Huge?", "x".repeat(PENDING_QUESTION_BYTES - Buffer.byteLength(input)));
+  assert.equal(Buffer.byteLength(JSON.stringify(fits.state.input)), PENDING_QUESTION_BYTES);
+  fixture.updatePart(SESSION, big, fits);
+  assert.equal(await asked(), "Huge?");
+  // a running call without questions decides too: none
+  fixture.part(SESSION, message, { type: "tool", tool: "question", callID: "call_x", state: { status: "running", input: {} } });
+  assert.equal(await store.pendingQuestion(SESSION), null);
+});

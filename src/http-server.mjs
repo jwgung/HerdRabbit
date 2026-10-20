@@ -576,7 +576,11 @@ export function createHerdrHttpServer({
   const conversationService = conversations ?? new ConversationService({ herdr });
   const conversationMonitor = new ConversationMonitor({ resolve: (paneId) => conversationService.resolve(paneId) });
   const slashCommandCatalog = slashCommands ?? new SlashCommandCatalog({ guard: protectedPaths });
-  const promptService = prompts ?? new PromptService({ herdr, details: (paneId, snapshot) => conversationService.pendingAsk(paneId, snapshot) });
+  const promptService = prompts ?? new PromptService({
+    herdr,
+    details: (paneId, snapshot) => conversationService.pendingAsk(paneId, snapshot),
+    agentVersion: (paneId, snapshot) => conversationService.agentVersion(paneId, snapshot),
+  });
 
   // A message sent while the pane asks for a password is that password: the
   // page keeps it out of its input history, and no request is recorded. A
