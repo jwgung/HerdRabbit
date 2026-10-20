@@ -3,7 +3,7 @@
 // (Claude Code's own, the user's skills, the project's commands) with a
 // description and source tag, typing narrows it, Enter or a tap puts
 // `/name ` in without sending, Escape closes it, nothing shows after a space
-// or for a pane whose agent is neither Claude Code nor Codex, and a Codex
+// or for a pane whose agent is none of Claude Code, Codex or OpenCode, and a Codex
 // pane offers Codex's commands and prompts. HOME and the project are
 // temporary folders made here; runs against an in-process fake herdr.
 // SLASH_SCREENSHOTS=<folder> keeps pictures of the list in both themes.
@@ -27,6 +27,7 @@ const write = async (path, text) => {
 };
 await write(join(home, ".claude", "skills", "alpha", "SKILL.md"), "---\nname: alpha\ndescription: Does alpha things\n---\n");
 await write(join(home, ".codex", "prompts", "fix.md"), "---\ndescription: Fix the bug\n---\n");
+await write(join(project, ".opencode", "commands", "ship.md"), "---\ndescription: Ship from OpenCode\n---\n");
 await write(join(project, ".claude", "commands", "build.md"), "---\ndescription: Build this project\n---\n");
 const slashCommands = new SlashCommandCatalog({ env: { HOME: home }, guard: localProtectedPaths({ env: { HOME: home }, home }) });
 
@@ -40,6 +41,7 @@ const herdr = {
         { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Claude", agent: "claude", cwd: root, foreground_cwd: project },
         { pane_id: "w1:p2", tab_id: "w1:t1", workspace_id: "w1", label: "Shell", cwd: project },
         { pane_id: "w1:p3", tab_id: "w1:t1", workspace_id: "w1", label: "Codex", agent: "codex", cwd: project },
+        { pane_id: "w1:p4", tab_id: "w1:t1", workspace_id: "w1", label: "OpenCode", agent: "opencode", cwd: project },
       ],
       agents: [],
     };
@@ -211,6 +213,17 @@ try {
     await startsWith(["/approvals"]);
     await reset();
 
+    // an OpenCode pane offers OpenCode's commands and the project's
+    await openPane("w1:p4");
+    await page.keyboard.type("/shi");
+    await startsWith(["/ship"]);
+    await page.keyboard.press("Enter");
+    assert.equal(await input.inputValue(), "/ship ");
+    await reset();
+    await page.keyboard.type("/und");
+    await startsWith(["/undo"]);
+    await reset();
+
     // a pane running something else: no list, no error
     await openPane("w1:p2");
     await page.keyboard.type("/");
@@ -220,7 +233,7 @@ try {
 
     assert.deepEqual(herdr.sent, [], "nothing was ever sent");
     assert.deepEqual(errors, []);
-    console.log({ mobile, listed: true, tagged: true, narrowed: true, enter: true, tab: true, startOnly: true, escape: true, tap: true, codex: true, otherAgent: true });
+    console.log({ mobile, listed: true, tagged: true, narrowed: true, enter: true, tab: true, startOnly: true, escape: true, tap: true, codex: true, opencode: true, otherAgent: true });
     await context.close();
   }
 } finally {

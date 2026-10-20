@@ -8,7 +8,7 @@ import { PeerIdentity } from "../src/peer-identity.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
 import { HerdrCommandError, InputValidationError } from "../src/herdr-client.mjs";
 import { LINK_PROTOCOL } from "../src/link-protocol.mjs";
-import { CLAUDE_BUILT_IN_COMMANDS, MAX_REMOTE_COMMANDS, SlashCommandCatalog } from "../src/slash-commands.mjs";
+import { CLAUDE_BUILT_IN_COMMANDS, MAX_REMOTE_COMMANDS, OPENCODE_BUILT_IN_COMMANDS, SlashCommandCatalog } from "../src/slash-commands.mjs";
 
 const HUB_VERSION = "1.2.0";
 const LINK_ID = "link_11111111-1111-1111-1111-111111111111";
@@ -401,6 +401,28 @@ test("a connected PC lists its pane's / commands itself, for the agent and folde
   assert.deepEqual(slashCommands.asked, [{ agent: "claude", cwd: "/work/desk" }]);
   const listed = await hubCatalog().listRemote({ agent: "claude", key: `${LINK_ID}!${PANE}`, ask: () => herdr.paneCommands(`${LINK_ID}!${PANE}`) });
   assert.deepEqual(listed, { agent: "claude", commands: [{ name: "ship", description: "Ship it", source: "project" }], remote: true });
+});
+
+test("a connected PC's OpenCode pane lists its / commands there too; when the PC cannot, OpenCode's own", async (context) => {
+  const calls = [];
+  const slashCommands = peerCatalog([{ name: "deploy", description: "Ship the build", source: "project" }]);
+  const { address } = await startLinkedPeer(context, {
+    calls, slashCommands,
+    herdr: peerHerdr(calls, { panes: [{ pane_id: PANE, workspace_id: `${SESSION}~wB`, agent: "opencode", cwd: "/work/oc" }] }),
+  });
+  const { herdr } = hubFor(address);
+  await settled(herdr);
+  const ask = () => herdr.paneCommands(`${LINK_ID}!${PANE}`);
+  assert.deepEqual(await ask(), { agent: "opencode", commands: [{ name: "deploy", description: "Ship the build", source: "project" }] });
+  // asked for the agent and folder the PC's own snapshot gives the pane
+  assert.deepEqual(slashCommands.asked, [{ agent: "opencode", cwd: "/work/oc" }]);
+  const listed = await hubCatalog().listRemote({ agent: "opencode", key: `${LINK_ID}!${PANE}`, ask });
+  assert.deepEqual(listed, { agent: "opencode", commands: [{ name: "deploy", description: "Ship the build", source: "project" }], remote: true });
+  // a PC that fails, or (from before OpenCode) answers for no agent: OpenCode's own
+  const failed = await hubCatalog().listRemote({ agent: "opencode", key: "p", ask: async () => { throw new HerdrCommandError("did not answer in time", { code: "link_timeout" }); } });
+  assert.deepEqual(failed, { agent: "opencode", commands: [...OPENCODE_BUILT_IN_COMMANDS], remote: true });
+  const older = await hubCatalog().listRemote({ agent: "opencode", key: "q", ask: async () => ({ agent: null, commands: [] }) });
+  assert.deepEqual(older.commands, [...OPENCODE_BUILT_IN_COMMANDS]);
 });
 
 test("what a connected PC lists is cleaned on the hub, and a list for another agent is not taken", async (context) => {

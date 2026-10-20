@@ -1,6 +1,6 @@
 // `/` commands in the composer. Typed at the very start of the text, a `/`
-// offers the commands the selected pane's agent takes -- Claude Code's or
-// Codex's own, and the skills, commands and prompts the user, the project
+// offers the commands the selected pane's agent takes -- Claude Code's, Codex's
+// or OpenCode's own, and the skills, commands and prompts the user, the project
 // and installed plugins add (GET /api/panes/:id/commands). Picking one puts
 // `/name ` in; nothing is sent.
 //
@@ -11,7 +11,7 @@
 export const MAX_SLASH_MATCHES = 50;
 export const SLASH_DEBOUNCE_MS = 60;
 export const SLASH_CACHE_MS = 10_000;
-export const SLASH_AGENTS = Object.freeze(["claude", "codex"]);
+export const SLASH_AGENTS = Object.freeze(["claude", "codex", "opencode"]);
 export const SLASH_SOURCES = Object.freeze(["built-in", "user", "project", "plugin"]);
 
 // The `/command` word the caret is in, or null. Only the text's first word
@@ -58,7 +58,7 @@ export function applySlashCompletion(value, token, command) {
 // or null; a project's commands go with its folder, so a pane that moves gets
 // the new folder's at once.
 // `fetchCommands(paneId)` brings back { agent, commands } or throws. A pane
-// whose agent is neither Claude Code nor Codex gets no list.
+// whose agent is not Claude Code, Codex or OpenCode gets no list.
 export function slashCommandsSource({ context, fetchCommands, now = () => Date.now() }) {
   const cache = new Map();
   const where = () => {
