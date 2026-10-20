@@ -285,11 +285,12 @@ sh ~/.local/share/herd-rabbit/migrate-to-plugin.sh
 ```
 
 - It shows what it will do and asks first (pass `--yes` without a terminal).
-- It installs the plugin with `herdr plugin install ultivis-iot/HerdRabbit` and carries the unit's `HERDR_WEB_*` settings (port, allowed hosts, the Connect PC port and allowed PCs, and so on) into the plugin's `.env`. A `.env` that already has settings is left as it is.
+- It installs the plugin with `herdr plugin install ultivis-iot/HerdRabbit` and carries the unit's `HERDR_WEB_*` settings (port, allowed hosts, the Connect PC port and allowed PCs, and so on) into the plugin's `.env`. A value with a double quote or a line break is not carried and is named so you can add it by hand. `HERDR_BIN` is not carried: the plugin uses the Herdr that runs it. A `.env` that already has settings is left as it is, and then none of the unit's settings are carried.
 - It stops the service and starts the plugin on the same address. The port is the same, so the Tailscale Serve address, an installed PWA and other PCs' connections carry on.
-- Once the plugin answers, it disables and deletes the service unit, and deletes the old checkout when it is an unmodified official checkout in the default place (`~/.local/share/herd-rabbit`, or `HERD_RABBIT_INSTALL_DIR`). A checkout anywhere else, or one with changes, is kept. If the plugin does not answer, the service is started again and nothing is deleted.
+- Once the plugin answers, it disables the service, deletes its unit file when it is in `~/.config/systemd/user`, and deletes the old checkout when it is an unmodified official checkout in the default place (`~/.local/share/herd-rabbit`, or `HERD_RABBIT_INSTALL_DIR`) holding nothing but its installed dependencies. A checkout anywhere else, one with changes, or one holding other ignored files is kept. If the plugin does not answer, the service is started again and nothing is deleted.
 - The password, Passkeys, signed-in devices, connected PCs (`~/.config/herdr-bridge/`) and uploads (`~/.local/share/herdrabbit/files`) live outside the install folder and stay as they are.
 - A PC an older version installed as a leaf is set up again with `npm run install-service` first.
+- From then on HerdRabbit starts when Herdr starts, not at login.
 
 ## Password and Passkey authentication
 
@@ -300,7 +301,7 @@ cd ~/.local/share/herd-rabbit
 npm run password
 ```
 
-Entering a new password twice replaces the old password and restarts the installed service. Leaving the first input empty disables password authentication. Existing login sessions and registered Passkeys become invalid after either change.
+Entering a new password twice replaces the old password and restarts the installed service. Installed as a plugin, use the plugin's password pane instead ([Install as a Herdr plugin](#install-as-a-herdr-plugin)); it restarts the plugin's server. Leaving the first input empty disables password authentication. Existing login sessions and registered Passkeys become invalid after either change.
 
 The plaintext HerdRabbit login password is never stored. The `scrypt` hash, session-signing secret, and registered Passkey public data are stored with mode `0600` in the compatibility path:
 
@@ -508,7 +509,7 @@ npm start
 
 ## systemd user service
 
-The recommended setup is:
+To run HerdRabbit as a systemd service instead of the [plugin](#install-as-a-herdr-plugin), the simplest setup is:
 
 ```bash
 npm run install-service

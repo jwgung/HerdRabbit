@@ -5,6 +5,7 @@ import { chmod, lstat, mkdir, open, readFile, realpath, rename } from "node:fs/p
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PLUGIN_ID } from "./config.mjs";
 import { HttpError } from "./http-basics.mjs";
 
 // In-app update: whether main on origin has moved past this checkout, and
@@ -49,7 +50,6 @@ const SHA = /^[0-9a-f]{4,40}$/u;
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$/u;
 const CODE = /^[a-z_]{1,32}$/u;
 const UNIT = /^herdrabbit-update-[0-9]{1,20}$/u;
-const PLUGIN_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/iu;
 
 // Whether a run started outside systemd still goes: a pid this account can
 // signal. One that has ended, or belongs to someone else (a recycled pid), does not.
@@ -132,7 +132,7 @@ export function cleanRunStatus(value) {
   };
 }
 
-function properties(text) {
+export function properties(text) {
   const values = {};
   for (const entry of String(text).split("\n")) {
     const at = entry.indexOf("=");
@@ -378,15 +378,15 @@ export class AppUpdater {
     let record = await readRecord(this.stateDir);
     const settling = !starting && (this.#starting
       || this.now() - Date.parse(record?.startedAt ?? "") < START_GRACE_MS);
+    const named = typeof record?.unit === "string" && UNIT.test(record.unit);
     const tracked = Number.isSafeInteger(record?.pid) && record.pid > 0;
     if (record?.state === "running" && !settling) {
-      const named = typeof record.unit === "string" && UNIT.test(record.unit);
       if (!named && !tracked) {
         record = { ...record, state: "failed", reason: "interrupted", finishedAt: new Date(this.now()).toISOString() };
         await writeRecord(this.stateDir, record).catch(() => {});
       }
     }
-    if (record?.state === "running" && !settling && tracked && !(typeof record.unit === "string" && UNIT.test(record.unit))) {
+    if (record?.state === "running" && !settling && tracked && !named) {
       // A plugin run has no unit: its process is asked instead, and one
       // older than any update is taken for ended (its pid may be someone else's now).
       const overdue = this.now() - Date.parse(record.startedAt ?? "") > MAX_RUN_MS;
@@ -400,7 +400,7 @@ export class AppUpdater {
         }
       }
     }
-    if (record?.state === "running" && !settling && typeof record.unit === "string" && UNIT.test(record.unit)) {
+    if (record?.state === "running" && !settling && named) {
       // A run whose unit is gone without saying how it ended was cut short
       // (a reboot, a kill); it is not left "running" for ever.
       const { code: exit, stdout } = await this.#systemctl("is-active", record.unit);
@@ -496,7 +496,7 @@ export class AppUpdater {
         join(this.repository, "scripts", "run-update.mjs"), this.stateDir, "--plugin", this.plugin.id, this.plugin.binary,
       ], {
         cwd: this.environment.HOME || homedir(),
-        env: { ...this.environment, PATH: path },
+        env: pluginRunEnvironment(this.environment, path),
         detached: true,
         stdio: "ignore",
       });
@@ -517,6 +517,18 @@ export class AppUpdater {
     if (current?.state === "running") await writeRecord(this.stateDir, { ...current, pid });
     return this.#status(false);
   }
+}
+
+// What the plugin run needs to find Herdr, git and npm and Herdr's socket:
+// none of this server's HERDR_WEB_* settings.
+const PLUGIN_RUN_VARIABLES = ["HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"];
+
+export function pluginRunEnvironment(environment, path) {
+  const env = { PATH: path };
+  for (const name of PLUGIN_RUN_VARIABLES) {
+    if (typeof environment[name] === "string" && environment[name] !== "") env[name] = environment[name];
+  }
+  return env;
 }
 
 // One command with its output appended to the log; its exit code, or -1 when
@@ -581,17 +593,8 @@ export async function runUpdateScript({
   const log = await open(logFile, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | NOFOLLOW, 0o600);
   // A start that throws at once (no shell, no file) is a failed run all the
   // same: the log is closed and the outcome written either way.
-  const exitCode = await new Promise((resolve) => {
-    let child;
-    try {
-      child = spawnImpl("sh", [script], { cwd: repository, stdio: ["ignore", log.fd, log.fd] });
-    } catch {
-      resolve(-1);
-      return;
-    }
-    child.once("error", () => resolve(-1));
-    child.once("close", (exit) => resolve(Number.isInteger(exit) ? exit : -1));
-  }).finally(() => log.close().catch(() => {}));
+  const exitCode = await runLogged(spawnImpl, "sh", [script], { cwd: repository, fd: log.fd })
+    .finally(() => log.close().catch(() => {}));
   const record = await readRecord(stateDir) ?? {};
   await writeRecord(stateDir, {
     ...record,

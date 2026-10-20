@@ -7,31 +7,23 @@
 // The password, Passkeys, connected PCs and uploads live outside the checkout
 // and stay where they are.
 import { execFile, spawn } from "node:child_process";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseHost, parsePort } from "../src/config.mjs";
 import { ENV_TEMPLATE, SYSTEMD_UNITS, parseEnvFile, pluginSettings, probeHerdRabbit, probeHost } from "../src/plugin-runner.mjs";
-import { OFFICIAL_ORIGINS } from "../src/app-update.mjs";
+import { OFFICIAL_ORIGINS, properties } from "../src/app-update.mjs";
 import { parseSystemdEnvironment } from "./service-environment.mjs";
 import { readVisibleLine } from "./password-prompt.mjs";
 
 export const PLUGIN_SOURCE = "ultivis-iot/HerdRabbit";
-export const PLUGIN_ID = "herdrabbit";
-export const START_TIMEOUT_MS = 20_000;
+export const PLUGIN = "herdrabbit";
+// The plugin's start action waits up to 15 s itself; Herdr runs it queued.
+export const PAGE_WAIT_MS = 20_000;
 const POLL_MS = 500;
 // HERDR_WEB_ROLE belongs to a leaf, which is set up again first.
 const NOT_CARRIED = new Set(["HERDR_WEB_ROLE"]);
-
-function properties(text) {
-  const values = {};
-  for (const entry of String(text).split("\n")) {
-    const at = entry.indexOf("=");
-    if (at > 0) values[entry.slice(0, at)] = entry.slice(at + 1).trim();
-  }
-  return values;
-}
 
 // One value as the plugin's .env reads it back (parseEnvFile): bare when it
 // is plain, in double quotes otherwise, and null when it cannot be written.
@@ -81,7 +73,7 @@ async function findUnit(deps) {
 }
 
 async function waitForPage(deps, host, port) {
-  const deadline = deps.now() + START_TIMEOUT_MS;
+  const deadline = deps.now() + PAGE_WAIT_MS;
   for (;;) {
     if ((await deps.probe(probeHost(host), port))?.herdrabbit) return true;
     if (deps.now() >= deadline) return false;
@@ -90,13 +82,15 @@ async function waitForPage(deps, host, port) {
 }
 
 // The old checkout goes only where the installer put it, untouched, and from
-// the official repository: a checkout someone works in is never removed.
+// the official repository: a checkout someone works in is never removed. Of
+// what git ignores, only the installed dependencies may be there.
 async function removableCheckout(deps, directory) {
   if (!directory || resolve(directory) !== resolve(deps.installDirectory)) return false;
   const origin = await deps.run("git", ["-C", directory, "remote", "get-url", "origin"]);
   if (origin.code !== 0 || !OFFICIAL_ORIGINS.has(origin.stdout.trim())) return false;
-  const status = await deps.run("git", ["-C", directory, "status", "--porcelain"]);
-  return status.code === 0 && status.stdout.trim() === "";
+  const status = await deps.run("git", ["-C", directory, "status", "--porcelain", "--ignored"]);
+  if (status.code !== 0) return false;
+  return status.stdout.split("\n").filter(Boolean).every((entry) => entry === "!! node_modules/");
 }
 
 export async function migrate(deps, { yes = false } = {}) {
@@ -131,7 +125,7 @@ export async function migrate(deps, { yes = false } = {}) {
     say("플러그인 설치에 실패했습니다. 서비스는 그대로 실행 중입니다.");
     return 1;
   }
-  const configDir = await deps.run(herdr, ["plugin", "config-dir", PLUGIN_ID]);
+  const configDir = await deps.run(herdr, ["plugin", "config-dir", PLUGIN]);
   if (configDir.code !== 0 || !configDir.stdout.trim()) {
     say("플러그인 설정 폴더를 찾지 못했습니다. 서비스는 그대로 실행 중입니다.");
     return 1;
@@ -139,7 +133,7 @@ export async function migrate(deps, { yes = false } = {}) {
   const envFile = join(configDir.stdout.trim(), ".env");
   const existing = await deps.readFile(envFile).catch(() => "");
   if (hasSettings(existing)) {
-    say(`플러그인 설정 파일에 이미 설정이 있어 그대로 둡니다: ${envFile}`);
+    say(`플러그인 설정 파일에 이미 설정이 있어 서비스 설정을 옮기지 않고 그대로 둡니다: ${envFile}`);
   } else {
     const { text, skipped } = pluginEnvText(environment, { unit, date: new Date(deps.now()).toISOString().slice(0, 10) });
     await deps.writeFile(envFile, text);
@@ -152,15 +146,15 @@ export async function migrate(deps, { yes = false } = {}) {
     say(`서비스를 멈추지 못했습니다. 플러그인은 설치됐지만 서비스가 계속 실행 중입니다: systemctl --user status ${unit}`);
     return 1;
   }
-  say(`> herdr plugin action invoke ${PLUGIN_ID}.start`);
+  say(`> herdr plugin action invoke ${PLUGIN}.start`);
   // Herdr only queues the action and answers in JSON; whether it worked is
   // whether the page answers.
-  const started = await deps.run(herdr, ["plugin", "action", "invoke", `${PLUGIN_ID}.start`]);
+  const started = await deps.run(herdr, ["plugin", "action", "invoke", `${PLUGIN}.start`]);
   if (started.code !== 0 || !(await waitForPage(deps, host, port))) {
     await deps.run("systemctl", ["--user", "start", unit]);
     say(started.code !== 0
       ? "플러그인을 시작하지 못했습니다. Herdr가 실행 중일 때 다시 실행하세요. 서비스를 다시 켰습니다."
-      : `플러그인이 ${host}:${port}에서 응답하지 않습니다. 서비스를 다시 켰습니다. 로그: herdr plugin log list --plugin ${PLUGIN_ID}`);
+      : `플러그인이 ${host}:${port}에서 응답하지 않습니다. 서비스를 다시 켰습니다. 로그: herdr plugin log list --plugin ${PLUGIN}`);
     return 1;
   }
   say(`플러그인이 ${host}:${port}에서 응답합니다.`);
@@ -183,7 +177,7 @@ export async function migrate(deps, { yes = false } = {}) {
   }
   say("");
   say("끝났습니다. 앞으로 업데이트는 화면의 ⚙ → Update나 herdr plugin update로 합니다.");
-  say("Herdr를 시작할 때 HerdRabbit도 함께 시작합니다.");
+  say("이제 HerdRabbit은 로그인할 때가 아니라 Herdr가 시작할 때 함께 시작합니다.");
   return 0;
 }
 
@@ -220,7 +214,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   process.exitCode = await migrate({
     run,
     readFile: (path) => readFile(path, "utf8"),
-    writeFile: (path, text) => writeFile(path, text, { mode: 0o600 }),
+    // A file Herdr made first keeps its mode on a write; the settings are private.
+    writeFile: async (path, text) => {
+      await writeFile(path, text, { mode: 0o600 });
+      await chmod(path, 0o600);
+    },
     rm: (path, { recursive = false } = {}) => rm(path, { recursive, force: true }),
     probe: (host, port) => probeHerdRabbit(host, port),
     confirm: async (label) => /^y(es)?$/iu.test((await readVisibleLine(label)).trim()),

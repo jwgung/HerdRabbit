@@ -121,12 +121,16 @@ test("a checkout someone works in, or a unit outside this user's folder, is kept
   for (const options of [
     { directory: "/home/me/src/herdrabbit" },
     { dirty: " M src/index.mjs\n" },
+    { dirty: "!! node_modules/\n!! tmp/\n" },
     { origin: "https://example.invalid/fork.git" },
   ]) {
     const pc = fakePc(options);
     assert.equal(await migrate(pc.deps), 0);
     assert.deepEqual(pc.removed, [UNIT_FILE], JSON.stringify(options));
   }
+  const installed = fakePc({ dirty: "!! node_modules/\n" });
+  assert.equal(await migrate(installed.deps), 0);
+  assert.deepEqual(installed.removed, [UNIT_FILE, INSTALL], "its installed dependencies do not keep it");
   const system = fakePc({ file: "/etc/systemd/user/herdrabbit.service" });
   assert.equal(await migrate(system.deps), 0);
   assert.deepEqual(system.removed, [INSTALL]);

@@ -283,11 +283,12 @@ sh ~/.local/share/herd-rabbit/migrate-to-plugin.sh
 ```
 
 - 무엇을 할지 보여 주고 확인을 받습니다(터미널이 없으면 `--yes`).
-- `herdr plugin install ultivis-iot/HerdRabbit`으로 플러그인을 설치하고, 서비스 유닛의 `HERDR_WEB_*` 설정(포트, 허용 호스트, Connect PC 포트와 허용한 PC 등)을 플러그인 `.env`로 옮깁니다. `.env`에 이미 설정이 있으면 그대로 둡니다.
+- `herdr plugin install ultivis-iot/HerdRabbit`으로 플러그인을 설치하고, 서비스 유닛의 `HERDR_WEB_*` 설정(포트, 허용 호스트, Connect PC 포트와 허용한 PC 등)을 플러그인 `.env`로 옮깁니다. 값에 큰따옴표나 줄바꿈이 있으면 옮기지 않고 이름을 알려 주니 직접 적으세요. `HERDR_BIN`은 옮기지 않습니다. 플러그인은 자신을 실행하는 Herdr를 씁니다. `.env`에 이미 설정이 있으면 그대로 두고, 이때는 유닛 설정을 하나도 옮기지 않습니다.
 - 서비스를 멈추고 플러그인을 같은 주소에서 시작합니다. 같은 포트라서 Tailscale Serve 주소와 설치한 PWA, 다른 PC에서의 연결이 그대로 이어집니다.
-- 플러그인이 응답하면 서비스 유닛을 끄고 지운 뒤, 기본 위치(`~/.local/share/herd-rabbit`, 또는 `HERD_RABBIT_INSTALL_DIR`)의 수정 없는 공식 체크아웃이면 그 폴더도 지웁니다. 다른 곳의 체크아웃이나 수정이 있는 체크아웃은 남깁니다. 응답하지 않으면 서비스를 다시 켜고 아무것도 지우지 않습니다.
+- 플러그인이 응답하면 서비스를 끄고, 유닛 파일이 `~/.config/systemd/user`에 있으면 지웁니다. 기본 위치(`~/.local/share/herd-rabbit`, 또는 `HERD_RABBIT_INSTALL_DIR`)의 수정 없는 공식 체크아웃이고 설치된 의존성 말고는 무시된 파일도 없으면 그 폴더도 지웁니다. 다른 곳의 체크아웃, 수정이 있는 체크아웃, 다른 무시된 파일이 있는 체크아웃은 남깁니다. 응답하지 않으면 서비스를 다시 켜고 아무것도 지우지 않습니다.
 - 비밀번호, Passkey, 로그인 기기, 붙인 PC(`~/.config/herdr-bridge/`)와 업로드 파일(`~/.local/share/herdrabbit/files`)은 설치 폴더 밖에 있어 그대로입니다.
 - 이전 버전에서 leaf로 설치한 PC는 먼저 `npm run install-service`로 일반 설치로 바꾼 뒤 옮기세요.
+- 옮긴 뒤에는 HerdRabbit이 로그인할 때가 아니라 Herdr가 시작할 때 함께 시작합니다.
 
 ## 비밀번호와 Passkey 인증
 
@@ -300,7 +301,7 @@ cd ~/.local/share/herd-rabbit
 npm run password
 ```
 
-새 비밀번호를 두 번 입력하면 즉시 교체됩니다. 첫 입력을 비워 두면 비밀번호 인증이 해제됩니다. 설치된 서비스가 실행 중이면 자동으로 재시작하므로 기존 로그인 세션과 등록된 Passkey도 모두 무효화됩니다.
+새 비밀번호를 두 번 입력하면 즉시 교체됩니다. 첫 입력을 비워 두면 비밀번호 인증이 해제됩니다. 설치된 서비스가 실행 중이면 자동으로 재시작하므로 기존 로그인 세션과 등록된 Passkey도 모두 무효화됩니다. 플러그인으로 설치했다면 플러그인의 비밀번호 패인을 쓰세요([Herdr 플러그인으로 설치](#herdr-플러그인으로-설치)). 플러그인 서버를 다시 시작합니다.
 
 비밀번호 원문은 저장하지 않습니다. `scrypt`로 만든 해시, 브라우저 세션 서명용 난수와 Passkey 공개 정보만 다음 파일에 `0600` 권한으로 저장합니다.
 
@@ -528,7 +529,7 @@ npm start
 
 ## systemd 사용자 서비스
 
-권장 설치 방법은 저장소 경로, Node.js와 Herdr 실행 파일, Tailscale DNS 이름, 사용 가능한 포트를 자동으로 반영하는 설치 스크립트입니다.
+[플러그인](#herdr-플러그인으로-설치) 대신 systemd 서비스로 실행하려면, 저장소 경로, Node.js와 Herdr 실행 파일, Tailscale DNS 이름, 사용 가능한 포트를 자동으로 반영하는 설치 스크립트를 쓰는 것이 가장 간단합니다.
 
 ```bash
 npm run install-service

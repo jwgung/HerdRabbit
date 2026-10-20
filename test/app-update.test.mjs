@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AppUpdater, MAX_LOG_BYTES, MAX_NOTES, MAX_RUN_MS, OFFICIAL_ORIGINS, SERVICE_UNITS, cleanCheck, cleanLog, cleanRunStatus, execCommand, runLimiter,
-  runPluginUpdate, runUpdateScript,
+  pluginRunEnvironment, runPluginUpdate, runUpdateScript,
 } from "../src/app-update.mjs";
 import { EventEmitter } from "node:events";
 
@@ -573,4 +573,32 @@ test("a plugin that updated but did not restart says so", async (context) => {
   const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
   assert.equal(record.reason, "restart_failed");
   await assert.rejects(runPluginUpdate({ stateDir: repo.stateDir, id: "../x", binary: herdr.binary }), TypeError);
+});
+
+test("a plugin run whose pid was never written is cut short like any unnamed run", async (context) => {
+  const repo = await scratch(context);
+  await mkdir(repo.stateDir, { mode: 0o700 });
+  let now = 1_700_000_000_000;
+  const subject = updater(repo, services(repo.work, { loaded: "none" }), {
+    now: () => now, plugin: { id: "herdrabbit", binary: "/opt/herdr" }, alive: () => true,
+  });
+  for (const pid of [undefined, 0, -3, "12"]) {
+    await writeFile(join(repo.stateDir, "update-state.json"), `${JSON.stringify({ state: "running", startedAt: new Date(now).toISOString(), pid })}\n`);
+    now += 11_000;
+    assert.equal((await subject.runStatus()).reason, "interrupted", String(pid));
+  }
+  // A live pid is believed for no longer than any update could take.
+  await writeFile(join(repo.stateDir, "update-state.json"), `${JSON.stringify({ state: "running", startedAt: new Date(now).toISOString(), pid: 77 })}\n`);
+  now += MAX_RUN_MS + 1;
+  assert.equal((await subject.runStatus()).reason, "interrupted");
+});
+
+test("a plugin with a bad id or no Herdr is not a plugin, and the run is given no settings", async (context) => {
+  const repo = await scratch(context);
+  for (const plugin of [{ id: "../x", binary: "/opt/herdr" }, { id: "herdrabbit" }, { id: "-rf", binary: "/opt/herdr" }]) {
+    const result = await updater(repo, services(repo.work, { loaded: "none" }), { plugin }).check();
+    assert.equal(result.blocked, "not_service", JSON.stringify(plugin));
+  }
+  const env = pluginRunEnvironment({ HOME: "/home/me", XDG_RUNTIME_DIR: "/run/user/1", HERDR_WEB_AUTH_FILE: "/x", HERDR_BIN: "/h", SECRET: "s" }, "/bin");
+  assert.deepEqual(env, { PATH: "/bin", HOME: "/home/me", XDG_RUNTIME_DIR: "/run/user/1" });
 });
