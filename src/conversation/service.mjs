@@ -15,6 +15,7 @@ import {
   HistoryChanged,
   TOOL_ID,
   answerVersion,
+  isReadBusy,
   transcriptPage,
   transcriptToolOutput,
   versionMatches, remember } from "./pages.mjs";
@@ -102,6 +103,8 @@ export class ConversationService {
           return { identity: await linked.client.conversationSignature(id), size: 0, mtimeMs: 0 };
         } catch (error) {
           // what the PC said about the pane is a state of its own to report
+          // a database busy this time says nothing new: the next stat asks again
+          if (isReadBusy(error)) throw error;
           if (error instanceof ConversationUnavailable) return { identity: `unavailable:${error.reason}`, size: 0, mtimeMs: 0 };
           throw error;
         }
@@ -127,7 +130,8 @@ export class ConversationService {
           : `missing\0${target.serverId}\0${target.path}`;
       }
     } catch (error) {
-      if (!(error instanceof ConversationUnavailable)) throw error;
+      // busy this time is no change of the conversation: the hub's stat says nothing and asks again
+      if (!(error instanceof ConversationUnavailable) || isReadBusy(error)) throw error;
       observed = `unavailable\0${error.reason}`;
     }
     return createHash("sha256").update(`${this.salt}\0${paneId}\0${observed}`).digest("base64url").slice(0, 22);
@@ -379,7 +383,7 @@ export class ConversationService {
       if (target.agent === "opencode") return await target.store.page(target.path, { before, since, ifNoneMatch });
       return await transcriptPage(target.format, target.store, target.path, { before, since, ifNoneMatch });
     } catch (error) {
-      if (error instanceof ConversationUnavailable) this.forget(target);
+      if (error instanceof ConversationUnavailable && !isReadBusy(error)) this.forget(target);
       throw error;
     }
   }
@@ -399,7 +403,7 @@ export class ConversationService {
         ? await target.store.toolOutput(target.path, toolId)
         : await transcriptToolOutput(target.format, target.store, target.path, toolId);
     } catch (error) {
-      if (error instanceof ConversationUnavailable) this.forget(target);
+      if (error instanceof ConversationUnavailable && !isReadBusy(error)) this.forget(target);
       throw error;
     }
     if (found === null) throw new ConversationError(404, "tool_output_not_found", "That tool call has no output.");

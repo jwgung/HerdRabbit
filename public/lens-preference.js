@@ -105,10 +105,17 @@ const UNAVAILABLE_TEXT = {
   server_unavailable: "Chat is unavailable: the machine is not connected.",
   linked_pc_old: "Chat needs a newer HerdRabbit on that PC: update it there.",
   transcript_missing: "Chat is unavailable: the agent's conversation file was not found.",
+  opencode_busy: "OpenCode's database is busy. Trying again shortly.",
 };
 
 export function chatUnavailableText(reason) {
   return UNAVAILABLE_TEXT[reason] ?? "Chat is unavailable for this pane.";
+}
+
+// A read that failed only this time (a database too busy to answer): the chat
+// keeps what it shows and says so, rather than reading as no conversation.
+export function chatReadBusy(reason) {
+  return reason === "opencode_busy";
 }
 
 // Reasons that may change while the pane stays: worth asking again later.

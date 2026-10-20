@@ -231,6 +231,38 @@ test("the monitor stats remote files more slowly, reports unavailability, and ru
   monitor.stop();
 });
 
+test("a database busy this time is no news to a watcher, and keeps the pane's target", async () => {
+  const { ConversationUnavailable, READ_BUSY } = await import("../src/conversation/pages.mjs");
+  let busy = false;
+  let stats = 0;
+  const store = { remote: false, stat: async () => { stats += 1; if (busy) throw new ConversationUnavailable(READ_BUSY); return { identity: "1", size: 0, mtimeMs: 0 }; } };
+  let resolves = 0;
+  const monitor = new ConversationMonitor({
+    resolve: async () => {
+      resolves += 1;
+      if (busy) throw new ConversationUnavailable(READ_BUSY);
+      return { serverId: "local", store, session: SESSION, path: SESSION };
+    },
+    statIntervalMs: 5,
+    resolveIntervalMs: 0,
+    now: () => Date.now(),
+  });
+  const heard = [];
+  const stop = monitor.watch("w1:p1", (signature) => heard.push(signature));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(heard.length, 1);
+  const before = { stats, resolves };
+  busy = true;
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.ok(stats > before.stats && resolves > before.resolves, "stat and resolve were asked while busy");
+  busy = false;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  stop();
+  monitor.stop();
+  // busy and back: the same conversation, never announced as changed or gone
+  assert.equal(heard.length, 1);
+});
+
 test("the monitor tells a watcher when a store cannot read the conversation's version", async () => {
   const { ConversationUnavailable } = await import("../src/conversation/pages.mjs");
   const store = { remote: false, stat: async () => { throw new ConversationUnavailable("unsupported_opencode_version"); } };

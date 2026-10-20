@@ -42,6 +42,15 @@ export class ConversationUnavailable extends ConversationError {
   }
 }
 
+// A database too busy to answer this time (OpenCode's: a read past its
+// timeout, or a reader not yet let go): not a missing conversation. Nothing
+// remembers it as missing, nothing reads it as a change, the next read asks again.
+export const READ_BUSY = "opencode_busy";
+
+export function isReadBusy(error) {
+  return error instanceof ConversationUnavailable && error.reason === READ_BUSY;
+}
+
 // A cursor from another transcript (a new session, a file rewritten in place):
 // the page reloads from the newest turns.
 export class HistoryChanged extends ConversationError {
