@@ -282,7 +282,7 @@ herdr plugin install ultivis-iot/HerdRabbit
 curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/migrate-to-plugin.sh | sh
 ```
 
-이렇게 실행하면 최신 HerdRabbit을 임시 폴더에 받아 거기서 실행하므로, 오래된 설치도 먼저 업데이트할 필요가 없습니다. 임시 폴더는 끝나면 지웁니다. 최신 체크아웃이 있다면 그 안에서 `sh migrate-to-plugin.sh`를 실행해도 같습니다.
+`git`, `npm`, Node.js 22 이상이 필요합니다. 이렇게 실행하면 최신 HerdRabbit을 임시 폴더에 받아 거기서 실행하므로, 오래된 설치도 먼저 업데이트할 필요가 없습니다. 임시 폴더는 끝나면 지웁니다. 최신 체크아웃이 있다면 그 안에서 `sh migrate-to-plugin.sh`를 실행해도 같습니다.
 
 - 무엇을 할지 보여 주고 확인을 받습니다(터미널이 없으면 `--yes`: `... | sh -s -- --yes`).
 - `herdr plugin install ultivis-iot/HerdRabbit`으로 플러그인을 설치하고, 서비스 유닛의 `HERDR_WEB_*` 설정(포트, 허용 호스트, Connect PC 포트와 허용한 PC 등)을 플러그인 `.env`로 옮깁니다. 값에 큰따옴표나 줄바꿈이 있으면 옮기지 않고 이름을 알려 주니 직접 적으세요. `HERDR_BIN`은 옮기지 않습니다. 플러그인은 자신을 실행하는 Herdr를 씁니다. 서비스가 쓰던 비밀번호 파일, 업로드 폴더, 푸시 구독 파일 경로도 명시해 적으므로, Herdr 환경의 XDG 폴더가 달라도 위치가 바뀌지 않습니다. `.env`에 이미 설정이 있으면 그대로 두고, 이때는 유닛 설정을 하나도 옮기지 않습니다. 그 주소가 서비스 주소와 다르면 서비스를 건드리기 전에 멈춥니다.

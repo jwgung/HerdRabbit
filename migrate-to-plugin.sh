@@ -19,21 +19,25 @@ need() { command -v "$1" >/dev/null 2>&1 || fail "requires '$1'"; }
 main() {
     need node
     [ "$(node -p 'Number(process.versions.node.split(".")[0])')" -ge 22 ] || fail "requires Node.js 22 or newer"
-    if [ -f "$0" ] && [ -f "$(dirname -- "$0")/scripts/migrate-to-plugin.mjs" ]; then
-        DIRECTORY="$(cd "$(dirname -- "$0")" && pwd -P)"
-    else
+    # Run as a file ("sh path/to/it"), its own checkout; piped, $0 is the
+    # shell's name, never a path, so a folder that happens to be current is not taken.
+    case "$0" in
+        */*) [ -f "$(dirname -- "$0")/scripts/migrate-to-plugin.mjs" ] && DIRECTORY="$(cd "$(dirname -- "$0")" && pwd -P)" ;;
+    esac
+    if [ -z "${DIRECTORY:-}" ]; then
         need git
         need npm
         TEMPORARY="$(mktemp -d)"
         trap 'rm -rf "$TEMPORARY"' EXIT
         log "Fetching HerdRabbit into $TEMPORARY"
         git clone --quiet --depth 1 "$REPOSITORY_URL" "$TEMPORARY/HerdRabbit"
-        npm --prefix "$TEMPORARY/HerdRabbit" ci --omit=dev --silent
+        npm --prefix "$TEMPORARY/HerdRabbit" ci --omit=dev
         DIRECTORY="$TEMPORARY/HerdRabbit"
     fi
     cd "$HOME"
-    # Piped from curl, standard input is this script: the questions are asked
-    # on the terminal instead.
+    # Piped from curl, standard input is this script: node asks its questions
+    # on the terminal instead. Only node's input moves -- the shell goes on
+    # reading the rest of the script from the pipe.
     if [ ! -t 0 ] && (: </dev/tty) 2>/dev/null; then
         node "$DIRECTORY/scripts/migrate-to-plugin.mjs" "$@" </dev/tty
     else
