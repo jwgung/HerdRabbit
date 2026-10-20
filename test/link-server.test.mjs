@@ -63,11 +63,12 @@ function fakeCatalog(commands = [{ name: "ship", description: "Ship it", source:
 }
 
 test("lists a pane's / commands for the agent and folder this PC's own snapshot gives it", async (context) => {
+  let agentOf = "codex";
   const client = fakePeer({
     async snapshot() {
       return {
         panes: [{ pane_id: PANE, agent: "claude", cwd: "/work", foreground_cwd: "/work/app" }, { pane_id: "hs_x~w1:p2", cwd: "/tmp" }],
-        agents: [{ pane_id: "hs_x~w1:p2", agent: "codex" }],
+        agents: [{ pane_id: "hs_x~w1:p2", agent: agentOf }],
       };
     },
   });
@@ -81,10 +82,15 @@ test("lists a pane's / commands for the agent and folder this PC's own snapshot 
   // an agent herdr reports beside the pane counts too
   await fetch(url("hs_x~w1:p2"), { headers: asHub });
   assert.deepEqual(slashCommands.asked.at(-1), { agent: "codex", cwd: "/tmp" });
+  // an OpenCode pane the same way
+  agentOf = "opencode";
+  await fetch(url("hs_x~w1:p2"), { headers: asHub });
+  assert.deepEqual(slashCommands.asked.at(-1), { agent: "opencode", cwd: "/tmp" });
+  agentOf = "codex";
   // a pane this PC does not list, or one it reaches through another, is not answered
   assert.equal((await fetch(url("hs_x~w1:gone"), { headers: asHub })).status, 404);
   assert.equal((await fetch(url(`link_other!${PANE}`), { headers: asHub })).status, 404);
-  assert.equal(slashCommands.asked.length, 2);
+  assert.equal(slashCommands.asked.length, 3);
 });
 
 test("answers a pane's / commands only to a PC it lets in", async (context) => {
