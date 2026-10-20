@@ -191,10 +191,13 @@ export async function migrate(deps, { yes = false, herdr: checkedHerdr = null } 
     for (const key of skipped) say(`  ${key}는 값에 따옴표나 줄바꿈이 있어 옮기지 못했습니다. 직접 적으세요.`);
   }
 
-  say(`> systemctl --user stop ${unit}`);
-  if ((await deps.run("systemctl", ["--user", "stop", unit])).code !== 0) {
-    say(`서비스를 멈추지 못했습니다. 플러그인은 설치됐지만 서비스가 계속 실행 중입니다: systemctl --user status ${unit}`);
-    return 1;
+  say(`> systemctl --user disable --now ${unit}`);
+  if ((await deps.run("systemctl", ["--user", "disable", "--now", unit])).code !== 0) {
+    // disable can fail if the unit was never enabled; fall back to stop alone.
+    if ((await deps.run("systemctl", ["--user", "stop", unit])).code !== 0) {
+      say(`서비스를 멈추지 못했습니다. 플러그인은 설치됐지만 서비스가 계속 실행 중입니다: systemctl --user status ${unit}`);
+      return 1;
+    }
   }
   // Restart, not start: a plugin server already up (installed earlier, its
   // hook run while the service was down) picks up the settings just written.
@@ -202,20 +205,25 @@ export async function migrate(deps, { yes = false, herdr: checkedHerdr = null } 
   // whether the page answers.
   say(`> herdr plugin action invoke ${PLUGIN}.restart`);
   const started = await deps.run(herdr, ["plugin", "action", "invoke", `${PLUGIN}.restart`]);
-  if (started.code !== 0 || !(await waitForPage(deps, host, port))) {
+  let up = started.code === 0 && (await waitForPage(deps, host, port));
+  if (!up && started.code === 0) {
+    // The plugin server can take longer than 15 s on a cold start (npm ci
+    // just ran); one retry before giving up.
+    say("플러그인이 아직 응답하지 않습니다. 10초 후 다시 시도합니다…");
+    await deps.sleep(10_000);
+    up = (await waitForPage(deps, host, port));
+  }
+  if (!up) {
     // A plugin server that came up late, or elsewhere, would hold the port
     // the service needs. Stop only ever ends the plugin's own server.
     await deps.run(herdr, ["plugin", "action", "invoke", `${PLUGIN}.stop`]);
     await deps.sleep(STOP_WAIT_MS);
-    await deps.run("systemctl", ["--user", "start", unit]);
     say(started.code !== 0
-      ? "플러그인을 시작하지 못했습니다. Herdr가 실행 중일 때 다시 실행하세요. 서비스를 다시 켰습니다."
-      : `플러그인이 ${host}:${port}에서 응답하지 않습니다. 서비스를 다시 켰습니다. 로그: herdr plugin log list --plugin ${PLUGIN}`);
+      ? "플러그인을 시작하지 못했습니다. Herdr가 실행 중일 때 다시 실행하세요."
+      : `플러그인이 ${host}:${port}에서 응답하지 않습니다. 로그: herdr plugin log list --plugin ${PLUGIN}`);
     return 1;
   }
   say(`플러그인이 ${host}:${port}에서 응답합니다.`);
-
-  await deps.run("systemctl", ["--user", "disable", unit]);
   // Only a unit the installer wrote for this user; never one under /etc.
   const userUnits = join(deps.home, ".config", "systemd", "user");
   if (file && resolve(file).startsWith(`${userUnits}/`)) {

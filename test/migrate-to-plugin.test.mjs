@@ -32,6 +32,7 @@ function fakePc({
           return { code: 0, stdout: `LoadState=loaded\nWorkingDirectory=${directory}\nFragmentPath=${file}\nEnvironment=${environment}\n` };
         }
         if (args[1] === "show-environment") return { code: 0, stdout: "HOME=/home/me\nXDG_DATA_HOME=/data\n" };
+        if (args[1] === "disable") pc.serviceUp = false;
         if (args[1] === "stop") pc.serviceUp = false;
         if (args[1] === "start") pc.serviceUp = true;
         return { code: 0, stdout: "" };
@@ -100,25 +101,24 @@ test("a service moves to the plugin, keeping its settings, and the old install g
   assert.equal(settings.HERDR_WEB_FILES_DIR, "/data/herdrabbit/files");
   assert.equal(settings.HERDR_WEB_PUSH_FILE, join(homedir(), ".config", "herdr-bridge", "push.json"));
   assert.equal("HERDR_BIN" in settings, false, "the plugin uses the Herdr that runs it");
-  // The service's own Herdr installs the plugin, and the service stops before the plugin starts.
-  const order = pc.calls.filter((call) => /plugin install|stop herdrabbit|action invoke|disable/u.test(call));
+  // The service's own Herdr installs the plugin, and the service is disabled+stopped before the plugin starts.
+  const order = pc.calls.filter((call) => /plugin install|disable.*herdrabbit|action invoke/u.test(call));
   assert.deepEqual(order, [
     "/opt/Herdr Tools/herdr plugin install ultivis-iot/HerdRabbit --yes",
-    "systemctl --user stop herdrabbit.service",
+    "systemctl --user disable --now herdrabbit.service",
     "/opt/Herdr Tools/herdr plugin action invoke herdrabbit.restart",
-    "systemctl --user disable herdrabbit.service",
   ]);
   assert.deepEqual(pc.removed, [UNIT_FILE, INSTALL]);
   assert.ok(pc.calls.includes("systemctl --user daemon-reload"));
 });
 
-test("a plugin that does not answer puts the service back and removes nothing", async () => {
+test("a plugin that does not answer stops the plugin server and removes nothing", async () => {
   for (const pc of [fakePc({ start: 1 }), fakePc({ answers: false })]) {
     assert.equal(await migrate(pc.deps), 1);
-    assert.equal(pc.serviceUp, true);
+    assert.equal(pc.serviceUp, false, "the service is already disabled and not restarted");
     assert.equal(pc.stopped, true, "a plugin server that came up anyway is stopped first");
     assert.deepEqual(pc.removed, []);
-    assert.equal(pc.calls.some((call) => call.includes("disable")), false);
+    assert.equal(pc.calls.some((call) => /systemctl.*start/u.test(call)), false);
   }
 });
 
