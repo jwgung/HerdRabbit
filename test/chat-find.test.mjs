@@ -160,6 +160,10 @@ test("text is read by block, leaving out buttons' icons, a code block's language
   assert.deepEqual(textRuns(h("div", {}, h("p", {}, "abc"), h("p", {}, "def"))).length, 2);
   assert.equal(markMatches(h("div", {}, h("p", {}, "abc"), h("p", {}, "def")), "cd", { document }).matches.length, 0,
     "a match does not run from one paragraph into the next");
+  // a delivered file's name and folder are lines of their own
+  const file = h("li", {}, h("button", { class: "chat-file" }, h("span", { class: "chat-file-name" }, "app.apk"), h("span", { class: "chat-file-folder" }, "/home/me/out/")));
+  assert.deepEqual(textRuns(file).map((run) => run.map((node) => node.data).join("")), ["app.apk", "/home/me/out/"]);
+  assert.equal(markMatches(file, "apk/home", { document }).matches.length, 0);
 });
 
 test("matches are marked in place, across inline code and bold, and clearing puts the page back as it was", () => {

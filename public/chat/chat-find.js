@@ -7,7 +7,7 @@
 // The bar's behavior follows herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatFind.tsx and
 // src/lib/chatSearch.ts, rewritten to mark the drawn page text in place.
-import { MAX_FIND_QUERY_LENGTH, findIsCaseSensitive, foldForFind } from "../terminal-find.js?v=1.2.78";
+import { MAX_FIND_QUERY_LENGTH, findIsCaseSensitive, foldForFind } from "../terminal-find.js?v=1.2.79";
 
 const DEBOUNCE_MS = 150;
 // A reader this close to the bottom of the chat is "at the bottom": a new find
@@ -22,6 +22,8 @@ const BLOCK_TAGS = new Set([
   "H1", "H2", "H3", "H4", "H5", "H6", "HR", "LI", "OL", "P", "PRE", "SECTION", "SUMMARY",
   "TABLE", "TBODY", "TD", "TFOOT", "TH", "THEAD", "TR", "UL",
 ]);
+// Inline elements drawn as lines of their own: a delivered file's name and its folder.
+const BLOCK_CLASSES = ["chat-file-name", "chat-file-folder"];
 // The page's own furniture, not the conversation: copy and fold buttons, a
 // code block's language, words only a screen reader hears.
 const SKIPPED_CLASSES = ["chat-copy", "md-code-copy", "md-code-more", "md-code-head", "chat-tool-more",
@@ -51,7 +53,8 @@ export function textRuns(root) {
       if (child.nodeType === TEXT_NODE) {
         if (child.data) run.push(child);
       } else if (child.nodeType === ELEMENT_NODE && !skipped(child)) {
-        const block = BLOCK_TAGS.has(String(child.tagName).toUpperCase());
+        const block = BLOCK_TAGS.has(String(child.tagName).toUpperCase())
+          || BLOCK_CLASSES.some((name) => child.classList?.contains(name));
         if (block) flush();
         walk(child);
         if (block) flush();

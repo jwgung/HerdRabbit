@@ -6,15 +6,17 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatView.tsx and
 // ChatView.css, rewritten as plain DOM code without React.
-import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.78";
-import { lineDiff } from "./diff.js?v=1.2.78";
+import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.2.79";
+import { lineDiff } from "./diff.js?v=1.2.79";
 import {
+  deliveredFiles,
   formatWorkDuration,
   commandText,
   isCommandTool,
   isLiveWorkTurn,
   isTodoTool,
   parseToolInput,
+  splitDeliveredPath,
   splitTurn,
   todoCallSummary,
   todoItems,
@@ -23,10 +25,10 @@ import {
   workStartsOpen,
   workSummary,
   workTitle,
-} from "./work-blocks.js?v=1.2.78";
-import { paneRenames } from "../pane-rename.js?v=1.2.78";
-import { ConversationLoader } from "./conversation-refresh.js?v=1.2.78";
-import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.78";
+} from "./work-blocks.js?v=1.2.79";
+import { paneRenames } from "../pane-rename.js?v=1.2.79";
+import { ConversationLoader } from "./conversation-refresh.js?v=1.2.79";
+import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.2.79";
 import {
   chatMayBecomeAvailable,
   chatReadBusy,
@@ -34,7 +36,7 @@ import {
   chooseLens,
   readPaneLens,
   writePaneLens,
-} from "../lens-preference.js?v=1.2.78";
+} from "../lens-preference.js?v=1.2.79";
 
 // Scrolling this close to the top reads the page before it.
 const LOAD_OLDER_PX = 400;
@@ -398,6 +400,30 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     return block;
   }
 
+  // Files the agent handed over (SendUserFile): its caption, then a line per
+  // file that opens it as a path in the text does -- the viewer, or the Files
+  // tab on the pane's own machine.
+  function fileCard(part) {
+    const { files, caption } = deliveredFiles(part);
+    const card = element(document, "section", { className: "chat-files" });
+    card.append(element(document, "p", { className: "chat-files-head", text: files.length === 1 ? "Sent you a file" : `Sent you ${files.length} files` }));
+    if (caption) card.append(markdown(caption, "markdown chat-files-caption"));
+    const list = element(document, "ul", { className: "chat-files-list" });
+    for (const path of files) {
+      const { name, folder } = splitDeliveredPath(path);
+      const item = element(document, "li");
+      const line = isLinkablePath(path)
+        ? element(document, "button", { className: "chat-file", attrs: { type: "button", "data-path": path, title: `Open ${path}` } })
+        : element(document, "span", { className: "chat-file is-plain", attrs: { title: path } });
+      line.append(element(document, "span", { className: "chat-file-name", text: name }));
+      if (folder) line.append(element(document, "span", { className: "chat-file-folder", text: folder }));
+      item.append(line);
+      list.append(item);
+    }
+    card.append(list);
+    return card;
+  }
+
   function copyButton(text, label) {
     const button = element(document, "button", { className: "chat-copy", attrs: { type: "button", "data-action": "copy-text", "aria-label": label, title: label } });
     button.innerHTML = COPY_ICONS;
@@ -484,8 +510,8 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     const article = element(document, "article", { className: "chat-turn chat-turn-agent" });
     const { work, answer } = splitTurn(turn.parts);
     if (work.length > 0) article.append(workBlock(turn, key, work, live));
-    for (const part of answer) article.append(markdown(part.text));
-    const answerText = answer.map((part) => part.text).join("\n\n");
+    for (const part of answer) article.append(part.kind === "text" ? markdown(part.text) : fileCard(part));
+    const answerText = answer.filter((part) => part.kind === "text").map((part) => part.text).join("\n\n");
     if (answerText) {
       const meta = element(document, "div", { className: "chat-turn-meta" });
       meta.append(copyButton(answerText, "Copy answer"));

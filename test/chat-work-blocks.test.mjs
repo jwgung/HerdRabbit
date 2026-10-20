@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { lineDiff } from "../public/chat/diff.js";
+import { parseClaudeTranscript } from "../src/conversation/claude.mjs";
 import {
   commandText,
+  deliveredFiles,
   formatWorkDuration,
+  MAX_DELIVERED_FILES,
   isLiveWorkTurn,
+  splitDeliveredPath,
   splitTurn,
   todoCallSummary,
   todoItems,
@@ -126,4 +130,75 @@ test("OpenCode's tools read with the verbs Claude's do, by the names the server 
   assert.equal(toolVerb({ ...tool("edit", { file_path: "/a.js", old_string: "a", new_string: "b" }), summary: "/a.js" }), "Edited");
   assert.equal(toolVerb({ ...tool("bash", { command: "npm test", description: "Run" }), summary: "npm test" }), "Ran");
   assert.equal(workSummary([tool("grep", { pattern: "x" }), tool("glob", { pattern: "*" }), tool("write", { file_path: "/b" })]), "1 edit · 2 file reads");
+});
+
+// A SendUserFile call as the server hands it over once its result is in.
+const sent = (input, extra = {}) => tool("SendUserFile", input, { summary: "SendUserFile", output: "1 file delivered to user.", output_size: 25, ...extra });
+const APK = "/home/me/lifelog/app/build/outputs/apk/release/LoreLog-0.3.14.apk";
+
+test("a SendUserFile call that handed its files over reads as the files and its caption", () => {
+  const call = sent({ files: [APK], caption: "0.3.14 — **AEC**", status: "normal", display: "attach" });
+  assert.deepEqual(deliveredFiles(call), { files: [APK], caption: "0.3.14 — **AEC**" });
+  assert.deepEqual(deliveredFiles(sent({ files: [APK, "notes.md"] })), { files: [APK, "notes.md"], caption: null });
+  assert.deepEqual(deliveredFiles(sent({ files: [APK], caption: "  " })).caption, null);
+  assert.deepEqual(splitDeliveredPath(APK), { name: "LoreLog-0.3.14.apk", folder: "/home/me/lifelog/app/build/outputs/apk/release/" });
+  assert.deepEqual(splitDeliveredPath("notes.md"), { name: "notes.md", folder: "" });
+  assert.deepEqual(splitDeliveredPath("./out/build/"), { name: "build", folder: "./out/" });
+});
+
+test("a SendUserFile call the card cannot read keeps the tool row: running, failed, cut short or odd input", () => {
+  assert.equal(deliveredFiles(tool("SendUserFile", { files: [APK] })), null, "still running: no result yet");
+  assert.equal(deliveredFiles(sent({ files: [APK] }, { error: true })), null);
+  assert.equal(deliveredFiles(sent({ files: [APK] }, { input_truncated: true })), null);
+  assert.equal(deliveredFiles(sent({ files: APK })), null, "not a list");
+  assert.equal(deliveredFiles(sent({ files: [] })), null);
+  assert.equal(deliveredFiles(sent({ files: [APK, 3] })), null);
+  assert.equal(deliveredFiles(sent({ files: [" "] })), null);
+  assert.equal(deliveredFiles(sent({ files: ["a\nb.txt"] })), null);
+  assert.equal(deliveredFiles(sent({ files: ["x".repeat(5000)] })), null);
+  assert.equal(deliveredFiles(sent({ files: Array.from({ length: MAX_DELIVERED_FILES + 1 }, (_, n) => `/f/${n}.txt`) })), null);
+  assert.notEqual(deliveredFiles(sent({ files: Array.from({ length: MAX_DELIVERED_FILES }, (_, n) => `/f/${n}.txt`) })), null);
+  assert.equal(deliveredFiles({ ...sent({ files: [APK] }), input: "not json" }), null);
+  assert.equal(deliveredFiles(sent({ files: [APK] }, { name: "Send" })), null, "only SendUserFile");
+  // Claude Code marks no error when a file did not reach the user; its result says so
+  for (const output of [
+    "1 file could NOT be delivered to the user:\n  /tmp/big.apk (612 MiB): too large",
+    "1 file NOT delivered to Remote Control (phone/web) viewers \u2014 only visible in the desktop app on this machine",
+    "1 file reached only one of its viewers:\n  /tmp/big.apk",
+  ]) assert.equal(deliveredFiles(sent({ files: [APK] }, { output, output_size: output.length })), null, output);
+  // a result too long for the page to carry whole cannot say it went
+  assert.equal(deliveredFiles(sent({ files: [APK] }, { output_truncated: true, output_size: 9000 })), null);
+});
+
+test("delivered files stay out of the folded work, in their place among the answer", () => {
+  const delivery = sent({ files: [APK] });
+  const build = tool("Bash", { command: "gradle build" });
+  // sent last, after its words: both are the answer, in order
+  let parts = [build, text("Here it is."), delivery];
+  assert.deepEqual(splitTurn(parts), { work: [build], answer: [parts[1], delivery] });
+  assert.equal(workStartsOpen(false, parts), false);
+  // sent mid-way: out of the work all the same, ahead of the answer
+  parts = [delivery, build, text("Done.")];
+  assert.deepEqual(splitTurn(parts), { work: [build], answer: [delivery, parts[2]] });
+  // only a delivery after the work's last words: those words stay in the work, which opens
+  parts = [text("Building."), build, delivery];
+  assert.deepEqual(splitTurn(parts), { work: [parts[0], build], answer: [delivery] });
+  assert.equal(workStartsOpen(false, parts), true);
+  // one still running is an ordinary tool row in the work
+  const running = tool("SendUserFile", { files: [APK] });
+  assert.deepEqual(splitTurn([build, running]), { work: [build, running], answer: [] });
+});
+
+test("a SendUserFile call read from a Claude transcript is delivered once its result is in", () => {
+  const line = (entry) => JSON.stringify(entry);
+  const call = { type: "assistant", timestamp: "2026-10-01T09:00:00Z", message: { role: "assistant", stop_reason: "tool_use", content: [
+    { type: "tool_use", id: "toolu_send", name: "SendUserFile", input: { files: [APK], caption: "0.3.14", status: "normal", display: "attach" } },
+  ] } };
+  const result = { type: "user", timestamp: "2026-10-01T09:00:01Z", message: { role: "user", content: [
+    { type: "tool_result", tool_use_id: "toolu_send", content: `1 file delivered to user.\n  ${APK} → file_uuid: 366a` },
+  ] } };
+  const running = parseClaudeTranscript(`${line(call)}\n`)[0].parts[0];
+  assert.equal(deliveredFiles(running), null);
+  const done = parseClaudeTranscript(`${line(call)}\n${line(result)}\n`)[0].parts[0];
+  assert.deepEqual(deliveredFiles(done), { files: [APK], caption: "0.3.14" });
 });
