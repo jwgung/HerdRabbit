@@ -196,18 +196,29 @@ export const MAX_DELIVERED_FILES = 20;
 // A path longer than this is no path the card shows.
 const MAX_DELIVERED_PATH = 4096;
 
-// What Claude Code's result says when a file did not reach every viewer: the
-// call itself is no error then, its words are.
-const NOT_DELIVERED_RE = /\bNOT delivered\b|could NOT be delivered|reached only one of its viewers/u;
+// Claude Code marks no error when a file did not reach every viewer: its
+// result's words say so. So a card is drawn only for a result that says the
+// files went ("1 file delivered to user.", "2 files delivered to the user.")
+// and nowhere that one did not, or reached only some viewers; any other
+// wording keeps the tool row.
+const DELIVERED_RE = /^\d+ files? delivered to (?:the )?user\.?$/iu;
+const NOT_DELIVERED_RE = /\bnot\b[^\n]*\bdeliver|\bno files?\b|only one of its viewers|\bfailed\b|\berror\b/iu;
+// a line naming a file that went, whose path may hold any word
+const DELIVERED_LINE_RE = /^\s+.+ → file_uuid: [\w-]+$/u;
+function deliveredResult(output) {
+  if (typeof output !== "string") return false;
+  const [first, ...rest] = output.split("\n");
+  return DELIVERED_RE.test(first.trim()) && !rest.some((line) => !DELIVERED_LINE_RE.test(line) && NOT_DELIVERED_RE.test(line));
+}
 
 // { files: [path], caption } for a SendUserFile call that finished and handed
 // its files over, or null: one still running, failed, cut short, with an
-// input the card cannot read, or whose result says a file was not delivered
-// (or is too long to tell) keeps the tool row's own look.
+// input the card cannot read, or whose result does not say its files were
+// delivered (or is too long to tell) keeps the tool row's own look.
 export function deliveredFiles(part) {
   if (part?.kind !== "tool" || part.name !== "SendUserFile") return null;
   if (part.error === true || part.input_truncated === true || typeof part.output_size !== "number") return null;
-  if (part.output_truncated === true || NOT_DELIVERED_RE.test(typeof part.output === "string" ? part.output : "")) return null;
+  if (part.output_truncated === true || !deliveredResult(part.output)) return null;
   const input = parseToolInput(part.input ?? "");
   const files = input?.files;
   if (!Array.isArray(files) || files.length === 0 || files.length > MAX_DELIVERED_FILES) return null;

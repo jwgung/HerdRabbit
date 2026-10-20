@@ -165,7 +165,19 @@ test("a SendUserFile call the card cannot read keeps the tool row: running, fail
     "1 file could NOT be delivered to the user:\n  /tmp/big.apk (612 MiB): too large",
     "1 file NOT delivered to Remote Control (phone/web) viewers \u2014 only visible in the desktop app on this machine",
     "1 file reached only one of its viewers:\n  /tmp/big.apk",
+    // wordings not known: a card only for a result that says the files went
+    "1 file not delivered to user",
+    "No files were delivered",
+    "Upload failed",
+    "",
+    "Done.",
+    "1 file delivered to user.\n1 file could NOT be delivered to the user:\n  /tmp/big.apk (612 MiB): too large",
   ]) assert.equal(deliveredFiles(sent({ files: [APK] }, { output, output_size: output.length })), null, output);
+  // what Claude Code says when the files went, with the lines it adds after
+  for (const output of ["1 file delivered to user.", "2 files delivered to the user.\n  /a → file_uuid: 1\n  /b → file_uuid: 2",
+    "1 file delivered to user.\n  /home/me/failed-error-not-delivered.log → file_uuid: 366a-9b"]) {
+    assert.notEqual(deliveredFiles(sent({ files: [APK] }, { output, output_size: output.length })), null, output);
+  }
   // a result too long for the page to carry whole cannot say it went
   assert.equal(deliveredFiles(sent({ files: [APK] }, { output_truncated: true, output_size: 9000 })), null);
 });
