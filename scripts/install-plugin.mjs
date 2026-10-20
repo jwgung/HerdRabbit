@@ -6,10 +6,10 @@
 // instead (scripts/migrate-to-plugin.mjs).
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
-import { access, readFile } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import { parseHost, parsePort } from "../src/config.mjs";
 import { defaultAuthFilePath, writePasswordConfiguration } from "../src/password-auth.mjs";
-import { ENV_TEMPLATE, parseEnvFile, pluginSettings, probeHerdRabbit } from "../src/plugin-runner.mjs";
+import { ENV_TEMPLATE, parseEnvFile, pluginSettings } from "../src/plugin-runner.mjs";
 import { findAvailableServicePort, isLocalPortAvailable, PREFERRED_SERVICE_PORT } from "../src/port-selection.mjs";
 import { configureClaude } from "./configure-claude.mjs";
 import { ensureHerdrExecutable } from "./herdr-install.mjs";
@@ -27,12 +27,13 @@ export function newEnvText({ port, hostname, date }) {
 
 export async function installPlugin(deps) {
   const say = deps.log;
+  // First, so a service PC whose Herdr is too old for the plugin is brought up to date too.
+  const herdr = await deps.ensureHerdr();
   if (deps.platform === "linux" && await findUnit(deps)) {
     say("이 PC에는 이전 방식(systemd 서비스)의 HerdRabbit이 있어 플러그인으로 옮깁니다.");
     return deps.migrate();
   }
 
-  const herdr = await deps.ensureHerdr();
   const tailscale = await deps.tailscale();
 
   say(`> herdr plugin install ${PLUGIN_SOURCE}`);
@@ -53,12 +54,19 @@ export async function installPlugin(deps) {
   let port;
   if (hasSettings(existing)) {
     const kept = pluginSettings(parseEnvFile(existing));
-    host = parseHost(kept.HERDR_WEB_HOST);
-    port = parsePort(kept.HERDR_WEB_PORT);
+    try {
+      host = parseHost(kept.HERDR_WEB_HOST);
+      port = parsePort(kept.HERDR_WEB_PORT);
+    } catch (error) {
+      say(`플러그인 설정 파일을 읽을 수 없습니다(${error.message}): ${envFile}. 고치거나 지운 뒤 다시 실행하세요.`);
+      return 1;
+    }
     say(`플러그인 설정 파일을 그대로 씁니다: ${envFile}`);
   } else {
-    // A HerdRabbit already on the usual port (an earlier plugin install) keeps it.
-    port = (await deps.probe(host, PREFERRED_SERVICE_PORT))?.herdrabbit
+    // This user's plugin has started before (its template .env is there) on
+    // the usual port: the HerdRabbit answering there is that one, and keeps
+    // it. Without that, whatever answers may be another user's.
+    port = existing !== "" && (await deps.probe(host, PREFERRED_SERVICE_PORT))?.herdrabbit
       ? PREFERRED_SERVICE_PORT
       : await deps.findPort(tailscale.usedHttpsPorts);
     await deps.writeFile(envFile, newEnvText({ port, hostname: tailscale.hostname, date: new Date(deps.now()).toISOString().slice(0, 10) }));
@@ -98,7 +106,7 @@ export async function installPlugin(deps) {
       }
       say(`휴대폰·다른 기기: ${address}`);
     } catch (error) {
-      say(`Tailscale HTTPS 등록에 실패했습니다(${error.message}). 직접 실행하세요: sudo tailscale serve --bg --https=${port} http://127.0.0.1:${port}`);
+      say(`Tailscale HTTPS 등록에 실패했습니다(${error.message}). 직접 실행하세요: sudo tailscale serve --bg --yes --https=${port} http://127.0.0.1:${port}`);
     }
   }
   say("");
@@ -124,7 +132,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       migrate: () => migrate(base),
       ensureHerdr: () => ensureHerdrExecutable(),
       tailscale: () => tailscaleDetails(),
-      probe: (host, port) => probeHerdRabbit(host, port),
       findPort: (usedHttpsPorts) => findAvailableServicePort({
         preferred: PREFERRED_SERVICE_PORT,
         unavailablePorts: usedHttpsPorts,
@@ -138,7 +145,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         "tailscale", "serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`,
       ]),
       reaches: (address) => reachesHerdRabbit(address),
-      readFile: (path) => readFile(path, "utf8"),
     });
   } catch (error) {
     console.error(`설치 실패: ${error.message}`);

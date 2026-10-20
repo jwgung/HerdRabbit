@@ -89,10 +89,25 @@ test("run again, the settings, the port and the password stay unless asked", asy
   const asked = fakePc({ authExists: true, confirm: true });
   assert.equal(await installPlugin(asked.deps), 0);
   assert.deepEqual(asked.passwords, ["secret"]);
-  // A plugin HerdRabbit already on the usual port keeps it.
-  const earlier = fakePc({ taken: 38787 });
+  // This user's plugin, started before on the usual port, keeps it.
+  const earlier = fakePc({ taken: 38787, files: { [`${CONFIG}/.env`]: ENV_TEMPLATE } });
   assert.equal(await installPlugin(earlier.deps), 0);
   assert.equal(parseEnvFile(earlier.files.get(`${CONFIG}/.env`)).HERDR_WEB_PORT, "38787");
+  // Whatever answers there without that is not taken for this user's.
+  const foreign = fakePc({ taken: 38787 });
+  assert.equal(await installPlugin(foreign.deps), 0);
+  assert.equal(parseEnvFile(foreign.files.get(`${CONFIG}/.env`)).HERDR_WEB_PORT, "38790");
+});
+
+test("a failed plugin install or an unreadable kept .env stops with a reason", async () => {
+  const pc = fakePc();
+  const inner = pc.deps.run;
+  pc.deps.run = async (file, args, options) => (args[1] === "install" ? { code: 1, stdout: "" } : inner(file, args, options));
+  assert.equal(await installPlugin(pc.deps), 1);
+  assert.equal(pc.passwords.length, 0);
+  const bad = fakePc({ files: { [`${CONFIG}/.env`]: "HERDR_WEB_PORT=nope\n" } });
+  assert.equal(await installPlugin(bad.deps), 1);
+  assert.ok(bad.logs.some((line) => line.includes("플러그인 설정 파일을 읽을 수 없습니다")));
 });
 
 test("without Herdr running or Tailscale the install still completes and says what is left", async () => {
@@ -103,7 +118,7 @@ test("without Herdr running or Tailscale the install still completes and says wh
   assert.equal("HERDR_WEB_ALLOWED_HOSTS" in parseEnvFile(pc.files.get(`${CONFIG}/.env`)), false);
   const refused = fakePc({ serveFails: true });
   assert.equal(await installPlugin(refused.deps), 0);
-  assert.ok(refused.logs.some((line) => line.includes("sudo tailscale serve --bg --https=38790")));
+  assert.ok(refused.logs.some((line) => line.includes("sudo tailscale serve --bg --yes --https=38790")));
 });
 
 test("a plugin that never answers is a failed install", async () => {

@@ -21,14 +21,16 @@ main() {
     [ "$(node -p 'Number(process.versions.node.split(".")[0])')" -ge 22 ] || fail "requires Node.js 22 or newer"
     # Run as a file ("sh path/to/it"), its own checkout; piped, $0 is the
     # shell's name, never a path, so a folder that happens to be current is not taken.
+    DIRECTORY=""
     case "$0" in
-        */*) [ -f "$(dirname -- "$0")/scripts/migrate-to-plugin.mjs" ] && DIRECTORY="$(cd "$(dirname -- "$0")" && pwd -P)" ;;
+        */*|migrate-to-plugin.sh) [ -f "$(dirname -- "$0")/scripts/migrate-to-plugin.mjs" ] && DIRECTORY="$(cd "$(dirname -- "$0")" && pwd -P)" ;;
     esac
-    if [ -z "${DIRECTORY:-}" ]; then
+    if [ -z "$DIRECTORY" ]; then
         need git
         need npm
         TEMPORARY="$(mktemp -d)"
         trap 'rm -rf "$TEMPORARY"' EXIT
+        trap 'exit 130' INT TERM HUP
         log "Fetching HerdRabbit into $TEMPORARY"
         git clone --quiet --depth 1 "$REPOSITORY_URL" "$TEMPORARY/HerdRabbit"
         npm --prefix "$TEMPORARY/HerdRabbit" ci --omit=dev

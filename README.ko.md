@@ -7,7 +7,7 @@ HerdRabbit은 현재 머신에서 실행 중인 [Herdr](https://herdr.dev/) 워�
 > [!IMPORTANT]
 > HerdRabbit은 한 사람이 자신의 Herdr 세션에 접속하기 위한 **개인용 도구**입니다. 다중 사용자 계정, 권한 분리 또는 공개 호스팅을 위한 서비스가 아닙니다. 공인 인터넷에 직접 노출하지 말고 Tailscale 같은 사설 네트워크 안에서 사용하세요.
 
-서버는 Node.js 표준 라이브러리, Web Push 전송용 `web-push`, WebAuthn 검증용 SimpleWebAuthn과 설치된 `herdr` CLI를 사용합니다. 앱, 저장소, systemd 서비스 이름은 모두 `HerdRabbit`입니다. 예전 `herdrabbit.service` 이름으로 설치된 환경은 설치 스크립트를 다시 실행하면 자동으로 이관됩니다.
+서버는 Node.js 표준 라이브러리, Web Push 전송용 `web-push`, WebAuthn 검증용 SimpleWebAuthn과 설치된 `herdr` CLI를 사용합니다. 앱, 저장소, systemd 서비스 이름은 모두 `HerdRabbit`입니다. Herdr 플러그인으로 설치하며, 이전 방식인 systemd 서비스(`herdrabbit.service` 또는 예전 이름 `herdr-web-local.service`)로 설치된 PC는 설치 스크립트를 다시 실행하면 플러그인으로 옮겨집니다.
 
 HerdRabbit은 OS 사용자별로 실행하며, 선택적으로 인스턴스 비밀번호를 설정할 수 있습니다. 별도의 계정명은 사용하지 않습니다.
 
@@ -64,7 +64,7 @@ Tailscale이 설치되어 실행 중이면 [한 줄 자동 설치](#한-줄-자�
 - 터미널 출력과 입력창의 글자 크기 조절 및 설정 저장
 - 데스크톱과 모바일에서 설치 가능한 PWA
 - 선택형 인스턴스 비밀번호, Passkey 로그인, 7일 고정 만료, PWA를 새로 열 때 재로그인, 로그인된 브라우저 목록에서 하나씩 또는 모두 로그아웃
-- 사용자별 systemd 서비스 및 충돌하지 않는 `30000–39999` 포트 자동 설치
+- Herdr 플러그인(또는 사용자별 systemd 서비스)과 충돌하지 않는 `30000–39999` 포트 자동 설치
 - 설치 과정에서 Tailscale Serve HTTPS 자동 등록
 
 패인 분할과 Herdr 영구 세션명 변경은 현재 제공하지 않습니다.
@@ -76,7 +76,7 @@ Tailscale이 설치되어 실행 중이면 [한 줄 자동 설치](#한-줄-자�
 - Web App Manifest와 Service Worker를 사용하는 설치형 PWA
 - Push API, Service Worker와 VAPID 기반의 상태 알림
 - `execFile` 인자 배열로 호출하는 로컬 Herdr CLI 어댑터
-- 사용자별 `systemd --user` 서비스와 자동 포트 선택
+- Herdr와 함께 시작하는 플러그인(Linux에서는 사용자별 `systemd --user` 서비스도 가능)과 자동 포트 선택
 - Tailscale Serve를 통한 tailnet 전용 HTTPS 프록시
 - SimpleWebAuthn 기반 WebAuthn Passkey, `scrypt` 비밀번호 해시, HMAC 서명 세션, `HttpOnly` 쿠키, 창 단위 실행 토큰 및 CSRF/동일 출처 검증
 - Node.js 내장 `node:test`, 가짜 Herdr 실행 파일을 사용한 단위·통합 테스트
@@ -162,7 +162,7 @@ HerdRabbit은 `herdr session list --json`으로 **서비스를 실행한 OS 사�
 
 ### 여러 OS 사용자
 
-각 Linux 사용자는 자신의 계정에서 설치 스크립트를 실행합니다. `systemd --user` 서비스 이름은 사용자 영역별로 분리되므로 모두 `herdrabbit.service`를 사용해도 충돌하지 않습니다. 설치 스크립트는 로컬 수신 포트와 기존 Tailscale Serve HTTPS 포트를 검사한 뒤 `30000–39999` 범위에서 비어 있는 포트를 선택합니다.
+각 OS 사용자는 자신의 계정에서 설치 스크립트를 실행합니다. Herdr 플러그인과 `systemd --user` 서비스는 계정별로 분리되므로 서로 충돌하지 않습니다. 설치 스크립트는 로컬 수신 포트와 기존 Tailscale Serve HTTPS 포트를 검사한 뒤 `30000–39999` 범위에서 비어 있는 포트를 선택합니다.
 
 ```text
 alice → 127.0.0.1:38787 → https://server.example.ts.net:38787
@@ -221,7 +221,7 @@ curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/install
 7. Herdr가 실행 중이면 플러그인을 시작합니다. 아니면 Herdr를 실행할 때 함께 시작합니다.
 8. Tailscale이 실행 중이면 HTTPS Serve를 등록하고, 이 PC 주소와 HTTPS 주소를 출력합니다.
 
-다시 실행하면 비밀번호를 바꾸거나 Tailscale 등록을 다시 할 수 있습니다. 플러그인 설정과 포트는 그대로 둡니다.
+다시 실행하면 비밀번호를 바꾸거나 Tailscale 등록을 다시 할 수 있습니다. 플러그인 설정과 포트는 그대로 둡니다. 서비스 설치기처럼 Claude 터미널 모드 설정도 적용합니다.
 
 ### 저장소에서 수동 설치
 
@@ -696,7 +696,7 @@ PC마다 **Herdr** 줄도 있습니다. 페이지가 HerdRabbit을 확인하는 
 
 ## 검증과 개발
 
-전체 정적 검사와 테스트를 실행합니다. `npm run check`는 `src`, `public`, `scripts` 아래 스크립트와 `install.sh`, `update.sh`를 찾아 문법을 검사하므로 새 파일을 따로 등록할 필요가 없습니다. GitHub Actions가 모든 PR과 `main` push에서 `npm run verify`를 실행합니다.
+전체 정적 검사와 테스트를 실행합니다. `npm run check`는 `src`, `public`, `scripts` 아래 스크립트와 `install.sh`, `update.sh`, `migrate-to-plugin.sh`를 찾아 문법을 검사하므로 새 파일을 따로 등록할 필요가 없습니다. GitHub Actions가 모든 PR과 `main` push에서 `npm run verify`를 실행합니다.
 
 ```bash
 npm run verify

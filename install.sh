@@ -29,6 +29,7 @@ main() {
 
     TEMPORARY="$(mktemp -d)"
     trap 'rm -rf "$TEMPORARY"' EXIT
+    trap 'exit 130' INT TERM HUP
     log "Fetching HerdRabbit into $TEMPORARY"
     git clone --quiet --depth 1 "$REPOSITORY_URL" "$TEMPORARY/HerdRabbit"
     npm --prefix "$TEMPORARY/HerdRabbit" ci --omit=dev

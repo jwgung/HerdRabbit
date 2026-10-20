@@ -7,7 +7,7 @@ HerdRabbit is a small personal web app for controlling [Herdr](https://herdr.dev
 > [!IMPORTANT]
 > HerdRabbit is a **personal-use tool for one person to access their own Herdr sessions**. It is not a multi-user account system, an authorization boundary between untrusted users, or a public hosting service. Do not expose it directly to the public internet. Use it over a private network such as Tailscale.
 
-HerdRabbit runs once per OS user and may be protected with one instance password. It does not use usernames. The app, repository, and systemd service are all named `HerdRabbit`. Installations that still use the former `herdrabbit.service` name are migrated automatically the next time the installer runs.
+HerdRabbit runs once per OS user and may be protected with one instance password. It does not use usernames. The app, repository, and systemd service are all named `HerdRabbit`. It installs as a Herdr plugin; a PC with the older systemd service (under either `herdrabbit.service` or the former `herdr-web-local.service`) is moved over to the plugin the next time the installer runs.
 
 ## Reusable HTML UI
 
@@ -55,7 +55,7 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 - Install as a responsive PWA with light and dark themes (switched in the ⚙ settings menu)
 - Resize terminal text with `Ctrl`/`Cmd` + wheel, trackpad zoom, or a two-finger mobile gesture
 - Protect an instance with an optional password, Passkey login, a seven-day hard session limit, login on each new PWA window, and a list of signed-in browsers to sign out one by one or all at once
-- Install a per-user systemd service on a collision-free port in `30000–39999`
+- Install as a Herdr plugin on a collision-free port in `30000–39999` (or as a per-user systemd service)
 - Register Tailscale Serve HTTPS during setup when Tailscale is available
 
 Pane splitting, Herdr persistent-session renaming, and multi-user accounts are not currently provided.
@@ -67,7 +67,7 @@ Pane splitting, Herdr persistent-session renaming, and multi-user accounts are n
 - **PWA:** Web App Manifest, Service Worker app-shell caching, responsive standalone UI
 - **Notifications:** standards-based Web Push, Push API, VAPID, and the `web-push` package
 - **Herdr integration:** local `herdr` CLI calls through `execFile` argument arrays without a shell
-- **Process management:** per-user `systemd --user` service on Linux
+- **Process management:** a Herdr plugin started with Herdr (a per-user `systemd --user` service remains an option on Linux)
 - **Private HTTPS:** Tailscale Serve proxying to a loopback HTTP listener
 - **Authentication:** WebAuthn Passkeys through SimpleWebAuthn, `scrypt` password hashes, HMAC-signed sessions, `HttpOnly` cookies, per-window signed launch tokens, CSRF tokens, and same-origin checks
 - **Testing:** Node's built-in `node:test`, integration tests, and a fake Herdr executable
@@ -153,7 +153,7 @@ HerdRabbit calls `herdr session list --json`, reads snapshots from every running
 
 ### Multiple OS users on one server
 
-Each Linux user runs their own installation. `systemd --user` isolates identically named services by OS account, while the installer selects an unused local and Tailscale HTTPS port.
+Each OS user runs their own installation. Herdr plugins and `systemd --user` services are per account, while the installer selects an unused local and Tailscale HTTPS port.
 
 ```text
 alice → 127.0.0.1:38787 → https://server.example.ts.net:38787
@@ -164,7 +164,7 @@ Each instance is still personal: it exposes only the Herdr sessions and configur
 
 ## Requirements
 
-- Linux for automatic systemd service installation; macOS may use direct execution
+- Linux or macOS (the systemd service option is Linux-only)
 - Node.js 22 or newer
 - Git and curl for the one-line installer
 - Herdr 0.9.0 or newer with a running persistent session. The installer and `update.sh` update an older Herdr with `herdr update --handoff`, which keeps running panes alive
@@ -179,7 +179,7 @@ herdr --version
 herdr status server
 ```
 
-If Herdr is absent, the HerdRabbit service installer downloads the official Herdr installer automatically. To install Herdr yourself:
+If Herdr is absent, the HerdRabbit installer downloads the official Herdr installer automatically. To install Herdr yourself:
 
 ```bash
 curl -fsSL https://herdr.dev/install.sh | sh
@@ -210,7 +210,7 @@ The bootstrap script:
 7. Starts the plugin when Herdr is running; otherwise it starts with Herdr
 8. Registers Tailscale Serve HTTPS when Tailscale is running, and prints the local and HTTPS addresses
 
-Run it again to change the password or pick up a moved Tailscale setup; the plugin's settings and port are kept.
+Run it again to change the password or register Tailscale Serve again; the plugin's settings and port are kept. It also sets Claude's terminal mode, as the service installer does.
 
 ### Manual repository install
 
@@ -598,7 +598,7 @@ npm run check:browser   # Playwright checks against a fake Herdr (needs `npx pla
 npm run dev
 ```
 
-`npm run check` finds every script under `src`, `public` and `scripts` and checks its syntax, along with `install.sh` and `update.sh`, so a new file needs no registration. GitHub Actions runs `npm run verify` on every pull request and on pushes to `main`.
+`npm run check` finds every script under `src`, `public` and `scripts` and checks its syntax, along with `install.sh`, `update.sh` and `migrate-to-plugin.sh`, so a new file needs no registration. GitHub Actions runs `npm run verify` on every pull request and on pushes to `main`.
 
 Tests use a fake Herdr executable and temporary state. They do not write to real terminal panes or create and close real workspaces or sessions.
 
