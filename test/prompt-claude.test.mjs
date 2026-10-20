@@ -125,8 +125,13 @@ ${tail}
     assert.equal(plan?.kind, "plan", tail);
     assert.deepEqual(labels(plan), ["Yes, and use auto mode", "Yes, manually approve edits", "Tell Claude what to change"]);
   }
-  // answered: the editor hint ended above later output
-  assert.equal(parseClaudePrompt(screen(" ctrl+g to edit in Vim\n\n● Starting the build")), null);
+  // answered: the editor hint, its path whole or wrapped, ended above later output
+  for (const tail of [
+    " ctrl+g to edit in Vim\n\n● Starting the build",
+    " ctrl+g to edit in Vim · ~/.claude/plans/a.md\n\n● Starting the build",
+    " ctrl+g to edit in Vim · ~/.claude/plans/a.md\n● Starting\n  the build",
+    " ctrl+g to edit in Vim ·\n ~/.claude/plans/a.md\n● Starting",
+  ]) assert.equal(parseClaudePrompt(screen(tail)), null, tail);
 });
 
 test("reads Claude Code 2.1 approvals for a file, an MCP tool, and a label wrapped by a narrow pane", () => {

@@ -396,7 +396,8 @@ function promptTailIsActive(prompt, screen) {
     case "claude-approval": return ends(/esc to cancel.*(?:tab|ctrl\+e)|ctrl\+e to explain|^esc to cancel(?:\s*·\s*ctrl\+x ctrl\+k twice to stop background agents)?$/i);
     case "claude-confirm": return ends(CLAUDE_CONFIRM_HINT_RE);
     // "ctrl+g to edit in Vim · ~/.claude/plans/….md", the plan's path maybe wrapped onto lines of its own
-    default: return ends(/ctrl\+g to edit(?: in \S+\s*·.*)?|shift\+tab to approve with this feedback/i);
+    // (up to the path's own ".md": a line under it is later output)
+    default: return ends(/ctrl\+g to edit(?: in \S+\s*·\s*[~/].*?\.md\b)?|shift\+tab to approve with this feedback/i);
   }
 }
 
