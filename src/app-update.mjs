@@ -537,7 +537,9 @@ function runLogged(spawnImpl, file, args, { cwd, fd }) {
 
 // The plugin run (scripts/run-update.mjs --plugin): Herdr fetches and builds
 // the new checkout, then the plugin's restart action moves the server onto
-// it. A failed update leaves the server as it is.
+// it. Herdr queues that action and answers at once, so the run has ended when
+// the restart begins; the page sees the server come back. A failed update
+// leaves the server as it is.
 export async function runPluginUpdate({
   stateDir, id, binary, cwd = homedir(), spawnImpl = spawn, now = () => Date.now(),
 }) {

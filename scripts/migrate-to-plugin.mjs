@@ -153,7 +153,9 @@ export async function migrate(deps, { yes = false } = {}) {
     return 1;
   }
   say(`> herdr plugin action invoke ${PLUGIN_ID}.start`);
-  const started = await deps.run(herdr, ["plugin", "action", "invoke", `${PLUGIN_ID}.start`], { inherit: true });
+  // Herdr only queues the action and answers in JSON; whether it worked is
+  // whether the page answers.
+  const started = await deps.run(herdr, ["plugin", "action", "invoke", `${PLUGIN_ID}.start`]);
   if (started.code !== 0 || !(await waitForPage(deps, host, port))) {
     await deps.run("systemctl", ["--user", "start", unit]);
     say(started.code !== 0
