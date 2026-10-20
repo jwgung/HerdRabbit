@@ -2,7 +2,8 @@
 // (tool calls, thinking, the narration between them) folded under one
 // "Worked for 7s · 1 edit" header, and what it said after its last action
 // left in the open as the answer. Also the words a tool row uses ("Ran",
-// "Edited") and a TodoWrite call's list.
+// "Edited"), a TodoWrite call's list, and the files a SendUserFile call
+// handed over, which read as a card beside the answer.
 //
 // Ported from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/lib/workBlocks.ts,
@@ -10,16 +11,19 @@
 // Codex's and OpenCode's tools (the server gives OpenCode's inputs Claude's
 // field names).
 
-// { work: parts, answer: text parts }
+// { work: parts, answer: text parts and delivered files }. Files handed to
+// the user are what the turn made, not how: they stay out of the folded work
+// wherever they were sent, and are no action the answer has to come after.
 export function splitTurn(parts) {
+  const delivered = parts.map((part) => deliveredFiles(part) !== null);
   let lastAction = -1;
   for (let index = 0; index < parts.length; index += 1) {
-    if (parts[index]?.kind !== "text") lastAction = index;
+    if (parts[index]?.kind !== "text" && !delivered[index]) lastAction = index;
   }
   const isProse = (part) => part.kind === "text" && typeof part.text === "string" && part.text.trim().length > 0;
   return {
-    work: parts.filter((part, index) => part.kind !== "text" || (isProse(part) && index <= lastAction)),
-    answer: parts.filter((part, index) => isProse(part) && index > lastAction),
+    work: parts.filter((part, index) => !delivered[index] && (part.kind !== "text" || (isProse(part) && index <= lastAction))),
+    answer: parts.filter((part, index) => delivered[index] || (isProse(part) && index > lastAction)),
   };
 }
 
@@ -27,7 +31,7 @@ export function splitTurn(parts) {
 // unless the work holds the last words the agent said (no answer after them).
 export function workStartsOpen(live, parts) {
   if (live) return true;
-  const lastAnswer = splitTurn(parts).answer.at(-1);
+  const lastAnswer = splitTurn(parts).answer.filter((part) => part.kind === "text").at(-1);
   const after = lastAnswer === undefined ? 0 : parts.lastIndexOf(lastAnswer) + 1;
   return parts.slice(after).some((part) => part.kind === "text" && part.text.trim().length > 0);
 }
@@ -181,4 +185,57 @@ export function todoCallSummary(part) {
   const items = todoItems(part.input);
   if (items === null) return null;
   return `${items.filter((item) => item.status === "completed").length}/${items.length} done`;
+}
+
+// ---------------------------------------------------------------------------
+// Files handed over: Claude Code's SendUserFile gives the user files by path,
+// with a caption. The terminal shows each as one line; the chat as a card.
+
+// More files than this in one call read as the plain tool row.
+export const MAX_DELIVERED_FILES = 20;
+// A path longer than this is no path the card shows.
+const MAX_DELIVERED_PATH = 4096;
+
+// Claude Code marks no error when a file did not reach every viewer: its
+// result's words say so. So a card is drawn only for a result that says all
+// the call's files went ("1 file delivered to user.", "2 files delivered to
+// the user."; the count is the call's own) and nowhere that one did not, or
+// reached only some viewers; any other wording keeps the tool row.
+const DELIVERED_RE = /^(\d+) files? delivered to (?:the )?user\.?$/iu;
+const NOT_DELIVERED_RE = /\bnot\b[^\n]*\bdeliver|\bno files?\b|only one of its viewers|\bfailed\b|\berror\b/iu;
+// a line naming a file that went, whose path may hold any word
+const DELIVERED_LINE_RE = /^\s+.+ → file_uuid: [\w-]+$/u;
+function deliveredResult(output, count) {
+  if (typeof output !== "string") return false;
+  const [first, ...rest] = output.split("\n");
+  const said = DELIVERED_RE.exec(first.trim());
+  return Boolean(said) && Number(said[1]) === count
+    && !rest.some((line) => !DELIVERED_LINE_RE.test(line) && NOT_DELIVERED_RE.test(line));
+}
+
+// { files: [path], caption } for a SendUserFile call that finished and handed
+// its files over, or null: one still running, failed, cut short, with an
+// input the card cannot read, or whose result does not say its files were
+// delivered (or is too long to tell) keeps the tool row's own look.
+export function deliveredFiles(part) {
+  if (part?.kind !== "tool" || part.name !== "SendUserFile") return null;
+  if (part.error === true || part.input_truncated === true || typeof part.output_size !== "number") return null;
+  if (part.output_truncated === true) return null;
+  const input = parseToolInput(part.input ?? "");
+  const files = input?.files;
+  if (!Array.isArray(files) || files.length === 0 || files.length > MAX_DELIVERED_FILES) return null;
+  const readable = (path) => typeof path === "string" && path.trim().length > 0 && path.length <= MAX_DELIVERED_PATH &&
+    !/[\x00-\x1f\x7f]/u.test(path);
+  if (!files.every(readable) || !deliveredResult(part.output, files.length)) return null;
+  const caption = typeof input.caption === "string" && input.caption.trim() ? input.caption : null;
+  return { files: [...files], caption };
+}
+
+// A delivered path as a card line shows it: the file's name, and the folder
+// it sits in ("" for a bare name).
+export function splitDeliveredPath(path) {
+  const trimmed = path.replace(/\/+$/u, "") || path;
+  const cut = trimmed.lastIndexOf("/");
+  if (cut === -1) return { name: trimmed, folder: "" };
+  return { name: trimmed.slice(cut + 1) || trimmed, folder: trimmed.slice(0, cut + 1) };
 }
