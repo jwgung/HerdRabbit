@@ -161,8 +161,14 @@ export function keySteps(keys) {
 // the match runs into the last one, never for a hint that ended above later
 // output (an answered, stale menu).
 export function hintEnds(shown, re) {
-  return [1, 2, 3].some((span) =>
-    re.test(shown.slice(-span).join(" ")) && (span === 1 || !re.test(shown.slice(-span, -1).join(" "))));
+  const every = new RegExp(re.source, re.flags.replace("g", "") + "g");
+  return [1, 2, 3].some((span) => {
+    const text = shown.slice(-span).join(" ");
+    const before = span === 1 ? 0 : shown.slice(-span, -1).join(" ").length;
+    // "Press enter to confirm or esc" / "to cancel": its last match is the one that counts
+    const last = [...text.matchAll(every)].at(-1);
+    return last !== undefined && last.index + last[0].length > before;
+  });
 }
 
 // The screen's visible lines, cleaned, without blank lines and rules.

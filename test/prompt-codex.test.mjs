@@ -130,6 +130,13 @@ option 1/3   shift + → main prompt
   assert.deepEqual(labels(plain), ["CUDA", "CPU"]);
 });
 
+test("an approval whose hint a narrow pane wraps is still a card", () => {
+  for (const hint of ["Press enter to confirm or esc\nto cancel", "Press enter to confirm or esc to\ncancel", "Press enter to confirm or\nesc to cancel"]) {
+    const parsed = parseCodexPrompt(codexApprovalScreen().replace("Press enter to confirm or esc to cancel", hint));
+    assert.equal(parsed?.kind, "approval", hint);
+  }
+});
+
 test("an answered approval above later output, or a password prompt, is no card", () => {
   assert.equal(parseCodexPrompt(`
 Would you like to run the following command?
