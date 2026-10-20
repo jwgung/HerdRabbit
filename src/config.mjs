@@ -55,6 +55,14 @@ function defaultFilesDirectory(environment) {
   return join(dataHome, "herdrabbit", "files");
 }
 
+function parseAutoFit(value) {
+  if (value === undefined || value === "") return false;
+  if (!["1", "0", "true", "false", "on", "off"].includes(String(value).toLowerCase())) {
+    throw new Error("HERDR_WEB_AUTO_FIT must be 1 or 0");
+  }
+  return ["1", "true", "on"].includes(String(value).toLowerCase());
+}
+
 function parseRole(value) {
   const role = value || "hub";
   if (!["hub", "leaf"].includes(role)) {
@@ -168,8 +176,9 @@ export function readConfig(environment = process.env) {
     commandTimeoutMs: 5_000,
     maxBodyBytes: 16 * 1024,
     maxTransferBytes: 50 * 1024 * 1024,
+    autoFit: parseAutoFit(environment.HERDR_WEB_AUTO_FIT),
     ...peer,
   });
 }
 
-export { parseAllowedHosts, parseHost, parseHubUrl, parsePeerAddresses, parsePeerLogins, parsePort, parseRole };
+export { parseAllowedHosts, parseAutoFit, parseHost, parseHubUrl, parsePeerAddresses, parsePeerLogins, parsePort, parseRole };

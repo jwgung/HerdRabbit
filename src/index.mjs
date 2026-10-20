@@ -18,6 +18,7 @@ import { announceToHub } from "./leaf-announce.mjs";
 import { FileStore } from "./file-store.mjs";
 import { MultiServerClient } from "./multi-server-client.mjs";
 import { AiAccounts, runningAgentsIn } from "./ai-accounts.mjs";
+import { readHeadlessSize, staleSoloPanes, repairablePanes, repairPane } from "./headless-fit.mjs";
 
 const config = readConfig();
 const auth = await loadPasswordAuth(config.authFile);
@@ -73,6 +74,46 @@ const herdr = new MultiServerClient({ local, profiles, hubVersion, machineName }
 // Only this machine's panes decide whether a switch here would disturb anything.
 const aiAccounts = new AiAccounts({ directory: config.aiAccountsDir, runningAgents: () => runningAgentsIn(local) });
 const notificationMonitor = new AgentNotificationMonitor({ herdr, push });
+// A pane can outlive the TUI client that sized it. When headless, a solo pane
+// whose height no longer matches the server's headless fallback is a leftover;
+// replacing it is the only repair, so it is logged always and performed only
+// on request, and only for panes no agent is occupying.
+let headlessCheckBusy = false;
+async function checkHeadlessFit() {
+  if (headlessCheckBusy) return;
+  headlessCheckBusy = true;
+  try {
+    const [size, snapshot] = await Promise.all([
+      readHeadlessSize(),
+      herdr.snapshot(),
+    ]);
+    const stale = staleSoloPanes(snapshot, size);
+    if (stale.length === 0) return;
+    const repairable = repairablePanes(stale);
+    const busy = stale.filter(({ paneId }) => !repairable.some(({ paneId: id }) => id === paneId));
+    for (const pane of busy) {
+      console.warn(`headless-fit: ${pane.paneId} is ${pane.viewportRows} rows (headless is ${size.rows}) but ${pane.agent} is running; recreate the pane manually`);
+    }
+    for (const pane of repairable) {
+      if (!config.autoFit) {
+        console.warn(`headless-fit: ${pane.paneId} is ${pane.viewportRows} rows (headless is ${size.rows}); set HERDR_WEB_AUTO_FIT=1 to replace such panes automatically`);
+        continue;
+      }
+      try {
+        await repairPane(herdr, pane);
+        console.log(`headless-fit: replaced ${pane.paneId} (${pane.viewportRows} rows) with a fresh ${size.rows}-row pane`);
+      } catch (error) {
+        console.error("headless-fit: repair failed", { paneId: pane.paneId, message: error.message });
+      }
+    }
+  } catch (error) {
+    console.error("headless-fit check failed", { message: error.message });
+  } finally {
+    headlessCheckBusy = false;
+  }
+}
+const headlessFitTimer = setInterval(() => void checkHeadlessFit(), 30_000);
+headlessFitTimer.unref?.();
 const { server } = createHerdrHttpServer({
   herdr,
   profiles,
@@ -141,6 +182,7 @@ server.listen(config.port, config.host, () => {
 function shutdown() {
   herdr.stopped = true;
   notificationMonitor.stop();
+  clearInterval(headlessFitTimer);
   server.close((error) => {
     if (error) {
       console.error("Shutdown failed:", error.message);
