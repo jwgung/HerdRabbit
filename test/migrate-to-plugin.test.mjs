@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { ENV_TEMPLATE, parseEnvFile } from "../src/plugin-runner.mjs";
 import { envValue, hasSettings, migrate, pluginEnvText } from "../scripts/migrate-to-plugin.mjs";
 
@@ -29,6 +31,7 @@ function fakePc({
           if (args[2] !== unit) return { code: 0, stdout: "LoadState=not-found\n" };
           return { code: 0, stdout: `LoadState=loaded\nWorkingDirectory=${directory}\nFragmentPath=${file}\nEnvironment=${environment}\n` };
         }
+        if (args[1] === "show-environment") return { code: 0, stdout: "HOME=/home/me\nXDG_DATA_HOME=/data\n" };
         if (args[1] === "stop") pc.serviceUp = false;
         if (args[1] === "start") pc.serviceUp = true;
         return { code: 0, stdout: "" };
@@ -41,6 +44,11 @@ function fakePc({
         if (args[1] === "install") return { code: install, stdout: "" };
         if (args[1] === "config-dir") return { code: 0, stdout: `${CONFIG}\n` };
         if (args[1] === "action") {
+          if (args[3].endsWith(".stop")) {
+            pc.stopped = true;
+            pc.pluginUp = false;
+            return { code: 0, stdout: "" };
+          }
           if (start === 0 && answers) pc.pluginUp = true;
           return { code: start, stdout: "" };
         }
@@ -88,13 +96,16 @@ test("a service moves to the plugin, keeping its settings, and the old install g
   assert.equal(settings.HERDR_WEB_PEER_ADDRESSES, "100.64.0.3");
   assert.equal(settings.HERDR_WEB_AUTH_FILE, "/home/me/.config/herdr-bridge/auth.json");
   assert.equal(settings.HERDR_WEB_PORT, "38787");
+  // Where the service kept uploads and push subscriptions, from the user manager's folders.
+  assert.equal(settings.HERDR_WEB_FILES_DIR, "/data/herdrabbit/files");
+  assert.equal(settings.HERDR_WEB_PUSH_FILE, join(homedir(), ".config", "herdr-bridge", "push.json"));
   assert.equal("HERDR_BIN" in settings, false, "the plugin uses the Herdr that runs it");
   // The service's own Herdr installs the plugin, and the service stops before the plugin starts.
   const order = pc.calls.filter((call) => /plugin install|stop herdrabbit|action invoke|disable/u.test(call));
   assert.deepEqual(order, [
     "/opt/Herdr Tools/herdr plugin install ultivis-iot/HerdRabbit --yes",
     "systemctl --user stop herdrabbit.service",
-    "/opt/Herdr Tools/herdr plugin action invoke herdrabbit.start",
+    "/opt/Herdr Tools/herdr plugin action invoke herdrabbit.restart",
     "systemctl --user disable herdrabbit.service",
   ]);
   assert.deepEqual(pc.removed, [UNIT_FILE, INSTALL]);
@@ -105,6 +116,7 @@ test("a plugin that does not answer puts the service back and removes nothing", 
   for (const pc of [fakePc({ start: 1 }), fakePc({ answers: false })]) {
     assert.equal(await migrate(pc.deps), 1);
     assert.equal(pc.serviceUp, true);
+    assert.equal(pc.stopped, true, "a plugin server that came up anyway is stopped first");
     assert.deepEqual(pc.removed, []);
     assert.equal(pc.calls.some((call) => call.includes("disable")), false);
   }
@@ -137,9 +149,18 @@ test("a checkout someone works in, or a unit outside this user's folder, is kept
 });
 
 test("settings already in the plugin's .env are the user's and are kept", async () => {
-  const pc = fakePc({ files: { [`${CONFIG}/.env`]: "HERDR_WEB_PORT=39000\n" } });
+  const pc = fakePc({ files: { [`${CONFIG}/.env`]: "HERDR_WEB_PORT=38787\nHERDR_WEB_MAX_TRANSFER_MB=9\n" } });
   assert.equal(await migrate(pc.deps), 0);
-  assert.equal(pc.files.get(`${CONFIG}/.env`), "HERDR_WEB_PORT=39000\n");
+  assert.equal(pc.files.get(`${CONFIG}/.env`), "HERDR_WEB_PORT=38787\nHERDR_WEB_MAX_TRANSFER_MB=9\n");
+});
+
+test("a kept .env on another address stops the move before the service does", async () => {
+  for (const text of ["HERDR_WEB_PORT=39000\n", "HERDR_WEB_MAX_TRANSFER_MB=9\n", "HERDR_WEB_PORT=nope\n"]) {
+    const pc = fakePc({ environment: UNIT_ENV.replace("38787", "38790"), files: { [`${CONFIG}/.env`]: text } });
+    assert.equal(await migrate(pc.deps), 1, text);
+    assert.equal(pc.calls.some((call) => call.includes("stop")), false, text);
+    assert.equal(pc.serviceUp, true);
+  }
 });
 
 test("nothing happens without a service, for a leaf, or when the user says no", async () => {

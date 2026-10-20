@@ -283,7 +283,7 @@ sh ~/.local/share/herd-rabbit/migrate-to-plugin.sh
 ```
 
 - 무엇을 할지 보여 주고 확인을 받습니다(터미널이 없으면 `--yes`).
-- `herdr plugin install ultivis-iot/HerdRabbit`으로 플러그인을 설치하고, 서비스 유닛의 `HERDR_WEB_*` 설정(포트, 허용 호스트, Connect PC 포트와 허용한 PC 등)을 플러그인 `.env`로 옮깁니다. 값에 큰따옴표나 줄바꿈이 있으면 옮기지 않고 이름을 알려 주니 직접 적으세요. `HERDR_BIN`은 옮기지 않습니다. 플러그인은 자신을 실행하는 Herdr를 씁니다. `.env`에 이미 설정이 있으면 그대로 두고, 이때는 유닛 설정을 하나도 옮기지 않습니다.
+- `herdr plugin install ultivis-iot/HerdRabbit`으로 플러그인을 설치하고, 서비스 유닛의 `HERDR_WEB_*` 설정(포트, 허용 호스트, Connect PC 포트와 허용한 PC 등)을 플러그인 `.env`로 옮깁니다. 값에 큰따옴표나 줄바꿈이 있으면 옮기지 않고 이름을 알려 주니 직접 적으세요. `HERDR_BIN`은 옮기지 않습니다. 플러그인은 자신을 실행하는 Herdr를 씁니다. 서비스가 쓰던 비밀번호 파일, 업로드 폴더, 푸시 구독 파일 경로도 명시해 적으므로, Herdr 환경의 XDG 폴더가 달라도 위치가 바뀌지 않습니다. `.env`에 이미 설정이 있으면 그대로 두고, 이때는 유닛 설정을 하나도 옮기지 않습니다. 그 주소가 서비스 주소와 다르면 서비스를 건드리기 전에 멈춥니다.
 - 서비스를 멈추고 플러그인을 같은 주소에서 시작합니다. 같은 포트라서 Tailscale Serve 주소와 설치한 PWA, 다른 PC에서의 연결이 그대로 이어집니다.
 - 플러그인이 응답하면 서비스를 끄고, 유닛 파일이 `~/.config/systemd/user`에 있으면 지웁니다. 기본 위치(`~/.local/share/herd-rabbit`, 또는 `HERD_RABBIT_INSTALL_DIR`)의 수정 없는 공식 체크아웃이고 설치된 의존성 말고는 무시된 파일도 없으면 그 폴더도 지웁니다. 다른 곳의 체크아웃, 수정이 있는 체크아웃, 다른 무시된 파일이 있는 체크아웃은 남깁니다. 응답하지 않으면 서비스를 다시 켜고 아무것도 지우지 않습니다.
 - 비밀번호, Passkey, 로그인 기기, 붙인 PC(`~/.config/herdr-bridge/`)와 업로드 파일(`~/.local/share/herdrabbit/files`)은 설치 폴더 밖에 있어 그대로입니다.

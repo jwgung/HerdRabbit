@@ -35,6 +35,9 @@ const START_GRACE_MS = 10_000;
 // all) and still "running" after it is taken for one that ended unseen. A
 // unit systemctl says is active is never taken for ended, however long.
 export const MAX_RUN_MS = 60 * 60_000;
+// How long a plugin run's queued restart may take to replace this server
+// before the run is taken for one whose restart never came.
+export const RESTART_WAIT_MS = 2 * 60_000;
 // The service units update.sh restarts, in the order it looks for them.
 export const SERVICE_UNITS = ["herdrabbit.service", "herdr-web-local.service"];
 // The only origins update.sh updates from.
@@ -416,6 +419,13 @@ export class AppUpdater {
         }
       }
     }
+    // A plugin run ends as soon as Herdr has queued the restart, while this
+    // server is still the one being replaced: its success is the new server's
+    // to tell, so until then the page keeps waiting for the restart.
+    if (record?.state === "succeeded" && record.restartOf === this.pid) {
+      const late = this.now() - Date.parse(record.finishedAt ?? "") > RESTART_WAIT_MS;
+      record = late ? { ...record, state: "failed", reason: "restart_failed" } : { ...record, state: "running" };
+    }
     return {
       state: record?.state ?? "idle",
       startedAt: record?.startedAt ?? null,
@@ -514,19 +524,27 @@ export class AppUpdater {
     }
     this.#lastStart = this.now();
     const current = await readRecord(this.stateDir);
-    if (current?.state === "running") await writeRecord(this.stateDir, { ...current, pid });
+    if (current?.state === "running") await writeRecord(this.stateDir, { ...current, pid, restartOf: this.pid });
     return this.#status(false);
   }
 }
 
-// What the plugin run needs to find Herdr, git and npm and Herdr's socket:
-// none of this server's HERDR_WEB_* settings.
-const PLUGIN_RUN_VARIABLES = ["HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"];
+// What the plugin run needs to find Herdr, git and npm, Herdr's socket, and
+// the network the way this server's check reached it (proxies, CAs, npm's
+// settings): none of this server's HERDR_WEB_* settings.
+const PLUGIN_RUN_VARIABLES = new Set([
+  "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TMPDIR",
+  "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR",
+  "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+  "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR", "GIT_SSL_CAINFO",
+]);
+const PLUGIN_RUN_PREFIXES = ["npm_config_", "NPM_CONFIG_"];
 
 export function pluginRunEnvironment(environment, path) {
   const env = { PATH: path };
-  for (const name of PLUGIN_RUN_VARIABLES) {
-    if (typeof environment[name] === "string" && environment[name] !== "") env[name] = environment[name];
+  for (const [name, value] of Object.entries(environment)) {
+    const wanted = PLUGIN_RUN_VARIABLES.has(name) || PLUGIN_RUN_PREFIXES.some((prefix) => name.startsWith(prefix));
+    if (wanted && typeof value === "string" && value !== "") env[name] = value;
   }
   return env;
 }

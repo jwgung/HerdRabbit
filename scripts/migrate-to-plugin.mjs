@@ -11,7 +11,7 @@ import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { parseHost, parsePort } from "../src/config.mjs";
+import { parseHost, parsePort, readConfig } from "../src/config.mjs";
 import { ENV_TEMPLATE, SYSTEMD_UNITS, parseEnvFile, pluginSettings, probeHerdRabbit, probeHost } from "../src/plugin-runner.mjs";
 import { OFFICIAL_ORIGINS, properties } from "../src/app-update.mjs";
 import { parseSystemdEnvironment } from "./service-environment.mjs";
@@ -21,6 +21,8 @@ export const PLUGIN_SOURCE = "ultivis-iot/HerdRabbit";
 export const PLUGIN = "herdrabbit";
 // The plugin's start action waits up to 15 s itself; Herdr runs it queued.
 export const PAGE_WAIT_MS = 20_000;
+// The queued stop action's own wait for the server to end.
+const STOP_WAIT_MS = 6_000;
 const POLL_MS = 500;
 // HERDR_WEB_ROLE belongs to a leaf, which is set up again first.
 const NOT_CARRIED = new Set(["HERDR_WEB_ROLE"]);
@@ -45,6 +47,33 @@ export function pluginEnvText(environment, { unit, date }) {
     else lines.push(`${key}=${written}`);
   }
   return { text: `${lines.join("\n")}\n\n${ENV_TEMPLATE}`, skipped };
+}
+
+// The unit's data paths written out: the service found them from the user
+// manager's environment, the plugin from Herdr's, and an XDG folder set in one
+// but not the other would otherwise move the uploads and push subscriptions.
+// The password file is pinned the same way.
+export function pinnedPaths(environment, managerEnvironment) {
+  const pinned = new Map(environment);
+  try {
+    const config = readConfig({ ...managerEnvironment, ...Object.fromEntries(environment) });
+    if (!pinned.has("HERDR_WEB_AUTH_FILE")) pinned.set("HERDR_WEB_AUTH_FILE", config.authFile);
+    if (!pinned.has("HERDR_WEB_FILES_DIR")) pinned.set("HERDR_WEB_FILES_DIR", config.filesDir);
+    if (!pinned.has("HERDR_WEB_PUSH_FILE")) pinned.set("HERDR_WEB_PUSH_FILE", config.pushFile);
+  } catch {
+    // A unit config.mjs rejects would not have run either; carried as it is.
+  }
+  return pinned;
+}
+
+// `systemctl --user show-environment`: one KEY=VALUE per line.
+function managerVariables(text) {
+  const values = {};
+  for (const entry of String(text).split("\n")) {
+    const at = entry.indexOf("=");
+    if (at > 0) values[entry.slice(0, at)] = entry.slice(at + 1);
+  }
+  return values;
 }
 
 // Whether a .env already says anything: then it is the user's and is kept.
@@ -133,9 +162,28 @@ export async function migrate(deps, { yes = false } = {}) {
   const envFile = join(configDir.stdout.trim(), ".env");
   const existing = await deps.readFile(envFile).catch(() => "");
   if (hasSettings(existing)) {
+    // Kept as the user's, but the plugin must come up where the service was:
+    // the Tailscale Serve address, the PWA and other PCs point there.
+    const kept = pluginSettings(parseEnvFile(existing));
+    let keptHost;
+    let keptPort;
+    try {
+      keptHost = parseHost(kept.HERDR_WEB_HOST);
+      keptPort = parsePort(kept.HERDR_WEB_PORT);
+    } catch (error) {
+      say(`플러그인 설정 파일을 읽을 수 없습니다(${error.message}): ${envFile}. 고치거나 지운 뒤 다시 실행하세요. 서비스는 그대로 실행 중입니다.`);
+      return 1;
+    }
+    if (keptHost !== host || keptPort !== port) {
+      say(`플러그인 설정 파일의 주소(${keptHost}:${keptPort})가 서비스 주소(${host}:${port})와 다릅니다: ${envFile}`);
+      say("그 파일을 지우거나 주소를 맞춘 뒤 다시 실행하세요. 서비스는 그대로 실행 중입니다.");
+      return 1;
+    }
     say(`플러그인 설정 파일에 이미 설정이 있어 서비스 설정을 옮기지 않고 그대로 둡니다: ${envFile}`);
   } else {
-    const { text, skipped } = pluginEnvText(environment, { unit, date: new Date(deps.now()).toISOString().slice(0, 10) });
+    const manager = await deps.run("systemctl", ["--user", "show-environment"]);
+    const carried = pinnedPaths(environment, manager.code === 0 ? managerVariables(manager.stdout) : {});
+    const { text, skipped } = pluginEnvText(carried, { unit, date: new Date(deps.now()).toISOString().slice(0, 10) });
     await deps.writeFile(envFile, text);
     say(`서비스 설정을 옮겼습니다: ${envFile}`);
     for (const key of skipped) say(`  ${key}는 값에 따옴표나 줄바꿈이 있어 옮기지 못했습니다. 직접 적으세요.`);
@@ -146,11 +194,17 @@ export async function migrate(deps, { yes = false } = {}) {
     say(`서비스를 멈추지 못했습니다. 플러그인은 설치됐지만 서비스가 계속 실행 중입니다: systemctl --user status ${unit}`);
     return 1;
   }
-  say(`> herdr plugin action invoke ${PLUGIN}.start`);
+  // Restart, not start: a plugin server already up (installed earlier, its
+  // hook run while the service was down) picks up the settings just written.
   // Herdr only queues the action and answers in JSON; whether it worked is
   // whether the page answers.
-  const started = await deps.run(herdr, ["plugin", "action", "invoke", `${PLUGIN}.start`]);
+  say(`> herdr plugin action invoke ${PLUGIN}.restart`);
+  const started = await deps.run(herdr, ["plugin", "action", "invoke", `${PLUGIN}.restart`]);
   if (started.code !== 0 || !(await waitForPage(deps, host, port))) {
+    // A plugin server that came up late, or elsewhere, would hold the port
+    // the service needs. Stop only ever ends the plugin's own server.
+    await deps.run(herdr, ["plugin", "action", "invoke", `${PLUGIN}.stop`]);
+    await deps.sleep(STOP_WAIT_MS);
     await deps.run("systemctl", ["--user", "start", unit]);
     say(started.code !== 0
       ? "플러그인을 시작하지 못했습니다. Herdr가 실행 중일 때 다시 실행하세요. 서비스를 다시 켰습니다."

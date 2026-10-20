@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile, chmod, symlink, lstat } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  AppUpdater, MAX_LOG_BYTES, MAX_NOTES, MAX_RUN_MS, OFFICIAL_ORIGINS, SERVICE_UNITS, cleanCheck, cleanLog, cleanRunStatus, execCommand, runLimiter,
+  AppUpdater, MAX_LOG_BYTES, MAX_NOTES, MAX_RUN_MS, RESTART_WAIT_MS, OFFICIAL_ORIGINS, SERVICE_UNITS, cleanCheck, cleanLog, cleanRunStatus, execCommand, runLimiter,
   pluginRunEnvironment, runPluginUpdate, runUpdateScript,
 } from "../src/app-update.mjs";
 import { EventEmitter } from "node:events";
@@ -599,6 +599,37 @@ test("a plugin with a bad id or no Herdr is not a plugin, and the run is given n
     const result = await updater(repo, services(repo.work, { loaded: "none" }), { plugin }).check();
     assert.equal(result.blocked, "not_service", JSON.stringify(plugin));
   }
-  const env = pluginRunEnvironment({ HOME: "/home/me", XDG_RUNTIME_DIR: "/run/user/1", HERDR_WEB_AUTH_FILE: "/x", HERDR_BIN: "/h", SECRET: "s" }, "/bin");
-  assert.deepEqual(env, { PATH: "/bin", HOME: "/home/me", XDG_RUNTIME_DIR: "/run/user/1" });
+  const env = pluginRunEnvironment({
+    HOME: "/home/me", XDG_RUNTIME_DIR: "/run/user/1", HERDR_WEB_AUTH_FILE: "/x", HERDR_BIN: "/h", SECRET: "s",
+    HTTPS_PROXY: "http://proxy:3128", npm_config_registry: "https://npm.example", NODE_EXTRA_CA_CERTS: "/ca.pem",
+  }, "/bin");
+  assert.deepEqual(env, {
+    PATH: "/bin", HOME: "/home/me", XDG_RUNTIME_DIR: "/run/user/1",
+    HTTPS_PROXY: "http://proxy:3128", npm_config_registry: "https://npm.example", NODE_EXTRA_CA_CERTS: "/ca.pem",
+  });
+});
+
+test("a plugin run's success is told by the server that replaced this one", async (context) => {
+  const repo = await scratch(context);
+  const checkout = await pluginCheckout(repo);
+  await repo.publish("Release 1.0.1", "1.0.1");
+  let now = 1_700_000_000_000;
+  const options = (pid) => ({
+    now: () => now, pid, plugin: { id: "herdrabbit", binary: "/opt/herdr" }, spawnImpl: fakeSpawner().spawnImpl, alive: () => true,
+  });
+  const old = updater({ ...repo, work: checkout }, services(repo.work, { loaded: "none" }), options(PID));
+  await old.start();
+  // The run queued the restart and ended; this server has not been replaced yet.
+  const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
+  assert.equal(record.restartOf, PID);
+  now += 20_000;
+  await writeFile(join(repo.stateDir, "update-state.json"), `${JSON.stringify({ ...record, state: "succeeded", exitCode: 0, finishedAt: new Date(now).toISOString() })}\n`);
+  assert.equal((await old.runStatus()).state, "running");
+  const replacement = updater({ ...repo, work: checkout }, services(repo.work, { loaded: "none" }), options(PID + 1));
+  assert.equal((await replacement.runStatus()).state, "succeeded");
+  // A restart that never came is a failed run, not one waiting for ever.
+  now += RESTART_WAIT_MS + 1;
+  const late = await old.runStatus();
+  assert.equal(late.state, "failed");
+  assert.equal(late.reason, "restart_failed");
 });
