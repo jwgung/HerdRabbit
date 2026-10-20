@@ -100,6 +100,40 @@ Claude has written up a plan and is ready to execute. Would you like to proceed?
   ]);
 });
 
+test("a plan whose editor hint a narrow pane wraps at its path is still the plan's card", () => {
+  const screen = (tail) => `
+ Ready to code?
+
+ Here is Claude's plan:
+ - Phase 1 범위·일정 재합의
+
+ Claude has written up a plan and is ready to
+ execute. Would you like to proceed?
+
+ ❯ 1. Yes, and use auto mode
+   2. Yes, manually approve edits
+   3. Tell Claude what to change
+      shift+tab to approve with this feedback
+
+${tail}
+`;
+  for (const tail of [
+    " ctrl+g to edit in Vim ·\n ~/.claude/plans/noble-shimmying-hammock.md",
+    " ctrl+g to edit in Vim ·\n ~/.claude/plans/noble-shimmying-\n hammock.md",
+  ]) {
+    const plan = parseClaudePrompt(screen(tail));
+    assert.equal(plan?.kind, "plan", tail);
+    assert.deepEqual(labels(plan), ["Yes, and use auto mode", "Yes, manually approve edits", "Tell Claude what to change"]);
+  }
+  // answered: the editor hint, its path whole or wrapped, ended above later output
+  for (const tail of [
+    " ctrl+g to edit in Vim\n\n● Starting the build",
+    " ctrl+g to edit in Vim · ~/.claude/plans/a.md\n\n● Starting the build",
+    " ctrl+g to edit in Vim · ~/.claude/plans/a.md\n● Starting\n  the build",
+    " ctrl+g to edit in Vim ·\n ~/.claude/plans/a.md\n● Starting",
+  ]) assert.equal(parseClaudePrompt(screen(tail)), null, tail);
+});
+
 test("reads Claude Code 2.1 approvals for a file, an MCP tool, and a label wrapped by a narrow pane", () => {
   const write = parseClaudePrompt(`
 ● Write(hello.txt)
