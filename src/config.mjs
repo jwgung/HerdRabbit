@@ -154,6 +154,16 @@ function parseRole(value) {
   return role;
 }
 
+// The plugin id Herdr started this server under (src/plugin-runner.mjs sets
+// it), so the in-app update can ask Herdr to update and restart that plugin.
+// Unset, or anything that is not an id, is a server started some other way.
+export const PLUGIN_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/iu;
+
+function parsePluginId(value) {
+  const id = (value ?? "").trim();
+  return PLUGIN_ID.test(id) ? id : null;
+}
+
 function parsePeerLogins(value) {
   if (value === undefined || value.trim() === "") return [];
   const logins = value.split(",").map((login) => login.trim().toLowerCase()).filter(Boolean);
@@ -255,6 +265,7 @@ export function readConfig(environment = process.env) {
   return Object.freeze({
     port,
     herdrBin: environment.HERDR_BIN || "herdr",
+    pluginId: parsePluginId(environment.HERDR_WEB_PLUGIN_ID),
     ...dataPaths(environment),
     extraAllowedHosts: parseAllowedHosts(environment.HERDR_WEB_ALLOWED_HOSTS),
     filesDir: defaultFilesDirectory(environment),
@@ -286,4 +297,4 @@ export function formerLeafRefusal({ wasLeaf = false } = {}, passwordRequired) {
   return "HerdRabbit's page is locked: this PC was installed as a leaf and has no password. Run npm run install-service here to set it up again (it asks for a password), or npm run password and restart the service.";
 }
 
-export { parseAllowedHosts, parseHubUrl, parseMaxTransferBytes, parseHost, parsePeerAddresses, parsePeerHost, parsePeerLogins, parsePeerPort, parsePort, parseRole };
+export { parseAllowedHosts, parseHubUrl, parseMaxTransferBytes, parseHost, parsePeerAddresses, parsePeerHost, parsePeerLogins, parsePeerPort, parsePluginId, parsePort, parseRole };

@@ -185,3 +185,11 @@ test("an IPv6 address is bracketed wherever it is written with a port", () => {
   assert.equal(hostPort("fd7a:115c:a1e0::1", 38_788), "[fd7a:115c:a1e0::1]:38788");
   assert.equal(hostPort("100.64.0.2", 38_788), "100.64.0.2:38788");
 });
+
+test("the plugin id is Herdr's id or nothing", () => {
+  assert.equal(readConfig({}).pluginId, null);
+  assert.equal(readConfig({ HERDR_WEB_PLUGIN_ID: " herdrabbit " }).pluginId, "herdrabbit");
+  for (const value of ["", "../x", "-rf", "a b", "x".repeat(65)]) {
+    assert.equal(readConfig({ HERDR_WEB_PLUGIN_ID: value }).pluginId, null, value);
+  }
+});

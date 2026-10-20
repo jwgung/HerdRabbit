@@ -3,9 +3,9 @@
 // the network, processes -- comes in through `deps`, so the decisions here are
 // tested without starting or signalling anything.
 //
-// The systemd service stays the main way to run HerdRabbit on Linux. The
-// plugin steps aside whenever that service, or any HerdRabbit at all, already
-// answers on the configured address.
+// The plugin is the way to install HerdRabbit; an older systemd service
+// (npm run install-service) still works. The plugin steps aside whenever that
+// service, or any HerdRabbit at all, already answers on the configured address.
 import { isAbsolute, join, resolve } from "node:path";
 import { hostPort, parseHost, parsePort } from "./config.mjs";
 
@@ -29,6 +29,14 @@ export const ENV_TEMPLATE = `# HerdRabbit settings for the Herdr plugin.
 # Tailscale (or reverse proxy) host names allowed to reach the page,
 # comma-separated. Left unset, this PC's tailnet name is added on start.
 # HERDR_WEB_ALLOWED_HOSTS=my-pc.example-tailnet.ts.net
+
+# Connect PC: let other PCs running HerdRabbit connect to this one. Set
+# this PC's tailnet address to open the port, and name the PCs (tailnet
+# addresses) or tailnet logins allowed in. See "Connect PC" in the README.
+# HERDR_WEB_PEER_HOST=100.64.0.2
+# HERDR_WEB_PEER_PORT=38788
+# HERDR_WEB_PEER_ADDRESSES=100.64.0.3
+# HERDR_WEB_PEER_LOGINS=me@example.com
 
 # Largest single upload or download in megabytes (unset: no limit).
 # HERDR_WEB_MAX_TRANSFER_MB=512
@@ -101,6 +109,26 @@ export async function loadSettings(deps, paths) {
   return { settings, host, port, created };
 }
 
+// HerdRabbit's /api/bootstrap answers without a session and names whether a
+// password is required. Anything else answering there is not HerdRabbit;
+// nothing answering at all is null.
+export async function probeHerdRabbit(host, port, fetchImpl = fetch) {
+  try {
+    const response = await fetchImpl(`http://${hostPort(host, port)}/api/bootstrap`, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(2_000),
+    });
+    let body = null;
+    try {
+      body = await response.json();
+    } catch {}
+    const herdrabbit = response.status === 200 && typeof body?.authRequired === "boolean" && Array.isArray(body?.allowedKeys);
+    return herdrabbit ? { herdrabbit: true, authRequired: body.authRequired } : { herdrabbit: false };
+  } catch {
+    return null;
+  }
+}
+
 // A listener on every interface is still reached on loopback.
 export function probeHost(host) {
   if (host === "0.0.0.0") return "127.0.0.1";
@@ -118,7 +146,8 @@ export function pageUrl(host, port) {
 // CLI call HerdRabbit makes inherits its environment, and a socket pinned there
 // would send `herdr --session=<other>` commands to the session that happened
 // to run the hook -- the systemd service never has it either. HERDR_BIN_PATH
-// becomes HERDR_BIN unless the settings name one.
+// becomes HERDR_BIN unless the settings name one, and HERDR_PLUGIN_ID becomes
+// HERDR_WEB_PLUGIN_ID: the in-app update asks Herdr to update that plugin.
 export function serverEnvironment(processEnv, settings, { tailnetHost = "" } = {}) {
   const env = {};
   for (const [key, value] of Object.entries(processEnv)) {
@@ -129,6 +158,8 @@ export function serverEnvironment(processEnv, settings, { tailnetHost = "" } = {
     env.HERDR_BIN = processEnv.HERDR_BIN_PATH;
   }
   Object.assign(env, settings);
+  delete env.HERDR_WEB_PLUGIN_ID;
+  if (processEnv.HERDR_PLUGIN_ID) env.HERDR_WEB_PLUGIN_ID = processEnv.HERDR_PLUGIN_ID;
   if (!settings.HERDR_WEB_ALLOWED_HOSTS && tailnetHost) env.HERDR_WEB_ALLOWED_HOSTS = tailnetHost;
   return env;
 }

@@ -122,7 +122,8 @@ const slashCommands = new SlashCommandCatalog({ guard: protectedPaths });
 const aiAccounts = new AiAccounts({ directory: config.aiAccountsDir, runningAgents: () => runningAgentsIn(local) });
 const notificationMonitor = new AgentNotificationMonitor({ herdr, push });
 // In-app update: this checkout against origin's main, and update.sh run from
-// the page (or from a PC this one is connected to) in a unit of its own.
+// the page (or from a PC this one is connected to) in a unit of its own --
+// or, for a plugin, Herdr's plugin update and restart.
 // Herdr's own update sits beside it: checked at the same moments, run with
 // `herdr update --handoff` in a unit of its own, never while update.sh runs.
 const herdrUpdater = new HerdrUpdater({
@@ -131,7 +132,13 @@ const herdrUpdater = new HerdrUpdater({
   busy: async () => updater.starting || (await updater.runStatus()).state === "running",
   onVersion: (version) => { herdrVersion = version; },
 });
-const updater = new AppUpdater({ version: hubVersion, stateDir: config.updateDir, herdr: herdrUpdater });
+const updater = new AppUpdater({
+  version: hubVersion,
+  stateDir: config.updateDir,
+  herdr: herdrUpdater,
+  // Started by Herdr as a plugin: Herdr updates the plugin and restarts it.
+  plugin: config.pluginId ? { id: config.pluginId, binary: config.herdrBin } : null,
+});
 // Without node-pty's native module this PC's panes are read-only mirrors of
 // their screens. A connected PC's panes still attach: that PC runs the pty.
 const nodePty = await loadNodePty();

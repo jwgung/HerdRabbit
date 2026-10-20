@@ -2,8 +2,10 @@ import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { chmod, lstat, mkdir, open, readFile, realpath, rename } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PLUGIN_ID } from "./config.mjs";
 import { HttpError } from "./http-basics.mjs";
 
 // In-app update: whether main on origin has moved past this checkout, and
@@ -11,6 +13,11 @@ import { HttpError } from "./http-basics.mjs";
 // this only asks the questions it would ask first, so the page can say why an
 // update would stop before anyone presses the button, and starts it outside
 // this service so the restart it ends with does not take it down too.
+//
+// Started by Herdr as a plugin, Herdr is the updater instead: `herdr plugin
+// update` fetches main into a new checkout and the plugin's restart action
+// moves this server onto it. The checkout Herdr made is detached from any
+// branch, so only its origin is asked about.
 
 export const MAX_NOTES = 30;
 export const MAX_NOTE_LENGTH = 200;
@@ -28,6 +35,9 @@ const START_GRACE_MS = 10_000;
 // all) and still "running" after it is taken for one that ended unseen. A
 // unit systemctl says is active is never taken for ended, however long.
 export const MAX_RUN_MS = 60 * 60_000;
+// How long a plugin run's queued restart may take to replace this server
+// before the run is taken for one whose restart never came.
+export const RESTART_WAIT_MS = 2 * 60_000;
 // The service units update.sh restarts, in the order it looks for them.
 export const SERVICE_UNITS = ["herdrabbit.service", "herdr-web-local.service"];
 // The only origins update.sh updates from.
@@ -43,6 +53,17 @@ const SHA = /^[0-9a-f]{4,40}$/u;
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,39}$/u;
 const CODE = /^[a-z_]{1,32}$/u;
 const UNIT = /^herdrabbit-update-[0-9]{1,20}$/u;
+
+// Whether a run started outside systemd still goes: a pid this account can
+// signal. One that has ended, or belongs to someone else (a recycled pid), does not.
+export function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // execFile without a shell, answering { code, stdout } instead of throwing:
 // a git command that says "no" (merge-base --is-ancestor) is an answer.
@@ -114,7 +135,7 @@ export function cleanRunStatus(value) {
   };
 }
 
-function properties(text) {
+export function properties(text) {
   const values = {};
   for (const entry of String(text).split("\n")) {
     const at = entry.indexOf("=");
@@ -204,6 +225,9 @@ export class AppUpdater {
     // Herdr's own update (HerdrUpdater), checked with this one and never run
     // at the same time as it.
     herdr = null,
+    // { id, binary } when Herdr started this server as that plugin: the run
+    // is `herdr plugin update` and the plugin's restart, started detached.
+    plugin = null, spawnImpl = spawn, alive = processAlive,
   }) {
     if (!stateDir) throw new TypeError("stateDir is required");
     this.version = version;
@@ -217,6 +241,9 @@ export class AppUpdater {
     this.nodeBin = nodeBin;
     this.originAllowed = originAllowed;
     this.herdr = herdr;
+    this.plugin = plugin && PLUGIN_ID.test(plugin.id ?? "") && plugin.binary ? plugin : null;
+    this.spawnImpl = spawnImpl;
+    this.alive = alive;
     this.logFile = join(stateDir, "update.log");
   }
 
@@ -269,7 +296,7 @@ export class AppUpdater {
       this.#git("branch", "--show-current"),
       this.#git("status", "--porcelain"),
       this.#git("remote", "get-url", "origin"),
-      this.#isService(),
+      this.plugin ? true : this.#isService(),
     ]);
     // The remote's address is compared and never repeated: it may carry a token.
     const officialOrigin = origin.code === 0 && this.originAllowed(origin.stdout.trim());
@@ -277,9 +304,12 @@ export class AppUpdater {
     // connection, no credential helper, nothing fetched from it.
     if (!officialOrigin) return answer({ blocked: "wrong_origin" });
     const fetched = await this.#git("fetch", "--quiet", "--no-tags", "origin", "main");
+    // Herdr installs the plugin into a fresh checkout of its own, so the branch
+    // and anything changed in this one do not matter to it.
     const precondition = !service ? "not_service"
-      : branch.stdout.trim() !== "main" ? "not_main"
-        : status.code !== 0 || status.stdout.trim() !== "" ? "local_changes" : null;
+      : this.plugin ? null
+        : branch.stdout.trim() !== "main" ? "not_main"
+          : status.code !== 0 || status.stdout.trim() !== "" ? "local_changes" : null;
     if (fetched.code !== 0) return answer({ blocked: precondition, error: "fetch_failed" });
     const latestSha = (await this.#git("rev-parse", "--short", "FETCH_HEAD")).stdout.trim();
     // Something on origin this checkout does not have.
@@ -351,14 +381,29 @@ export class AppUpdater {
     let record = await readRecord(this.stateDir);
     const settling = !starting && (this.#starting
       || this.now() - Date.parse(record?.startedAt ?? "") < START_GRACE_MS);
+    const named = typeof record?.unit === "string" && UNIT.test(record.unit);
+    const tracked = Number.isSafeInteger(record?.pid) && record.pid > 0;
     if (record?.state === "running" && !settling) {
-      const named = typeof record.unit === "string" && UNIT.test(record.unit);
-      if (!named) {
+      if (!named && !tracked) {
         record = { ...record, state: "failed", reason: "interrupted", finishedAt: new Date(this.now()).toISOString() };
         await writeRecord(this.stateDir, record).catch(() => {});
       }
     }
-    if (record?.state === "running" && !settling && typeof record.unit === "string" && UNIT.test(record.unit)) {
+    if (record?.state === "running" && !settling && tracked && !named) {
+      // A plugin run has no unit: its process is asked instead, and one
+      // older than any update is taken for ended (its pid may be someone else's now).
+      const overdue = this.now() - Date.parse(record.startedAt ?? "") > MAX_RUN_MS;
+      if (overdue || !this.alive(record.pid)) {
+        const again = await readRecord(this.stateDir);
+        if (again?.state === "running") {
+          record = { ...again, state: "failed", reason: "interrupted", finishedAt: new Date(this.now()).toISOString() };
+          await writeRecord(this.stateDir, record).catch(() => {});
+        } else {
+          record = again;
+        }
+      }
+    }
+    if (record?.state === "running" && !settling && named) {
       // A run whose unit is gone without saying how it ended was cut short
       // (a reboot, a kill); it is not left "running" for ever.
       const { code: exit, stdout } = await this.#systemctl("is-active", record.unit);
@@ -373,6 +418,13 @@ export class AppUpdater {
           record = again;
         }
       }
+    }
+    // A plugin run ends as soon as Herdr has queued the restart, while this
+    // server is still the one being replaced: its success is the new server's
+    // to tell, so until then the page keeps waiting for the restart.
+    if (record?.state === "succeeded" && record.restartOf === this.pid) {
+      const late = this.now() - Date.parse(record.finishedAt ?? "") > RESTART_WAIT_MS;
+      record = late ? { ...record, state: "failed", reason: "restart_failed" } : { ...record, state: "running" };
     }
     return {
       state: record?.state ?? "idle",
@@ -419,6 +471,7 @@ export class AppUpdater {
       // npm and node next to the Node this runs on, wherever the user's
       // manager would otherwise look for them.
       const path = [dirname(this.nodeBin), this.environment.PATH].filter(Boolean).join(":");
+      if (this.plugin) return await this.#startPlugin(record, path);
       const started = await this.exec("systemd-run", [
         "--user", `--unit=${unit}`, "--collect", "--quiet",
         `--property=WorkingDirectory=${this.repository}`,
@@ -441,6 +494,111 @@ export class AppUpdater {
       this.#starting = false;
     }
   }
+
+  // The plugin run, detached in a session of its own so the restart that
+  // stops this server does not stop it too. It is told only which Herdr and
+  // which plugin; its folder is the home folder, as Herdr may remove this
+  // checkout once nothing runs from it.
+  async #startPlugin(record, path) {
+    let pid = null;
+    try {
+      const child = this.spawnImpl(this.nodeBin, [
+        join(this.repository, "scripts", "run-update.mjs"), this.stateDir, "--plugin", this.plugin.id, this.plugin.binary,
+      ], {
+        cwd: this.environment.HOME || homedir(),
+        env: pluginRunEnvironment(this.environment, path),
+        detached: true,
+        stdio: "ignore",
+      });
+      await new Promise((resolve, reject) => {
+        child.once("spawn", resolve);
+        child.once("error", reject);
+      });
+      child.unref();
+      pid = child.pid;
+    } catch {
+      await writeRecord(this.stateDir, {
+        ...record, state: "failed", reason: "start_failed", finishedAt: new Date(this.now()).toISOString(),
+      });
+      throw new HttpError(502, "update_start_failed", "Could not start the update.");
+    }
+    this.#lastStart = this.now();
+    const current = await readRecord(this.stateDir);
+    if (current?.state === "running") await writeRecord(this.stateDir, { ...current, pid, restartOf: this.pid });
+    return this.#status(false);
+  }
+}
+
+// What the plugin run needs to find Herdr, git and npm, Herdr's socket, and
+// the network the way this server's check reached it (proxies, CAs, npm's
+// settings): none of this server's HERDR_WEB_* settings.
+const PLUGIN_RUN_VARIABLES = new Set([
+  "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TMPDIR",
+  "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR",
+  "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+  "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR", "GIT_SSL_CAINFO",
+]);
+const PLUGIN_RUN_PREFIXES = ["npm_config_", "NPM_CONFIG_"];
+
+export function pluginRunEnvironment(environment, path) {
+  const env = { PATH: path };
+  for (const [name, value] of Object.entries(environment)) {
+    const wanted = PLUGIN_RUN_VARIABLES.has(name) || PLUGIN_RUN_PREFIXES.some((prefix) => name.startsWith(prefix));
+    if (wanted && typeof value === "string" && value !== "") env[name] = value;
+  }
+  return env;
+}
+
+// One command with its output appended to the log; its exit code, or -1 when
+// it could not even start.
+function runLogged(spawnImpl, file, args, { cwd, fd }) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawnImpl(file, args, { cwd, stdio: ["ignore", fd, fd] });
+    } catch {
+      resolve(-1);
+      return;
+    }
+    child.once("error", () => resolve(-1));
+    child.once("close", (exit) => resolve(Number.isInteger(exit) ? exit : -1));
+  });
+}
+
+// The plugin run (scripts/run-update.mjs --plugin): Herdr fetches and builds
+// the new checkout, then the plugin's restart action moves the server onto
+// it. Herdr queues that action and answers at once, so the run has ended when
+// the restart begins; the page sees the server come back. A failed update
+// leaves the server as it is.
+export async function runPluginUpdate({
+  stateDir, id, binary, cwd = homedir(), spawnImpl = spawn, now = () => Date.now(),
+}) {
+  if (!PLUGIN_ID.test(id ?? "")) throw new TypeError("a plugin id is required");
+  const logFile = join(stateDir, "update.log");
+  await checkStateDir(stateDir);
+  const log = await open(logFile, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | NOFOLLOW, 0o600);
+  let exitCode;
+  let reason = null;
+  try {
+    exitCode = await runLogged(spawnImpl, binary, ["plugin", "update", id, "--yes"], { cwd, fd: log.fd });
+    if (exitCode !== 0) {
+      reason = "script_failed";
+    } else {
+      exitCode = await runLogged(spawnImpl, binary, ["plugin", "action", "invoke", `${id}.restart`], { cwd, fd: log.fd });
+      if (exitCode !== 0) reason = "restart_failed";
+    }
+  } finally {
+    await log.close().catch(() => {});
+  }
+  const record = await readRecord(stateDir) ?? {};
+  await writeRecord(stateDir, {
+    ...record,
+    state: exitCode === 0 ? "succeeded" : "failed",
+    finishedAt: new Date(now()).toISOString(),
+    exitCode,
+    reason,
+  });
+  return exitCode;
 }
 
 // The run itself (scripts/run-update.mjs, inside the transient unit): update.sh
@@ -453,17 +611,8 @@ export async function runUpdateScript({
   const log = await open(logFile, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | NOFOLLOW, 0o600);
   // A start that throws at once (no shell, no file) is a failed run all the
   // same: the log is closed and the outcome written either way.
-  const exitCode = await new Promise((resolve) => {
-    let child;
-    try {
-      child = spawnImpl("sh", [script], { cwd: repository, stdio: ["ignore", log.fd, log.fd] });
-    } catch {
-      resolve(-1);
-      return;
-    }
-    child.once("error", () => resolve(-1));
-    child.once("close", (exit) => resolve(Number.isInteger(exit) ? exit : -1));
-  }).finally(() => log.close().catch(() => {}));
+  const exitCode = await runLogged(spawnImpl, "sh", [script], { cwd: repository, fd: log.fd })
+    .finally(() => log.close().catch(() => {}));
   const record = await readRecord(stateDir) ?? {};
   await writeRecord(stateDir, {
     ...record,

@@ -193,6 +193,8 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ## Quick install
 
+Installing it [as a Herdr plugin](#install-as-a-herdr-plugin) is recommended. If you already installed the systemd service with the one-line installer below, see [Moving an existing install to the plugin](#moving-an-existing-install-to-the-plugin).
+
 Run this in a Linux terminal:
 
 ```bash
@@ -258,7 +260,7 @@ The one-line installer installs the Web Push and WebAuthn runtime dependencies a
 
 ### Install as a Herdr plugin
 
-HerdRabbit can also be installed as a [Herdr plugin](https://herdr.dev/) (Herdr 0.9.0 or newer, Node.js 22+ and npm on `PATH`):
+Install HerdRabbit as a [Herdr plugin](https://herdr.dev/) (Herdr 0.9.0 or newer, Node.js 22+ and npm on `PATH`). It is also listed in the [Herdr plugin marketplace](https://herdr.dev/plugins/).
 
 ```bash
 herdr plugin install ultivis-iot/HerdRabbit
@@ -269,9 +271,26 @@ herdr plugin install ultivis-iot/HerdRabbit
 - **Actions:** `herdr plugin action invoke herdrabbit.start`, `herdrabbit.stop`, `herdrabbit.status` and `herdrabbit.restart`. Stop only ever ends the server the plugin started itself; it never touches the systemd service. Status also says when the running server is still on an older checkout after `herdr plugin update`, so you know to restart it.
 - **Connect pane:** `herdr plugin pane open --plugin herdrabbit --entrypoint connect` shows the page addresses (this PC, and the Tailscale Serve HTTPS address when one forwards to the port), whether a password is set, and how to set one. With `qrencode` installed it also draws a QR code for the phone address.
 - **Password:** `herdr plugin pane open --plugin herdrabbit --entrypoint password` asks for it without echoing and restarts the plugin's server. The password is never written to the plugin's settings.
-- **Settings:** `herdr plugin config-dir herdrabbit` prints the folder holding `.env`, created on first start as a commented template. It takes the `HERDR_WEB_*` variables from [Configuration](#configuration) and `HERDR_BIN`, one `KEY=VALUE` per line; restart afterwards. The server log and its pid file live in the plugin's state folder, not in the checkout.
+- **Settings:** `herdr plugin config-dir herdrabbit` prints the folder holding `.env`, created on first start as a commented template. It takes the `HERDR_WEB_*` variables from [Configuration](#configuration) and `HERDR_BIN`, one `KEY=VALUE` per line; restart afterwards. To let other PCs connect to this one, the `HERDR_WEB_PEER_*` settings from Connect PC go here too. The server log and its pid file live in the plugin's state folder, not in the checkout.
+- **Updates:** **⚙ → Update** on the page runs `herdr plugin update herdrabbit` and the restart action ([Update from the app](#update-from-the-app)). From a terminal, run `herdr plugin update`, then `herdr plugin action invoke herdrabbit.restart`.
 
-The systemd service from the [quick install](#quick-install) remains the recommended way on Linux: it starts at login without Herdr and also registers Tailscale Serve. The service installer is Linux-only, so on macOS the plugin is the way to keep HerdRabbit running. Either way, a phone still reaches the page through Tailscale Serve; see [Tailscale Serve HTTPS](#tailscale-serve-https).
+The plugin starts with Herdr, so to have HerdRabbit up after login, have Herdr start then too. A phone reaches the page through Tailscale Serve; the Connect pane prints the command to register it, and [Tailscale Serve HTTPS](#tailscale-serve-https) has the details.
+
+### Moving an existing install to the plugin
+
+This replaces the systemd service written by the one-line installer or `npm run install-service` with the plugin. With Herdr running, first bring the existing install up to date (**⚙ → Update**, or `sh ~/.local/share/herd-rabbit/update.sh`), then run:
+
+```bash
+sh ~/.local/share/herd-rabbit/migrate-to-plugin.sh
+```
+
+- It shows what it will do and asks first (pass `--yes` without a terminal).
+- It installs the plugin with `herdr plugin install ultivis-iot/HerdRabbit` and carries the unit's `HERDR_WEB_*` settings (port, allowed hosts, the Connect PC port and allowed PCs, and so on) into the plugin's `.env`. A value with a double quote or a line break is not carried and is named so you can add it by hand. `HERDR_BIN` is not carried: the plugin uses the Herdr that runs it. The password file, uploads folder and push subscriptions file the service used are written in explicitly, so a different XDG folder in Herdr's environment does not move them. A `.env` that already has settings is left as it is, and then none of the unit's settings are carried; if its address is not the service's, the move stops before the service is touched.
+- It stops the service and starts the plugin on the same address. The port is the same, so the Tailscale Serve address, an installed PWA and other PCs' connections carry on.
+- Once the plugin answers, it disables the service, deletes its unit file when it is in `~/.config/systemd/user`, and deletes the old checkout when it is an unmodified official checkout in the default place (`~/.local/share/herd-rabbit`, or `HERD_RABBIT_INSTALL_DIR`) holding nothing but its installed dependencies. A checkout anywhere else, one with changes, or one holding other ignored files is kept. If the plugin does not answer, the service is started again and nothing is deleted.
+- The password, Passkeys, signed-in devices, connected PCs (`~/.config/herdr-bridge/`) and uploads (`~/.local/share/herdrabbit/files`) live outside the install folder and stay as they are.
+- A PC an older version installed as a leaf is set up again with `npm run install-service` first.
+- From then on HerdRabbit starts when Herdr starts, not at login.
 
 ## Password and Passkey authentication
 
@@ -282,7 +301,7 @@ cd ~/.local/share/herd-rabbit
 npm run password
 ```
 
-Entering a new password twice replaces the old password and restarts the installed service. Leaving the first input empty disables password authentication. Existing login sessions and registered Passkeys become invalid after either change.
+Entering a new password twice replaces the old password and restarts the installed service. Installed as a plugin, use the plugin's password pane instead ([Install as a Herdr plugin](#install-as-a-herdr-plugin)); it restarts the plugin's server. Leaving the first input empty disables password authentication. Existing login sessions and registered Passkeys become invalid after either change.
 
 The plaintext HerdRabbit login password is never stored. The `scrypt` hash, session-signing secret, and registered Passkey public data are stored with mode `0600` in the compatibility path:
 
@@ -490,7 +509,7 @@ npm start
 
 ## systemd user service
 
-The recommended setup is:
+To run HerdRabbit as a systemd service instead of the [plugin](#install-as-a-herdr-plugin), the simplest setup is:
 
 ```bash
 npm run install-service
@@ -566,11 +585,13 @@ sh ./update.sh
 
 Run as the Linux account that installed the service. The updater uses its own directory, or `HERD_RABBIT_INSTALL_DIR`. It requires a clean `main` branch and the official origin, fetches `main`, updates the service's Herdr with `herdr update --handoff` (running panes stay alive), then fast-forwards `main`, installs dependencies, verifies, and restarts the matching user service. Herdr is checked against the minimum the incoming code requires before any file changes: a failed Herdr update continues when the installed Herdr is new enough, and stops the update with nothing changed otherwise. A lock prevents concurrent updates. Local changes or divergent commits stop the process before anything changes. When dependency installation, verification, or the restart fails after `main` moved, the updater resets to the previous commit, reinstalls its dependencies, and restarts that version if it had already restarted. Herdr itself is not rolled back. Configuring Claude's terminal scrollback runs after verification and is not rolled back either: if it fails, the update stops before restarting, and the next restart runs the verified new code. Ports, authentication, Tailscale settings, and connected PCs are preserved. If an older installation lacks `update.sh`, run `git pull --ff-only` once first. An installation older than 1.2.10 runs its own earlier `update.sh`, which does not update Herdr: run `herdr update --handoff` outside Herdr before that first update. HerdRabbit warns at startup and in the machine's Details while Herdr is older than 0.9.0.
 
+Installed as a Herdr plugin, use **⚙ → Update** or `herdr plugin update` instead of `update.sh` ([Install as a Herdr plugin](#install-as-a-herdr-plugin)).
+
 The Service Worker reloads the page once when it activates a new app shell. Manually refresh a tab that has remained open for a long time.
 
 ### Update from the app
 
-The page checks for a new version each time it opens, and again when you press **Check** in **⚙ → Update** (never on a timer). It fetches `main` from origin in the service's own checkout and compares it with what runs. A newer version puts a dot on the ⚙ button; the Update window shows the running and latest versions, the commit subjects in between, and, when `update.sh` would stop, why: not running as the systemd user service, an origin other than ultivis-iot/HerdRabbit, not on `main`, local changes, a local `main` that diverged, or an update already running. **Update** asks first, then runs the same `update.sh` with `systemd-run --user` in a unit of its own, outside the service, so the restart it ends with does not stop it. The page follows its log, waits out the restart and reloads into the new version; a failed run says so and keeps its log open (`update.sh` rolls back by itself). While it runs the log shows live; once it succeeded, the window shows the one-line result with the log folded away under **Log**. A finished run is shown until you have seen it once: after the window is closed it does not appear again (remembered per PC in this browser, falling back to the last 30 minutes when browser storage is unavailable). The log and outcome are kept in `~/.local/share/herdrabbit/update/`. The Update window lists every PC connected with Connect PC too, each with its own versions, changes and reason, and **Update** there runs that PC's own `update.sh`; this page sends only which PC. A PC on a version from before this says "Update it there (older version)". Starting an update needs a signed-in session on this page; one run per PC a minute.
+The page checks for a new version each time it opens, and again when you press **Check** in **⚙ → Update** (never on a timer). It fetches `main` from origin in the service's own checkout and compares it with what runs. A newer version puts a dot on the ⚙ button; the Update window shows the running and latest versions, the commit subjects in between, and, when `update.sh` would stop, why: not running as the systemd user service, an origin other than ultivis-iot/HerdRabbit, not on `main`, local changes, a local `main` that diverged, or an update already running. **Update** asks first, then runs the same `update.sh` with `systemd-run --user` in a unit of its own, outside the service, so the restart it ends with does not stop it. The page follows its log, waits out the restart and reloads into the new version; a failed run says so and keeps its log open (`update.sh` rolls back by itself). Running as a Herdr plugin, the page compares Herdr's checkout with origin's `main` (its branch and local changes do not matter), and **Update** runs `herdr plugin update herdrabbit --yes` and then `herdr plugin action invoke herdrabbit.restart` in a process detached from the server. Herdr builds in a new checkout, and a failed plugin update leaves the server as it is; there is no verification step or automatic rollback in this case. While it runs the log shows live; once it succeeded, the window shows the one-line result with the log folded away under **Log**. A finished run is shown until you have seen it once: after the window is closed it does not appear again (remembered per PC in this browser, falling back to the last 30 minutes when browser storage is unavailable). The log and outcome are kept in `~/.local/share/herdrabbit/update/`. The Update window lists every PC connected with Connect PC too, each with its own versions, changes and reason, and **Update** there runs that PC's own `update.sh`; this page sends only which PC. A PC on a version from before this says "Update it there (older version)". Starting an update needs a signed-in session on this page; one run per PC a minute.
 
 Each PC's block also has a **Herdr** row. At the same moments the page checks HerdRabbit, the server asks the Herdr it runs (`HERDR_BIN`, or `herdr` on its `PATH`) for `--version` and `channel show`, and reads `https://herdr.dev/latest.json` (stable) or `https://herdr.dev/preview.json` (preview) for the newest version and its notes; those two addresses are fixed. A newer Herdr alone puts the dot on ⚙ too. The row shows the running and latest versions, the release notes folded away, and **Update Herdr**, which asks first, then runs `herdr update --handoff` with `systemd-run --user` in a unit of its own, given only `PATH`, `HOME` and the XDG folders that place Herdr's config and sockets (`XDG_CONFIG_HOME` and the like, when absolute) -- none of the service's `HERDR_*` settings. Running panes are handed over to the new Herdr live, so agents keep running; HerdRabbit does not restart. The page follows the log and checks again so the new version shows. It cannot run on a PC that is not Linux, has no `systemd-run`, or installed Herdr with Homebrew, Nix or mise (update it with that package manager); if Herdr itself refuses, its own message is shown. The log and outcome are kept beside HerdRabbit's (`herdr-update.log`, `herdr-update-state.json`). Only one update, HerdRabbit's or Herdr's, runs on a PC at a time; Herdr's also starts at most once a minute. A HerdRabbit update still updates Herdr first, as before. A connected PC from before this shows no Herdr row. Herdr's run is shown the same way (result, folded log, gone once seen); when its output says installed Herdr integrations need updating, a short note asks you to run the `herdr integration install` commands from the log in a terminal; HerdRabbit never runs them.
 

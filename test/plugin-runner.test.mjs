@@ -129,6 +129,12 @@ test("the server gets no per-pane or socket variables, Herdr's binary and the se
   assert.equal(own.HERDR_WEB_ALLOWED_HOSTS, "mine.ts.net");
 });
 
+test("the server learns its plugin id from Herdr, never from the settings", () => {
+  assert.equal(serverEnvironment(ENV, { HERDR_WEB_PLUGIN_ID: "other" }).HERDR_WEB_PLUGIN_ID, "herdrabbit");
+  const { HERDR_PLUGIN_ID: _, ...byHand } = ENV;
+  assert.equal("HERDR_WEB_PLUGIN_ID" in serverEnvironment(byHand, { HERDR_WEB_PLUGIN_ID: "other" }), false);
+});
+
 test("start writes the settings template on first run", async () => {
   const machine = fakeMachine();
   const { result, lines } = await start(machine.deps);
