@@ -1,7 +1,7 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.3.0";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.3.0";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.3.0";
-import { createUpdatePanel } from "./app-update.js?v=1.3.0";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.3.1";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.3.1";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.3.1";
+import { createUpdatePanel } from "./app-update.js?v=1.3.1";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -54,7 +54,7 @@ import {
   isAiLoginWorkspace,
   paneKeepsInputHistory,
   legacyMachinesNotice,
-} from "./ui-model.js?v=1.3.0";
+} from "./ui-model.js?v=1.3.1";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -65,44 +65,44 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.3.0";
-import { terminalConnection } from "./terminal-connection.js?v=1.3.0";
-import { terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.3.0";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.3.0";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.3.0";
-import { createChatLens } from "./chat/chat-view.js?v=1.3.0";
-import { createChatFind } from "./chat/chat-find.js?v=1.3.0";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.3.0";
+} from "./browse-preference.js?v=1.3.1";
+import { terminalConnection } from "./terminal-connection.js?v=1.3.1";
+import { terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.3.1";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.3.1";
+import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.3.1";
+import { createChatLens } from "./chat/chat-view.js?v=1.3.1";
+import { createChatFind } from "./chat/chat-find.js?v=1.3.1";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.3.1";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.3.0";
-import { chatAgent } from "./lens-preference.js?v=1.3.0";
-import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop, stopFollowUp, stopPresses } from "./chat/chat-activity.js?v=1.3.0";
-import * as xterm from "./vendor/xterm.mjs?v=1.3.0";
+} from "./chat-font-preference.js?v=1.3.1";
+import { chatAgent } from "./lens-preference.js?v=1.3.1";
+import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop, stopFollowUp, stopPresses } from "./chat/chat-activity.js?v=1.3.1";
+import * as xterm from "./vendor/xterm.mjs?v=1.3.1";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.3.0";
+} from "./pane-preference.js?v=1.3.1";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
-} from "./workspace-preference.js?v=1.3.0";
+} from "./workspace-preference.js?v=1.3.1";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.3.0";
+} from "./terminal-preference.js?v=1.3.1";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.3.0";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.3.0";
+} from "./completion-preference.js?v=1.3.1";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.3.1";
 import {
   attachSidebarDrag,
   dropScope,
@@ -111,17 +111,17 @@ import {
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.3.0";
-import { renamePaneKeys } from "./pane-rename.js?v=1.3.0";
-import { renamePaneLenses } from "./lens-preference.js?v=1.3.0";
+} from "./sidebar-drag.js?v=1.3.1";
+import { renamePaneKeys } from "./pane-rename.js?v=1.3.1";
+import { renamePaneLenses } from "./lens-preference.js?v=1.3.1";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.3.0";
-import { atFilesSource } from "./composer-at-files.js?v=1.3.0";
-import { createComposerPopup } from "./composer-popup.js?v=1.3.0";
-import { slashCommandsSource } from "./composer-slash.js?v=1.3.0";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.3.0";
+} from "./input-history-preference.js?v=1.3.1";
+import { atFilesSource } from "./composer-at-files.js?v=1.3.1";
+import { createComposerPopup } from "./composer-popup.js?v=1.3.1";
+import { slashCommandsSource } from "./composer-slash.js?v=1.3.1";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.3.1";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -137,16 +137,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.3.0";
+} from "./key-bar-preference.js?v=1.3.1";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.3.0";
+} from "./launch-session.js?v=1.3.1";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.3.0";
+} from "./push-notifications.js?v=1.3.1";
 
 function browserStorage() {
   try {
