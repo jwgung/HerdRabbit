@@ -98,6 +98,7 @@ const APP_SHELL = [
   "/composer-at-files.js?v=1.3.3",
   "/composer-popup.js?v=1.3.3",
   "/composer-slash.js?v=1.3.3",
+  "/speech-recognition.js?v=1.3.3",
   "/manifest.webmanifest",
   "/icons/rabbit-outline-v33.svg",
   "/icons/app-icon.svg",
