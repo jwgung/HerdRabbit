@@ -34,6 +34,14 @@ import {
   toolInputFields,
   versionMatches,
 } from "./pages.mjs";
+// What a V2 page reads: the rows that fit, whole. The V1 reader read whole
+// rows of at most LARGE_ROW_BYTES and reduced the rest in SQLite (its output
+// then fetched capped by id); the V2 table has no per-part rows, so one huge
+// message would have to cross into JavaScript whole. A page instead never
+// reads a V2 row larger than this; the row's tool calls and words are shown
+// with the same cut as V1's large parts (their outputs by the capped fetch,
+// their words at LARGE_TEXT_CHARS).
+export const V2_LARGE_ROW_BYTES = 32 * 1024;
 
 // OpenCode's session ids: "ses_" and its ascending id.
 export const OPENCODE_SESSION_ID = /^ses_[A-Za-z0-9]{1,64}$/u;
@@ -62,6 +70,10 @@ export const IDENTITY_RECHECK_MS = 2_000;
 // The messages of one page: a session's message keys from $fromTime/$fromId
 // (included) to $toTime/$toId (excluded).
 const RANGE = "session_id = $session AND (time_created > $fromTime OR (time_created = $fromTime AND id >= $fromId)) AND (time_created < $toTime OR (time_created = $toTime AND id < $toId))";
+// The same range on V2's per-message rows (session_message, ordered by its
+// seq) and the V2 session table, where the row's own time and id key it.
+const RANGE_V2 = "m.session_id = $session AND (m.time_created > $fromTime OR (m.time_created = $fromTime AND m.id >= $fromId)) AND (m.time_created < $toTime OR (m.time_created = $toTime AND m.id < $toId))";
+const SESSION_RANGE_V2 = "(time_created > $fromTime OR (time_created = $fromTime AND id >= $fromId)) AND (time_created < $toTime OR (time_created = $toTime AND id < $toId))";
 // What a tool part answered (its output, error or running output), as text, of the row `data`.
 const outputOf = (data) => `CASE ${data} ->> '$.state.status' WHEN 'completed' THEN CASE WHEN json_type(${data}, '$.state.output') = 'text' THEN ${data} ->> '$.state.output' END WHEN 'error' THEN CASE WHEN json_type(${data}, '$.state.error') = 'text' THEN ${data} ->> '$.state.error' END WHEN 'running' THEN CASE WHEN json_type(${data}, '$.state.metadata.output') = 'text' THEN ${data} ->> '$.state.metadata.output' END END`;
 // A large part as a page reads it: a tool call without its output (and
@@ -102,6 +114,34 @@ export const STATEMENTS = Object.freeze({
   pendingQuestion: "SELECT CASE WHEN octet_length(data ->> '$.state.input') <= $large THEN data ->> '$.state.input' END AS input FROM part WHERE session_id = $session AND id = (SELECT id FROM part WHERE session_id = $session AND data ->> '$.type' = 'tool' AND data ->> '$.tool' = 'question' AND data ->> '$.state.status' = 'running' ORDER BY id DESC LIMIT 1)",
   // one tool call's output: at most $max characters of it, and its whole length
   toolPart: `SELECT kind, substr(output, 1, $max) AS output, length(output) AS size FROM (SELECT data ->> '$.type' AS kind, ${outputOf("data")} AS output FROM part WHERE id = $id AND session_id = $session)`,
+  // ---------------------------------------------------------------------------
+  // The tables OpenCode 2 writes instead (session_v2, session_message; its
+  // tool outputs sit in the message's content, not in part rows). They are
+  // read only for a session the old tables do not hold.
+  sessionV2: "SELECT id, parent_id, directory, revert, time_updated, version FROM session_v2 WHERE id = ?",
+  sessionV2Version: "SELECT version FROM session_v2 WHERE id = ?",
+  newestInDirectoryV2: "SELECT id FROM session_v2 WHERE directory = ? AND parent_id IS NULL AND time_archived IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1",
+  newestInDirectoryAnyV2: "SELECT id FROM session_v2 WHERE directory = ? AND parent_id IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1",
+  messageV2: "SELECT id, seq FROM session_message WHERE id = ? AND session_id = ?",
+  messagesChangedV2: "SELECT MAX(time_updated) AS updated, COUNT(*) AS messages FROM session_message WHERE session_id = ?",
+  // V2's pages key on seq, unique per session and always increasing: a
+  // message's time_created can repeat (a user prompt and its answer in the
+  // same millisecond), so (time, id) is not a safe key there
+  promptsBeforeV2: "SELECT id, seq FROM session_message WHERE session_id = $session AND seq < $endSeq AND type = 'user' ORDER BY seq DESC LIMIT $rows",
+  pageBytesV2: "SELECT COALESCE(SUM(MIN(octet_length(data), $large)), 0) AS bytes, COUNT(*) AS parts FROM session_message WHERE session_id = $session AND seq >= $fromSeq AND seq < $toSeq",
+  // a page's messages, newest first, at most $rows; a large one reduced the
+  // way V1's large messages were (its model, tokens and error, not its words)
+  messagesV2: "SELECT m.id, m.seq, m.type, m.time_created, m.data FROM session_message m WHERE m.session_id = $session AND m.seq >= $fromSeq AND m.seq < $toSeq ORDER BY m.seq DESC LIMIT $rows",
+  // the pending question a page shows: a question call still running, newest
+  // first, at most $large bytes of its row (its words cut in JavaScript)
+  pendingQuestionV2: `SELECT m.id, m.seq, CASE WHEN octet_length(m.data) <= $large THEN m.data ELSE substr(m.data, 1, $large) END AS data FROM session_message m WHERE m.session_id = $session AND m.type = 'assistant' ORDER BY m.time_created DESC, m.seq DESC, m.id DESC LIMIT $rows`,
+  // one tool call's output from a V2 message: $id the message row that holds
+  // the call, $tool the call's own id; the call's content as text, at most
+  // $max characters, and its whole length
+  toolPartV2: `SELECT substr(output, 1, $max) AS output, length(output) AS size FROM (SELECT (SELECT GROUP_CONCAT(json_extract(c.value, '$.text'), CHAR(10)) FROM json_each(m.data, '$.content') AS t, json_each(t.value, '$.state.content') AS c WHERE json_type(t.value) = 'object' AND json_extract(t.value, '$.type') = 'tool' AND json_extract(t.value, '$.id') = $tool AND json_type(c.value) = 'object' AND json_extract(c.value, '$.type') = 'text') AS output FROM session_message m WHERE m.id = $id AND m.session_id = $session)`,
+  // is there a message before $seq in the session: the page's cursor is null
+  // when the page reaches the first message
+  v2FirstBefore: "SELECT 1 AS one FROM session_message WHERE session_id = $session AND seq < $seq LIMIT 1",
 });
 
 // The tables (and columns) the statements read; a database without one of
@@ -110,6 +150,14 @@ const TABLES = Object.freeze({
   session: ["id", "parent_id", "directory", "revert", "time_updated"],
   message: ["id", "session_id", "time_created", "time_updated", "data"],
   part: ["id", "message_id", "session_id", "time_updated", "data"],
+});
+// OpenCode 2's tables, read when they are whole: a V2 session lives there
+// alone, beside the old tables' own rows. A database that has the V2 tables
+// but not both of session_message's read columns answers V2 sessions by
+// their rows; one whose V2 tables are still being migrated reads as before.
+const TABLES_V2 = Object.freeze({
+  session_v2: ["id", "parent_id", "directory", "revert", "time_updated", "version"],
+  session_message: ["id", "session_id", "type", "seq", "time_created", "time_updated", "data"],
 });
 // Read when there: an older database has no event log or archive.
 const OPTIONAL = Object.freeze({ event_sequence: ["aggregate_id", "seq"], session: ["time_archived"] });
@@ -294,6 +342,203 @@ export function parseOpencodeTurns(messages) {
   return turns.filter((turn) => turn.parts.length > 0);
 }
 
+// V2's rows read as V1's did: one user prompt is a message; each assistant
+// message is a step, its content the parts. A message too large to read
+// whole is reduced the way V1's large messages were: its words and tool
+// calls kept (cut at LARGE_TEXT_CHARS, the tools without their outputs,
+// which come by the capped fetch), its model and tokens kept for the page's
+// metadata. The reduced row's `data` holds that shape, `content` in place
+// of `parts`.
+export function shapeV2Row(data, large, rawSize = Buffer.byteLength(String(data), "utf8")) {
+  let info;
+  try { info = record(JSON.parse(data)); } catch { return null; }
+  const time = record(info.time);
+  const created = Number(time.created ?? info.created);
+  if (!Number.isFinite(created)) return null;
+  if (rawSize <= large) return { created, info };
+  const content = Array.isArray(info.content) ? info.content : [];
+  const kept = [];
+  for (const item of content) {
+    const part = record(item);
+    if (part.type === "text" || part.type === "reasoning") {
+      const words = string(part.text);
+      if (words.trim()) kept.push({ type: part.type, text: words.slice(0, LARGE_TEXT_CHARS) });
+    } else if (part.type === "tool") {
+      const state = record(part.state);
+      const input = record(state.input);
+      kept.push({
+        type: "tool",
+        id: part.id,
+        name: part.name,
+        state: { status: state.status, input: Buffer.byteLength(JSON.stringify(input ?? ""), "utf8") > LARGE_TEXT_CHARS ? {} : input },
+      });
+    }
+  }
+  const model = record(info.model);
+  const cut = { time: { created }, agent: info.agent, modelID: model.id ?? null, variant: model.variant ?? null };
+  const tokens = record(info.tokens);
+  if (Object.keys(tokens).length > 0) cut.tokens = tokens;
+  if (typeof info.cost === "number") cut.cost = info.cost;
+  if (info.error !== undefined) cut.error = info.error;
+  return { created, info: { ...cut, content: kept, large: true } };
+}
+
+// Whether a V2 row was reduced (its words and tool outputs cut): the page
+// marks it so the parts know to fetch their whole output by id.
+const infoLarge = (row) => record(row.info).large === true;
+
+// V2's message types the chat shows: the conversation's turns. The rest
+// (idle, system, compaction's mark) is OpenCode's bookkeeping, shown the way
+// V1's compaction part was: the mark at its user message, the summary with
+// the message that carries it.
+const V2_TURNS = new Set(["user", "assistant", "compaction"]);
+
+// A V2 message's content reads as its parts: a tool call, the tool's
+// output or error (or the running output, a V1 running part's).
+function v2ToolPart(key, item, info) {
+  const state = record(item.state);
+  const input = record(state.input);
+  const patch = typeof input.patchText === "string" ? patchText(input.patchText) : null;
+  const normal = renamed(input);
+  const files = patch !== null ? patchFiles(patch) : [];
+  const part = {
+    kind: "tool",
+    // the key (row id, call id) is split by the store for the capped fetch
+    id: key,
+    name: string(item.name) || "tool",
+    summary: files.length > 0
+      ? files.join(", ").slice(0, 120)
+      : opencodeToolSummary(string(item.name), normal, string(state.title)),
+    ...toolInputFields(patch ?? JSON.stringify(normal, null, 2)),
+    output: "",
+  };
+  const large = record(info).large === true;
+  const output = v2ToolOutputOf(state);
+  if (large) {
+    // the reduced row's tool: its output was cut, fetched by id at most
+    // TOOL_OUTPUT_MAX_CHARS of it
+    part.output_large = true;
+    if (output) {
+      setToolOutput(part, output.slice(0, TOOL_OUTPUT_PREVIEW_CHARS));
+      part.output_size = output.length;
+    }
+  } else if (output) {
+    setToolOutput(part, output);
+  }
+  if (large) part.input_truncated = Object.keys(record(state.input)).length === 0;
+  if (state.status === "error") part.error = true;
+  return part;
+}
+
+// What a V2 tool call answered: its content's words once done, its error
+// once failed, and the output so far of a command still running.
+function v2ToolOutputOf(state) {
+  if (state.status === "error") {
+    const error = record(state.error);
+    return string(error.message) || string(state.error);
+  }
+  if (!Array.isArray(state.content)) return string(record(state.metadata).output);
+  return state.content.filter((item) => record(item).type === "text").map((item) => string(record(item).text)).join("\n");
+}
+
+// V2's page, as turns: a user message's words (and images, when the row
+// holds them) are a user turn; each assistant message, over however many
+// steps, joins one assistant turn. A compaction marks where the history was
+// folded, with the summary OpenCode wrote for it.
+export function parseV2Turns(rows) {
+  const turns = [];
+  let compact = null;
+  for (const row of rows) {
+    const info = v2InfoOf(row);
+    const type = string(row.type);
+    const ts = iso(record(info.time).created) ?? iso(row.time);
+    if (type === "compaction") {
+      compact = { kind: "compact", text: string(info.summary).trim() };
+      turns.push({ role: "user", ts, parts: [compact] });
+      continue;
+    }
+    if (type === "user") {
+      compact = null;
+      const parts = [];
+      const words = string(info.text);
+      if (words.trim()) parts.push({ kind: "text", text: cut(words, infoLarge(row)) });
+      const files = Array.isArray(info.files) ? info.files : [];
+      for (const file of files) {
+        const mime = string(record(file).mime);
+        if (IMAGE_TYPES.has(mime)) parts.unshift({ kind: "image", media_type: mime });
+      }
+      if (parts.length > 0) turns.push({ role: "user", ts, parts });
+      continue;
+    }
+    if (type !== "assistant") continue;
+    if (info.summary === true) {
+      if (compact !== null) {
+        const words = (Array.isArray(info.content) ? info.content : [])
+          .filter((item) => record(item).type === "text")
+          .map((item) => string(record(item).text)).join("\n").trim();
+        if (words) compact.text = words;
+      }
+      continue;
+    }
+    let turn = turns.at(-1);
+    if (turn?.role !== "assistant") {
+      turn = { role: "assistant", ts, parts: [] };
+      turns.push(turn);
+    }
+    const end = iso(record(info.time).completed ?? record(info.time).streamed);
+    if (end) turn.end_ts = end;
+    const content = Array.isArray(info.content) ? info.content : [];
+    for (const item of content) {
+      const part = record(item);
+      if (part.type === "text" && !part.synthetic && !part.ignored && string(part.text).trim()) {
+        turn.parts.push({ kind: "text", text: cut(string(part.text), infoLarge(row)), ...(infoLarge(row) ? { text_truncated: true } : {}) });
+      } else if (part.type === "reasoning" && string(part.text).trim()) {
+        turn.parts.push({ kind: "thinking", text: cut(string(part.text), infoLarge(row)), ...(infoLarge(row) ? { text_truncated: true } : {}) });
+      } else if (part.type === "tool") {
+        // the row's id and the call's own id name it for the capped fetch
+        // (a space: a %20 in the URL, never a control character)
+        turn.parts.push(v2ToolPart(`${string(row.id)} ${string(part.id)}`, part, info));
+      }
+    }
+    const failed = errorText(info.error);
+    if (failed) turn.parts.push({ kind: "text", text: failed });
+  }
+  return turns.filter((turn) => turn.parts.length > 0);
+}
+
+// A V2 row's message as the page reads it: its model, kept as a V1
+// message's (modelID and variant), whether the row came whole or reduced.
+function v2InfoOf(row) {
+  const info = record(row.info);
+  if (info.modelID === undefined && info.variant === undefined) {
+    const model = record(info.model);
+    info.modelID = model.id ?? null;
+    info.variant = model.variant ?? null;
+  }
+  return info;
+}
+
+// The model the newest answer on a V2 page ran at, and the context it
+// filled. A reduced row's model and tokens are the row's own (its words
+// cut, not its identity).
+export function v2Metadata(rows) {
+  const metadata = { model: null, reasoning_effort: null };
+  for (const row of rows) {
+    if (string(row.type) !== "assistant") continue;
+    const info = v2InfoOf(row);
+    if (info.summary === true) continue;
+    const model = label(info.modelID);
+    if (!model) continue;
+    metadata.model = model;
+    metadata.reasoning_effort = label(info.variant);
+    const tokens = record(info.tokens);
+    const cache = record(tokens.cache);
+    const used = count(tokens.input) + count(cache.read) + count(cache.write);
+    if (used > 0) metadata.context = { used, window: null };
+  }
+  return metadata;
+}
+
 const label = (value) => typeof value === "string" && value.trim() ? value.trim() : null;
 const count = (value) => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 
@@ -322,6 +567,11 @@ const keyOf = (row) => ({ time: Number(row.time_created), id: String(row.id) });
 const before = (a, b) => a.time < b.time || (a.time === b.time && a.id < b.id);
 // the same range as RANGE's named parameters
 const named = (session, from, to) => ({ session, fromTime: from.time, fromId: from.id, toTime: to.time, toId: to.id });
+// V2's keys: the message's seq, unique per session and always increasing
+const V2_BEGINNING = -1;
+const V2_END = Number.MAX_SAFE_INTEGER;
+const keyOfV2 = (row) => Number(row.seq);
+const beforeV2 = (a, b) => a < b;
 
 // Where a session's shown history ends: an undo hides the reverted messages
 // until OpenCode drops them. { key, part }: the message undone to, and the part in it.
@@ -381,11 +631,23 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
     }
     const events = columns("event_sequence");
     const sessions = columns("session");
+    const v2 = wholeTables(handle, TABLES_V2, columns);
     return {
       events: OPTIONAL.event_sequence.every((column) => events.has(column)),
       archive: OPTIONAL.session.every((column) => sessions.has(column)),
       version: sessions.has(SESSION_VERSION),
+      v2,
+      v2Archive: v2 && columns("session_v2").has("time_archived"),
     };
+  }
+
+  // Whether a set of tables is whole (every table, every wanted column).
+  function wholeTables(handle, tables, columns) {
+    for (const [table, wanted] of Object.entries(tables)) {
+      const have = columns(table);
+      if (!have.size || !wanted.every((column) => have.has(column))) return false;
+    }
+    return true;
   }
 
   function identityIn(db, session) {
@@ -473,39 +735,204 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
     return { messages, start };
   }
 
+  // ---------------------------------------------------------------------------
+  // V2. OpenCode 2 writes a session to session_v2 and its messages to
+  // session_message, with each tool call's output in the message's content
+  // (no part rows). A session the old tables do not hold is read from there,
+  // the same way: a page of its newest messages, its undo, its question.
+  // Its keys are the messages' seq, unique per session and always increasing.
+
+  function identityInV2(db, session) {
+    const row = db.statement("sessionV2").get(session);
+    if (!row) return null;
+    const changed = db.statement("messagesChangedV2").get(session) ?? {};
+    const revert = createHash("sha256").update(string(row.revert)).digest("base64url").slice(0, 12);
+    return [row.time_updated, revert, changed.updated ?? "", changed.messages ?? 0].join(":");
+  }
+
+  function revertOfV2(db, row) {
+    const revert = parse(string(row.revert));
+    const id = string(revert.messageID);
+    if (!MESSAGE_ID.test(id)) return null;
+    const found = db.statement("messageV2").get(id, row.id);
+    return found ? { key: keyOfV2(found), part: string(revert.partID) } : null;
+  }
+
+  function historyOfV2(db, row) {
+    const revert = revertOfV2(db, row);
+    if (!revert) return { id: String(row.id), end: V2_END };
+    const mark = createHash("sha256").update(`${revert.key}\0${revert.part}`).digest("base64url").slice(0, 12);
+    return { id: `${row.id}-r${revert.key.toString(36)}-${mark}`, end: revert.key };
+  }
+
+  function parseCursorV2(db, history, session, cursor) {
+    if (typeof cursor !== "string" || cursor.length > 200) throw new HistoryChanged();
+    const parts = cursor.split(":");
+    if (parts.length !== 2 || parts[0] !== history.id || !/^\d+$/u.test(parts[1])) throw new HistoryChanged();
+    const key = Number(parts[1]);
+    if (!beforeV2(key, history.end)) throw new HistoryChanged();
+    return key;
+  }
+
+  const cursorOfV2 = (history, key) => `${history.id}:${key}`;
+
+  // A V2 session's pending question: its newest assistant rows, looking for
+  // a question call still running.
+  function pendingQuestionV2(db, session) {
+    const rows = db.statement("pendingQuestionV2").all({ session, large: PENDING_QUESTION_BYTES, rows: 32 });
+    for (const v2row of rows) {
+      let info;
+      try { info = record(JSON.parse(v2row.data)); } catch { continue; }
+      const content = Array.isArray(info.content) ? info.content : [];
+      for (let i = content.length - 1; i >= 0; i -= 1) {
+        const item = record(content[i]);
+        if (item.type !== "tool" || item.name !== "question") continue;
+        const state = record(item.state);
+        if (state.status !== "running") continue;
+        const input = record(state.input);
+        if (Array.isArray(input.questions)) return { name: "question", input: { questions: input.questions } };
+        return null;
+      }
+    }
+    return null;
+  }
+
+  // Where a page ending at `end` starts: at most MAX_PAGE_PROMPTS prompts back,
+  // fewer when their rows are too large to read at once, else `floor`.
+  function pageStartV2(db, session, end, floor) {
+    const prompts = db.statement("promptsBeforeV2").all({ session, endSeq: end, rows: MAX_PAGE_PROMPTS + 1 })
+      .map(keyOfV2).filter((key) => !beforeV2(key, floor));
+    let take = Math.min(prompts.length, MAX_PAGE_PROMPTS);
+    let start = prompts.length > MAX_PAGE_PROMPTS ? prompts[MAX_PAGE_PROMPTS - 1] : floor;
+    const tooLarge = (from) => {
+      const cost = db.statement("pageBytesV2").get({ session, fromSeq: from, toSeq: end, large: V2_LARGE_ROW_BYTES }) ?? {};
+      return Number(cost.bytes ?? 0) > MAX_PAGE_BYTES || Number(cost.parts ?? 0) > MAX_PAGE_PARTS;
+    };
+    while (take > 1 && tooLarge(start)) {
+      take = Math.floor(take / 2);
+      start = prompts[take - 1];
+    }
+    return start;
+  }
+
+  // The page's messages, newest first, at most $rows; a large one reduced in
+  // JavaScript (shapeV2Row), its words and tool outputs cut. A message the
+  // page cannot read is skipped for this read; the page's cursor stays at
+  // the oldest message read, so the next page goes after it and the message
+  // is read again from its own start.
+  function readMessagesV2(db, session, from, to) {
+    const rows = db.statement("messagesV2").all({ session, fromSeq: from, toSeq: to, rows: maxMessages + 1 });
+    const cut = rows.length > maxMessages;
+    if (cut) rows.pop();
+    const messages = rows.reverse().map((row) => {
+      const shaped = shapeV2Row(string(row.data), V2_LARGE_ROW_BYTES);
+      return shaped ? { id: String(row.id), time: Number(row.time_created), seq: Number(row.seq), type: String(row.type), info: shaped.info } : null;
+    }).filter((row) => row !== null);
+    if (messages.length === 0) return { messages, start: from };
+    // the cursor is null when the page reaches the session's first message
+    const first = messages[0];
+    const hasEarlier = db.statement("v2FirstBefore").get({ session, seq: first.seq });
+    const start = hasEarlier ? first.seq : V2_BEGINNING;
+    return { messages, start };
+  }
+
   const operations = {
     // see the store's locate
     locate(db, { session = null, cwd = null, taken = [] } = {}) {
       if (typeof session === "string" && OPENCODE_SESSION_ID.test(session)) {
         let row = db.statement("session").get(session);
+        if (!row && db.shape.v2) row = db.statement("sessionV2").get(session);
         if (!row) return { session, found: false };
         for (let depth = 0; row && row.parent_id != null && depth < MAX_SESSION_DEPTH; depth++) {
           const parent = String(row.parent_id);
-          row = OPENCODE_SESSION_ID.test(parent) ? db.statement("session").get(parent) : null;
+          if (!OPENCODE_SESSION_ID.test(parent)) { row = null; break; }
+          row = db.statement("session").get(parent) ?? (db.shape.v2 ? db.statement("sessionV2").get(parent) : null);
         }
         if (row && row.parent_id == null) return { session: String(row.id), found: true };
         return { session, child: true };
       }
       if (typeof cwd !== "string" || !isAbsolute(cwd)) return null;
-      const row = db.statement(db.shape.archive ? "newestInDirectory" : "newestInDirectoryAny").get(cwd);
+      // the newest top-level session of the folder: OpenCode 2 carries a V1
+      // session into session_v2 but a new V2 session only there, so the pane's
+      // session is the newest across both tables. A V2 session that the old
+      // table does not hold is OpenCode 2's own, and is preferred over a V1
+      // session the old table holds more recently (the old table's
+      // time_updated can lag when OpenCode 2 carries a V1 session on).
+      const name = db.shape.archive ? "newestInDirectory" : "newestInDirectoryAny";
+      let row = db.statement(name).get(cwd);
+      if (db.shape.v2) {
+        const v2name = db.shape.v2Archive ? "newestInDirectoryV2" : "newestInDirectoryAnyV2";
+        const v2row = db.statement(v2name).get(cwd);
+        if (v2row) {
+          if (!row) row = v2row;
+          else {
+            // a V2 session the old table does not hold is OpenCode 2's own:
+            // prefer it over a V1 session the old table holds more recently
+            const inOld = db.statement("session").get(String(v2row.id));
+            if (!inOld) row = v2row;
+            else {
+              // both tables hold it: pick the one OpenCode touched more recently
+              const t1 = Number(db.statement("session").get(String(row.id))?.time_updated ?? 0);
+              const t2 = Number(db.statement("sessionV2").get(String(v2row.id))?.time_updated ?? 0);
+              if (t2 > t1) row = v2row;
+            }
+          }
+        }
+      }
       // another pane already shows the newest one: which pane is it is not known
       if (row && Array.isArray(taken) && taken.includes(String(row.id))) return null;
       return row && OPENCODE_SESSION_ID.test(String(row.id)) ? { session: String(row.id), found: true } : null;
     },
 
-    identity: identityIn,
+    identity(db, session) {
+      const row = db.statement("session").get(session);
+      if (row) return identityIn(db, session);
+      if (db.shape.v2 && db.statement("sessionV2").get(session)) return identityInV2(db, session);
+      return null;
+    },
 
     page(db, session, { before: beforeCursor, since, ifNoneMatch } = {}) {
+      // a session the old tables hold reads from them: OpenCode 2 carries a
+      // V1 session on by writing its new messages to the V2 tables alone, and
+      // the old tables keep every message the V1 reader read
       const row = db.statement("session").get(session);
-      if (!row) throw new ConversationUnavailable("transcript_missing");
-      const history = historyOf(db, row);
+      const v2 = row === undefined && db.shape.v2 && db.statement("sessionV2").get(session) !== undefined;
+      const sessionRow = v2 ? db.statement("sessionV2").get(session) : row;
+      if (!sessionRow) throw new ConversationUnavailable("transcript_missing");
+      const history = v2 ? historyOfV2(db, sessionRow) : historyOf(db, sessionRow);
+      const identity = v2 ? identityInV2(db, session) : identityIn(db, session);
       const key = `${history.id}\0${beforeCursor ?? ""}\0${since ?? ""}`;
-      const version = answerVersion(`opencode\0${path}\0${key}`, identityIn(db, session));
+      const version = answerVersion(`opencode\0${path}\0${key}`, identity);
       if (versionMatches(ifNoneMatch, version)) return { notModified: true, version };
       const cached = answers.get(key);
       if (cached?.version === version) return cached.answer;
       let start;
       let end = history.end;
+      if (v2) {
+        // V2's keys are seqs: numbers, not { time, id }
+        if (beforeCursor !== undefined) {
+          end = parseCursorV2(db, history, session, beforeCursor);
+          const floor = since === undefined ? V2_BEGINNING : parseCursorV2(db, history, session, since);
+          if (beforeV2(end, floor)) throw new HistoryChanged();
+          start = end === floor ? floor : pageStartV2(db, session, end, floor);
+        } else {
+          const held = since === undefined ? null : parseCursorV2(db, history, session, since);
+          const newest = pageStartV2(db, session, end, V2_BEGINNING);
+          start = held !== null && !beforeV2(held, newest) ? held : newest;
+        }
+        let messages = [];
+        if (beforeV2(start, end)) ({ messages, start } = readMessagesV2(db, session, start, end));
+        const page = {
+          source: OPENCODE_SESSION.source,
+          turns: parseV2Turns(messages),
+          metadata: v2Metadata(messages),
+          cursor: start === V2_BEGINNING ? null : cursorOfV2(history, start),
+          history_id: history.id,
+          version,
+        };
+        remember(answers, key, { version, answer: page }, 32);
+        return page;
+      }
       if (beforeCursor !== undefined) {
         end = parseCursor(db, history, session, beforeCursor);
         const floor = since === undefined ? BEGINNING : parseCursor(db, history, session, since);
@@ -532,21 +959,68 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
 
     toolOutput(db, session, toolId) {
       // SQLite cuts the output: a 50 MB one never crosses into JavaScript whole
-      const row = db.statement("toolPart").get({ id: toolId, session, max: TOOL_OUTPUT_MAX_CHARS });
-      if (!row || row.kind !== "tool") return null;
-      return { output: string(row.output), size: Number(row.size ?? 0) };
+      const words = String(toolId);
+      const at = words.indexOf(" ");
+      if (at > 0 && db.shape.v2) {
+        // a V2 key: the message row that holds the call, and the call's own id
+        const rowId = words.slice(0, at);
+        const callId = words.slice(at + 1);
+        if (MESSAGE_ID.test(rowId) && TOOL_ID.test(callId)) {
+          const v2row = db.statement("toolPartV2").get({ id: rowId, session, tool: callId, max: TOOL_OUTPUT_MAX_CHARS });
+          if (v2row) {
+            const output = string(v2row.output);
+            const size = Number(v2row.size ?? 0);
+            return { output: size > output.length ? output.slice(0, TOOL_OUTPUT_MAX_CHARS) : output, size };
+          }
+          return null;
+        }
+      }
+      const row = db.statement("toolPart").get({ id: words, session, max: TOOL_OUTPUT_MAX_CHARS });
+      if (row && row.kind === "tool") return { output: string(row.output), size: Number(row.size ?? 0) };
+      return null;
     },
 
     pendingQuestion(db, session) {
+      if (db.shape.v2 && db.statement("session").get(session) === undefined) {
+        // a V2 session's question: its newest assistant rows
+        return pendingQuestionV2(db, session);
+      }
       const row = db.statement("pendingQuestion").get({ session, large: PENDING_QUESTION_BYTES });
-      const input = row ? parse(string(row.input)) : {};
-      return Array.isArray(input.questions) ? { name: "question", input: { questions: input.questions } } : null;
+      if (row) {
+        const input = parse(string(row.input));
+        if (Array.isArray(input.questions)) return { name: "question", input: { questions: input.questions } };
+      }
+      if (!db.shape.v2) return null;
+      const rows = db.statement("pendingQuestionV2").all({ session, large: PENDING_QUESTION_BYTES, rows: 32 });
+      for (const v2row of rows) {
+        let info;
+        try { info = record(JSON.parse(v2row.data)); } catch { continue; }
+        const content = Array.isArray(info.content) ? info.content : [];
+        for (let i = content.length - 1; i >= 0; i -= 1) {
+          const item = record(content[i]);
+          if (item.type !== "tool" || item.name !== "question") continue;
+          const state = record(item.state);
+          if (state.status !== "running") continue;
+          const input = record(state.input);
+          if (Array.isArray(input.questions)) return { name: "question", input: { questions: input.questions } };
+          return null;
+        }
+      }
+      return null;
     },
 
     sessionVersion(db, session) {
-      if (!db.shape.version) return null;
-      const value = db.statement("sessionVersion").get(session)?.version;
-      return typeof value === "string" && value.length <= 64 ? value : null;
+      const row = db.statement("session").get(session);
+      if (row) {
+        if (!db.shape.version) return null;
+        const value = db.statement("sessionVersion").get(session)?.version;
+        return typeof value === "string" && value.length <= 64 ? value : null;
+      }
+      if (db.shape.v2 && db.statement("sessionV2").get(session)) {
+        const value = db.statement("sessionV2Version").get(session)?.version;
+        return typeof value === "string" && value.length <= 64 ? value : null;
+      }
+      return null;
     },
   };
 
@@ -883,9 +1357,14 @@ export function localOpencodeStore({
       return (await read("sessionVersion", session)) ?? null;
     },
 
-    // The whole output of one tool call (a part's id), as { output, size }, or null.
+    // The whole output of one tool call (a part's id, or a V2 key of its
+    // message row and call), as { output, size }, or null.
     async toolOutput(session, toolId) {
-      if (typeof toolId !== "string" || !TOOL_ID.test(toolId)) return null;
+      if (typeof toolId !== "string" || toolId.length === 0 || toolId.length > 200) return null;
+      const at = toolId.indexOf(" ");
+      if (at > 0) {
+        if (!TOOL_ID.test(toolId.slice(0, at)) || !TOOL_ID.test(toolId.slice(at + 1))) return null;
+      } else if (!TOOL_ID.test(toolId)) return null;
       return (await read("toolOutput", session, toolId)) ?? null;
     },
 

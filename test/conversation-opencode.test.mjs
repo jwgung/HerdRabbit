@@ -280,8 +280,8 @@ test("only the fixed statements run, and none reads the tables that hold secrets
   const allowed = new Set(Object.values(STATEMENTS));
   for (const sql of allowed) {
     assert.doesNotMatch(sql, /SELECT\s+\*/iu, "no statement selects everything");
-    const tables = [...sql.matchAll(/\b(?:FROM|JOIN)\s+([a-z_]+)/giu)].map((match) => match[1]);
-    for (const table of tables) assert.ok(["session", "message", "part", "event_sequence", "pragma_table_info"].includes(table), `${table} in ${sql}`);
+    const tables = [...sql.matchAll(/\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)/giu)].map((match) => match[1]);
+    for (const table of tables) assert.ok(["session", "message", "part", "event_sequence", "pragma_table_info", "json_each", "session_v2", "session_message"].includes(table), `${table} in ${sql}`);
   }
   const prepared = [];
   const prepare = DatabaseSync.prototype.prepare;
@@ -1034,4 +1034,221 @@ test("the pending question: the newest running question call decides; a too larg
   // a running call without questions decides too: none
   fixture.part(SESSION, message, { type: "tool", tool: "question", callID: "call_x", state: { status: "running", input: {} } });
   assert.equal(await store.pendingQuestion(SESSION), null);
+});
+
+// ---------------------------------------------------------------------------
+// OpenCode 2: the same reads, from session_v2 and session_message (the tables
+// OpenCode 2 writes instead; a session the old tables do not hold is read
+// from there alone).
+
+async function worldV2(context, { schema } = {}) {
+  const directory = await temp(context);
+  const path = join(directory, "opencode.db");
+  const fixture = opencodeDb(path, { schema, v2: true });
+  context.after(() => fixture.close());
+  return { path, fixture, store: open(context, { path }) };
+}
+
+test("V2: a pane's session is found by id, else the newest top-level of its folder, from the V2 tables", async (context) => {
+  const { path, fixture } = await worldV2(context);
+  fixture.session(SESSION, { directory: "/work/app" });
+  fixture.exchange(SESSION, 1);
+  fixture.session(OTHER, { directory: "/work/app" });
+  fixture.exchange(OTHER, 2);
+  fixture.session(CHILD, { directory: "/work/app", parent: OTHER });
+  fixture.exchange(CHILD, 3);
+  const reported = (value) => ({ agent: "opencode", kind: "id", source: "herdr:opencode", value });
+  const conversations = service(path, [
+    { pane_id: "w1:p1", agent: "opencode", cwd: "/work/app", agent_session: reported(SESSION) },
+    { pane_id: "w1:p2", agent: "opencode", cwd: "/elsewhere", foreground_cwd: "/work/app" },
+    { pane_id: "w1:p3", agent: "opencode", cwd: "/work/empty" },
+    { pane_id: "w1:p4", agent: "opencode", cwd: "/work/app", agent_session: reported("ses_9999AAAAAAAAAAAAAAAAAAAAAA") },
+  ], context);
+  const first = await conversations.page("w1:p1");
+  assert.equal(first.source, "opencode-session");
+  assert.deepEqual(texts(first.turns), ["prompt 1", "answer 1"]);
+  assert.deepEqual(texts((await conversations.page("w1:p2")).turns), ["prompt 2", "answer 2"]);
+  await assert.rejects(conversations.page("w1:p3"), (error) => error.reason === "no_session_id");
+  const empty = await conversations.page("w1:p4");
+  assert.deepEqual([empty.turns, empty.cursor], [[], null]);
+});
+
+test("V2: reads text, reasoning, tools, errors and questions as turns", async (context) => {
+  const { path, fixture } = await worldV2(context);
+  fixture.session(SESSION);
+  fixture.message(SESSION, { role: "user" }, [
+    { type: "text", text: "fix the parser" },
+  ]);
+  const long = "x".repeat(TOOL_OUTPUT_PREVIEW_CHARS + 50);
+  fixture.message(SESSION, { role: "assistant", modelID: "model-a", providerID: "p", variant: "high", tokens: { input: 10, output: 1, cache: { read: 5, write: 0 } } }, [
+    { type: "reasoning", text: "Looking at the parser" },
+    { type: "tool", tool: "bash", callID: "call_1", state: { status: "completed", input: { command: "npm test" }, output: long } },
+    { type: "tool", tool: "read", callID: "call_2", state: { status: "completed", input: { path: "/work/app/src/a.js" }, output: "contents" } },
+    { type: "tool", tool: "edit", callID: "call_3", state: { status: "completed", input: { path: "/work/app/src/a.js", oldString: "a", newString: "b" }, output: "Edit applied" } },
+    { type: "tool", tool: "grep", callID: "call_4", state: { status: "error", input: { pattern: "TODO" }, error: "no such dir" } },
+  ]);
+  fixture.message(SESSION, { role: "assistant", modelID: "model-b", providerID: "p", tokens: { input: 20, output: 2, cache: { read: 0, write: 0 } } }, [
+    { type: "tool", tool: "question", callID: "call_6", state: { status: "completed", input: { questions: [{ question: "Which parser?", header: "Parser", options: [{ label: "A" }] }] }, output: "A" } },
+    { type: "text", text: "Fixed it." },
+  ]);
+
+  const page = await open(context, { path }).page(SESSION);
+  assert.deepEqual(page.turns.map((turn) => turn.role), ["user", "assistant"]);
+  assert.deepEqual(page.turns[0].parts, [{ kind: "text", text: "fix the parser" }]);
+  const [thinking, bash, read, edit, grep, question, answer] = page.turns[1].parts;
+  assert.deepEqual(thinking, { kind: "thinking", text: "Looking at the parser" });
+  assert.equal(bash.name, "bash");
+  assert.equal(bash.summary, "npm test");
+  assert.equal(bash.output.length, TOOL_OUTPUT_PREVIEW_CHARS);
+  assert.equal(bash.output_truncated, true);
+  assert.equal(bash.output_size, long.length);
+  assert.match(bash.id, /^msg_.* call_1$/u);
+  assert.equal(read.summary, "/work/app/src/a.js");
+  assert.deepEqual(JSON.parse(read.input), { path: "/work/app/src/a.js" });
+  assert.deepEqual(JSON.parse(edit.input), { path: "/work/app/src/a.js", old_string: "a", new_string: "b" });
+  assert.deepEqual([grep.summary, grep.error], ["TODO", true]);
+  assert.equal(question.name, "question");
+  assert.equal(question.summary, "Which parser?");
+  assert.deepEqual(answer, { kind: "text", text: "Fixed it." });
+  // the model the newest answer ran at, and the effort its variant named
+  assert.equal(page.metadata.model, "model-b");
+  // the whole output of a large tool, fetched capped by its id
+  const store = open(context, { path });
+  assert.deepEqual(await store.toolOutput(SESSION, bash.id), { output: long, size: long.length });
+});
+
+test("V2: pages by message keys, with ETags and a 409 for another history", async (context) => {
+  const { path, fixture } = await worldV2(context);
+  fixture.session(SESSION);
+  for (let n = 0; n < 60; n++) fixture.exchange(SESSION, n);
+  const store = open(context, { path });
+  const newest = await store.page(SESSION);
+  assert.equal(newest.turns.length, MAX_PAGE_PROMPTS * 2);
+  assert.equal(newest.turns[0].parts[0].text, "prompt 10");
+  assert.equal(newest.history_id, SESSION);
+  assert.match(newest.cursor, new RegExp(`^${SESSION}:\\d+$`, "u"));
+  const older = await store.page(SESSION, { before: newest.cursor });
+  assert.deepEqual([older.turns.length, older.turns[0].parts[0].text, older.cursor], [20, "prompt 0", null]);
+  assert.deepEqual(await store.page(SESSION, { ifNoneMatch: newest.version }), { notModified: true, version: newest.version });
+  fixture.exchange(SESSION, 60);
+  const grown = await store.page(SESSION, { ifNoneMatch: newest.version });
+  assert.notEqual(grown.version, newest.version);
+  assert.equal(grown.turns.at(-1).parts[0].text, "answer 60");
+  for (const cursor of ["elsewhere:1", `${SESSION}:x`, `${OTHER}:1`]) {
+    await assert.rejects(store.page(SESSION, { before: cursor }), (error) => error.status === 409, cursor);
+  }
+});
+
+test("V2: an undo hides the reverted messages and starts the history over", async (context) => {
+  const { path, fixture } = await worldV2(context);
+  fixture.session(SESSION);
+  // more prompts than a page holds, so the first page does not reach the start
+  for (let n = 0; n < 60; n++) fixture.exchange(SESSION, n);
+  const store = open(context, { path });
+  const before = await store.page(SESSION);
+  assert.ok(before.cursor, "the first page does not reach the beginning");
+  const target = fixture.db.prepare("SELECT id FROM session_message WHERE session_id = ? ORDER BY seq DESC LIMIT 1 OFFSET 1").get(SESSION).id;
+  fixture.revert(SESSION, target);
+  const undone = await store.page(SESSION);
+  assert.notEqual(undone.history_id, SESSION);
+  // the last shown answer is the one before the undone exchange
+  assert.equal(undone.turns.at(-1).parts.at(-1).text, "answer 58");
+  // the cursor of the history before the undo no longer names a page
+  await assert.rejects(store.page(SESSION, { before: before.cursor }), (error) => error.status === 409);
+});
+
+test("V2: the identity changes with each write to the session, and only then", async (context) => {
+  const { path, fixture } = await worldV2(context);
+  fixture.session(SESSION);
+  fixture.session(OTHER);
+  fixture.exchange(SESSION, 1);
+  const store = open(context, { path });
+  const first = await store.stat(SESSION);
+  assert.equal(typeof first.identity, "string");
+  fixture.exchange(SESSION, 2);
+  const second = await store.stat(SESSION);
+  assert.notEqual(second.identity, first.identity);
+  fixture.exchange(OTHER, 3);
+  assert.equal((await store.stat(SESSION)).identity, second.identity, "another session's write is not this one's");
+  assert.equal(await store.stat("ses_9999AAAAAAAAAAAAAAAAAAAAAA"), null);
+});
+
+test("V2: a running question is the pane's pending ask, an answered one is not", async (context) => {
+  const { path, fixture } = await worldV2(context);
+  fixture.session(SESSION);
+  fixture.message(SESSION, { role: "user" }, [{ type: "text", text: "start" }]);
+  fixture.message(SESSION, { role: "assistant" }, [
+    { type: "tool", tool: "question", callID: "call_done", state: { status: "completed", input: { questions: [{ question: "Answered?", options: [] }] }, output: "ok" } },
+    { type: "text", text: "onward" },
+  ]);
+  const store = open(context, { path });
+  assert.equal(await store.pendingQuestion(SESSION), null, "an answered question waits on nothing");
+  const message = fixture.message(SESSION, { role: "assistant" }, [
+    { type: "tool", tool: "question", callID: "call_open", state: { status: "running", input: { questions: [{ question: "Which export format?", header: "Format", options: [{ label: "ONNX", description: "Portable." }] }] } } },
+  ]);
+  const pending = await store.pendingQuestion(SESSION);
+  assert.equal(pending.name, "question");
+  assert.equal(pending.input.questions[0].question, "Which export format?");
+  // a newer assistant message without a running question: the open one still waits
+  fixture.message(SESSION, { role: "assistant" }, [{ type: "text", text: "working" }]);
+  assert.equal((await store.pendingQuestion(SESSION)).input.questions[0].question, "Which export format?");
+  assert.equal(message, "msg_00000003AAAAAAAAAAAAAAAAAA");
+});
+
+test("V2: the version that wrote the session is read from the V2 table", async (context) => {
+  const { path, fixture } = await worldV2(context);
+  fixture.session(SESSION, { version: "2.1.4" });
+  fixture.exchange(SESSION, 1);
+  const store = open(context, { path });
+  assert.equal(await store.sessionVersion(SESSION), "2.1.4");
+  const conversations = service(path, [{ pane_id: "w1:p1", agent: "opencode", cwd: "/work/app", agent_session: { agent: "opencode", kind: "id", value: SESSION } }], context);
+  assert.equal(await conversations.agentVersion("w1:p1"), "2.1.4");
+});
+
+test("V2: a tool error reads as its error words, a running one shows its output so far", async (context) => {
+  const { path, fixture } = await worldV2(context);
+  fixture.session(SESSION);
+  fixture.message(SESSION, { role: "user" }, [{ type: "text", text: "go" }]);
+  fixture.message(SESSION, { role: "assistant" }, [
+    { type: "tool", tool: "read", callID: "call_missing", state: { status: "error", input: { path: "/nope" }, error: "File not found: /nope" } },
+    { type: "tool", tool: "bash", callID: "call_running", state: { status: "running", input: { command: "sleep 5" }, metadata: { output: "so far" } } },
+  ]);
+  const page = await open(context, { path }).page(SESSION);
+  const [read, bash] = page.turns[1].parts;
+  assert.equal(read.error, true);
+  assert.match(read.output, /File not found/u);
+  assert.equal(bash.output, "so far");
+});
+
+test("V2: a message over the row limit is read reduced, its words and outputs cut", async (context) => {
+  const { path, fixture } = await worldV2(context);
+  fixture.session(SESSION);
+  fixture.message(SESSION, { role: "user" }, [{ type: "text", text: "dump it" }]);
+  const huge = "y".repeat(50 * 1024 * 1024);
+  fixture.message(SESSION, { role: "assistant", modelID: "model-a" }, [
+    { type: "tool", tool: "bash", callID: "call_big", state: { status: "completed", input: { command: "cat big.log" }, output: huge } },
+    { type: "text", text: "done" },
+  ]);
+  const store = open(context, { path });
+  const page = await store.page(SESSION);
+  const [bash, answer] = page.turns[1].parts;
+  assert.equal(bash.output_large, true);
+  assert.equal(answer.text, "done");
+  // the whole output, fetched capped by the part's key (row id, call id)
+  const whole = await store.toolOutput(SESSION, bash.id);
+  assert.equal(whole.size, huge.length);
+  assert.equal(whole.output.length, TOOL_OUTPUT_MAX_CHARS);
+});
+
+test("V2: a session in the old tables reads as V1, one in the V2 tables alone reads as V2", async (context) => {
+  const directory = await temp(context);
+  const path = join(directory, "opencode.db");
+  // a V1 database (no V2 tables) still reads, alone
+  const v1 = opencodeDb(path, {});
+  context.after(() => { try { v1.close(); } catch { /* closed */ } });
+  v1.session(SESSION, { directory: "/work/app" });
+  v1.exchange(SESSION, 1);
+  const store = open(context, { path });
+  assert.deepEqual(await store.locate({ session: SESSION }), { session: SESSION, found: true });
+  assert.deepEqual(texts((await store.page(SESSION)).turns), ["prompt 1", "answer 1"]);
 });

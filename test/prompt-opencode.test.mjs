@@ -502,9 +502,9 @@ test("real 1.18.34: a blocked pane under a dialog has no card at all, not even t
 
 // --- the OpenCode versions the reader knows -----------------------------------
 
-test("the reader is for OpenCode 1.18.x and 1.19.x only: the version the pane's session was written by", () => {
-  for (const version of ["1.18.0", "1.18.34", "1.18.120", "1.19.0", "1.19.3"]) assert.equal(SUPPORTED_OPENCODE_TUI(version), true, version);
-  for (const version of ["1.20.0", "1.17.9", "2.18.34", "1.180.0", "1.190.0", "1.18", "1.19", "1.18.34-beta", "", null, undefined, 1.18]) {
+test("the reader is for OpenCode 1.18.x, 1.19.x, and 2.x: the version the pane's session was written by", () => {
+  for (const version of ["1.18.0", "1.18.34", "1.18.120", "1.19.0", "1.19.3", "2.0.0", "2.1.4", "2.9.9"]) assert.equal(SUPPORTED_OPENCODE_TUI(version), true, version);
+  for (const version of ["1.20.0", "1.17.9", "1.180.0", "1.190.0", "1.18", "1.19", "1.18.34-beta", "", null, undefined, 1.18]) {
     assert.equal(SUPPORTED_OPENCODE_TUI(version), false, String(version));
   }
 });

@@ -50,7 +50,7 @@ import {
 // differ, and an Enter sent to a screen read wrong could act on something
 // else. Such a pane is answered in its terminal; its chat still reads.
 export function SUPPORTED_OPENCODE_TUI(version) {
-  return typeof version === "string" && /^1\.(?:18|19)\.\d+$/u.test(version);
+  return typeof version === "string" && (/^1\.(?:18|19)\.\d+$/u.test(version) || /^2\.\d+\.\d+$/u.test(version));
 }
 
 // the panel's left bar, and a line of it with nothing else
@@ -62,10 +62,15 @@ const PERMISSION_HEADER_RE = /^△\s+Permission required$/u;
 const ALWAYS_HEADER_RE = /^△\s+Always allow$/u;
 const REJECT_HEADER_RE = /^△\s+Reject permission$/u;
 const PERMISSION_BUTTONS = Object.freeze(["Allow once", "Allow always", "Reject"]);
+// 2.x: when the request has no "save" (nothing to always-allow), the panel
+// shows only Allow once / Reject.
+const PERMISSION_BUTTONS_SHORT = Object.freeze(["Allow once", "Reject"]);
 const ALWAYS_BUTTONS = Object.freeze(["Confirm", "Cancel"]);
-// "ctrl+f fullscreen  ⇆ select  enter confirm": the buttons' hints, on their
-// row or (a pane under 80 columns) on a row of their own under it
-const BUTTON_HINT_RE = /⇆\s+select\s+enter\s+confirm\b/u;
+// "⇆ select  enter confirm" (1.18/1.19), or with the fullscreen toggle hint
+// first (2.x: "⌘/ctrl fullscreen minimize  ⇆ select  enter confirm"): the
+// buttons' hints, on their row or (a pane under 80 columns) on a row of their
+// own under it
+const BUTTON_HINT_RE = /(?:[⌘]?\s*ctrl\s*\/?\s*f\s+)?(?:fullscreen|minimize)\s+(?:⇆\s+select\s+)?enter\s+confirm\b|⇆\s+select\s+enter\s+confirm\b/u;
 const REJECT_HINT_RE = /enter\s+confirm\s+esc\s+cancel\s*$/u;
 const REJECT_ASK = "Tell OpenCode what to do differently";
 // the icon before a permission's title (permission.tsx's info())
@@ -215,16 +220,18 @@ export function opencodeDialogOpen(screen) {
   return dialogOpen(screenLines(String(screen ?? "")).raw);
 }
 
-// The button selected in a row of buttons, by colour: the one button whose
-// background is the colour of the panel's "△" (the theme's warning colour).
-// Null when the colours do not tell: no colour on "△", or not one button on it.
-// (On 1.18.34 the two match exactly, dimmed under a dialog too; no guess is
-// made from a background merely unlike the others'.)
+// The button selected in a row of buttons, by colour.
+// On 1.18/1.19 the selected button's background is the colour of the panel's
+// "△" (the theme's warning colour); the two match exactly. On 2.x the
+// selected button's background is theme.background.action.primary.focused,
+// which need not be the "△" colour, so when no button matches "△" we fall
+// back to the one button whose background differs from the others'.
+// Null when the colours do not tell: no colour on "△" and no single button
+// unlike the rest.
 export function selectedButton(rawRow, labels, rawHeader) {
   const row = styledLine(rawRow);
   const header = typeof rawHeader === "string" ? styledLine(rawHeader) : null;
   const warning = header ? header.fgs[header.text.indexOf("△")] ?? "" : "";
-  if (!warning) return null;
   let from = 0;
   const backgrounds = [];
   for (const label of labels) {
@@ -233,8 +240,30 @@ export function selectedButton(rawRow, labels, rawHeader) {
     backgrounds.push(row.bgs[at]);
     from = at + label.length;
   }
-  const marked = backgrounds.flatMap((bg, index) => (bg === warning ? [index] : []));
-  return marked.length === 1 ? marked[0] : null;
+  // V1: the button on the "△" colour. When more than one button is on it,
+  // the selection cannot be told and no V2 guess is made either.
+  if (warning) {
+    const marked = backgrounds.flatMap((bg, index) => (bg === warning ? [index] : []));
+    if (marked.length === 1) return marked[0];
+    if (marked.length > 1) return null;
+  }
+  // V2: the "△" colour does not mark the selected button (it is
+  // theme.background.action.primary.focused, not the warning colour). Fall
+  // back to the one button whose background differs from the others', but
+  // only when the header has a coloured "△" (a plain-text header has no
+  // colour and no guess is made). A button with no background ("") is not a
+  // "different colour"; it is the absence of one, and no guess is made from
+  // it.
+  if (header && header.text.includes("△") && (header.fgs[header.text.indexOf("△")] ?? "")) {
+    const coloured = backgrounds.filter((bg) => bg !== "");
+    if (coloured.length === backgrounds.length) {
+      const counts = new Map();
+      for (const bg of coloured) counts.set(bg, (counts.get(bg) ?? 0) + 1);
+      const odd = coloured.flatMap((bg, index) => (counts.get(bg) === 1 ? [index] : []));
+      if (odd.length === 1) return odd[0];
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -276,25 +305,33 @@ function lastHeader(lines, re) {
 function parsePermission(raw, lines) {
   const header = lastHeader(lines, PERMISSION_HEADER_RE);
   if (header < 0) return null;
-  const row = buttonRow(lines, header + 1, PERMISSION_BUTTONS);
+  // 3 buttons (V1, or V2 with save), else 2 buttons (V2 without save).
+  let row = buttonRow(lines, header + 1, PERMISSION_BUTTONS);
+  let buttons = PERMISSION_BUTTONS;
+  if (row < 0) {
+    row = buttonRow(lines, header + 1, PERMISSION_BUTTONS_SHORT);
+    buttons = PERMISSION_BUTTONS_SHORT;
+  }
   if (row < 0) return null;
   const hint = hintAfter(lines, row, BUTTON_HINT_RE);
   if (hint < 0 || !nearEnd(lines, hint)) return null;
-  // the title: the line under the header, and what it wraps onto
+  // the title: the lines under the header, and what they wrap onto. On 2.x a
+  // non-shell action adds an "icon title" line before the body.
   const titleLines = [];
   let at = header + 1;
   for (; at < row && lines[at].trim(); at += 1) titleLines.push(lines[at].trim());
   const question = normalizeText(titleLines.join(" ")).replace(TITLE_ICON_RE, "") || "Permission required";
   const body = block(lines, at, row);
-  const selectedIndex = selectedButton(raw[row], PERMISSION_BUTTONS, raw[header]);
+  const selectedIndex = selectedButton(raw[row], buttons, raw[header]);
+  const rejectIndex = buttons.lastIndexOf("Reject");
   return finishPrompt("opencode", {
     kind: "approval", title: "Permission required", question, body: body || null,
-    options: PERMISSION_BUTTONS.map((label) => ({ label, description: null })), multiSelect: false, customOptionIndex: null,
+    options: buttons.map((label) => ({ label, description: null })), multiSelect: false, customOptionIndex: null,
   }, {
-    responder: "opencode-permission", menuLabels: [...PERMISSION_BUTTONS], selectedIndex, checkedOptionIndices: [],
+    responder: "opencode-permission", menuLabels: [...buttons], selectedIndex, checkedOptionIndices: [],
     customMenuIndex: null, moveKeys: HORIZONTAL,
     // Esc is the prompt's Reject, wherever the selection is
-    rejectWithEscapeIndex: 2,
+    rejectWithEscapeIndex: rejectIndex,
   });
 }
 

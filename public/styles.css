@@ -2760,6 +2760,9 @@ body.is-resizing-sidebar {
   border: 1px solid var(--line);
   border-radius: var(--radius-input);
   background: var(--surface-raised);
+  /* a phone's pinch anywhere in the viewer (text, image, video) can zoom the
+     page and leave the zoom behind when the dialog closes */
+  touch-action: pan-x pan-y;
 }
 
 .viewer-body:empty {
@@ -2770,6 +2773,9 @@ body.is-resizing-sidebar {
 .viewer-video {
   max-width: 100%;
   max-height: var(--viewer-content-height);
+  /* stop a phone's double-tap from zooming the page and leaving the zoom
+     behind when the dialog closes */
+  touch-action: pan-x pan-y;
 }
 
 /* Markup draws itself at whatever size it likes, so the frame is the one that
@@ -2799,6 +2805,9 @@ body.is-resizing-sidebar {
   line-height: 1.5;
   white-space: pre;
   text-align: left;
+  /* a phone's pinch inside the text box can zoom the page and leave the zoom
+     behind when the dialog closes */
+  touch-action: pan-x pan-y;
 }
 
 #transfer-dialog {

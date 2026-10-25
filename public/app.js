@@ -1741,7 +1741,9 @@ const AGENT_MARKS = Object.freeze({
   // six rounded petals turned 60 degrees apart, overlapping into a knot
   codex: { strokes: ["M12 2.6c2.3 0 3.6 2.3 3.6 4.7S14.2 12 12 12s-3.6-2.3-3.6-4.7S9.7 2.6 12 2.6z"], turns: 6, width: 1.4 },
   agy: { strokes: ["M6.5 19.5L12 5l5.5 14.5", "M3.5 14c4-2.4 13-2.4 17 0"], width: 1.8 },
-  opencode: { strokes: ["M8.5 4.5h-4v15h4", "M15.5 4.5h4v15h-4", "M10.5 12h3"], width: 2.2 },
+  // OpenCode's mark: a pixelated "O" — outer ring with an inner block,
+  // the same shape as the published favicon
+  opencode: { box: "#131010", fills: [{ d: "M6 4.5h12v15H6V4.5ZM9 7.5v9h6v-9H9Z", color: "#ffffff" }, { d: "M9 10.5h6v6H9v-6Z", color: "#5A5858" }] },
   other: { strokes: ["M12 3c.7 5 2 6.3 7 7-5 .7-6.3 2-7 7-.7-5-2-6.3-7-7 5-.7 6.3-2 7-7z", "M19 17v4M17 19h4"], width: 1.6 },
   shell: { strokes: ["M5 8l5 4-5 4", "M13 17h6"], width: 1.9 },
 });
@@ -1762,6 +1764,16 @@ function agentMark(kind) {
     rect.setAttribute("rx", "6");
     rect.setAttribute("fill", mark.box);
     svg.append(rect);
+  }
+  if (mark.fills) {
+    for (const { d, color } of mark.fills) {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", d);
+      path.setAttribute("fill", color || "currentColor");
+      path.setAttribute("fill-rule", "evenodd");
+      svg.append(path);
+    }
+    return svg;
   }
   for (const d of mark.strokes) for (let turn = 0; turn < (mark.turns || 1); turn += 1) {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -4733,7 +4745,22 @@ function closeViewer() {
 }
 
 document.querySelector("#viewer-close").addEventListener("click", closeViewer);
-viewerDialog.addEventListener("close", () => viewerBody.replaceChildren());
+viewerDialog.addEventListener("close", () => {
+  viewerBody.replaceChildren();
+  // A phone's pinch inside the dialog (an image) can leave the whole page
+  // zoomed when the dialog closes. Chrome on Android keeps the document
+  // viewport zoom as a page-level state, so the only way back is to force the
+  // viewport to re-lay-out: reset the scroll and re-assert the viewport width.
+  window.scrollTo(0, 0);
+  const viewport = document.querySelector('meta[name="viewport"]');
+  if (viewport) {
+    const original = viewport.getAttribute("content");
+    viewport.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1");
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => viewport.setAttribute("content", original));
+    });
+  }
+});
 document.querySelector("#viewer-download").addEventListener("click", () => {
   if (viewerDownload) void downloadPath(viewerDownload.path, viewerDownload.name, viewerDownload.server);
 });
