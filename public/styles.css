@@ -1272,7 +1272,11 @@ body.sidebar-collapsed .terminal-panel {
   stroke-width: 1.8;
 }
 
-/* the mic is red and pulsing while it listens */
+/* the mic: teal at rest, red and pulsing while it listens */
+.dictate-button {
+  color: var(--accent, #99ffe4);
+}
+
 .dictate-button.listening {
   color: var(--danger, #e5484d);
   background: color-mix(in srgb, var(--danger, #e5484d) 15%, transparent);
