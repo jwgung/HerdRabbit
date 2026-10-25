@@ -1247,7 +1247,8 @@ body.sidebar-collapsed .terminal-panel {
 }
 
 .send-button,
-.attach-button {
+.attach-button,
+.dictate-button {
   width: 44px;
   min-width: 44px;
   height: var(--composer-row-height);
@@ -1260,7 +1261,8 @@ body.sidebar-collapsed .terminal-panel {
 }
 
 .send-button svg,
-.attach-button svg {
+.attach-button svg,
+.dictate-button svg {
   width: 20px;
   height: 20px;
   fill: none;
@@ -1268,6 +1270,18 @@ body.sidebar-collapsed .terminal-panel {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.8;
+}
+
+/* the mic is red and pulsing while it listens */
+.dictate-button.listening {
+  color: var(--danger, #e5484d);
+  background: color-mix(in srgb, var(--danger, #e5484d) 15%, transparent);
+  animation: dictate-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes dictate-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 
 /* Send turns into Stop while the agent works in the Chat lens and the composer
