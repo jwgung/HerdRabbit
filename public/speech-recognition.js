@@ -31,7 +31,7 @@ function createRecognizer({ onInterim, onFinal, onEnd, onError }) {
   return recognition;
 }
 
-export function createSpeechButton({ button, textarea, onStateChange }) {
+export function createSpeechButton({ button, textarea, onStateChange = () => {} }) {
   let recognition = null;
   let listening = false;
   let interim = "";
