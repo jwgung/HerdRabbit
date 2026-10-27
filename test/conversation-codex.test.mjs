@@ -360,6 +360,19 @@ test("takes the one rollout the pane's Codex process holds open", async (context
   assert.equal(isCodexProcess(["bash"]), false);
 });
 
+test("the rollout the pane's Codex holds open wins over a reported path left behind by a /fork", async (context) => {
+  if (process.platform !== "linux") { context.skip("reads /proc"); return; }
+  forgetCodexState();
+  const home = await temp(context);
+  const store = localTranscriptStore({ configDir: join(home, "claude"), codexHome: home });
+  const stale = await rolloutIn(home);
+  const forked = await rolloutIn(home, OTHER);
+  const handle = await open(forked, "r");
+  context.after(() => handle.close());
+  assert.equal(await locateCodexRollout(store, { pids: [process.pid], session: { kind: "path", value: stale } }), forked);
+  assert.equal(await locateCodexRollout(store, { pids: [], session: { kind: "path", value: stale } }), stale);
+});
+
 test("matches a pane by a substantial answer on its screen, and only a unique one", async (context) => {
   forgetCodexState();
   const answer = "The native Codex conversation now preserves the actual user request and final response while removing internal instructions.";

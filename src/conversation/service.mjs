@@ -240,10 +240,14 @@ export class ConversationService {
     const cwds = [pane.cwd, pane.foreground_cwd].filter((cwd) => typeof cwd === "string" && cwd.startsWith("/") && cwd.length <= 4096);
     if (agent === "claude") {
       // Herdr's Claude hook reports the session by id; a path or anything else is not one.
-      const session = own && (own.kind === undefined || own.kind === "id") ? own.value : null;
-      if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
+      const reportedSession = own && (own.kind === undefined || own.kind === "id") ? own.value : null;
       const store = this.#store(serverId);
       if (!store) throw this.#noStore();
+      // The session the pane's Claude process runs wins over herdr's report: after
+      // a /branch or /resume the hook may still name the session left behind.
+      const running = await this.#located(`claude-pid\0${serverId}\0${paneId}\0${reportedSession}`, () => this.#claudeRunningSession(store, paneId));
+      const session = running.value ?? reportedSession;
+      if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
       const found = await this.#located(`claude\0${serverId}\0${session}\0${cwds.join("\0")}`,
         () => locateClaudeTranscript(store, session, cwds));
       return { paneId, serverId, agent, format, store, session, path: found.value, key: found.key };
@@ -326,6 +330,22 @@ export class ConversationService {
       const info = await this.herdr.paneProcessInfo(paneId);
       const processes = info?.process_info?.foreground_processes ?? info?.foreground_processes ?? [];
       return Array.isArray(processes) ? await this.runningVersion(processes.map((item) => item?.pid)) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // The one session the pane's foreground processes run Claude on, by Claude's
+  // per-process registry; null when none or more than one says (then herdr's
+  // report decides).
+  async #claudeRunningSession(store, paneId) {
+    if (typeof this.herdr.paneProcessInfo !== "function" || typeof store.sessionsOfPids !== "function") return null;
+    try {
+      const info = await this.herdr.paneProcessInfo(paneId);
+      const processes = info?.process_info?.foreground_processes ?? info?.foreground_processes ?? [];
+      if (!Array.isArray(processes)) return null;
+      const sessions = await store.sessionsOfPids(processes.map((item) => item?.pid));
+      return sessions.length === 1 ? sessions[0] : null;
     } catch {
       return null;
     }

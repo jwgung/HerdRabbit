@@ -527,10 +527,10 @@ export function matchCodexTranscript(screen, candidates) {
 const MATCH_TAIL_BYTES = 1024 * 1024;
 
 // The rollout a pane's Codex writes, or null when nothing tells. In order:
-//  1. the rollout herdr reports for the pane (agent_session kind "path"),
+//  1. the one rollout the pane's own Codex processes hold open (`pids`);
+//  2. the rollout herdr reports for the pane (agent_session kind "path"),
 //     kept only when it lies in the store's sessions and opens as an
 //     interactive session;
-//  2. the one rollout the pane's own Codex processes hold open (`pids`);
 //  3. the thread herdr reports (agent_session kind "id"), found through
 //     Codex's thread index (state_*.sqlite) or by its file name;
 //  4. the screen: one recent rollout of the pane's directory whose answer the
@@ -540,13 +540,14 @@ const MATCH_TAIL_BYTES = 1024 * 1024;
 export async function locateCodexRollout(store, { session = null, cwd = null, pids = [], readScreen = null } = {}) {
   const codex = store.codex ?? {};
   const kept = async (path) => (path !== null && await rolloutIsInteractive(store, path) ? path : null);
-  if (session?.kind === "path" && typeof session.value === "string") {
-    return codex.rollout ? kept(await codex.rollout(session.value)) : null;
-  }
   const open = new Set();
   if (pids.length > 0 && codex.openBy) {
     for (const path of await codex.openBy(pids)) if (await kept(path) !== null) open.add(path);
     if (open.size === 1) return [...open][0];
+  }
+  // herdr's report can name the rollout left behind by a /fork or /resume; the one the process holds open wins
+  if (session?.kind === "path" && typeof session.value === "string") {
+    return codex.rollout ? kept(await codex.rollout(session.value)) : null;
   }
   const thread = (session?.kind === undefined || session?.kind === "id") && typeof session?.value === "string" && THREAD_ID.test(session.value)
     ? session.value : null;

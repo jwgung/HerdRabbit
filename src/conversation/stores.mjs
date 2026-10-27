@@ -99,6 +99,20 @@ export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), cod
     },
     // Claude keeps each background job's state in jobs/<short id>/state.json,
     // the job's whole session id among it.
+    // The session each of these pids' Claude is on, by the registry Claude keeps
+    // per process (<config>/sessions/<pid>.json): it follows /branch and /resume,
+    // which herdr's hook report may not. Distinct ids; none for a pid without one.
+    async sessionsOfPids(pids) {
+      const ids = new Set();
+      for (const pid of pids) {
+        if (!Number.isSafeInteger(pid) || pid <= 1) continue;
+        try {
+          const record = JSON.parse(await readFile(join(configDir, "sessions", `${pid}.json`), "utf8"));
+          if (record?.pid === pid && typeof record.sessionId === "string" && SESSION_ID.test(record.sessionId)) ids.add(record.sessionId);
+        } catch { /* a pid that is no Claude, or a file torn mid-write, names no session */ }
+      }
+      return [...ids];
+    },
     async backgroundJobSession(short) {
       if (typeof short !== "string" || !JOB_SHORT_ID.test(short)) return null;
       const path = join(configDir, "jobs", short, "state.json");

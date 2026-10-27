@@ -279,3 +279,29 @@ test("the monitor tells a watcher when a store cannot read the conversation's ve
   // heard once: the same unreadable version is not announced again each tick
   assert.equal(heard.length, 1);
 });
+
+test("a Claude pane reads the session its process runs, not the one herdr reported after a /branch", async (context) => {
+  forgetConversationState();
+  const root = await mkdtemp(join(tmpdir(), "herdrabbit-conversation-fork-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const configDir = join(root, "claude");
+  const FORK = "33333333-3333-4333-8333-333333333333";
+  const project = join(configDir, "projects", claudeProjectDir("/work/app"));
+  await mkdir(project, { recursive: true });
+  await mkdir(join(configDir, "sessions"), { recursive: true });
+  await writeFile(join(project, `${SESSION}.jsonl`), jsonl(turn(1)));
+  await writeFile(join(project, `${FORK}.jsonl`), jsonl(turn(2)));
+  await writeFile(join(configDir, "sessions", "4242.json"), JSON.stringify({ pid: 4242, sessionId: SESSION }));
+  const pane = { pane_id: "w1:p1", agent: "claude", agent_session: { agent: "claude", kind: "id", value: FORK }, cwd: "/work/app" };
+  const herdr = {
+    async snapshot() { return { panes: [pane] }; },
+    async paneProcessInfo() { return { process_info: { foreground_processes: [{ pid: 4242, argv: ["claude"] }] } }; },
+  };
+  const service = new ConversationService({ herdr, localStore: localTranscriptStore({ configDir }) });
+  assert.equal((await service.resolve("w1:p1")).session, SESSION);
+  // no registry entry for the pid: herdr's report decides
+  forgetConversationState();
+  await rm(join(configDir, "sessions", "4242.json"));
+  const fallback = new ConversationService({ herdr, localStore: localTranscriptStore({ configDir }) });
+  assert.equal((await fallback.resolve("w1:p1")).session, FORK);
+});
