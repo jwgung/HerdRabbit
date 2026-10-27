@@ -118,7 +118,7 @@ export const STATEMENTS = Object.freeze({
   // The tables OpenCode 2 writes instead (session_v2, session_message; its
   // tool outputs sit in the message's content, not in part rows). They are
   // read only for a session the old tables do not hold.
-  sessionV2: "SELECT id, parent_id, directory, revert, time_updated, version FROM session_v2 WHERE id = ?",
+  sessionV2: "SELECT id, parent_id, fork_session_id, directory, revert, time_updated, version FROM session_v2 WHERE id = ?",
   sessionV2Version: "SELECT version FROM session_v2 WHERE id = ?",
   newestInDirectoryV2: "SELECT id FROM session_v2 WHERE directory = ? AND parent_id IS NULL AND time_archived IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1",
   newestInDirectoryAnyV2: "SELECT id FROM session_v2 WHERE directory = ? AND parent_id IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1",
@@ -156,7 +156,7 @@ const TABLES = Object.freeze({
 // but not both of session_message's read columns answers V2 sessions by
 // their rows; one whose V2 tables are still being migrated reads as before.
 const TABLES_V2 = Object.freeze({
-  session_v2: ["id", "parent_id", "directory", "revert", "time_updated", "version"],
+  session_v2: ["id", "parent_id", "fork_session_id", "directory", "revert", "time_updated", "version"],
   session_message: ["id", "session_id", "type", "seq", "time_created", "time_updated", "data"],
 });
 // Read when there: an older database has no event log or archive.
@@ -843,6 +843,10 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
         let row = db.statement("session").get(session);
         if (!row && db.shape.v2) row = db.statement("sessionV2").get(session);
         if (!row) return { session, found: false };
+        // A V2 fork (fork_session_id set) is an independent conversation, not a
+        // subagent: its parent_id names the session it was forked from, but the
+        // fork's own messages are its own and it is shown on its own.
+        if (db.shape.v2 && row.fork_session_id != null) return { session: String(row.id), found: true };
         for (let depth = 0; row && row.parent_id != null && depth < MAX_SESSION_DEPTH; depth++) {
           const parent = String(row.parent_id);
           if (!OPENCODE_SESSION_ID.test(parent)) { row = null; break; }

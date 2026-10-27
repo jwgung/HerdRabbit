@@ -85,13 +85,18 @@ export function opencodeDb(path, { schema = OPENCODE_SCHEMA, v2 = false } = {}) 
   return {
     db,
     close: () => db.close(),
-    session(id, { directory = "/work/app", parent = null, archived = null, revert = null, version = "1.0.0" } = {}) {
+    session(id, { directory = "/work/app", parent = null, archived = null, revert = null, version = "1.0.0", forkFrom = null } = {}) {
       const time = tick();
       // a V2 session lives in the V2 tables alone: OpenCode 2 keeps a V1
       // session in both, a new one in session_v2 only
       if (v2) {
-        db.prepare(`INSERT INTO session_v2 (id, project_id, parent_id, slug, directory, title, version, time_created, time_updated, time_archived, revert)
-          VALUES (?, 'prj_1', ?, 'slug', ?, 'title', ?, ?, ?, ?, ?)`).run(id, parent, directory, version, time, time, archived, revert);
+        if (forkFrom !== null) {
+          db.prepare(`INSERT INTO session_v2 (id, project_id, parent_id, fork_session_id, slug, directory, title, version, time_created, time_updated, time_archived, revert)
+            VALUES (?, 'prj_1', ?, ?, 'slug', ?, 'title', ?, ?, ?, ?, ?)`).run(id, parent ?? forkFrom, forkFrom, directory, version, time, time, archived, revert);
+        } else {
+          db.prepare(`INSERT INTO session_v2 (id, project_id, parent_id, slug, directory, title, version, time_created, time_updated, time_archived, revert)
+            VALUES (?, 'prj_1', ?, 'slug', ?, 'title', ?, ?, ?, ?, ?)`).run(id, parent, directory, version, time, time, archived, revert);
+        }
       } else {
         db.prepare(`INSERT INTO session (id, project_id, parent_id, slug, directory, title, version, time_created, time_updated, time_archived, revert)
           VALUES (?, 'prj_1', ?, 'slug', ?, 'title', ?, ?, ?, ?, ?)`).run(id, parent, directory, version, time, time, archived, revert);

@@ -1073,6 +1073,32 @@ test("V2: a pane's session is found by id, else the newest top-level of its fold
   assert.deepEqual([empty.turns, empty.cursor], [[], null]);
 });
 
+test("V2: a forked session is an independent conversation, not a subagent", async (context) => {
+  const { path, fixture } = await worldV2(context);
+  const FORK = "ses_0006AAAAAAAAAAAAAAAAAAAAAA";
+  fixture.session(SESSION, { directory: "/work/app" });
+  fixture.exchange(SESSION, 1);
+  // a fork of SESSION: parent_id = SESSION, fork_session_id = SESSION
+  fixture.session(FORK, { directory: "/work/app", forkFrom: SESSION });
+  fixture.exchange(FORK, 2);
+  // a plain subagent (no fork_session_id) is still a child
+  fixture.session(CHILD, { directory: "/work/app", parent: SESSION });
+  fixture.exchange(CHILD, 3);
+  const store = open(context, { path });
+  // the fork is found and is independent (not a child)
+  assert.deepEqual(await store.locate({ session: FORK }), { session: FORK, found: true });
+  // the fork's own messages are shown, not the parent's
+  const page = await store.page(FORK);
+  assert.deepEqual(texts(page.turns), ["prompt 2", "answer 2"]);
+  // a subagent without fork_session_id is still a child
+  assert.deepEqual(await store.locate({ session: CHILD }), { session: SESSION, found: true });
+  // through the service: a pane showing the fork gets its own conversation
+  const conversations = service(path, [
+    { pane_id: "w1:p1", agent: "opencode", cwd: "/work/app", agent_session: reportedId(FORK) },
+  ], context);
+  assert.deepEqual(texts((await conversations.page("w1:p1")).turns), ["prompt 2", "answer 2"]);
+});
+
 test("V2: reads text, reasoning, tools, errors and questions as turns", async (context) => {
   const { path, fixture } = await worldV2(context);
   fixture.session(SESSION);
