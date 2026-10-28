@@ -60,11 +60,17 @@ const CAPTURE_TIMEOUT_MS = 10_000;
 const MAX_CAPTURED_BYTES = 1024 * 1024;
 // A command that ignores SIGTERM when its timeout fires is killed after this.
 export const KILL_GRACE_MS = 3_000;
+// How long a killed command is waited for after SIGKILL before the run goes
+// on without it (it is then treated as still there: its outcome is unknown).
+export const CLOSE_WAIT_MS = 2_000;
 // After `herdr plugin action invoke <id>.restart` answers, how long the run
 // watches Herdr's log of that action for its outcome: a restart stops the old
 // server (up to 5s) and waits for the new one (up to 15s).
 export const ACTION_WAIT_MS = 30_000;
 const ACTION_POLL_MS = 1_000;
+// How many reads of Herdr's action log in a row may fail (or lack the action)
+// before the run stops asking: its outcome then cannot be told.
+export const ACTION_LOOKUP_TRIES = 3;
 // The run's own restart, when Herdr's action could not run, gets as long.
 const DIRECT_RESTART_TIMEOUT_MS = 60_000;
 
@@ -100,15 +106,18 @@ export const SCRIPT_MARKERS = Object.freeze([
   ["Updated to ", "done"],
 ]);
 
-// The step update.sh is at, from its log: the last marker line in it. A log
-// with none of them (or only other output) leaves `previous` as it was.
+// The step update.sh is at, from its log: the furthest step (in the order of
+// SCRIPT_MARKERS) whose marker line is in it, never one before `previous` --
+// a later line that only looks like an earlier step's does not move it back.
+// A log with none of them (or only other output) leaves `previous` as it was.
 export function scriptPhase(text, previous = null) {
+  const rank = (id) => SCRIPT_MARKERS.findIndex(([, step]) => step === id);
   let phase = previous;
   for (const entry of String(text ?? "").split(/\r?\n/u)) {
     const match = /^ {2}> (.*)$/u.exec(entry);
     if (!match) continue;
     for (const [marker, id] of SCRIPT_MARKERS) {
-      if (match[1].startsWith(marker)) phase = id;
+      if (match[1].startsWith(marker) && rank(id) > rank(phase)) phase = id;
     }
   }
   return phase;
@@ -688,84 +697,84 @@ export function pluginRunEnvironment(environment, path) {
   return env;
 }
 
-// SIGTERM now, SIGKILL if the command is still there after KILL_GRACE_MS. The
-// kill timer is unref'd and `stop` clears it once the command has ended.
-function terminate(child, graceMs) {
-  try { child.kill("SIGTERM"); } catch { /* gone */ }
-  const killer = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } }, graceMs);
-  killer.unref?.();
-  return () => clearTimeout(killer);
+// A started command to its end: { code, timedOut, closed }. Its exit code once
+// it has closed, or -1 when it could not start. Past `timeout` it is stopped:
+// SIGTERM, then SIGKILL if it is still there after `killGraceMs`, and the
+// answer (-1, timedOut) waits for it to be gone -- up to `closeWaitMs` after
+// SIGKILL; one that is not gone even then answers `closed: false` and is
+// left behind, so nothing waits for it for ever.
+function runToEnd(child, { timeout = 0, killGraceMs = KILL_GRACE_MS, closeWaitMs = CLOSE_WAIT_MS }) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timedOut = false;
+    const timers = [];
+    const later = (ms, then) => { timers.push(setTimeout(then, ms)); };
+    const signal = (name) => { try { child.kill(name); } catch { /* gone */ } };
+    const done = (code, closed) => {
+      if (settled) return;
+      settled = true;
+      for (const timer of timers) clearTimeout(timer);
+      resolve({ code, timedOut, closed });
+    };
+    // Before a timeout, an error is a command that could not start; after
+    // one, a signal that could not be sent, and only its close counts.
+    child.once("error", () => { if (!timedOut) done(-1, true); });
+    child.once("close", (exit) => done(!timedOut && Number.isInteger(exit) ? exit : -1, true));
+    if (timeout > 0) {
+      later(timeout, () => {
+        timedOut = true;
+        signal("SIGTERM");
+        later(killGraceMs, () => {
+          signal("SIGKILL");
+          later(closeWaitMs, () => done(-1, false));
+        });
+      });
+    }
+  });
+}
+
+// One command with its output appended to the log, as runToEnd answers it.
+function runLoggedToEnd(spawnImpl, file, args, { cwd, fd, env, ...bounds }) {
+  let child;
+  try {
+    child = spawnImpl(file, args, { cwd, stdio: ["ignore", fd, fd], ...(env ? { env } : {}) });
+  } catch {
+    return Promise.resolve({ code: -1, timedOut: false, closed: true });
+  }
+  return runToEnd(child, bounds);
 }
 
 // One command with its output appended to the log; its exit code, or -1 when
 // it could not even start or took longer than `timeout` (it is then stopped,
-// by SIGKILL if it ignores SIGTERM, without waiting for it to be gone).
-export function runLogged(spawnImpl, file, args, { cwd, fd, env, timeout = 0, killGraceMs = KILL_GRACE_MS }) {
-  return new Promise((resolve) => {
-    let child;
-    try {
-      child = spawnImpl(file, args, { cwd, stdio: ["ignore", fd, fd], ...(env ? { env } : {}) });
-    } catch {
-      resolve(-1);
-      return;
-    }
-    let settled = false;
-    let timer = null;
-    let stopKiller = () => {};
-    const done = (exit) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      resolve(exit);
-    };
-    const onError = () => { stopKiller(); done(-1); };
-    const onClose = (exit) => { stopKiller(); done(Number.isInteger(exit) ? exit : -1); };
-    child.once("error", onError);
-    child.once("close", onClose);
-    if (timeout > 0) {
-      timer = setTimeout(() => {
-        stopKiller = terminate(child, killGraceMs);
-        done(-1);
-      }, timeout);
-    }
-  });
+// by SIGKILL if it ignores SIGTERM, and waited for until it is gone).
+export async function runLogged(spawnImpl, file, args, options) {
+  return (await runLoggedToEnd(spawnImpl, file, args, options)).code;
 }
 
-// One command whose output is read as an answer: { code, stdout, stderr },
-// code -1 when it could not start or took longer than `timeout`.
-export function runCaptured(spawnImpl, file, args, { cwd, timeout = CAPTURE_TIMEOUT_MS, killGraceMs = KILL_GRACE_MS }) {
-  return new Promise((resolve) => {
-    let child;
-    try {
-      child = spawnImpl(file, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
-    } catch {
-      resolve({ code: -1, stdout: "", stderr: "" });
-      return;
-    }
-    const out = [];
-    const err = [];
-    let size = 0;
-    const keep = (chunks) => (chunk) => {
-      size += chunk.length;
-      if (size <= MAX_CAPTURED_BYTES) chunks.push(chunk);
-    };
-    child.stdout?.on("data", keep(out));
-    child.stderr?.on("data", keep(err));
-    let settled = false;
-    let stopKiller = () => {};
-    const finish = (exit) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ code: exit, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") });
-    };
-    const timer = setTimeout(() => {
-      stopKiller = terminate(child, killGraceMs);
-      finish(-1);
-    }, timeout);
-    child.once("error", () => { stopKiller(); finish(-1); });
-    child.once("close", (exit) => { stopKiller(); finish(Number.isInteger(exit) ? exit : -1); });
-  });
+// One command whose output is read as an answer: { code, stdout, stderr,
+// timedOut, closed }, code -1 when it could not start or took longer than
+// `timeout` (stopped and waited for as runToEnd does).
+export async function runCaptured(spawnImpl, file, args, { cwd, timeout = CAPTURE_TIMEOUT_MS, ...bounds }) {
+  let child;
+  try {
+    child = spawnImpl(file, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+  } catch {
+    return { code: -1, stdout: "", stderr: "", timedOut: false, closed: true };
+  }
+  const out = [];
+  const err = [];
+  let size = 0;
+  const keep = (chunks) => (chunk) => {
+    size += chunk.length;
+    if (size <= MAX_CAPTURED_BYTES) chunks.push(chunk);
+  };
+  child.stdout?.on("data", keep(out));
+  child.stderr?.on("data", keep(err));
+  const end = await runToEnd(child, { timeout, ...bounds });
+  return {
+    code: end.code, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8"),
+    timedOut: end.timedOut, closed: end.closed,
+  };
 }
 
 const LOG_ID = /^[A-Za-z0-9._:-]{1,64}$/u;
@@ -830,12 +839,15 @@ async function installedRoot(spawnImpl, binary, id, cwd) {
 // node on its PATH is gone) is done here instead: scripts/plugin.mjs restart
 // from the new checkout, with this Node and the folders Herdr gives actions.
 // A restart that neither managed is a failed run whose detail is Herdr's
-// error. A failed update leaves the server as it is.
+// error; one whose outcome could not be told is a run that ended well with
+// "Could not confirm the restart (...)" as its detail. A failed update leaves
+// the server as it is. `invokeBounds` ({ timeout, killGraceMs, closeWaitMs })
+// shortens how long the restart's invoke is waited for, for tests.
 export async function runPluginUpdate({
   stateDir, id, binary, cwd = homedir(), spawnImpl = spawn, now = () => Date.now(),
   pluginDirs = null, nodeBin = process.execPath, environment = process.env,
   sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
-  actionWaitMs = ACTION_WAIT_MS, actionPollMs = ACTION_POLL_MS,
+  actionWaitMs = ACTION_WAIT_MS, actionPollMs = ACTION_POLL_MS, invokeBounds = {},
 }) {
   if (!PLUGIN_ID.test(id ?? "")) throw new TypeError("a plugin id is required");
   const logFile = join(stateDir, "update.log");
@@ -860,18 +872,30 @@ export async function runPluginUpdate({
       phase = "restart";
       await enter(phase);
       await say("Restarting HerdRabbit");
-      const invoked = await runCaptured(spawnImpl, binary, ["plugin", "action", "invoke", `${id}.restart`], { cwd });
+      const invoked = await runCaptured(spawnImpl, binary, ["plugin", "action", "invoke", `${id}.restart`], { cwd, ...invokeBounds });
       if (invoked.stdout || invoked.stderr) await log.write(`${invoked.stdout}${invoked.stderr}`.replace(/\n?$/u, "\n")).catch(() => {});
+      // Restarted directly only when Herdr's restart is known not to have
+      // happened: Herdr refused it, or its log says it failed. Anything less
+      // certain (an invoke that timed out, a log that cannot be read, an
+      // action still running) is never restarted a second time; the run
+      // ends well with why it could not tell, and the page's wait decides.
       let failure = null;
-      if (invoked.code !== 0) {
+      let unconfirmed = null;
+      const logId = invokedLogId(invoked.stdout);
+      if (invoked.code !== 0 && !invoked.timedOut) {
         failure = cleanDetail(invoked.stderr.trim().split("\n").at(-1) || `herdr plugin action invoke exited with ${invoked.code}`);
+      } else if (!invoked.closed) {
+        unconfirmed = "herdr plugin action invoke did not stop when its time was up";
+      } else if (!logId) {
+        unconfirmed = invoked.timedOut ? "herdr plugin action invoke did not answer in time" : "Herdr did not name the log of its restart action";
       } else {
-        const logId = invokedLogId(invoked.stdout);
-        const outcome = logId
-          ? await followAction({ spawnImpl, binary, id, cwd, logId, now, sleep, actionWaitMs, actionPollMs })
-          : { outcome: "unknown", detail: null };
+        const outcome = await followAction({ spawnImpl, binary, id, cwd, logId, now, sleep, actionWaitMs, actionPollMs });
         if (outcome.outcome === "failed") failure = outcome.detail;
-        else if (outcome.outcome !== "ok") await say("Herdr queued the restart; whether it ran is told by the server that answers next");
+        else if (outcome.outcome !== "ok") unconfirmed = outcome.detail;
+      }
+      if (unconfirmed) {
+        detail = cleanDetail(`Could not confirm the restart (${unconfirmed})`);
+        await say(`${detail}; whether it ran is told by the server that answers next`);
       }
       if (failure) {
         await say(`Herdr could not restart HerdRabbit: ${failure}`);
@@ -904,18 +928,44 @@ export async function runPluginUpdate({
 }
 
 // Herdr's log of the queued action, asked until it has ended or the wait is
-// over ("unknown": the restart may still come; the page's own wait decides).
+// over. The outcome is "ok", "failed" (detail: what Herdr says), "pending"
+// (it was still running when the wait was over) or "lookup_failed" (detail:
+// why it could not be read). A read that fails -- the command, its JSON, its
+// shape -- or a good list without the action is a miss, and
+// ACTION_LOOKUP_TRIES misses in a row end the asking.
 async function followAction({ spawnImpl, binary, id, cwd, logId, now, sleep, actionWaitMs, actionPollMs }) {
   const deadline = now() + actionWaitMs;
+  let misses = 0;
   for (;;) {
     const answer = await runCaptured(spawnImpl, binary, ["plugin", "log", "list", "--plugin", id, "--limit", "50"], { cwd });
-    const logs = answer.code === 0 ? parseJson(answer.stdout.trim())?.result?.logs : null;
-    const entry = Array.isArray(logs) ? logs.find((item) => item?.log_id === logId) : null;
-    const outcome = actionOutcome(entry);
-    if (outcome.outcome !== "pending") return outcome;
-    if (now() >= deadline) return { outcome: "unknown", detail: null };
+    const read = actionLogs(answer);
+    const entry = read.logs?.find((item) => item?.log_id === logId);
+    let miss = read.miss ?? null;
+    if (!miss && !entry) miss = `Herdr's action log has no ${logId}`;
+    if (!miss) {
+      const outcome = actionOutcome(entry);
+      if (outcome.outcome !== "pending") return outcome;
+    }
+    misses = miss ? misses + 1 : 0;
+    if (misses >= ACTION_LOOKUP_TRIES) return { outcome: "lookup_failed", detail: miss };
+    if (now() >= deadline) {
+      return miss
+        ? { outcome: "lookup_failed", detail: miss }
+        : { outcome: "pending", detail: `the restart action was still running after ${Math.round(actionWaitMs / 1000)}s` };
+    }
     await sleep(actionPollMs);
   }
+}
+
+// One answer of `herdr plugin log list`: { logs } or { miss: why not }.
+function actionLogs(answer) {
+  if (answer.timedOut) return { miss: "herdr plugin log list did not answer in time" };
+  if (answer.code !== 0) return { miss: `herdr plugin log list exited with ${answer.code}` };
+  const parsed = parseJson(answer.stdout.trim());
+  if (parsed === null) return { miss: "herdr plugin log list did not answer JSON" };
+  const logs = parsed?.result?.logs;
+  if (!Array.isArray(logs)) return { miss: "herdr plugin log list answered without a list of logs" };
+  return { logs };
 }
 
 // The restart Herdr's action would have run, run from here: only with the
@@ -942,14 +992,16 @@ async function restartDirectly({ spawnImpl, binary, id, cwd, pluginDirs, nodeBin
     HERDR_PLUGIN_STATE_DIR: stateDir,
     HERDR_BIN_PATH: binary,
   };
-  const code = await runLogged(spawnImpl, nodeBin, [join(root, "scripts", "plugin.mjs"), "restart"], {
+  const { code, timedOut } = await runLoggedToEnd(spawnImpl, nodeBin, [join(root, "scripts", "plugin.mjs"), "restart"], {
     cwd: root, fd, env, timeout: DIRECT_RESTART_TIMEOUT_MS,
   });
   if (code === 0) {
     await say("Restarted directly");
     return { ok: true, code };
   }
-  return { ok: false, code, detail: code === -1 ? "the direct restart could not start" : `the direct restart exited with ${code}` };
+  const why = timedOut ? `the direct restart did not end within ${DIRECT_RESTART_TIMEOUT_MS / 1000}s`
+    : code === -1 ? "the direct restart could not start" : `the direct restart exited with ${code}`;
+  return { ok: false, code, detail: why };
 }
 
 // The run itself (scripts/run-update.mjs, inside the transient unit): update.sh

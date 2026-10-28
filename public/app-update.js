@@ -514,6 +514,10 @@ export function createUpdatePanel({
       progress.append(head);
       if (steps.length > 0) progress.append(stepList(steps, runStatus, item.run));
       if (failed && runStatus.detail) progress.append(element("p", "update-detail", runStatus.detail));
+      // A run that ended well but could not tell whether its restart ran
+      // says so quietly (while the page waits for the restart, too); the
+      // page's own wait for the new version decides.
+      if (runStatus.state !== "failed" && runStatus.detail) progress.append(element("p", "update-run-note", runStatus.detail));
       if (runStatus.log) {
         progress.append(logBlock(item.run, runStatus, "update-log", "app", server.id, { folded: steps.length > 0 }));
       }
