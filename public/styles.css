@@ -1606,13 +1606,27 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .ai-account-identity strong { font-size: 14px; }
 
 /* Update: one block per PC, with what changed and, during a run, its log. */
-.update-dialog { max-height: 90dvh; overflow-y: auto; }
+/* The heading and the buttons stay put: only the list of PCs scrolls. */
+.update-dialog { max-height: 90dvh; overflow: hidden; }
+
+.update-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.update-dialog > .dialog-form {
+  flex: 1 1 auto;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
 
 .update-list {
   display: grid;
+  align-content: start;
+  min-height: 0;
   border: 1px solid var(--line);
   border-radius: 9px;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .update-server {
