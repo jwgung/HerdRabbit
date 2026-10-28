@@ -22,7 +22,7 @@ import { PeerIdentity } from "../src/peer-identity.mjs";
 import { opencodeDb } from "./fixtures/opencode-db.mjs";
 import { createPeerServer } from "../src/peer-server.mjs";
 
-const VERSION = "1.4.0";
+const VERSION = "1.4.1";
 const SESSION = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
 const PANE = "hs_ZGVmYXVsdA~w1:p1";
 const LINKED = `link_1!${PANE}`;
