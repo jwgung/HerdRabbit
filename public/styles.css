@@ -3346,6 +3346,22 @@ body.is-sidebar-dragging * {
   box-shadow: 0 0 0 2px var(--accent);
 }
 
+/* Panes the layout does not have yet, until it is read again. */
+.pane-map-extra {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 56px;
+}
+
+.pane-map-extra .pane-map-cell {
+  position: static;
+  width: 24px;
+  height: 24px;
+}
+
 .pane-map-caption {
   min-width: 0;
   display: grid;

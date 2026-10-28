@@ -4,7 +4,10 @@
 // pane's tab on that side (each of the four), then is selected in the grid; the
 // middle of a cell is no drop; the pane shown alone is a target too; a gap in
 // the list still reorders; a split session or one of another machine shows no
-// zones; a refusal is said; and a narrow screen has no zones at all.
+// zones, nor does a connected PC's session over that PC's own pane; a
+// refusal is said; a pane moved that could not then be swapped to the left
+// is followed all the same and the miss is said; and a narrow screen has no
+// zones at all.
 // PANE_DROP_SHOTS=<folder> keeps pictures taken mid-drag in both themes.
 import assert from "node:assert/strict";
 import { once } from "node:events";
@@ -17,8 +20,8 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright")
 const local = { server_id: "local", herdr_session_id: "hs_x" };
 const laptop = { server_id: "laptop", herdr_session_id: "laptop!hs_x" };
 
-// Platform's "Split work" is p1 | p2. Four sessions of one pane wait to be
-// dropped (two in Docs), "Pair" has two panes, and the laptop has one of its own.
+// Platform's "Split work" is p1 | p2. Five sessions of one pane wait to be
+// dropped (three in Docs), "Pair" has two panes, and the laptop has two of its own.
 let herdrState;
 let rects;
 let nextNumber;
@@ -34,16 +37,17 @@ function reset() {
     tabs: [
       tab("w1:t1", "w1", "Split work"), tab("w1:t2", "w1", "Alpha"), tab("w1:t3", "w1", "Beta"),
       tab("w1:t4", "w1", "Pair"), tab("w2:t1", "w2", "Gamma"), tab("w2:t2", "w2", "Delta"),
-      tab("w2:t3", "w2", "Epsilon"),
-      tab("laptop!w1:t1", "laptop!w1", "Notes", laptop),
+      tab("w2:t3", "w2", "Epsilon"), tab("w2:t4", "w2", "Zeta"),
+      tab("laptop!w1:t1", "laptop!w1", "Notes", laptop), tab("laptop!w1:t2", "laptop!w1", "Todo", laptop),
     ],
     panes: [
       pane("w1:p1", "w1:t1", "/work/left"), pane("w1:p2", "w1:t1", "/work/right"),
       pane("w1:p3", "w1:t2", "/work/alpha"), pane("w1:p4", "w1:t3", "/work/beta"),
       pane("w1:p5", "w1:t4", "/work/pair-a"), pane("w1:p6", "w1:t4", "/work/pair-b"),
       pane("w2:p1", "w2:t1", "/work/gamma"), pane("w2:p2", "w2:t2", "/work/delta"),
-      pane("w2:p3", "w2:t3", "/work/epsilon"),
+      pane("w2:p3", "w2:t3", "/work/epsilon"), pane("w2:p4", "w2:t4", "/work/zeta"),
       pane("laptop!w1:p1", "laptop!w1:t1", "/home/notes", laptop),
+      pane("laptop!w1:p2", "laptop!w1:t2", "/home/todo", laptop),
     ],
   };
   rects = new Map([
@@ -55,6 +59,7 @@ function reset() {
 reset();
 
 let refuseNext = false;
+let unplaceNext = false;
 const calls = [];
 const herdr = {
   async snapshot() {
@@ -122,6 +127,10 @@ const herdr = {
     const at = herdrState.panes.indexOf(target);
     herdrState.panes.splice(before ? at : at + 1, 0,
       { ...source, pane_id: id, tab_id: target.tab_id, workspace_id: target.workspace_id });
+    if (unplaceNext) {
+      unplaceNext = false;
+      return { pane_id: id, placed: false, message: "no pane there to swap with" };
+    }
     return { pane_id: id };
   },
 };
@@ -289,6 +298,19 @@ try {
     assert.deepEqual(calls.at(-1), ["movePaneSplit", "w2:p3", "w1:p1", "down"]);
     assert.equal(await page.locator(tabRow("w2:p3")).count(), 1);
 
+    // 6b. Moved, but Herdr could not then swap it to the left: the page still
+    // follows the pane under its new id, and says what it could not do.
+    unplaceNext = true;
+    source = await box(page, tabRow("w2:p4"));
+    target = await box(page, cell("w1:p1"));
+    during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
+    assert.equal(during.preview?.side, "left");
+    await page.locator("#action-feedback").filter({ hasText: "Moved, but could not put it on the left." }).waitFor();
+    const zeta = herdrState.panes.find((pane) => pane.cwd === "/work/zeta");
+    assert.notEqual(zeta.pane_id, "w2:p4");
+    await page.waitForFunction((id) => document.querySelector(`.pane-grid-cell[data-pane-id="${id}"]`)?.classList.contains("is-focused"), zeta.pane_id);
+    assert.equal(await page.locator(tabRow("w2:p4")).count(), 0);
+
     // 7. The pane shown alone is a target too: Epsilon joins p1 on its right,
     // and p1's tab opens as a grid on it.
     await page.locator('.pane-button[data-pane-id="w1:p1"]').click();
@@ -312,6 +334,15 @@ try {
     target = await box(page, ".terminal-stage");
     during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
     assert.equal(during.preview, null, "a pane is not split by itself");
+    await page.waitForTimeout(300);
+    assert.equal(calls.length, before);
+
+    // 9. Nor is a connected PC's pane split from here, even by its own sessions.
+    await page.locator(tabRow("laptop!w1:p2")).scrollIntoViewIfNeeded();
+    source = await box(page, tabRow("laptop!w1:p2"));
+    during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
+    assert.ok(during.ghost);
+    assert.equal(during.preview, null, "a connected PC's pane is no target");
     await page.waitForTimeout(300);
     assert.equal(calls.length, before);
     assert.deepEqual(errors, []);
@@ -338,7 +369,7 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log("Pane drop (four sides, middle no-op, pane alone, reorder kept, split/other machine/self no zones, refusal said, narrow screen none): passed");
+  console.log("Pane drop (four sides, middle no-op, pane alone, reorder kept, split/other machine/self/connected PC no zones, refusal said, unplaced swap said, narrow screen none): passed");
 } finally {
   await browser.close();
   await new Promise((resolve) => server.close(resolve));

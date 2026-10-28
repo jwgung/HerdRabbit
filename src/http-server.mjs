@@ -1367,7 +1367,8 @@ export function createHerdrHttpServer({
         return;
       }
       // Splitting a tab's panes. Ids are the page's own (scoped); a pane
-      // dropped or split comes back as its new id.
+      // dropped or split comes back as its new id (a dropped one that could
+      // not then be swapped to the left or the top says `placed: false`).
       const paneSplitMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/(split|close|zoom|move)$/);
       if (method === "POST" && paneSplitMatch) {
         requireWriteAuthorization(request, csrfToken);
@@ -1383,6 +1384,9 @@ export function createHerdrHttpServer({
           await herdr.zoomPane(paneId);
           sendJson(response, 200, {});
         } else {
+          if (body.confirmed !== true) {
+            throw new HttpError(400, "confirmation_required", "Close confirmation is required");
+          }
           await herdr.closePane(paneId);
           sendJson(response, 200, {});
         }

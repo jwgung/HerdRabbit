@@ -736,7 +736,9 @@ export class HerdrClient {
 
   // Carries a pane that is alone in its tab next to `targetPaneId`, on `side`.
   // Herdr splits only right or down of the target; left and up are the pane
-  // swapped with the target afterwards. The pane gets a new id, returned.
+  // swapped with the target afterwards. The pane gets a new id, returned. The
+  // move cannot be undone once made: a swap that fails afterwards still
+  // returns the new id, with `placed` false and Herdr's reason.
   async movePaneSplit(paneId, targetPaneId, side) {
     const safePaneId = validatePaneId(paneId);
     const safeTargetId = validatePaneId(targetPaneId);
@@ -754,7 +756,11 @@ export class HerdrClient {
     ]);
     const moved = movedPaneIds(result).paneId;
     if (safeSide === "left" || safeSide === "up") {
-      await this.#run(["pane", "swap", "--pane", moved, "--direction", safeSide], { json: false });
+      try {
+        await this.#run(["pane", "swap", "--pane", moved, "--direction", safeSide], { json: false });
+      } catch (error) {
+        return { pane_id: moved, placed: false, message: error?.message || "Herdr could not swap the pane" };
+      }
     }
     return { pane_id: moved };
   }

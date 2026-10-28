@@ -428,6 +428,10 @@ test("moves a lone pane beside another, swapping for left and up", async () => {
   assert.deepEqual(await up.client.movePaneSplit("w1:p5", "w1:p1", "up"), { pane_id: "w1:p6" });
   assert.deepEqual(up.fake.calls.at(-2).args.slice(5, 7), ["--split", "down"]);
   assert.deepEqual(up.fake.calls.at(-1).args, ["pane", "swap", "--pane", "w1:p6", "--direction", "up"]);
+  // The move has happened when the swap fails: the new id still comes back.
+  const refused = Object.assign(new Error("failed"), { stderr: JSON.stringify({ error: { code: "pane_swap_failed", message: "no pane to the left" } }) });
+  const left = run("left", [refused]);
+  assert.deepEqual(await left.client.movePaneSplit("w1:p5", "w1:p1", "left"), { pane_id: "w1:p6", placed: false, message: "no pane to the left" });
 });
 
 test("a pane moves only when alone in its tab and dropped on another pane", async () => {

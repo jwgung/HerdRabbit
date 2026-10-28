@@ -1341,7 +1341,10 @@ test("pane split routes need write authorization and pass what they validate to 
     },
     async closePane(...args) { calls.push(["closePane", ...args]); return ""; },
     async zoomPane(...args) { calls.push(["zoomPane", ...args]); return ""; },
-    async movePaneSplit(...args) { calls.push(["movePaneSplit", ...args]); return { pane_id: "w1:p7" }; },
+    async movePaneSplit(...args) {
+      calls.push(["movePaneSplit", ...args]);
+      return args[2] === "left" ? { pane_id: "w1:p7", placed: false, message: "no swap" } : { pane_id: "w1:p7" };
+    },
   };
   const app = await startServer(herdr);
   context.after(() => closeServer(app.server));
@@ -1359,17 +1362,26 @@ test("pane split routes need write authorization and pass what they validate to 
   assert.equal(full.status, 409);
   assert.equal((await full.json()).error.code, "pane_split_failed");
 
-  assert.equal((await post("w1%3Ap2/close", {})).status, 200);
+  // Like a session's or a project's close, a pane's needs the user's say-so.
+  const unconfirmed = await post("w1%3Ap2/close", {});
+  assert.equal(unconfirmed.status, 400);
+  assert.equal((await unconfirmed.json()).error.code, "confirmation_required");
+  assert.equal((await post("w1%3Ap2/close", { confirmed: true })).status, 200);
   assert.equal((await post("w1%3Ap2/zoom", { mode: "toggle" })).status, 200);
   assert.equal((await post("w1%3Ap2/zoom", { mode: "on" })).status, 400);
   assert.equal((await post("w1%3Ap2/move", { side: "left" })).status, 400);
   const move = await post("w1%3Ap2/move", { targetPaneId: "w1:p5", side: "up" });
   assert.deepEqual(await move.json(), { pane_id: "w1:p7" });
+  // Moved but not swapped is still a move: the page follows the new id.
+  const unplaced = await post("w1%3Ap2/move", { targetPaneId: "w1:p5", side: "left" });
+  assert.equal(unplaced.status, 200);
+  assert.deepEqual(await unplaced.json(), { pane_id: "w1:p7", placed: false, message: "no swap" });
   assert.deepEqual(calls, [
     ["splitPane", "w1:p2", "down"],
     ["splitPane", "w1:p9", "right"],
     ["closePane", "w1:p2"],
     ["zoomPane", "w1:p2"],
     ["movePaneSplit", "w1:p2", "w1:p5", "up"],
+    ["movePaneSplit", "w1:p2", "w1:p5", "left"],
   ]);
 });

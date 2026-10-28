@@ -321,7 +321,7 @@ export class HerdrBridgeClient {
       throw new InputValidationError("A pane can only be dropped in the same Herdr session");
     }
     const result = await this.#clientForSession(pane.sessionName).movePaneSplit(pane.localId, target.localId, side);
-    return { pane_id: scopedId(pane.sessionName, result.pane_id) };
+    return { ...result, pane_id: scopedId(pane.sessionName, result.pane_id) };
   }
 
   async paneFind(paneId, request) {

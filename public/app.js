@@ -1055,6 +1055,7 @@ function applyTerminalFontSize(nextSize) {
   writeTerminalFontSize(panePreferenceStorage, nextSize);
   resizeTerminalInput();
   attachedTerminal.setFontSize(nextSize);
+  paneGrid.setFontSize(nextSize);
 }
 
 function supportsNativeTerminalInputSizing() {
@@ -2822,7 +2823,7 @@ function renderNavigation() {
       });
       // An unnamed session has no heading to rename in, so renaming makes one.
       if (editingTab) tabHeading.append(tabRenameForm(tab, tabId, tabLabel));
-      else if (tabPanes.length > 1) tabHeading.append(gridHeadingButton(tabId, tabLabel, tabPanes));
+      else if (tabPanes.length > 1 && isLocalRecord(tabPanes[0])) tabHeading.append(gridHeadingButton(tabId, tabLabel, tabPanes));
       else if (tabLabel && !namesSession) {
         tabHeading.append(createElement("p", { className: "tab-label", text: tabLabel }));
       }
@@ -3458,10 +3459,17 @@ function panesOfTab(tabId) {
   return snapshotRecords().panes.filter((pane) => idOf(pane, "tab_id", "tabId") === tabId);
 }
 
-// The selected pane's tab when it has more than one pane, else null.
+// Only this machine's panes are split, closed, zoomed or laid out from here:
+// a connected PC's split tab is its pane rows, as before.
+function isLocalRecord(record) {
+  return (record?.server_id || "local") === "local";
+}
+
+// The selected pane's tab when it has more than one pane, on this machine, else null.
 function selectedSplitTabId() {
   const tabId = paneTabId(state.selectedPaneId);
-  return tabId && panesOfTab(tabId).length > 1 ? tabId : null;
+  const tabPanes = tabId ? panesOfTab(tabId) : [];
+  return tabPanes.length > 1 && isLocalRecord(tabPanes[0]) ? tabId : null;
 }
 
 // The tab drawn as a grid now: a split tab chosen as one, on a wide screen.
@@ -3487,29 +3495,36 @@ function splitTabPanes(tabId) {
 }
 
 // Herdr's layout of the split tab on screen, read again when its panes change
-// or it is a few seconds old (a zoom or a split made in Herdr itself).
+// or it is a few seconds old (a zoom or a split made in Herdr itself). It is
+// undefined until first read, and null when it could not be read. A read begun
+// before forgetPaneLayout (a split, a zoom) may show the tab as it was: its
+// answer is dropped, `generation` having moved on.
 const PANE_LAYOUT_MAX_AGE_MS = 3_000;
-const paneLayout = { key: "", tabId: null, layout: null, at: 0, loading: false };
+const paneLayout = { key: "", tabId: null, layout: undefined, at: 0, loading: false, generation: 0 };
 
 function paneLayoutFor(tabId) {
   const paneIds = panesOfTab(tabId).map((pane) => idOf(pane, "pane_id", "id"));
   const key = `${tabId}|${paneIds.join(",")}`;
   if (!paneLayout.loading && (paneLayout.key !== key || Date.now() - paneLayout.at > PANE_LAYOUT_MAX_AGE_MS)) {
     paneLayout.loading = true;
+    const generation = paneLayout.generation;
     api(`/api/panes/${encodeURIComponent(paneIds[0])}/layout`)
       .then((payload) => payload?.layout ?? null, () => null)
       .then((layout) => {
-        const before = JSON.stringify(paneLayout.tabId === tabId ? paneLayout.layout : null);
+        if (generation !== paneLayout.generation) return;
+        const before = JSON.stringify(paneLayout.tabId === tabId ? paneLayout.layout ?? null : undefined);
         // A failed read keeps what was known of the same tab.
-        const known = layout ?? (paneLayout.tabId === tabId ? paneLayout.layout : null);
+        const known = layout ?? (paneLayout.tabId === tabId ? paneLayout.layout ?? null : null);
         Object.assign(paneLayout, { key, tabId, layout: known, at: Date.now(), loading: false });
         if (JSON.stringify(known) !== before && selectedSplitTabId() === tabId) renderPaneViews();
       });
   }
-  return paneLayout.tabId === tabId ? paneLayout.layout : null;
+  return paneLayout.tabId === tabId ? paneLayout.layout : undefined;
 }
 
 function forgetPaneLayout() {
+  paneLayout.generation += 1;
+  paneLayout.loading = false;
   paneLayout.at = 0;
   paneLayout.key = "";
 }
@@ -3543,9 +3558,10 @@ let paneMapKey = "";
 function renderPaneViews() {
   const splitTabId = selectedSplitTabId();
   const gridTab = gridTabId();
-  const layout = splitTabId ? paneLayoutFor(splitTabId) : null;
-  const panes = splitTabId ? splitTabPanes(splitTabId) : [];
   const showMap = Boolean(splitTabId) && !desktopMedia.matches;
+  // Read only for a grid or a map on screen: a pane shown alone needs none.
+  const layout = gridTab || showMap ? paneLayoutFor(splitTabId) : undefined;
+  const panes = splitTabId ? splitTabPanes(splitTabId) : [];
   elements.paneMap.hidden = !showMap;
   if (showMap) {
     const key = JSON.stringify([state.selectedPaneId, layout, panes]);
@@ -3668,7 +3684,8 @@ function closePaneFromGrid(paneId) {
     : status === "blocked" ? " Its agent is waiting for your answer." : "";
   if ((last || status === "working" || status === "blocked") &&
       !window.confirm(`Close pane “${label}”?${reason} This stops any running processes in it.`)) return;
-  void paneGridAction(paneId, "close");
+  // The server closes a pane only when told the user meant it.
+  void paneGridAction(paneId, "close", { confirmed: true });
 }
 
 // Runs a pane action from the grid (split, zoom, close) and shows the result:
@@ -3697,8 +3714,7 @@ async function paneGridAction(paneId, action, body = {}) {
   } finally {
     state.mutationBusy = false;
   }
-  forgetPaneLayout();
-  await refreshSnapshot();
+  await refreshAfterPaneChange();
   const added = typeof result?.pane_id === "string" ? result.pane_id : null;
   if (action === "split" && added && snapshotRecords().panes.some((item) => idOf(item, "pane_id", "id") === added)) {
     selectPane(added, { fromGrid: shownGridTabId !== null });
@@ -3718,16 +3734,27 @@ function paneDropTargets(tabId) {
   return targets.filter(({ paneId }) => paneMoveRequest(state.snapshot, { tabId, targetPaneId: paneId, side: "right" }));
 }
 
+// After a pane is split, closed, zoomed or moved: the layout and the snapshot
+// are read again. A snapshot already on its way was asked for before the
+// change, so it is waited out first.
+async function refreshAfterPaneChange() {
+  forgetPaneLayout();
+  await snapshotSettled;
+  await refreshSnapshot();
+}
+
 // Moves a session's one pane next to another pane, into that pane's tab. The
 // pane comes back under a new id: what the page keeps under its id follows it,
 // and it is selected in the grid of the tab it joined. A refusal (Herdr has
-// no room there) is said in the feedback line.
+// no room there) is said in the feedback line, and so is a pane that moved
+// but could not then be swapped to the left or the top (`placed` false).
 async function movePaneIntoSplit(request) {
   if (!request || state.mutationBusy) return;
   const targetTabId = paneTabId(request.body.targetPaneId);
   state.mutationBusy = true;
   setFeedback("");
   let movedTo = null;
+  let unplaced = null;
   try {
     const result = await api(`/api/panes/${encodeURIComponent(request.paneId)}/move`, { method: "POST", body: request.body });
     movedTo = typeof result?.pane_id === "string" ? result.pane_id : null;
@@ -3736,17 +3763,20 @@ async function movePaneIntoSplit(request) {
       if (state.selectedPaneId === request.paneId) state.selectedPaneId = movedTo;
     }
     if (movedTo && targetTabId) state.paneViews.set(targetTabId, "grid");
+    if (movedTo && result?.placed === false) {
+      unplaced = `Moved, but could not put it on the ${request.body.side === "up" ? "top" : "left"}.`;
+    }
   } catch (error) {
     setFeedback(error.message, true);
   } finally {
     state.mutationBusy = false;
   }
-  forgetPaneLayout();
-  await snapshotSettled;
-  await refreshSnapshot();
+  await refreshAfterPaneChange();
   if (movedTo && snapshotRecords().panes.some((item) => idOf(item, "pane_id", "id") === movedTo)) {
     selectPane(movedTo, { view: "grid" });
   } else void refreshTerminal();
+  // After the selection, which clears the feedback line.
+  if (unplaced) setFeedback(unplaced, true);
 }
 
 // The strip over the Terminal lens that says why the terminal is not live:

@@ -685,8 +685,11 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       onRetry(failed);
       return true;
     },
+    // A keepSize terminal takes `size` as the most its font grows to, and
+    // fits down from there.
     setFontSize(size) {
-      if (!term || keepSize) return;
+      if (keepSize) fontSize = size;
+      if (!term) return;
       term.options.fontSize = size;
       fitNow();
     },

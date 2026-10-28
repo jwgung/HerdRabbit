@@ -186,3 +186,12 @@ test("only a one-pane session of the same Herdr session joins another pane", () 
   assert.equal(paneMoveRequest(snap, { tabId: "t3", targetPaneId: "p3", side: "up" }), null, "its own tab");
   assert.equal(paneMoveRequest(snap, { tabId: "t1", targetPaneId: "p2", side: "middle" }), null, "an unknown side");
 });
+
+test("a connected PC's sessions do not join its panes from here", () => {
+  const snap = {
+    workspaces: [{ workspace_id: "r1", ...remote }],
+    tabs: [{ tab_id: "rt1", workspace_id: "r1", ...remote }, { tab_id: "rt2", workspace_id: "r1", ...remote }],
+    panes: [{ pane_id: "rp1", tab_id: "rt1", ...remote }, { pane_id: "rp2", tab_id: "rt2", ...remote }],
+  };
+  assert.equal(paneMoveRequest(snap, { tabId: "rt1", targetPaneId: "rp2", side: "right" }), null);
+});

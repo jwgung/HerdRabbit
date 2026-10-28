@@ -25,7 +25,8 @@
 .prompt-dock[data-mode="banner"] {
   position: absolute;
   z-index: 4;
-  top: 8px;
+  /* Below the phone pane map, which it would otherwise cover. */
+  top: calc(8px + var(--pane-map-clearance, 0px));
   left: 8px;
   right: 8px;
   align-items: center;

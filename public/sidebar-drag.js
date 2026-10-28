@@ -32,8 +32,10 @@ export function isNoopGap(fromIndex, gap) {
 
 // Records belong to one Herdr session of one machine; only there can they move.
 export function dropScope(record) {
-  return `${record?.server_id ?? "local"}|${record?.herdr_session_id ?? ""}`;
+  return `${serverOf(record)}|${record?.herdr_session_id ?? ""}`;
 }
+
+const serverOf = (record) => record?.server_id ?? "local";
 
 const idOf = (record, key) => (typeof record?.[key] === "string" ? record[key] : null);
 
@@ -145,7 +147,8 @@ export function dropPreview(box, side) {
 
 // What to ask the server for session `tabId` dropped on `targetPaneId`'s
 // `side`, or null: only a session of one pane joins another, and only one of
-// the same machine and Herdr session, and not its own.
+// the same Herdr session of this machine (a connected PC's panes are not
+// split from here), and not its own.
 export function paneMoveRequest(snapshot, { tabId, targetPaneId, side }) {
   if (!PANE_SIDES.includes(side)) return null;
   const tabs = Array.isArray(snapshot?.tabs) ? snapshot.tabs : [];
@@ -154,13 +157,12 @@ export function paneMoveRequest(snapshot, { tabId, targetPaneId, side }) {
   const moving = panes.filter((item) => idOf(item, "tab_id") === tabId);
   const target = panes.find((item) => idOf(item, "pane_id") === targetPaneId);
   if (moving.length !== 1 || !target || idOf(target, "tab_id") === tabId) return null;
-  const scopeOf = (id) => {
+  const ownerOf = (id) => {
     const tab = tabs.find((item) => idOf(item, "tab_id") === id);
-    const workspace = workspaces.find((item) => idOf(item, "workspace_id") === idOf(tab, "workspace_id"));
-    return tab ? dropScope(workspace ?? tab) : null;
+    return tab ? workspaces.find((item) => idOf(item, "workspace_id") === idOf(tab, "workspace_id")) ?? tab : null;
   };
-  const scope = scopeOf(tabId);
-  if (!scope || scope !== scopeOf(idOf(target, "tab_id"))) return null;
+  const [owner, targetOwner] = [ownerOf(tabId), ownerOf(idOf(target, "tab_id"))];
+  if (!owner || !targetOwner || serverOf(owner) !== "local" || dropScope(owner) !== dropScope(targetOwner)) return null;
   const paneId = idOf(moving[0], "pane_id");
   return paneId ? { paneId, body: { targetPaneId, side } } : null;
 }

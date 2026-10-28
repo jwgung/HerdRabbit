@@ -24,9 +24,9 @@ const localId = (id) => String(id ?? "").split("~").pop();
 
 // Where each of `paneIds` sits, as fractions of the tab ({ left, top, width,
 // height } in 0..1) with its size in Herdr's cells ({ cols, rows }).
-// `zoomedPaneId` is the pane a zoomed tab shows alone. Without a layout (an
-// older server, or one that failed) the panes share an even grid; panes the
-// layout does not have yet are left out until it is read again.
+// `zoomedPaneId` is the pane a zoomed tab shows alone. Without a layout (not
+// read yet, an older server, or one that failed) the panes share an even grid;
+// panes the layout does not have yet are left out until it is read again.
 export function gridCells(layout, paneIds) {
   const byLocal = new Map(paneIds.map((id) => [localId(id), id]));
   const listed = Array.isArray(layout?.panes)
@@ -92,7 +92,10 @@ function icon(path) {
 
 // The grid inside `host`. Each cell has a terminal socket of its own, attached
 // with keepSize: a cell shows the pane at Herdr's size and never resizes it.
-// `panes` given to show() are { paneId, label, status, statusIcon, statusText }.
+// `panes` given to show() are { paneId, label, status, statusIcon, statusText };
+// its `layout` is undefined while not read yet (the cells wait, unattached, so
+// none attaches only to let go once Herdr's sizes are known) and null when it
+// could not be read (the cells share an even grid and attach).
 // `menuFor(pane, zoomed)` builds a cell's ⋯ menu; `onSelect(paneId)` hears a
 // cell focused, `onExpand(paneId)` the cell opened alone, `onUnzoom(paneId)`
 // the zoom undone.
@@ -206,6 +209,8 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     show({ panes, layout, selectedPaneId }) {
       root.hidden = false;
       selected = selectedPaneId;
+      const waiting = layout === undefined;
+      root.classList.toggle("is-waiting", waiting);
       const info = new Map(panes.map((pane) => [pane.paneId, pane]));
       const placed = gridCells(layout, panes.map((pane) => pane.paneId));
       zoomedPaneId = placed.zoomedPaneId;
@@ -242,12 +247,18 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
           cell.menuKey = menuKey;
           cell.menuSlot.replaceChildren(menuFor(pane, Boolean(zoomedPaneId)));
         }
+        // The menu is kept while the pane is renamed; its name follows.
+        const more = cell.menuSlot.querySelector("summary");
+        if (more) {
+          more.setAttribute("aria-label", `More actions for ${pane.label}`);
+          more.title = `More actions for ${pane.label}`;
+        }
         // Lazily: a hidden cell lets its pane go, and a tiny one waits until
         // it is focused or zoomed.
         const roomy = zoomed || (place.cols >= MIN_ATTACH_COLS && place.rows >= MIN_ATTACH_ROWS);
         const tiny = !roomy && !focused;
         cell.node.classList.toggle("is-tiny", tiny);
-        if (hidden || tiny) detach(cell);
+        if (waiting || hidden || tiny) detach(cell);
         else attach(cell);
       }
     },
@@ -257,6 +268,11 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       for (const cell of cells.values()) cell.node.classList.toggle("is-focused", cell.paneId === paneId);
       const cell = cells.get(paneId);
       if (terminal && cell?.attached) cell.terminal.focus();
+    },
+    // The terminal font size the cells' fonts grow to at most.
+    setFontSize(size) {
+      fontSize = size;
+      for (const cell of cells.values()) cell.terminal?.setFontSize(size);
     },
     // Leaves the grid: every cell lets its pane and its socket go.
     hide() {
@@ -269,35 +285,45 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
 }
 
 // The phone's map of a split tab: one small box per pane where Herdr has it,
-// coloured by its status, the selected one ringed. A tap picks a pane.
+// coloured by its status, the selected one ringed. A tap picks a pane. A pane
+// the layout does not have yet (one just split off) gets a box beside the map
+// until the layout is read again.
 export function renderPaneMap(host, { layout, panes, selectedPaneId, onPick }) {
   const placed = gridCells(layout, panes.map((pane) => pane.paneId));
   const info = new Map(panes.map((pane) => [pane.paneId, pane]));
   const map = element("div", "pane-map-board");
   const ratio = placed.area ? (placed.area.width * CELL_ASPECT) / placed.area.height : MAP_RATIO_FALLBACK;
   map.style.aspectRatio = String(Math.min(MAP_RATIO_MAX, Math.max(MAP_RATIO_MIN, ratio)));
-  for (const place of placed.cells) {
-    const pane = info.get(place.paneId);
+  const mapBox = (paneId) => {
+    const pane = info.get(paneId);
     const box = element("button", "pane-map-cell");
     box.type = "button";
-    box.dataset.paneId = place.paneId;
+    box.dataset.paneId = paneId;
     box.dataset.status = pane.status;
+    box.setAttribute("aria-pressed", String(paneId === selectedPaneId));
+    box.setAttribute("aria-label", `${pane.label}, ${pane.statusText}`);
+    box.title = `${pane.label} · ${pane.statusText}`;
+    box.addEventListener("click", () => onPick(paneId));
+    return box;
+  };
+  for (const place of placed.cells) {
+    const box = mapBox(place.paneId);
     box.style.left = `${place.left * 100}%`;
     box.style.top = `${place.top * 100}%`;
     box.style.width = `${place.width * 100}%`;
     box.style.height = `${place.height * 100}%`;
-    box.setAttribute("aria-pressed", String(place.paneId === selectedPaneId));
-    box.setAttribute("aria-label", `${pane.label}, ${pane.statusText}`);
-    box.title = `${pane.label} · ${pane.statusText}`;
-    box.addEventListener("click", () => onPick(place.paneId));
     map.append(box);
   }
-  const index = placed.cells.findIndex((place) => place.paneId === selectedPaneId);
+  const shown = new Set(placed.cells.map((place) => place.paneId));
+  const unplaced = panes.filter((pane) => !shown.has(pane.paneId));
+  const extra = element("div", "pane-map-extra");
+  extra.append(...unplaced.map((pane) => mapBox(pane.paneId)));
+  const index = panes.findIndex((pane) => pane.paneId === selectedPaneId);
   const current = info.get(selectedPaneId);
   const caption = element("div", "pane-map-caption");
   caption.append(
-    element("strong", "pane-map-count", `${index + 1} / ${placed.cells.length}`),
+    element("strong", "pane-map-count", `${index + 1} / ${panes.length}`),
     element("span", `pane-map-state state-${current?.status ?? "unknown"}`, current ? current.statusText : ""),
   );
-  host.replaceChildren(map, caption);
+  host.replaceChildren(...[map, unplaced.length > 0 ? extra : null, caption].filter(Boolean));
 }

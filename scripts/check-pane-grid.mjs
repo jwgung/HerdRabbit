@@ -5,9 +5,13 @@
 // never resize a pane's pty, the ⋯ menu splits, zooms and closes, a refused
 // split is said, and ⤢ opens the pane alone with Back to grid. A pane row in
 // the sidebar opens its pane alone. Leaving the grid closes the cells'
-// sockets. On a phone there is no grid: the selected pane shows with a map of
-// the tab above it, and a tap on the map switches pane. Runs on a desktop and
-// a phone against an in-process fake herdr.
+// sockets. No cell attaches before Herdr's layout is read, a close always
+// says the user meant it, and the cells follow the terminal font size. On a
+// phone there is no grid: the selected pane shows with a map of the tab above
+// it, a pane the layout does not have yet is still counted and tappable, and
+// a tap on the map switches pane. A connected PC's split tab is its pane rows
+// only: no grid, no map. Runs on a desktop and a phone against an in-process
+// fake herdr.
 //
 // PANE_GRID_SHOTS=<folder> keeps pictures of the grid, the zoomed grid and the
 // phone's map in both themes.
@@ -19,7 +23,9 @@ import { PaneAttachments } from "../src/pane-attachments.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 // Tab w1:t1 is split: p1 on the left, p2 over p3 on the right, and p4 a sliver
-// at the far right too thin to show a terminal. Tab w1:t2 has one pane.
+// at the far right too thin to show a terminal. Tab w1:t2 has one pane. The
+// laptop (a connected PC) has a split tab of its own.
+const laptop = { server_id: "laptop", herdr_session_id: "laptop!hs_x" };
 let panes;
 let rects;
 let zoomed;
@@ -31,6 +37,8 @@ function reset() {
     { pane_id: "w1:p3", tab_id: "w1:t1", workspace_id: "w1", cwd: "/work/gamma", agent_status: "blocked" },
     { pane_id: "w1:p4", tab_id: "w1:t1", workspace_id: "w1", cwd: "/work/delta", agent_status: "done" },
     { pane_id: "w1:p9", tab_id: "w1:t2", workspace_id: "w1", cwd: "/work/solo", agent_status: "idle" },
+    { pane_id: "laptop!w1:p1", tab_id: "laptop!w1:t1", workspace_id: "laptop!w1", cwd: "/home/one", agent_status: "idle", ...laptop },
+    { pane_id: "laptop!w1:p2", tab_id: "laptop!w1:t1", workspace_id: "laptop!w1", cwd: "/home/two", agent_status: "idle", ...laptop },
   ];
   rects = new Map([
     ["w1:p1", { x: 0, y: 0, width: 60, height: 40 }],
@@ -47,8 +55,9 @@ const sent = [];
 const herdr = {
   async snapshot() {
     return {
-      workspaces: [{ workspace_id: "w1", label: "Platform" }],
-      tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "Split work" }, { tab_id: "w1:t2", workspace_id: "w1", label: "Alone" }],
+      workspaces: [{ workspace_id: "w1", label: "Platform" }, { workspace_id: "laptop!w1", label: "Laptop work", ...laptop }],
+      tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "Split work" }, { tab_id: "w1:t2", workspace_id: "w1", label: "Alone" },
+        { tab_id: "laptop!w1:t1", workspace_id: "laptop!w1", label: "Laptop split", ...laptop }],
       panes: panes.map((pane) => ({ ...pane })),
       agents: [],
     };
@@ -120,6 +129,8 @@ const ptyOf = (paneId) => ptys.filter((pty) => pty.paneId === paneId && !pty.kil
 try {
   for (const mobile of [false, true]) {
     reset();
+    // On a phone, p8 has just been split off: Herdr's layout does not have it yet.
+    if (mobile) panes.splice(4, 0, { pane_id: "w1:p8", tab_id: "w1:t1", workspace_id: "w1", cwd: "/work/epsilon", agent_status: "idle" });
     ptys.length = 0;
     sent.length = 0;
     const context = await browser.newContext({ serviceWorkers: "block", hasTouch: mobile, isMobile: mobile,
@@ -129,6 +140,14 @@ try {
     page.on("pageerror", (error) => errors.push(error.message));
     // Every frame each terminal socket sends, and whether it is closed.
     const sockets = [];
+    // What the page asks of the server for each pane's layout and close.
+    const layoutReads = [];
+    const closeBodies = [];
+    page.on("request", (request) => {
+      const path = decodeURIComponent(new URL(request.url()).pathname);
+      if (path.endsWith("/layout")) layoutReads.push(path.split("/")[3]);
+      if (/^\/api\/panes\/[^/]+\/close$/u.test(path)) closeBodies.push(request.postDataJSON());
+    });
     page.on("websocket", (ws) => {
       const socket = { ws, frames: [], closed: false };
       ws.on("framesent", ({ payload }) => { try { socket.frames.push(JSON.parse(payload)); } catch {} });
@@ -163,10 +182,26 @@ try {
       // The tab's heading opens the grid, cells placed as Herdr has them.
       const heading = page.locator('.tab-grid-open[data-tab-id="w1:t1"]');
       assert.match(await heading.textContent(), /Split work\s*4/u);
+      // A pane shown alone needs no layout.
+      await page.waitForTimeout(400);
+      assert.deepEqual(layoutReads, [], "no layout is read for a pane shown alone");
       // The single terminal lets p1 go first: every pty from here on is a cell's.
       const ptysBefore = ptys.length;
+      // Until Herdr's layout is read, the cells wait unattached: none attaches
+      // at a guessed size only to let go again.
+      let releaseLayout;
+      const layoutHeld = new Promise((resolve) => { releaseLayout = resolve; });
+      await page.route("**/api/panes/*/layout", async (route) => { await layoutHeld; await route.continue(); });
       await heading.click();
       await grid.waitFor({ state: "visible" });
+      await page.waitForFunction(() => document.querySelectorAll(".pane-grid-cell").length === 4);
+      await page.waitForTimeout(400);
+      assert.equal(await page.locator(".pane-grid-cell .xterm").count(), 0, "no cell attaches before the layout");
+      assert.equal(sockets.filter((socket) => socket.frames.some((frame) => frame.type === "attach" && frame.keepSize === true)).length, 0);
+      const layoutRead = page.waitForResponse((response) => response.url().endsWith("/layout"));
+      releaseLayout();
+      await layoutRead;
+      await page.unroute("**/api/panes/*/layout");
       assert.equal(await heading.getAttribute("aria-pressed"), "true");
       assert.equal(await page.locator("#terminal-xterm").isVisible(), false, "the single terminal steps aside");
       assert.equal(await page.locator("#grid-back").isVisible(), false);
@@ -241,9 +276,11 @@ try {
       await page.locator(".pane-grid-zoom").waitFor({ state: "hidden" });
       await page.waitForFunction(() => document.querySelectorAll(".pane-grid-cell:not([hidden])").length === 5);
 
-      // Close: an idle pane closes at once; a blocked one asks first.
+      // Close: an idle pane closes at once; a blocked one asks first. Either
+      // way the server is told the user meant it.
       await menu("w1:p5", "close");
       await cell("w1:p5").waitFor({ state: "detached" });
+      assert.deepEqual(closeBodies, [{ confirmed: true }]);
       // The selection stays in the tab, on the closed pane's neighbour.
       await page.waitForFunction(() => document.querySelector('.pane-grid-cell[data-pane-id="w1:p3"]')?.classList.contains("is-focused"));
       assert.equal(await pressed("w1:p3"), "true");
@@ -253,6 +290,19 @@ try {
       await page.waitForTimeout(300);
       assert.match(asked ?? "", /waiting for your answer/u);
       assert.equal(await cell("w1:p3").count(), 1, "a dismissed close keeps the pane");
+      assert.equal(closeBodies.length, 1, "a dismissed close asks nothing");
+      // The cells follow the terminal font size: a smaller one shrinks them.
+      const screenWidth = (paneId) => cell(paneId).locator(".xterm-screen").evaluate((node) => node.offsetWidth);
+      const setting = () => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--terminal-font-size")));
+      const [widthBefore, sizeBefore] = [await screenWidth("w1:p1"), await setting()];
+      const p1Box = await cell("w1:p1").boundingBox();
+      await page.mouse.move(p1Box.x + p1Box.width / 2, p1Box.y + p1Box.height / 2);
+      await page.keyboard.down("Control");
+      for (let step = 0; step < 6; step += 1) await page.mouse.wheel(0, 120);
+      await page.keyboard.up("Control");
+      assert.ok(await setting() < sizeBefore, "the setting got smaller");
+      await page.waitForFunction(([width]) =>
+        document.querySelector('.pane-grid-cell[data-pane-id="w1:p1"] .xterm-screen').offsetWidth < width, [widthBefore]);
 
       // No grid cell ever resized a pane: no resize frame, every attach keeps the size.
       const gridSockets = sockets.filter((socket) => socket.frames.some((frame) => frame.type === "attach" && frame.keepSize === true));
@@ -280,25 +330,40 @@ try {
       assert.deepEqual(gridSockets.filter((socket) => !socket.closed).length, 0, "leaving the grid closes the cells' sockets");
       // A tab with one pane has no grid heading.
       assert.equal(await page.locator('.tab-grid-open[data-tab-id="w1:t2"]').count(), 0);
+      // Nor has a connected PC's split tab: its panes open alone, no way to a grid.
+      assert.equal(await page.locator('.tab-grid-open[data-tab-id="laptop!w1:t1"]').count(), 0);
+      const readsBefore = layoutReads.length;
+      await page.locator('.pane-button[data-pane-id="laptop!w1:p1"]').click();
+      await page.locator("#pane-title").filter({ hasText: /one/u }).waitFor();
+      await page.waitForTimeout(400);
+      assert.equal(await grid.isVisible(), false);
+      assert.equal(await page.locator("#grid-back").isVisible(), false, "no Back to grid for a connected PC's tab");
+      assert.ok(layoutReads.slice(readsBefore).every((id) => !id.startsWith("laptop!")), "no layout is asked of a connected PC");
     } else {
       // A phone shows the pane alone with the map of its tab above it.
       const map = page.locator("#pane-map");
       await map.waitFor({ state: "visible" });
       assert.equal(await grid.isVisible(), false, "no grid on a phone");
-      assert.equal(await page.locator(".pane-map-cell").count(), 4);
+      await page.waitForFunction(() => document.querySelectorAll(".pane-map-cell").length === 5);
+      // p8 is not in Herdr's layout yet: it has a box beside the map and is counted.
+      assert.equal(await page.locator('.pane-map-extra .pane-map-cell[data-pane-id="w1:p8"]').count(), 1);
       assert.equal(await page.locator('.pane-map-cell[data-pane-id="w1:p1"]').getAttribute("aria-pressed"), "true");
       assert.equal(await page.locator('.pane-map-cell[data-pane-id="w1:p3"]').getAttribute("data-status"), "blocked");
-      assert.match(await page.locator(".pane-map-count").textContent(), /^1 \/ 4$/u);
+      assert.match(await page.locator(".pane-map-count").textContent(), /^1 \/ 5$/u);
       const mapBox = await page.locator(".pane-map-board").boundingBox();
       const left = await page.locator('.pane-map-cell[data-pane-id="w1:p1"]').boundingBox();
       assert.ok(Math.abs(left.width - mapBox.width / 2) <= 2, "the map keeps Herdr's proportions");
       await page.locator("#terminal-xterm .xterm").waitFor({ state: "visible" });
       await shoot("map");
+      // A tap on the box of the pane the layout lacks selects it.
+      await page.locator('.pane-map-cell[data-pane-id="w1:p8"]').tap();
+      await page.locator("#pane-title").filter({ hasText: /epsilon/u }).waitFor();
+      await page.waitForFunction(() => document.querySelector(".pane-map-count")?.textContent === "5 / 5");
       // A tap on the map switches pane.
       await page.locator('.pane-map-cell[data-pane-id="w1:p3"]').tap();
       await page.locator("#pane-title").filter({ hasText: /gamma/u }).waitFor();
       await page.waitForFunction(() => document.querySelector('.pane-map-cell[data-pane-id="w1:p3"]')?.getAttribute("aria-pressed") === "true");
-      assert.match(await page.locator(".pane-map-count").textContent(), /^3 \/ 4$/u);
+      assert.match(await page.locator(".pane-map-count").textContent(), /^3 \/ 5$/u);
       // The tab's heading in the sidebar keeps a phone on one pane and the map.
       await page.locator("#mobile-sidebar-open").click();
       await page.waitForTimeout(400);
@@ -311,6 +376,13 @@ try {
       await page.waitForTimeout(400);
       await page.locator('.pane-button[data-pane-id="w1:p9"]').click();
       await map.waitFor({ state: "hidden" });
+      // Nor has a connected PC's split tab.
+      await page.locator("#mobile-sidebar-open").click();
+      await page.waitForTimeout(400);
+      await page.locator('.pane-button[data-pane-id="laptop!w1:p2"]').click();
+      await page.locator("#pane-title").filter({ hasText: /two/u }).waitFor();
+      await page.waitForTimeout(400);
+      assert.equal(await map.isVisible(), false, "no map for a connected PC's tab");
     }
     assert.deepEqual(errors, [], "no script errors");
     await context.close();
