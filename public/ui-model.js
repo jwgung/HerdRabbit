@@ -616,6 +616,20 @@ export function agentStatusLabel(status) {
   return status === "blocked" ? "Needs your answer" : status === "done" ? "Done" : status === "working" ? "Working" : status;
 }
 
+// Most urgent first: an answer waited for, then work going on, then work
+// finished and not yet seen, then a pane at rest.
+const STATUS_URGENCY = ["blocked", "working", "done", "idle", "unknown"];
+
+// The status a split session's one row shows: the most urgent of its panes'.
+export function mostUrgentStatus(statuses) {
+  let best = STATUS_URGENCY.length - 1;
+  for (const status of statuses) {
+    const rank = STATUS_URGENCY.indexOf(status);
+    if (rank !== -1 && rank < best) best = rank;
+  }
+  return STATUS_URGENCY[best];
+}
+
 // The folder a pane works in, by its last name; "" when unknown.
 export function paneFolder(pane) {
   const cwd = [pane?.foreground_cwd, pane?.cwd].find((value) => typeof value === "string" && value.trim() !== "");

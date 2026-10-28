@@ -251,6 +251,11 @@ try {
     // a pane with no folder: no list, no error
     await reset();
     if (mobile) await page.locator("#mobile-sidebar-open").click();
+    // p2 shares a split session with p1: its row is in the session's pane list.
+    {
+      const paneList = page.locator('.tab-group:has(.pane-button[data-pane-id="w1:p2"]) .split-disclosure');
+      if (await paneList.getAttribute("aria-expanded") === "false") await paneList.click();
+    }
     await page.locator('.pane-button[data-pane-id="w1:p2"]').click();
     await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w1:p2"]')?.getAttribute("aria-pressed") === "true");
     if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());

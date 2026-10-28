@@ -210,7 +210,7 @@ try {
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
     await page.locator(".pane-button").first().waitFor({ state: "visible" });
     await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
-    await page.locator('.tab-grid-open[data-tab-id="w1:t1"]').click();
+    await page.locator('.split-session-button[data-tab-id="w1:t1"]').click();
     await page.locator(".pane-grid").waitFor({ state: "visible" });
     await page.waitForFunction(() => document.querySelectorAll(".pane-grid-cell").length === 2);
     const theme = async (name) => {
@@ -263,7 +263,7 @@ try {
     assert.equal(await page.locator(tabRow("w2:p3")).count(), 1);
 
     // 3. A gap in the list still reorders: Pair goes above Split work.
-    source = await box(page, `${tabRow("w1:p5")} .tab-heading`);
+    source = await box(page, `${tabRow("w1:p5")} .split-session-button`);
     target = await box(page, tabRow("w1:p1"));
     during = await mouseDrag(page, at(source, 0.3, 0.5), { x: target.x + 60, y: target.y + 3 });
     assert.ok(during.line, "a line shows where it lands");
@@ -273,7 +273,7 @@ try {
 
     // 4. A split session shows no zones over a cell.
     before = calls.length;
-    source = await box(page, `${tabRow("w1:p5")} .tab-heading`);
+    source = await box(page, `${tabRow("w1:p5")} .split-session-button`);
     target = await box(page, cell("w1:p1"));
     during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
     assert.ok(during.ghost);
@@ -312,7 +312,8 @@ try {
     assert.equal(await page.locator(tabRow("w2:p4")).count(), 0);
 
     // 7. The pane shown alone is a target too: Epsilon joins p1 on its right,
-    // and p1's tab opens as a grid on it.
+    // and p1's tab opens as a grid on it. p1 is in Split work's pane list.
+    await page.locator('.tab-group[data-tab-id="w1:t1"] .split-disclosure').click();
     await page.locator('.pane-button[data-pane-id="w1:p1"]').click();
     await page.locator(".pane-grid").waitFor({ state: "hidden" });
     await page.locator("#terminal-xterm .xterm").waitFor({ state: "visible" });

@@ -41,6 +41,7 @@ import {
   paneAgentKind,
   agentStatusIcon,
   agentStatusLabel,
+  mostUrgentStatus,
   paneDisplayTitle,
   paneSubtitle,
   openRenames,
@@ -91,8 +92,10 @@ import {
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
+  readExpandedSplitTabIds,
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
+  writeExpandedSplitTabIds,
 } from "./workspace-preference.js?v=1.4.0";
 import {
   adjustedTerminalFontSize,
@@ -351,6 +354,7 @@ const initialCollapsedGroupIds = readCollapsedGroupIds(
 const initialCollapsedWorkspaceIds = readCollapsedWorkspaceIds(
   panePreferenceStorage,
 );
+const initialExpandedSplitTabIds = readExpandedSplitTabIds(panePreferenceStorage);
 const initialTerminalFontSize = readTerminalFontSize(panePreferenceStorage);
 const initialAcknowledgedCompletions = readAcknowledgedCompletions(
   panePreferenceStorage,
@@ -471,6 +475,8 @@ const state = {
   inputHistoryDraft: "",
   collapsedWorkspaceIds: initialCollapsedWorkspaceIds,
   collapsedGroupIds: initialCollapsedGroupIds,
+  // Split sessions whose pane list is open under their row; folded otherwise.
+  expandedSplitTabIds: initialExpandedSplitTabIds,
   editingWorkspaceId: null,
   editingServerId: null,
   editingTabId: null,
@@ -498,6 +504,9 @@ const state = {
   // Split tabs shown as a grid of their panes (tab id -> "grid"); any other
   // tab shows its selected pane alone.
   paneViews: new Map(),
+  // The pane last selected in each split tab (tab id -> pane id), so a split
+  // session's row on a phone opens where the user was.
+  lastPaneOfTab: new Map(),
 };
 
 // The list above the composer: `@` file references (names in the pane's
@@ -1903,7 +1912,7 @@ function paneButton(pane, tab, workspace, { namesSession = false } = {}) {
   status.setAttribute("aria-hidden", "true");
   button.append(status);
 
-  // A row opens its pane alone, even in a split tab: the tab's heading opens the grid.
+  // A row opens its pane alone, even in a split tab: the split session's own row opens the grid.
   button.addEventListener("click", () => {
     selectPane(paneId, { view: "solo" });
     closeMobileSidebar();
@@ -2864,31 +2873,49 @@ function renderNavigation() {
       const tabLabel = displayTabLabel(tab);
       const editingTab = state.editingTabId === tabId;
       const tabPanes = panes.filter((pane) => idOf(pane, "tab_id", "tabId") === tabId);
-      // A split session can be put in order within its project, not carried out.
-      if (tabPanes.length > 1) tabGroup.dataset.split = "true";
-      // With one pane the pane is the session, so its name belongs in the
-      // button. With several the name covers the group, and repeating it on
-      // every button would say the same thing three times.
-      const namesSession = Boolean(tabLabel) && tabPanes.length === 1;
-      const tabHeading = createElement("div", {
-        className: `tab-heading${editingTab ? " is-editing" : ""}`,
-      });
-      // An unnamed session has no heading to rename in, so renaming makes one.
-      if (editingTab) tabHeading.append(tabRenameForm(tab, tabId, tabLabel));
-      else if (tabPanes.length > 1 && isLocalRecord(tabPanes[0])) tabHeading.append(gridHeadingButton(tabId, tabLabel, tabPanes));
-      else if (tabLabel && !namesSession) {
-        tabHeading.append(createElement("p", { className: "tab-label", text: tabLabel }));
-      }
-      if (tabHeading.childElementCount > 0) tabGroup.append(tabHeading);
-
+      const split = tabPanes.length > 1;
       const sessionRow = createElement("div", { className: "session-row" });
-      const sessionPanes = createElement("div", { className: "session-panes" });
-      for (const pane of tabPanes) {
-        sessionPanes.append(paneButton(pane, tab, workspace, { namesSession }));
+      let sessionLabel;
+      if (split) {
+        // A split session can be put in order within its project, not carried out.
+        tabGroup.dataset.split = "true";
+        sessionLabel = splitSessionName(tabId, tabLabel, tabPanes);
+        const paneList = createElement("div", { className: "split-panes" });
+        paneList.id = `split-${tabId.replace(/[^A-Za-z0-9_-]/gu, "_")}-panes`;
+        paneList.hidden = !state.expandedSplitTabIds.has(tabId);
+        tabGroup.classList.toggle("is-expanded", !paneList.hidden);
+        // Each pane says its own name: the session's name is on the row.
+        for (const pane of tabPanes) paneList.append(paneButton(pane, tab, workspace));
+        sessionRow.classList.add("split-session-row");
+        if (editingTab) {
+          sessionRow.classList.add("is-editing");
+          sessionRow.append(tabRenameForm(tab, tabId, tabLabel));
+        } else {
+          sessionRow.append(
+            splitDisclosureButton(tabGroup, tabId, sessionLabel, paneList),
+            splitSessionButton(tabId, sessionLabel, tabPanes, workspace),
+          );
+        }
+        tabGroup.append(sessionRow, paneList);
+      } else {
+        // With one pane the pane is the session, so its name belongs in the button.
+        const namesSession = Boolean(tabLabel);
+        // An unnamed session has no heading to rename in, so renaming makes one.
+        if (editingTab) {
+          const tabHeading = createElement("div", { className: "tab-heading is-editing" });
+          tabHeading.append(tabRenameForm(tab, tabId, tabLabel));
+          tabGroup.append(tabHeading);
+        }
+        const sessionPanes = createElement("div", { className: "session-panes" });
+        for (const pane of tabPanes) {
+          sessionPanes.append(paneButton(pane, tab, workspace, { namesSession }));
+        }
+        sessionRow.append(sessionPanes);
+        tabGroup.append(sessionRow);
+        sessionLabel =
+          tabLabel ||
+          displayRecordLabel(agentForPane(idOf(tabPanes[0], "pane_id", "id")), "Session");
       }
-      const sessionLabel =
-        tabLabel ||
-        displayRecordLabel(agentForPane(idOf(tabPanes[0], "pane_id", "id")), "Session");
       const sessionMenu = sidebarActionMenu({
         id: `tab-${tabId}`,
         label: `More actions for ${sessionLabel}`,
@@ -2915,8 +2942,7 @@ function renderNavigation() {
           },
         ],
       });
-      sessionRow.append(sessionPanes, sessionMenu);
-      tabGroup.append(sessionRow);
+      if (!sessionRow.classList.contains("is-editing")) sessionRow.append(sessionMenu);
       childrenInner.append(tabGroup);
     }
     children.append(childrenInner);
@@ -3526,7 +3552,7 @@ function panesOfTab(tabId) {
 }
 
 // Only this machine's panes are split, closed, zoomed or laid out from here:
-// a connected PC's split tab is its pane rows, as before.
+// a connected PC's split tab opens one pane at a time, with no grid or map.
 function isLocalRecord(record) {
   return (record?.server_id || "local") === "local";
 }
@@ -3683,6 +3709,7 @@ function selectPane(paneId, { view = null, fromGrid = false } = {}) {
   acknowledgePaneCompletion(paneId);
   setFeedback("");
   const tabId = idOf(pane, "tab_id", "tabId");
+  if (tabId) state.lastPaneOfTab.set(tabId, paneId);
   if (view === "grid") state.paneViews.set(tabId, "grid");
   else if (view === "solo") state.paneViews.delete(tabId);
   renderNavigation();
@@ -3697,11 +3724,34 @@ function selectPane(paneId, { view = null, fromGrid = false } = {}) {
   void refreshTerminal();
 }
 
-// Opens a split tab as a grid, on the pane already selected there or its first.
+// The pane a split tab opens on, and whose title and mark its row wears: the
+// selected pane when it is there, else the one last selected there, else the
+// one Herdr has focused, else its first.
+function splitTabFocusPaneId(tabId, paneIds = panesOfTab(tabId).map((pane) => idOf(pane, "pane_id", "id"))) {
+  const candidates = [state.selectedPaneId, state.lastPaneOfTab.get(tabId), state.snapshot?.focused_pane_id];
+  return candidates.find((paneId) => paneId && paneIds.includes(paneId)) ?? paneIds[0] ?? null;
+}
+
+// Opens a split tab as a grid, on its focus pane (see splitTabFocusPaneId).
 function openPaneGrid(tabId) {
-  const paneIds = panesOfTab(tabId).map((pane) => idOf(pane, "pane_id", "id"));
-  if (paneIds.length === 0) return;
-  selectPane(paneIds.includes(state.selectedPaneId) ? state.selectedPaneId : paneIds[0], { view: "grid" });
+  const paneId = splitTabFocusPaneId(tabId);
+  if (!paneId) return;
+  selectPane(paneId, { view: "grid" });
+  closeMobileSidebar();
+}
+
+// A split session's row: the grid on a wide screen; on a phone, which has no
+// grid, its focus pane alone with the pane map over it. A connected PC's
+// split tab has no grid here, so it opens that pane alone too.
+function openSplitSession(tabId) {
+  const tabPanes = panesOfTab(tabId);
+  if (tabPanes.length === 0) return;
+  if (desktopMedia.matches && isLocalRecord(tabPanes[0])) {
+    openPaneGrid(tabId);
+    return;
+  }
+  const paneId = splitTabFocusPaneId(tabId);
+  selectPane(paneId, { view: "solo" });
   closeMobileSidebar();
 }
 
@@ -3710,23 +3760,79 @@ elements.gridBack.addEventListener("click", () => {
   if (tabId) openPaneGrid(tabId);
 });
 
-// The heading of a split tab in the sidebar: opens its grid.
-function gridHeadingButton(tabId, tabLabel, tabPanes) {
-  const button = createElement("button", { className: "tab-grid-open" });
+// A split session's name: its tab's, else its focus pane's title, else "Split session".
+function splitSessionName(tabId, tabLabel, tabPanes) {
+  if (tabLabel) return tabLabel;
+  const paneId = splitTabFocusPaneId(tabId, tabPanes.map((pane) => idOf(pane, "pane_id", "id")));
+  const pane = tabPanes.find((item) => idOf(item, "pane_id", "id") === paneId);
+  return paneDisplayTitle("", pane, "", agentForPane(paneId)) || "Split session";
+}
+
+// A split session is one row in the sidebar, as a one-pane session is: its
+// focus pane's mark, its name, the number of panes, and the most urgent status
+// of them. It is shown selected while any of its panes is.
+function splitSessionButton(tabId, name, tabPanes, workspace) {
+  const paneIds = tabPanes.map((pane) => idOf(pane, "pane_id", "id"));
+  const focusPaneId = splitTabFocusPaneId(tabId, paneIds);
+  const focusPane = tabPanes.find((pane) => idOf(pane, "pane_id", "id") === focusPaneId);
+  const status = mostUrgentStatus(tabPanes.map((pane) => {
+    const paneId = idOf(pane, "pane_id", "id");
+    return visibleStatusForPane(paneId, agentForPane(paneId), pane);
+  }));
+  const statusText = agentStatusLabel(status);
+  const button = createElement("button", { className: "pane-button split-session-button" });
   button.type = "button";
   button.dataset.tabId = tabId;
-  const shown = state.paneViews.get(tabId) === "grid" &&
-    tabPanes.some((pane) => idOf(pane, "pane_id", "id") === state.selectedPaneId);
-  button.setAttribute("aria-pressed", String(shown));
-  const label = tabLabel || "Split session";
-  button.setAttribute("aria-label", `Show ${label} as a grid, ${tabPanes.length} panes`);
-  button.title = "Show every pane";
-  button.append(
-    createElement("span", { className: "tab-label tab-grid-label", text: label }),
-    createElement("span", { className: "tab-grid-badge" }),
+  button.dataset.status = status;
+  button.setAttribute("aria-pressed", String(paneIds.includes(state.selectedPaneId)));
+  const where = displayRecordLabel(workspace, "Project");
+  button.setAttribute(
+    "aria-label",
+    `${name}, split session, ${paneIds.length} panes, ${statusText}, ${where}`,
   );
-  button.lastChild.append(createIcon(GRID_ICON), createElement("span", { text: String(tabPanes.length) }));
-  button.addEventListener("click", () => openPaneGrid(tabId));
+  button.title = `${name} · ${paneIds.length} panes · ${statusText}`;
+  button.append(agentMark(paneAgentKind(focusPane, agentForPane(focusPaneId))));
+  const copy = createElement("span", { className: "pane-copy" });
+  copy.append(createElement("strong", { className: "pane-title", text: name }));
+  const subtitle = paneSubtitle(name, focusPane);
+  if (subtitle) copy.append(createElement("small", { className: "pane-cwd", text: subtitle }));
+  const badge = createElement("span", { className: "split-badge" });
+  badge.setAttribute("aria-hidden", "true");
+  badge.append(createIcon(GRID_ICON), createElement("span", { text: String(paneIds.length) }));
+  const statusMark = createElement("span", {
+    className: `pane-status ui-status state-${status}`,
+    text: agentStatusIcon(status),
+  });
+  statusMark.setAttribute("aria-hidden", "true");
+  button.append(copy, badge, statusMark);
+  button.addEventListener("click", () => openSplitSession(tabId));
+  return button;
+}
+
+// The arrow left of a split session's row: shows or hides its panes under it.
+// Folded until opened; which are open is kept in this browser. A pane selected
+// in a folded session does not open it: the row shows it selected.
+function splitDisclosureButton(tabGroup, tabId, name, paneList) {
+  const expanded = state.expandedSplitTabIds.has(tabId);
+  const labelFor = (open) => `${open ? "Hide" : "Show"} the panes of ${name}`;
+  const button = workspaceActionButton({
+    className: "split-disclosure",
+    label: labelFor(expanded),
+    paths: ["M9 18l6-6-6-6"],
+  });
+  button.setAttribute("aria-expanded", String(expanded));
+  button.setAttribute("aria-controls", paneList.id);
+  button.addEventListener("click", () => {
+    const open = !state.expandedSplitTabIds.has(tabId);
+    if (open) state.expandedSplitTabIds.add(tabId);
+    else state.expandedSplitTabIds.delete(tabId);
+    tabGroup.classList.toggle("is-expanded", open);
+    paneList.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+    button.setAttribute("aria-label", labelFor(open));
+    button.title = labelFor(open);
+    writeExpandedSplitTabIds(panePreferenceStorage, state.expandedSplitTabIds);
+  });
   return button;
 }
 
@@ -6583,7 +6689,7 @@ elements.terminalPanel.addEventListener("wheel", (event) => {
 function activatePaneShortcut(event) {
   if (!state.authenticated || document.querySelector("dialog[open]")) return false;
   const paneButtons = Array.from(
-    elements.workspaceList.querySelectorAll(".pane-button"),
+    elements.workspaceList.querySelectorAll(".pane-button[data-pane-id]"),
   );
   const targetPaneId = paneShortcutTarget({
     key: event.key,

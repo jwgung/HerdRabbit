@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   COLLAPSED_WORKSPACES_STORAGE_KEY,
+  EXPANDED_SPLIT_TABS_STORAGE_KEY,
   readCollapsedWorkspaceIds,
+  readExpandedSplitTabIds,
   writeCollapsedWorkspaceIds,
+  writeExpandedSplitTabIds,
 } from "../public/workspace-preference.js";
 
 function memoryStorage(entries = {}) {
@@ -49,4 +52,18 @@ test("keeps a connected PC's workspaces folded, and drops ids of anything else",
   assert.deepEqual([...readCollapsedWorkspaceIds(storage)], [
     "link_00000000-0000-0000-0000-000000000000!hs_x~w1",
   ], "a removed Herdr SSH machine's id is dropped");
+});
+
+test("remembers which split sessions have their pane list open", () => {
+  const storage = memoryStorage({
+    [EXPANDED_SPLIT_TABS_STORAGE_KEY]: JSON.stringify(["w1:t1", "", 7, "bad\u0000id", "w1:t1"]),
+  });
+  assert.deepEqual([...readExpandedSplitTabIds(storage)], ["w1:t1"]);
+  assert.equal(writeExpandedSplitTabIds(storage, new Set(["w2:t3"])), true);
+  assert.deepEqual([...readExpandedSplitTabIds(storage)], ["w2:t3"]);
+  assert.deepEqual([...readExpandedSplitTabIds(memoryStorage({ [EXPANDED_SPLIT_TABS_STORAGE_KEY]: "{" }))], []);
+  const blocked = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } };
+  assert.deepEqual([...readExpandedSplitTabIds(blocked)], []);
+  assert.equal(writeExpandedSplitTabIds(blocked, new Set(["w1:t1"])), false);
+  assert.equal(writeExpandedSplitTabIds(null, new Set()), false);
 });
