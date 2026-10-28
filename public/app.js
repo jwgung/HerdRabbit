@@ -399,6 +399,7 @@ const elements = {
   inputForm: document.querySelector("#input-form"),
   sendButton: document.querySelector("#input-form .send-button"),
   terminalInput: document.querySelector("#terminal-input"),
+  inputComposer: document.querySelector(".input-composer"),
   dictateButton: document.querySelector("#dictate-button"),
   composerFiles: document.querySelector("#composer-files"),
   actionFeedback: document.querySelector("#action-feedback"),
@@ -1105,6 +1106,7 @@ function applyTerminalFontSize(nextSize) {
     `${nextSize}px`,
   );
   writeTerminalFontSize(panePreferenceStorage, nextSize);
+  syncComposerExpanded({ defer: true });
   resizeTerminalInput();
   attachedTerminal.setFontSize(nextSize);
   paneGrid.setFontSize(nextSize);
@@ -1130,6 +1132,48 @@ function resizeTerminalInput() {
     : contentHeight;
   input.style.height = `${nextHeight}px`;
   input.style.overflowY = contentHeight > nextHeight ? "auto" : "hidden";
+}
+
+// A long text turns the composer's one row into a card: the text on top across
+// the whole width, the buttons in a row below it (styles.css, .is-expanded).
+// It expands once the text needs a second line at the one-row width, or holds
+// a newline, and folds back only when the box is empty: the change of layout
+// itself changes the box's width, so folding back on a shorter text would
+// flip it to and fro. `fresh` is for a text put in whole (a draft, a recalled
+// message), which is judged from the one-row layout again. `defer` keeps the
+// measuring out of the input event: it runs in the next frame.
+let composerExpandFrame = 0;
+function composerTextNeedsExpanding(input) {
+  if (input.value.includes("\n")) return true;
+  const style = window.getComputedStyle(input);
+  const lineHeight = Number.parseFloat(style.lineHeight);
+  if (!Number.isFinite(lineHeight) || lineHeight <= 0) return false;
+  const oneRow = lineHeight + Number.parseFloat(style.paddingTop || "0") + Number.parseFloat(style.paddingBottom || "0");
+  return input.scrollHeight > oneRow + lineHeight / 2;
+}
+
+function syncComposerExpanded({ fresh = false, defer = false } = {}) {
+  const composer = elements.inputComposer;
+  const input = elements.terminalInput;
+  if (!composer) return;
+  window.cancelAnimationFrame(composerExpandFrame);
+  composerExpandFrame = 0;
+  if (input.value === "") {
+    composer.classList.remove("is-expanded");
+    return;
+  }
+  if (fresh) composer.classList.remove("is-expanded");
+  if (composer.classList.contains("is-expanded")) return;
+  if (input.value.includes("\n")) {
+    composer.classList.add("is-expanded");
+    return;
+  }
+  const judge = () => {
+    composerExpandFrame = 0;
+    if (input.value !== "" && composerTextNeedsExpanding(input)) composer.classList.add("is-expanded");
+  };
+  if (defer) composerExpandFrame = window.requestAnimationFrame(judge);
+  else judge();
 }
 
 function scheduleTerminalInputResize() {
@@ -1193,6 +1237,7 @@ function syncComposerDraft() {
   composerPopup.close();
   if (elements.terminalInput.value !== text) {
     elements.terminalInput.value = text;
+    syncComposerExpanded({ fresh: true });
     resizeTerminalInput();
   }
 }
@@ -4077,6 +4122,7 @@ const chatLens = createChatLens({
     // terminal fits again once it is back.
     elements.terminalPanel.dataset.lens = lens;
     // the composer's text size goes with the lens
+    syncComposerExpanded({ defer: true });
     resizeTerminalInput();
     promptDock?.setLens(lens);
     syncSendButton();
@@ -4262,6 +4308,7 @@ function applyChatFontSize(size, { save = true } = {}) {
   elements.terminalStage.dataset.chatFontSize = String(size);
   // the composer takes the chat's size in the Chat lens
   document.documentElement.style.setProperty("--chat-font-size", `${size}px`);
+  syncComposerExpanded({ defer: true });
   resizeTerminalInput();
   if (save) writeChatFontSize(panePreferenceStorage, size);
   if (scroller) scroller.scrollTop = atEnd ? scroller.scrollHeight : share * scroller.scrollHeight;
@@ -4310,6 +4357,7 @@ function clearComposer() {
   elements.terminalInput.value = "";
   window.clearTimeout(terminalInputResizeTimer);
   terminalInputResizeTimer = null;
+  syncComposerExpanded();
   resizeTerminalInput();
   speechStop();
 }
@@ -4399,6 +4447,7 @@ elements.terminalInput.addEventListener("keydown", (event) => {
       state.inputHistoryDraft = next.draft;
       elements.terminalInput.value = next.value;
       elements.terminalInput.setSelectionRange(next.value.length, next.value.length);
+      syncComposerExpanded({ fresh: true });
       resizeTerminalInput();
     }
     return;
@@ -4432,6 +4481,7 @@ elements.terminalInput.addEventListener("keydown", (event) => {
 });
 
 elements.terminalInput.addEventListener("input", () => {
+  syncComposerExpanded({ defer: true });
   if (usesTouchInputEnvironment()) {
     resizeTerminalInput();
   } else {
@@ -4445,7 +4495,10 @@ elements.terminalInput.addEventListener("blur", () => {
   void refreshTerminal();
 });
 
-window.addEventListener("resize", resizeTerminalInput);
+window.addEventListener("resize", () => {
+  syncComposerExpanded({ defer: true });
+  resizeTerminalInput();
+});
 
 let keyBarItems = readKeyBarItems(panePreferenceStorage);
 const PAGE_KEY_DIRECTION = Object.freeze({ pageup: -1, pagedown: 1 });
@@ -5641,6 +5694,8 @@ if (elements.dictateButton && speechSupported()) {
   speech = createSpeechButton({
     button: elements.dictateButton,
     textarea: elements.terminalInput,
+    // words shown while still being heard come without an input event
+    onTextChange: () => syncComposerExpanded({ defer: true }),
   });
 }
 

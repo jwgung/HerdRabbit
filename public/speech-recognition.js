@@ -32,7 +32,9 @@ function createRecognizer(Recognition, { onInterim, onFinal, onEnd, onError }) {
 }
 
 // `Recognition` is the browser's recognizer class; a test passes its own.
-export function createSpeechButton({ button, textarea, onStateChange = () => {}, Recognition = SpeechRecognition }) {
+// `onTextChange` hears of each change made to the text without an input
+// event (the words shown while still being heard).
+export function createSpeechButton({ button, textarea, onStateChange = () => {}, onTextChange = () => {}, Recognition = SpeechRecognition }) {
   let recognition = null;
   let listening = false;
   let shown = "";
@@ -75,6 +77,7 @@ export function createSpeechButton({ button, textarea, onStateChange = () => {},
         const next = appended(base, text.trim());
         shown = next.slice(base.length);
         textarea.value = next;
+        onTextChange();
       },
       onFinal: (text) => {
         // The final result replaces the interim that was shown for it.
