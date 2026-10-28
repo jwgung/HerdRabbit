@@ -235,6 +235,20 @@ try {
       const card = await measure(page);
       assertCard(card, `${at} long`);
       assert.equal(card.scrolls, false, `${at}: a four-sentence text needs no scrolling`);
+      // The frames are the text box's own and each button's own, as in the one
+      // row: nothing draws one frame around them all.
+      const frames = await page.evaluate(() => {
+        const composer = document.querySelector(".input-composer");
+        const box = getComputedStyle(composer.querySelector("textarea"));
+        const send = getComputedStyle(composer.querySelector(".send-button"));
+        const around = getComputedStyle(composer);
+        return { around: around.borderTopWidth, aroundFill: around.backgroundColor, box: box.borderTopWidth, boxColor: box.borderTopColor, send: send.borderTopWidth };
+      });
+      assert.equal(frames.around, "0px", `${at}: no frame around the text and the buttons ${JSON.stringify(frames)}`);
+      assert.equal(frames.aroundFill, "rgba(0, 0, 0, 0)", `${at}: no card fill ${JSON.stringify(frames)}`);
+      assert.notEqual(frames.box, "0px", `${at}: the text box keeps its own frame ${JSON.stringify(frames)}`);
+      assert.notEqual(frames.boxColor, "rgba(0, 0, 0, 0)", `${at}: and its colour ${JSON.stringify(frames)}`);
+      assert.notEqual(frames.send, "0px", `${at}: the buttons keep theirs ${JSON.stringify(frames)}`);
       if (shots && lens === "terminal") {
         for (const theme of ["dark", "light"]) {
           await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
