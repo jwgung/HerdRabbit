@@ -130,6 +130,7 @@ test("serves the UI and read-only API with hardened headers", async (context) =>
   assert.equal((await fetch(`${app.baseUrl}/workspace-preference.js`)).status, 200);
   assert.equal((await fetch(`${app.baseUrl}/terminal-preference.js`)).status, 200);
   assert.equal((await fetch(`${app.baseUrl}/completion-preference.js`)).status, 200);
+  assert.equal((await fetch(`${app.baseUrl}/enter-key-preference.js`)).status, 200);
   assert.equal((await fetch(`${app.baseUrl}/launch-session.js`)).status, 200);
   assert.equal((await fetch(`${app.baseUrl}/push-notifications.js`)).status, 200);
   assert.equal((await fetch(`${app.baseUrl}/vendor/simplewebauthn-browser.js`)).status, 200);

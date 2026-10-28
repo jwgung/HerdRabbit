@@ -5,7 +5,14 @@
 // fits what is left, so the composer and key bar sit above the keyboard. The
 // terminal keeps its rows and shows its foot, and the pane is not resized
 // when the keyboard comes or goes. A desktop window made shorter still resizes
-// the pane. Runs against an in-process fake herdr; nothing reaches a real herdr.
+// the pane.
+//
+// The composer's Enter: on the phone an on-screen keyboard's Enter is a new
+// line, and once a physical keyboard types a letter Enter sends; Shift+Enter
+// is a new line; the Enter setting (new line / send) overrides; an input
+// method's Enter never sends. On the desktop Enter and Shift+Enter send,
+// Ctrl+Enter is a new line, as before. Runs against an in-process fake herdr; nothing
+// reaches a real herdr.
 //
 // PHONE_KEYBOARD_SHOTS=<folder> keeps pictures with the keyboard up and down.
 import assert from "node:assert/strict";
@@ -16,6 +23,7 @@ import { PaneAttachments } from "../src/pane-attachments.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const ptys = [];
+const sent = [];
 const attachments = new PaneAttachments({
   log: () => {},
   options: { holdMs: 5, heldRetryMs: 60_000, relookupForMs: 200 },
@@ -40,7 +48,7 @@ const { server } = createHerdrHttpServer({
       };
     },
     async readPane() { return "$ "; },
-    async sendText() {},
+    async sendText(paneId, text) { sent.push(text); },
     async sendKeys() {},
   },
   attachments,
@@ -56,6 +64,82 @@ const lastSize = () => {
   const pty = ptys.at(-1);
   return pty.sizes.at(-1) ?? [pty.options.cols, pty.options.rows];
 };
+
+// What Enter in the composer did: "sent" what was typed, or left it with a
+// new line at the end.
+async function enterDoes(page, press) {
+  const input = page.locator("#terminal-input");
+  await input.focus();
+  const before = sent.length;
+  await press();
+  await page.waitForTimeout(300);
+  if (sent.length > before) {
+    await page.waitForFunction(() => document.querySelector("#terminal-input").value === "");
+    return { sent: sent.slice(before) };
+  }
+  return { value: await input.inputValue() };
+}
+
+async function clearComposer(page) {
+  await page.locator("#terminal-input").evaluate((node) => {
+    node.value = "";
+    node.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+async function checkEnter(page, mobile) {
+  const typeSoft = (text) => page.keyboard.insertText(text); // no keydown, as an on-screen keyboard
+  if (!mobile) {
+    await clearComposer(page);
+    assert.deepEqual(await enterDoes(page, async () => { await page.keyboard.type("one"); await page.keyboard.press("Control+Enter"); }), { value: "one\n" }, "desktop Ctrl+Enter");
+    assert.deepEqual(await enterDoes(page, async () => { await page.keyboard.type("two"); await page.keyboard.press("Enter"); }), { sent: ["one\ntwo"] }, "desktop Enter");
+    assert.deepEqual(await enterDoes(page, async () => { await page.keyboard.type("three"); await page.keyboard.press("Shift+Enter"); }), { sent: ["three"] }, "desktop Shift+Enter still sends");
+    return;
+  }
+  const reload = async (mode) => {
+    await page.evaluate((value) => value ? localStorage.setItem("herdrBridge.enterKey.v1", value) : localStorage.removeItem("herdrBridge.enterKey.v1"), mode);
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector("#terminal-xterm .xterm-rows")?.textContent.includes("prompt-at-the-foot"));
+    await clearComposer(page);
+  };
+
+  // Auto (the default): an on-screen keyboard's Enter is a new line.
+  await reload(null);
+  assert.deepEqual(await enterDoes(page, async () => { await typeSoft("soft"); await page.keyboard.press("Enter"); }), { value: "soft\n" }, "on-screen Enter");
+  // A soft-keyboard-style keydown (keyCode 229, key Unidentified) does not count as a physical keyboard.
+  const cdp = await page.context().newCDPSession(page);
+  await page.locator("#terminal-input").focus();
+  await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Unidentified", code: "", windowsVirtualKeyCode: 229 });
+  await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Unidentified", code: "", windowsVirtualKeyCode: 229 });
+  assert.deepEqual(await enterDoes(page, async () => { await typeSoft("x"); await page.keyboard.press("Enter"); }), { value: "soft\nx\n" }, "Enter after a 229 keydown");
+  // A physical key (a letter with its code) turns Enter into send; Shift+Enter stays a new line.
+  assert.deepEqual(await enterDoes(page, async () => { await page.keyboard.type("k"); await page.keyboard.press("Shift+Enter"); }), { value: "soft\nx\nk\n" }, "physical Shift+Enter");
+  assert.deepEqual(await enterDoes(page, async () => { await page.keyboard.type("m"); await page.keyboard.press("Enter"); }), { sent: ["soft\nx\nk\nm"] }, "physical Enter");
+  // An input method's Enter never sends: keyCode 229 (trusted), or isComposing.
+  await typeSoft("한");
+  assert.deepEqual(await enterDoes(page, async () => {
+    await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 229 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 229 });
+  }), { value: "한" }, "Enter with keyCode 229");
+  const composingEnter = (isComposing) => page.locator("#terminal-input").evaluate((node, composing) => {
+    node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", isComposing: composing, bubbles: true, cancelable: true }));
+  }, isComposing);
+  assert.deepEqual(await enterDoes(page, () => composingEnter(true)), { value: "한" }, "Enter while composing");
+  // The same event without composition reaches the handler and sends.
+  assert.deepEqual(await enterDoes(page, () => composingEnter(false)), { sent: ["한"] }, "control: Enter not composing");
+  await cdp.detach();
+
+  // New line: Enter stays a new line even from a physical keyboard; Ctrl+Enter sends.
+  await reload("newline");
+  assert.deepEqual(await enterDoes(page, async () => { await page.keyboard.type("hw"); await page.keyboard.press("Enter"); }), { value: "hw\n" }, "new line setting");
+  assert.deepEqual(await enterDoes(page, () => page.keyboard.press("Control+Enter")), { sent: ["hw\n"] }, "Ctrl+Enter on touch (the new line typed before goes too)");
+
+  // Send: Enter sends without any physical key seen; Shift+Enter is a new line.
+  await reload("send");
+  assert.deepEqual(await enterDoes(page, async () => { await typeSoft("s"); await page.keyboard.press("Shift+Enter"); }), { value: "s\n" }, "send setting Shift+Enter");
+  assert.deepEqual(await enterDoes(page, async () => { await typeSoft("t"); await page.keyboard.press("Enter"); }), { sent: ["s\nt"] }, "send setting Enter");
+  await reload(null);
+}
 
 try {
   for (const mobile of [true, false]) {
@@ -125,6 +209,8 @@ try {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.waitForTimeout(500);
     }
+
+    await checkEnter(page, mobile);
 
     assert.deepEqual(errors, [], `page errors: ${errors.join("; ")}`);
     await context.close();

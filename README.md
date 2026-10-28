@@ -416,11 +416,14 @@ Over the Chat view the same shortcut and magnifier open **Find in conversation**
 | --- | --- |
 | Send input in a mouse-oriented environment | `Enter` |
 | Insert a newline in a mouse-oriented environment | `Ctrl+Enter` |
-| Insert a newline in a touch-oriented environment | `Enter` |
-| Send input in a touch-oriented environment | Arrow send button |
-| Send from an external keyboard on a touch device | `Ctrl+Enter` or `Cmd+Enter` |
+| Insert a newline from the on-screen keyboard of a touch device | `Enter` |
+| Send input in a touch-oriented environment | Arrow send button, or `Ctrl+Enter` / `Cmd+Enter` |
+| Send from a physical keyboard on a touch device | `Enter`, once a letter or digit has been typed on it (see below) |
+| Insert a newline from a physical keyboard on a touch device | `Shift+Enter` |
 | Recall previous sent input | `↑` |
 | Recall later input or restore the current draft | `↓` |
+
+On a touch device the ⚙ settings menu has an **Enter** item that cycles three choices, kept in this browser: **Enter: Auto** (the default) inserts a newline until a physical keyboard is seen on the page and sends from then on; **Enter: New line** always inserts a newline, as before; **Enter: Send** always sends, as on a desktop. A browser does not say whether a keyboard is plugged in, so Auto takes a letter or digit key reporting its physical key code as the sign: on-screen keyboards leave that code empty or report key code 229, and an input method's composing keys (Korean, Japanese, ...) are not counted. The sign lasts until the page is reloaded, so a keyboard unplugged later never leaves the on-screen keyboard without a newline. In every mode `Shift+Enter` is a newline, and an `Enter` that confirms an input method's composition never sends. The item is not shown in a mouse-oriented environment, where `Enter` always sends.
 
 The composer starts at one line, grows with explicit or soft wrapping up to five lines, and then scrolls internally. Submitted text is delivered atomically with Enter through Herdr's `pane run` command.
 

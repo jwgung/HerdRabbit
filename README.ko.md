@@ -450,9 +450,10 @@ Chat 화면에서는 같은 단축키와 돋보기가 **채팅 안 찾기**를 �
 | --- | --- |
 | 마우스 중심 환경에서 입력 전송 | `Enter` |
 | 마우스 중심 환경에서 줄바꿈 | `Ctrl+Enter` |
-| 터치 중심 환경에서 줄바꿈 | `Enter` |
-| 터치 중심 환경에서 입력 전송 | 오른쪽 화살표 버튼 |
-| 터치 기기에 연결한 외장 키보드로 전송 | `Ctrl+Enter` 또는 `Cmd+Enter` |
+| 터치 기기의 화면 키보드로 줄바꿈 | `Enter` |
+| 터치 중심 환경에서 입력 전송 | 오른쪽 화살표 버튼, 또는 `Ctrl+Enter` / `Cmd+Enter` |
+| 터치 기기에 연결한 외장 키보드로 전송 | 그 키보드로 글자나 숫자를 한 번 친 뒤부터 `Enter` (아래 참고) |
+| 터치 기기에 연결한 외장 키보드로 줄바꿈 | `Shift+Enter` |
 | 이전에 전송한 입력 불러오기 | `↑` |
 | 이후 입력 또는 작성 중이던 초안으로 이동 | `↓` |
 
@@ -464,7 +465,7 @@ Chat 화면에서는 같은 단축키와 돋보기가 **채팅 안 찾기**를 �
 
 입력창 맨 앞에 `/`를 치면 선택한 패인의 에이전트가 받는 명령을 고를 수 있습니다. Claude Code 패인에서는 Claude Code 자체 명령(`/compact`, `/model` 등), 내 스킬과 명령(`~/.claude/skills/<이름>/SKILL.md`, `~/.claude/commands/**/*.md`, 하위 폴더의 것은 `폴더:이름`), 프로젝트의 것(패인 작업 폴더의 `.claude/skills`, `.claude/commands`. git 저장소 안이면 그 위로 저장소 루트까지의 폴더도 포함), 설치된 플러그인의 것(`~/.claude/plugins/installed_plugins.json` 기준, `플러그인:이름`)을 보여 주고, Codex 패인에서는 Codex 자체 명령과 `~/.codex/prompts`의 프롬프트(`prompts:이름`)를 보여 주며, OpenCode 패인에서는 OpenCode 1.19.3 기준 자체 명령(별칭, 서버의 `/init`과 `/review`, 내장 스킬 `customize-opencode` 포함. `/variants`, `/org`, `/update`, `/warp`, `/workspaces`는 OpenCode에서 해당할 때만 동작), 설정 폴더의 명령 파일(`commands/*.md`와 예전 단수형 `command/`. 하위 폴더는 읽지 않음), 그리고 OpenCode가 `/이름`으로도 받는 스킬(설정 폴더의 `skill/`이나 `skills/` 아래, `.claude/skills`와 `.agents/skills` 아래의 모든 `SKILL.md`. 이름은 frontmatter의 `name`이며, `name`이 없는 것과 명령과 이름이 같은 스킬은 나오지 않음)을 보여 줍니다. 설정 폴더는 OpenCode가 읽는 곳과 같습니다: 패인 작업 폴더와 그 위로 git 저장소 루트까지(저장소 밖이면 `/`까지, 최대 32개 폴더) 각 폴더의 `.opencode`, `~/.opencode`, `$OPENCODE_CONFIG_DIR`, `$XDG_CONFIG_HOME/opencode`(기본값 `~/.config/opencode`). `.claude/skills`와 `.agents/skills`는 같은 상위 폴더들과 홈 폴더에서 찾습니다. `OPENCODE_CONFIG_DIR`, `OPENCODE_DISABLE_PROJECT_CONFIG`, `OPENCODE_DISABLE_EXTERNAL_SKILLS`, `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS`(또는 `OPENCODE_DISABLE_CLAUDE_CODE`)는 HerdRabbit 서버의 환경(연결된 PC는 그 PC의 환경)에서 읽어 OpenCode와 같은 방식으로 따릅니다. `opencode.json`에 정의한 명령과 스킬 경로는 목록에 나오지 않습니다. 그 파일에 키가 들어 있을 수 있어 HerdRabbit은 열지 않습니다. 각 줄에는 이름, 한 줄 설명, 출처(built-in, user, project, plugin)가 나옵니다. 더 치면 목록이 좁혀지고(친 글자로 시작하는 이름이 먼저, 그다음 이름이나 설명에 그 글자가 들어간 것), 키와 탭은 `@` 목록과 같습니다. 고르면 `/이름 `이 뒤에 공백과 함께 들어가고 아무것도 보내지 않습니다. 각 파일에서는 frontmatter의 이름과 설명(없으면 첫 줄)만 읽고 본문은 읽지 않으며, 그 폴더들 밖의 파일은 열지 않습니다. 에이전트 자체 명령은 HerdRabbit에 적어 둔 고정 목록이라, CLI 버전에 따라 실제와 몇 개 다를 수 있습니다. 플러그인은 Claude Code 설정에서 꺼 두었더라도 설치된 대로 보입니다. HerdRabbit은 그 설정 파일을 읽지 않습니다. Connect PC로 붙인 PC의 패인은 그 PC가 이 버전 이상이면 그 PC가 직접 읽은 목록(그 PC의 스킬과 명령, 패인 프로젝트의 것, 플러그인, 프롬프트)을 보여 주고, 그보다 오래된 버전이면 에이전트 자체 명령만 보여 줍니다. 다른 프로그램이 도는 패인에서는 목록이 나오지 않습니다.
 
-입력 정책은 기기 이름이 아니라 브라우저의 터치 정보를 조합해 결정합니다. 기본 포인터 판정뿐 아니라 보조 포인터와 터치 포인트 수도 확인하며, 터치 포인트 기반 fallback은 1024px 이하 화면에서만 사용해 창이 좁은 일반 PC를 터치 기기로 오인하지 않도록 합니다. 브라우저는 외장 키보드 연결 여부를 안정적으로 제공하지 않으므로 자동 전환하지 않으며, 외장 키보드에서는 `Ctrl+Enter` 또는 `Cmd+Enter`로 전송합니다.
+입력 정책은 기기 이름이 아니라 브라우저의 터치 정보를 조합해 결정합니다. 기본 포인터 판정뿐 아니라 보조 포인터와 터치 포인트 수도 확인하며, 터치 포인트 기반 fallback은 1024px 이하 화면에서만 사용해 창이 좁은 일반 PC를 터치 기기로 오인하지 않도록 합니다. 브라우저는 외장 키보드 연결 여부를 알려 주지 않으므로, 터치 기기에서 `Enter`가 하는 일은 ⚙ 설정 메뉴의 **Enter** 항목으로 정합니다. 누를 때마다 세 가지가 돌아가며 이 브라우저에 저장됩니다. **Enter: Auto**(기본값)는 이 페이지에서 외장 키보드를 알아보기 전까지는 줄바꿈하고, 알아본 뒤부터는 전송합니다. **Enter: New line**은 예전처럼 늘 줄바꿈하고, **Enter: Send**는 데스크톱처럼 늘 전송합니다. Auto는 물리 키 코드(`KeyA`, `Digit1` 같은 값)를 가진 글자·숫자 키 입력을 외장 키보드의 신호로 봅니다. 화면 키보드는 이 코드를 비워 두거나 키 코드 229를 보내고, 한글·일본어 같은 입력기의 조합 중 키는 세지 않습니다. 이 신호는 페이지를 새로 고칠 때까지만 유지하므로, 나중에 키보드를 빼도 화면 키보드에서 줄바꿈을 못 하게 되는 일은 없습니다. 어느 설정에서든 `Shift+Enter`는 줄바꿈이고, 입력기 조합을 확정하는 `Enter`는 전송하지 않으며, `Ctrl+Enter`나 `Cmd+Enter`는 전송합니다. 이 항목은 마우스 중심 환경에서는 보이지 않으며, 그곳에서는 `Enter`가 늘 전송합니다.
 
 ### 파일
 

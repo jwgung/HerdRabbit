@@ -75,6 +75,7 @@ const STATIC_FILES = new Map([
   ["/workspace-preference.js", { path: `${PUBLIC_DIR}/workspace-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-preference.js", { path: `${PUBLIC_DIR}/terminal-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/completion-preference.js", { path: `${PUBLIC_DIR}/completion-preference.js`, type: "text/javascript; charset=utf-8" }],
+  ["/enter-key-preference.js", { path: `${PUBLIC_DIR}/enter-key-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/swipe-dismiss.js", { path: `${PUBLIC_DIR}/swipe-dismiss.js`, type: "text/javascript; charset=utf-8" }],
   ["/pane-rename.js", { path: `${PUBLIC_DIR}/pane-rename.js`, type: "text/javascript; charset=utf-8" }],
   ["/sidebar-drag.js", { path: `${PUBLIC_DIR}/sidebar-drag.js`, type: "text/javascript; charset=utf-8" }],

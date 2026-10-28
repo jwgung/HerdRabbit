@@ -103,6 +103,13 @@ import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
 } from "./completion-preference.js?v=1.4.0";
+import {
+  enterKeyModeLabel,
+  looksLikePhysicalKey,
+  nextEnterKeyMode,
+  readEnterKeyMode,
+  writeEnterKeyMode,
+} from "./enter-key-preference.js?v=1.4.0";
 import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.4.0";
 import {
   attachSidebarDrag,
@@ -561,6 +568,16 @@ const OUTPUT_SUBMISSION_RETRY_MS = 250;
 // Check deadlines often enough to honor the 300ms post-submission cadence.
 const OUTPUT_POLL_TICK_MS = 100;
 
+// The composer's Enter on a touch device (see enter-key-preference.js), and
+// whether this page has seen a physical keyboard type. The sighting lasts for
+// the page only, so a keyboard unplugged later does not leave the on-screen
+// keyboard without a way to break a line after a reload.
+let enterKeyMode = readEnterKeyMode(browserStorage());
+let physicalKeyboardSeen = false;
+document.addEventListener("keydown", (event) => {
+  if (!physicalKeyboardSeen && looksLikePhysicalKey(event)) physicalKeyboardSeen = true;
+}, { capture: true, passive: true });
+
 function usesTouchInputEnvironment() {
   return detectTouchInput({
     primaryTouch: primaryTouchMedia.matches,
@@ -827,6 +844,7 @@ const PASSKEY_ICON = ["M8 15a4 4 0 1 1 3.9-5H21v3h-2v2h-3v-2h-4.1A4 4 0 0 1 8 15
 const DEVICES_ICON = ["M4 5h16v10H4z", "M8 19h8", "M12 15v4"];
 const NEW_WINDOW_ICON = ["M5 5h14v14H5z", "M5 9h14", "M12 11v6", "M9 14h6"];
 const UPDATE_ICON = ["M12 3v12", "M7 10l5 5 5-5", "M5 20h14"];
+const RETURN_ICON = ["M20 5v6a4 4 0 0 1-4 4H5", "M9 11l-4 4 4 4"];
 const GEAR_ICON = [
   "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
   "M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z",
@@ -871,6 +889,17 @@ function buildSettingsMenu() {
         },
       },
       {
+        // Touch devices only: what the composer's Enter does there.
+        key: "enter-key",
+        label: enterKeyModeLabel(enterKeyMode),
+        paths: RETURN_ICON,
+        onSelect: () => {
+          enterKeyMode = nextEnterKeyMode(enterKeyMode);
+          writeEnterKeyMode(panePreferenceStorage, enterKeyMode);
+          syncSettingsMenu();
+        },
+      },
+      {
         key: "new-window",
         label: "New window",
         paths: NEW_WINDOW_ICON,
@@ -895,6 +924,11 @@ function buildSettingsMenu() {
     ],
   });
   elements.navigatorFooter.append(settingsMenu.details);
+  // Whether this is a touch environment can change with the window, so the
+  // Enter item is shown or hidden again each time the menu opens.
+  settingsMenu.details.addEventListener("toggle", () => {
+    if (settingsMenu.details.open) syncSettingsMenu();
+  });
   syncSettingsMenu();
 }
 
@@ -918,6 +952,16 @@ function syncSettingsMenu() {
   }
   const theme = item("theme");
   setLabel(theme, settingsMenu.themeLabel, settingsMenu.themeIcon);
+  const enterKey = item("enter-key");
+  enterKey.hidden = !usesTouchInputEnvironment();
+  setLabel(enterKey, enterKeyModeLabel(enterKeyMode));
+  const enterKeyHint = {
+    auto: "Enter sends once a physical keyboard is typed on, otherwise inserts a new line",
+    newline: "Enter inserts a new line; the arrow button or Ctrl+Enter sends",
+    send: "Enter sends; Shift+Enter inserts a new line",
+  }[enterKeyMode];
+  enterKey.title = enterKeyHint;
+  enterKey.setAttribute("aria-label", `${enterKeyModeLabel(enterKeyMode)}. ${enterKeyHint}`);
   const update = item("update");
   update.hidden = !settingsMenu.update.visible;
   setLabel(update, settingsMenu.update.available ? "Update available" : "Update");
@@ -4364,8 +4408,12 @@ elements.terminalInput.addEventListener("keydown", (event) => {
     key: event.key,
     ctrlKey: event.ctrlKey,
     metaKey: event.metaKey,
+    shiftKey: event.shiftKey,
     isComposing: event.isComposing,
+    keyCode: event.keyCode,
     usesTouchInput: usesTouchInputEnvironment(),
+    enterMode: enterKeyMode,
+    physicalKeyboard: physicalKeyboardSeen,
   });
   if (action === "submit") {
     event.preventDefault();

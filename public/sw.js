@@ -73,6 +73,7 @@ const APP_SHELL = [
   "/workspace-preference.js?v=1.4.0",
   "/terminal-preference.js?v=1.4.0",
   "/completion-preference.js?v=1.4.0",
+  "/enter-key-preference.js?v=1.4.0",
   "/swipe-dismiss.js?v=1.4.0",
   "/path-links.js?v=1.4.0",
   "/sidebar-drag.js?v=1.4.0",

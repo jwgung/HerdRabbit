@@ -1,7 +1,7 @@
 // Browser check of the ⚙ settings menu at the foot of the sidebar. The footer
 // holds the uploads button and the settings button only; the menu opens upward
 // inside the viewport and lists Notifications (only where push works), the
-// theme switch, Edit keys, New window and -- with sign-in on -- Passkeys and Signed-in
+// theme switch, Edit keys, Enter (touch devices only), New window and -- with sign-in on -- Passkeys and Signed-in
 // devices. Escape closes the menu alone. Each item does what its old button
 // did. Runs on a desktop and a phone against an in-process fake herdr.
 //
@@ -90,9 +90,11 @@ try {
       const labels = await menu.locator("button:visible").allTextContents();
       // Headless Chromium has no notification permission, so the state reads Blocked.
       if (full) assert.match(labels[0], /^Notifications: (Off|Blocked)$/);
+      // The Enter item shows on a touch device only.
+      const keys = mobile ? ["Edit keys", "Enter: Auto"] : ["Edit keys"];
       assert.deepEqual(
         labels.slice(full ? 1 : 0),
-        full ? [labels[1], "Edit keys", "New window", "Passkeys", "Signed-in devices"] : [labels[0], "Edit keys", "New window"],
+        full ? [labels[1], ...keys, "New window", "Passkeys", "Signed-in devices"] : [labels[0], ...keys, "New window"],
       );
       assert.match(labels[full ? 1 : 0], /^Switch to (light|dark) mode$/);
       // It opens upward and stays inside the viewport.
@@ -110,6 +112,18 @@ try {
       await button.click();
       await menu.waitFor({ state: "visible" });
       assert.match(await menu.getByRole("menuitem", { name: /Switch to/ }).textContent(), before === "dark" ? /dark mode/ : /light mode/);
+
+      if (mobile) {
+        // Enter: cycles auto, new line, send and back, kept in this browser.
+        for (const [label, stored] of [["Enter: New line", "newline"], ["Enter: Send", "send"], ["Enter: Auto", "auto"]]) {
+          await menu.locator('[data-action="enter-key"]').click();
+          await menu.waitFor({ state: "hidden" });
+          assert.equal(await page.evaluate(() => localStorage.getItem("herdrBridge.enterKey.v1")), stored);
+          await button.click();
+          await menu.waitFor({ state: "visible" });
+          assert.equal(await menu.locator('[data-action="enter-key"] span').textContent(), label);
+        }
+      }
 
       // Escape closes the menu alone and gives the focus back to the button.
       await page.keyboard.press("Escape");
