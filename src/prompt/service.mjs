@@ -18,7 +18,7 @@
 // only once its box is open, and sends its Enter only once the box holds it.
 import { createHash } from "node:crypto";
 import { HttpError } from "../http-basics.mjs";
-import { fillClaudeCard, parseClaudePrompt } from "./claude.mjs";
+import { claudeQuestionContext, fillClaudeCard, parseClaudePrompt } from "./claude.mjs";
 import { parseCodexPrompt } from "./codex.mjs";
 import { parseFallbackPrompt } from "./fallback.mjs";
 import { SUPPORTED_OPENCODE_TUI, fillOpencodeCard, opencodeDialogOpen, parseOpencodePrompt } from "./opencode.mjs";
@@ -34,6 +34,11 @@ const MAX_WATCHED_PANES = 16;
 const MAX_WATCHES = 64;
 // Panes whose screens one tick reads at once.
 const READS_AT_ONCE = 4;
+// The recent lines a question's context is looked for in: the message above
+// it may be long, and scrolled above the visible screen.
+const CONTEXT_LINES = 400;
+// Reads of it for one card, at most, while they do not find the question.
+const CONTEXT_TRIES = 3;
 // Ticks a watched pane may be missing from the snapshot before it is let go.
 const MISSING_TICKS = 3;
 // How long a pane's agent version, once told, stands before it is asked again.
@@ -53,13 +58,17 @@ const VERSION_MS = 2_000;
 //           the styles; checked on OpenCode 1.18.34)
 //   fill:   the card's whole words, from the agent's own record of the call it
 //           waits on
+//   context: (screen, card) => the text the terminal shows above a question
+//           card (the message its transcript does not have yet), null for
+//           none, undefined when that screen does not show the question; read
+//           from the pane's recent lines unwrapped, once per card
 //   supports: (version) => whether the reader knows the screens of that
 //           version of the agent (the pane's own record of it, `agentVersion`);
 //           a pane of any other version, or of none known, has no card at all,
 //           not even the fallback. Absent: any version.
-const SCREEN_DEFAULTS = Object.freeze({ read: null, noCard: () => false, format: "text", source: "detection", fill: null, supports: null });
+const SCREEN_DEFAULTS = Object.freeze({ read: null, noCard: () => false, format: "text", source: "detection", fill: null, context: null, supports: null });
 const AGENT_SCREENS = Object.freeze(Object.fromEntries(Object.entries({
-  claude: { read: parseClaudePrompt, fill: fillClaudeCard },
+  claude: { read: parseClaudePrompt, fill: fillClaudeCard, context: claudeQuestionContext },
   codex: { read: parseCodexPrompt },
   opencode: { read: parseOpencodePrompt, noCard: opencodeDialogOpen, format: "ansi", source: "visible", fill: fillOpencodeCard, supports: SUPPORTED_OPENCODE_TUI },
 }).map(([name, screen]) => [name, Object.freeze({ ...SCREEN_DEFAULTS, ...screen })])));
@@ -99,7 +108,7 @@ function serverPending(snapshot, paneId) {
 // moment after the menu shows.
 function cardVersion(card) {
   if (!card) return null;
-  const words = createHash("sha256").update(JSON.stringify([card.question, card.body, card.options])).digest("base64url").slice(0, 16);
+  const words = createHash("sha256").update(JSON.stringify([card.question, card.body, card.options, card.context ?? null])).digest("base64url").slice(0, 16);
   return `${card.id}:${(card.checked ?? []).join(",")}:${words}`;
 }
 
@@ -147,6 +156,9 @@ export class PromptService {
     // paneId + agent session -> { version, at }: the agent version last told,
     // for VERSION_MS; another session in the same pane is asked again
     this.versions = new Map();
+    // paneId -> { id, text }: the context read for the card `id` (text or
+    // null); the text above an open question does not change while it waits
+    this.contexts = new Map();
     this.settleMs = settleMs;
     this.stepDelayMs = stepDelayMs;
     this.lookMs = lookMs;
@@ -227,11 +239,37 @@ export class PromptService {
   // A Claude card's words, whole, from its transcript, and an OpenCode
   // question's from its database; the screen's when those cannot be read.
   async #worded(paneId, card, snapshot = null) {
+    card = await this.#withContext(paneId, card);
     const fill = card && !card.fallback ? screenOf(card.agent).fill : null;
     if (!fill || !this.details || (card.kind !== "plan" && card.kind !== "question")) return card;
     let ask = null;
     try { ask = await this.details(paneId, snapshot); } catch { /* the screen's words, then */ }
     return fill(card, ask);
+  }
+
+  // A question card with the text above it on the terminal (`context`), when
+  // its agent's reader finds one; read once per card, and the card as it is
+  // when it cannot be read.
+  async #withContext(paneId, card) {
+    const { context } = card && !card.fallback ? screenOf(card.agent) : SCREEN_DEFAULTS;
+    if (!context || card.kind !== "question") { this.contexts.delete(paneId); return card; }
+    let known = this.contexts.get(paneId);
+    if (known?.id !== card.id) known = { id: card.id, text: null, tries: 0, done: false };
+    if (!known.done) {
+      let text;
+      try {
+        text = context(await this.herdr.readPane(paneId, { lines: CONTEXT_LINES, format: "text", source: "recent-unwrapped" }), card);
+      } catch { text = undefined; }
+      // a screen that did not show this question (yet), or a read that
+      // failed, is tried again on the next looks, a few times
+      known.tries += 1;
+      known.done = text !== undefined || known.tries >= CONTEXT_TRIES;
+      known.text = typeof text === "string" && text ? text : null;
+      this.contexts.delete(paneId);
+      this.contexts.set(paneId, known);
+      if (this.contexts.size > MAX_WATCHES) this.contexts.delete(this.contexts.keys().next().value);
+    }
+    return known.text ? { ...card, context: known.text } : card;
   }
 
   // Answers one pane at a time, in the order the answers came.
@@ -248,14 +286,14 @@ export class PromptService {
     if (!body || typeof body !== "object" || typeof body.cardId !== "string" || !body.cardId) {
       throw new HttpError(400, "invalid_answer", "cardId is required.");
     }
-    const given = JSON.stringify([body.cardId, body.option ?? null, body.options ?? null, body.text ?? null]);
+    const given = JSON.stringify([body.cardId, body.option ?? null, body.options ?? null, body.text ?? null, body.action ?? null]);
     const last = this.answered.get(paneId);
     if (last && last.answer === given && Date.now() - last.at < this.answeredMs) throw promptChanged();
     const parsed = await this.read(paneId, null, { fresh: true });
     if (!parsed || parsed.id !== body.cardId) throw promptChanged();
     let steps;
     try {
-      steps = answerSteps(parsed, { option: body.option, options: body.options, text: body.text });
+      steps = answerSteps(parsed, { option: body.option, options: body.options, text: body.text, action: body.action });
     } catch (error) {
       if (error instanceof InvalidAnswer) throw new HttpError(400, "invalid_answer", error.message);
       throw error;

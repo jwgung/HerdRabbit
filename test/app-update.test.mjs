@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AppUpdater, MAX_LOG_BYTES, MAX_NOTES, MAX_RUN_MS, RESTART_WAIT_MS, OFFICIAL_ORIGINS, SERVICE_UNITS, cleanCheck, cleanLog, cleanRunStatus, execCommand, runLimiter,
-  pluginRunEnvironment, runPluginUpdate, runUpdateScript,
+  pluginRunEnvironment, runPluginUpdate, runUpdateScript, RUN_STEPS, SCRIPT_MARKERS, ACTION_LOOKUP_TRIES, actionOutcome, invokedLogId, scriptPhase, runLogged, runCaptured, cleanDetail,
 } from "../src/app-update.mjs";
 import { EventEmitter } from "node:events";
 
@@ -95,7 +95,7 @@ test("a checkout level with origin is up to date", async (context) => {
     checkedAt: null,
     current: { sha, version: "1.0.0" },
     latest: { sha, version: "1.0.0" },
-    available: false, notes: [], blocked: null, error: null,
+    available: false, notes: [], blocked: null, error: null, mode: "script",
   });
 });
 
@@ -337,6 +337,12 @@ test("the service units and official addresses here are the ones update.sh uses"
   for (const unit of SERVICE_UNITS) assert.match(script, new RegExp(`UPDATE_SERVICE=${unit.replace(".", "\\.")}`, "u"), `${unit} is not in update.sh`);
   const allowed = script.match(/^\s*(https:\/\/github\.com\/ultivis-iot[^)]*)\)\s*;;/mu)?.[1].split("|").map((origin) => origin.trim());
   assert.deepEqual(new Set(allowed), OFFICIAL_ORIGINS, "update.sh and the app allow different origins");
+  // Both owners, in each of the three spellings.
+  for (const owner of ["ultivis-iot", "jwgung"]) {
+    for (const origin of [`https://github.com/${owner}/HerdRabbit.git`, `https://github.com/${owner}/HerdRabbit`, `git@github.com:${owner}/HerdRabbit.git`]) {
+      assert.ok(OFFICIAL_ORIGINS.has(origin), `${origin} is allowed`);
+    }
+  }
 });
 
 test("the run records how update.sh ended and keeps its output as the log", async (context) => {
@@ -382,6 +388,8 @@ test("what a connected PC says about its update is held to the shape shown here"
   assert.equal(cleaned.blocked, null);
   assert.equal(cleaned.error, "fetch_failed");
   assert.equal("remote" in cleaned, false);
+  assert.equal(cleaned.mode, null);
+  assert.equal(cleanCheck({ mode: "plugin" }).mode, "plugin");
   const long = cleanCheck({ notes: ["x".repeat(500), "bad\u001b[2Jline"] });
   assert.equal(long.notes[0].length, 200);
   assert.equal(long.notes[1], "bad [2Jline");
@@ -475,6 +483,7 @@ test("a plugin's checkout, on no branch and outside any service, is updated by H
   const result = await subject.check();
   assert.equal(result.available, true);
   assert.equal(result.blocked, null);
+  assert.equal(result.mode, "plugin");
   assert.deepEqual(result.notes, ["Release 1.0.1"]);
   assert.equal(fake.calls.some((call) => call[0] === "systemctl"), false, "a plugin never asks systemd");
   // Without the plugin the same checkout cannot update itself.
@@ -513,6 +522,23 @@ test("a plugin run starts detached with a fixed command line and is followed by 
   assert.equal(ended.reason, "interrupted");
 });
 
+test("a plugin run is told the plugin's folders when Herdr named them, and only absolute ones", async (context) => {
+  const repo = await scratch(context);
+  const checkout = await pluginCheckout(repo);
+  await repo.publish("Release 1.0.1", "1.0.1");
+  const runArgs = async (folders) => {
+    const spawner = fakeSpawner();
+    const subject = updater({ ...repo, work: checkout }, services(repo.work, { loaded: "none" }), {
+      plugin: { id: "herdrabbit", binary: "/opt/herdr", ...folders }, spawnImpl: spawner.spawnImpl, alive: () => true,
+    });
+    await subject.start();
+    await rm(join(repo.stateDir, "update-state.json"));
+    return spawner.calls[0].args.slice(1);
+  };
+  assert.deepEqual(await runArgs({ configDir: "/cfg", stateDir: "/st" }), [repo.stateDir, "--plugin", "herdrabbit", "/opt/herdr", "/cfg", "/st"]);
+  assert.deepEqual(await runArgs({ configDir: "cfg", stateDir: "/st" }), [repo.stateDir, "--plugin", "herdrabbit", "/opt/herdr"]);
+});
+
 test("a plugin run whose process cannot start is a failed run", async (context) => {
   const repo = await scratch(context);
   const checkout = await pluginCheckout(repo);
@@ -528,19 +554,70 @@ test("a plugin run whose process cannot start is a failed run", async (context) 
 });
 
 // A stand-in for herdr that writes down what it was asked and fails where told.
-async function fakeHerdr(root, { failUpdate = false, failRestart = false } = {}) {
+// `invoke` is what `plugin action invoke` prints; `logs` the JSON lines
+// `plugin log list` prints, one per call (the last one repeats); `root` the
+// checkout `plugin list --json` names; `logExit` how `plugin log list` exits.
+async function fakeHerdr(root, {
+  failUpdate = false, failRestart = false, invoke = "HerdRabbit restarted", logs = [], pluginRoot = null, logExit = 0,
+} = {}) {
   const binary = join(root, "fake-herdr");
   const asked = join(root, "asked.txt");
-  await writeFile(binary, [
+  const calls = join(root, "log-calls.txt");
+  const lines = [
     "#!/bin/sh",
     `echo "$*" >> '${asked}'`,
     `[ "$2" = update ] && { echo 'Updated herdrabbit.'; ${failUpdate ? "exit 4" : "exit 0"}; }`,
-    `[ "$2" = action ] && { echo 'HerdRabbit restarted'; ${failRestart ? "exit 5" : "exit 0"}; }`,
+    `[ "$2" = action ] && { printf '%s\\n' '${invoke}'; ${failRestart ? "echo 'herdr: server not reachable' >&2; exit 5" : "exit 0"}; }`,
+  ];
+  for (const [index, answer] of logs.entries()) {
+    await writeFile(join(root, `log-${index}.json`), answer);
+  }
+  lines.push(
+    `[ "$2" = log ] && { echo x >> '${calls}'; n=$(wc -l < '${calls}'); i=$((n - 1)); [ "$i" -ge ${Math.max(logs.length, 1)} ] && i=${Math.max(logs.length - 1, 0)}; cat '${root}'/log-$i.json; exit ${logExit}; }`,
+    `[ "$2" = list ] && { printf '%s\\n' '${JSON.stringify({ id: "cli:plugin", result: { type: "plugin_list", plugins: pluginRoot ? [{ plugin_id: "herdrabbit", plugin_root: pluginRoot }] : [] } })}'; exit 0; }`,
     "exit 9",
-  ].join("\n"));
+  );
+  await writeFile(binary, lines.join("\n"));
   await chmod(binary, 0o700);
   return { binary, asked: async () => (await readFile(asked, "utf8")).trim().split("\n") };
 }
+
+// Herdr's answer to `plugin action invoke`, and its log of that action.
+const INVOKED = JSON.stringify({ id: "cli:plugin", result: { type: "plugin_action_invoked", log: { log_id: "plugin-log-35" } } });
+const actionLog = (fields) => JSON.stringify({
+  id: "cli:plugin",
+  result: {
+    type: "plugin_log_list",
+    logs: [
+      { log_id: "plugin-log-34", action_id: "restart", status: "succeeded", exit_code: 0, finished_unix_ms: 1 },
+      { log_id: "plugin-log-35", action_id: "restart", plugin_id: "herdrabbit", started_unix_ms: 2, stdout: "", stderr: "", ...fields },
+    ],
+  },
+});
+const SPAWN_FAILED = actionLog({ status: "failed", error: "No such file or directory (os error 2)", finished_unix_ms: 3 });
+
+// A new checkout as Herdr installs it, and a stand-in for node that writes
+// down how it was run and exits as told.
+async function newCheckout(root, { exit = 0 } = {}) {
+  const checkout = join(root, "new-checkout");
+  await mkdir(join(checkout, "scripts"), { recursive: true });
+  await writeFile(join(checkout, "scripts", "plugin.mjs"), "");
+  const node = join(root, "fake-node");
+  const ran = join(root, "node-ran.txt");
+  await writeFile(node, [
+    "#!/bin/sh",
+    `echo "$* | $PWD | $HERDR_PLUGIN_ID | $HERDR_PLUGIN_ROOT | $HERDR_PLUGIN_CONFIG_DIR | $HERDR_PLUGIN_STATE_DIR | $HERDR_BIN_PATH" >> '${ran}'`,
+    "echo 'HerdRabbit restarted directly'",
+    `exit ${exit}`,
+  ].join("\n"));
+  await chmod(node, 0o700);
+  return { checkout, node, ran: async () => (await readFile(ran, "utf8").catch(() => "")).trim().split("\n").filter(Boolean) };
+}
+
+const pluginRun = (repo, herdr, extra = {}) => runPluginUpdate({
+  stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, cwd: repo.root,
+  sleep: async () => {}, environment: { PATH: "/usr/bin", HOME: repo.root, SECRET: "s" }, ...extra,
+});
 
 test("the plugin run updates the plugin, then restarts it, and records how it ended", async (context) => {
   const repo = await scratch(context);
@@ -550,8 +627,12 @@ test("the plugin run updates the plugin, then restarts it, and records how it en
   assert.deepEqual(await herdr.asked(), ["plugin update herdrabbit --yes", "plugin action invoke herdrabbit.restart"]);
   const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
   assert.equal(record.state, "succeeded");
+  assert.equal(record.phase, "restart");
+  // Herdr named no log of the action: nothing tells whether it ran, and the run says so.
+  assert.equal(record.detail, "Could not confirm the restart (Herdr did not name the log of its restart action)");
   const log = await readFile(join(repo.stateDir, "update.log"), "utf8");
-  assert.match(log, /Updated herdrabbit\.\nHerdRabbit restarted/u);
+  assert.match(log, /Updated herdrabbit\.\n {2}> Restarting HerdRabbit\nHerdRabbit restarted/u);
+  assert.match(log, / {2}> Could not confirm the restart \(.*\); whether it ran is told by the server that answers next/u);
 });
 
 test("a failed plugin update restarts nothing", async (context) => {
@@ -562,17 +643,245 @@ test("a failed plugin update restarts nothing", async (context) => {
   assert.deepEqual(await herdr.asked(), ["plugin update herdrabbit --yes"]);
   const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
   assert.equal(record.state, "failed");
-  assert.equal(record.reason, "script_failed");
+  assert.equal(record.reason, "update_failed");
+  assert.equal(record.phase, "fetch");
 });
 
 test("a plugin that updated but did not restart says so", async (context) => {
   const repo = await scratch(context);
   await mkdir(repo.stateDir, { mode: 0o700 });
   const herdr = await fakeHerdr(repo.root, { failRestart: true });
-  assert.equal(await runPluginUpdate({ stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, cwd: repo.root }), 5);
+  // No plugin folders were named: the restart is not tried directly.
+  assert.equal(await runPluginUpdate({ stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, cwd: repo.root }), 1);
   const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
   assert.equal(record.reason, "restart_failed");
+  assert.equal(record.phase, "restart");
+  assert.match(record.detail, /^herdr: server not reachable; the plugin's folders are unknown/u);
   await assert.rejects(runPluginUpdate({ stateDir: repo.stateDir, id: "../x", binary: herdr.binary }), TypeError);
+});
+
+test("a restart Herdr ran and finished is the run's success, with nothing restarted twice", async (context) => {
+  const repo = await scratch(context);
+  await mkdir(repo.stateDir, { mode: 0o700 });
+  const fresh = await newCheckout(repo.root);
+  const running = actionLog({ status: "running" });
+  const done = actionLog({ status: "succeeded", exit_code: 0, finished_unix_ms: 3 });
+  const herdr = await fakeHerdr(repo.root, { invoke: INVOKED, logs: [running, done], pluginRoot: fresh.checkout });
+  const dirs = { configDir: join(repo.root, "cfg"), stateDir: join(repo.root, "pstate") };
+  assert.equal(await pluginRun(repo, herdr, { pluginDirs: dirs, nodeBin: fresh.node }), 0);
+  assert.deepEqual(await herdr.asked(), [
+    "plugin update herdrabbit --yes", "plugin action invoke herdrabbit.restart",
+    "plugin log list --plugin herdrabbit --limit 50", "plugin log list --plugin herdrabbit --limit 50",
+  ]);
+  assert.deepEqual(await fresh.ran(), []);
+  const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
+  assert.equal(record.state, "succeeded");
+  assert.equal(record.detail, null);
+});
+
+test("a restart action Herdr could not start is done directly from the new checkout", async (context) => {
+  const repo = await scratch(context);
+  await mkdir(repo.stateDir, { mode: 0o700 });
+  const fresh = await newCheckout(repo.root);
+  const herdr = await fakeHerdr(repo.root, { invoke: INVOKED, logs: [SPAWN_FAILED], pluginRoot: fresh.checkout });
+  const dirs = { configDir: join(repo.root, "cfg"), stateDir: join(repo.root, "pstate") };
+  assert.equal(await pluginRun(repo, herdr, { pluginDirs: dirs, nodeBin: fresh.node }), 0);
+  assert.ok((await herdr.asked()).includes("plugin list --plugin herdrabbit --json"));
+  // node scripts/plugin.mjs restart, in the new checkout, with the folders Herdr gives actions
+  assert.deepEqual(await fresh.ran(), [[
+    `${join(fresh.checkout, "scripts", "plugin.mjs")} restart`, fresh.checkout, "herdrabbit", fresh.checkout,
+    dirs.configDir, dirs.stateDir, herdr.binary,
+  ].join(" | ")]);
+  const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
+  assert.equal(record.state, "succeeded");
+  assert.equal(record.reason, null);
+  const log = await readFile(join(repo.stateDir, "update.log"), "utf8");
+  assert.match(log, /Herdr could not restart HerdRabbit: No such file or directory \(os error 2\)/u);
+  assert.match(log, /HerdRabbit restarted directly\n {2}> Restarted directly/u);
+});
+
+test("a restart neither Herdr nor the run managed is a failed run that says why", async (context) => {
+  const repo = await scratch(context);
+  await mkdir(repo.stateDir, { mode: 0o700 });
+  const fresh = await newCheckout(repo.root, { exit: 1 });
+  const herdr = await fakeHerdr(repo.root, { invoke: INVOKED, logs: [SPAWN_FAILED], pluginRoot: fresh.checkout });
+  const dirs = { configDir: join(repo.root, "cfg"), stateDir: join(repo.root, "pstate") };
+  assert.equal(await pluginRun(repo, herdr, { pluginDirs: dirs, nodeBin: fresh.node }), 1);
+  assert.equal((await fresh.ran()).length, 1);
+  const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
+  assert.equal(record.state, "failed");
+  assert.equal(record.reason, "restart_failed");
+  assert.equal(record.phase, "restart");
+  assert.equal(record.detail, "No such file or directory (os error 2); the direct restart exited with 1");
+  // A checkout Herdr does not name (or that holds no plugin.mjs) is not run at all.
+  const other = await scratch(context);
+  await mkdir(other.stateDir, { mode: 0o700 });
+  const nameless = await fakeHerdr(other.root, { invoke: INVOKED, logs: [SPAWN_FAILED] });
+  const node = await newCheckout(other.root);
+  assert.equal(await pluginRun(other, nameless, { pluginDirs: dirs, nodeBin: node.node }), 1);
+  assert.deepEqual(await node.ran(), []);
+  assert.match(JSON.parse(await readFile(join(other.stateDir, "update-state.json"), "utf8")).detail, /new checkout could not be found/u);
+});
+
+test("a restart still running when the wait is over is left to the server that answers next", async (context) => {
+  const repo = await scratch(context);
+  await mkdir(repo.stateDir, { mode: 0o700 });
+  const fresh = await newCheckout(repo.root);
+  const herdr = await fakeHerdr(repo.root, { invoke: INVOKED, logs: [actionLog({ status: "running" })], pluginRoot: fresh.checkout });
+  let now = 1_700_000_000_000;
+  const exit = await pluginRun(repo, herdr, {
+    pluginDirs: { configDir: "/cfg", stateDir: "/st" }, nodeBin: fresh.node, now: () => now, sleep: async (ms) => { now += ms; },
+  });
+  assert.equal(exit, 0);
+  assert.deepEqual(await fresh.ran(), []);
+  const polls = (await herdr.asked()).filter((call) => call.startsWith("plugin log list")).length;
+  assert.ok(polls >= 30 && polls <= 32, String(polls));
+  const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
+  assert.equal(record.state, "succeeded");
+  assert.equal(record.reason, null);
+  assert.equal(record.detail, "Could not confirm the restart (the restart action was still running after 30s)");
+});
+
+test("a log of Herdr's actions that cannot be read leaves the restart unconfirmed, never restarted twice", async (context) => {
+  const cases = [
+    [{ logs: [actionLog({ status: "running" })], logExit: 3 }, "herdr plugin log list exited with 3"],
+    [{ logs: ["not json"] }, "herdr plugin log list did not answer JSON"],
+    [{ logs: ['{"id":"cli:plugin","result":{"type":"plugin_log_list"}}'] }, "herdr plugin log list answered without a list of logs"],
+    [{ logs: [JSON.stringify({ result: { logs: [{ log_id: "plugin-log-34", status: "succeeded", exit_code: 0 }] } })] },
+      "Herdr's action log has no plugin-log-35"],
+  ];
+  for (const [fake, why] of cases) {
+    const repo = await scratch(context);
+    await mkdir(repo.stateDir, { mode: 0o700 });
+    const fresh = await newCheckout(repo.root);
+    const herdr = await fakeHerdr(repo.root, { invoke: INVOKED, pluginRoot: fresh.checkout, ...fake });
+    const dirs = { configDir: join(repo.root, "cfg"), stateDir: join(repo.root, "pstate") };
+    assert.equal(await pluginRun(repo, herdr, { pluginDirs: dirs, nodeBin: fresh.node }), 0, why);
+    // Asked a few times in a row, then given up on -- well before the 30 seconds.
+    const polls = (await herdr.asked()).filter((call) => call.startsWith("plugin log list")).length;
+    assert.equal(polls, ACTION_LOOKUP_TRIES, why);
+    assert.deepEqual(await fresh.ran(), [], why);
+    const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
+    assert.equal(record.state, "succeeded", why);
+    assert.equal(record.reason, null, why);
+    assert.equal(record.detail, `Could not confirm the restart (${why})`);
+  }
+  // A miss that does not repeat is only a miss: the next good read tells.
+  const repo = await scratch(context);
+  await mkdir(repo.stateDir, { mode: 0o700 });
+  const done = actionLog({ status: "succeeded", exit_code: 0, finished_unix_ms: 3 });
+  const herdr = await fakeHerdr(repo.root, { invoke: INVOKED, logs: ["not json", done] });
+  assert.equal(await pluginRun(repo, herdr), 0);
+  assert.equal(JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8")).detail, null);
+});
+
+test("Herdr's action log is read for the outcome of the restart it queued", () => {
+  assert.equal(invokedLogId(INVOKED), "plugin-log-35");
+  assert.equal(invokedLogId('{"log":{"log_id":"plugin-log-2"}}'), "plugin-log-2");
+  assert.equal(invokedLogId("HerdRabbit restarted"), null);
+  assert.equal(invokedLogId('{"result":{"log":{"log_id":"bad id; rm"}}}'), null);
+  assert.deepEqual(actionOutcome(undefined), { outcome: "pending", detail: null });
+  assert.deepEqual(actionOutcome({ status: "running" }), { outcome: "pending", detail: null });
+  assert.deepEqual(actionOutcome({ status: "succeeded", exit_code: 0, finished_unix_ms: 1 }), { outcome: "ok", detail: null });
+  assert.deepEqual(actionOutcome({ status: "failed", error: "No such file or directory (os error 2)", finished_unix_ms: 1 }),
+    { outcome: "failed", detail: "No such file or directory (os error 2)" });
+  assert.deepEqual(actionOutcome({ status: "failed", exit_code: 1, finished_unix_ms: 1, stdout: "stopped\nnot answering in 15s\n" }),
+    { outcome: "failed", detail: "not answering in 15s -- exit code 1" });
+  assert.ok(actionOutcome({ status: "failed", error: "x".repeat(1000) }).detail.length <= 300);
+});
+
+test("update.sh's step is read from the lines it logs", () => {
+  assert.equal(scriptPhase(""), null);
+  assert.equal(scriptPhase("", "verify"), "verify");
+  const lines = [
+    ["  > Fetching main in /home/me/HerdRabbit", "fetch"],
+    ["  > Updating Herdr", "herdr"],
+    ["  > Installing runtime dependencies", "install"],
+    ["  > Verifying the updated code", "verify"],
+    ["  > Restarting herdrabbit.service", "restart"],
+    ["  > Updated to abc1234. Refresh the web app or PWA.", "done"],
+  ];
+  let log = "";
+  for (const [text, phase] of lines) {
+    log += `${text}\n`;
+    assert.equal(scriptPhase(log), phase, text);
+    assert.equal(scriptPhase(text, "fetch"), phase, text);
+  }
+  // Other output keeps the step it is at, wherever it comes from.
+  assert.equal(scriptPhase("added 120 packages\n> herdrabbit@1.4.1 verify\nUpdating Herdr", "install"), "install");
+  assert.equal(scriptPhase("  > Configuring Claude to use native terminal scrollback\n  x verification failed", "verify"), "verify");
+  assert.equal(scriptPhase("  > Rolling back to abc1234", "verify"), "verify");
+  // The furthest step seen holds: an earlier step's line later on does not move it back.
+  assert.equal(scriptPhase("  > Verifying the updated code\n  > Restarting herdrabbit.service\n  > Fetching main again"), "restart");
+  assert.equal(scriptPhase("  > Installing runtime dependencies", "verify"), "verify");
+  assert.equal(scriptPhase("  > Updated to abc1234.\n  > Updating Herdr"), "done");
+});
+
+test("update.sh still prints every line the step is read from", async () => {
+  const script = await readFile(new URL("../update.sh", import.meta.url), "utf8");
+  for (const [marker, phase] of SCRIPT_MARKERS) {
+    const logged = new RegExp(`^\\s*log "${marker.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}[^"]*" # step: ${phase}$`, "mu");
+    assert.match(script, logged, marker);
+  }
+  // Every step but the page's reload has a line, in the order update.sh runs them.
+  const ids = SCRIPT_MARKERS.map(([, phase]) => phase).filter((phase) => phase !== "done");
+  assert.deepEqual(ids, RUN_STEPS.script.map((step) => step.id).filter((id) => id !== "reload"));
+});
+
+test("the run's status names its steps and the one it is at", async (context) => {
+  const repo = await scratch(context);
+  await mkdir(repo.stateDir, { mode: 0o700 });
+  let now = 1_700_000_000_000;
+  const write = (record) => writeFile(join(repo.stateDir, "update-state.json"), `${JSON.stringify(record)}\n`);
+  const fake = services(repo.work, { active: "active" });
+  const script = updater(repo, fake, { now: () => now });
+  assert.deepEqual(await script.runStatus().then(({ state, phase, steps }) => ({ state, phase, steps: steps.length })),
+    { state: "idle", phase: null, steps: 6 });
+  await write({ state: "running", unit: "herdrabbit-update-1", startedAt: new Date(now).toISOString(), mode: "script" });
+  await writeFile(join(repo.stateDir, "update.log"), "  > Fetching main in /x\n  > Updating Herdr\n");
+  let status = await script.runStatus();
+  assert.equal(status.mode, "script");
+  assert.deepEqual(status.steps, RUN_STEPS.script);
+  assert.equal(status.phase, "herdr");
+  // Long output after a line keeps it; "Updated to" leaves only the reload.
+  await writeFile(join(repo.stateDir, "update.log"), `  > Installing runtime dependencies\n${"npm output\n".repeat(200)}`);
+  assert.equal((await script.runStatus()).phase, "install");
+  await writeFile(join(repo.stateDir, "update.log"), "npm output only\n");
+  assert.equal((await script.runStatus()).phase, "install", "the step seen last is kept");
+  await writeFile(join(repo.stateDir, "update.log"), "  > Updated to abc1234.\n");
+  assert.equal((await script.runStatus()).phase, "reload");
+  // A failed run (another one: a run's step never goes back) stays at the step it failed in.
+  await write({ state: "failed", startedAt: new Date(now + 1).toISOString(), finishedAt: new Date(now + 1).toISOString(), reason: "script_failed", mode: "script" });
+  await writeFile(join(repo.stateDir, "update.log"), "  > Verifying the updated code\n  x verification failed\n");
+  status = await script.runStatus();
+  assert.equal(status.phase, "verify");
+  assert.equal(status.detail, null);
+
+  // A plugin run's step is in its record, and its failure's detail with it.
+  const plugin = updater(repo, services(repo.work, { loaded: "none" }), {
+    now: () => now, plugin: { id: "herdrabbit", binary: "/opt/herdr" }, alive: () => true,
+  });
+  await write({ state: "running", startedAt: new Date(now).toISOString(), pid: 77, mode: "plugin", phase: "restart" });
+  status = await plugin.runStatus();
+  assert.deepEqual(status.steps, RUN_STEPS.plugin);
+  assert.equal(status.phase, "restart");
+  await write({
+    state: "failed", startedAt: new Date(now).toISOString(), finishedAt: new Date(now).toISOString(), mode: "plugin",
+    phase: "restart", reason: "restart_failed", detail: `No such file or directory (os error 2)\u001b[31m${"x".repeat(400)}`,
+  });
+  status = await plugin.runStatus();
+  assert.equal(status.reason, "restart_failed");
+  assert.equal(status.phase, "restart");
+  assert.match(status.detail, /^No such file or directory \(os error 2\) \[31mx+$/u);
+  assert.equal(status.detail.length, 300);
+  // What a connected PC says about its steps is held to the same shape.
+  const clean = cleanRunStatus({
+    ...status, phase: "elsewhere", steps: [...status.steps, { id: "<script>", label: "x" }, { id: "fetch", label: 4 }],
+  });
+  assert.deepEqual(clean.steps, RUN_STEPS.plugin);
+  assert.equal(clean.phase, null);
+  assert.equal(cleanRunStatus({ mode: "other" }).mode, null);
+  assert.deepEqual(cleanRunStatus({}).steps, []);
 });
 
 test("a plugin run whose pid was never written is cut short like any unnamed run", async (context) => {
@@ -632,4 +941,140 @@ test("a plugin run's success is told by the server that replaced this one", asyn
   const late = await old.runStatus();
   assert.equal(late.state, "failed");
   assert.equal(late.reason, "restart_failed");
+});
+
+test("a failure's detail is masked for URL credentials like the log, whoever wrote it", () => {
+  const said = "fatal: unable to access 'https://user:secret@host/x'";
+  assert.equal(cleanDetail(said), "fatal: unable to access 'https://***@host/x'");
+  assert.ok(!actionOutcome({ status: "failed", error: said }).detail.includes("secret"));
+  const status = cleanRunStatus({ state: "failed", detail: said });
+  assert.equal(status.detail, "fatal: unable to access 'https://***@host/x'");
+});
+
+// A child that ignores SIGTERM and only goes away on SIGKILL, a little after
+// it (`closed` says it has); `immortal` survives SIGKILL too.
+function stubbornSpawn({ immortal = false } = {}) {
+  const signals = [];
+  const children = [];
+  const spawnImpl = () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.closed = false;
+    child.kill = (signal) => {
+      signals.push(signal);
+      if (signal === "SIGKILL" && !immortal) setTimeout(() => { child.closed = true; child.emit("close", null); }, 15);
+      return true;
+    };
+    children.push(child);
+    return child;
+  };
+  return { signals, children, spawnImpl };
+}
+
+test("runLogged stops a command past its timeout, killing it when SIGTERM is ignored, and answers once it is gone", async () => {
+  const fake = stubbornSpawn();
+  const exit = await runLogged(fake.spawnImpl, "x", [], { fd: 1, timeout: 10, killGraceMs: 20 });
+  assert.equal(exit, -1);
+  assert.deepEqual(fake.signals, ["SIGTERM", "SIGKILL"]);
+  assert.equal(fake.children[0].closed, true, "answered only after the command closed");
+  fake.children[0].emit("close", 0); // a late close settles nothing twice
+});
+
+test("runLogged does not send SIGKILL to a command that stops after SIGTERM", async () => {
+  const signals = [];
+  const spawnImpl = () => {
+    const child = new EventEmitter();
+    child.kill = (signal) => { signals.push(signal); setImmediate(() => child.emit("close", null)); return true; };
+    return child;
+  };
+  assert.equal(await runLogged(spawnImpl, "x", [], { fd: 1, timeout: 10, killGraceMs: 30 }), -1);
+  await new Promise((resolve) => { setTimeout(resolve, 60); });
+  assert.deepEqual(signals, ["SIGTERM"]);
+});
+
+test("runCaptured answers -1 at its timeout once a command that ignores SIGTERM is killed and gone", async () => {
+  const fake = stubbornSpawn();
+  const answer = await runCaptured(fake.spawnImpl, "x", [], { timeout: 10, killGraceMs: 20 });
+  assert.deepEqual(answer, { code: -1, stdout: "", stderr: "", timedOut: true, closed: true });
+  assert.deepEqual(fake.signals, ["SIGTERM", "SIGKILL"]);
+  assert.equal(fake.children[0].closed, true);
+  fake.children[0].emit("close", 0);
+});
+
+test("a command that outlives even SIGKILL is given up on within its bounds", async () => {
+  for (const run of [
+    (spawnImpl) => runCaptured(spawnImpl, "x", [], { timeout: 10, killGraceMs: 20, closeWaitMs: 30 }),
+    (spawnImpl) => runLogged(spawnImpl, "x", [], { fd: 1, timeout: 10, killGraceMs: 20, closeWaitMs: 30 }),
+  ]) {
+    const fake = stubbornSpawn({ immortal: true });
+    const started = Date.now();
+    const answer = await run(fake.spawnImpl);
+    assert.ok(Date.now() - started < 1_000, "never waits for ever");
+    assert.deepEqual(fake.signals, ["SIGTERM", "SIGKILL"]);
+    if (typeof answer === "number") assert.equal(answer, -1);
+    else assert.deepEqual(answer, { code: -1, stdout: "", stderr: "", timedOut: true, closed: false });
+  }
+});
+
+// Herdr and node as the plugin run starts them, each answering as `behave`
+// says ({ stdout, code, hang, immortal }), with every start, signal and close
+// written down in order.
+function processes(nodeBin, behave) {
+  const events = [];
+  const spawnImpl = (file, args) => {
+    const name = file === nodeBin ? "node" : args.slice(0, 3).join(" ");
+    const how = behave(name);
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    const close = (code) => { events.push(`close ${name}`); child.emit("close", code); };
+    child.kill = (signal) => {
+      events.push(`${signal} ${name}`);
+      if (signal === "SIGKILL" && !how.immortal) setTimeout(() => close(null), 15);
+      return true;
+    };
+    events.push(`start ${name}`);
+    setImmediate(() => {
+      if (how.stdout) child.stdout.emit("data", Buffer.from(how.stdout));
+      if (!how.hang) close(how.code ?? 0);
+    });
+    return child;
+  };
+  return { events, spawnImpl };
+}
+
+test("a restart invoke that timed out is followed in Herdr's log, and nothing restarts while it is still there", async (context) => {
+  for (const immortal of [false, true]) {
+    const repo = await scratch(context);
+    await mkdir(repo.stateDir, { mode: 0o700 });
+    const fresh = await newCheckout(repo.root);
+    const list = JSON.stringify({ result: { plugins: [{ plugin_id: "herdrabbit", plugin_root: fresh.checkout }] } });
+    const fake = processes(fresh.node, (name) => ({
+      "plugin action invoke": { stdout: INVOKED, hang: true, immortal },
+      "plugin log list": { stdout: SPAWN_FAILED },
+      "plugin list --plugin": { stdout: list },
+    })[name] ?? {});
+    const exit = await runPluginUpdate({
+      stateDir: repo.stateDir, id: "herdrabbit", binary: "herdr", cwd: repo.root, spawnImpl: fake.spawnImpl, sleep: async () => {},
+      pluginDirs: { configDir: join(repo.root, "cfg"), stateDir: join(repo.root, "pstate") }, nodeBin: fresh.node,
+      environment: { PATH: "/usr/bin" }, invokeBounds: { timeout: 10, killGraceMs: 20, closeWaitMs: 30 },
+    });
+    const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
+    assert.equal(exit, 0);
+    if (!immortal) {
+      // Gone after SIGKILL, and Herdr's log says the action failed: restarted directly, after.
+      const at = (event) => fake.events.indexOf(event);
+      assert.ok(at("SIGKILL plugin action invoke") !== -1, fake.events.join(", "));
+      assert.ok(at("close plugin action invoke") < at("start plugin log list"), fake.events.join(", "));
+      assert.ok(at("close plugin action invoke") < at("start node"), fake.events.join(", "));
+      assert.equal(record.detail, null);
+    } else {
+      // Still there: neither its log nor a second restart is tried.
+      assert.ok(!fake.events.includes("start plugin log list"), fake.events.join(", "));
+      assert.ok(!fake.events.includes("start node"), fake.events.join(", "));
+      assert.equal(record.state, "succeeded");
+      assert.equal(record.detail, "Could not confirm the restart (herdr plugin action invoke did not stop when its time was up)");
+    }
+  }
 });

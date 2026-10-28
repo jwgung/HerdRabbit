@@ -627,6 +627,78 @@ body.sidebar-collapsed .terminal-panel {
   min-width: 0;
 }
 
+/* A split session is one row, with an arrow on its left that shows its panes
+   under it, indented on a guide line. The row's grid icon and count say how
+   many panes it has. */
+.split-session-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+}
+
+.split-session-row.is-editing {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 5px 8px;
+}
+
+.split-disclosure {
+  width: 22px;
+  min-width: 22px;
+  height: 32px;
+  flex-basis: 22px;
+}
+
+.split-disclosure svg {
+  transition: transform 180ms ease;
+}
+
+.split-disclosure[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.split-session-button {
+  grid-template-columns: 18px minmax(0, 1fr) auto 14px;
+}
+
+.split-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.split-badge svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.split-panes {
+  margin: 2px 0 0 22px;
+  padding-left: 6px;
+  display: grid;
+  gap: 2px;
+  border-left: 1px solid var(--line);
+}
+
+.split-panes[hidden] {
+  display: none;
+}
+
+body.sidebar-collapsed .split-disclosure,
+body.sidebar-collapsed .split-badge,
+body.sidebar-collapsed .split-panes {
+  display: none;
+}
+
 /* Centred on the first row: 40px tall, the menu 28px; at the far right, in
    the row's right padding after the status, on the same line as every other
    menu in the sidebar. */
@@ -642,11 +714,6 @@ body.sidebar-collapsed .terminal-panel {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-}
-
-.tab-label {
-  color: var(--muted);
-  font-size: 11px;
 }
 
 .workspace-group.is-collapsed[data-has-completion="true"] > .workspace-heading {
@@ -1681,13 +1748,24 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .update-actions { display: flex; justify-content: flex-end; }
 
-/* Herdr's row inside a PC's block: its versions, notes folded away, its run. */
+/* A PC's block has two parts split by a rule: HerdRabbit (versions, notes,
+   its button and its run) and below it Herdr (the same, folded notes). */
+.update-part {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.update-part-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+.update-part-heading strong { font-size: 13px; }
+
 .update-herdr {
   display: grid;
   gap: 6px;
-  margin-top: 4px;
-  padding-top: 8px;
-  border-top: 1px dashed var(--line);
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
   min-width: 0;
 }
 
@@ -1732,6 +1810,124 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   line-height: 1.35;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* A run's steps: done (check), in progress (spinner and time), not started
+   (empty circle), failed (cross). Each also says so in words for a reader. */
+.update-run-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.update-run-head .update-run-state { flex: 1 1 auto; min-width: 0; }
+
+.update-herdr-run-head { align-items: center; }
+
+.update-step-count {
+  flex: none;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.update-steps {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.update-step {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 24px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.update-step[data-state="done"] { color: var(--text); }
+.update-step[data-state="current"] { color: var(--text); font-weight: 600; }
+.update-step[data-state="failed"] { color: var(--danger); font-weight: 600; }
+
+.update-step-label { min-width: 0; overflow-wrap: anywhere; }
+
+.update-step-mark {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--hover-line);
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.update-step[data-state="done"] .update-step-mark {
+  border-color: var(--status-ok);
+  color: var(--accent-ink);
+  background: var(--status-ok);
+}
+
+.update-step[data-state="failed"] .update-step-mark {
+  border-color: var(--danger);
+  color: var(--page);
+  background: var(--danger);
+}
+
+.update-step[data-state="current"] .update-step-mark,
+.update-herdr-spinner {
+  border-color: var(--line);
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  animation: fileRefreshSpin 0.9s linear infinite;
+}
+
+.update-herdr-spinner { flex: none; align-self: center; }
+
+.update-elapsed {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The wait for the restart reads under the step's name. */
+.update-step-note {
+  grid-column: 2 / -1;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.update-detail {
+  margin: 0;
+  font-size: 12px;
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+/* A run that ended well but could not confirm its restart: a quiet note. */
+.update-run-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-step[data-state="current"] .update-step-mark,
+  .update-herdr-spinner { animation: none; }
 }
 
 /* Passkeys: one bordered list, like AI accounts, with the password under it. */
@@ -3259,65 +3455,6 @@ body.is-sidebar-dragging * {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.6;
-}
-
-/* A split tab's heading in the sidebar opens its grid. */
-.tab-grid-open {
-  width: 100%;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0;
-  padding: 2px 4px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 11px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.tab-grid-open:hover {
-  border-color: var(--line);
-  color: var(--control-text);
-}
-
-.tab-grid-open[aria-pressed="true"] {
-  border-color: var(--selected-border);
-  background: var(--selected-surface);
-  color: var(--text);
-}
-
-.tab-grid-label {
-  min-width: 0;
-  color: inherit;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tab-grid-badge {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 6px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  font-family: var(--mono);
-  font-size: 10px;
-}
-
-.tab-grid-badge svg {
-  width: 11px;
-  height: 11px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
 }
 
 /* The phone's map: one box per pane where Herdr has it, coloured by status. */

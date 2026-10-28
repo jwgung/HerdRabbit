@@ -6,7 +6,7 @@ import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { MultiServerClient } from "../src/multi-server-client.mjs";
 import { PromptService } from "../src/prompt/service.mjs";
 import { parseClaudePrompt } from "../src/prompt/claude.mjs";
-import { approvalScreen, fakePromptHerdr } from "./fixtures/claude-prompt.mjs";
+import { approvalScreen, askScreen, fakePromptHerdr } from "./fixtures/claude-prompt.mjs";
 
 // A PC connected with Connect PC.
 const LAB = "link_00000000-0000-4000-8000-00000000000a";
@@ -163,8 +163,10 @@ test("a watched Claude pane is read each look whatever its status; another agent
   assert.equal(heard.get("w1:p3"), null);
   assert.equal(heard.get("w1:p5"), null);
   assert.equal(heard.get("w1:p7").fallback, true);
-  const readsOf = (paneId) => herdr.reads.filter((read) => read.paneId === paneId).length;
+  // the screens; a question card's context is read once more, from the recent lines
+  const readsOf = (paneId) => herdr.reads.filter((read) => read.paneId === paneId && read.source !== "recent-unwrapped").length;
   assert.deepEqual(ids.map(readsOf), [1, 1, 1, 0, 1]);
+  assert.deepEqual(herdr.reads.filter((read) => read.source === "recent-unwrapped").map((read) => read.paneId), ["w1:p2"]);
 });
 
 test("an answer to a card that changed is a 409 prompt_changed, and nothing is sent", async (context) => {
@@ -489,4 +491,30 @@ test("a Claude pane that is not blocked and shows no menu is read less and less 
   const before = readsOf();
   for (let tries = 0; tries < 100 && readsOf() === before; tries += 1) await new Promise((resolve) => setTimeout(resolve, 5));
   assert.ok(readsOf() > before, "read again right after input");
+});
+
+test("a Claude question card carries the message above it, read once from the recent lines, and Chat about this answers it", async (context) => {
+  const herdr = fakePromptHerdr({ ...panes(), asks: { "w1:p2": { cursor: 0 } } });
+  const { get, answer } = await fixture(context, { herdr });
+  const first = await get("w1:p2");
+  assert.equal(first.body.card.kind, "question");
+  assert.equal(first.body.card.chat, true);
+  assert.match(first.body.card.context, /^The cache audit is done\./u);
+  assert.match(first.body.card.context, /│ north {3}│ 1200 {5}│ 14 {7}│/u);
+  assert.ok(!first.body.card.context.includes("Chat about this"));
+  const contextReads = () => herdr.reads.filter((read) => read.paneId === "w1:p2" && read.source === "recent-unwrapped");
+  assert.deepEqual(contextReads().map(({ lines, format }) => ({ lines, format })), [{ lines: 400, format: "text" }]);
+  await get("w1:p2");
+  assert.equal(contextReads().length, 1, "the same card's context is not read again");
+  // an approval has none
+  assert.equal((await get("w1:p1")).body.card.context, undefined);
+  // the action, on a card that changed: refused, nothing sent
+  assert.equal((await answer("w1:p2", { cardId: "000000000000", action: "chat" })).status, 409);
+  assert.equal((await answer("w1:p2", { cardId: first.body.card.id, action: "nope" })).body.error.code, "invalid_answer");
+  assert.equal((await answer("w1:p1", { cardId: CARD_ID, action: "chat" })).body.error.code, "invalid_answer");
+  assert.deepEqual(herdr.sent, []);
+  const chat = await answer("w1:p2", { cardId: first.body.card.id, action: "chat" });
+  assert.equal(chat.status, 200);
+  assert.deepEqual(herdr.sent.filter((item) => item.paneId === "w1:p2").map((item) => item.keys.join("+")), ["down", "down", "down", "enter"]);
+  assert.deepEqual(herdr.answered, [{ paneId: "w1:p2", answer: "Chat about this" }]);
 });

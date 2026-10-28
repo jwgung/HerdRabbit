@@ -144,6 +144,8 @@ export function publicCard(parsed) {
     // a multiple choice's options already ticked in the terminal
     checked: [...(parsed.checkedOptionIndices ?? [])],
     customOptionIndex: parsed.customOptionIndex,
+    // the menu has a "Chat about this" row the card offers as its own button
+    ...(Number.isInteger(parsed.chatMenuIndex) ? { chat: true } : {}),
     ...(parsed.fallback ? { fallback: true } : {}),
   };
 }
@@ -179,12 +181,20 @@ export function visibleLines(screen) {
 // --- answers -----------------------------------------------------------------
 
 // The steps that answer `parsed` with `answer`: exactly one of `option`
-// (an index), `options` (indices, for a multiple choice) or `text` (a typed
-// answer). A step is `{ keys: [...] }` or `{ text }`, either maybe with the
-// `check` the screen must pass before it goes (service.mjs).
+// (an index), `options` (indices, for a multiple choice), `text` (a typed
+// answer) or `action` ("chat": Claude's "Chat about this" row). A step is
+// `{ keys: [...] }` or `{ text }`, either maybe with the `check` the screen
+// must pass before it goes (service.mjs).
 export function answerSteps(parsed, answer) {
-  const supplied = ["option", "options", "text"].filter((name) => answer?.[name] !== undefined);
+  const supplied = ["option", "options", "text", "action"].filter((name) => answer?.[name] !== undefined);
   if (supplied.length !== 1) throw new InvalidAnswer("Exactly one answer is required.");
+
+  if (answer.action !== undefined) {
+    if (answer.action !== "chat" || !Number.isInteger(parsed.chatMenuIndex)) throw new InvalidAnswer("This prompt has no such action.");
+    if (!Number.isInteger(parsed.selectedIndex)) throw new InvalidAnswer("The selected option cannot be seen on the screen. Answer in the terminal.");
+    // the row as the terminal's user picks it: the cursor onto it, then Enter
+    return keySteps([...navigationKeys(parsed.chatMenuIndex - parsed.selectedIndex, moveKeysOf(parsed)), KEY.enter]);
+  }
 
   if (answer.text !== undefined) {
     if (typeof answer.text !== "string") throw new InvalidAnswer("The answer text must be text.");

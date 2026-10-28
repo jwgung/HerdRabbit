@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answerBody, bannerText, cardVersion, dockMode, initialSelection, optionLabel, shouldWatchPrompt } from "../public/chat/prompt-card.js";
+import { answerBody, bannerText, cardVersion, contextKey, contextVisible, dockMode, initialSelection, optionLabel, shouldWatchPrompt } from "../public/chat/prompt-card.js";
 import { comparableText, formatElapsed, pendingMessage, settlePending, showsWorking, workingText } from "../public/chat/chat-activity.js";
 import {
   CHAT_FONT_SIZE_STORAGE_KEY, DEFAULT_CHAT_FONT_SIZE, MAX_CHAT_FONT_SIZE, MIN_CHAT_FONT_SIZE,
@@ -26,6 +26,26 @@ test("an answer names the card and exactly one choice", () => {
   assert.deepEqual(answerBody(card, { option: 1 }), { cardId: card.id, option: 1 });
   assert.deepEqual(answerBody(card, { options: [2, 0] }), { cardId: card.id, options: [0, 2] });
   assert.deepEqual(answerBody(card, { text: "  use HOPE " }), { cardId: card.id, text: "use HOPE" });
+  assert.deepEqual(answerBody(card, { action: "chat" }), { cardId: card.id, action: "chat" });
+});
+
+test("a question's context shows until the chat's last agent turns have its first line of words", () => {
+  const context = "┌──────┬──────┐\n│ Store │ Stale │\n└──────┴──────┘\n\nThe **cache** audit is done. Two stores still disagree:\nmore";
+  const asked = { ...card, kind: "question", context };
+  // the table's borders are no words, and its short header row is passed over (under 12 characters)
+  assert.equal(contextKey(context), "The cache audit is done. Two stores still disagree:");
+  assert.equal(contextKey("┌──┐\n│ a │\n\n- The cache audit is done. Two stores still disagree"), "The cache audit is done. Two stores still disagree");
+  assert.equal(contextKey("ok\n──────"), null);
+  assert.equal(contextVisible(asked, ""), true, "nothing loaded: shown");
+  assert.equal(contextVisible(asked, "An earlier answer."), true);
+  // the transcript caught up: the same words, written in Markdown
+  const caught = { ...asked, context: "The cache audit is done. Two stores still disagree:\n\n┌───┐" };
+  assert.equal(contextVisible(caught, "Earlier.\n\nThe **cache audit** is done.  Two stores still `disagree`:\n\n| Store | Stale |"), false);
+  assert.equal(contextVisible(caught, "The cache audit is done."), true, "a part of the line is not the message");
+  // no context, or one too short to tell
+  assert.equal(contextVisible(card, ""), false);
+  assert.equal(contextVisible({ ...card, context: "  " }, ""), false);
+  assert.equal(contextVisible({ ...card, context: "ok" }, "ok"), true);
 });
 
 test("a multiple choice starts from the ticks the terminal shows, and other ticks are another card", () => {

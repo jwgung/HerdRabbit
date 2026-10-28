@@ -396,7 +396,7 @@ export function attachSidebarDrag(list, {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     if (!canStart()) return;
     const origin = event.target instanceof Element ? event.target : null;
-    if (!origin || origin.closest(".sidebar-action-menu, input, textarea, select, form, .workspace-collapse, .group-collapse, .is-editing")) return;
+    if (!origin || origin.closest(".sidebar-action-menu, input, textarea, select, form, .workspace-collapse, .group-collapse, .split-disclosure, .is-editing")) return;
     const heading = origin.closest(".workspace-heading");
     const tabGroup = heading ? null : origin.closest(".tab-group");
     const item = heading ? heading.closest(".workspace-group") : tabGroup;
