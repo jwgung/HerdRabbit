@@ -627,25 +627,25 @@ body.sidebar-collapsed .terminal-panel {
   min-width: 0;
 }
 
-/* A split session is one row, with an arrow on its left that shows its panes
-   under it, indented on a guide line. The row's grid icon and count say how
-   many panes it has. */
-.split-session-row {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  align-items: center;
+/* A split session is one row drawn as every other session row: the same
+   button, so its mark, name, folder line, status and ⋯ sit where theirs do.
+   Its pane count is a pill, and the arrow that shows its panes is a row
+   action like ⋯, laid over an empty grid track between the pill and the
+   status (a button cannot sit inside the row's button). The track is the
+   arrow's width; the arrow's right edge is the row's right padding (36px),
+   the status (14px) and the grid gap (10px) in from the right. */
+.split-session-button {
+  grid-template-columns: 18px minmax(0, 1fr) auto 28px 14px;
 }
 
 .split-session-row.is-editing {
-  grid-template-columns: minmax(0, 1fr);
   padding: 5px 8px;
 }
 
 .split-disclosure {
-  width: 22px;
-  min-width: 22px;
-  height: 32px;
-  flex-basis: 22px;
+  position: absolute;
+  top: 6px;
+  right: 60px;
 }
 
 .split-disclosure svg {
@@ -656,47 +656,61 @@ body.sidebar-collapsed .terminal-panel {
   transform: rotate(90deg);
 }
 
-.split-session-button {
-  grid-template-columns: 18px minmax(0, 1fr) auto 14px;
-}
-
+/* The pill the Files list tags entries with. */
 .split-badge {
+  grid-column: 3;
   display: inline-flex;
   align-items: center;
   gap: 3px;
   padding: 1px 6px;
-  border: 1px solid var(--line);
   border-radius: 999px;
+  background: var(--hover-surface);
   color: var(--muted);
-  font-family: var(--mono);
-  font-size: 10px;
+  font-size: 0.7rem;
   line-height: 1.4;
 }
 
 .split-badge svg {
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
 }
 
+.split-session-button .pane-status {
+  grid-column: 5;
+}
+
+/* Its panes are session rows of their own, one tree step (the 10px a
+   server's and a Herdr session's rows sit in by) under the row, as far apart
+   as sibling sessions are. */
 .split-panes {
-  margin: 2px 0 0 22px;
-  padding-left: 6px;
+  margin-top: 8px;
+  padding-left: 10px;
   display: grid;
-  gap: 2px;
-  border-left: 1px solid var(--line);
+  gap: 8px;
 }
 
 .split-panes[hidden] {
   display: none;
 }
 
+/* On touch the arrow is a 44px target centred on its 28px track: it reaches
+   8px into the 10px gaps either side, so it covers neither the pill nor the
+   status, and the name keeps its width. Vertically centred where ⋯ is. */
+@media (hover: none) {
+  .split-session-row .split-disclosure { top: -1px; right: 52px; width: 44px; min-width: 44px; height: 44px; flex-basis: 44px; }
+}
+
 body.sidebar-collapsed .split-disclosure,
 body.sidebar-collapsed .split-badge,
 body.sidebar-collapsed .split-panes {
   display: none;
+}
+
+body.sidebar-collapsed .split-session-button .pane-status {
+  grid-column: auto;
 }
 
 /* Centred on the first row: 40px tall, the menu 28px; at the far right, in

@@ -3,8 +3,11 @@
 // a monitor, "Host" and a connection dot. A split session (a tab of several
 // panes) is one row: its name (the tab's, else its focus pane's title, else
 // "Split session"), a grid badge with the pane count and the most urgent status
-// of its panes. Its arrow shows its panes under it (kept after a reload); a
-// pane there opens alone; the row opens the grid on a desktop and the pane with
+// of its panes. It is drawn as every other session row: its mark lines up with
+// theirs, and its arrow sits between the badge and the status. The arrow shows
+// its panes under it (kept after a reload) as full session rows one tree step
+// in, as tall and as far apart as other rows, with no guide line; a pane there
+// opens alone; the row opens the grid on a desktop and the pane with
 // the map on a phone, stays highlighted while one of its panes is selected,
 // and its ⋯ menu renames and closes the whole session.
 // Runs against a fake herdr on a desktop and a phone layout.
@@ -26,11 +29,12 @@ const ROWS = [
   { id: "w1:p7", tab: "Parser", agent: "opencode", status: "working", cwd: "/work/parser-lib", kind: "opencode", glyph: "◐", sub: "parser-lib" },
 ];
 // Three split sessions: a named one whose panes are done, working and
-// blocked; an unnamed one named by its first pane's folder, working and done;
+// blocked (the first titled by its agent, so its row has a folder line); an
+// unnamed one named by its first pane's folder, working and done;
 // and an unnamed one of two shells with nothing to name it, idle and done.
 const SPLITS = [
   { tab: "w1:t8", label: "Pair review", panes: [
-    { id: "w1:p8", agent: "claude", status: "done", cwd: "/work/pair-a" },
+    { id: "w1:p8", agent: "claude", status: "done", cwd: "/work/pair-a", title: "Review API" },
     { id: "w1:p9", agent: "codex", status: "working", cwd: "/work/pair-b" },
     { id: "w1:p10", agent: "claude", status: "blocked", cwd: "/work/pair-c" },
   ] },
@@ -62,6 +66,7 @@ const freshSnapshot = () => ({
     ...SPLITS.flatMap((split) => split.panes.map((pane) => ({
       pane_id: pane.id, tab_id: split.tab, workspace_id: "w1",
       ...(pane.agent ? { agent: pane.agent } : {}), ...(pane.cwd ? { cwd: pane.cwd } : {}),
+      ...(pane.title ? { terminal_title: pane.title } : {}),
     }))),
   ],
   agents: [...ROWS, ...SPLITS.flatMap((split) => split.panes)]
@@ -230,6 +235,10 @@ try {
       const arrow = group.querySelector(".split-disclosure");
       const list = group.querySelector(".split-panes");
       const shown = list.getClientRects().length > 0;
+      const rect = (element) => element.getBoundingClientRect();
+      const badge = rect(row.querySelector(".split-badge"));
+      const status = rect(row.querySelector(".pane-status"));
+      const arrowBox = rect(arrow);
       return [group.dataset.tabId, {
         rows: group.querySelectorAll(".session-row").length,
         name: row.querySelector(".pane-title").textContent,
@@ -243,9 +252,37 @@ try {
         children: Object.fromEntries([...list.querySelectorAll(".pane-button")].map((button) => [button.dataset.paneId, button.getAttribute("aria-pressed")])),
         indented: shown ? list.querySelector(".pane-button").getBoundingClientRect().left > row.getBoundingClientRect().left : null,
         height: row.getBoundingClientRect().height,
-        arrowLeft: arrow.getBoundingClientRect().right <= row.getBoundingClientRect().left + 1,
+        // Centred between the pill and the status, and (a 44px touch target
+        // reaching into the gaps) over neither of them.
+        arrowBetween: badge.right <= arrowBox.left + 1 && arrowBox.right <= status.left + 1 &&
+          Math.abs((arrowBox.left + arrowBox.right) / 2 - (badge.right + status.left) / 2) <= 6,
+        arrowSize: [arrowBox.width, arrowBox.height],
+        iconX: rect(row.querySelector(".agent-icon")).left,
+        statusX: status.left,
+        sub: row.querySelector(".pane-cwd")?.textContent ?? null,
+        guideLine: getComputedStyle(list).borderLeftWidth,
+        childRows: shown ? [...list.querySelectorAll(".pane-button")].map((button) => ({
+          id: button.dataset.paneId,
+          iconX: rect(button.querySelector(".agent-icon")).left,
+          statusX: rect(button.querySelector(".pane-status")).left,
+          height: rect(button).height,
+          sub: button.querySelector(".pane-cwd")?.textContent ?? null,
+          background: getComputedStyle(button).backgroundColor,
+        })) : [],
+        firstChildGap: shown ? rect(list.querySelector(".pane-button")).top - rect(row).bottom : null,
       }];
     })));
+    // A plain session row with a folder line (Release) and one without (Infra).
+    const plainRows = await page.evaluate(() => Object.fromEntries(["w1:p1", "w1:p2"].map((id) => {
+      const button = document.querySelector(`.pane-button[data-pane-id="${id}"]`);
+      return [id, {
+        iconX: button.querySelector(".agent-icon").getBoundingClientRect().left,
+        statusX: button.querySelector(".pane-status").getBoundingClientRect().left,
+        height: button.getBoundingClientRect().height,
+        gap: button.closest(".tab-group").nextElementSibling.getBoundingClientRect().top - button.getBoundingClientRect().bottom,
+      }];
+    })));
+    const plainRow = plainRows["w1:p1"];
     let split = await splitState();
     assert.deepEqual(Object.keys(split), ["w1:t8", "w1:t9", "w1:t10"]);
     assert.deepEqual(["w1:t8", "w1:t9", "w1:t10"].map((id) => [split[id].name, split[id].badge, split[id].status, split[id].glyph]), [
@@ -255,8 +292,12 @@ try {
     ]);
     for (const [id, tab] of Object.entries(split)) {
       assert.equal(tab.rows, 1, `${id} is one row`);
-      assert.deepEqual([tab.expanded, tab.shown, tab.controls, tab.arrowLeft], ["false", false, true, true], `${id} folded, arrow on the left`);
+      assert.deepEqual([tab.expanded, tab.shown, tab.controls, tab.arrowBetween], ["false", false, true, true], `${id} folded, arrow between the badge and the status`);
       assert.ok(tab.height >= 40, `${id} is a 40px touch target`);
+      // Drawn as a session row: its mark and status in the columns every row uses.
+      assert.equal(tab.iconX, plainRow.iconX, `${id} mark lines up with the other sessions' marks`);
+      assert.equal(tab.statusX, plainRow.statusX, `${id} status lines up with the other sessions' statuses`);
+      if (mobile) assert.ok(tab.arrowSize[0] >= 44 && tab.arrowSize[1] >= 44, `${id} arrow is a 44px touch target: ${tab.arrowSize}`);
       assert.equal(tab.pressed, "false");
     }
     assert.equal(await page.locator(".tab-grid-open").count(), 0, "no separate grid heading");
@@ -271,6 +312,18 @@ try {
     split = await splitState();
     assert.deepEqual([split["w1:t8"].expanded, split["w1:t8"].shown, split["w1:t8"].indented], ["true", true, true]);
     assert.deepEqual(Object.keys(split["w1:t8"].children), ["w1:p8", "w1:p9", "w1:p10"]);
+    // Its panes are session rows one tree step (10px) in, with no guide line:
+    // as tall as a session row with (Release) or without (Infra) a folder line,
+    // as far apart as sessions are, statuses in the same column.
+    assert.equal(split["w1:t8"].guideLine, "0px", "no guide line beside the panes");
+    assert.equal(split["w1:t8"].firstChildGap, plainRows["w1:p1"].gap, "the first pane is as far below the row as the next session");
+    for (const child of split["w1:t8"].childRows) {
+      const like = child.sub ? plainRows["w1:p1"] : plainRows["w1:p2"];
+      assert.equal(child.height, like.height, `${child.id} is as tall as a session row`);
+      assert.equal(child.iconX, split["w1:t8"].iconX + 10, `${child.id} mark one tree step in`);
+      assert.equal(child.statusX, plainRow.statusX, `${child.id} status in the sessions' column`);
+    }
+    assert.equal(split["w1:t8"].childRows[0].sub, "pair-a", "a pane titled by its agent shows its folder line");
     await pressOnArrow("Space");
     assert.equal((await splitState())["w1:t8"].shown, false);
     await pressOnArrow("Enter");
@@ -292,6 +345,7 @@ try {
     split = await splitState();
     assert.equal(split["w1:t8"].pressed, "true", "the row is highlighted for its selected pane");
     assert.deepEqual(split["w1:t8"].children, { "w1:p8": "false", "w1:p9": "true", "w1:p10": "false" });
+    assert.equal(split["w1:t8"].childRows[1].background, seen.rows["w1:p4"].background, "the selected pane uses the sessions' selected style");
     await shoot("split-open");
 
     // Folded, it stays folded with its pane selected (a redraw does not open it).

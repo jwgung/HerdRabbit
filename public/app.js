@@ -2891,9 +2891,11 @@ function renderNavigation() {
           sessionRow.classList.add("is-editing");
           sessionRow.append(tabRenameForm(tab, tabId, tabLabel));
         } else {
+          // The arrow is laid over the row next to its badge, after the button
+          // in reading order, so the icon stays in the column every row uses.
           sessionRow.append(
-            splitDisclosureButton(tabGroup, tabId, sessionLabel, paneList),
             splitSessionButton(tabId, sessionLabel, tabPanes, workspace),
+            splitDisclosureButton(tabGroup, tabId, sessionLabel, paneList),
           );
         }
         tabGroup.append(sessionRow, paneList);
@@ -3809,7 +3811,7 @@ function splitSessionButton(tabId, name, tabPanes, workspace) {
   return button;
 }
 
-// The arrow left of a split session's row: shows or hides its panes under it.
+// The arrow beside a split session's pane count: shows or hides its panes under it.
 // Folded until opened; which are open is kept in this browser. A pane selected
 // in a folded session does not open it: the row shows it selected.
 function splitDisclosureButton(tabGroup, tabId, name, paneList) {
