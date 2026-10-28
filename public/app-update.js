@@ -65,18 +65,17 @@ export function anyUpdate(results) {
 }
 
 export function confirmText(name, check) {
+  const head = [`Update ${name} to ${revisionText(check?.latest)}?`, ""];
   if (check?.mode === "plugin") {
     return [
-      `Update ${name} to ${revisionText(check?.latest)}?`,
-      "",
+      ...head,
       "Herdr downloads and builds the new version of the HerdRabbit plugin, then restarts HerdRabbit there. " +
         "Running sessions keep running; the page loses its connection for a moment while HerdRabbit restarts.",
       "If the download or build fails, the installed version keeps running.",
     ].join("\n");
   }
   return [
-    `Update ${name} to ${revisionText(check?.latest)}?`,
-    "",
+    ...head,
     "update.sh fetches main, updates Herdr, installs dependencies, runs the checks and restarts HerdRabbit there. " +
       "Running sessions keep running; the page loses its connection for a moment while the service restarts.",
     "If a step fails, update.sh puts the previous version back.",
@@ -171,6 +170,15 @@ export function runFailedText(status) {
 }
 
 export const WAITING_TEXT = "Waiting for HerdRabbit to come back…";
+
+// The line at the head of a run: its failure, the reload it is about to do,
+// the wait for the restart when there are no steps to say so, else its state.
+function runStateText(status, run, steps, failed) {
+  if (failed) return runFailedText(status);
+  if (run.reloading) return "Updated. Reloading this page…";
+  if (steps.length === 0 && run.waiting) return WAITING_TEXT;
+  return RUN_TEXT[status.state] ?? "";
+}
 
 // Each step of a run as the page shows it: "done", "current", "failed" or
 // "pending". The page's reload is left out for a connected PC (this page does
@@ -488,10 +496,7 @@ export function createUpdatePanel({
         local: server.id === "local", waiting: item.run.waiting, reloading: item.run.reloading === true,
       });
       const failed = runStatus.state === "failed" && !item.run.waiting;
-      const text = failed ? runFailedText(runStatus)
-        : item.run.reloading ? "Updated. Reloading this page…"
-          : steps.length === 0 && item.run.waiting ? "Waiting for HerdRabbit to come back after its restart…"
-            : RUN_TEXT[runStatus.state] ?? "";
+      const text = runStateText(runStatus, item.run, steps, failed);
       const head = element("div", "update-run-head");
       const state = element("p", "update-run-state", text);
       state.setAttribute("role", "status");

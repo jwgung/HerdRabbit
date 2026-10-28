@@ -3,9 +3,9 @@ import { randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { chmod, lstat, mkdir, open, readFile, realpath, rename } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PLUGIN_ID } from "./config.mjs";
+import { PLUGIN_ID, absoluteFolder } from "./config.mjs";
 import { HttpError } from "./http-basics.mjs";
 
 // In-app update: whether main on origin has moved past this checkout, and
@@ -50,6 +50,16 @@ export const RUN_STATES = new Set(["idle", "running", "succeeded", "failed"]);
 // What a run's failure may say beyond its reason (Herdr's own error text for
 // a restart that did not happen), bounded like Herdr's update detail.
 export const MAX_DETAIL = 300;
+// The shapes a status may have: how many steps, how long a step's label.
+const MAX_STEPS = 8;
+const MAX_STEP_LABEL = 80;
+// How much of the log file is read back for the page.
+const LOG_TAIL_BYTES = 64 * 1024;
+// A command that answers within this, in at most this many bytes, is read.
+const CAPTURE_TIMEOUT_MS = 10_000;
+const MAX_CAPTURED_BYTES = 1024 * 1024;
+// A command that ignores SIGTERM when its timeout fires is killed after this.
+export const KILL_GRACE_MS = 3_000;
 // After `herdr plugin action invoke <id>.restart` answers, how long the run
 // watches Herdr's log of that action for its outcome: a restart stops the old
 // server (up to 5s) and waits for the new one (up to 15s).
@@ -137,14 +147,22 @@ export function line(text, limit = MAX_NOTE_LENGTH) {
   return String(text ?? "").replace(/[\u0000-\u001f\u007f]/gu, " ").trim().slice(0, limit);
 }
 
+// A user:password an URL might carry.
+const maskCredentials = (text) => text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/giu, "$1***@");
+
+// What Herdr (or a connected PC) says about a failure, as one line: masked
+// like the log, since it is a line of that output, then bounded.
+export function cleanDetail(text, limit = MAX_DETAIL) {
+  return line(maskCredentials(String(text ?? "")), limit);
+}
+
 // A log is shown as it is, minus anything that would draw on the screen, and
 // minus a user:password an URL might carry.
 export function cleanLog(text) {
-  const cleaned = String(text ?? "")
+  const cleaned = maskCredentials(String(text ?? "")
     .replace(/\r\n?/gu, "\n")
     .replace(/\u001b\[[0-9;?]*[A-Za-z]/gu, "")
-    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/gu, "")
-    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/giu, "$1***@");
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/gu, ""));
   const tail = cleaned.split("\n").slice(-LOG_LINES).join("\n");
   const bytes = Buffer.from(tail, "utf8");
   if (bytes.length <= MAX_LOG_BYTES) return tail;
@@ -158,6 +176,7 @@ function revision(sha, version) {
   };
 }
 
+const cleanMode = (value) => value === "plugin" || value === "script" ? value : null;
 const code = (value) => typeof value === "string" && CODE.test(value) ? value : null;
 const time = (value) => typeof value === "string" && value.length <= 40 && Number.isFinite(Date.parse(value)) ? value : null;
 
@@ -175,15 +194,15 @@ export function cleanCheck(value) {
       .filter((note) => typeof note === "string").map((note) => line(note)).filter(Boolean),
     blocked: code(answer.blocked),
     error: code(answer.error),
-    mode: answer.mode === "plugin" || answer.mode === "script" ? answer.mode : null,
+    mode: cleanMode(answer.mode),
   };
 }
 
 export function cleanRunStatus(value) {
   const status = value && typeof value === "object" ? value : {};
-  const steps = (Array.isArray(status.steps) ? status.steps : []).slice(0, 8)
+  const steps = (Array.isArray(status.steps) ? status.steps : []).slice(0, MAX_STEPS)
     .filter((step) => typeof step?.id === "string" && STEP_IDS.has(step.id) && typeof step.label === "string")
-    .map((step) => ({ id: step.id, label: line(step.label, 80) }))
+    .map((step) => ({ id: step.id, label: line(step.label, MAX_STEP_LABEL) }))
     .filter((step) => step.label);
   return {
     state: RUN_STATES.has(status.state) ? status.state : "idle",
@@ -191,10 +210,10 @@ export function cleanRunStatus(value) {
     finishedAt: time(status.finishedAt),
     exitCode: Number.isSafeInteger(status.exitCode) ? status.exitCode : null,
     reason: code(status.reason),
-    detail: typeof status.detail === "string" ? line(status.detail, MAX_DETAIL) || null : null,
+    detail: typeof status.detail === "string" ? cleanDetail(status.detail) || null : null,
     log: typeof status.log === "string" ? cleanLog(status.log) : "",
     version: typeof status.version === "string" && VERSION.test(status.version) ? status.version : null,
-    mode: status.mode === "plugin" || status.mode === "script" ? status.mode : null,
+    mode: cleanMode(status.mode),
     steps,
     phase: steps.some((step) => step.id === status.phase) ? status.phase : null,
   };
@@ -276,7 +295,7 @@ async function readLogText(path, limit) {
 }
 
 export async function readLogTail(path) {
-  return cleanLog(await readLogText(path, 64 * 1024));
+  return cleanLog(await readLogText(path, LOG_TAIL_BYTES));
 }
 
 // Enough of update.sh's log to find the step it is at: npm's and the checks'
@@ -512,15 +531,15 @@ export class AppUpdater {
         ? { ...record, state: "failed", reason: "restart_failed", phase: "restart" }
         : { ...record, state: "running", phase: "restart" };
     }
-    const mode = record?.mode === "plugin" || record?.mode === "script" ? record.mode : this.plugin ? "plugin" : "script";
-    const text = record ? await readLogText(this.logFile, mode === "script" ? PHASE_LOG_BYTES : 64 * 1024) : "";
+    const mode = cleanMode(record?.mode) ?? (this.plugin ? "plugin" : "script");
+    const text = record ? await readLogText(this.logFile, mode === "script" ? PHASE_LOG_BYTES : LOG_TAIL_BYTES) : "";
     return {
       state: record?.state ?? "idle",
       startedAt: record?.startedAt ?? null,
       finishedAt: record?.finishedAt ?? null,
       exitCode: Number.isSafeInteger(record?.exitCode) ? record.exitCode : null,
       reason: code(record?.reason),
-      detail: typeof record?.detail === "string" ? line(record.detail, MAX_DETAIL) || null : null,
+      detail: typeof record?.detail === "string" ? cleanDetail(record.detail) || null : null,
       log: cleanLog(text),
       version: this.version ?? null,
       mode,
@@ -646,7 +665,7 @@ export class AppUpdater {
 
 // A plugin folder named to the run: an absolute path, nothing else.
 export function pluginFolder(value) {
-  return typeof value === "string" && isAbsolute(value) && !/[\u0000-\u001f\u007f]/u.test(value) ? value : null;
+  return absoluteFolder(value);
 }
 
 // What the plugin run needs to find Herdr, git and npm, Herdr's socket, and
@@ -669,9 +688,19 @@ export function pluginRunEnvironment(environment, path) {
   return env;
 }
 
+// SIGTERM now, SIGKILL if the command is still there after KILL_GRACE_MS. The
+// kill timer is unref'd and `stop` clears it once the command has ended.
+function terminate(child, graceMs) {
+  try { child.kill("SIGTERM"); } catch { /* gone */ }
+  const killer = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } }, graceMs);
+  killer.unref?.();
+  return () => clearTimeout(killer);
+}
+
 // One command with its output appended to the log; its exit code, or -1 when
-// it could not even start.
-function runLogged(spawnImpl, file, args, { cwd, fd, env, timeout = 0 }) {
+// it could not even start or took longer than `timeout` (it is then stopped,
+// by SIGKILL if it ignores SIGTERM, without waiting for it to be gone).
+export function runLogged(spawnImpl, file, args, { cwd, fd, env, timeout = 0, killGraceMs = KILL_GRACE_MS }) {
   return new Promise((resolve) => {
     let child;
     try {
@@ -680,19 +709,31 @@ function runLogged(spawnImpl, file, args, { cwd, fd, env, timeout = 0 }) {
       resolve(-1);
       return;
     }
-    const timer = timeout > 0 ? setTimeout(() => { try { child.kill("SIGTERM"); } catch { /* gone */ } }, timeout) : null;
+    let settled = false;
+    let timer = null;
+    let stopKiller = () => {};
     const done = (exit) => {
+      if (settled) return;
+      settled = true;
       if (timer) clearTimeout(timer);
       resolve(exit);
     };
-    child.once("error", () => done(-1));
-    child.once("close", (exit) => done(Number.isInteger(exit) ? exit : -1));
+    const onError = () => { stopKiller(); done(-1); };
+    const onClose = (exit) => { stopKiller(); done(Number.isInteger(exit) ? exit : -1); };
+    child.once("error", onError);
+    child.once("close", onClose);
+    if (timeout > 0) {
+      timer = setTimeout(() => {
+        stopKiller = terminate(child, killGraceMs);
+        done(-1);
+      }, timeout);
+    }
   });
 }
 
 // One command whose output is read as an answer: { code, stdout, stderr },
 // code -1 when it could not start or took longer than `timeout`.
-function runCaptured(spawnImpl, file, args, { cwd, timeout = 10_000 }) {
+export function runCaptured(spawnImpl, file, args, { cwd, timeout = CAPTURE_TIMEOUT_MS, killGraceMs = KILL_GRACE_MS }) {
   return new Promise((resolve) => {
     let child;
     try {
@@ -706,11 +747,12 @@ function runCaptured(spawnImpl, file, args, { cwd, timeout = 10_000 }) {
     let size = 0;
     const keep = (chunks) => (chunk) => {
       size += chunk.length;
-      if (size <= 1024 * 1024) chunks.push(chunk);
+      if (size <= MAX_CAPTURED_BYTES) chunks.push(chunk);
     };
     child.stdout?.on("data", keep(out));
     child.stderr?.on("data", keep(err));
     let settled = false;
+    let stopKiller = () => {};
     const finish = (exit) => {
       if (settled) return;
       settled = true;
@@ -718,11 +760,11 @@ function runCaptured(spawnImpl, file, args, { cwd, timeout = 10_000 }) {
       resolve({ code: exit, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") });
     };
     const timer = setTimeout(() => {
-      try { child.kill("SIGTERM"); } catch { /* gone */ }
+      stopKiller = terminate(child, killGraceMs);
       finish(-1);
     }, timeout);
-    child.once("error", () => finish(-1));
-    child.once("close", (exit) => finish(Number.isInteger(exit) ? exit : -1));
+    child.once("error", () => { stopKiller(); finish(-1); });
+    child.once("close", (exit) => { stopKiller(); finish(Number.isInteger(exit) ? exit : -1); });
   });
 }
 
@@ -761,7 +803,7 @@ export function actionOutcome(entry) {
   const lastLine = (text) => String(typeof text === "string" ? text : "").split(/\r?\n/u).map((item) => item.trim()).filter(Boolean).at(-1);
   const said = error ?? lastLine(entry.stderr) ?? lastLine(entry.stdout);
   const detail = [said, exit !== null ? `exit code ${exit}` : null].filter(Boolean).join(" -- ") || "the restart action failed";
-  return { outcome: "failed", detail: line(detail, MAX_DETAIL) };
+  return { outcome: "failed", detail: cleanDetail(detail) };
 }
 
 // The checkout Herdr installed the plugin into, from `herdr plugin list
@@ -822,7 +864,7 @@ export async function runPluginUpdate({
       if (invoked.stdout || invoked.stderr) await log.write(`${invoked.stdout}${invoked.stderr}`.replace(/\n?$/u, "\n")).catch(() => {});
       let failure = null;
       if (invoked.code !== 0) {
-        failure = line(invoked.stderr.trim().split("\n").at(-1) || `herdr plugin action invoke exited with ${invoked.code}`, MAX_DETAIL);
+        failure = cleanDetail(invoked.stderr.trim().split("\n").at(-1) || `herdr plugin action invoke exited with ${invoked.code}`);
       } else {
         const logId = invokedLogId(invoked.stdout);
         const outcome = logId
@@ -839,7 +881,7 @@ export async function runPluginUpdate({
         } else {
           exitCode = restarted.code ?? 1;
           reason = "restart_failed";
-          detail = line(restarted.detail ? `${failure}; ${restarted.detail}` : failure, MAX_DETAIL);
+          detail = cleanDetail(restarted.detail ? `${failure}; ${restarted.detail}` : failure);
         }
       } else {
         exitCode = 0;

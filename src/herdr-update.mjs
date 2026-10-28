@@ -6,7 +6,7 @@ import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HttpError } from "./http-basics.mjs";
 import {
-  CHECK_REUSE_MS, FRESH_CHECK_REUSE_MS, MAX_RUN_MS, NOFOLLOW, RUN_INTERVAL_MS, RUN_STATES,
+  CHECK_REUSE_MS, FRESH_CHECK_REUSE_MS, MAX_DETAIL, MAX_RUN_MS, NOFOLLOW, RUN_INTERVAL_MS, RUN_STATES,
   checkStateDir, cleanLog, execCommand, line, readLogTail, readRecord, writeFileSafely, writeRecord,
 } from "./app-update.mjs";
 import { compareHerdrVersions, parseHerdrVersion } from "./herdr-version.mjs";
@@ -42,7 +42,6 @@ function herdrEnvironment(environment, path) {
   return env;
 }
 export const MAX_HERDR_NOTES = 1_500;
-export const MAX_DETAIL = 300;
 export const HERDR_STATE_FILE = "herdr-update-state.json";
 export const HERDR_LOG_FILE = "herdr-update.log";
 const COMMAND_TIMEOUT_MS = 10_000;

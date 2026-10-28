@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   AppUpdater, MAX_LOG_BYTES, MAX_NOTES, MAX_RUN_MS, RESTART_WAIT_MS, OFFICIAL_ORIGINS, SERVICE_UNITS, cleanCheck, cleanLog, cleanRunStatus, execCommand, runLimiter,
-  pluginRunEnvironment, runPluginUpdate, runUpdateScript, RUN_STEPS, SCRIPT_MARKERS, actionOutcome, invokedLogId, scriptPhase,
+  pluginRunEnvironment, runPluginUpdate, runUpdateScript, RUN_STEPS, SCRIPT_MARKERS, actionOutcome, invokedLogId, scriptPhase, runLogged, runCaptured, cleanDetail,
 } from "../src/app-update.mjs";
 import { EventEmitter } from "node:events";
 
@@ -889,4 +889,62 @@ test("a plugin run's success is told by the server that replaced this one", asyn
   const late = await old.runStatus();
   assert.equal(late.state, "failed");
   assert.equal(late.reason, "restart_failed");
+});
+
+test("a failure's detail is masked for URL credentials like the log, whoever wrote it", () => {
+  const said = "fatal: unable to access 'https://user:secret@host/x'";
+  assert.equal(cleanDetail(said), "fatal: unable to access 'https://***@host/x'");
+  assert.ok(!actionOutcome({ status: "failed", error: said }).detail.includes("secret"));
+  const status = cleanRunStatus({ state: "failed", detail: said });
+  assert.equal(status.detail, "fatal: unable to access 'https://***@host/x'");
+});
+
+// A child that ignores SIGTERM and only goes away on SIGKILL.
+function stubbornSpawn() {
+  const signals = [];
+  const children = [];
+  const spawnImpl = () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = (signal) => {
+      signals.push(signal);
+      if (signal === "SIGKILL") setImmediate(() => child.emit("close", null));
+      return true;
+    };
+    children.push(child);
+    return child;
+  };
+  return { signals, children, spawnImpl };
+}
+
+test("runLogged gives up on a command past its timeout and kills it when SIGTERM is ignored", async () => {
+  const fake = stubbornSpawn();
+  const exit = await runLogged(fake.spawnImpl, "x", [], { fd: 1, timeout: 10, killGraceMs: 20 });
+  assert.equal(exit, -1);
+  assert.deepEqual(fake.signals, ["SIGTERM"]);
+  await new Promise((resolve) => { setTimeout(resolve, 60); });
+  assert.deepEqual(fake.signals, ["SIGTERM", "SIGKILL"]);
+  fake.children[0].emit("close", 0); // a late close settles nothing twice
+});
+
+test("runLogged does not send SIGKILL to a command that stops after SIGTERM", async () => {
+  const signals = [];
+  const spawnImpl = () => {
+    const child = new EventEmitter();
+    child.kill = (signal) => { signals.push(signal); setImmediate(() => child.emit("close", null)); return true; };
+    return child;
+  };
+  assert.equal(await runLogged(spawnImpl, "x", [], { fd: 1, timeout: 10, killGraceMs: 30 }), -1);
+  await new Promise((resolve) => { setTimeout(resolve, 60); });
+  assert.deepEqual(signals, ["SIGTERM"]);
+});
+
+test("runCaptured answers -1 at its timeout and kills a command that ignores SIGTERM", async () => {
+  const fake = stubbornSpawn();
+  const answer = await runCaptured(fake.spawnImpl, "x", [], { timeout: 10, killGraceMs: 20 });
+  assert.deepEqual(answer, { code: -1, stdout: "", stderr: "" });
+  await new Promise((resolve) => { setTimeout(resolve, 60); });
+  assert.deepEqual(fake.signals, ["SIGTERM", "SIGKILL"]);
+  fake.children[0].emit("close", 0);
 });

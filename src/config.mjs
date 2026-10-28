@@ -5,6 +5,12 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { DEFAULT_PEER_PORT } from "./link-protocol.mjs";
 
+// A folder named from outside (Herdr's, a connected PC's): an absolute path
+// without control characters, nothing else.
+export function absoluteFolder(value) {
+  return typeof value === "string" && isAbsolute(value) && !/[\u0000-\u001f\u007f]/u.test(value) ? value : null;
+}
+
 const DEFAULT_PORT = 38_787;
 // Any single address is narrower than 0.0.0.0, so binding to one interface --
 // a Tailscale address, say -- is a tightening rather than a risk. Only literal
@@ -169,8 +175,7 @@ function parsePluginId(value) {
 // has to do itself finds the same .env and server record Herdr's would.
 // Anything but an absolute path without control characters is unknown.
 function parsePluginDir(value) {
-  const path = (value ?? "").trim();
-  return isAbsolute(path) && !/[\u0000-\u001f\u007f]/u.test(path) ? path : null;
+  return absoluteFolder((value ?? "").trim());
 }
 
 function parsePeerLogins(value) {

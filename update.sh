@@ -2,9 +2,6 @@
 set -eu
 
 log() { printf '  > %s\n' "$1"; }
-# The page's Update window shows which step a run is at from the lines marked
-# "step:" below (SCRIPT_MARKERS in src/app-update.mjs). Keep their wording in
-# step with it; test/app-update.test.mjs fails when one is no longer printed.
 fail() { printf '  x %s\n' "$1" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "requires '$1'"; }
 
@@ -72,6 +69,9 @@ main() {
         log "         To open this PC's page, run 'npm run install-service' after the update (it asks for a password)."
     fi
 
+    # The page's Update window shows which step a run is at from the lines
+    # marked "step:" (SCRIPT_MARKERS in src/app-update.mjs). Keep their wording
+    # in step with it; test/app-update.test.mjs fails when one is no longer printed.
     log "Fetching main in $UPDATE_DIRECTORY" # step: fetch
     git fetch origin main
     git merge-base --is-ancestor HEAD FETCH_HEAD || fail "local main has unpublished or divergent commits; reconcile it manually"
