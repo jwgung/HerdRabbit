@@ -553,6 +553,9 @@ try {
       Object.defineProperty(document, "hidden", { configurable: true, get: () => value });
       document.dispatchEvent(new Event("visibilitychange"));
     }, hidden);
+    // A cell the zoom let go attaches again a moment after the unzoom.
+    const attachedBy = Date.now() + 5000;
+    while (attachedPanes(0).filter((id, at, all) => all.indexOf(id) === at).length < 3 && Date.now() < attachedBy) await page.waitForTimeout(100);
     assert.deepEqual(attachedPanes(0).filter((id, at, all) => all.indexOf(id) === at), ["w1:p1", "w1:p2", "w1:p3"]);
     await setHidden(true);
     await page.waitForTimeout(500);
