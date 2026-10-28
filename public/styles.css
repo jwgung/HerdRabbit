@@ -3055,8 +3055,10 @@ body.is-sidebar-dragging * {
   display: none !important;
 }
 
+/* The Chat lens hides the key bar; the grid shows it again as the grid it is
+   (a flex row here made its buttons shrink to their text). */
 .terminal-panel.is-grid .quick-keys {
-  display: flex;
+  display: grid;
 }
 
 .pane-grid {
