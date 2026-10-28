@@ -3559,6 +3559,8 @@ function renderPaneViews() {
       });
     }
   } else paneMapKey = "";
+  // The find bar lies over the terminal's top corner: below the map, not on it.
+  elements.terminalStage.style.setProperty("--pane-map-clearance", showMap ? `${elements.paneMap.offsetHeight + 8}px` : "0px");
   elements.gridBack.hidden = !(splitTabId && desktopMedia.matches && !gridTab);
   elements.terminalPanel.classList.toggle("is-grid", Boolean(gridTab));
   if (gridTab) paneGrid.show({ panes, layout, selectedPaneId: state.selectedPaneId });

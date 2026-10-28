@@ -846,7 +846,7 @@ body.sidebar-collapsed .terminal-panel {
 /* The find bar, over the terminal's top right corner; on a phone, across it. */
 .terminal-find {
   position: absolute;
-  top: 8px;
+  top: calc(8px + var(--pane-map-clearance, 0px));
   right: 8px;
   z-index: 12;
   width: min(420px, calc(100% - 16px));
