@@ -808,7 +808,7 @@ test("update.sh's step is read from the lines it logs", () => {
     assert.equal(scriptPhase(text, "fetch"), phase, text);
   }
   // Other output keeps the step it is at, wherever it comes from.
-  assert.equal(scriptPhase("added 120 packages\n> herdrabbit@1.4.1 verify\nUpdating Herdr", "install"), "install");
+  assert.equal(scriptPhase("added 120 packages\n> herdrabbit@1.4.2 verify\nUpdating Herdr", "install"), "install");
   assert.equal(scriptPhase("  > Configuring Claude to use native terminal scrollback\n  x verification failed", "verify"), "verify");
   assert.equal(scriptPhase("  > Rolling back to abc1234", "verify"), "verify");
   // The furthest step seen holds: an earlier step's line later on does not move it back.
