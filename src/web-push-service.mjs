@@ -11,7 +11,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 const CONFIG_VERSION = 1;
-const VAPID_SUBJECT = "https://github.com/ultivis-iot/HerdRabbit";
+const VAPID_SUBJECT = "https://github.com/jwgung/HerdRabbit";
 const MAX_ENDPOINT_LENGTH = 4_096;
 const MAX_KEY_LENGTH = 512;
 

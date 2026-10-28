@@ -17,7 +17,7 @@ import { OFFICIAL_ORIGINS, properties } from "../src/app-update.mjs";
 import { parseSystemdEnvironment } from "./service-environment.mjs";
 import { readVisibleLine } from "./password-prompt.mjs";
 
-export const PLUGIN_SOURCE = "ultivis-iot/HerdRabbit";
+export const PLUGIN_SOURCE = "jwgung/HerdRabbit";
 export const PLUGIN = "herdrabbit";
 // The plugin's start action waits up to 15 s itself; Herdr runs it queued.
 export const PAGE_WAIT_MS = 20_000;
@@ -288,7 +288,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(2);
   }
   if (process.platform !== "linux") {
-    console.error("systemd 서비스는 Linux에만 있습니다. 이 PC는 herdr plugin install ultivis-iot/HerdRabbit로 설치하세요.");
+    console.error("systemd 서비스는 Linux에만 있습니다. 이 PC는 herdr plugin install jwgung/HerdRabbit로 설치하세요.");
     process.exit(1);
   }
   const yes = args.includes("--yes");

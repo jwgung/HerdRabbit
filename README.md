@@ -197,7 +197,7 @@ export PATH="$HOME/.local/bin:$PATH"
 Run this in a Linux or macOS terminal. It installs HerdRabbit [as a Herdr plugin](#install-as-a-herdr-plugin):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/jwgung/HerdRabbit/main/install.sh | sh
 ```
 
 The bootstrap script:
@@ -205,7 +205,7 @@ The bootstrap script:
 1. Checks Git, npm and Node.js 22+, and fetches the current HerdRabbit into a temporary folder (removed at the end)
 2. Moves a PC that still has the older systemd service over to the plugin instead ([Moving an existing install to the plugin](#moving-an-existing-install-to-the-plugin)), and stops there
 3. Installs Herdr from `https://herdr.dev/install.sh` when `herdr` is missing, or updates it with `herdr update --handoff` when it is older than 0.9.0
-4. Installs the plugin with `herdr plugin install ultivis-iot/HerdRabbit`
+4. Installs the plugin with `herdr plugin install jwgung/HerdRabbit`
 5. Selects an unused port, preferring `38787` and then `30000–39999`, and writes it with this PC's tailnet name into the plugin's `.env`
 6. Prompts for an optional HerdRabbit password through the terminal (an existing one is kept unless you ask to replace it)
 7. Starts the plugin when Herdr is running; otherwise it starts with Herdr
@@ -216,7 +216,7 @@ Run it again to change the password or register Tailscale Serve again; the plugi
 ### Manual repository install
 
 ```bash
-gh repo clone ultivis-iot/HerdRabbit
+gh repo clone jwgung/HerdRabbit
 cd HerdRabbit
 npm ci --omit=dev
 npm run install-service
@@ -257,7 +257,7 @@ The one-line installer installs the Web Push and WebAuthn runtime dependencies a
 Install HerdRabbit as a [Herdr plugin](https://herdr.dev/) (Herdr 0.9.0 or newer, Node.js 22+ and npm on `PATH`). It is also listed in the [Herdr plugin marketplace](https://herdr.dev/plugins/).
 
 ```bash
-herdr plugin install ultivis-iot/HerdRabbit
+herdr plugin install jwgung/HerdRabbit
 ```
 
 - **Build:** after you confirm, Herdr runs `npm ci --omit=dev` in its own checkout of the plugin.
@@ -275,13 +275,13 @@ The plugin starts with Herdr, so to have HerdRabbit up after login, have Herdr s
 This replaces the systemd service written by an earlier one-line installer or `npm run install-service` with the plugin; the one-line installer above does the same on such a PC. Run it on that PC while Herdr is running:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/migrate-to-plugin.sh | sh
+curl -fsSL https://raw.githubusercontent.com/jwgung/HerdRabbit/main/migrate-to-plugin.sh | sh
 ```
 
 It needs `git`, `npm` and Node.js 22+. Piped like this, it fetches the current HerdRabbit into a temporary folder and runs from there, so an installation of any age moves over without updating it first; the folder is removed afterwards. From an up-to-date checkout, `sh migrate-to-plugin.sh` in it does the same.
 
 - It shows what it will do and asks first (without a terminal, pass `--yes`: `... | sh -s -- --yes`).
-- It installs the plugin with `herdr plugin install ultivis-iot/HerdRabbit` and carries the unit's `HERDR_WEB_*` settings (port, allowed hosts, the Connect PC port and allowed PCs, and so on) into the plugin's `.env`. A value with a double quote or a line break is not carried and is named so you can add it by hand. `HERDR_BIN` is not carried: the plugin uses the Herdr that runs it. The password file, uploads folder and push subscriptions file the service used are written in explicitly, so a different XDG folder in Herdr's environment does not move them. A `.env` that already has settings is left as it is, and then none of the unit's settings are carried; if its address is not the service's, the move stops before the service is touched.
+- It installs the plugin with `herdr plugin install jwgung/HerdRabbit` and carries the unit's `HERDR_WEB_*` settings (port, allowed hosts, the Connect PC port and allowed PCs, and so on) into the plugin's `.env`. A value with a double quote or a line break is not carried and is named so you can add it by hand. `HERDR_BIN` is not carried: the plugin uses the Herdr that runs it. The password file, uploads folder and push subscriptions file the service used are written in explicitly, so a different XDG folder in Herdr's environment does not move them. A `.env` that already has settings is left as it is, and then none of the unit's settings are carried; if its address is not the service's, the move stops before the service is touched.
 - It stops the service and starts the plugin on the same address. The port is the same, so the Tailscale Serve address, an installed PWA and other PCs' connections carry on.
 - Once the plugin answers, it disables the service, deletes its unit file when it is in `~/.config/systemd/user`, and deletes the old checkout when it is an unmodified official checkout in the default place (`~/.local/share/herd-rabbit`, or `HERD_RABBIT_INSTALL_DIR`) holding nothing but its installed dependencies. A checkout anywhere else, one with changes, or one holding other ignored files is kept. If the plugin does not answer, the service is started again and nothing is deleted.
 - The password, Passkeys, signed-in devices, connected PCs (`~/.config/herdr-bridge/`) and uploads (`~/.local/share/herdrabbit/files`) live outside the install folder and stay as they are.

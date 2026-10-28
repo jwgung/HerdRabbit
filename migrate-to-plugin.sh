@@ -2,13 +2,13 @@
 # Moves this PC from the systemd service to the Herdr plugin. See
 # scripts/migrate-to-plugin.mjs; run it with Herdr running, either from a
 # checkout or straight from GitHub:
-#   curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/migrate-to-plugin.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/jwgung/HerdRabbit/main/migrate-to-plugin.sh | sh
 # Piped like that there is no checkout beside it, so the current code is
 # fetched into a temporary folder first: an installation too old to have this
 # script moves over without updating it first.
 set -eu
 
-REPOSITORY_URL="https://github.com/ultivis-iot/HerdRabbit.git"
+REPOSITORY_URL="https://github.com/jwgung/HerdRabbit.git"
 
 log() { printf '  > %s\n' "$1"; }
 fail() { printf '  x %s\n' "$1" >&2; exit 1; }

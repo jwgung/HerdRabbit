@@ -31,7 +31,7 @@ test("persists VAPID keys and deduplicated device subscriptions privately", asyn
   const service = await loadWebPushService(filePath, { webPush: fakeWebPush });
   assert.equal(service.publicKey, "public-vapid");
   assert.deepEqual(setupCalls, [[
-    "https://github.com/ultivis-iot/HerdRabbit",
+    "https://github.com/jwgung/HerdRabbit",
     "public-vapid",
     "private-vapid",
   ]]);
