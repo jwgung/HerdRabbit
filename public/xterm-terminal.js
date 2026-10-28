@@ -65,6 +65,25 @@ const MIRROR_SCROLLBACK = 1000;
 // `keepSize` makes a viewer that never sets the pane's size (a cell of the
 // pane grid): it attaches at the pane's own grid, sends no resize, and fits
 // that grid into its frame by the font size instead.
+// xterm queues work of its own that it does not cancel when disposed: its
+// viewport measures itself on a timer once the terminal opens, and on an
+// animation frame after each screen reset (the clear every new pane starts
+// with). Run on a disposed terminal, or on one whose renderer was never made
+// (opened, then hidden before xterm measured it), that work reads a renderer
+// that is not there and throws. A terminal let go has nothing left to
+// measure, so that work is made a no-op before xterm is disposed.
+// (xterm 5.5 private API; the bundle is pinned.)
+export function disposeTerminal(term) {
+  const viewport = term?._core?.viewport;
+  if (viewport) {
+    viewport.syncScrollArea = () => {};
+    viewport._innerRefresh = () => {};
+  } else if (term) {
+    console.warn("xterm's viewport is missing: a terminal let go at once may still measure itself.");
+  }
+  term?.dispose();
+}
+
 export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
   onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer"),
   isLinkablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {},
@@ -108,6 +127,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   // A phone keyboard is up, and the frame's height when it last fitted.
   let keyboardOpen = false;
   let fullHeight = 0;
+  // Let go for good (dispose): nothing here touches the terminal again.
+  let disposed = false;
 
   function create() {
     term = new Terminal({
@@ -258,11 +279,11 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     term.onBinary(type);
     term.onResize(({ cols, rows }) => {
       // A grid taken from the page that sets the size is not this page's wish.
-      if (!owner) return;
+      if (disposed || !owner) return;
       clearTimeout(resizeTimer);
       // The size belongs to the pane shown when it changed, never to the next one.
       const resized = paneId;
-      resizeTimer = setTimeout(() => { if (resized && resized === paneId) connection.resize(resized, cols, rows); }, RESIZE_DEBOUNCE_MS);
+      resizeTimer = setTimeout(() => { if (!disposed && resized && resized === paneId) connection.resize(resized, cols, rows); }, RESIZE_DEBOUNCE_MS);
     });
     // A finger drag scrolls herdr's history: it becomes the wheel that herdr
     // reads, one notch per three lines the finger travels, gliding on after a
@@ -314,6 +335,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         pressAt = { x: event.touches[0].clientX, y: event.touches[0].clientY };
         pressTimer = setTimeout(() => {
           pressTimer = null;
+          if (disposed) return;
           scroller.cancel();
           selecting = { anchor: cellUnder(pressAt.x, pressAt.y) };
           selectTo(selecting.anchor);
@@ -363,7 +385,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         pinch = null;
       }
     }
-    sizeWatch = new ResizeObserver(() => { if (!host.hidden) fitNow(); });
+    sizeWatch = new ResizeObserver(() => { if (!disposed && !host.hidden) fitNow(); });
     sizeWatch.observe(host);
   }
 
@@ -376,7 +398,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   let find = null;
   let linksFrame = null;
   function scheduleLinks() {
-    if (!marks || linksFrame !== null) return;
+    if (disposed || !marks || linksFrame !== null) return;
     linksFrame = requestAnimationFrame(() => {
       linksFrame = null;
       refreshLinks();
@@ -422,7 +444,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   }
 
   function fitNow() {
-    if (!term || host.hidden || host.clientWidth === 0 || host.clientHeight === 0) return;
+    if (disposed || !term || host.hidden || host.clientWidth === 0 || host.clientHeight === 0) return;
     // A phone keyboard only covers the screen for a while: the pane keeps its
     // size, so herdr and every other screen on it are not resized each time.
     if (keyboardOpen) return;
@@ -434,7 +456,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     const { cols, rows } = wantedSize();
     clearTimeout(resizeTimer);
     const resized = paneId;
-    resizeTimer = setTimeout(() => { if (resized && resized === paneId) connection.resize(resized, cols, rows); }, RESIZE_DEBOUNCE_MS);
+    resizeTimer = setTimeout(() => { if (!disposed && resized && resized === paneId) connection.resize(resized, cols, rows); }, RESIZE_DEBOUNCE_MS);
   }
 
   // A keepSize terminal keeps the pane's columns and rows and scales its font
@@ -443,9 +465,10 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   // Below this a pane's text is no longer worth drawing.
   const MIN_CELL_FONT_SIZE = 4;
   function fitFont() {
-    if (fitFrame !== null) return;
+    if (disposed || fitFrame !== null) return;
     fitFrame = requestAnimationFrame(() => {
       fitFrame = null;
+      if (disposed) return;
       const screen = term?.element?.querySelector(".xterm-screen");
       if (!screen || host.hidden || !screen.offsetWidth || !screen.offsetHeight) return;
       const style = getComputedStyle(term.element);
@@ -467,7 +490,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   }
 
   connection.onAttach((message) => {
-    if (message.pane_id !== paneId) return;
+    if (disposed || message.pane_id !== paneId) return;
     switch (message.type) {
       case "pty-data": {
         const stream = generation;
@@ -518,7 +541,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   });
   // A new socket has none of this page's attachments: ask again with a clean screen.
   connection.onReconnect(() => {
-    if (!paneId) return;
+    if (disposed || !paneId) return;
     ready = false;
     held = false;
     clearScreen();
@@ -563,6 +586,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   }
 
   function attachCurrent() {
+    if (disposed) return;
     const size = wantedSize();
     if (owner) fit.fit();
     connection.attach(paneId, keepSize ? { ...size, keepSize: true } : size);
@@ -581,7 +605,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     clearTimeout(retryTimers.get(failed));
     retryTimers.delete(failed);
     if (Number.isFinite(until)) {
-      retryTimers.set(failed, setTimeout(() => { retryTimers.delete(failed); onRetry(failed); }, Math.max(0, until - Date.now()) + 50));
+      retryTimers.set(failed, setTimeout(() => { retryTimers.delete(failed); if (!disposed) onRetry(failed); }, Math.max(0, until - Date.now()) + 50));
     }
   }
 
@@ -591,7 +615,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   }
 
   function drawHeldFrame() {
-    if (heldFrame === null || drawingFrame || !atBottom()) return;
+    if (disposed || heldFrame === null || drawingFrame || !atBottom()) return;
     const frame = heldFrame;
     heldFrame = null;
     drawingFrame = true;
@@ -632,6 +656,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     // Attaches `nextPaneId` here; false when it cannot now, and the page
     // mirrors it instead.
     show(nextPaneId) {
+      if (disposed) return false;
       if (!nextPaneId || (unavailable.get(nextPaneId) ?? 0) > Date.now()) {
         if (paneId) stop();
         if (!nextPaneId && mirrored) { mirrored = null; host.hidden = true; }
@@ -662,7 +687,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     // Read-only: keystrokes in the terminal go nowhere, and the page's
     // composer sends text to the pane instead.
     mirror(nextPaneId, text) {
-      if (!nextPaneId || nextPaneId === paneId) return false;
+      if (disposed || !nextPaneId || nextPaneId === paneId) return false;
       if (paneId) stop();
       if (!term) create();
       if (mirrored !== nextPaneId) {
@@ -685,7 +710,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     // Reconnect pressed on a pane that failed to attach: its wait is skipped,
     // and the page is asked to show it again now.
     retryNow(failed) {
-      if (!failed || !unavailable.has(failed)) return false;
+      if (disposed || !failed || !unavailable.has(failed)) return false;
       unavailable.delete(failed);
       clearTimeout(retryTimers.get(failed));
       retryTimers.delete(failed);
@@ -696,7 +721,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     // fits down from there.
     setFontSize(size) {
       if (keepSize) fontSize = size;
-      if (!term) return;
+      if (disposed || !term) return;
       term.options.fontSize = size;
       fitNow();
     },
@@ -726,14 +751,30 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     },
     focus() { term?.focus(); },
     // Lets the pane go and frees the terminal for good (a grid cell that left).
+    // Everything of this page's is cancelled, and so is xterm's own queued
+    // work (see disposeTerminal).
     dispose() {
+      if (disposed) return;
       if (paneId) stop();
+      disposed = true;
+      clearTimeout(resizeTimer);
+      cancelPress();
+      scroller?.cancel();
       for (const timer of retryTimers.values()) clearTimeout(timer);
       retryTimers.clear();
       if (fitFrame !== null) cancelAnimationFrame(fitFrame);
+      if (linksFrame !== null) cancelAnimationFrame(linksFrame);
+      fitFrame = null;
+      linksFrame = null;
       sizeWatch?.disconnect();
-      term?.dispose();
+      sizeWatch = null;
+      heldFrame = null;
+      mirrored = null;
+      // Writes still queued in xterm answer for a stream that is over.
+      generation += 1;
+      disposeTerminal(term);
       term = null;
+      fit = null;
     },
     // While a phone keyboard is up the terminal does not fit to the smaller
     // frame; it shows its foot instead, and fits again once the keyboard goes.
