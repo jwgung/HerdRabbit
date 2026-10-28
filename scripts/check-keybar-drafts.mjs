@@ -102,6 +102,9 @@ try {
     };
     const openPane = async (id) => {
       if (mobile) await page.locator("#mobile-sidebar-open").click();
+      // The panes share a split session: they are listed in its dropdown.
+      const paneList = page.locator(`.tab-group:has(.pane-button[data-pane-id="${id}"]) .split-disclosure`);
+      if (await paneList.count() && await paneList.getAttribute("aria-expanded") === "false") await paneList.click();
       await page.locator(`.pane-button[data-pane-id="${id}"]`).click();
       await page.waitForFunction((paneId) => document.querySelector(`.pane-button[data-pane-id="${paneId}"]`)?.getAttribute("aria-pressed") === "true", id);
     };
@@ -121,7 +124,7 @@ try {
     assert.equal(await page.locator(".settings-button").getAttribute("aria-label"), "Settings");
     const barBox = await bar.boundingBox();
     assert.ok(barBox.x + barBox.width <= (mobile ? 390 : 1280) + 1, "the bar fits the width");
-    await page.locator('.pane-button[data-pane-id="w1:p1"], #mobile-sidebar-open').first().waitFor();
+    await page.locator(".pane-button:visible, #mobile-sidebar-open:visible").first().waitFor();
 
     // Open the window, add Ctrl+R, remove PgUp, move Enter first.
     await openKeyEditor();
