@@ -2,11 +2,11 @@
 // (c) 2026 devswha), most of them captured live from Claude Code 2.1.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseClaudePrompt } from "../src/prompt/claude.mjs";
+import { MAX_CONTEXT, claudeQuestionContext, parseClaudePrompt } from "../src/prompt/claude.mjs";
 import { parseFallbackPrompt } from "../src/prompt/fallback.mjs";
 import { answerSteps, publicCard } from "../src/prompt/screen.mjs";
 import { indexAtColumn, stringWidth } from "../src/prompt/text-width.mjs";
-import { approvalScreen, questionScreen } from "./fixtures/claude-prompt.mjs";
+import { ASK_MESSAGE, ASK_ROWS, approvalScreen, askScreen, questionScreen } from "./fixtures/claude-prompt.mjs";
 
 const labels = (parsed) => parsed?.options.map((option) => option.label);
 const keys = (steps) => steps.flatMap((step) => step.keys ?? [`text:${step.text}`]);
@@ -601,4 +601,85 @@ test("no fallback card over Claude's model list, whose Enter would save a defaul
 
 test("a blank screen, caught mid-redraw, is no fallback card", () => {
   for (const screen of ["", "\n\n   \n", "\u001b[2J\u001b[H\n\n"]) assert.equal(parseFallbackPrompt(screen), null, JSON.stringify(screen));
+});
+
+test("a question's context is Claude's message above its rule, as the terminal draws it, without the chrome", () => {
+  const screen = askScreen();
+  const parsed = parseClaudePrompt(screen);
+  const card = publicCard(parsed);
+  // the options stay the question's own, and "Chat about this" is an action of the card
+  assert.equal(card.kind, "question");
+  assert.deepEqual(labels(card), ASK_ROWS);
+  assert.equal(card.customOptionIndex, 2);
+  assert.equal(card.chat, true);
+  const context = claudeQuestionContext(screen, card);
+  assert.equal(context, [
+    "The cache audit is done. Two stores still disagree:",
+    "",
+    "┌─────────┬──────────┬──────────┐",
+    "│ Store   │ Entries  │ Stale    │",
+    "├─────────┼──────────┼──────────┤",
+    "│ north   │ 1200     │ 14       │",
+    "│ south   │ 980      │ 0        │",
+    "└─────────┴──────────┴──────────┘",
+    "",
+    "The literal tag <b>x</b> is shown as text.",
+    "Dropping the cache costs one cold start.",
+  ].join("\n"));
+  for (const chrome of ["●", "❯", "Keep or drop the cache?", "☐", "Type something", "Chat about this", "Esc to cancel", "─".repeat(20)]) {
+    assert.ok(!context.includes(chrome), `the context leaves out ${chrome}`);
+  }
+  // the card's id does not depend on the text above the question
+  assert.equal(parseClaudePrompt(askScreen({ message: ["● Another message."] })).id, parsed.id);
+});
+
+test("a question with no message above it has no context", () => {
+  // the user's prompt right above the question's rule
+  assert.equal(claudeQuestionContext(askScreen({ message: [] })), null);
+  // a tool call is no message
+  assert.equal(claudeQuestionContext(askScreen({ message: ["● Read(src/cache.mjs)", "  ⎿  Read 40 lines"] })), null);
+  // no rule over the question: nothing tells where it starts
+  assert.equal(claudeQuestionContext(questionScreen()), null);
+  // a screen without that question says nothing yet
+  assert.equal(claudeQuestionContext(approvalScreen()), undefined);
+  assert.equal(claudeQuestionContext(askScreen(), { options: [{}, {}, {}], multiSelect: false }), undefined);
+});
+
+test("a long message's context keeps its last lines, cut at a line, within the bound", () => {
+  const message = ["● Start of a long report.", ...Array.from({ length: 400 }, (_, index) => `  Line ${index} of the report, with some words in it.`)];
+  const context = claudeQuestionContext(askScreen({ message }));
+  assert.ok(context.length <= MAX_CONTEXT, `${context.length} characters`);
+  assert.ok(context.length > MAX_CONTEXT - 200);
+  assert.ok(context.startsWith("…\nLine "), "cut at the start of a line");
+  assert.ok(context.endsWith("Line 399 of the report, with some words in it."));
+  assert.ok(!context.includes("Start of a long report."));
+});
+
+test("Chat about this is picked by moving onto its row and pressing Enter, from wherever the cursor is", () => {
+  const top = parseClaudePrompt(askScreen());
+  assert.deepEqual(keys(answerSteps(top, { action: "chat" })), ["down", "down", "down", "enter"]);
+  const typed = parseClaudePrompt(askScreen({ cursor: 2 }));
+  assert.deepEqual(keys(answerSteps(typed, { action: "chat" })), ["down", "enter"]);
+  const there = parseClaudePrompt(askScreen({ cursor: 3 }));
+  assert.equal(there.id, top.id);
+  assert.deepEqual(keys(answerSteps(there, { action: "chat" })), ["enter"]);
+  assert.throws(() => answerSteps(top, { action: "other" }), /no such action/);
+  assert.throws(() => answerSteps(top, { action: "chat", option: 0 }), /Exactly one/);
+  // a card without the row has no such action
+  assert.equal(publicCard(parseClaudePrompt(approvalScreen())).chat, undefined);
+  assert.throws(() => answerSteps(parseClaudePrompt(approvalScreen()), { action: "chat" }), /no such action/);
+  // a multiple choice: its Submit row is counted on the way down
+  const multi = parseClaudePrompt(`
+←  ☐ Pick  ✔ Submit  →
+Which ones?
+❯ 1. [ ] Option A
+  2. [ ] Option B
+  3. [ ] Type something
+     Submit
+${"─".repeat(40)}
+  4. Chat about this
+Enter to select · ↑/↓ to navigate · Esc to cancel
+`);
+  assert.equal(multi.multiSelect, true);
+  assert.deepEqual(keys(answerSteps(multi, { action: "chat" })), ["down", "down", "down", "down", "enter"]);
 });

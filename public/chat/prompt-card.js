@@ -31,8 +31,10 @@ export function optionLabel(label) {
   return { text, recommended: text !== label };
 }
 
-// The POST body for an answer: one option, several (a multiple choice), or a typed answer.
+// The POST body for an answer: one option, several (a multiple choice), a
+// typed answer, or an action ("chat": Claude's "Chat about this" row).
 export function answerBody(card, choice) {
+  if (choice.action !== undefined) return { cardId: card.id, action: choice.action };
   if (choice.text !== undefined) return { cardId: card.id, text: String(choice.text).trim() };
   if (choice.options !== undefined) return { cardId: card.id, options: [...choice.options].sort((a, b) => a - b) };
   return { cardId: card.id, option: choice.option };
@@ -49,6 +51,43 @@ export function initialSelection(card) {
 // other ticks made in the terminal.
 export function cardVersion(card) {
   return card ? `${card.id}:${(card.checked ?? []).join(",")}` : null;
+}
+
+// What a Claude question card's context is compared by: its words, without
+// the marks the terminal draws Markdown with or leaves out (emphasis, code
+// ticks, headings, quotes, list marks) and without table borders.
+function plainWords(text) {
+  return String(text ?? "").replace(/[*_`#>~]/gu, "").replace(/[\u2500-\u257f|]/gu, " ").replace(/\s+/gu, " ").trim();
+}
+
+// The context's first line with real words in it (a table's border has none),
+// its list mark left out, at most 80 characters: what the chat shows once the
+// transcript has the message.
+export function contextKey(context) {
+  for (const line of String(context ?? "").split("\n")) {
+    const words = plainWords(line.replace(/^\s*(?:[-•*]|\d+\.)\s+/u, ""));
+    if (words.length >= 12 && /[\p{L}\p{N}]/u.test(words)) return words.slice(0, 80);
+  }
+  return null;
+}
+
+// Whether the card shows the text the terminal has above the question
+// (`card.context`: Claude's message before an AskUserQuestion, which Claude
+// Code writes to its transcript only once the question is answered).
+//
+// The rule: shown until the conversation loaded in the chat has it, that is,
+// until the text of the chat's last agent turns (`conversation`) contains the
+// context's first line of real words (contextKey), both read without Markdown
+// marks and table borders. Claude writes the message and the question to the
+// transcript together, so finding that line means the chat now shows the
+// message itself; it is checked again whenever the chat redraws, so the card
+// drops it without a reload. A line too short to tell keeps it shown. A card
+// with no context shows none.
+export function contextVisible(card, conversation) {
+  if (typeof card?.context !== "string" || !card.context.trim()) return false;
+  const key = contextKey(card.context);
+  if (!key) return true;
+  return !plainWords(conversation).includes(key);
 }
 
 export function bannerText(card) {
@@ -83,6 +122,14 @@ function renderCard(document, card, view) {
       attrs: { type: "button", "data-prompt-action": "collapse", title: "Back to the banner" } }));
   }
   section.append(header);
+  if (view.context) {
+    // the terminal's text, as text: never parsed as HTML or Markdown
+    const details = element(document, "details", { className: "prompt-card-context" });
+    details.open = view.contextOpen === true;
+    details.append(element(document, "summary", { text: `${agentLabel(card.agent)}'s message above this question (from the terminal)` }),
+      element(document, "pre", { className: "prompt-card-context-text", text: card.context, attrs: { tabindex: "0" } }));
+    section.append(details);
+  }
   if (card.question && card.question !== card.title) section.append(element(document, "p", { className: "prompt-card-question", text: card.question }));
   if (card.body) section.append(element(document, "pre", { className: `prompt-card-body${card.body.includes("\n") ? "" : " is-line"}`, text: card.body }));
   const choices = card.options.map((option, index) => ({ option, index })).filter(({ index }) => index !== card.customOptionIndex);
@@ -130,6 +177,13 @@ function renderCard(document, card, view) {
     custom.append(input, send);
     section.append(custom);
   }
+  if (card.chat) {
+    // Claude's own last row: leaves the menu to talk the question over
+    const chat = element(document, "button", { className: "secondary-button prompt-card-chat", text: "Chat about this",
+      attrs: { type: "button", "data-prompt-action": "chat", title: "Pick “Chat about this” in the terminal: leave the menu and talk it over" } });
+    chat.disabled = view.pending;
+    section.append(chat);
+  }
   if (view.error) section.append(element(document, "p", { className: "prompt-card-error", text: view.error, attrs: { role: "alert" } }));
   return section;
 }
@@ -139,8 +193,10 @@ function renderCard(document, card, view) {
 // `getJson(path)` and `postJson(path, body)` answer the payload or throw
 // errors with status and code. `showChat()` switches the pane to its Chat
 // lens and answers whether it could.
+// `conversation(paneId)` answers the text of the chat's last agent turns for
+// that pane ("" when none is loaded), for contextVisible.
 export function createPromptDock({ document = globalThis.document, dock, connection, getJson, postJson,
-  showChat = () => false, onAnswered = () => {} }) {
+  showChat = () => false, onAnswered = () => {}, conversation = () => "" }) {
   let paneId = null;
   let status = null;
   let agentName = null;
@@ -155,6 +211,8 @@ export function createPromptDock({ document = globalThis.document, dock, connect
   let drawn = null;
   // The answer on its way, if any.
   let answering = null;
+  // Whether the card's context is open, kept across redraws of the same card.
+  let contextOpen = false;
 
   function resetView() {
     view = { pending: false, error: null, selected: initialSelection(card), custom: "" };
@@ -166,6 +224,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     // a prompt that went is answered: the same one asked again shows its banner again
     if (moved && card) dismissed.delete(card.id);
     card = next ?? null;
+    if (moved) contextOpen = false;
     // an answer on its way ticks the card itself: its controls wait for it
     if (changed && !(view.pending && card)) {
       const error = keepError ? view.error : null;
@@ -187,7 +246,9 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     const mode = dockMode({ card, lens, dismissed: card ? dismissed.has(card.id) : false, expanded });
     dock.dataset.mode = mode;
     dock.hidden = mode === "hidden";
-    const key = mode === "hidden" ? null : `${mode}|${card.id}|${view.pending}|${view.error}|${[...view.selected].join(",")}|${mode === "banner" ? "" : view.custom}`;
+    let context = false;
+    try { context = mode !== "hidden" && mode !== "banner" && contextVisible(card, paneId === null ? "" : conversation(paneId)); } catch { context = Boolean(card?.context); }
+    const key = mode === "hidden" ? null : `${mode}|${card.id}|${view.pending}|${view.error}|${[...view.selected].join(",")}|${mode === "banner" ? "" : view.custom}|${context ? card.context : ""}`;
     if (key === drawn) return;
     // the typed answer keeps its focus and caret across a redraw
     const focused = dock.contains(document.activeElement) ? document.activeElement : null;
@@ -208,7 +269,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
       dock.append(banner);
       return;
     }
-    dock.append(renderCard(document, card, { ...view, overlay: mode === "overlay" }));
+    dock.append(renderCard(document, card, { ...view, overlay: mode === "overlay", context, contextOpen }));
     if (focusKey !== null) {
       const again = focusKey === "custom" ? dock.querySelector("[data-prompt-custom]")
         : dock.querySelector(`[data-prompt-option="${focusKey}"], [data-prompt-toggle="${focusKey}"], [data-prompt-action="${focusKey}"]`);
@@ -300,8 +361,14 @@ export function createPromptDock({ document = globalThis.document, dock, connect
       void answer({ options: [...view.selected] });
     } else if (action === "custom") {
       if (view.custom.trim()) void answer({ text: view.custom });
+    } else if (action === "chat") {
+      if (card.chat) void answer({ action: "chat" });
     }
   });
+  // "toggle" does not bubble: heard on the way down
+  dock.addEventListener("toggle", (event) => {
+    if (event.target instanceof Element && event.target.classList.contains("prompt-card-context")) contextOpen = event.target.open;
+  }, true);
   dock.addEventListener("change", (event) => {
     const box = event.target instanceof Element ? event.target.closest("[data-prompt-toggle]") : null;
     if (!box) return;
@@ -361,6 +428,8 @@ export function createPromptDock({ document = globalThis.document, dock, connect
       render();
     },
     focus: focusCard,
+    // The chat redrew: the card's context may now be in it (contextVisible).
+    conversationChanged() { render(); },
     get card() { return card; },
     get mode() { return dock.dataset.mode ?? "hidden"; },
   };
