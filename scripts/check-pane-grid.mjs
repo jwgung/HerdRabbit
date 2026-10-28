@@ -10,8 +10,10 @@
 // phone there is no grid: the selected pane shows with a map of the tab above
 // it, a pane the layout does not have yet is still counted and tappable, and
 // a tap on the map switches pane. A connected PC's split tab is its pane rows
-// only: no grid, no map. Runs on a desktop and a phone against an in-process
-// fake herdr.
+// only: no grid, no map. Behind a password, a grid is not redrawn while
+// nothing changed, has no terminal find, completes a notification for its
+// pane, and its cells reconnect after a hidden page or a sign-out and sign-in.
+// Runs on a desktop and a phone against an in-process fake herdr.
 //
 // PANE_GRID_SHOTS=<folder> keeps pictures of the grid, the zoomed grid and the
 // phone's map in both themes.
@@ -20,6 +22,7 @@ import { once } from "node:events";
 import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { PaneAttachments } from "../src/pane-attachments.mjs";
+import { createPasswordConfiguration, PasswordAuth } from "../src/password-auth.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 // Tab w1:t1 is split: p1 on the left, p2 over p3 on the right, and p4 a sliver
@@ -422,6 +425,132 @@ try {
     assert.deepEqual(errors, [], "no script errors");
     await context.close();
     console.log(`ok: ${mobile ? "phone" : "desktop"}`);
+  }
+
+  // A grid over its life on a desktop behind a password: it is redrawn only
+  // when something it shows changed, it has no terminal find, a notification
+  // for one of its panes is done once the grid shows that pane, a hidden page
+  // lets the cells' sockets go and takes them up again, and so does a sign-out
+  // followed by a sign-in.
+  {
+    reset();
+    ptys.length = 0;
+    const auth = new PasswordAuth(await createPasswordConfiguration("secret"));
+    const { server: signedServer } = createHerdrHttpServer({ herdr, attachments, auth, logger: { info() {}, error() {} } });
+    signedServer.listen(0, "127.0.0.1");
+    await once(signedServer, "listening");
+    const signedUrl = `http://127.0.0.1:${signedServer.address().port}`;
+    const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 844 } });
+    const page = await context.newPage();
+    // No offer to add a passkey after signing in.
+    await page.addInitScript(() => Object.defineProperty(window, "PublicKeyCredential", { value: undefined, configurable: true }));
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const sockets = [];
+    page.on("websocket", (ws) => {
+      const socket = { ws, frames: [], closed: false };
+      ws.on("framesent", ({ payload }) => { try { socket.frames.push(JSON.parse(payload)); } catch {} });
+      ws.on("close", () => { socket.closed = true; });
+      sockets.push(socket);
+    });
+    const cell = (paneId) => page.locator(`.pane-grid-cell[data-pane-id="${paneId}"]`);
+    const cellShows = (paneId, text) => page.waitForFunction(([id, wanted]) =>
+      document.querySelector(`.pane-grid-cell[data-pane-id="${id}"] .xterm-rows`)?.textContent.replace(/ /gu, " ").includes(wanted), [paneId, text]);
+    // The open sockets of grid cells, and the panes they attach.
+    const cellSockets = (from = 0) => sockets.slice(from)
+      .filter((socket) => !socket.closed && socket.frames.some((frame) => frame.type === "attach" && frame.keepSize === true));
+    const attachedPanes = (from) => cellSockets(from).map((socket) => socket.frames.find((frame) => frame.type === "attach").paneId).sort();
+    const signIn = async () => {
+      await page.locator("#login-password").waitFor({ state: "visible" });
+      await page.locator("#login-password").fill("secret");
+      await page.locator("#login-password").press("Enter");
+      await page.locator("#login-screen").waitFor({ state: "hidden" });
+    };
+    await page.goto(`${signedUrl}/?pane=${encodeURIComponent("w1:p1")}`);
+    await signIn();
+    await page.locator("#pane-title").filter({ hasText: /alpha/u }).waitFor();
+    await page.locator("#terminal-xterm .xterm").waitFor({ state: "visible" });
+
+    // The find bar open over p1 alone closes as the grid opens.
+    await page.locator("#terminal-xterm .xterm").click();
+    await page.keyboard.press("Control+f");
+    await page.locator("#terminal-find").waitFor({ state: "visible" });
+    await page.locator('.tab-grid-open[data-tab-id="w1:t1"]').click();
+    await page.locator(".pane-grid").waitFor({ state: "visible" });
+    for (const paneId of ["w1:p1", "w1:p2", "w1:p3"]) await cellShows(paneId, `pane ${paneId}`);
+    const findHidden = () => page.locator("#terminal-find").evaluate((node) => node.hidden);
+    await page.waitForTimeout(300);
+    assert.equal(await findHidden(), true, "the grid closes the terminal find");
+    assert.equal(await page.locator("#terminal-find-open").evaluate((node) => node.hidden), true, "no find button over the grid");
+    await page.locator("#pane-title").click();
+    await page.keyboard.press("Control+f");
+    await page.waitForTimeout(200);
+    assert.equal(await findHidden(), true, "Ctrl+F opens no terminal find over the grid");
+
+    // Polls with nothing changed leave the cells as they are.
+    await page.waitForTimeout(800);
+    await page.evaluate(() => {
+      window.gridMutations = 0;
+      const inTerminal = (node) => Boolean((node.nodeType === 1 ? node : node.parentElement)?.closest(".pane-grid-terminal"));
+      new MutationObserver((records) => {
+        window.gridMutations += records.filter((record) => !inTerminal(record.target)).length;
+      }).observe(document.querySelector(".pane-grid"), { subtree: true, childList: true, attributes: true, characterData: true });
+    });
+    await page.waitForTimeout(2500);
+    assert.equal(await page.evaluate(() => window.gridMutations), 0, "an unchanged grid is not redrawn");
+    // A change is still drawn.
+    panes.find((pane) => pane.pane_id === "w1:p2").agent_status = "blocked";
+    await page.waitForFunction(() => document.querySelector('.pane-grid-cell[data-pane-id="w1:p2"]').dataset.status === "blocked", null, { timeout: 5000 });
+
+    // A notification for a pane of the grid is done once the grid shows it.
+    await page.evaluate(() => {
+      window.relay = new BroadcastChannel("herdr-notification-navigation");
+      window.relay.onmessage = ({ data }) => { if (data.type === "notification-target-applied") window.relayApplied = data.id; };
+      window.relay.postMessage({ type: "notification-target", id: "relay-grid", url: `${location.origin}/?pane=w1%3Ap2`, expiresAt: Date.now() + 60000 });
+    });
+    await page.waitForFunction(() => window.relayApplied === "relay-grid", null, { timeout: 5000 });
+    assert.equal(await page.locator(".pane-grid").isVisible(), true, "the grid stays");
+    assert.equal(await cell("w1:p2").evaluate((node) => node.classList.contains("is-focused")), true);
+    await page.evaluate(() => window.relay.close());
+
+    // Hidden, the page lets the cells' sockets go; shown again, they attach anew.
+    const setHidden = (hidden) => page.evaluate((value) => {
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => value });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, hidden);
+    assert.deepEqual(attachedPanes(0).filter((id, at, all) => all.indexOf(id) === at), ["w1:p1", "w1:p2", "w1:p3"]);
+    await setHidden(true);
+    await page.waitForTimeout(500);
+    assert.equal(cellSockets().length, 0, "a hidden page closes the cells' sockets");
+    const beforeShown = sockets.length;
+    await setHidden(false);
+    await page.waitForTimeout(1000);
+    assert.deepEqual(attachedPanes(beforeShown), ["w1:p1", "w1:p2", "w1:p3"], "the cells attach again once the page is shown");
+
+    // Signed out from elsewhere: the login screen; signed in again, the cells are live.
+    await auth.endAllSessions();
+    await page.locator("#login-password").waitFor({ state: "visible" });
+    await page.waitForTimeout(300);
+    assert.equal(cellSockets().length, 0, "signed out, no cell keeps a socket");
+    const beforeSignIn = sockets.length;
+    await signIn();
+    await page.waitForTimeout(1000);
+    assert.deepEqual(attachedPanes(beforeSignIn), ["w1:p1", "w1:p2", "w1:p3"], "signed in again, every cell attaches again");
+    // Typing reaches the focused cell's pane again.
+    await cell("w1:p1").locator(".xterm").click();
+    await page.keyboard.type("back again");
+    await page.waitForTimeout(300);
+    assert.match(ptyOf("w1:p1")?.written ?? "", /back again/u);
+
+    // Leaving the grid shows the pane alone with no stale find bar.
+    await cell("w1:p1").locator(".pane-grid-expand").click();
+    await page.locator(".pane-grid").waitFor({ state: "hidden" });
+    await page.locator("#terminal-xterm .xterm").waitFor({ state: "visible" });
+    assert.equal(await findHidden(), true, "no find bar left over from before the grid");
+    assert.deepEqual(errors, [], "no script errors");
+    await context.close();
+    signedServer.close();
+    console.log("ok: desktop grid lifecycle");
   }
 } finally {
   await browser.close();

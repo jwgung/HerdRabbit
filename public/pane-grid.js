@@ -118,6 +118,11 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
   // paneId -> { node, status, label, body, note, menuSlot, menuKey, terminal, connection, attached }
   const cells = new Map();
   let selected = null;
+  // What show() last drew, so a call with nothing new leaves the cells alone.
+  let drawnKey = null;
+  // While paused (a hidden page, a sign-in asked for) the cells keep their
+  // panes but no socket: resume() connects each again.
+  let paused = false;
 
   function attach(cell) {
     if (cell.attached) return;
@@ -141,13 +146,13 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
             : "This pane cannot be shown here.";
           cell.note.hidden = false;
         },
-        onRetry: (paneId) => { if (cell.attached && cells.get(paneId) === cell) cell.terminal.show(paneId); },
+        onRetry: (paneId) => { if (!paused && cell.attached && cells.get(paneId) === cell) cell.terminal.show(paneId); },
         onStateChange: ({ ready }) => { if (ready) cell.note.hidden = true; },
       });
     }
     cell.attached = true;
     cell.note.hidden = true;
-    cell.terminal.show(cell.paneId);
+    if (!paused) cell.terminal.show(cell.paneId);
   }
 
   // A cell that leaves or shrinks lets its pane and socket go.
@@ -218,8 +223,12 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
   return {
     get shown() { return !root.hidden; },
     // Draws the grid of `panes` at `layout`, `selectedPaneId` focused.
-    // Cheap to call again: cells are kept, moved and updated in place.
+    // Cheap to call again: cells are kept, moved and updated in place, and
+    // not touched at all when nothing drawn here changed.
     show({ panes, layout, selectedPaneId }) {
+      const key = JSON.stringify([panes, layout === undefined ? "waiting" : layout, selectedPaneId]);
+      if (key === drawnKey && !root.hidden) return;
+      drawnKey = key;
       root.hidden = false;
       selected = selectedPaneId;
       const waiting = layout === undefined;
@@ -278,6 +287,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     // Moves the focus ring and the typing to `paneId`'s cell.
     focus(paneId, { terminal = true } = {}) {
       selected = paneId;
+      drawnKey = null;
       for (const cell of cells.values()) cell.node.classList.toggle("is-focused", cell.paneId === paneId);
       const cell = cells.get(paneId);
       if (terminal && cell?.attached) cell.terminal.focus();
@@ -287,10 +297,22 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       fontSize = size;
       for (const cell of cells.values()) cell.terminal?.setFontSize(size);
     },
+    // Every cell's socket closes; each keeps its pane, to attach on resume().
+    pause() {
+      paused = true;
+      for (const cell of cells.values()) if (cell.attached) cell.connection.pause();
+    },
+    // Connects every cell that has a pane again (a socket closed by pause() or
+    // by a sign-out), which attaches its pane anew.
+    resume() {
+      paused = false;
+      for (const cell of cells.values()) if (cell.attached) cell.terminal.show(cell.paneId);
+    },
     // Leaves the grid: every cell lets its pane and its socket go.
     hide() {
       root.hidden = true;
       zoomBar.hidden = true;
+      drawnKey = null;
       for (const cell of cells.values()) dispose(cell);
       cells.clear();
     },

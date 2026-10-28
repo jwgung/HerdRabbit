@@ -451,7 +451,10 @@ const state = {
   desktopSidebarCollapsed: false,
   mobileSidebarOpen: false,
   // The pane on screen, attached or mirrored, and a mirrored pane's text.
+  // While a grid shows the selected pane's tab it is that pane, in its cell,
+  // and `renderedGrid` is true.
   renderedPaneId: null,
+  renderedGrid: false,
   mirrored: null,
   outputBurstUntil: 0,
   inputHistoryByPane: initialInputHistories,
@@ -611,6 +614,7 @@ async function dismissDeliveredNotifications() {
 function showLogin() {
   forgetComposerDrafts();
   terminalStream.pause();
+  paneGrid.pause();
   state.authenticated = false;
   document.body.classList.remove("auth-pending", "auth-ready");
   document.body.classList.add("auth-required");
@@ -677,6 +681,8 @@ function showApplication() {
   elements.shell.inert = false;
   elements.loginScreen.hidden = true;
   elements.loginFeedback.textContent = "";
+  // A grid left open over the sign-in connects its cells again.
+  if (!document.hidden) paneGrid.resume();
 }
 
 function supportsPasskeys() {
@@ -3305,11 +3311,22 @@ function refreshTerminal({ streamPayload = null } = {}) {
     state.lastOutputRequestAt = Date.now();
     attachedTerminal.show(null);
     terminalStream.unwatch();
-    state.renderedPaneId = null;
+    // The selected pane is on screen in its cell: a notification for it is done.
+    state.renderedPaneId = paneId;
+    state.renderedGrid = true;
     state.mirrored = null;
-    // The strip describes the single terminal, which is not on screen.
+    // The strip describes the single terminal, which is not on screen, and
+    // the terminal find works on it alone.
     renderTerminalStatus();
+    if (terminalFind) syncTerminalFind();
+    void completeNotificationRelay();
     return;
+  }
+  // Back from the grid, the single terminal has yet to show the pane (or, the
+  // pane gone, says so below).
+  if (state.renderedGrid) {
+    state.renderedGrid = false;
+    if (paneId) state.renderedPaneId = null;
   }
   // Another pane may have its own reason, or none.
   if (paneId !== state.renderedPaneId) renderTerminalStatus();
@@ -4070,14 +4087,16 @@ terminalFind = createTerminalFind({
   onOpen: () => syncTerminalFind(),
   onClose: () => {
     syncTerminalFind();
-    if (!usesTouchInputEnvironment() && chatLens.lens === "terminal") attachedTerminal.focus();
+    if (!usesTouchInputEnvironment() && chatLens.lens === "terminal" && !state.renderedGrid) attachedTerminal.focus();
   },
   onError: (message) => setFeedback(message, true),
 });
 
 // The pane find can work on now, or why not.
+// None over a grid: its cells have no find, and the single terminal is not on screen.
 function terminalFindTarget() {
-  const paneId = state.selectedPaneId && state.renderedPaneId === state.selectedPaneId ? state.selectedPaneId : null;
+  const paneId = !state.renderedGrid && state.selectedPaneId && state.renderedPaneId === state.selectedPaneId
+    ? state.selectedPaneId : null;
   return { paneId, mirrored: Boolean(paneId && state.mirrored?.paneId === paneId) };
 }
 
@@ -6586,10 +6605,14 @@ desktopMedia.addEventListener("change", () => {
 });
 
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) terminalStream.pause();
+  if (document.hidden) {
+    terminalStream.pause();
+    paneGrid.pause();
+  }
   if (document.hidden || !state.authenticated) return;
   // A chat watching a pane whose terminal was let go still needs the socket.
   terminalStream.resume();
+  paneGrid.resume();
   void dismissDeliveredNotifications();
   if (pendingNotificationPaneId) void refreshSnapshot();
   void refreshTerminal();
