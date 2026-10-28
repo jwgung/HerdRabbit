@@ -97,6 +97,7 @@ test("routes scoped workspace, tab and pane operations to their Herdr session", 
     renamed,
     ok,
     ok,
+    { stdout: JSON.stringify({ result: { process_info: { foreground_processes: [] } } }), stderr: "" },
     ok,
     ok,
   ]);
@@ -110,6 +111,7 @@ test("routes scoped workspace, tab and pane operations to their Herdr session", 
   await client.renameTab(`${sessionId}~w2:t3`, "배포 확인");
   await client.closeTab(`${sessionId}~w2:t3`);
   await client.readPane(`${sessionId}~w2:p3`, { lines: 20 });
+  await client.paneProcessInfo(`${sessionId}~w2:p3`);
   await client.sendText(`${sessionId}~w2:p3`, "hello", { submit: true });
   await client.sendKeys(`${sessionId}~w2:p3`, ["ctrl+c"]);
 
@@ -122,6 +124,7 @@ test("routes scoped workspace, tab and pane operations to their Herdr session", 
     ["--session=review", "tab", "rename", "w2:t3", "배포 확인"],
     ["--session=review", "tab", "close", "w2:t3"],
     ["--session=review", "pane", "read", "w2:p3", "--source", "recent-unwrapped", "--lines", "20", "--format", "ansi"],
+    ["--session=review", "pane", "process-info", "--pane", "w2:p3"],
     ["--session=review", "pane", "run", "w2:p3", "hello"],
     ["--session=review", "pane", "send-keys", "w2:p3", "ctrl+c"],
   ]);

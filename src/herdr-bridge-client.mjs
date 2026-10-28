@@ -273,6 +273,11 @@ export class HerdrBridgeClient {
     return this.#clientForSession(target.sessionName).readPane(target.localId, options);
   }
 
+  async paneProcessInfo(paneId) {
+    const target = this.#targetForScopedId(paneId, validation.validatePaneId);
+    return this.#clientForSession(target.sessionName).paneProcessInfo(target.localId);
+  }
+
   async paneFind(paneId, request) {
     const target = this.#targetForScopedId(paneId, validation.validatePaneId);
     return this.#clientForSession(target.sessionName).paneFind(target.localId, request);
