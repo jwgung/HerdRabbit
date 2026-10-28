@@ -156,7 +156,7 @@ try {
     const dialog = page.locator("#update-dialog");
     await dialog.waitFor({ state: "visible" });
     const local = dialog.locator('.update-server[data-server-id="local"]');
-    assert.match(await local.locator("strong").textContent(), /This PC \(testbox\)/u);
+    assert.match(await local.locator(".update-server-heading strong").textContent(), /This PC \(testbox\)/u);
     assert.match(await local.locator(".update-versions").textContent(), /Running 2\.0\.0 \(abc1234\) · Latest 2\.0\.1 \(def5678\)/u);
     assert.deepEqual(await local.locator(".update-notes li").allTextContents(),
       ["Update HerdRabbit from the settings menu", "Fix the sidebar"]);
@@ -208,6 +208,13 @@ try {
     const stepState = (id) => step(id).getAttribute("data-state");
     const steps = local.locator(".update-steps");
     assert.equal(await steps.getAttribute("role"), "list");
+    // The run belongs to the HerdRabbit part: inside it, above Herdr's part.
+    assert.equal(await local.locator(".update-app .update-progress").count(), 1, "the HerdRabbit run is drawn in the HerdRabbit part");
+    assert.equal(await local.locator(".update-herdr .update-progress").count(), 0, "not under Herdr");
+    assert.equal(await local.evaluate((node) => {
+      const herdrPart = node.querySelector(".update-herdr");
+      return !herdrPart || Boolean(node.querySelector(".update-app").compareDocumentPosition(herdrPart) & Node.DOCUMENT_POSITION_FOLLOWING);
+    }), true, "Herdr's part comes after the HerdRabbit part");
     if (outcome === "restart_failed") {
       assert.deepEqual(await local.locator(".update-step .update-step-label").allTextContents(),
         ["In progress: Download and build the new version", "Not started: Restart HerdRabbit", "Not started: Reload this page"]);
@@ -427,6 +434,10 @@ async function checkHerdr() {
     await page.waitForFunction(() => /Installing/u.test(document.querySelector(".update-herdr-log")?.textContent ?? ""));
     assert.match(await row.locator(".update-herdr-run-head .update-elapsed").textContent(), /^\d+:\d\d$/u, "Herdr's run shows its time");
     assert.equal(await row.locator(".update-steps").count(), 0, "Herdr's run has no steps");
+    // Herdr's run is drawn in Herdr's part, below the rule; HerdRabbit's part shows none.
+    assert.equal(await local.locator(".update-herdr .update-progress").count(), 1, "Herdr's run is in Herdr's part");
+    assert.equal(await local.locator(".update-app .update-progress").count(), 0, "not under HerdRabbit");
+    await shot(page, `herdr-running-${outcome}`);
     assert.equal(herdrWorld.starts, 1);
     assert.equal(await local.locator(".update-herdr-run").isDisabled(), true, "one run at a time");
 

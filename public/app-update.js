@@ -440,12 +440,21 @@ export function createUpdatePanel({
     section.dataset.serverId = server.id;
     const heading = element("div", "update-server-heading");
     heading.append(element("strong", "", server.name));
-    const check = item.check;
-    if (check?.supported && check.available) heading.append(element("span", "update-badge", "Update available"));
     section.append(heading);
 
+    // Two parts, each with its own heading, versions, button and run, split
+    // by a rule: HerdRabbit above, Herdr below. A run is drawn in the part it
+    // belongs to, never under the other one.
+    const check = item.check;
+    const app = element("div", "update-part update-app");
+    const appHeading = element("div", "update-part-heading");
+    appHeading.append(element("strong", "", "HerdRabbit"));
+    if (check?.supported && check.available) appHeading.append(element("span", "update-badge", "Update available"));
+    app.append(appHeading);
+    section.append(app);
+
     const status = element("p", "update-status");
-    section.append(status);
+    app.append(status);
     if (item.error) {
       status.textContent = item.error;
       status.dataset.error = "true";
@@ -456,9 +465,9 @@ export function createUpdatePanel({
         ? "This HerdRabbit cannot update itself from the page."
         : "Update it there (older version).";
     } else {
-      section.append(element("p", "update-versions",
+      app.append(element("p", "update-versions",
         `Running ${revisionText(check.current)} · Latest ${check.latest ? revisionText(check.latest) : "unknown"}`));
-      section.append(status);
+      app.append(status);
       if (check.error) {
         status.textContent = errorText(check.error);
         status.dataset.error = "true";
@@ -474,7 +483,7 @@ export function createUpdatePanel({
         const notes = element("ul", "update-notes");
         notes.setAttribute("aria-label", "What changed");
         for (const note of check.notes) notes.append(element("li", "", note));
-        section.append(notes);
+        app.append(notes);
       }
       if (check.available && !check.blocked && !check.error) {
         const button = element("button", "primary-button update-run", "Update");
@@ -483,11 +492,9 @@ export function createUpdatePanel({
         button.addEventListener("click", () => void run(server.id));
         const actions = element("div", "update-actions");
         actions.append(button);
-        section.append(actions);
+        app.append(actions);
       }
     }
-
-    if (check?.supported && "herdr" in check) section.append(renderHerdr(server, item));
 
     const runStatus = item.run?.status;
     if (item.run && runStatus) {
@@ -511,8 +518,9 @@ export function createUpdatePanel({
         progress.append(logBlock(item.run, runStatus, "update-log", "app", server.id, { folded: steps.length > 0 }));
       }
       noteSeen(item.run, "app", server.id);
-      section.append(progress);
+      app.append(progress);
     }
+    if (check?.supported && "herdr" in check) section.append(renderHerdr(server, item));
     return section;
   }
 

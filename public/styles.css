@@ -1681,13 +1681,24 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .update-actions { display: flex; justify-content: flex-end; }
 
-/* Herdr's row inside a PC's block: its versions, notes folded away, its run. */
+/* A PC's block has two parts split by a rule: HerdRabbit (versions, notes,
+   its button and its run) and below it Herdr (the same, folded notes). */
+.update-part {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.update-part-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+.update-part-heading strong { font-size: 13px; }
+
 .update-herdr {
   display: grid;
   gap: 6px;
-  margin-top: 4px;
-  padding-top: 8px;
-  border-top: 1px dashed var(--line);
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
   min-width: 0;
 }
 
