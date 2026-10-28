@@ -15,14 +15,14 @@ const manifest = await readFile(
   "utf8",
 );
 
-test("uses the 1.3.5 release version for the PWA and all cached assets", () => {
-  assert.equal(packageJson.version, "1.3.5");
-  assert.doesNotMatch(page, /\?v=(?!1\.3\.5)[^"']+/u);
-  assert.doesNotMatch(app, /\?v=(?!1\.3\.5)[^"']+/u);
-  assert.doesNotMatch(worker, /\?v=(?!1\.3\.5)[^"']+/u);
-  assert.doesNotMatch(manifest, /\?v=(?!1\.3\.5)[^"']+/u);
-  assert.doesNotMatch(chatView, /\?v=(?!1\.3\.5)[^"']+/u);
-  assert.match(worker, /const CACHE_NAME = "herd-rabbit-v1\.3\.5"/u);
+test("uses the 1.4.0 release version for the PWA and all cached assets", () => {
+  assert.equal(packageJson.version, "1.4.0");
+  assert.doesNotMatch(page, /\?v=(?!1\.4\.0)[^"']+/u);
+  assert.doesNotMatch(app, /\?v=(?!1\.4\.0)[^"']+/u);
+  assert.doesNotMatch(worker, /\?v=(?!1\.4\.0)[^"']+/u);
+  assert.doesNotMatch(manifest, /\?v=(?!1\.4\.0)[^"']+/u);
+  assert.doesNotMatch(chatView, /\?v=(?!1\.4\.0)[^"']+/u);
+  assert.match(worker, /const CACHE_NAME = "herd-rabbit-v1\.4\.0"/u);
 });
 
 test("every page, script and stylesheet under public asks for its assets at the package version", async () => {
@@ -45,4 +45,10 @@ test("the Herdr plugin manifest carries the package version", async () => {
   const manifest = await readFile(new URL("../herdr-plugin.toml", import.meta.url), "utf8");
   const version = /^version\s*=\s*"([^"]+)"\s*$/mu.exec(manifest)?.[1];
   assert.equal(version, packageJson.version);
+});
+
+test("the lockfile's own version fields carry the package version", async () => {
+  const lock = JSON.parse(await readFile(new URL("../package-lock.json", import.meta.url), "utf8"));
+  assert.equal(lock.version, packageJson.version);
+  assert.equal(lock.packages[""].version, packageJson.version);
 });
