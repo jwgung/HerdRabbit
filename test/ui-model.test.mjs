@@ -384,6 +384,45 @@ test("uses Enter by pointer type and supports external keyboards on touch device
   assert.equal(inputKeyAction({ key: "a" }), "default");
 });
 
+test("decides the composer's Enter by environment, modifier, setting and keyboard", () => {
+  const touch = { key: "Enter", usesTouchInput: true };
+  const cases = [
+    // [extra fields, expected]
+    // A mouse-oriented environment: Enter sends, Ctrl+Enter is a page newline,
+    // whatever the touch setting says.
+    [{ usesTouchInput: false }, "submit"],
+    [{ usesTouchInput: false, enterMode: "newline" }, "submit"],
+    [{ usesTouchInput: false, ctrlKey: true }, "newline"],
+    [{ usesTouchInput: false, metaKey: true }, "submit"],
+    // The desktop page has always sent on Shift+Enter; it is left as it was.
+    [{ usesTouchInput: false, shiftKey: true }, "submit"],
+    // Touch, auto: an on-screen keyboard's Enter is a newline; once a physical
+    // keyboard has typed, Enter sends.
+    [{}, "default"],
+    [{ enterMode: "auto" }, "default"],
+    [{ enterMode: "auto", physicalKeyboard: true }, "submit"],
+    [{ enterMode: "auto", physicalKeyboard: true, shiftKey: true }, "default"],
+    // Touch, new line: today's behavior even with a physical keyboard.
+    [{ enterMode: "newline", physicalKeyboard: true }, "default"],
+    [{ enterMode: "newline", ctrlKey: true }, "submit"],
+    [{ enterMode: "newline", metaKey: true }, "submit"],
+    // Touch, send: Enter always sends; Shift+Enter is still a newline.
+    [{ enterMode: "send" }, "submit"],
+    [{ enterMode: "send", shiftKey: true }, "default"],
+    [{ ctrlKey: true }, "submit"],
+    // An input method's Enter never sends, in any mode.
+    [{ enterMode: "send", isComposing: true }, "default"],
+    [{ enterMode: "send", keyCode: 229 }, "default"],
+    [{ enterMode: "auto", physicalKeyboard: true, keyCode: 229 }, "default"],
+    [{ usesTouchInput: false, isComposing: true }, "default"],
+    [{ usesTouchInput: false, keyCode: 229 }, "default"],
+    [{ ctrlKey: true, isComposing: true }, "default"],
+  ];
+  for (const [extra, expected] of cases) {
+    assert.equal(inputKeyAction({ ...touch, ...extra }), expected, JSON.stringify(extra));
+  }
+});
+
 test("inserts a Ctrl+Enter newline at the current textarea selection", () => {
   assert.deepEqual(
     insertNewlineAtSelection("첫째 줄둘째 줄", 4, 4),
