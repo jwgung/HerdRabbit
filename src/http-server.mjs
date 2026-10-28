@@ -59,6 +59,7 @@ const STATIC_FILES = new Map([
   ["/terminal-widths.js", { path: `${PUBLIC_DIR}/terminal-widths.js`, type: "text/javascript; charset=utf-8" }],
   ["/touch-scroll.js", { path: `${PUBLIC_DIR}/touch-scroll.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-selection.js", { path: `${PUBLIC_DIR}/terminal-selection.js`, type: "text/javascript; charset=utf-8" }],
+  ["/pane-grid.js", { path: `${PUBLIC_DIR}/pane-grid.js`, type: "text/javascript; charset=utf-8" }],
   ["/terminal-find.js", { path: `${PUBLIC_DIR}/terminal-find.js`, type: "text/javascript; charset=utf-8" }],
   ["/vendor/xterm.mjs", { path: `${PUBLIC_DIR}/vendor/xterm.mjs`, type: "text/javascript; charset=utf-8" }],
   ["/vendor/xterm.css", { path: `${PUBLIC_DIR}/vendor/xterm.css`, type: "text/css; charset=utf-8" }],
@@ -1359,6 +1360,34 @@ export function createHerdrHttpServer({
         return;
       }
 
+      const layoutMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/layout$/);
+      if (method === "GET" && layoutMatch) {
+        const layout = await herdr.paneLayout?.(decodePaneId(layoutMatch[1]));
+        sendJson(response, 200, layout?.result ?? layout ?? {});
+        return;
+      }
+      // Splitting a tab's panes. Ids are the page's own (scoped); a pane
+      // dropped or split comes back as its new id.
+      const paneSplitMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/(split|close|zoom|move)$/);
+      if (method === "POST" && paneSplitMatch) {
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, maxBodyBytes);
+        const paneId = decodePaneId(paneSplitMatch[1]);
+        if (paneSplitMatch[2] === "split") {
+          sendJson(response, 200, await herdr.splitPane(paneId, body.direction));
+        } else if (paneSplitMatch[2] === "move") {
+          if (typeof body.targetPaneId !== "string") throw new InputValidationError("Invalid target pane id");
+          sendJson(response, 200, await herdr.movePaneSplit(paneId, body.targetPaneId, body.side));
+        } else if (paneSplitMatch[2] === "zoom") {
+          if (body.mode !== "toggle") throw new InputValidationError("Zoom mode must be toggle");
+          await herdr.zoomPane(paneId);
+          sendJson(response, 200, {});
+        } else {
+          await herdr.closePane(paneId);
+          sendJson(response, 200, {});
+        }
+        return;
+      }
       const outputMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/output$/);
       if (method === "GET" && outputMatch) {
         const paneId = decodePaneId(outputMatch[1]);

@@ -1,6 +1,7 @@
 // Dragging sessions and projects in the sidebar. A session (Herdr tab) moves
 // within its project or to another project of the same machine and Herdr
-// session; a project moves among the projects of its Herdr session.
+// session; a project moves among the projects of its Herdr session. A session
+// of one pane dropped on a pane's edge, off the list, joins that pane's tab.
 //
 // A "gap" is a place between rows of a list as it is now, the dragged row
 // included: 0 is before the first row, the list's length after the last. It is
@@ -112,6 +113,58 @@ export function movedWorkspaceSnapshot(snapshot, { workspaceId, gap }) {
   return { ...snapshot, workspaces: placeAmong(workspaces, workspace, peers, gap) };
 }
 
+// A session dropped on a pane joins that pane's tab on one side of it. The
+// side is the edge the pointer is nearest, if it is within this share of the
+// pane's width (or height) of that edge; the middle is no drop.
+export const PANE_EDGE_BAND = 0.28;
+const PANE_SIDES = ["left", "right", "up", "down"];
+
+// The side of `box` a pointer at (x, y) would split, or null in the middle or outside.
+export function dropSide(box, x, y, band = PANE_EDGE_BAND) {
+  if (!box || box.width <= 0 || box.height <= 0) return null;
+  if (x < box.left || x > box.right || y < box.top || y > box.bottom) return null;
+  const reach = {
+    left: (x - box.left) / box.width,
+    right: (box.right - x) / box.width,
+    up: (y - box.top) / box.height,
+    down: (box.bottom - y) / box.height,
+  };
+  const side = PANE_SIDES.reduce((best, item) => (reach[item] < reach[best] ? item : best));
+  return reach[side] < band ? side : null;
+}
+
+// The half of `box` the dropped pane would take on `side`.
+export function dropPreview(box, side) {
+  const halfWidth = box.width / 2;
+  const halfHeight = box.height / 2;
+  if (side === "left") return { left: box.left, top: box.top, width: halfWidth, height: box.height };
+  if (side === "right") return { left: box.left + halfWidth, top: box.top, width: halfWidth, height: box.height };
+  if (side === "up") return { left: box.left, top: box.top, width: box.width, height: halfHeight };
+  return { left: box.left, top: box.top + halfHeight, width: box.width, height: halfHeight };
+}
+
+// What to ask the server for session `tabId` dropped on `targetPaneId`'s
+// `side`, or null: only a session of one pane joins another, and only one of
+// the same machine and Herdr session, and not its own.
+export function paneMoveRequest(snapshot, { tabId, targetPaneId, side }) {
+  if (!PANE_SIDES.includes(side)) return null;
+  const tabs = Array.isArray(snapshot?.tabs) ? snapshot.tabs : [];
+  const panes = Array.isArray(snapshot?.panes) ? snapshot.panes : [];
+  const workspaces = Array.isArray(snapshot?.workspaces) ? snapshot.workspaces : [];
+  const moving = panes.filter((item) => idOf(item, "tab_id") === tabId);
+  const target = panes.find((item) => idOf(item, "pane_id") === targetPaneId);
+  if (moving.length !== 1 || !target || idOf(target, "tab_id") === tabId) return null;
+  const scopeOf = (id) => {
+    const tab = tabs.find((item) => idOf(item, "tab_id") === id);
+    const workspace = workspaces.find((item) => idOf(item, "workspace_id") === idOf(tab, "workspace_id"));
+    return tab ? dropScope(workspace ?? tab) : null;
+  };
+  const scope = scopeOf(tabId);
+  if (!scope || scope !== scopeOf(idOf(target, "tab_id"))) return null;
+  const paneId = idOf(moving[0], "pane_id");
+  return paneId ? { paneId, body: { targetPaneId, side } } : null;
+}
+
 // A pane carried to another project comes back under a new id.
 export function followMovedPane(paneId, moves) {
   const move = Array.isArray(moves) ? moves.find((item) => item?.from === paneId) : null;
@@ -139,8 +192,12 @@ function scrollParent(element) {
 // `.workspace-heading` is where a project is picked up.
 // A mouse drags once it travels a few pixels; a finger has to rest on the row
 // for LONG_PRESS_MS first, so a short tap still selects and a swipe still scrolls.
+// Off the list, a session can land on a pane: `paneTargets({ tabId, scope })`
+// lists the { paneId, element } it may join now (none when it may not), and
+// `onDropPane({ tabId, targetPaneId, side })` hears it dropped on one's edge.
 export function attachSidebarDrag(list, {
   canStart = () => true, onDropTab, onDropWorkspace, onEnd = () => {},
+  paneTargets = () => [], onDropPane,
   longPressMs = LONG_PRESS_MS, now = () => performance.now(),
 } = {}) {
   let press = null;
@@ -149,6 +206,10 @@ export function attachSidebarDrag(list, {
   const line = document.createElement("div");
   line.className = "sidebar-drop-line";
   line.setAttribute("aria-hidden", "true");
+  // The half of a pane the session would take.
+  const preview = document.createElement("div");
+  preview.className = "pane-drop-preview";
+  preview.setAttribute("aria-hidden", "true");
 
   const groupsIn = (scope) => [...list.querySelectorAll(".workspace-group")]
     .filter((group) => group.dataset.dropScope === scope);
@@ -169,9 +230,20 @@ export function attachSidebarDrag(list, {
       if (group !== target?.highlight) group.classList.remove("is-drop-target");
     }
     target?.highlight?.classList.add("is-drop-target");
+    preview.hidden = !target?.side;
     if (!target) {
       line.hidden = true;
       drag.target = null;
+      return;
+    }
+    if (target.side) {
+      line.hidden = true;
+      preview.dataset.side = target.side;
+      preview.style.left = `${target.preview.left}px`;
+      preview.style.top = `${target.preview.top}px`;
+      preview.style.width = `${target.preview.width}px`;
+      preview.style.height = `${target.preview.height}px`;
+      drag.target = target;
       return;
     }
     line.hidden = false;
@@ -192,9 +264,22 @@ export function attachSidebarDrag(list, {
     return { lineY: y, lineLeft: box.left, lineWidth: box.width };
   }
 
+  // The pane edge under the pointer, for a session off the list.
+  function paneTargetAt(x, y) {
+    if (drag.kind !== "tab" || drag.split) return null;
+    for (const { paneId, element } of paneTargets({ tabId: drag.tabId, scope: drag.scope })) {
+      const box = element?.getBoundingClientRect();
+      if (!box || x < box.left || x > box.right || y < box.top || y > box.bottom) continue;
+      // Over a pane, its middle is no drop rather than the pane beneath it.
+      const side = dropSide(box, x, y);
+      return side ? { targetPaneId: paneId, side, preview: dropPreview(box, side) } : null;
+    }
+    return null;
+  }
+
   function targetAt(x, y) {
     const listBox = list.getBoundingClientRect();
-    if (x < listBox.left - 24 || x > listBox.right + 24) return null;
+    if (x < listBox.left - 24 || x > listBox.right + 24) return paneTargetAt(x, y);
     if (drag.kind === "tab") {
       const group = groupsIn(drag.scope).find((item) => {
         if (drag.split && item.dataset.workspaceId !== drag.workspaceId) return false;
@@ -233,7 +318,8 @@ export function attachSidebarDrag(list, {
   function edgeScroll() {
     if (!drag) return;
     const scroller = drag.scroller;
-    if (scroller) {
+    // A session held over a pane leaves the list where it is.
+    if (scroller && !drag.target?.side) {
       const box = scroller.getBoundingClientRect();
       const step = drag.y < box.top + EDGE_SCROLL_ZONE ? -EDGE_SCROLL_STEP
         : drag.y > box.bottom - EDGE_SCROLL_ZONE ? EDGE_SCROLL_STEP : 0;
@@ -258,8 +344,9 @@ export function attachSidebarDrag(list, {
     ghost.style.width = `${box.width}px`;
     ghost.style.left = "0px";
     ghost.style.top = "0px";
-    document.body.append(ghost, line);
+    document.body.append(ghost, line, preview);
     line.hidden = true;
+    preview.hidden = true;
     drag = {
       kind, item, ghost, pointerId: press.pointerId,
       tabId: item.dataset.tabId ?? null,
@@ -285,6 +372,7 @@ export function attachSidebarDrag(list, {
     cancelAnimationFrame(done.frame);
     done.ghost.remove();
     line.remove();
+    preview.remove();
     done.item.classList.remove("is-drag-source");
     for (const group of list.querySelectorAll(".workspace-group.is-drop-target")) group.classList.remove("is-drop-target");
     list.classList.remove("is-dragging");
@@ -294,7 +382,8 @@ export function attachSidebarDrag(list, {
     onEnd();
     const target = drop ? done.target : null;
     if (!target) return;
-    if (done.kind === "tab") onDropTab?.({ tabId: done.tabId, workspaceId: target.workspaceId, gap: target.gap });
+    if (target.side) onDropPane?.({ tabId: done.tabId, targetPaneId: target.targetPaneId, side: target.side });
+    else if (done.kind === "tab") onDropTab?.({ tabId: done.tabId, workspaceId: target.workspaceId, gap: target.gap });
     else onDropWorkspace?.({ workspaceId: done.workspaceId, gap: target.gap });
   }
 

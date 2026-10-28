@@ -5,6 +5,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { get } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { HerdrCommandError } from "../src/herdr-client.mjs";
 import { attemptKey, createHerdrHttpServer, outputReadLines } from "../src/http-server.mjs";
 import { probeHerdRabbit } from "../src/plugin-runner.mjs";
 import {
@@ -1327,4 +1328,48 @@ test("Herdr SSH machines are gone: no machine routes, only a count of those Herd
   context.after(() => closeServer(listed.server));
   count = 2;
   assert.equal((await (await fetch(`${listed.baseUrl}/api/bootstrap`)).json()).legacyMachines, 2, "read when the page asks");
+});
+
+test("pane split routes need write authorization and pass what they validate to Herdr", async (context) => {
+  const calls = [];
+  const herdr = {
+    async snapshot() { return { workspaces: [], tabs: [], panes: [] }; },
+    async splitPane(...args) {
+      calls.push(["splitPane", ...args]);
+      if (args[1] === "right" && args[0] === "w1:p9") throw new HerdrCommandError("no room to split", { code: "pane_split_failed" });
+      return { pane_id: "w1:p3" };
+    },
+    async closePane(...args) { calls.push(["closePane", ...args]); return ""; },
+    async zoomPane(...args) { calls.push(["zoomPane", ...args]); return ""; },
+    async movePaneSplit(...args) { calls.push(["movePaneSplit", ...args]); return { pane_id: "w1:p7" }; },
+  };
+  const app = await startServer(herdr);
+  context.after(() => closeServer(app.server));
+  const headers = { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl };
+  const post = (path, body, extra = headers) => fetch(`${app.baseUrl}/api/panes/${path}`, { method: "POST", headers: extra, body: JSON.stringify(body) });
+
+  assert.equal((await post("w1%3Ap2/split", { direction: "down" }, { "Content-Type": "application/json" })).status, 403);
+  assert.equal(calls.length, 0);
+
+  const split = await post("w1%3Ap2/split", { direction: "down" });
+  assert.equal(split.status, 200);
+  assert.deepEqual(await split.json(), { pane_id: "w1:p3" });
+
+  const full = await post("w1%3Ap9/split", { direction: "right" });
+  assert.equal(full.status, 409);
+  assert.equal((await full.json()).error.code, "pane_split_failed");
+
+  assert.equal((await post("w1%3Ap2/close", {})).status, 200);
+  assert.equal((await post("w1%3Ap2/zoom", { mode: "toggle" })).status, 200);
+  assert.equal((await post("w1%3Ap2/zoom", { mode: "on" })).status, 400);
+  assert.equal((await post("w1%3Ap2/move", { side: "left" })).status, 400);
+  const move = await post("w1%3Ap2/move", { targetPaneId: "w1:p5", side: "up" });
+  assert.deepEqual(await move.json(), { pane_id: "w1:p7" });
+  assert.deepEqual(calls, [
+    ["splitPane", "w1:p2", "down"],
+    ["splitPane", "w1:p9", "right"],
+    ["closePane", "w1:p2"],
+    ["zoomPane", "w1:p2"],
+    ["movePaneSplit", "w1:p2", "w1:p5", "up"],
+  ]);
 });

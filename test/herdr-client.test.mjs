@@ -378,3 +378,65 @@ test("asks herdr for a pane's processes, by a validated pane id", async () => {
   await assert.rejects(client.paneProcessInfo("--current"), InputValidationError);
   assert.equal(fake.calls.length, 1);
 });
+
+const jsonReply = (result) => ({ stdout: JSON.stringify({ result }), stderr: "" });
+const layoutOf = (...panes) => jsonReply({ layout: { panes: panes.map(([pane_id, x, y, width, height]) => ({ pane_id, rect: { x, y, width, height } })) } });
+
+test("splits a pane in its own folder after checking the tab has room", async () => {
+  const fake = recordingRunner([
+    jsonReply({ pane: { pane_id: "w1:p1", cwd: "/work/app" } }),
+    jsonReply({ pane: { pane_id: "w1:p2" } }),
+  ]);
+  const client = new HerdrClient({ runner: fake.runner });
+  assert.deepEqual(await client.splitPane("w1:p1", "right"), { pane_id: "w1:p2" });
+  assert.deepEqual(fake.calls.map((call) => call.args), [
+    ["pane", "get", "w1:p1"],
+    ["pane", "split", "w1:p1", "--direction", "right", "--cwd", "/work/app", "--no-focus"],
+  ]);
+  await assert.rejects(client.splitPane("w1:p1", "left"), InputValidationError);
+  await assert.rejects(client.splitPane("--current", "right"), InputValidationError);
+});
+
+test("what Herdr refuses in a split reaches the caller with Herdr's own code", async () => {
+  const refused = Object.assign(new Error("failed"), { stderr: JSON.stringify({ error: { code: "pane_split_failed", message: "no room to split" } }) });
+  const fake = recordingRunner([jsonReply({ pane: { pane_id: "w1:p1", cwd: "/x" } }), refused]);
+  await assert.rejects(new HerdrClient({ runner: fake.runner }).splitPane("w1:p1", "right"), { code: "pane_split_failed", message: "no room to split" });
+});
+
+test("closes and zooms a pane by validated id", async () => {
+  const fake = recordingRunner([{ stdout: "", stderr: "" }, { stdout: "", stderr: "" }]);
+  const client = new HerdrClient({ runner: fake.runner });
+  await client.closePane("w1:p2");
+  await client.zoomPane("w1:p2");
+  assert.deepEqual(fake.calls.map((call) => call.args), [["pane", "close", "w1:p2"], ["pane", "zoom", "--pane", "w1:p2", "--toggle"]]);
+  await assert.rejects(client.closePane("nope"), InputValidationError);
+});
+
+test("moves a lone pane beside another, swapping for left and up", async () => {
+  const info = (pane_id, tab_id) => jsonReply({ pane: { pane_id, tab_id } });
+  const run = (side, extra = []) => {
+    const fake = recordingRunner([
+      info("w1:p5", "w1:t2"), info("w1:p1", "w1:t1"), layoutOf(["w1:p5", 0, 0, 100, 40]),
+      jsonReply({ pane: { pane_id: "w1:p6", tab_id: "w1:t1" } }), ...extra,
+    ]);
+    return { fake, client: new HerdrClient({ runner: fake.runner }) };
+  };
+  const right = run("right");
+  assert.deepEqual(await right.client.movePaneSplit("w1:p5", "w1:p1", "right"), { pane_id: "w1:p6" });
+  assert.deepEqual(right.fake.calls.at(-1).args, ["pane", "move", "w1:p5", "--tab", "w1:t1", "--split", "right", "--target-pane", "w1:p1", "--no-focus"]);
+  const up = run("up", [{ stdout: "", stderr: "" }]);
+  assert.deepEqual(await up.client.movePaneSplit("w1:p5", "w1:p1", "up"), { pane_id: "w1:p6" });
+  assert.deepEqual(up.fake.calls.at(-2).args.slice(5, 7), ["--split", "down"]);
+  assert.deepEqual(up.fake.calls.at(-1).args, ["pane", "swap", "--pane", "w1:p6", "--direction", "up"]);
+});
+
+test("a pane moves only when alone in its tab and dropped on another pane", async () => {
+  const info = (pane_id, tab_id) => jsonReply({ pane: { pane_id, tab_id } });
+  const split = recordingRunner([info("w1:p5", "w1:t2"), info("w1:p1", "w1:t1"), layoutOf(["w1:p5", 0, 0, 5, 5], ["w1:p8", 5, 0, 5, 5])]);
+  await assert.rejects(new HerdrClient({ runner: split.runner }).movePaneSplit("w1:p5", "w1:p1", "right"), { code: "split_session" });
+  assert.equal(split.calls.length, 3);
+  const same = recordingRunner([]);
+  await assert.rejects(new HerdrClient({ runner: same.runner }).movePaneSplit("w1:p5", "w1:p5", "right"), InputValidationError);
+  await assert.rejects(new HerdrClient({ runner: same.runner }).movePaneSplit("w1:p5", "w1:p1", "middle"), InputValidationError);
+  assert.equal(same.calls.length, 0);
+});

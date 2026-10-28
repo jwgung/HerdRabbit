@@ -144,6 +144,15 @@
             <span class="pane-heading-separator" aria-hidden="true">·</span>
             <h2 id="pane-title">Terminal</h2>
           </div>
+          <button id="grid-back" class="secondary-button grid-back" type="button" title="Show every pane of this session" hidden>
+            <svg aria-hidden="true" viewBox="0 0 20 20" focusable="false">
+              <rect x="2.5" y="3.5" width="6.5" height="5.5" rx="1" />
+              <rect x="11" y="3.5" width="6.5" height="5.5" rx="1" />
+              <rect x="2.5" y="11" width="6.5" height="5.5" rx="1" />
+              <rect x="11" y="11" width="6.5" height="5.5" rx="1" />
+            </svg>
+            <span>Back to grid</span>
+          </button>
           <div id="lens-switch" class="lens-switch" role="group" aria-label="Pane view" hidden>
             <button id="lens-chat" type="button" aria-pressed="false" aria-disabled="true">
               <svg class="lens-icon" aria-hidden="true" viewBox="0 0 20 20" focusable="false">
@@ -178,6 +187,7 @@
         </div>
 
         <div class="terminal-stage" data-lens="terminal">
+          <div id="pane-map" class="pane-map" role="group" aria-label="Panes of this session" hidden></div>
           <div id="chat-host" class="chat-host" aria-label="Conversation"></div>
           <p id="terminal-message" class="terminal-message" role="status" aria-live="polite">Loading projects…</p>
           <div id="terminal-xterm" class="terminal-xterm" hidden></div>

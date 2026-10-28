@@ -278,6 +278,52 @@ export class HerdrBridgeClient {
     return this.#clientForSession(target.sessionName).paneProcessInfo(target.localId);
   }
 
+  async paneLayout(paneId) {
+    const target = this.#targetForScopedId(paneId, validation.validatePaneId);
+    const result = await this.#clientForSession(target.sessionName).paneLayout(target.localId);
+    const layout = result?.layout;
+    if (!layout || typeof layout !== "object") return result;
+    // The panes come back under the page's own ids, as the snapshot's do.
+    const scope = (id) => typeof id === "string" && id.length > 0 ? scopedId(target.sessionName, id) : id;
+    return {
+      ...result,
+      layout: {
+        ...layout,
+        workspace_id: scope(layout.workspace_id),
+        tab_id: scope(layout.tab_id),
+        focused_pane_id: scope(layout.focused_pane_id),
+        panes: Array.isArray(layout.panes) ? layout.panes.map((pane) => ({ ...pane, pane_id: scope(pane.pane_id) })) : layout.panes,
+      },
+    };
+  }
+
+  async splitPane(paneId, direction) {
+    const target = this.#targetForScopedId(paneId, validation.validatePaneId);
+    const result = await this.#clientForSession(target.sessionName).splitPane(target.localId, direction);
+    return { pane_id: scopedId(target.sessionName, result.pane_id) };
+  }
+
+  async closePane(paneId) {
+    const target = this.#targetForScopedId(paneId, validation.validatePaneId);
+    return this.#clientForSession(target.sessionName).closePane(target.localId);
+  }
+
+  async zoomPane(paneId) {
+    const target = this.#targetForScopedId(paneId, validation.validatePaneId);
+    return this.#clientForSession(target.sessionName).zoomPane(target.localId);
+  }
+
+  // A pane drops next to another of the same Herdr session only.
+  async movePaneSplit(paneId, targetPaneId, side) {
+    const pane = this.#targetForScopedId(paneId, validation.validatePaneId);
+    const target = this.#targetForScopedId(targetPaneId, validation.validatePaneId);
+    if (pane.sessionName !== target.sessionName) {
+      throw new InputValidationError("A pane can only be dropped in the same Herdr session");
+    }
+    const result = await this.#clientForSession(pane.sessionName).movePaneSplit(pane.localId, target.localId, side);
+    return { pane_id: scopedId(pane.sessionName, result.pane_id) };
+  }
+
   async paneFind(paneId, request) {
     const target = this.#targetForScopedId(paneId, validation.validatePaneId);
     return this.#clientForSession(target.sessionName).paneFind(target.localId, request);

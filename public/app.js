@@ -69,6 +69,7 @@ import {
 import { terminalConnection } from "./terminal-connection.js?v=1.3.5";
 import { terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.3.5";
 import { createAttachedTerminal } from "./xterm-terminal.js?v=1.3.5";
+import { createPaneGrid, renderPaneMap } from "./pane-grid.js?v=1.3.5";
 import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.3.5";
 import { createChatLens } from "./chat/chat-view.js?v=1.3.5";
 import { createChatFind } from "./chat/chat-find.js?v=1.3.5";
@@ -109,6 +110,7 @@ import {
   followMovedPane,
   movedTabSnapshot,
   movedWorkspaceSnapshot,
+  paneMoveRequest,
   tabMoveRequest,
   workspaceMoveRequest,
 } from "./sidebar-drag.js?v=1.3.5";
@@ -377,6 +379,8 @@ const elements = {
   terminalStatusCountdown: document.querySelector("#terminal-status-countdown"),
   terminalReconnect: document.querySelector("#terminal-reconnect"),
   terminalStage: document.querySelector(".terminal-stage"),
+  paneMap: document.querySelector("#pane-map"),
+  gridBack: document.querySelector("#grid-back"),
   chatHost: document.querySelector("#chat-host"),
   promptDock: document.querySelector("#prompt-dock"),
   lensSwitch: document.querySelector("#lens-switch"),
@@ -479,6 +483,9 @@ const state = {
   terminalParked: null,
   // This PC's own Connect PC port, { address, allowed }, or null when closed.
   connectPc: null,
+  // Split tabs shown as a grid of their panes (tab id -> "grid"); any other
+  // tab shows its selected pane alone.
+  paneViews: new Map(),
 };
 
 // The list above the composer: `@` file references (names in the pane's
@@ -530,6 +537,8 @@ const sidebarDrag = attachSidebarDrag(elements.workspaceList, {
     (request) => `/api/workspaces/${encodeURIComponent(request.workspaceId)}/move`,
     () => movedWorkspaceSnapshot(state.snapshot, drop),
   ),
+  paneTargets: ({ tabId }) => paneDropTargets(tabId),
+  onDropPane: (drop) => void movePaneIntoSplit(paneMoveRequest(state.snapshot, drop)),
 });
 
 const desktopMedia = window.matchMedia("(min-width: 761px)");
@@ -1841,18 +1850,9 @@ function paneButton(pane, tab, workspace, { namesSession = false } = {}) {
   status.setAttribute("aria-hidden", "true");
   button.append(status);
 
+  // A row opens its pane alone, even in a split tab: the tab's heading opens the grid.
   button.addEventListener("click", () => {
-    if (state.selectedPaneId !== paneId) resetInputHistoryNavigation();
-    state.selectedPaneId = paneId;
-    syncComposerDraft();
-    state.preferredPaneId = paneId;
-    writePanePreference(panePreferenceStorage, paneId);
-    acknowledgePaneCompletion(paneId);
-    setFeedback("");
-    renderNavigation();
-    renderPaneHeading(pane, tab, workspace);
-    showTerminalMessage("Loading output…");
-    void refreshTerminal();
+    selectPane(paneId, { view: "solo" });
     closeMobileSidebar();
     focusComposer();
   });
@@ -2822,6 +2822,7 @@ function renderNavigation() {
       });
       // An unnamed session has no heading to rename in, so renaming makes one.
       if (editingTab) tabHeading.append(tabRenameForm(tab, tabId, tabLabel));
+      else if (tabPanes.length > 1) tabHeading.append(gridHeadingButton(tabId, tabLabel, tabPanes));
       else if (tabLabel && !namesSession) {
         tabHeading.append(createElement("p", { className: "tab-label", text: tabLabel }));
       }
@@ -3270,6 +3271,8 @@ async function refreshSnapshot() {
     if (!renameIsOpen()) renderNavigation();
     const selected = selectedRecords();
     renderPaneHeading(selected.pane, selected.tab, selected.workspace);
+    const gridBefore = shownGridTabId;
+    if (renderPaneViews() !== gridBefore) void refreshTerminal();
     setConnection("online", "Connected");
     const polling = outputPollingDecision({
       baseIntervalMs: state.pollIntervalMs,
@@ -3295,6 +3298,16 @@ async function refreshSnapshot() {
 function refreshTerminal({ streamPayload = null } = {}) {
   const paneId = state.selectedPaneId;
   if (!state.authenticated || document.hidden) return;
+  // A split tab shown as a grid: each cell attaches its own pane, and the
+  // single terminal lets its pane go, so a hidden screen never sizes it.
+  if (renderPaneViews()) {
+    state.lastOutputRequestAt = Date.now();
+    attachedTerminal.show(null);
+    terminalStream.unwatch();
+    state.renderedPaneId = null;
+    state.mirrored = null;
+    return;
+  }
   // Another pane may have its own reason, or none.
   if (paneId !== state.renderedPaneId) renderTerminalStatus();
   if (!paneId) {
@@ -3431,6 +3444,308 @@ const attachedTerminal = createAttachedTerminal({
   onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
   onViewMoved: () => terminalFind?.forgetPlace(),
 });
+
+// --- Split tabs: the grid (wide screens) and the pane map (phones) ---------
+
+const GRID_ICON = ["M4 4h7v7H4z", "M13 4h7v7h-7z", "M4 13h7v7H4z", "M13 13h7v7h-7z"];
+
+function paneTabId(paneId) {
+  const pane = snapshotRecords().panes.find((item) => idOf(item, "pane_id", "id") === paneId);
+  return idOf(pane, "tab_id", "tabId");
+}
+
+function panesOfTab(tabId) {
+  return snapshotRecords().panes.filter((pane) => idOf(pane, "tab_id", "tabId") === tabId);
+}
+
+// The selected pane's tab when it has more than one pane, else null.
+function selectedSplitTabId() {
+  const tabId = paneTabId(state.selectedPaneId);
+  return tabId && panesOfTab(tabId).length > 1 ? tabId : null;
+}
+
+// The tab drawn as a grid now: a split tab chosen as one, on a wide screen.
+function gridTabId() {
+  const tabId = selectedSplitTabId();
+  return tabId && desktopMedia.matches && state.paneViews.get(tabId) === "grid" ? tabId : null;
+}
+
+// What a cell or a map box says of each pane of `tabId`.
+function splitTabPanes(tabId) {
+  return panesOfTab(tabId).map((pane) => {
+    const paneId = idOf(pane, "pane_id", "id");
+    const agent = agentForPane(paneId);
+    const status = visibleStatusForPane(paneId, agent, pane);
+    return {
+      paneId,
+      label: paneDisplayTitle("", pane, "Terminal", agent),
+      status,
+      statusIcon: agentStatusIcon(status),
+      statusText: agentStatusLabel(status),
+    };
+  });
+}
+
+// Herdr's layout of the split tab on screen, read again when its panes change
+// or it is a few seconds old (a zoom or a split made in Herdr itself).
+const PANE_LAYOUT_MAX_AGE_MS = 3_000;
+const paneLayout = { key: "", tabId: null, layout: null, at: 0, loading: false };
+
+function paneLayoutFor(tabId) {
+  const paneIds = panesOfTab(tabId).map((pane) => idOf(pane, "pane_id", "id"));
+  const key = `${tabId}|${paneIds.join(",")}`;
+  if (!paneLayout.loading && (paneLayout.key !== key || Date.now() - paneLayout.at > PANE_LAYOUT_MAX_AGE_MS)) {
+    paneLayout.loading = true;
+    api(`/api/panes/${encodeURIComponent(paneIds[0])}/layout`)
+      .then((payload) => payload?.layout ?? null, () => null)
+      .then((layout) => {
+        const before = JSON.stringify(paneLayout.tabId === tabId ? paneLayout.layout : null);
+        // A failed read keeps what was known of the same tab.
+        const known = layout ?? (paneLayout.tabId === tabId ? paneLayout.layout : null);
+        Object.assign(paneLayout, { key, tabId, layout: known, at: Date.now(), loading: false });
+        if (JSON.stringify(known) !== before && selectedSplitTabId() === tabId) renderPaneViews();
+      });
+  }
+  return paneLayout.tabId === tabId ? paneLayout.layout : null;
+}
+
+function forgetPaneLayout() {
+  paneLayout.at = 0;
+  paneLayout.key = "";
+}
+
+const paneGrid = createPaneGrid({
+  host: elements.terminalStage,
+  xterm,
+  credentials: () => ({ csrf: state.csrfToken, launchToken: state.launchToken }),
+  fontSize: state.terminalFontSize,
+  menuFor: paneGridMenu,
+  onSelect: (paneId) => selectPane(paneId, { fromGrid: true }),
+  onExpand: (paneId) => {
+    selectPane(paneId, { view: "solo" });
+    focusComposer();
+  },
+  onUnzoom: (paneId) => void paneGridAction(paneId, "zoom", { mode: "toggle" }),
+  onAuthenticationRequired: () => showLogin(),
+  terminalOptions: {
+    isLinkablePath: isLinkableTerminalPath,
+    onPath: openTerminalPath,
+    onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
+  },
+});
+
+// The split tab whose grid is on screen, and what the phone's map last drew.
+let shownGridTabId = null;
+let paneMapKey = "";
+
+// Draws the grid, the map and the Back to grid control for the selected
+// pane, and answers the tab now shown as a grid (null for one pane alone).
+function renderPaneViews() {
+  const splitTabId = selectedSplitTabId();
+  const gridTab = gridTabId();
+  const layout = splitTabId ? paneLayoutFor(splitTabId) : null;
+  const panes = splitTabId ? splitTabPanes(splitTabId) : [];
+  const showMap = Boolean(splitTabId) && !desktopMedia.matches;
+  elements.paneMap.hidden = !showMap;
+  if (showMap) {
+    const key = JSON.stringify([state.selectedPaneId, layout, panes]);
+    if (key !== paneMapKey) {
+      paneMapKey = key;
+      renderPaneMap(elements.paneMap, {
+        layout,
+        panes,
+        selectedPaneId: state.selectedPaneId,
+        onPick: (paneId) => selectPane(paneId),
+      });
+    }
+  } else paneMapKey = "";
+  elements.gridBack.hidden = !(splitTabId && desktopMedia.matches && !gridTab);
+  elements.terminalPanel.classList.toggle("is-grid", Boolean(gridTab));
+  if (gridTab) paneGrid.show({ panes, layout, selectedPaneId: state.selectedPaneId });
+  else if (paneGrid.shown) paneGrid.hide();
+  shownGridTabId = gridTab;
+  return gridTab;
+}
+
+// Makes `paneId` the selected pane: the sidebar, the heading, the composer and
+// the key bar all follow it. `view` ("grid" or "solo") is how its tab shows;
+// left out, the tab keeps its view. From a grid cell nothing is redrawn but
+// the focus ring, so the cell keeps the typing.
+function selectPane(paneId, { view = null, fromGrid = false } = {}) {
+  const pane = snapshotRecords().panes.find((item) => idOf(item, "pane_id", "id") === paneId);
+  if (!pane) return;
+  const changed = state.selectedPaneId !== paneId;
+  if (changed) resetInputHistoryNavigation();
+  state.selectedPaneId = paneId;
+  syncComposerDraft();
+  state.preferredPaneId = paneId;
+  writePanePreference(panePreferenceStorage, paneId);
+  acknowledgePaneCompletion(paneId);
+  setFeedback("");
+  const tabId = idOf(pane, "tab_id", "tabId");
+  if (view === "grid") state.paneViews.set(tabId, "grid");
+  else if (view === "solo") state.paneViews.delete(tabId);
+  renderNavigation();
+  const selected = selectedRecords();
+  renderPaneHeading(selected.pane, selected.tab, selected.workspace);
+  if (fromGrid) {
+    paneGrid.focus(paneId, { terminal: false });
+    void refreshTerminal();
+    return;
+  }
+  if (!gridTabId() && (changed || shownGridTabId)) showTerminalMessage("Loading output…");
+  void refreshTerminal();
+}
+
+// Opens a split tab as a grid, on the pane already selected there or its first.
+function openPaneGrid(tabId) {
+  const paneIds = panesOfTab(tabId).map((pane) => idOf(pane, "pane_id", "id"));
+  if (paneIds.length === 0) return;
+  selectPane(paneIds.includes(state.selectedPaneId) ? state.selectedPaneId : paneIds[0], { view: "grid" });
+  closeMobileSidebar();
+}
+
+elements.gridBack.addEventListener("click", () => {
+  const tabId = selectedSplitTabId();
+  if (tabId) openPaneGrid(tabId);
+});
+
+// The heading of a split tab in the sidebar: opens its grid.
+function gridHeadingButton(tabId, tabLabel, tabPanes) {
+  const button = createElement("button", { className: "tab-grid-open" });
+  button.type = "button";
+  button.dataset.tabId = tabId;
+  const shown = state.paneViews.get(tabId) === "grid" &&
+    tabPanes.some((pane) => idOf(pane, "pane_id", "id") === state.selectedPaneId);
+  button.setAttribute("aria-pressed", String(shown));
+  const label = tabLabel || "Split session";
+  button.setAttribute("aria-label", `Show ${label} as a grid, ${tabPanes.length} panes`);
+  button.title = "Show every pane";
+  button.append(
+    createElement("span", { className: "tab-label tab-grid-label", text: label }),
+    createElement("span", { className: "tab-grid-badge" }),
+  );
+  button.lastChild.append(createIcon(GRID_ICON), createElement("span", { text: String(tabPanes.length) }));
+  button.addEventListener("click", () => openPaneGrid(tabId));
+  return button;
+}
+
+const SPLIT_RIGHT_ICON = ["M4 5h16v14H4z", "M12 5v14"];
+const SPLIT_DOWN_ICON = ["M4 5h16v14H4z", "M4 12h16"];
+const ZOOM_ICON = ["M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"];
+const UNZOOM_ICON = ["M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"];
+
+function paneGridMenu(pane, zoomed) {
+  return sidebarActionMenu({
+    id: `grid-${pane.paneId}`,
+    label: `More actions for ${pane.label}`,
+    className: "pane-grid-menu",
+    escapesOverflow: true,
+    actions: [
+      { key: "split-right", label: "Split right", paths: SPLIT_RIGHT_ICON,
+        onSelect: () => void paneGridAction(pane.paneId, "split", { direction: "right" }) },
+      { key: "split-down", label: "Split down", paths: SPLIT_DOWN_ICON,
+        onSelect: () => void paneGridAction(pane.paneId, "split", { direction: "down" }) },
+      { key: "zoom", label: zoomed ? "Unzoom" : "Zoom", paths: zoomed ? UNZOOM_ICON : ZOOM_ICON,
+        onSelect: () => void paneGridAction(pane.paneId, "zoom", { mode: "toggle" }) },
+      { separator: true },
+      { key: "close", label: "Close pane", paths: ["M6 6l12 12M18 6 6 18"], danger: true,
+        onSelect: () => void closePaneFromGrid(pane.paneId) },
+    ],
+  });
+}
+
+function closePaneFromGrid(paneId) {
+  const pane = snapshotRecords().panes.find((item) => idOf(item, "pane_id", "id") === paneId);
+  if (!pane) return;
+  const status = agentStatus(agentForPane(paneId), pane);
+  const last = panesOfTab(idOf(pane, "tab_id", "tabId")).length <= 1;
+  const label = paneDisplayTitle("", pane, "Terminal", agentForPane(paneId));
+  const reason = last ? " It is the session's last pane, so the session closes too."
+    : status === "working" ? " Its agent is still working."
+    : status === "blocked" ? " Its agent is waiting for your answer." : "";
+  if ((last || status === "working" || status === "blocked") &&
+      !window.confirm(`Close pane “${label}”?${reason} This stops any running processes in it.`)) return;
+  void paneGridAction(paneId, "close");
+}
+
+// Runs a pane action from the grid (split, zoom, close) and shows the result:
+// a split selects the new pane; a refusal (no room for another pane) is said
+// in the feedback line.
+async function paneGridAction(paneId, action, body = {}) {
+  if (state.mutationBusy) return;
+  state.mutationBusy = true;
+  setFeedback("");
+  let result = null;
+  // Closing the selected pane leaves the selection on a neighbour in its tab,
+  // not on whatever pane the page would fall back to.
+  const siblings = panesOfTab(paneTabId(paneId)).map((pane) => idOf(pane, "pane_id", "id"));
+  const at = siblings.indexOf(paneId);
+  const neighbour = siblings[at + 1] ?? siblings[at - 1] ?? null;
+  try {
+    result = await api(`/api/panes/${encodeURIComponent(paneId)}/${action}`, { method: "POST", body });
+    if (action === "close" && state.selectedPaneId === paneId && neighbour) {
+      state.selectedPaneId = neighbour;
+      state.preferredPaneId = neighbour;
+      writePanePreference(panePreferenceStorage, neighbour);
+      syncComposerDraft();
+    }
+  } catch (error) {
+    setFeedback(error.message, true);
+  } finally {
+    state.mutationBusy = false;
+  }
+  forgetPaneLayout();
+  await refreshSnapshot();
+  const added = typeof result?.pane_id === "string" ? result.pane_id : null;
+  if (action === "split" && added && snapshotRecords().panes.some((item) => idOf(item, "pane_id", "id") === added)) {
+    selectPane(added, { fromGrid: shownGridTabId !== null });
+  } else void refreshTerminal();
+}
+
+// The panes a session dragged from the sidebar may join now: the grid's cells,
+// or the pane shown alone. A phone has neither (its sidebar is a drawer over
+// them), and a session that may not join (several panes, another machine or
+// Herdr session, the pane itself) gets none.
+function paneDropTargets(tabId) {
+  if (!desktopMedia.matches || state.mutationBusy) return [];
+  const targets = paneGrid.shown
+    ? [...elements.terminalStage.querySelectorAll(".pane-grid-cell:not([hidden])")]
+      .map((element) => ({ paneId: element.dataset.paneId, element }))
+    : state.selectedPaneId ? [{ paneId: state.selectedPaneId, element: elements.terminalStage }] : [];
+  return targets.filter(({ paneId }) => paneMoveRequest(state.snapshot, { tabId, targetPaneId: paneId, side: "right" }));
+}
+
+// Moves a session's one pane next to another pane, into that pane's tab. The
+// pane comes back under a new id: what the page keeps under its id follows it,
+// and it is selected in the grid of the tab it joined. A refusal (Herdr has
+// no room there) is said in the feedback line.
+async function movePaneIntoSplit(request) {
+  if (!request || state.mutationBusy) return;
+  const targetTabId = paneTabId(request.body.targetPaneId);
+  state.mutationBusy = true;
+  setFeedback("");
+  let movedTo = null;
+  try {
+    const result = await api(`/api/panes/${encodeURIComponent(request.paneId)}/move`, { method: "POST", body: request.body });
+    movedTo = typeof result?.pane_id === "string" ? result.pane_id : null;
+    if (movedTo && movedTo !== request.paneId) {
+      followMovedPaneState([{ from: request.paneId, to: movedTo }]);
+      if (state.selectedPaneId === request.paneId) state.selectedPaneId = movedTo;
+    }
+    if (movedTo && targetTabId) state.paneViews.set(targetTabId, "grid");
+  } catch (error) {
+    setFeedback(error.message, true);
+  } finally {
+    state.mutationBusy = false;
+  }
+  forgetPaneLayout();
+  await snapshotSettled;
+  await refreshSnapshot();
+  if (movedTo && snapshotRecords().panes.some((item) => idOf(item, "pane_id", "id") === movedTo)) {
+    selectPane(movedTo, { view: "grid" });
+  } else void refreshTerminal();
+}
 
 // The strip over the Terminal lens that says why the terminal is not live:
 // the socket is down, or the pane on screen could not attach. Quiet during a
@@ -6164,6 +6479,12 @@ function activatePaneShortcut(event) {
   );
   if (!targetButton) return false;
   event.preventDefault();
+  // Within the grid on screen, the shortcut moves the focus between its cells.
+  if (shownGridTabId && paneTabId(targetPaneId) === shownGridTabId) {
+    selectPane(targetPaneId, { fromGrid: true });
+    paneGrid.focus(targetPaneId);
+    return true;
+  }
   targetButton.click();
   return true;
 }
@@ -6213,6 +6534,8 @@ document.addEventListener("click", (event) => {
 desktopMedia.addEventListener("change", () => {
   state.mobileSidebarOpen = false;
   syncSidebar();
+  // The grid is for wide screens; a phone shows one pane and the map.
+  void refreshTerminal();
 });
 
 document.addEventListener("visibilitychange", () => {
