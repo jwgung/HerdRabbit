@@ -245,3 +245,37 @@ test("the socket's state is told as it changes, and Reconnect skips the wait and
   connection.pause();
   assert.equal(states.at(-1).state, "signed-out", "the page asking for a sign-in does not hide why");
 });
+
+test("a held socket opens with nothing attached or watched, so input can still be sent", async () => {
+  const sockets = [];
+  class Socket {
+    static OPEN = 1;
+    readyState = 0;
+    bufferedAmount = 0;
+    sent = [];
+    constructor() { sockets.push(this); }
+    send(message) { this.sent.push(JSON.parse(message)); }
+    open() { this.readyState = 1; this.onopen(); }
+    receive(message) { this.onmessage({ data: JSON.stringify(message) }); }
+    close() { this.readyState = 3; this.onclose({ code: 1006 }); }
+  }
+  const connection = terminalConnection({ WebSocketImpl: Socket, url: "ws://localhost/api/terminal",
+    credentials: () => ({ csrf: "write", launchToken: "launch" }), onOutput() {}, onDisconnect() {}, onAuthenticationRequired() {} });
+  connection.watchStatuses(["w1:p1"]);
+  assert.equal(sockets.length, 0, "nothing wanted, no socket");
+  connection.hold();
+  assert.equal(sockets.length, 1);
+  sockets[0].open();
+  sockets[0].receive({ type: "ready" });
+  assert.deepEqual(sockets[0].sent.map((message) => message.type), ["auth", "watch-statuses"]);
+  const sent = connection.send({ paneId: "w1:p1", text: "hi" });
+  assert.equal(sockets[0].sent.at(-1).type, "input");
+  sockets[0].receive({ type: "ack", id: sockets[0].sent.at(-1).id });
+  await sent;
+  connection.pause();
+  connection.hold();
+  assert.equal(sockets.length, 1, "a paused connection stays paused until resumed");
+  connection.resume();
+  assert.equal(sockets.length, 2, "and is held again once resumed");
+  connection.pause();
+});

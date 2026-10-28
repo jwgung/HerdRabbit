@@ -79,6 +79,7 @@ const STATIC_FILES = new Map([
   ["/swipe-dismiss.js", { path: `${PUBLIC_DIR}/swipe-dismiss.js`, type: "text/javascript; charset=utf-8" }],
   ["/pane-rename.js", { path: `${PUBLIC_DIR}/pane-rename.js`, type: "text/javascript; charset=utf-8" }],
   ["/sidebar-drag.js", { path: `${PUBLIC_DIR}/sidebar-drag.js`, type: "text/javascript; charset=utf-8" }],
+  ["/view-split.js", { path: `${PUBLIC_DIR}/view-split.js`, type: "text/javascript; charset=utf-8" }],
   ["/input-history-preference.js", { path: `${PUBLIC_DIR}/input-history-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/composer-draft-preference.js", { path: `${PUBLIC_DIR}/composer-draft-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/secret-prompt.js", { path: `${PUBLIC_DIR}/secret-prompt.js`, type: "text/javascript; charset=utf-8" }],

@@ -3398,7 +3398,26 @@ body.is-sidebar-dragging * {
   white-space: nowrap;
 }
 
+/* A view split tile names its pane's project, small, before the session. */
+.pane-grid-context {
+  max-width: 40%;
+  flex: 0 1 auto;
+  overflow: hidden;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-grid-context[hidden] {
+  display: none;
+}
+
 .pane-grid-expand,
+.pane-grid-remove,
 .pane-grid-menu > summary {
   width: 22px;
   min-width: 22px;
@@ -3414,13 +3433,15 @@ body.is-sidebar-dragging * {
 }
 
 .pane-grid-expand:hover,
+.pane-grid-remove:hover,
 .pane-grid-menu > summary:hover {
   border-color: var(--line);
   background: var(--surface-raised);
   color: var(--control-text);
 }
 
-.pane-grid-expand svg {
+.pane-grid-expand svg,
+.pane-grid-remove svg {
   width: 13px;
   height: 13px;
   fill: none;

@@ -77,6 +77,7 @@ const APP_SHELL = [
   "/swipe-dismiss.js?v=1.4.2",
   "/path-links.js?v=1.4.2",
   "/sidebar-drag.js?v=1.4.2",
+  "/view-split.js?v=1.4.2",
   "/pane-rename.js?v=1.4.2",
   "/input-history-preference.js?v=1.4.2",
   "/composer-draft-preference.js?v=1.4.2",

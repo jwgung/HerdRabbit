@@ -99,9 +99,14 @@ function icon(path) {
 // `menuFor(pane, zoomed)` builds a cell's ⋯ menu; `onSelect(paneId)` hears a
 // cell focused, `onExpand(paneId)` the cell opened alone, `onUnzoom(paneId)`
 // the zoom undone.
-export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, onSelect, onExpand, onUnzoom,
-  onAuthenticationRequired = () => {}, terminalOptions = {} }) {
-  const root = element("div", "pane-grid");
+// `mode: "view"` is this window's own view split (view-split.js) rather than a
+// Herdr tab: the same cells, placed by the same math from its layoutRects,
+// each header naming its pane's project too (`context`), and every tile a
+// terminal (its rects are the browser's, never too small to read).
+export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, onSelect, onExpand, onUnzoom = () => {},
+  onAuthenticationRequired = () => {}, terminalOptions = {}, mode = "herdr" }) {
+  const view = mode === "view";
+  const root = element("div", view ? "pane-grid is-view" : "pane-grid");
   root.hidden = true;
   const zoomBar = element("div", "pane-grid-zoom");
   zoomBar.hidden = true;
@@ -111,7 +116,9 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
   zoomBar.append(zoomText, unzoom);
   const board = element("div", "pane-grid-board");
   root.append(zoomBar, board);
-  host.append(root);
+  // The view split is in the page only while it is shown: the page has one
+  // Herdr grid to find, as before there was a view split.
+  if (!view) host.append(root);
   let zoomedPaneId = null;
   unzoom.addEventListener("click", () => { if (zoomedPaneId) onUnzoom(zoomedPaneId); });
 
@@ -176,11 +183,13 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     const status = element("span", "pane-grid-status ui-status");
     status.setAttribute("aria-hidden", "true");
     const label = element("span", "pane-grid-label");
+    const context = element("small", "pane-grid-context");
+    context.hidden = true;
     const expand = element("button", "pane-grid-expand");
     expand.type = "button";
     expand.append(icon(EXPAND_ICON));
     const menuSlot = element("span", "pane-grid-menu-slot");
-    header.append(status, label, expand, menuSlot);
+    header.append(status, context, label, expand, menuSlot);
     const body = element("div", "pane-grid-terminal");
     body.hidden = true;
     const note = element("p", "pane-grid-note");
@@ -190,7 +199,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     // terminal's textarea) selects it like a press does.
     node.tabIndex = 0;
     node.setAttribute("role", "group");
-    const cell = { paneId, node, status, label, expand, body, note, menuSlot, menuKey: null, terminal: null, connection: null, attached: false };
+    const cell = { paneId, node, status, context, label, expand, body, note, menuSlot, menuKey: null, terminal: null, connection: null, attached: false };
     // Any press in the cell makes it the selected pane; a press on its
     // terminal also leaves the typing there.
     node.addEventListener("pointerdown", (event) => {
@@ -235,6 +244,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       const key = JSON.stringify([panes, layout === undefined ? "waiting" : layout, selectedPaneId]);
       if (key === drawnKey && !root.hidden) return;
       drawnKey = key;
+      if (!root.isConnected) host.append(root);
       root.hidden = false;
       selected = selectedPaneId;
       const waiting = layout === undefined;
@@ -267,7 +277,11 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
         cell.status.textContent = pane.statusIcon;
         cell.label.textContent = pane.label;
         cell.label.title = pane.label;
-        cell.node.setAttribute("aria-label", `${pane.label}, ${pane.statusText}`);
+        cell.context.hidden = !pane.context;
+        cell.context.textContent = pane.context ?? "";
+        cell.context.title = pane.context ?? "";
+        const named = pane.context ? `${pane.label} (${pane.context})` : pane.label;
+        cell.node.setAttribute("aria-label", `${named}, ${pane.statusText}`);
         cell.expand.setAttribute("aria-label", `Open ${pane.label} alone`);
         cell.expand.title = "Open alone";
         const menuKey = String(Boolean(zoomedPaneId));
@@ -283,7 +297,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
         }
         // Lazily: a hidden cell lets its pane go, and a tiny one waits until
         // it is focused or zoomed.
-        const roomy = zoomed || (place.cols >= MIN_ATTACH_COLS && place.rows >= MIN_ATTACH_ROWS);
+        const roomy = view || zoomed || (place.cols >= MIN_ATTACH_COLS && place.rows >= MIN_ATTACH_ROWS);
         const tiny = !roomy && !focused;
         cell.node.classList.toggle("is-tiny", tiny);
         if (waiting || hidden || tiny) detach(cell);
@@ -321,6 +335,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       drawnKey = null;
       for (const cell of cells.values()) dispose(cell);
       cells.clear();
+      if (view) root.remove();
     },
   };
 }

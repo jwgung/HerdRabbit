@@ -21,6 +21,9 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
   const pending = new Map();
   // The pane whose attached terminal this page shows, attached again after a reconnect.
   let attached = null;
+  // Kept open with nothing attached or watched: a grid's cells have sockets of
+  // their own, and the composer, the keys and the statuses still need this one.
+  let held = false;
   const attachListeners = new Set();
   const reconnectListeners = new Set();
   // Whether the socket is live, for the strip that says why the terminal is not:
@@ -57,7 +60,7 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
     socket.send(JSON.stringify(message));
   }
   function connect() {
-    if (suspended || socket || (!wanted && !attached && conversations.size === 0 && prompts.size === 0)) return;
+    if (suspended || socket || (!wanted && !attached && !held && conversations.size === 0 && prompts.size === 0)) return;
     const current = new WebSocketImpl(url);
     socket = current;
     setConnectionState("connecting");
@@ -192,6 +195,11 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
     detach(paneId) {
       if (attached === paneId) attached = null;
       transmitIfReady({ type: "detach", paneId });
+    },
+    // Opens the socket, and keeps it open, though nothing is attached or watched.
+    hold() {
+      held = true;
+      if (!suspended) connect();
     },
     // Connects again after pause(), keeping what was wanted.
     resume() {
