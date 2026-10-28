@@ -1734,6 +1734,116 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   overflow-wrap: anywhere;
 }
 
+/* A run's steps: done (check), in progress (spinner and time), not started
+   (empty circle), failed (cross). Each also says so in words for a reader. */
+.update-run-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.update-run-head .update-run-state { flex: 1 1 auto; min-width: 0; }
+
+.update-herdr-run-head { align-items: center; }
+
+.update-step-count {
+  flex: none;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.update-steps {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.update-step {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 24px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.update-step[data-state="done"] { color: var(--text); }
+.update-step[data-state="current"] { color: var(--text); font-weight: 600; }
+.update-step[data-state="failed"] { color: var(--danger); font-weight: 600; }
+
+.update-step-label { min-width: 0; overflow-wrap: anywhere; }
+
+.update-step-mark {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--hover-line);
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.update-step[data-state="done"] .update-step-mark {
+  border-color: var(--status-ok);
+  color: var(--accent-ink);
+  background: var(--status-ok);
+}
+
+.update-step[data-state="failed"] .update-step-mark {
+  border-color: var(--danger);
+  color: var(--page);
+  background: var(--danger);
+}
+
+.update-step[data-state="current"] .update-step-mark,
+.update-herdr-spinner {
+  border-color: var(--line);
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  animation: fileRefreshSpin 0.9s linear infinite;
+}
+
+.update-herdr-spinner { flex: none; align-self: center; }
+
+.update-elapsed {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The wait for the restart reads under the step's name. */
+.update-step-note {
+  grid-column: 2 / -1;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.update-detail {
+  margin: 0;
+  font-size: 12px;
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-step[data-state="current"] .update-step-mark,
+  .update-herdr-spinner { animation: none; }
+}
+
 /* Passkeys: one bordered list, like AI accounts, with the password under it. */
 .passkeys-dialog { max-height: 90dvh; overflow-y: auto; }
 

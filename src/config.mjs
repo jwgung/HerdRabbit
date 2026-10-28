@@ -2,7 +2,7 @@ import { defaultAuthFilePath } from "./password-auth.mjs";
 import { defaultPushFilePath } from "./web-push-service.mjs";
 import { BlockList, isIP } from "node:net";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { DEFAULT_PEER_PORT } from "./link-protocol.mjs";
 
 const DEFAULT_PORT = 38_787;
@@ -164,6 +164,15 @@ function parsePluginId(value) {
   return PLUGIN_ID.test(id) ? id : null;
 }
 
+// The plugin's config and state folders as Herdr gave them to the startup
+// hook (src/plugin-runner.mjs passes them on), so a restart the in-app update
+// has to do itself finds the same .env and server record Herdr's would.
+// Anything but an absolute path without control characters is unknown.
+function parsePluginDir(value) {
+  const path = (value ?? "").trim();
+  return isAbsolute(path) && !/[\u0000-\u001f\u007f]/u.test(path) ? path : null;
+}
+
 function parsePeerLogins(value) {
   if (value === undefined || value.trim() === "") return [];
   const logins = value.split(",").map((login) => login.trim().toLowerCase()).filter(Boolean);
@@ -266,6 +275,8 @@ export function readConfig(environment = process.env) {
     port,
     herdrBin: environment.HERDR_BIN || "herdr",
     pluginId: parsePluginId(environment.HERDR_WEB_PLUGIN_ID),
+    pluginConfigDir: parsePluginDir(environment.HERDR_WEB_PLUGIN_CONFIG_DIR),
+    pluginStateDir: parsePluginDir(environment.HERDR_WEB_PLUGIN_STATE_DIR),
     ...dataPaths(environment),
     extraAllowedHosts: parseAllowedHosts(environment.HERDR_WEB_ALLOWED_HOSTS),
     filesDir: defaultFilesDirectory(environment),

@@ -3,6 +3,8 @@
 // pressed, never on a timer. Update runs update.sh on that PC (the server
 // starts it outside its own service), and this page follows the run: through
 // the restart for this PC, after which it reloads into the new version.
+// The run shows as steps (the server names them and the one it is at), with
+// its log folded away under "Log".
 // Each PC also has a Herdr row: the Herdr it runs against the newest on its
 // channel, and Update Herdr, which runs `herdr update --handoff` there and is
 // followed the same way, without a restart.
@@ -63,6 +65,15 @@ export function anyUpdate(results) {
 }
 
 export function confirmText(name, check) {
+  if (check?.mode === "plugin") {
+    return [
+      `Update ${name} to ${revisionText(check?.latest)}?`,
+      "",
+      "Herdr downloads and builds the new version of the HerdRabbit plugin, then restarts HerdRabbit there. " +
+        "Running sessions keep running; the page loses its connection for a moment while HerdRabbit restarts.",
+      "If the download or build fails, the installed version keeps running.",
+    ].join("\n");
+  }
   return [
     `Update ${name} to ${revisionText(check?.latest)}?`,
     "",
@@ -142,6 +153,64 @@ const RUN_TEXT = {
   failed: "The update failed. update.sh put the previous version back where it could; the log says why.",
 };
 
+// A plugin run has no update.sh and nothing is put back: Herdr installs the
+// new version beside the old one, which keeps running until the restart.
+export const PLUGIN_FAILED_TEXT = {
+  update_failed: "Herdr could not update the plugin. The installed version keeps running; the log says why.",
+  // runs from before the plugin's own reason
+  script_failed: "Herdr could not update the plugin. The installed version keeps running; the log says why.",
+  restart_failed: "The new version is installed, but HerdRabbit could not restart. Restart it with " +
+    "herdr plugin action invoke herdrabbit.restart, or reopen Herdr from a shell where node is on PATH.",
+  interrupted: "The update stopped before it finished. Press Check to see which version runs.",
+  start_failed: "The update could not start.",
+};
+
+export function runFailedText(status) {
+  if (status?.mode === "plugin") return PLUGIN_FAILED_TEXT[status.reason] ?? "The update failed; the log says why.";
+  return RUN_TEXT.failed;
+}
+
+export const WAITING_TEXT = "Waiting for HerdRabbit to come back…";
+
+// Each step of a run as the page shows it: "done", "current", "failed" or
+// "pending". The page's reload is left out for a connected PC (this page does
+// not reload for it); it is current while this page is about to reload, and
+// done once it has. A server that does not answer is taken to be restarting.
+export function stepStates(status, { local = true, waiting = false, reloading = false } = {}) {
+  const all = Array.isArray(status?.steps) ? status.steps : [];
+  const steps = local ? all : all.filter((step) => step.id !== "reload");
+  if (steps.length === 0) return [];
+  const at = (id) => steps.findIndex((step) => step.id === id);
+  let current;
+  if (status.state === "succeeded") {
+    current = reloading ? at("reload") : -1;
+  } else if (status.state === "running" && waiting) {
+    current = Math.max(at("restart"), at(status.phase));
+  } else {
+    current = at(status.phase);
+    if (current === -1) current = status.state === "running" && status.phase === "reload" ? steps.length - 1 : 0;
+  }
+  const finished = status.state === "succeeded" && current === -1;
+  const failed = status.state === "failed";
+  return steps.map((step, index) => ({
+    ...step,
+    state: finished || index < current ? "done"
+      : index === current ? (failed ? "failed" : "current") : "pending",
+  }));
+}
+
+// m:ss (or h:mm:ss) since a moment, never negative.
+export function elapsedText(since, now = Date.now()) {
+  const seconds = Math.max(0, Math.floor((now - since) / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rest = String(seconds % 60).padStart(2, "0");
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${rest}` : `${minutes}:${rest}`;
+}
+
+const STEP_WORDS = { done: "Done", current: "In progress", failed: "Failed", pending: "Not started" };
+const STEP_MARKS = { done: "✓", failed: "✕", current: "", pending: "" };
+
 function element(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -156,7 +225,7 @@ const sleep = (ms) => new Promise((resolve) => { window.setTimeout(resolve, ms);
 export function createUpdatePanel({
   api, dialog, list, feedback, checkButton, servers, onChange = () => {},
   confirm = (text) => window.confirm(text), reload = () => window.location.reload(),
-  pollMs = 1_500, giveUpMs = 15 * 60_000, storage = defaultStorage(),
+  pollMs = 1_500, giveUpMs = 15 * 60_000, storage = defaultStorage(), reloadDelayMs = 800,
 }) {
   // Per PC: { check, error, run, herdrRun }, a run being
   // { status, tracking, waiting }.
@@ -232,6 +301,7 @@ export function createUpdatePanel({
     } catch { /* shown again once checked */ }
   }
 
+  const keep = (run) => ({ logOpen: run?.logOpen, since: run?.since });
   const busy = (item) => item.run?.tracking === true || item.herdrRun?.tracking === true;
 
   async function runHerdr(id) {
@@ -267,7 +337,7 @@ export function createUpdatePanel({
         changed();
         continue;
       }
-      item.herdrRun = { status: next, tracking: next.state === "running", waiting: false };
+      item.herdrRun = { ...keep(item.herdrRun), status: next, tracking: next.state === "running", waiting: false };
       if (next.state === "running") {
         changed();
         continue;
@@ -314,13 +384,18 @@ export function createUpdatePanel({
         changed();
         continue;
       }
-      item.run = { status: next, tracking: next.state === "running", waiting: false };
+      // what the person opened, and when the run began, carry over
+      item.run = { ...keep(item.run), status: next, tracking: next.state === "running", waiting: false };
       if (next.state === "running") {
         changed();
         continue;
       }
       if (next.state === "succeeded" && id === "local" &&
           (!baseline || next.version !== baseline.version || (next.boot && next.boot !== baseline.boot))) {
+        // the last step, shown for a moment before the page goes
+        item.run = { ...keep(item.run), status: next, tracking: true, waiting: false, reloading: true };
+        changed();
+        await sleep(reloadDelayMs);
         reload();
         return;
       }
@@ -333,12 +408,13 @@ export function createUpdatePanel({
   }
 
   // A running log is shown as it comes; a finished one is folded away behind
-  // "Log" unless the run failed, where it explains why.
-  function logBlock(run, status, className, kind, serverId) {
+  // "Log" unless the run failed, where it explains why. With steps to show,
+  // the log is folded away while it runs too.
+  function logBlock(run, status, className, kind, serverId, { folded = false } = {}) {
     const pre = element("pre", className, status.log);
-    if (status.state === "running" || run.waiting) return pre;
+    if (!folded && (status.state === "running" || run.waiting)) return pre;
     // seen while the dialog is open: it will not come back on a later opening
-    if (dialog.open) dismissRun(storage, serverId, kind, status.finishedAt);
+    if (dialog.open && isFinished(status)) dismissRun(storage, serverId, kind, status.finishedAt);
     const details = element("details", "update-log-fold");
     details.open = status.state === "failed" || run.logOpen === true;
     details.append(element("summary", "", "Log"), pre);
@@ -408,18 +484,77 @@ export function createUpdatePanel({
     const runStatus = item.run?.status;
     if (item.run && runStatus) {
       const progress = element("div", "update-progress");
-      const text = item.run.waiting
-        ? "Waiting for HerdRabbit to come back after its restart…"
-        : RUN_TEXT[runStatus.state] ?? "";
+      const steps = stepStates(runStatus, {
+        local: server.id === "local", waiting: item.run.waiting, reloading: item.run.reloading === true,
+      });
+      const failed = runStatus.state === "failed" && !item.run.waiting;
+      const text = failed ? runFailedText(runStatus)
+        : item.run.reloading ? "Updated. Reloading this page…"
+          : steps.length === 0 && item.run.waiting ? "Waiting for HerdRabbit to come back after its restart…"
+            : RUN_TEXT[runStatus.state] ?? "";
+      const head = element("div", "update-run-head");
       const state = element("p", "update-run-state", text);
       state.setAttribute("role", "status");
-      if (runStatus.state === "failed" && !item.run.waiting) state.dataset.error = "true";
-      progress.append(state);
-      if (runStatus.log) progress.append(logBlock(item.run, runStatus, "update-log", "app", server.id));
+      if (failed) state.dataset.error = "true";
+      head.append(state);
+      const position = steps.findIndex((step) => step.state === "current" || step.state === "failed");
+      if (position !== -1) head.append(element("p", "update-step-count", `Step ${position + 1} of ${steps.length}`));
+      progress.append(head);
+      if (steps.length > 0) progress.append(stepList(steps, runStatus, item.run));
+      if (failed && runStatus.detail) progress.append(element("p", "update-detail", runStatus.detail));
+      if (runStatus.log) {
+        progress.append(logBlock(item.run, runStatus, "update-log", "app", server.id, { folded: steps.length > 0 }));
+      }
       noteSeen(item.run, "app", server.id);
       section.append(progress);
     }
     return section;
+  }
+
+  // When the run began, for the time shown beside the step in progress; a
+  // run whose start is unknown counts from when this page first saw it.
+  function runSince(run) {
+    const started = Date.parse(run.status?.startedAt ?? "");
+    run.since ??= Number.isFinite(started) ? Math.min(started, Date.now()) : Date.now();
+    return run.since;
+  }
+
+  function elapsedNode(run) {
+    const since = runSince(run);
+    const node = element("span", "update-elapsed", elapsedText(since));
+    node.dataset.since = String(since);
+    return node;
+  }
+
+  function stepList(steps, status, run) {
+    const list = element("ol", "update-steps");
+    list.setAttribute("role", "list");
+    list.setAttribute("aria-label", "Update steps");
+    for (const step of steps) {
+      const row = element("li", "update-step");
+      row.dataset.state = step.state;
+      row.dataset.step = step.id;
+      if (step.state === "current" || step.state === "failed") row.setAttribute("aria-current", "step");
+      const mark = element("span", "update-step-mark", STEP_MARKS[step.state]);
+      mark.setAttribute("aria-hidden", "true");
+      const label = element("span", "update-step-label");
+      label.append(element("span", "visually-hidden", `${STEP_WORDS[step.state]}: `), step.label);
+      row.append(mark, label);
+      if (step.state === "current" && step.id !== "reload") {
+        row.append(elapsedNode(run));
+        if (run.waiting && step.id === "restart") row.append(element("span", "update-step-note", WAITING_TEXT));
+      }
+      list.append(row);
+    }
+    return list;
+  }
+
+  // The time beside a step in progress moves on by itself between answers.
+  let ticker = null;
+  function tick() {
+    for (const node of list.querySelectorAll(".update-elapsed[data-since]")) {
+      node.textContent = elapsedText(Number(node.dataset.since));
+    }
   }
 
   function renderHerdr(server, item) {
@@ -475,7 +610,16 @@ export function createUpdatePanel({
       const state = element("p", "update-run-state update-herdr-run-state", text);
       state.setAttribute("role", "status");
       if (run.status.state === "failed" && !run.waiting) state.dataset.error = "true";
-      progress.append(state);
+      if (run.status.state === "running") {
+        // still indeterminate, with how long it has been going
+        const head = element("div", "update-run-head update-herdr-run-head");
+        const mark = element("span", "update-step-mark update-herdr-spinner");
+        mark.setAttribute("aria-hidden", "true");
+        head.append(mark, state, elapsedNode(run));
+        progress.append(head);
+      } else {
+        progress.append(state);
+      }
       if (run.status.state === "failed" && run.status.detail) {
         progress.append(element("p", "update-herdr-detail", run.status.detail));
       }
@@ -502,6 +646,7 @@ export function createUpdatePanel({
     feedback.dataset.error = "false";
     render();
     dialog.showModal();
+    ticker ??= window.setInterval(tick, 1_000);
   }
 
   checkButton.addEventListener("click", () => void refresh({ fresh: true }));
@@ -509,6 +654,8 @@ export function createUpdatePanel({
   // A finished run was on screen while the dialog was open: closing it puts
   // it away, so the next opening starts clean.
   dialog.addEventListener("close", () => {
+    if (ticker !== null) window.clearInterval(ticker);
+    ticker = null;
     for (const [id, item] of entries) {
       if (isFinished(item.run?.status) && !item.run.tracking) {
         dismissRun(storage, id, "app", item.run.status.finishedAt);

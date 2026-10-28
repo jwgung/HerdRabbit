@@ -193,3 +193,13 @@ test("the plugin id is Herdr's id or nothing", () => {
     assert.equal(readConfig({ HERDR_WEB_PLUGIN_ID: value }).pluginId, null, value);
   }
 });
+
+test("the plugin's folders are absolute paths Herdr named, or nothing", () => {
+  const config = readConfig({ HERDR_WEB_PLUGIN_CONFIG_DIR: "/cfg/herdrabbit", HERDR_WEB_PLUGIN_STATE_DIR: " /state/herdrabbit " });
+  assert.equal(config.pluginConfigDir, "/cfg/herdrabbit");
+  assert.equal(config.pluginStateDir, "/state/herdrabbit");
+  assert.equal(readConfig({}).pluginConfigDir, null);
+  for (const value of ["", "relative/dir", "/a\nb"]) {
+    assert.equal(readConfig({ HERDR_WEB_PLUGIN_STATE_DIR: value }).pluginStateDir, null, JSON.stringify(value));
+  }
+});

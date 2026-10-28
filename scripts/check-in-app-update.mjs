@@ -3,9 +3,13 @@
 // a newer version puts a dot on the ⚙ button and an "Update available" item
 // in its menu. The Update window lists this PC with what changed, a connected
 // PC whose update is blocked with the reason, and a connected PC too old to
-// be updated from here. Update asks first, then follows the run's log through
-// a restart (the server not answering for a while) and reloads once a new
-// version answers. A run that fails says so and keeps its log.
+// be updated from here. Update asks first, then follows the run step by step
+// (Step n of N, the time it has taken, the log folded under "Log") through a
+// restart (the server not answering for a while: "Waiting for HerdRabbit to
+// come back…"), shows the reload as the last step and reloads once a new
+// version answers. A run that fails marks its step with a cross, says so and
+// keeps its log open. A plugin run whose restart failed says the new version
+// is installed and how to restart it, with Herdr's error -- never update.sh.
 // Then Herdr: with HerdRabbit up to date, a newer Herdr alone puts the dot
 // up; its row shows the versions, notes folded away, and Update Herdr asks
 // first, follows the run's log, and checks again so the new Herdr shows.
@@ -14,6 +18,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
+import { RUN_STEPS, scriptPhase } from "../src/app-update.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const LINK = "link_11111111-1111-1111-1111-111111111111";
@@ -21,6 +26,13 @@ const OLD = "link_22222222-2222-2222-2222-222222222222";
 
 // What the fake PC does: "available" until updated, then "updated".
 const world = { phase: "available", outcome: "succeeded", polls: 0, starts: 0 };
+// update.sh's lines, one more each answer, and the step they put the run at.
+const SCRIPT_LOG = [
+  "  > Fetching main in /home/me/HerdRabbit", "  > Updating Herdr", "  > Installing runtime dependencies",
+  "  > Verifying the updated code", "  > Restarting herdrabbit.service",
+];
+const PLUGIN_LOG = ["  > Updating the herdrabbit plugin with Herdr", "Updated herdrabbit.", "  > Restarting HerdRabbit"];
+const RESTART_ERROR = "No such file or directory (os error 2); the direct restart exited with 1";
 
 const check = (fields) => ({
   checkedAt: new Date().toISOString(), current: { sha: "abc1234", version: "2.0.0" }, latest: { sha: "def5678", version: "2.0.1" },
@@ -30,30 +42,51 @@ const idle = { state: "idle", startedAt: null, finishedAt: null, exitCode: null,
 
 const updater = {
   async check() {
+    const mode = world.outcome === "restart_failed" ? "plugin" : "script";
     return world.phase === "updated"
-      ? check({ current: { sha: "def5678", version: "2.0.1" }, available: false, notes: [] })
-      : check();
+      ? check({ current: { sha: "def5678", version: "2.0.1" }, available: false, notes: [], mode })
+      : check({ mode });
   },
   async runStatus() {
     if (world.phase === "available") return { ...idle, version: "2.0.0" };
     if (world.phase === "updated") {
-      return { ...idle, state: "succeeded", finishedAt: new Date().toISOString(), version: "2.0.1", log: "  > Updated to def5678." };
+      return {
+        ...idle, state: "succeeded", finishedAt: new Date().toISOString(), version: "2.0.1", log: "  > Updated to def5678.",
+        mode: "script", steps: RUN_STEPS.script, phase: "reload", startedAt: world.startedAt,
+      };
     }
     world.polls += 1;
-    const log = ["  > Fetching main in /home/me/HerdRabbit", "  > Updating Herdr", "  > Verifying the updated code"]
-      .slice(0, Math.min(3, world.polls)).join("\n");
-    if (world.polls < 3) return { ...idle, state: "running", startedAt: new Date().toISOString(), log, version: "2.0.0" };
-    if (world.outcome === "failed") {
-      return { ...idle, state: "failed", exitCode: 1, reason: "script_failed", log: `${log}\n  x verification failed; rolled back to abc1234`, version: "2.0.0" };
+    const plugin = world.outcome === "restart_failed";
+    const mode = plugin ? "plugin" : "script";
+    const run = { ...idle, mode, steps: RUN_STEPS[mode], startedAt: world.startedAt, version: "2.0.0" };
+    if (plugin) {
+      const log = PLUGIN_LOG.slice(0, Math.min(3, world.polls + 1)).join("\n");
+      if (world.polls < 3) return { ...run, state: "running", phase: world.polls < 2 ? "fetch" : "restart", log };
+      return {
+        ...run, state: "failed", exitCode: 1, reason: "restart_failed", phase: "restart", finishedAt: new Date().toISOString(),
+        detail: RESTART_ERROR, log: `${log}\n  > Herdr could not restart HerdRabbit: No such file or directory (os error 2)`,
+      };
     }
+    const lines = SCRIPT_LOG.slice(0, world.outcome === "failed" ? Math.min(4, world.polls) : Math.min(5, world.polls));
+    const log = lines.join("\n");
+    const phase = scriptPhase(log) ?? "fetch";
+    if (world.outcome === "failed" && world.polls >= 5) {
+      return {
+        ...run, state: "failed", exitCode: 1, reason: "script_failed", phase, finishedAt: new Date().toISOString(),
+        log: `${log}\n  x verification failed; rolled back to abc1234`,
+      };
+    }
+    if (world.polls <= 5) return { ...run, state: "running", phase, log };
     world.phase = "updated";
-    return { ...idle, state: "succeeded", log: `${log}\n  > Updated to def5678.`, version: "2.0.1" };
+    return { ...run, state: "succeeded", phase: "reload", log: `${log}\n  > Updated to def5678.`, version: "2.0.1" };
   },
   async start() {
     world.starts += 1;
     world.phase = "running";
     world.polls = 0;
-    return { ...idle, state: "running", startedAt: new Date().toISOString(), version: "2.0.0" };
+    world.startedAt = new Date(Date.now() - 60_000).toISOString();
+    const mode = world.outcome === "restart_failed" ? "plugin" : "script";
+    return { ...idle, state: "running", startedAt: world.startedAt, version: "2.0.0", mode, steps: RUN_STEPS[mode], phase: "fetch" };
   },
 };
 
@@ -91,7 +124,7 @@ const herdr = {
 const browser = await chromium.launch({ args: ["--no-sandbox"] });
 
 try {
-  for (const outcome of ["succeeded", "failed"]) {
+  for (const outcome of ["succeeded", "failed", "restart_failed"]) {
     Object.assign(world, { phase: "available", outcome, polls: 0, starts: 0 });
     // A server per run: the page's server lets one update a minute through.
     const { server } = createHerdrHttpServer({ herdr, updater, logger: { info() {}, error() {} } });
@@ -148,7 +181,8 @@ try {
     await page.evaluate(() => { window.beforeUpdate = true; });
     let down = 0;
     await page.route("**/api/update/run?server=local", async (route) => {
-      if (world.polls === 2 && down < 2) {
+      // update.sh is restarting the service: nothing answers for a while
+      if (outcome === "succeeded" && world.polls === 5 && down < 3) {
         down += 1;
         await route.abort("connectionrefused");
         return;
@@ -159,14 +193,58 @@ try {
     assert.equal(dialogs.length, 1);
     assert.match(dialogs[0], /^Update This PC \(testbox\) to 2\.0\.1 \(def5678\)\?/u);
     assert.match(dialogs[0], /restarts HerdRabbit/u);
-    assert.match(dialogs[0], /previous version back/u);
+    if (outcome === "restart_failed") {
+      assert.doesNotMatch(dialogs[0], /update\.sh/u, "a plugin update is not update.sh's");
+      assert.match(dialogs[0], /installed version keeps running/u);
+    } else {
+      assert.match(dialogs[0], /previous version back/u);
+    }
     await page.waitForFunction(() => /Updating/u.test(document.querySelector(".update-run-state")?.textContent ?? ""));
-    await page.waitForFunction(() => /Updating Herdr/u.test(document.querySelector(".update-log")?.textContent ?? ""));
     assert.equal(world.starts, 1);
     assert.equal(await local.locator(".update-run").isDisabled(), true, "one run at a time");
 
+    // The steps, the one in progress with its time, and the log folded away.
+    const step = (id) => local.locator(`.update-step[data-step="${id}"]`);
+    const stepState = (id) => step(id).getAttribute("data-state");
+    const steps = local.locator(".update-steps");
+    assert.equal(await steps.getAttribute("role"), "list");
+    if (outcome === "restart_failed") {
+      assert.deepEqual(await local.locator(".update-step .update-step-label").allTextContents(),
+        ["In progress: Download and build the new version", "Not started: Restart HerdRabbit", "Not started: Reload this page"]);
+      assert.equal((await local.locator(".update-step-count").textContent()).trim(), "Step 1 of 3");
+      await waitForStep(local, "restart", "current");
+      assert.equal(await stepState("fetch"), "done");
+      assert.equal((await local.locator(".update-step-count").textContent()).trim(), "Step 2 of 3");
+    } else {
+      assert.equal(await local.locator(".update-step").count(), 6);
+      for (const [index, id] of ["herdr", "install", "verify"].entries()) {
+        await waitForStep(local, id, "current");
+        assert.equal((await local.locator(".update-step-count").textContent()).trim(), `Step ${index + 2} of 6`);
+        assert.equal(await stepState("fetch"), "done");
+        assert.equal(await step(id).getAttribute("aria-current"), "step");
+        assert.equal(await stepState("reload"), "pending");
+      }
+    }
+    const current = local.locator('.update-step[aria-current="step"]');
+    assert.match(await current.locator(".update-elapsed").textContent(), /^1:0\d$/u, "the time since the run began");
+    assert.equal(await local.locator(".update-step .update-elapsed").count(), 1, "only the step in progress has a time");
+    const fold = local.locator("details.update-log-fold");
+    assert.equal(await fold.evaluate((node) => node.open), false, "the log is folded away while it runs");
+    assert.equal((await fold.locator("summary").textContent()).trim(), "Log");
+    await shot(page, `${outcome}-running`);
+
     if (outcome === "succeeded") {
-      await page.waitForFunction(() => /Waiting for HerdRabbit/u.test(document.querySelector(".update-run-state")?.textContent ?? ""));
+      await page.waitForFunction(() => /Waiting for HerdRabbit to come back/u.test(
+        document.querySelector('.update-step[data-step="restart"] .update-step-note')?.textContent ?? ""));
+      assert.equal(await stepState("restart"), "current");
+      assert.equal(await stepState("verify"), "done");
+      assert.equal((await local.locator(".update-step-count").textContent()).trim(), "Step 5 of 6");
+      await shot(page, "succeeded-waiting");
+      // Back, with a new version: the reload is the step left, then the page goes.
+      await page.waitForFunction(() => document.querySelector('.update-step[data-step="reload"]')?.dataset.state === "current", null, { timeout: 20_000 });
+      assert.match(await local.locator(".update-run-state").textContent(), /Reloading this page/u);
+      assert.equal(await stepState("restart"), "done");
+      await shot(page, "succeeded-reload");
       // A new version answers: the page reloads into it. This PC is up to
       // date now; the dot stays for devbox, which still has an update.
       await page.waitForFunction(() => window.beforeUpdate !== true, null, { timeout: 20_000 });
@@ -180,6 +258,9 @@ try {
       assert.match(await after.locator(".update-versions").textContent(), /Running 2\.0\.1/u);
       assert.match(await after.locator(".update-log").textContent(), /Updated to def5678/u, "the finished run is still shown");
       assert.equal((await after.locator(".update-run-state").textContent()).trim(), "Updated.");
+      assert.deepEqual(await after.locator(".update-step").evaluateAll((nodes) => nodes.map((node) => node.dataset.state)),
+        ["done", "done", "done", "done", "done", "done"]);
+      assert.equal(await after.locator(".update-step-count").count(), 0);
       assert.equal(await after.locator("details.update-log-fold").evaluate((node) => node.open), false, "a finished run's log is folded away");
       assert.equal((await after.locator("details.update-log-fold > summary").textContent()).trim(), "Log");
       // seen once: after closing, the finished run does not come back
@@ -188,12 +269,33 @@ try {
       await page.locator('.settings-menu [data-action="update"]').click();
       await after.waitFor({ state: "visible" });
       assert.equal(await after.locator(".update-progress").count(), 0, "a finished run seen once is gone");
-    } else {
+    } else if (outcome === "failed") {
       await page.waitForFunction(() => /update failed/u.test(document.querySelector(".update-run-state")?.textContent ?? ""), null, { timeout: 20_000 });
       assert.equal(await local.locator(".update-run-state").getAttribute("data-error"), "true");
+      assert.match(await local.locator(".update-run-state").textContent(), /update\.sh put the previous version back/u);
+      assert.equal(await stepState("verify"), "failed");
+      assert.equal(await step("verify").locator(".update-step-mark").textContent(), "✕");
+      assert.equal(await stepState("install"), "done");
+      assert.equal(await stepState("restart"), "pending");
+      assert.equal((await local.locator(".update-step-count").textContent()).trim(), "Step 4 of 6");
       assert.match(await local.locator(".update-log").textContent(), /rolled back to abc1234/u);
       assert.equal(await local.locator("details.update-log-fold").evaluate((node) => node.open), true, "a failed run keeps its log open");
       assert.equal(await page.evaluate(() => window.beforeUpdate), true, "a failed run does not reload");
+      await shot(page, "failed");
+    } else {
+      await page.waitForFunction(() => document.querySelector('.update-step[data-step="restart"]')?.dataset.state === "failed", null, { timeout: 20_000 });
+      const said = await local.locator(".update-run-state").textContent();
+      assert.match(said, /new version is installed, but HerdRabbit could not restart/u);
+      assert.match(said, /herdr plugin action invoke herdrabbit\.restart/u);
+      assert.match(said, /shell where node is on PATH/u);
+      assert.doesNotMatch(said, /update\.sh/u);
+      assert.equal(await local.locator(".update-run-state").getAttribute("data-error"), "true");
+      assert.equal((await local.locator(".update-detail").textContent()).trim(), RESTART_ERROR);
+      assert.equal(await stepState("fetch"), "done");
+      assert.equal(await stepState("reload"), "pending");
+      assert.equal(await local.locator("details.update-log-fold").evaluate((node) => node.open), true, "a failed run keeps its log open");
+      assert.equal(await page.evaluate(() => window.beforeUpdate), true, "a failed run does not reload");
+      await shot(page, "restart-failed");
     }
     assert.deepEqual(errors, []);
     await context.close();
@@ -204,6 +306,15 @@ try {
   console.log("in-app update check passed");
 } finally {
   await browser.close();
+}
+
+async function waitForStep(scope, id, state) {
+  await scope.locator(`.update-step[data-step="${id}"][data-state="${state}"]`).waitFor({ timeout: 20_000 });
+}
+
+// UPDATE_SHOTS=<folder> keeps a screenshot of each state shown.
+async function shot(page, name) {
+  if (process.env.UPDATE_SHOTS) await page.screenshot({ path: `${process.env.UPDATE_SHOTS}/update-${name}.png` });
 }
 
 async function checkHerdr() {
@@ -314,6 +425,8 @@ async function checkHerdr() {
     assert.match(dialogs[0], /can take a moment/u);
     await page.waitForFunction(() => /Updating Herdr/u.test(document.querySelector(".update-herdr-run-state")?.textContent ?? ""));
     await page.waitForFunction(() => /Installing/u.test(document.querySelector(".update-herdr-log")?.textContent ?? ""));
+    assert.match(await row.locator(".update-herdr-run-head .update-elapsed").textContent(), /^\d+:\d\d$/u, "Herdr's run shows its time");
+    assert.equal(await row.locator(".update-steps").count(), 0, "Herdr's run has no steps");
     assert.equal(herdrWorld.starts, 1);
     assert.equal(await local.locator(".update-herdr-run").isDisabled(), true, "one run at a time");
 
