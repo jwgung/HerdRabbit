@@ -433,6 +433,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   // A keepSize terminal keeps the pane's columns and rows and scales its font
   // so they fill the frame, never past the font size it was made with.
   let fitFrame = null;
+  // Below this a pane's text is no longer worth drawing.
+  const MIN_CELL_FONT_SIZE = 4;
   function fitFont() {
     if (fitFrame !== null) return;
     fitFrame = requestAnimationFrame(() => {
@@ -444,7 +446,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       const roomY = host.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
       const current = term.options.fontSize;
       const scale = Math.min(roomX / screen.offsetWidth, roomY / screen.offsetHeight);
-      const next = Math.max(4, Math.min(fontSize, Math.floor(current * scale * 2) / 2));
+      const next = Math.max(MIN_CELL_FONT_SIZE, Math.min(fontSize, Math.floor(current * scale * 2) / 2));
       if (Math.abs(next - current) >= 0.5) {
         term.options.fontSize = next;
         // A changed font measures again: one more pass settles on the size.

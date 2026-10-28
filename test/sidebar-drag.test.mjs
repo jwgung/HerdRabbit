@@ -1,12 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  dropPreview,
   dropScope,
+  dropSide,
   followMovedPane,
   gapIndex,
   isNoopGap,
   movedTabSnapshot,
   movedWorkspaceSnapshot,
+  paneMoveRequest,
   tabMoveRequest,
   workspaceMoveRequest,
 } from "../public/sidebar-drag.js";
@@ -138,4 +141,48 @@ test("the pane on screen is followed to its new id, and others stay as they are"
   assert.equal(followMovedPane("w1:p4", moves), "w2:p4");
   assert.equal(followMovedPane("w1:p1", moves), "w1:p1");
   assert.equal(followMovedPane("w1:p1", undefined), "w1:p1");
+});
+
+test("a pointer near a pane's edge picks that side and the middle picks none", () => {
+  const box = { left: 100, top: 50, right: 300, bottom: 250, width: 200, height: 200 };
+  assert.equal(dropSide(box, 110, 150), "left");
+  assert.equal(dropSide(box, 290, 150), "right");
+  assert.equal(dropSide(box, 200, 60), "up");
+  assert.equal(dropSide(box, 200, 240), "down");
+  assert.equal(dropSide(box, 200, 150), null);
+  assert.equal(dropSide(box, 50, 150), null);
+  assert.equal(dropSide({ ...box, width: 0 }, 110, 150), null);
+});
+
+test("the drop preview is the half of the pane on the chosen side", () => {
+  const box = { left: 100, top: 50, width: 200, height: 100 };
+  assert.deepEqual(dropPreview(box, "left"), { left: 100, top: 50, width: 100, height: 100 });
+  assert.deepEqual(dropPreview(box, "right"), { left: 200, top: 50, width: 100, height: 100 });
+  assert.deepEqual(dropPreview(box, "up"), { left: 100, top: 50, width: 200, height: 50 });
+  assert.deepEqual(dropPreview(box, "down"), { left: 100, top: 100, width: 200, height: 50 });
+});
+
+test("only a one-pane session of the same Herdr session joins another pane", () => {
+  const snap = {
+    workspaces: [{ workspace_id: "w1", ...scope }, { workspace_id: "w2", ...other }],
+    tabs: [
+      { tab_id: "t1", workspace_id: "w1", ...scope },
+      { tab_id: "t2", workspace_id: "w1", ...scope },
+      { tab_id: "t3", workspace_id: "w1", ...scope },
+      { tab_id: "t4", workspace_id: "w2", ...other },
+    ],
+    panes: [
+      { pane_id: "p1", tab_id: "t1" },
+      { pane_id: "p2", tab_id: "t2" },
+      { pane_id: "p3", tab_id: "t3" },
+      { pane_id: "p3b", tab_id: "t3" },
+      { pane_id: "p4", tab_id: "t4" },
+    ],
+  };
+  assert.deepEqual(paneMoveRequest(snap, { tabId: "t1", targetPaneId: "p2", side: "left" }),
+    { paneId: "p1", body: { targetPaneId: "p2", side: "left" } });
+  assert.equal(paneMoveRequest(snap, { tabId: "t3", targetPaneId: "p2", side: "right" }), null, "a split session cannot join");
+  assert.equal(paneMoveRequest(snap, { tabId: "t1", targetPaneId: "p4", side: "right" }), null, "another Herdr session");
+  assert.equal(paneMoveRequest(snap, { tabId: "t3", targetPaneId: "p3", side: "up" }), null, "its own tab");
+  assert.equal(paneMoveRequest(snap, { tabId: "t1", targetPaneId: "p2", side: "middle" }), null, "an unknown side");
 });

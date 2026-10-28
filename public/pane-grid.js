@@ -10,6 +10,14 @@ import { terminalConnection } from "./terminal-connection.js?v=1.3.5";
 export const MIN_ATTACH_COLS = 10;
 export const MIN_ATTACH_ROWS = 3;
 
+// A terminal cell is about twice as tall as it is wide, so a tab's shape on
+// screen is its columns times this over its rows; the phone's map keeps that
+// shape within these bounds so a very wide or tall tab stays tappable.
+const CELL_ASPECT = 0.5;
+const MAP_RATIO_MIN = 0.75;
+const MAP_RATIO_MAX = 3;
+const MAP_RATIO_FALLBACK = 4 / 3;
+
 // Herdr answers with its own ids (`wM:p1`); the page's are scoped by session
 // (`hs_…~wM:p1`). The part after the last `~` is the same in both.
 const localId = (id) => String(id ?? "").split("~").pop();
@@ -257,7 +265,6 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       for (const cell of cells.values()) dispose(cell);
       cells.clear();
     },
-    contains(node) { return root.contains(node); },
   };
 }
 
@@ -267,9 +274,8 @@ export function renderPaneMap(host, { layout, panes, selectedPaneId, onPick }) {
   const placed = gridCells(layout, panes.map((pane) => pane.paneId));
   const info = new Map(panes.map((pane) => [pane.paneId, pane]));
   const map = element("div", "pane-map-board");
-  // The map keeps the tab's shape: Herdr's cells are about twice as tall as wide.
-  const ratio = placed.area ? (placed.area.width * 0.5) / placed.area.height : 4 / 3;
-  map.style.aspectRatio = String(Math.min(3, Math.max(0.75, ratio)));
+  const ratio = placed.area ? (placed.area.width * CELL_ASPECT) / placed.area.height : MAP_RATIO_FALLBACK;
+  map.style.aspectRatio = String(Math.min(MAP_RATIO_MAX, Math.max(MAP_RATIO_MIN, ratio)));
   for (const place of placed.cells) {
     const pane = info.get(place.paneId);
     const box = element("button", "pane-map-cell");
