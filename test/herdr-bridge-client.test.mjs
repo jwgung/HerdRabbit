@@ -148,3 +148,59 @@ test("rejects forged or malformed scoped ids before invoking Herdr", async () =>
   );
   assert.equal(fake.calls.length, 0);
 });
+
+test("pane splits are scoped to one Herdr session and come back with scoped ids", async () => {
+  const json = (result) => ({ stdout: JSON.stringify({ result }), stderr: "" });
+  const fake = recordingRunner([
+    { stdout: JSON.stringify({ sessions: [{ name: "review", default: false, running: true }] }), stderr: "" },
+    json({ snapshot: snapshot("리뷰") }),
+    json({ pane: { pane_id: "w2:p3", cwd: "/x" } }),
+    json({ pane: { pane_id: "w2:p4" } }),
+  ]);
+  const client = new HerdrBridgeClient({ runner: fake.runner });
+  const sessionId = sessionIds.sessionIdForName("review");
+  await client.snapshot();
+  const result = await client.splitPane(`${sessionId}~w2:p3`, "down");
+  assert.deepEqual(result, { pane_id: `${sessionId}~w2:p4` });
+  assert.deepEqual(fake.calls[3].args.slice(0, 3), ["--session=review", "pane", "split"]);
+  await assert.rejects(
+    client.movePaneSplit(`${sessionId}~w2:p3`, `${sessionIds.sessionIdForName("other")}~w1:p1`, "left"),
+    InputValidationError,
+  );
+});
+
+test("a dropped pane that could not be swapped into place still comes back under its scoped id", async () => {
+  const json = (result) => ({ stdout: JSON.stringify({ result }), stderr: "" });
+  const refused = Object.assign(new Error("failed"), { stderr: JSON.stringify({ error: { code: "pane_swap_failed", message: "no swap" } }) });
+  const fake = recordingRunner([
+    { stdout: JSON.stringify({ sessions: [{ name: "review", default: false, running: true }] }), stderr: "" },
+    json({ snapshot: snapshot("리뷰") }),
+    json({ pane: { pane_id: "w2:p5", tab_id: "w2:t2" } }),
+    json({ pane: { pane_id: "w2:p3", tab_id: "w2:t1" } }),
+    json({ layout: { panes: [{ pane_id: "w2:p5", rect: { x: 0, y: 0, width: 5, height: 5 } }] } }),
+    json({ pane: { pane_id: "w2:p6", tab_id: "w2:t1" } }),
+    refused,
+  ]);
+  const client = new HerdrBridgeClient({ runner: fake.runner });
+  const sessionId = sessionIds.sessionIdForName("review");
+  await client.snapshot();
+  assert.deepEqual(await client.movePaneSplit(`${sessionId}~w2:p5`, `${sessionId}~w2:p3`, "left"),
+    { pane_id: `${sessionId}~w2:p6`, placed: false, message: "no swap" });
+});
+
+test("a pane layout names its panes by scoped id", async () => {
+  const json = (result) => ({ stdout: JSON.stringify({ result }), stderr: "" });
+  const fake = recordingRunner([
+    { stdout: JSON.stringify({ sessions: [{ name: "review", default: false, running: true }] }), stderr: "" },
+    json({ snapshot: snapshot("리뷰") }),
+    json({ layout: { tab_id: "w2:t1", workspace_id: "w2", focused_pane_id: "w2:p3", zoomed: false, panes: [{ pane_id: "w2:p3", rect: { x: 0, y: 0, width: 5, height: 5 } }] } }),
+  ]);
+  const client = new HerdrBridgeClient({ runner: fake.runner });
+  const sessionId = sessionIds.sessionIdForName("review");
+  await client.snapshot();
+  const { layout } = await client.paneLayout(`${sessionId}~w2:p3`);
+  assert.equal(layout.panes[0].pane_id, `${sessionId}~w2:p3`);
+  assert.equal(layout.focused_pane_id, `${sessionId}~w2:p3`);
+  assert.equal(layout.tab_id, `${sessionId}~w2:t1`);
+  assert.equal(layout.zoomed, false);
+});

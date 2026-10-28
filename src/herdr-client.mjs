@@ -243,6 +243,25 @@ function movedPaneIds(result) {
   return { paneId, tabId };
 }
 
+function validateSplitDirection(direction) {
+  if (direction !== "right" && direction !== "down") throw new InputValidationError("Split direction must be right or down");
+  return direction;
+}
+
+function validateSplitSide(side) {
+  if (!["left", "right", "up", "down"].includes(side)) throw new InputValidationError("Side must be left, right, up or down");
+  return side;
+}
+
+// The pane Herdr made from `pane split`.
+function newPaneId(result) {
+  const paneId = result?.pane?.pane_id;
+  if (typeof paneId !== "string" || !PANE_ID_PATTERN.test(paneId)) {
+    throw new HerdrCommandError("Herdr returned an unexpected split result", { code: "invalid_herdr_response" });
+  }
+  return paneId;
+}
+
 function validateText(text) {
   if (typeof text !== "string" || text.length === 0) {
     throw new InputValidationError("Text must not be empty");
@@ -671,6 +690,82 @@ export class HerdrClient {
   async paneProcessInfo(paneId) {
     const safePaneId = validatePaneId(paneId);
     return this.#run(["pane", "process-info", "--pane", safePaneId]);
+  }
+
+  // Where each pane of this pane's tab sits ({ x, y, width, height } in cells).
+  async paneLayout(paneId) {
+    const safePaneId = validatePaneId(paneId);
+    return this.#run(["pane", "layout", "--pane", safePaneId]);
+  }
+
+  // The panes of the tab a pane is in, with where each sits.
+  async #tabLayout(paneId) {
+    const panes = (await this.paneLayout(paneId))?.layout?.panes;
+    if (!Array.isArray(panes)) throw new HerdrCommandError("Herdr returned an unexpected layout", { code: "invalid_herdr_response" });
+    return panes;
+  }
+
+  async #paneInfo(paneId) {
+    const pane = (await this.#run(["pane", "get", paneId]))?.pane;
+    if (!pane || typeof pane !== "object") throw new HerdrCommandError("That pane is no longer open", { code: "pane_not_found" });
+    return pane;
+  }
+
+  // Splits a pane in two, the new one `direction` ("right" or "down") of it and
+  // opening in the same folder. Returns the new pane's id.
+  async splitPane(paneId, direction) {
+    const safePaneId = validatePaneId(paneId);
+    const safeDirection = validateSplitDirection(direction);
+    // A pane that cannot be read is not split: Herdr's reason is the answer.
+    const { cwd } = await this.#paneInfo(safePaneId);
+    const result = await this.#run([
+      "pane", "split", safePaneId, "--direction", safeDirection,
+      ...(typeof cwd === "string" && cwd.startsWith("/") ? ["--cwd", cwd] : []), "--no-focus",
+    ]);
+    return { pane_id: newPaneId(result) };
+  }
+
+  async closePane(paneId) {
+    const safePaneId = validatePaneId(paneId);
+    return this.#run(["pane", "close", safePaneId], { json: false });
+  }
+
+  async zoomPane(paneId) {
+    const safePaneId = validatePaneId(paneId);
+    return this.#run(["pane", "zoom", "--pane", safePaneId, "--toggle"], { json: false });
+  }
+
+  // Carries a pane that is alone in its tab next to `targetPaneId`, on `side`.
+  // Herdr splits only right or down of the target; left and up are the pane
+  // swapped with the target afterwards. The pane gets a new id, returned. The
+  // move cannot be undone once made: a swap that fails afterwards still
+  // returns the new id, with `placed` false and Herdr's reason.
+  async movePaneSplit(paneId, targetPaneId, side) {
+    const safePaneId = validatePaneId(paneId);
+    const safeTargetId = validatePaneId(targetPaneId);
+    const safeSide = validateSplitSide(side);
+    if (safePaneId === safeTargetId) throw new InputValidationError("A pane cannot be dropped on itself");
+    const [source, target, sourceTab] = await Promise.all([
+      this.#paneInfo(safePaneId), this.#paneInfo(safeTargetId), this.#tabLayout(safePaneId),
+    ]);
+    if (sourceTab.length > 1) {
+      throw new HerdrCommandError("Only a session of one pane can be moved next to another.", { code: "split_session" });
+    }
+    if (source.tab_id === target.tab_id) throw new InputValidationError("That pane is already in this session");
+    const direction = safeSide === "left" || safeSide === "right" ? "right" : "down";
+    const result = await this.#run([
+      "pane", "move", safePaneId, "--tab", validateTabId(target.tab_id),
+      "--split", direction, "--target-pane", safeTargetId, "--no-focus",
+    ]);
+    const moved = movedPaneIds(result).paneId;
+    if (safeSide === "left" || safeSide === "up") {
+      try {
+        await this.#run(["pane", "swap", "--pane", moved, "--direction", safeSide], { json: false });
+      } catch (error) {
+        return { pane_id: moved, placed: false, message: error?.message || "Herdr could not swap the pane" };
+      }
+    }
+    return { pane_id: moved };
   }
 
   // `source` "detection" is the screen as herdr reads it for agent states:

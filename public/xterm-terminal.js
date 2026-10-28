@@ -62,10 +62,13 @@ const MIRROR_SCROLLBACK = 1000;
 // that a pane cannot attach, so the page mirrors its polled screen instead.
 // `problem` is { code, message, retryAt }: the server's reason ("ended" when
 // herdr ended the attach), and when it is tried again (Infinity: never).
+// `keepSize` makes a viewer that never sets the pane's size (a cell of the
+// pane grid): it attaches at the pane's own grid, sends no resize, and fits
+// that grid into its frame by the font size instead.
 export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
   onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer"),
   isLinkablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {},
-  onCopy = () => {}, onViewMoved = () => {} }) {
+  onCopy = () => {}, onViewMoved = () => {}, keepSize = false }) {
   const { Terminal, FitAddon, UnicodeGraphemesAddon } = xterm;
   let term = null;
   // The finger scroll; a glide stops when the pane changes or goes away.
@@ -77,6 +80,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   let pressTimer = null;
   const cancelPress = () => { clearTimeout(pressTimer); pressTimer = null; };
   let fit = null;
+  let sizeWatch = null;
   let paneId = null;
   let resizeTimer = null;
   // Panes this page could not attach, and until when: they are mirrored
@@ -87,7 +91,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   let ready = false;
   // Whether this page sets the pane's size. Another page that is in use sets
   // it otherwise, and this one shows that grid as it is.
-  let owner = true;
+  let owner = !keepSize;
   // The pane drawn from polled text rather than attached, if one is. Nothing
   // typed into the terminal reaches it: `type` below only writes to an
   // attached pane.
@@ -352,7 +356,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         pinch = null;
       }
     }
-    new ResizeObserver(() => { if (!host.hidden) fitNow(); }).observe(host);
+    sizeWatch = new ResizeObserver(() => { if (!host.hidden) fitNow(); });
+    sizeWatch.observe(host);
   }
 
   // The links on screen now, and their underlines, redrawn once per frame at most.
@@ -415,6 +420,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     // size, so herdr and every other screen on it are not resized each time.
     if (keyboardOpen) return;
     fullHeight = host.clientHeight;
+    if (keepSize) { fitFont(); return; }
     if (owner) { fit.fit(); return; }
     // Not this page's grid to change: it only says what it would want, for
     // when it takes the size over by typing.
@@ -422,6 +428,31 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     clearTimeout(resizeTimer);
     const resized = paneId;
     resizeTimer = setTimeout(() => { if (resized && resized === paneId) connection.resize(resized, cols, rows); }, RESIZE_DEBOUNCE_MS);
+  }
+
+  // A keepSize terminal keeps the pane's columns and rows and scales its font
+  // so they fill the frame, never past the font size it was made with.
+  let fitFrame = null;
+  // Below this a pane's text is no longer worth drawing.
+  const MIN_CELL_FONT_SIZE = 4;
+  function fitFont() {
+    if (fitFrame !== null) return;
+    fitFrame = requestAnimationFrame(() => {
+      fitFrame = null;
+      const screen = term?.element?.querySelector(".xterm-screen");
+      if (!screen || host.hidden || !screen.offsetWidth || !screen.offsetHeight) return;
+      const style = getComputedStyle(term.element);
+      const roomX = host.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const roomY = host.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      const current = term.options.fontSize;
+      const scale = Math.min(roomX / screen.offsetWidth, roomY / screen.offsetHeight);
+      const next = Math.max(MIN_CELL_FONT_SIZE, Math.min(fontSize, Math.floor(current * scale * 2) / 2));
+      if (Math.abs(next - current) >= 0.5) {
+        term.options.fontSize = next;
+        // A changed font measures again: one more pass settles on the size.
+        fitFont();
+      }
+    });
   }
 
   function setState(next) {
@@ -455,10 +486,11 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         setState({});
         break;
       case "pane-geometry":
-        owner = message.owner !== false;
+        owner = !keepSize && message.owner !== false;
         host.classList.toggle("is-adopted", !owner);
         if (owner) fitNow();
         else if (term.cols !== message.cols || term.rows !== message.rows) term.resize(message.cols, message.rows);
+        if (keepSize) { host.classList.remove("is-adopted"); fitFont(); }
         break;
       case "attach-unavailable":
       case "attach-error":
@@ -526,7 +558,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   function attachCurrent() {
     const size = wantedSize();
     if (owner) fit.fit();
-    connection.attach(paneId, size);
+    connection.attach(paneId, keepSize ? { ...size, keepSize: true } : size);
   }
 
   // A pane that failed for now is tried again once its wait is over, even if
@@ -611,7 +643,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       paneId = nextPaneId;
       ready = false;
       held = false;
-      owner = true;
+      owner = !keepSize;
       host.classList.remove("is-adopted");
       host.hidden = false;
       clearScreen();
@@ -653,7 +685,10 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       onRetry(failed);
       return true;
     },
+    // A keepSize terminal takes `size` as the most its font grows to, and
+    // fits down from there.
     setFontSize(size) {
+      if (keepSize) fontSize = size;
       if (!term) return;
       term.options.fontSize = size;
       fitNow();
@@ -683,6 +718,16 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       scheduleLinks();
     },
     focus() { term?.focus(); },
+    // Lets the pane go and frees the terminal for good (a grid cell that left).
+    dispose() {
+      if (paneId) stop();
+      for (const timer of retryTimers.values()) clearTimeout(timer);
+      retryTimers.clear();
+      if (fitFrame !== null) cancelAnimationFrame(fitFrame);
+      sizeWatch?.disconnect();
+      term?.dispose();
+      term = null;
+    },
     // While a phone keyboard is up the terminal does not fit to the smaller
     // frame; it shows its foot instead, and fits again once the keyboard goes.
     setKeyboardOpen(open) {

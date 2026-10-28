@@ -62,6 +62,7 @@ const APP_SHELL = [
   "/terminal-widths.js?v=1.3.5",
   "/touch-scroll.js?v=1.3.5",
   "/terminal-selection.js?v=1.3.5",
+  "/pane-grid.js?v=1.3.5",
   "/terminal-find.js?v=1.3.5",
   "/vendor/xterm.mjs?v=1.3.5",
   "/vendor/xterm.css?v=1.3.5",

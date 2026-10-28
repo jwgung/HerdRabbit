@@ -846,7 +846,7 @@ body.sidebar-collapsed .terminal-panel {
 /* The find bar, over the terminal's top right corner; on a phone, across it. */
 .terminal-find {
   position: absolute;
-  top: 8px;
+  top: calc(8px + var(--pane-map-clearance, 0px));
   right: 8px;
   z-index: 12;
   width: min(420px, calc(100% - 16px));
@@ -2999,6 +2999,21 @@ body.is-sidebar-dragging * {
   display: none;
 }
 
+/* The half of a pane a session dropped there would take. */
+.pane-drop-preview {
+  position: fixed;
+  z-index: 999;
+  box-sizing: border-box;
+  border: 2px dashed var(--accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  pointer-events: none;
+}
+
+.pane-drop-preview[hidden] {
+  display: none;
+}
+
 /* Another project a session would move to. */
 .workspace-group.is-drop-target {
   border-radius: 8px;
@@ -3010,3 +3025,358 @@ body.is-sidebar-dragging * {
 .terminal-stage:has(.terminal-status:not([hidden])) .terminal-copy-bar {
   top: 64px;
 }
+
+/* --- Split tabs: every pane of a tab as Herdr lays it out (wide screens),
+   and the small map of the same layout above one pane (phones). --------- */
+
+/* The grid takes the terminal's place; the single pane's own pieces step
+   aside, and the key bar stays for the focused cell in either lens. */
+.terminal-panel.is-grid {
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+
+.terminal-panel.is-grid .terminal-stage > :not(.pane-grid),
+.terminal-panel.is-grid .lens-switch,
+.terminal-panel.is-grid .terminal-find-open {
+  display: none !important;
+}
+
+.terminal-panel.is-grid .quick-keys {
+  display: flex;
+}
+
+.pane-grid {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pane-grid[hidden] {
+  display: none;
+}
+
+.pane-grid-zoom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pane-grid-zoom[hidden] {
+  display: none;
+}
+
+.pane-grid-unzoom {
+  min-height: 28px;
+  padding: 0 12px;
+}
+
+.pane-grid-board {
+  position: relative;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--terminal-bg);
+}
+
+.pane-grid-cell {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--terminal-bg);
+}
+
+.pane-grid-cell[hidden] {
+  display: none;
+}
+
+/* The focused cell is the selected pane: typing, the composer and the key bar go there. */
+.pane-grid-cell.is-focused {
+  z-index: 1;
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.pane-grid-cell-header {
+  height: 24px;
+  flex: 0 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 2px 0 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: default;
+  user-select: none;
+}
+
+.pane-grid-cell.is-focused .pane-grid-cell-header {
+  color: var(--text);
+}
+
+.pane-grid-status {
+  width: 14px;
+  min-width: 14px;
+  font-size: 12px;
+}
+
+.pane-grid-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-grid-expand,
+.pane-grid-menu > summary {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.pane-grid-expand:hover,
+.pane-grid-menu > summary:hover {
+  border-color: var(--line);
+  background: var(--surface-raised);
+  color: var(--control-text);
+}
+
+.pane-grid-expand svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.pane-grid-menu-slot {
+  display: inline-flex;
+}
+
+/* The pane at Herdr's own size, its font scaled to fill the cell. */
+.pane-grid-terminal {
+  position: relative;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  background: var(--terminal-bg);
+}
+
+.pane-grid-terminal[hidden] {
+  display: none;
+}
+
+.pane-grid-terminal .xterm {
+  box-sizing: border-box;
+  height: 100%;
+  padding: 3px 4px;
+}
+
+.pane-grid-terminal .xterm-viewport {
+  scrollbar-width: none;
+}
+
+.pane-grid-note {
+  margin: auto;
+  padding: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.pane-grid-note[hidden] {
+  display: none;
+}
+
+/* A cell too small to read shows its pane's name and status until focused. */
+.pane-grid-cell.is-tiny .pane-grid-cell-header {
+  height: 100%;
+  flex: 1 1 auto;
+  border-bottom: 0;
+}
+
+.pane-grid-cell.is-tiny .pane-grid-expand,
+.pane-grid-cell.is-tiny .pane-grid-menu-slot {
+  display: none;
+}
+
+.grid-back {
+  min-height: 30px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.grid-back[hidden] {
+  display: none;
+}
+
+.grid-back svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
+
+/* A split tab's heading in the sidebar opens its grid. */
+.tab-grid-open {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tab-grid-open:hover {
+  border-color: var(--line);
+  color: var(--control-text);
+}
+
+.tab-grid-open[aria-pressed="true"] {
+  border-color: var(--selected-border);
+  background: var(--selected-surface);
+  color: var(--text);
+}
+
+.tab-grid-label {
+  min-width: 0;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-grid-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.tab-grid-badge svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+/* The phone's map: one box per pane where Herdr has it, coloured by status. */
+.pane-map {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.pane-map[hidden] {
+  display: none;
+}
+
+.pane-map-board {
+  position: relative;
+  height: 56px;
+  flex: 0 0 auto;
+}
+
+.pane-map-cell {
+  position: absolute;
+  box-sizing: border-box;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 6px;
+  border: 2px solid transparent;
+  border-radius: 5px;
+  background: var(--line);
+  background-clip: padding-box;
+  cursor: pointer;
+}
+
+.pane-map-cell[data-status="working"] { background-color: color-mix(in srgb, var(--working) 55%, var(--line)); }
+.pane-map-cell[data-status="blocked"] { background-color: var(--status-attention); }
+.pane-map-cell[data-status="done"] { background-color: color-mix(in srgb, var(--done) 55%, var(--line)); }
+
+.pane-map-cell[aria-pressed="true"] {
+  z-index: 1;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* Panes the layout does not have yet, until it is read again. */
+.pane-map-extra {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 56px;
+}
+
+.pane-map-extra .pane-map-cell {
+  position: static;
+  width: 24px;
+  height: 24px;
+}
+
+.pane-map-caption {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.pane-map-count {
+  font-family: var(--mono);
+}
+
+.pane-map-state {
+  color: var(--muted);
+}
+
+.pane-map-state.state-working { color: var(--working); }
+.pane-map-state.state-blocked { color: var(--status-attention); }
+.pane-map-state.state-done { color: var(--done); }

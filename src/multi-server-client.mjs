@@ -242,6 +242,31 @@ export class MultiServerClient {
   }
 
   readPane(id, options) { return this.invoke("readPane", id, [options]); }
+  // This machine's panes only: a connected PC has no layout call yet, refused
+  // like its split.
+  async paneLayout(id) {
+    const pane = this.#localPane(id);
+    if (typeof pane.client.paneLayout !== "function") {
+      throw new HerdrCommandError("That is not available for this PC yet.", { code: "link_unsupported" });
+    }
+    return pane.client.paneLayout(pane.id);
+  }
+  // This machine's panes only: a connected PC cannot split, close, zoom or drop panes yet.
+  #localPane(id) {
+    const { entry, id: localId } = this.target(id);
+    if (entry.profile.id !== "local") {
+      throw new HerdrCommandError("Splitting panes is not supported on a connected PC", { code: "link_unsupported" });
+    }
+    return { client: entry.client, id: localId };
+  }
+  splitPane(id, direction) { const pane = this.#localPane(id); return pane.client.splitPane(pane.id, direction); }
+  closePane(id) { const pane = this.#localPane(id); return pane.client.closePane(pane.id); }
+  zoomPane(id) { const pane = this.#localPane(id); return pane.client.zoomPane(pane.id); }
+  movePaneSplit(id, targetId, side) {
+    const pane = this.#localPane(id);
+    const target = this.#localPane(targetId);
+    return pane.client.movePaneSplit(pane.id, target.id, side);
+  }
   // This machine's panes only: a connected PC's processes are not this one's to look into.
   async paneProcessInfo(id) {
     const { entry, id: localId } = this.target(id);

@@ -5,7 +5,9 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { get } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { HerdrCommandError } from "../src/herdr-client.mjs";
 import { attemptKey, createHerdrHttpServer, outputReadLines } from "../src/http-server.mjs";
+import { MultiServerClient } from "../src/multi-server-client.mjs";
 import { probeHerdRabbit } from "../src/plugin-runner.mjs";
 import {
   createPasswordConfiguration,
@@ -1327,4 +1329,90 @@ test("Herdr SSH machines are gone: no machine routes, only a count of those Herd
   context.after(() => closeServer(listed.server));
   count = 2;
   assert.equal((await (await fetch(`${listed.baseUrl}/api/bootstrap`)).json()).legacyMachines, 2, "read when the page asks");
+});
+
+test("pane split routes need write authorization and pass what they validate to Herdr", async (context) => {
+  const calls = [];
+  const herdr = {
+    async snapshot() { return { workspaces: [], tabs: [], panes: [] }; },
+    async splitPane(...args) {
+      calls.push(["splitPane", ...args]);
+      if (args[1] === "right" && args[0] === "w1:p9") throw new HerdrCommandError("no room to split", { code: "pane_split_failed" });
+      return { pane_id: "w1:p3" };
+    },
+    async closePane(...args) { calls.push(["closePane", ...args]); return ""; },
+    async zoomPane(...args) { calls.push(["zoomPane", ...args]); return ""; },
+    async movePaneSplit(...args) {
+      calls.push(["movePaneSplit", ...args]);
+      return args[2] === "left" ? { pane_id: "w1:p7", placed: false, message: "no swap" } : { pane_id: "w1:p7" };
+    },
+  };
+  const app = await startServer(herdr);
+  context.after(() => closeServer(app.server));
+  const headers = { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl };
+  const post = (path, body, extra = headers) => fetch(`${app.baseUrl}/api/panes/${path}`, { method: "POST", headers: extra, body: JSON.stringify(body) });
+
+  assert.equal((await post("w1%3Ap2/split", { direction: "down" }, { "Content-Type": "application/json" })).status, 403);
+  assert.equal(calls.length, 0);
+
+  const split = await post("w1%3Ap2/split", { direction: "down" });
+  assert.equal(split.status, 200);
+  assert.deepEqual(await split.json(), { pane_id: "w1:p3" });
+
+  const full = await post("w1%3Ap9/split", { direction: "right" });
+  assert.equal(full.status, 409);
+  assert.equal((await full.json()).error.code, "pane_split_failed");
+
+  // Like a session's or a project's close, a pane's needs the user's say-so.
+  const unconfirmed = await post("w1%3Ap2/close", {});
+  assert.equal(unconfirmed.status, 400);
+  assert.equal((await unconfirmed.json()).error.code, "confirmation_required");
+  assert.equal((await post("w1%3Ap2/close", { confirmed: true })).status, 200);
+  assert.equal((await post("w1%3Ap2/zoom", { mode: "toggle" })).status, 200);
+  assert.equal((await post("w1%3Ap2/zoom", { mode: "on" })).status, 400);
+  assert.equal((await post("w1%3Ap2/move", { side: "left" })).status, 400);
+  const move = await post("w1%3Ap2/move", { targetPaneId: "w1:p5", side: "up" });
+  assert.deepEqual(await move.json(), { pane_id: "w1:p7" });
+  // Moved but not swapped is still a move: the page follows the new id.
+  const unplaced = await post("w1%3Ap2/move", { targetPaneId: "w1:p5", side: "left" });
+  assert.equal(unplaced.status, 200);
+  assert.deepEqual(await unplaced.json(), { pane_id: "w1:p7", placed: false, message: "no swap" });
+  assert.deepEqual(calls, [
+    ["splitPane", "w1:p2", "down"],
+    ["splitPane", "w1:p9", "right"],
+    ["closePane", "w1:p2"],
+    ["zoomPane", "w1:p2"],
+    ["movePaneSplit", "w1:p2", "w1:p5", "up"],
+    ["movePaneSplit", "w1:p2", "w1:p5", "left"],
+  ]);
+});
+
+test("a connected PC's pane layout is refused like its split, close, zoom and move", async (context) => {
+  const linkId = "link_11111111-1111-1111-1111-111111111111";
+  const layouts = [];
+  const local = {
+    async snapshot() { return { herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }; },
+    async paneLayout(id) { layouts.push(id); return { layout: { panes: [] } }; },
+  };
+  const herdr = new MultiServerClient({
+    local,
+    profiles: { list: () => [{ id: linkId, name: "Dev box", transport: "link", address: "http://127.0.0.1:1" }] },
+    remoteFactory: () => ({ async paneLayout() { throw new Error("never asked"); }, close() {} }),
+  });
+  const app = await startServer(herdr);
+  context.after(() => closeServer(app.server));
+  const pane = encodeURIComponent(`${linkId}!hs_x~wB:p1`);
+  const refused = await fetch(`${app.baseUrl}/api/panes/${pane}/layout`);
+  assert.equal(refused.status, 501);
+  assert.equal((await refused.json()).error.code, "link_unsupported");
+  const split = await fetch(`${app.baseUrl}/api/panes/${pane}/split`, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl },
+    body: JSON.stringify({ direction: "right" }),
+  });
+  assert.equal(split.status, 501);
+  assert.equal((await split.json()).error.code, "link_unsupported");
+  // This machine's panes are still laid out.
+  const mine = await fetch(`${app.baseUrl}/api/panes/w1%3Ap1/layout`);
+  assert.equal(mine.status, 200);
+  assert.deepEqual(layouts, ["w1:p1"]);
 });

@@ -182,10 +182,11 @@ export function terminalConnection({ credentials, onOutput, onDisconnect, onAuth
       if (!prompts.delete(paneId)) return;
       transmitIfReady({ type: "unwatch-prompt", paneId });
     },
-    attach(paneId, { cols, rows }) {
+    // `keepSize`: this attach only watches the pane's grid and never sets it.
+    attach(paneId, { cols, rows, keepSize = false }) {
       attached = paneId;
       suspended = false;
-      transmitIfReady({ type: "attach", paneId, cols, rows });
+      transmitIfReady({ type: "attach", paneId, cols, rows, ...(keepSize ? { keepSize: true } : {}) });
       connect();
     },
     detach(paneId) {
