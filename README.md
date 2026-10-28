@@ -37,6 +37,7 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 
 - Browse the current OS user's Herdr persistent sessions, workspaces, tabs, panes, and agent states
 - Aggregate multiple Herdr persistent sessions without local ID collisions
+- Split, close and zoom panes, and see a split session as Herdr lays it out ([Split panes](#split-panes))
 - Show every pane as Herdr itself draws it (a real `herdr terminal attach` in xterm.js), on this machine and on PCs added with Connect PC, so full-screen TUIs, the cursor and colors match; a pane that cannot attach is mirrored read-only in the same terminal
 - Read a Claude Code, Codex or OpenCode pane as a chat: its conversation as turns, the agent's tool calls folded under one "Worked for …" row, older turns loaded as you scroll up. A **Chat** / **Terminal** switch in the pane header (or `Ctrl`/`Cmd`+`J`) flips between the two without reconnecting anything
 - Answer what an agent asks (tool approvals, questions, menus) with buttons on a card at the bottom of the chat, or from a banner over the terminal
@@ -58,7 +59,7 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 - Install as a Herdr plugin on a collision-free port in `30000–39999` (or as a per-user systemd service)
 - Register Tailscale Serve HTTPS during setup when Tailscale is available
 
-Pane splitting, Herdr persistent-session renaming, and multi-user accounts are not currently provided.
+Herdr persistent-session renaming, resizing split panes by dragging their borders, and multi-user accounts are not currently provided.
 
 ## Technology
 
@@ -356,6 +357,16 @@ A session shows the agent running in it until it is given a name. That is not a 
 The status word (`idle`, `working`) is not spelled out beside a session. The mark at the far right already carries it (`◐` working, `×` waiting for your answer, `✓` finished and not yet viewed, `○` idle, coloured per state), and rows have no status-coloured border; the selected row is only tinted. A line under the name shows the folder the session runs in when that differs from the name. Hover a session, or read it with a screen reader, to get the status in words.
 
 Run commands such as `cd`, `codex`, or `claude` inside a created shell. Creation uses Herdr's `--no-focus` option so it does not steal focus from the desktop Herdr client.
+
+### Split panes
+
+A session (a Herdr tab) with several panes lists each pane as its own row in the sidebar; a row opens that pane alone, with its Chat and Terminal lenses. The session's heading, marked with a grid icon and the pane count, opens the **grid** instead: every pane of the session at the place and size Herdr gives it, one live terminal per cell. HerdRabbit sets no limit of its own on the number of panes; a split Herdr refuses shows Herdr's message. A cell too small to read shows only its name and status until it is focused.
+
+- Click a cell to select it; typed text, the key bar and the composer go to that pane only. A grid cell never resizes the pane's terminal.
+- A cell's `⋯` menu has **Split right**, **Split down** (the new pane starts in the same folder), **Zoom** and **Close pane**. The expand button (or a double click on the cell's header) opens that pane alone; **Back to grid** returns. Closing asks first when the agent is working or it is the session's last pane. A zoomed session shows its one pane with an **Unzoom** bar.
+- Drag a one-pane session from the sidebar onto the edge of a cell, or of the terminal when one pane is open, to merge it into that session on that side (the outer quarter of the pane; the middle does nothing). Left and up are a move to the right or down followed by Herdr's `pane swap`. Dropping between rows still reorders.
+- On a phone (up to 760px wide) there is no grid: the selected pane is shown as usual with a small map of the session's layout above it, coloured by agent state; tap a box to switch pane.
+- Splitting uses Herdr's `pane split`, `pane close`, `pane zoom`, `pane move` and `pane swap`, and works on this machine only (not on a PC added with Connect PC).
 
 ### Terminal
 
