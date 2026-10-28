@@ -118,7 +118,9 @@ const attachments = new PaneAttachments({
       kill() { this.killed = true; },
     };
     ptys.push(pty);
-    setTimeout(() => options.onData(`\x1b[?1049hpane ${paneId}\r\n$ `), 10);
+    // herdr asks the attaching terminal what it supports (mode 1016, device
+    // attributes); xterm answers on its own, and that answer is not typing.
+    setTimeout(() => options.onData(`\x1b[?1049hpane ${paneId}\r\n$ \x1b[?1016$p\x1b[c`), 10);
     return pty;
   },
 });
@@ -219,6 +221,17 @@ try {
       near(p3.x - board.x, board.width * 60 / 120, "p3 starts halfway");
       near(p3.y - board.y, board.height / 2, "p3 sits under p2");
       for (const paneId of ["w1:p1", "w1:p2", "w1:p3"]) await cellShows(paneId, `pane ${paneId}`);
+      // A cell's terminal never answers herdr's capability queries into the pane
+      // (the shell would print the answer as typed text).
+      await page.waitForTimeout(500);
+      for (const paneId of ["w1:p1", "w1:p2", "w1:p3"]) {
+        assert.equal(ptyOf(paneId).written, "", `${paneId} is typed nothing by its cell`);
+      }
+      // The key bar under the grid is the grid it always is, not a row of
+      // buttons shrunk to their text.
+      assert.equal(await page.locator("#quick-keys").evaluate((node) => getComputedStyle(node).display), "grid");
+      const keyWidths = await page.locator("#quick-keys button").evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().width)));
+      assert.ok(Math.max(...keyWidths) - Math.min(...keyWidths) <= 2, `the keys are as wide as each other: ${keyWidths}`);
       // The sliver is a name, not a terminal.
       assert.equal(await cell("w1:p4").evaluate((node) => node.classList.contains("is-tiny")), true);
       assert.equal(await cell("w1:p4").locator(".xterm").count(), 0, "a tiny cell does not attach");

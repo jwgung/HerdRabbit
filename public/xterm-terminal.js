@@ -218,7 +218,14 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         try { return report(event); } finally { reporting = false; }
       };
       const send = input.triggerDataEvent.bind(input);
-      input.triggerDataEvent = (data, wasUserInput) => send(data, wasUserInput && !reporting);
+      input.triggerDataEvent = (data, wasUserInput) => {
+        // A viewer's xterm answers what herdr asks of an attaching terminal (mode
+        // and device attribute queries) and reports focus by itself; sent to the
+        // pane those answers land as typed text, in a shell's prompt or an
+        // agent's input box. A viewer sends only real typing and mouse reports.
+        if (keepSize && !wasUserInput && !reporting) return;
+        send(data, wasUserInput && !reporting);
+      };
     } else {
       console.warn("xterm's mouse report hook is missing: moving the mouse over a program that tracks it clears the selection.");
     }
