@@ -397,14 +397,14 @@ test("splits a pane in its own folder after checking the tab has room", async ()
   await assert.rejects(client.splitPane("--current", "right"), InputValidationError);
 });
 
-test("a split still happens, without a folder, when the pane cannot be read first", async () => {
+test("a pane that cannot be read first is not split, and Herdr's reason reaches the caller", async () => {
   const fake = recordingRunner([
     Object.assign(new Error("failed"), { stderr: JSON.stringify({ error: { code: "pane_get_failed", message: "no such pane" } }) }),
     jsonReply({ pane: { pane_id: "w1:p2" } }),
   ]);
   const client = new HerdrClient({ runner: fake.runner });
-  assert.deepEqual(await client.splitPane("w1:p1", "down"), { pane_id: "w1:p2" });
-  assert.deepEqual(fake.calls.at(-1).args, ["pane", "split", "w1:p1", "--direction", "down", "--no-focus"]);
+  await assert.rejects(client.splitPane("w1:p1", "down"), { code: "pane_get_failed", message: "no such pane" });
+  assert.deepEqual(fake.calls.map((call) => call.args), [["pane", "get", "w1:p1"]], "no split is asked for");
 });
 
 test("what Herdr refuses in a split reaches the caller with Herdr's own code", async () => {

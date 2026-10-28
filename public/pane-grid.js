@@ -222,6 +222,12 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
 
   return {
     get shown() { return !root.hidden; },
+    // Whether `paneId`'s cell is on screen: laid out as Herdr has it and not
+    // hidden behind another pane's zoom.
+    showsPane(paneId) {
+      const cell = cells.get(paneId);
+      return !root.hidden && !root.classList.contains("is-waiting") && Boolean(cell) && !cell.node.hidden;
+    },
     // Draws the grid of `panes` at `layout`, `selectedPaneId` focused.
     // Cheap to call again: cells are kept, moved and updated in place, and
     // not touched at all when nothing drawn here changed.

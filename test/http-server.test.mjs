@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HerdrCommandError } from "../src/herdr-client.mjs";
 import { attemptKey, createHerdrHttpServer, outputReadLines } from "../src/http-server.mjs";
+import { MultiServerClient } from "../src/multi-server-client.mjs";
 import { probeHerdRabbit } from "../src/plugin-runner.mjs";
 import {
   createPasswordConfiguration,
@@ -1384,4 +1385,34 @@ test("pane split routes need write authorization and pass what they validate to 
     ["movePaneSplit", "w1:p2", "w1:p5", "up"],
     ["movePaneSplit", "w1:p2", "w1:p5", "left"],
   ]);
+});
+
+test("a connected PC's pane layout is refused like its split, close, zoom and move", async (context) => {
+  const linkId = "link_11111111-1111-1111-1111-111111111111";
+  const layouts = [];
+  const local = {
+    async snapshot() { return { herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }; },
+    async paneLayout(id) { layouts.push(id); return { layout: { panes: [] } }; },
+  };
+  const herdr = new MultiServerClient({
+    local,
+    profiles: { list: () => [{ id: linkId, name: "Dev box", transport: "link", address: "http://127.0.0.1:1" }] },
+    remoteFactory: () => ({ async paneLayout() { throw new Error("never asked"); }, close() {} }),
+  });
+  const app = await startServer(herdr);
+  context.after(() => closeServer(app.server));
+  const pane = encodeURIComponent(`${linkId}!hs_x~wB:p1`);
+  const refused = await fetch(`${app.baseUrl}/api/panes/${pane}/layout`);
+  assert.equal(refused.status, 501);
+  assert.equal((await refused.json()).error.code, "link_unsupported");
+  const split = await fetch(`${app.baseUrl}/api/panes/${pane}/split`, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl },
+    body: JSON.stringify({ direction: "right" }),
+  });
+  assert.equal(split.status, 501);
+  assert.equal((await split.json()).error.code, "link_unsupported");
+  // This machine's panes are still laid out.
+  const mine = await fetch(`${app.baseUrl}/api/panes/w1%3Ap1/layout`);
+  assert.equal(mine.status, 200);
+  assert.deepEqual(layouts, ["w1:p1"]);
 });

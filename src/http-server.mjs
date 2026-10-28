@@ -4,6 +4,7 @@ import { pipeline } from "node:stream/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
+  HerdrCommandError,
   InputValidationError,
   ALLOWED_KEYS,
   MAX_PANE_READ_LINES,
@@ -1362,7 +1363,10 @@ export function createHerdrHttpServer({
 
       const layoutMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/layout$/);
       if (method === "GET" && layoutMatch) {
-        const layout = await herdr.paneLayout?.(decodePaneId(layoutMatch[1]));
+        if (typeof herdr.paneLayout !== "function") {
+          throw new HerdrCommandError("That is not available for this PC yet.", { code: "link_unsupported" });
+        }
+        const layout = await herdr.paneLayout(decodePaneId(layoutMatch[1]));
         sendJson(response, 200, layout?.result ?? layout ?? {});
         return;
       }

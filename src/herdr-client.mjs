@@ -716,8 +716,8 @@ export class HerdrClient {
   async splitPane(paneId, direction) {
     const safePaneId = validatePaneId(paneId);
     const safeDirection = validateSplitDirection(direction);
-    // The folder is a courtesy: a pane that cannot be read still splits.
-    const cwd = (await this.#paneInfo(safePaneId).catch(() => null))?.cwd;
+    // A pane that cannot be read is not split: Herdr's reason is the answer.
+    const { cwd } = await this.#paneInfo(safePaneId);
     const result = await this.#run([
       "pane", "split", safePaneId, "--direction", safeDirection,
       ...(typeof cwd === "string" && cwd.startsWith("/") ? ["--cwd", cwd] : []), "--no-focus",

@@ -235,6 +235,8 @@ async function completeNotificationRelay() {
   const target = notificationRelayTarget;
   if (!target || document.hidden || state.renderedPaneId !== state.selectedPaneId ||
       new URL(target.url, location.href).searchParams.get("pane") !== state.selectedPaneId) return;
+  // In a grid the pane's cell must be on screen, not hidden by another's zoom.
+  if (state.renderedGrid && !paneGrid.showsPane(state.selectedPaneId)) return;
   notificationRelayTarget = null;
   notificationRelayCompletedId = target.id;
   notificationRelayChannel?.postMessage({ type: "notification-target-applied", id: target.id, visible: true });
@@ -3311,7 +3313,8 @@ function refreshTerminal({ streamPayload = null } = {}) {
     state.lastOutputRequestAt = Date.now();
     attachedTerminal.show(null);
     terminalStream.unwatch();
-    // The selected pane is on screen in its cell: a notification for it is done.
+    // The selected pane is in its cell: a notification for it is done once
+    // that cell is on screen (another pane's zoom hides it until undone).
     state.renderedPaneId = paneId;
     state.renderedGrid = true;
     state.mirrored = null;
@@ -3515,24 +3518,29 @@ function splitTabPanes(tabId) {
 
 // Herdr's layout of the split tab on screen, read again when its panes change
 // or it is a few seconds old (a zoom or a split made in Herdr itself). It is
-// undefined until first read, and null when it could not be read. A read begun
-// before forgetPaneLayout (a split, a zoom) may show the tab as it was: its
-// answer is dropped, `generation` having moved on. `loadingKey` is the read in
-// flight: one for another tab does not hold up this tab's read, and its answer,
-// should the tab no longer be selected, is dropped.
+// undefined until first read, and null when it could not be read (a connected
+// PC's tab is refused). Each read has its own number, and `latest` holds the
+// newest read of each key: an older read of the same tab answering late (asked
+// before the user went to another tab and back) is dropped, and so is every
+// read begun before forgetPaneLayout (a split, a zoom), which may show the tab
+// as it was. `loadingKey` is the read in flight: one for another tab does not
+// hold up this tab's read, and its answer, should the tab no longer be
+// selected, is dropped.
 const PANE_LAYOUT_MAX_AGE_MS = 3_000;
-const paneLayout = { key: "", tabId: null, layout: undefined, at: 0, loadingKey: null, generation: 0 };
+const paneLayout = { key: "", tabId: null, layout: undefined, at: 0, loadingKey: null, reads: 0, latest: new Map() };
 
 function paneLayoutFor(tabId) {
   const paneIds = panesOfTab(tabId).map((pane) => idOf(pane, "pane_id", "id"));
   const key = `${tabId}|${paneIds.join(",")}`;
   if (paneLayout.loadingKey !== key && (paneLayout.key !== key || Date.now() - paneLayout.at > PANE_LAYOUT_MAX_AGE_MS)) {
     paneLayout.loadingKey = key;
-    const generation = paneLayout.generation;
+    const read = ++paneLayout.reads;
+    paneLayout.latest.set(key, read);
     api(`/api/panes/${encodeURIComponent(paneIds[0])}/layout`)
       .then((payload) => payload?.layout ?? null, () => null)
       .then((layout) => {
-        if (generation !== paneLayout.generation) return;
+        if (paneLayout.latest.get(key) !== read) return;
+        paneLayout.latest.delete(key);
         if (paneLayout.loadingKey === key) paneLayout.loadingKey = null;
         // The tab on screen is another now: draw it, which reads its layout.
         if (selectedSplitTabId() !== tabId) {
@@ -3550,7 +3558,7 @@ function paneLayoutFor(tabId) {
 }
 
 function forgetPaneLayout() {
-  paneLayout.generation += 1;
+  paneLayout.latest.clear();
   paneLayout.loadingKey = null;
   paneLayout.at = 0;
   paneLayout.key = "";
@@ -3609,6 +3617,9 @@ function renderPaneViews() {
   if (gridTab) paneGrid.show({ panes, layout, selectedPaneId: state.selectedPaneId });
   else if (paneGrid.shown) paneGrid.hide();
   shownGridTabId = gridTab;
+  // A notification left waiting on a zoomed-out cell is done once a layout
+  // read shows that cell.
+  if (gridTab && state.renderedGrid && notificationRelayTarget) void completeNotificationRelay();
   return gridTab;
 }
 

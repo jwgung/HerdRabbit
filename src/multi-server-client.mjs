@@ -242,11 +242,14 @@ export class MultiServerClient {
   }
 
   readPane(id, options) { return this.invoke("readPane", id, [options]); }
-  // This machine's panes only: a connected PC has no layout call yet.
+  // This machine's panes only: a connected PC has no layout call yet, refused
+  // like its split.
   async paneLayout(id) {
-    const { entry, id: localId } = this.target(id);
-    if (entry.profile.id !== "local" || typeof entry.client.paneLayout !== "function") return null;
-    return entry.client.paneLayout(localId);
+    const pane = this.#localPane(id);
+    if (typeof pane.client.paneLayout !== "function") {
+      throw new HerdrCommandError("That is not available for this PC yet.", { code: "link_unsupported" });
+    }
+    return pane.client.paneLayout(pane.id);
   }
   // This machine's panes only: a connected PC cannot split, close, zoom or drop panes yet.
   #localPane(id) {

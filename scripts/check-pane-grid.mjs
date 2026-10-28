@@ -12,7 +12,8 @@
 // a tap on the map switches pane. A connected PC's split tab is its pane rows
 // only: no grid, no map. Behind a password, a grid is not redrawn while
 // nothing changed, has no terminal find, completes a notification for its
-// pane, and its cells reconnect after a hidden page or a sign-out and sign-in.
+// pane once that pane's cell is on screen (not zoomed out), and its cells
+// reconnect after a hidden page or a sign-out and sign-in.
 // Runs on a desktop and a phone against an in-process fake herdr.
 //
 // PANE_GRID_SHOTS=<folder> keeps pictures of the grid, the zoomed grid and the
@@ -337,10 +338,20 @@ try {
         { pane_id: "w1:p21", tab_id: "w1:t3", workspace_id: "w1", cwd: "/work/eta", agent_status: "idle" });
       rects.set("w1:p20", { x: 0, y: 0, width: 60, height: 40 });
       rects.set("w1:p21", { x: 60, y: 0, width: 60, height: 40 });
+      // Tab A's first read is held and then answers with A as it was (p3
+      // zoomed); the reads after it answer at once.
       let releaseA;
       const heldA = new Promise((resolve) => { releaseA = resolve; });
+      let readsOfA = 0;
+      let staleAnswered;
+      const staleA = { layout: { area: { x: 0, y: 0, width: 120, height: 40 }, focused_pane_id: "w1:p3", zoomed: true, tab_id: "w1:t1",
+        panes: ["w1:p1", "w1:p2", "w1:p3", "w1:p4"].map((pane_id) => ({ pane_id, rect: rects.get(pane_id) })) } };
       await page.route("**/api/panes/*/layout", async (route) => {
-        if (decodeURIComponent(route.request().url()).includes("/w1:p1/")) await heldA;
+        if (decodeURIComponent(route.request().url()).includes("/w1:p1/") && ++readsOfA === 1) {
+          await heldA;
+          staleAnswered = route.fulfill({ json: staleA }).catch(() => {});
+          return;
+        }
         await route.continue().catch(() => {});
       });
       await page.locator('.tab-grid-open[data-tab-id="w1:t3"]').waitFor({ timeout: 8000 });
@@ -352,8 +363,19 @@ try {
       await page.locator('.tab-grid-open[data-tab-id="w1:t3"]').click();
       await page.waitForFunction(() => document.querySelectorAll('.pane-grid-cell[data-pane-id^="w1:p2"]').length === 2);
       await cell("w1:p20").locator(".xterm").waitFor({ timeout: 4000 });
+      // Back to tab A: a second read of it answers while the first is still
+      // held, and the first, answering last, does not undo it.
+      await page.locator('.tab-grid-open[data-tab-id="w1:t1"]').click();
+      await cell("w1:p1").locator(".xterm").waitFor({ timeout: 4000 });
+      assert.ok(readsOfA >= 2, "tab A is read again");
       releaseA();
+      while (!staleAnswered) await page.waitForTimeout(20);
+      await staleAnswered;
+      await page.waitForTimeout(400);
+      assert.equal(await page.locator(".pane-grid-zoom").isVisible(), false, "an older read of the tab answering late is dropped");
+      assert.equal(await page.locator(".pane-grid-cell:not([hidden])").count(), 4);
       await page.unroute("**/api/panes/*/layout");
+      await page.locator('.tab-grid-open[data-tab-id="w1:t3"]').click();
       // Tab into a cell selects it: keyboard focus is a press too.
       await cell("w1:p21").locator(".xterm").waitFor();
       assert.equal(await cell("w1:p21").getAttribute("role"), "group");
@@ -429,9 +451,9 @@ try {
 
   // A grid over its life on a desktop behind a password: it is redrawn only
   // when something it shows changed, it has no terminal find, a notification
-  // for one of its panes is done once the grid shows that pane, a hidden page
-  // lets the cells' sockets go and takes them up again, and so does a sign-out
-  // followed by a sign-in.
+  // for one of its panes is done once the grid shows that pane (not while
+  // another pane's zoom hides it), a hidden page lets the cells' sockets go
+  // and takes them up again, and so does a sign-out followed by a sign-in.
   {
     reset();
     ptys.length = 0;
@@ -511,6 +533,19 @@ try {
     await page.waitForFunction(() => window.relayApplied === "relay-grid", null, { timeout: 5000 });
     assert.equal(await page.locator(".pane-grid").isVisible(), true, "the grid stays");
     assert.equal(await cell("w1:p2").evaluate((node) => node.classList.contains("is-focused")), true);
+    // Another pane zoomed in Herdr hides p2's cell: a notification for p2 waits
+    // until the zoom is undone and the cell is on screen again.
+    zoomed = "w1:p1";
+    await page.locator(".pane-grid-zoom").waitFor({ state: "visible", timeout: 8000 });
+    assert.equal(await cell("w1:p2").isVisible(), false);
+    await page.evaluate(() => window.relay.postMessage({ type: "notification-target", id: "relay-hidden",
+      url: `${location.origin}/?pane=w1%3Ap2`, expiresAt: Date.now() + 60000 }));
+    await page.waitForTimeout(1500);
+    assert.equal(await page.evaluate(() => window.relayApplied), "relay-grid", "a notification for a zoomed-out pane is not done");
+    await page.locator(".pane-grid-unzoom").click();
+    await page.locator(".pane-grid-zoom").waitFor({ state: "hidden" });
+    await page.waitForFunction(() => window.relayApplied === "relay-hidden", null, { timeout: 5000 });
+    assert.equal(await cell("w1:p2").isVisible(), true);
     await page.evaluate(() => window.relay.close());
 
     // Hidden, the page lets the cells' sockets go; shown again, they attach anew.
