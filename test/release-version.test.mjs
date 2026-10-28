@@ -46,3 +46,9 @@ test("the Herdr plugin manifest carries the package version", async () => {
   const version = /^version\s*=\s*"([^"]+)"\s*$/mu.exec(manifest)?.[1];
   assert.equal(version, packageJson.version);
 });
+
+test("the lockfile's own version fields carry the package version", async () => {
+  const lock = JSON.parse(await readFile(new URL("../package-lock.json", import.meta.url), "utf8"));
+  assert.equal(lock.version, packageJson.version);
+  assert.equal(lock.packages[""].version, packageJson.version);
+});
