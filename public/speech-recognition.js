@@ -12,8 +12,8 @@ export function speechSupported() {
 }
 
 // One recognizer: continuous, interim results on, the user's language.
-function createRecognizer({ onInterim, onFinal, onEnd, onError }) {
-  const recognition = new SpeechRecognition();
+function createRecognizer(Recognition, { onInterim, onFinal, onEnd, onError }) {
+  const recognition = new Recognition();
   recognition.continuous = true;
   recognition.interimResults = true;
   recognition.lang = navigator.language || "ko-KR";
@@ -31,10 +31,11 @@ function createRecognizer({ onInterim, onFinal, onEnd, onError }) {
   return recognition;
 }
 
-export function createSpeechButton({ button, textarea, onStateChange = () => {} }) {
+// `Recognition` is the browser's recognizer class; a test passes its own.
+export function createSpeechButton({ button, textarea, onStateChange = () => {}, Recognition = SpeechRecognition }) {
   let recognition = null;
   let listening = false;
-  let interim = "";
+  let shown = "";
 
   function updateButton() {
     button.classList.toggle("listening", listening);
@@ -44,7 +45,7 @@ export function createSpeechButton({ button, textarea, onStateChange = () => {} 
 
   function stop() {
     listening = false;
-    interim = "";
+    shown = "";
     if (recognition) {
       try { recognition.stop(); } catch { /* already stopped */ }
       recognition = null;
@@ -53,26 +54,32 @@ export function createSpeechButton({ button, textarea, onStateChange = () => {} 
     onStateChange(false);
   }
 
-  function start() {
-    if (!speechSupported()) return;
-    // Remove the previous interim from the textarea before starting fresh.
+  // `shown` is the interim text this box holds at its end right now (with the
+  // space put before it), so the next result can take it out first. Without
+  // that every interim update would be added after the last one.
+  function withoutShown() {
     const value = textarea.value;
-    const suffix = value.slice(-interim.length);
-    if (interim && suffix === interim) textarea.value = value.slice(0, -interim.length);
-    interim = "";
-    recognition = createRecognizer({
+    return shown && value.endsWith(shown) ? value.slice(0, -shown.length) : value;
+  }
+  function appended(base, text) {
+    return text ? base + (base === "" || /\s$/u.test(base) ? "" : " ") + text : base;
+  }
+
+  function start() {
+    if (!Recognition) return;
+    textarea.value = withoutShown();
+    shown = "";
+    recognition = createRecognizer(Recognition, {
       onInterim: (text) => {
-        interim = text;
-        const base = textarea.value;
-        textarea.value = base + (base.endsWith(" ") || base === "" ? "" : " ") + text;
+        const base = withoutShown();
+        const next = appended(base, text.trim());
+        shown = next.slice(base.length);
+        textarea.value = next;
       },
       onFinal: (text) => {
         // The final result replaces the interim that was shown for it.
-        const value = textarea.value;
-        const suffix = value.slice(-interim.length);
-        const base = suffix === interim ? value.slice(0, -interim.length) : value;
-        textarea.value = base + (base.endsWith(" ") || base === "" ? "" : " ") + text.trim();
-        interim = "";
+        textarea.value = appended(withoutShown(), text.trim());
+        shown = "";
         textarea.dispatchEvent(new Event("input", { bubbles: true }));
       },
       onEnd: () => {
