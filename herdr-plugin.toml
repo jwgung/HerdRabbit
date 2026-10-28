@@ -1,4 +1,4 @@
-# Install with: herdr plugin install ultivis-iot/HerdRabbit
+# Install with: herdr plugin install jwgung/HerdRabbit
 # A PC with the older systemd service moves over with migrate-to-plugin.sh;
 # while that service runs, the startup hook and the start action do nothing.
 id = "herdrabbit"

@@ -57,7 +57,7 @@ function fakePc({
 test("a new PC gets the plugin on a free port, its tailnet name, a password and Tailscale Serve", async () => {
   const pc = fakePc();
   assert.equal(await installPlugin(pc.deps), 0);
-  assert.ok(pc.calls.includes(`${HERDR} plugin install ultivis-iot/HerdRabbit --yes`));
+  assert.ok(pc.calls.includes(`${HERDR} plugin install jwgung/HerdRabbit --yes`));
   const settings = parseEnvFile(pc.files.get(`${CONFIG}/.env`));
   assert.deepEqual(settings, { HERDR_WEB_HOST: "127.0.0.1", HERDR_WEB_PORT: "38790", HERDR_WEB_ALLOWED_HOSTS: "pc.example.ts.net" });
   assert.deepEqual(pc.passwords, ["secret"]);

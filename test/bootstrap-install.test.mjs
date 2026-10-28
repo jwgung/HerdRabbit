@@ -8,7 +8,7 @@ const installer = await readFile(
 );
 
 test("offers a public one-line installer without losing the interactive prompt", () => {
-  assert.match(installer, /https:\/\/github\.com\/ultivis-iot\/HerdRabbit\.git/);
+  assert.match(installer, /https:\/\/github\.com\/jwgung\/HerdRabbit\.git/);
   // The current code, fetched into a folder of its own and removed afterwards.
   assert.match(installer, /TEMPORARY="\$\(mktemp -d\)"/);
   assert.match(installer, /trap 'rm -rf "\$TEMPORARY"' EXIT/);
@@ -56,6 +56,6 @@ test("the migration wrapper runs its own checkout, and fetches one only when pip
 
   const piped = run(["-s", "--", "--yes"], { cwd: root, input: await (await import("node:fs/promises")).readFile(join(checkout, "migrate-to-plugin.sh"), "utf8") });
   assert.match(piped, /ran fetched/u);
-  assert.match(await readCalls(), /^git clone --quiet --depth 1 https:\/\/github\.com\/ultivis-iot\/HerdRabbit\.git /mu);
+  assert.match(await readCalls(), /^git clone --quiet --depth 1 https:\/\/github\.com\/jwgung\/HerdRabbit\.git /mu);
   assert.match(await readCalls(), /^npm --prefix .* ci --omit=dev$/mu);
 });

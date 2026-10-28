@@ -19,7 +19,7 @@ const UNIT_ENV = [
 // whether the page answers once the plugin starts. Nothing real runs.
 function fakePc({
   unit = "herdrabbit.service", environment = UNIT_ENV, directory = INSTALL, file = UNIT_FILE, files = {},
-  install = 0, start = 0, answers = true, origin = "https://github.com/ultivis-iot/HerdRabbit.git", dirty = "",
+  install = 0, start = 0, answers = true, origin = "https://github.com/jwgung/HerdRabbit.git", dirty = "",
 } = {}) {
   const pc = { calls: [], files: new Map(Object.entries(files)), removed: [], logs: [], serviceUp: true, pluginUp: false };
   let now = 0;
@@ -104,7 +104,7 @@ test("a service moves to the plugin, keeping its settings, and the old install g
   // The service's own Herdr installs the plugin, and the service is disabled+stopped before the plugin starts.
   const order = pc.calls.filter((call) => /plugin install|disable.*herdrabbit|action invoke/u.test(call));
   assert.deepEqual(order, [
-    "/opt/Herdr Tools/herdr plugin install ultivis-iot/HerdRabbit --yes",
+    "/opt/Herdr Tools/herdr plugin install jwgung/HerdRabbit --yes",
     "systemctl --user disable --now herdrabbit.service",
     "/opt/Herdr Tools/herdr plugin action invoke herdrabbit.restart",
   ]);
@@ -182,5 +182,5 @@ test("nothing happens without a service, for a leaf, or when the user says no", 
 test("the installer's checked Herdr is used instead of the unit's", async () => {
   const pc = fakePc();
   assert.equal(await migrate(pc.deps, { herdr: "/home/me/.local/bin/herdr" }), 0);
-  assert.ok(pc.calls.includes("/home/me/.local/bin/herdr plugin install ultivis-iot/HerdRabbit --yes"));
+  assert.ok(pc.calls.includes("/home/me/.local/bin/herdr plugin install jwgung/HerdRabbit --yes"));
 });

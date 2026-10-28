@@ -208,7 +208,7 @@ export PATH="$HOME/.local/bin:$PATH"
 Linux나 macOS 터미널에서 실행합니다. HerdRabbit을 [Herdr 플러그인](#herdr-플러그인으로-설치)으로 설치합니다.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/jwgung/HerdRabbit/main/install.sh | sh
 ```
 
 스크립트가 하는 일:
@@ -216,7 +216,7 @@ curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/install
 1. Git, npm, Node.js 22 이상을 확인하고 최신 HerdRabbit을 임시 폴더에 받습니다(끝나면 지웁니다).
 2. 이전 방식(systemd 서비스)으로 설치된 PC면 대신 플러그인으로 옮기고 끝냅니다([플러그인으로 옮기기](#기존-설치에서-플러그인으로-옮기기)).
 3. `herdr`가 없으면 `https://herdr.dev/install.sh`로 설치하고, 0.9.0보다 낮으면 `herdr update --handoff`로 올립니다.
-4. `herdr plugin install ultivis-iot/HerdRabbit`으로 플러그인을 설치합니다.
+4. `herdr plugin install jwgung/HerdRabbit`으로 플러그인을 설치합니다.
 5. 빈 포트(`38787` 우선, 없으면 `30000–39999`)를 골라 이 PC의 tailnet 이름과 함께 플러그인 `.env`에 적습니다.
 6. HerdRabbit 비밀번호를 숨김 입력으로 묻습니다(비워 두면 사용 안 함). 이미 있으면 바꾸겠다고 할 때만 묻습니다.
 7. Herdr가 실행 중이면 플러그인을 시작합니다. 아니면 Herdr를 실행할 때 함께 시작합니다.
@@ -227,7 +227,7 @@ curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/install
 ### 저장소에서 수동 설치
 
 ```bash
-gh repo clone ultivis-iot/HerdRabbit
+gh repo clone jwgung/HerdRabbit
 cd HerdRabbit
 npm ci --omit=dev
 npm run install-service
@@ -271,7 +271,7 @@ http://127.0.0.1:38787
 HerdRabbit을 [Herdr 플러그인](https://herdr.dev/)으로 설치합니다 (Herdr 0.9.0 이상, `PATH`에 Node.js 22+와 npm 필요). [Herdr 플러그인 마켓플레이스](https://herdr.dev/plugins/)에도 올라 있습니다.
 
 ```bash
-herdr plugin install ultivis-iot/HerdRabbit
+herdr plugin install jwgung/HerdRabbit
 ```
 
 - **빌드:** 설치를 확인하면 Herdr가 자신이 관리하는 플러그인 체크아웃에서 `npm ci --omit=dev`를 실행합니다.
@@ -289,13 +289,13 @@ herdr plugin install ultivis-iot/HerdRabbit
 이전 한 줄 설치나 `npm run install-service`로 만든 systemd 서비스를 플러그인으로 바꿉니다. 위의 한 줄 설치도 그런 PC에서는 같은 일을 합니다. 그 PC에서 Herdr가 실행 중일 때 실행하세요.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/migrate-to-plugin.sh | sh
+curl -fsSL https://raw.githubusercontent.com/jwgung/HerdRabbit/main/migrate-to-plugin.sh | sh
 ```
 
 `git`, `npm`, Node.js 22 이상이 필요합니다. 이렇게 실행하면 최신 HerdRabbit을 임시 폴더에 받아 거기서 실행하므로, 오래된 설치도 먼저 업데이트할 필요가 없습니다. 임시 폴더는 끝나면 지웁니다. 최신 체크아웃이 있다면 그 안에서 `sh migrate-to-plugin.sh`를 실행해도 같습니다.
 
 - 무엇을 할지 보여 주고 확인을 받습니다(터미널이 없으면 `--yes`: `... | sh -s -- --yes`).
-- `herdr plugin install ultivis-iot/HerdRabbit`으로 플러그인을 설치하고, 서비스 유닛의 `HERDR_WEB_*` 설정(포트, 허용 호스트, Connect PC 포트와 허용한 PC 등)을 플러그인 `.env`로 옮깁니다. 값에 큰따옴표나 줄바꿈이 있으면 옮기지 않고 이름을 알려 주니 직접 적으세요. `HERDR_BIN`은 옮기지 않습니다. 플러그인은 자신을 실행하는 Herdr를 씁니다. 서비스가 쓰던 비밀번호 파일, 업로드 폴더, 푸시 구독 파일 경로도 명시해 적으므로, Herdr 환경의 XDG 폴더가 달라도 위치가 바뀌지 않습니다. `.env`에 이미 설정이 있으면 그대로 두고, 이때는 유닛 설정을 하나도 옮기지 않습니다. 그 주소가 서비스 주소와 다르면 서비스를 건드리기 전에 멈춥니다.
+- `herdr plugin install jwgung/HerdRabbit`으로 플러그인을 설치하고, 서비스 유닛의 `HERDR_WEB_*` 설정(포트, 허용 호스트, Connect PC 포트와 허용한 PC 등)을 플러그인 `.env`로 옮깁니다. 값에 큰따옴표나 줄바꿈이 있으면 옮기지 않고 이름을 알려 주니 직접 적으세요. `HERDR_BIN`은 옮기지 않습니다. 플러그인은 자신을 실행하는 Herdr를 씁니다. 서비스가 쓰던 비밀번호 파일, 업로드 폴더, 푸시 구독 파일 경로도 명시해 적으므로, Herdr 환경의 XDG 폴더가 달라도 위치가 바뀌지 않습니다. `.env`에 이미 설정이 있으면 그대로 두고, 이때는 유닛 설정을 하나도 옮기지 않습니다. 그 주소가 서비스 주소와 다르면 서비스를 건드리기 전에 멈춥니다.
 - 서비스를 멈추고 플러그인을 같은 주소에서 시작합니다. 같은 포트라서 Tailscale Serve 주소와 설치한 PWA, 다른 PC에서의 연결이 그대로 이어집니다.
 - 플러그인이 응답하면 서비스를 끄고, 유닛 파일이 `~/.config/systemd/user`에 있으면 지웁니다. 기본 위치(`~/.local/share/herd-rabbit`, 또는 `HERD_RABBIT_INSTALL_DIR`)의 수정 없는 공식 체크아웃이고 설치된 의존성 말고는 무시된 파일도 없으면 그 폴더도 지웁니다. 다른 곳의 체크아웃, 수정이 있는 체크아웃, 다른 무시된 파일이 있는 체크아웃은 남깁니다. 응답하지 않으면 서비스를 다시 켜고 아무것도 지우지 않습니다.
 - 비밀번호, Passkey, 로그인 기기, 붙인 PC(`~/.config/herdr-bridge/`)와 업로드 파일(`~/.local/share/herdrabbit/files`)은 설치 폴더 밖에 있어 그대로입니다.

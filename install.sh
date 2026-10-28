@@ -1,6 +1,6 @@
 #!/bin/sh
 # Installs HerdRabbit as a Herdr plugin:
-#   curl -fsSL https://raw.githubusercontent.com/ultivis-iot/HerdRabbit/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/jwgung/HerdRabbit/main/install.sh | sh
 # The current code is fetched into a temporary folder and runs
 # scripts/install-plugin.mjs from there: it installs or updates Herdr, installs
 # the plugin, and asks for a password. A PC that has the older systemd service
@@ -8,7 +8,7 @@
 # plugin itself lives in Herdr's own checkout.
 set -eu
 
-REPOSITORY_URL="https://github.com/ultivis-iot/HerdRabbit.git"
+REPOSITORY_URL="https://github.com/jwgung/HerdRabbit.git"
 
 log() { printf '  > %s\n' "$1"; }
 fail() { printf '  x %s\n' "$1" >&2; exit 1; }
