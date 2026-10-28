@@ -1270,10 +1270,10 @@ body.sidebar-collapsed .split-session-button .pane-status {
   align-items: flex-end;
 }
 
-/* A long text (app.js, syncComposerExpanded): the one row becomes a card,
-   the text across its whole width on top, the buttons in a row below --
-   Files at the left, the mic and Send at the right. The card takes over the
-   box's frame and focus ring, and the text may grow to about eight lines or
+/* A long text (app.js, syncComposerExpanded): the text takes the whole width
+   on top and the buttons drop to a row below -- Files at the left, the mic and
+   Send at the right. The text box keeps its own frame and focus ring and each
+   button its own, as in the one row; the text may grow to about eight lines or
    40% of the screen, whichever is less, before it scrolls. */
 .input-composer.is-expanded {
   display: grid;
@@ -1282,30 +1282,12 @@ body.sidebar-collapsed .split-session-button .pane-status {
     "text text text text"
     "attach . dictate send";
   align-items: end;
-  padding: 4px 6px 6px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface);
-}
-
-.input-composer.is-expanded:has(> textarea:focus-visible) {
-  border-color: var(--accent);
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
 }
 
 .input-form .input-composer.is-expanded > textarea {
   grid-area: text;
   max-height: min(calc(12em + 24px), 40vh);
   max-height: min(calc(12em + 24px), 40dvh);
-  border-color: transparent;
-  padding-inline: 6px;
-  background: transparent;
-}
-
-.input-form .input-composer.is-expanded > textarea:focus-visible {
-  border-color: transparent;
-  outline: none;
 }
 
 .input-composer.is-expanded > .attach-button {
