@@ -161,13 +161,22 @@ try {
       await looksLike("send");
     }
 
+    // Tab from the composer until the Send button has the focus: the dictate
+    // button sits between them where the browser can recognise speech.
+    const tabToSend = async () => {
+      for (let step = 0; step < 4; step += 1) {
+        await page.keyboard.press("Tab");
+        if (await page.evaluate(() => document.activeElement?.classList.contains("send-button"))) return;
+      }
+      assert.fail("Tab did not reach the Send button from the composer");
+    };
+
     if (!mobile) {
       // Tabbing from the composer to the button and pressing Enter sends the
       // draft: a keyboard press on Send is not a Stop.
       await input.fill("tabbed and sent");
       await input.focus();
-      await page.keyboard.press("Tab");
-      await page.waitForFunction(() => document.activeElement?.classList.contains("send-button"), null, { timeout: 3_000 });
+      await tabToSend();
       await looksLike("send");
       await page.keyboard.press("Enter");
       const until = Date.now() + 5_000;
@@ -178,7 +187,7 @@ try {
       // Tabbed to, then clicked: still Send, as it shows.
       await input.fill("tabbed and clicked");
       await input.focus();
-      await page.keyboard.press("Tab");
+      await tabToSend();
       await looksLike("send");
       await button.click();
       const by = Date.now() + 5_000;
