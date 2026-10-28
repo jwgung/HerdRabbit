@@ -3307,6 +3307,8 @@ function refreshTerminal({ streamPayload = null } = {}) {
     terminalStream.unwatch();
     state.renderedPaneId = null;
     state.mirrored = null;
+    // The strip describes the single terminal, which is not on screen.
+    renderTerminalStatus();
     return;
   }
   // Another pane may have its own reason, or none.
@@ -3498,25 +3500,33 @@ function splitTabPanes(tabId) {
 // or it is a few seconds old (a zoom or a split made in Herdr itself). It is
 // undefined until first read, and null when it could not be read. A read begun
 // before forgetPaneLayout (a split, a zoom) may show the tab as it was: its
-// answer is dropped, `generation` having moved on.
+// answer is dropped, `generation` having moved on. `loadingKey` is the read in
+// flight: one for another tab does not hold up this tab's read, and its answer,
+// should the tab no longer be selected, is dropped.
 const PANE_LAYOUT_MAX_AGE_MS = 3_000;
-const paneLayout = { key: "", tabId: null, layout: undefined, at: 0, loading: false, generation: 0 };
+const paneLayout = { key: "", tabId: null, layout: undefined, at: 0, loadingKey: null, generation: 0 };
 
 function paneLayoutFor(tabId) {
   const paneIds = panesOfTab(tabId).map((pane) => idOf(pane, "pane_id", "id"));
   const key = `${tabId}|${paneIds.join(",")}`;
-  if (!paneLayout.loading && (paneLayout.key !== key || Date.now() - paneLayout.at > PANE_LAYOUT_MAX_AGE_MS)) {
-    paneLayout.loading = true;
+  if (paneLayout.loadingKey !== key && (paneLayout.key !== key || Date.now() - paneLayout.at > PANE_LAYOUT_MAX_AGE_MS)) {
+    paneLayout.loadingKey = key;
     const generation = paneLayout.generation;
     api(`/api/panes/${encodeURIComponent(paneIds[0])}/layout`)
       .then((payload) => payload?.layout ?? null, () => null)
       .then((layout) => {
         if (generation !== paneLayout.generation) return;
+        if (paneLayout.loadingKey === key) paneLayout.loadingKey = null;
+        // The tab on screen is another now: draw it, which reads its layout.
+        if (selectedSplitTabId() !== tabId) {
+          if (state.authenticated) renderPaneViews();
+          return;
+        }
         const before = JSON.stringify(paneLayout.tabId === tabId ? paneLayout.layout ?? null : undefined);
         // A failed read keeps what was known of the same tab.
         const known = layout ?? (paneLayout.tabId === tabId ? paneLayout.layout ?? null : null);
-        Object.assign(paneLayout, { key, tabId, layout: known, at: Date.now(), loading: false });
-        if (JSON.stringify(known) !== before && selectedSplitTabId() === tabId) renderPaneViews();
+        Object.assign(paneLayout, { key, tabId, layout: known, at: Date.now() });
+        if (JSON.stringify(known) !== before) renderPaneViews();
       });
   }
   return paneLayout.tabId === tabId ? paneLayout.layout : undefined;
@@ -3524,7 +3534,7 @@ function paneLayoutFor(tabId) {
 
 function forgetPaneLayout() {
   paneLayout.generation += 1;
-  paneLayout.loading = false;
+  paneLayout.loadingKey = null;
   paneLayout.at = 0;
   paneLayout.key = "";
 }
@@ -3692,7 +3702,10 @@ function closePaneFromGrid(paneId) {
 // a split selects the new pane; a refusal (no room for another pane) is said
 // in the feedback line.
 async function paneGridAction(paneId, action, body = {}) {
-  if (state.mutationBusy) return;
+  if (state.mutationBusy) {
+    setFeedback("Another change is still in progress. Try again in a moment.", true);
+    return;
+  }
   state.mutationBusy = true;
   setFeedback("");
   let result = null;
@@ -3816,7 +3829,7 @@ function renderTerminalStatus() {
     attach = { paneId, state: "failed", since: 0, problem: terminalAttachProblems.get(paneId) };
   }
   const signedOut = terminalConnectionState.state === "signed-out";
-  const { status, recheckAt } = (state.authenticated && !document.hidden) || signedOut
+  const { status, recheckAt } = ((state.authenticated && !document.hidden) || signedOut) && !paneGrid.shown
     ? terminalStatus({
       connection: terminalConnectionState,
       attach: attach && { ...attach, machine: terminalMachine(paneId) },
@@ -6566,7 +6579,9 @@ document.addEventListener("click", (event) => {
 desktopMedia.addEventListener("change", () => {
   state.mobileSidebarOpen = false;
   syncSidebar();
-  // The grid is for wide screens; a phone shows one pane and the map.
+  // The grid is for wide screens; a phone shows one pane and the map. Drawn
+  // here too: refreshTerminal does nothing while the page is hidden.
+  if (state.authenticated) renderPaneViews();
   void refreshTerminal();
 });
 

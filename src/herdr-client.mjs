@@ -716,7 +716,8 @@ export class HerdrClient {
   async splitPane(paneId, direction) {
     const safePaneId = validatePaneId(paneId);
     const safeDirection = validateSplitDirection(direction);
-    const cwd = (await this.#paneInfo(safePaneId)).cwd;
+    // The folder is a courtesy: a pane that cannot be read still splits.
+    const cwd = (await this.#paneInfo(safePaneId).catch(() => null))?.cwd;
     const result = await this.#run([
       "pane", "split", safePaneId, "--direction", safeDirection,
       ...(typeof cwd === "string" && cwd.startsWith("/") ? ["--cwd", cwd] : []), "--no-focus",
@@ -744,8 +745,10 @@ export class HerdrClient {
     const safeTargetId = validatePaneId(targetPaneId);
     const safeSide = validateSplitSide(side);
     if (safePaneId === safeTargetId) throw new InputValidationError("A pane cannot be dropped on itself");
-    const [source, target] = [await this.#paneInfo(safePaneId), await this.#paneInfo(safeTargetId)];
-    if ((await this.#tabLayout(safePaneId)).length > 1) {
+    const [source, target, sourceTab] = await Promise.all([
+      this.#paneInfo(safePaneId), this.#paneInfo(safeTargetId), this.#tabLayout(safePaneId),
+    ]);
+    if (sourceTab.length > 1) {
       throw new HerdrCommandError("Only a session of one pane can be moved next to another.", { code: "split_session" });
     }
     if (source.tab_id === target.tab_id) throw new InputValidationError("That pane is already in this session");

@@ -181,12 +181,25 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     const note = element("p", "pane-grid-note");
     note.hidden = true;
     node.append(header, body, note);
+    // Reachable by Tab; focus arriving in the cell (the cell itself, its
+    // terminal's textarea) selects it like a press does.
+    node.tabIndex = 0;
+    node.setAttribute("role", "group");
     const cell = { paneId, node, status, label, expand, body, note, menuSlot, menuKey: null, terminal: null, connection: null, attached: false };
     // Any press in the cell makes it the selected pane; a press on its
     // terminal also leaves the typing there.
     node.addEventListener("pointerdown", (event) => {
       if (event.target.closest(".pane-grid-menu-slot, .pane-grid-expand")) return;
       if (selected !== paneId) onSelect(paneId);
+    });
+    node.addEventListener("focusin", () => {
+      if (selected !== paneId) onSelect(paneId);
+    });
+    node.addEventListener("keydown", (event) => {
+      if (event.target !== node || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      if (selected !== paneId) onSelect(paneId);
+      if (cell.attached) cell.terminal.focus();
     });
     node.addEventListener("click", (event) => {
       if (event.target.closest(".pane-grid-menu-slot, .pane-grid-expand")) return;

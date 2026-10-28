@@ -56,7 +56,7 @@ const herdr = {
   async snapshot() {
     return {
       workspaces: [{ workspace_id: "w1", label: "Platform" }, { workspace_id: "laptop!w1", label: "Laptop work", ...laptop }],
-      tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "Split work" }, { tab_id: "w1:t2", workspace_id: "w1", label: "Alone" },
+      tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "Split work" }, ...(panes.some((pane) => pane.tab_id === "w1:t3") ? [{ tab_id: "w1:t3", workspace_id: "w1", label: "Second split" }] : []), { tab_id: "w1:t2", workspace_id: "w1", label: "Alone" },
         { tab_id: "laptop!w1:t1", workspace_id: "laptop!w1", label: "Laptop split", ...laptop }],
       panes: panes.map((pane) => ({ ...pane })),
       agents: [],
@@ -328,6 +328,41 @@ try {
       await page.waitForFunction(() => document.querySelectorAll(".pane-grid-cell").length === 0);
       await page.waitForTimeout(500);
       assert.deepEqual(gridSockets.filter((socket) => !socket.closed).length, 0, "leaving the grid closes the cells' sockets");
+      // A layout read still in flight for one tab does not leave the next tab's
+      // grid blank: tab A's answer is held, tab B is chosen, B's cells attach.
+      panes.push({ pane_id: "w1:p20", tab_id: "w1:t3", workspace_id: "w1", cwd: "/work/zeta", agent_status: "idle" },
+        { pane_id: "w1:p21", tab_id: "w1:t3", workspace_id: "w1", cwd: "/work/eta", agent_status: "idle" });
+      rects.set("w1:p20", { x: 0, y: 0, width: 60, height: 40 });
+      rects.set("w1:p21", { x: 60, y: 0, width: 60, height: 40 });
+      let releaseA;
+      const heldA = new Promise((resolve) => { releaseA = resolve; });
+      await page.route("**/api/panes/*/layout", async (route) => {
+        if (decodeURIComponent(route.request().url()).includes("/w1:p1/")) await heldA;
+        await route.continue().catch(() => {});
+      });
+      await page.locator('.tab-grid-open[data-tab-id="w1:t3"]').waitFor({ timeout: 8000 });
+      // Past the layout's age, so opening tab A reads it again, and that read is held.
+      await page.waitForTimeout(3300);
+      const heldRead = page.waitForRequest((request) => decodeURIComponent(request.url()).includes("/w1:p1/layout"));
+      await page.locator('.tab-grid-open[data-tab-id="w1:t1"]').click();
+      await heldRead;
+      await page.locator('.tab-grid-open[data-tab-id="w1:t3"]').click();
+      await page.waitForFunction(() => document.querySelectorAll('.pane-grid-cell[data-pane-id^="w1:p2"]').length === 2);
+      await cell("w1:p20").locator(".xterm").waitFor({ timeout: 4000 });
+      releaseA();
+      await page.unroute("**/api/panes/*/layout");
+      // Tab into a cell selects it: keyboard focus is a press too.
+      await cell("w1:p21").locator(".xterm").waitFor();
+      assert.equal(await cell("w1:p21").getAttribute("role"), "group");
+      await cell("w1:p20").locator(".pane-grid-expand").focus();
+      await page.waitForFunction(() => document.querySelector('.pane-grid-cell[data-pane-id="w1:p20"]').classList.contains("is-focused"));
+      assert.equal(await cell("w1:p21").evaluate((node) => node.classList.contains("is-focused")), false);
+      // Focus reaching a cell (what Tab does; its terminal keeps Tab for itself) selects it.
+      await cell("w1:p21").focus();
+      await page.waitForFunction(() => document.querySelector('.pane-grid-cell[data-pane-id="w1:p21"]').classList.contains("is-focused"));
+      assert.equal(await page.locator('.pane-button[data-pane-id="w1:p21"]').getAttribute("aria-pressed"), "true", "Tab into a cell selects its pane");
+      await page.locator('.pane-button[data-pane-id="w1:p3"]').click();
+      await grid.waitFor({ state: "hidden" });
       // A tab with one pane has no grid heading.
       assert.equal(await page.locator('.tab-grid-open[data-tab-id="w1:t2"]').count(), 0);
       // Nor has a connected PC's split tab: its panes open alone, no way to a grid.
