@@ -808,6 +808,7 @@ const BELL_ICON = ["M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8h18c0-1-3-1-3-8Z", "M10 20h4
 const KEYBOARD_ICON = ["M2.5 6h19v12h-19z", "M6 9.5h.01M9 9.5h.01M12 9.5h.01M15 9.5h.01M18 9.5h.01M6 12.5h.01M18 12.5h.01M8.5 15h7"];
 const PASSKEY_ICON = ["M8 15a4 4 0 1 1 3.9-5H21v3h-2v2h-3v-2h-4.1A4 4 0 0 1 8 15Z", "M8 11h.01"];
 const DEVICES_ICON = ["M4 5h16v10H4z", "M8 19h8", "M12 15v4"];
+const NEW_WINDOW_ICON = ["M5 5h14v14H5z", "M5 9h14", "M12 11v6", "M9 14h6"];
 const UPDATE_ICON = ["M12 3v12", "M7 10l5 5 5-5", "M5 20h14"];
 const GEAR_ICON = [
   "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
@@ -851,6 +852,14 @@ function buildSettingsMenu() {
           if (!desktopMedia.matches) closeMobileSidebar();
           openKeyBarDialog();
         },
+      },
+      {
+        key: "new-window",
+        label: "New window",
+        paths: NEW_WINDOW_ICON,
+        // The manifest's focus-existing launch handler only governs launches
+        // (icon, notification), so opening from inside the app gives a second window.
+        onSelect: () => void window.open("/", "_blank", "noopener"),
       },
       { key: "update", label: "Update", paths: UPDATE_ICON, onSelect: () => updatePanel.open() },
       { separator: true, key: "separator" },

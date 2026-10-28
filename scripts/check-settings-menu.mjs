@@ -1,7 +1,7 @@
 // Browser check of the ⚙ settings menu at the foot of the sidebar. The footer
 // holds the uploads button and the settings button only; the menu opens upward
 // inside the viewport and lists Notifications (only where push works), the
-// theme switch, Edit keys and -- with sign-in on -- Passkeys and Signed-in
+// theme switch, Edit keys, New window and -- with sign-in on -- Passkeys and Signed-in
 // devices. Escape closes the menu alone. Each item does what its old button
 // did. Runs on a desktop and a phone against an in-process fake herdr.
 //
@@ -92,7 +92,7 @@ try {
       if (full) assert.match(labels[0], /^Notifications: (Off|Blocked)$/);
       assert.deepEqual(
         labels.slice(full ? 1 : 0),
-        full ? [labels[1], "Edit keys", "Passkeys", "Signed-in devices"] : [labels[0], "Edit keys"],
+        full ? [labels[1], "Edit keys", "New window", "Passkeys", "Signed-in devices"] : [labels[0], "Edit keys", "New window"],
       );
       assert.match(labels[full ? 1 : 0], /^Switch to (light|dark) mode$/);
       // It opens upward and stays inside the viewport.
@@ -134,6 +134,14 @@ try {
       await page.locator("#key-bar-dialog").waitFor({ state: "visible" });
       await page.keyboard.press("Escape");
       await page.locator("#key-bar-dialog").waitFor({ state: "hidden" });
+
+      // New window opens a second window on the app's root.
+      await reachButton();
+      await button.click();
+      const [opened] = await Promise.all([context.waitForEvent("page"), page.locator('.settings-menu [data-action="new-window"]').click()]);
+      await opened.waitForLoadState();
+      assert.equal(new URL(opened.url()).pathname, "/");
+      await opened.close();
 
       if (full) {
         for (const [action, dialog] of [["passkeys", "#passkeys-dialog"], ["sessions", "#sessions-dialog"]]) {
