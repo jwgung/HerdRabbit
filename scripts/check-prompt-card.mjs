@@ -4,8 +4,11 @@
 // the expected keys, a card that changed on screen (409) read again, the
 // fallback card over a pane with no chat, the key bar hidden in the chat, the
 // working row and a sent message on its way, the chat's own text size, and
-// the copy icons, and a multiple choice with an option already ticked in the
-// terminal that the card starts from. Runs against an in-process fake herdr and a transcript in a
+// the copy icons, a multiple choice with an option already ticked in the
+// terminal that the card starts from, and a Claude question whose message
+// above it the transcript does not have yet: the card shows that text folded
+// above the question, as text, until the chat has it, and its "Chat about
+// this" button picks that row. Runs against an in-process fake herdr and a transcript in a
 // temporary Claude folder; nothing reaches a real herdr.
 import assert from "node:assert/strict";
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -22,12 +25,14 @@ import { fakePromptHerdr } from "../test/fixtures/claude-prompt.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const SESSION = "1e4f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
+const ASK_SESSION = "2b5e7d2f-9b4c-4d66-8e3f-7a8b9c0d1e2f";
 const CWD = "/work/prompt-card";
 const root = await mkdtemp(join(tmpdir(), "herdrabbit-prompt-card-"));
 const configDir = join(root, "claude");
 const project = join(configDir, "projects", claudeProjectDir(CWD));
 await mkdir(project, { recursive: true });
 const transcript = join(project, `${SESSION}.jsonl`);
+const askTranscript = join(project, `${ASK_SESSION}.jsonl`);
 const jsonl = (entries) => `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
 const at = (n, seconds = 0) => new Date(Date.UTC(2026, 9, 1, 9, 0, 0) + n * 60_000 + seconds * 1000).toISOString();
 const exchange = (n) => [
@@ -62,7 +67,11 @@ function world() {
       { pane_id: "w1:p3", tab_id: "w1:t1", workspace_id: "w1", label: "Datasets", agent: "claude", agent_status: "blocked" },
       // herdr says working while Claude waits on a menu
       { pane_id: "w1:p4", tab_id: "w1:t1", workspace_id: "w1", label: "Quiet", agent: "claude", agent_status: "working" },
+      // Claude asks, its message above the question not in the transcript yet
+      { pane_id: "w1:p5", tab_id: "w1:t1", workspace_id: "w1", label: "Audit", agent: "claude", cwd: CWD,
+        agent_session: { agent: "claude", kind: "id", value: ASK_SESSION }, agent_status: "blocked" },
     ],
+    asks: { "w1:p5": { cursor: 0 } },
     menus: { "w1:p1": { cursor: 0 }, "w1:p4": { cursor: 0 } },
     // LM-O is ticked in the terminal already
     questions: { "w1:p3": { checked: [0], cursor: 0 } },
@@ -102,6 +111,7 @@ try {
     herdr = world();
     sentTexts.length = 0;
     await writeFile(transcript, initialTranscript);
+    await writeFile(askTranscript, jsonl(exchange(0)));
     const context = await browser.newContext({ serviceWorkers: "block", hasTouch: mobile, isMobile: mobile,
       viewport: { width: mobile ? 390 : 1280, height: 844 } });
     await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: url }).catch(() => {});
@@ -310,8 +320,61 @@ try {
     await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "hidden" || document.querySelector(".prompt-card-error"));
     assert.deepEqual(herdr.answered.filter((item) => item.paneId === "w1:p4"), [{ paneId: "w1:p4", answer: "Yes" }]);
 
+    // A Claude question with its message above it on the terminal only: the
+    // card shows it folded over the question, as text, until the chat has it.
+    await page.goto(`${url}/?pane=${encodeURIComponent("w1:p5")}`);
+    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await page.waitForFunction(() => ["banner", "card"].includes(document.querySelector("#prompt-dock")?.dataset.mode));
+    if (await dockMode() === "banner") await page.locator(".prompt-banner-open").click();
+    await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "card");
+    const asking = page.locator(".prompt-card");
+    const folded = asking.locator("details.prompt-card-context");
+    await folded.waitFor({ state: "attached" });
+    assert.equal(await folded.locator("summary").textContent(), "Claude's message above this question (from the terminal)");
+    assert.equal(await folded.evaluate((node) => node.open), false, "folded at first");
+    const question = asking.locator(".prompt-card-question");
+    assert.equal(await question.textContent(), "Keep or drop the cache?");
+    assert.ok((await folded.boundingBox()).y < (await question.boundingBox()).y, "above the question");
+    assert.deepEqual(await asking.locator(".prompt-card-option-label").allTextContents(), ["Keep the cache", "Drop the cache"]);
+    await folded.locator("summary").click();
+    const contextText = folded.locator(".prompt-card-context-text");
+    await contextText.waitFor({ state: "visible" });
+    const shownText = await contextText.textContent();
+    assert.ok(shownText.includes("The literal tag <b>x</b> is shown as text."), "markup shows as text");
+    assert.equal(await contextText.locator("b").count(), 0, "and is not made an element");
+    assert.ok(shownText.includes("│ north   │ 1200     │ 14       │"), "table rows as the terminal draws them");
+    assert.ok(!shownText.includes("Chat about this") && !shownText.includes("Esc to cancel"), "no terminal chrome");
+    assert.equal(await contextText.evaluate((node) => getComputedStyle(node).whiteSpace), "pre");
+    const chatButton = asking.locator('[data-prompt-action="chat"]');
+    assert.equal(await chatButton.textContent(), "Chat about this");
+    // open across a redraw of the same card (a tick of the poll, an error line)
+    await page.waitForTimeout(300);
+    assert.equal(await folded.evaluate((node) => node.open), true);
+    await shoot("context");
+    if (process.env.PROMPT_CARD_SCREENSHOTS) {
+      for (const theme of ["dark", "light"]) {
+        await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+        await asking.screenshot({ path: join(process.env.PROMPT_CARD_SCREENSHOTS, `context-card-${mobile ? "phone" : "desktop"}-${theme}.png`) });
+      }
+    }
+    // The transcript catches up (Claude wrote the message): the folded text goes, without a reload.
+    await appendFile(askTranscript, jsonl([
+      { type: "user", uuid: "ua1", parentUuid: null, timestamp: at(91), message: { role: "user", content: "audit the caches" } },
+      { type: "assistant", timestamp: at(91, 5), message: { role: "assistant", stop_reason: "tool_use", content: [
+        { type: "text", text: "The **cache audit** is done. Two stores still disagree:\n\n| Store | Entries | Stale |\n|---|---|---|\n| north | 1200 | 14 |\n| south | 980 | 0 |\n\nThe literal tag <b>x</b> is shown as text.\nDropping the cache costs one cold start." },
+      ] } },
+    ]));
+    await page.waitForFunction(() => document.querySelector('.chat-pane[data-pane-id="w1:p5"]')?.textContent.includes("Two stores still disagree"), null, { timeout: 5_000 });
+    await page.waitForFunction(() => !document.querySelector(".prompt-card-context") && document.querySelector(".prompt-card-question"), null, { timeout: 5_000 });
+    assert.equal(await asking.locator(".prompt-card-question").textContent(), "Keep or drop the cache?", "the card itself stays");
+    // "Chat about this" picks that row in the terminal: down to it, then Enter.
+    await chatButton.click();
+    await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "hidden" || document.querySelector(".prompt-card-error"));
+    assert.deepEqual(herdr.sent.filter((item) => item.paneId === "w1:p5").map((item) => item.keys.join("+")), ["down", "down", "down", "enter"]);
+    assert.deepEqual(herdr.answered.filter((item) => item.paneId === "w1:p5"), [{ paneId: "w1:p5", answer: "Chat about this" }]);
+
     assert.deepEqual(errors, []);
-    results.push({ mobile, banner: !mobile, card: true, keyBar: true, conflict: true, keyboard: true, working: true,
+    results.push({ questionContext: true, chatAboutThis: true, mobile, banner: !mobile, card: true, keyBar: true, conflict: true, keyboard: true, working: true,
       pendingAndFollow: true, copyIcon: true, chatFontSize: `${before}->${after}`, fallbackOverlay: true, multipleChoice: true, workingPaneCard: true });
     await context.close();
   }

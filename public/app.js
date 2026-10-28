@@ -4068,7 +4068,11 @@ const chatLens = createChatLens({
   isLinkablePath: isLinkableTerminalPath,
   onOpenPath: openTerminalPath,
   onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
-  onChatDrawn: (chat, drawn) => chatFind?.redrawn(chat, drawn),
+  onChatDrawn: (chat, drawn) => {
+    chatFind?.redrawn(chat, drawn);
+    // a question card's context goes once the chat shows that message
+    promptDock?.conversationChanged();
+  },
   onLensChange: (lens, paneId, previous) => {
     // `previous` follows a pane renamed under it (a move to another workspace)
     if (lens === "terminal" && previous?.lens === "chat" && previous.paneId === paneId) showNewestTerminalOutput(paneId);
@@ -4107,6 +4111,7 @@ promptDock = createPromptDock({
   postJson: (path, body) => api(path, { method: "POST", body }),
   showChat: () => chatLens.showChat(),
   onAnswered: () => refreshAfterSubmission(),
+  conversation: (paneId) => chatLens.chatFor(paneId)?.agentText ?? "",
 });
 promptDock.setLens(chatLens.lens);
 elements.terminalPanel.dataset.lens = chatLens.lens;

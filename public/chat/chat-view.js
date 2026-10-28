@@ -50,6 +50,8 @@ const KEPT_ANSWERS = 16;
 const BACKSTOP_MS = 15_000;
 // A pane whose chat may appear later (no session yet) is asked again after this.
 const RECHECK_MS = 10_000;
+// The agent turns whose text the prompt card looks for its context in.
+const AGENT_TEXT_TURNS = 2;
 
 function element(document, tag, { className, text, attrs } = {}) {
   const node = document.createElement(tag);
@@ -800,6 +802,12 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
       ticker = null;
     },
     get visible() { return visible; },
+    // The text of the last agent turns loaded (the prompt card asks whether
+    // its context is in it yet: prompt-card.js contextVisible).
+    get agentText() {
+      return loader.history.turns.filter((turn) => turn.role !== "user").slice(-AGENT_TEXT_TURNS)
+        .flatMap((turn) => turn.parts.filter((part) => part.kind === "text").map((part) => part.text)).join("\n\n");
+    },
     get scrollTop() { return scroller.scrollTop; },
     destroy() {
       clearInterval(backstop);

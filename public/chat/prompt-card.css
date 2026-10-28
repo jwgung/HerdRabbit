@@ -197,6 +197,47 @@
   min-height: 0;
 }
 
+/* Claude's message above a question, as the terminal shows it: folded, and
+   unfolded kept in monospace with its spacing, so a table lines up; a wide
+   line scrolls sideways inside the box rather than wrapping. */
+.prompt-card-context {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+}
+
+.prompt-card-context > summary {
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: 0.86em;
+  cursor: pointer;
+}
+
+.prompt-card-context > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.prompt-card-context-text {
+  max-height: 16em;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  background: var(--terminal-bg);
+  color: var(--terminal-text);
+  /* a Latin monospace first: a CJK one draws box lines two columns wide,
+     which breaks a table's borders (Korean still falls back to it) */
+  font-family: "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, "DejaVu Sans Mono", "Noto Sans Mono", var(--mono);
+  font-size: 0.82em;
+  line-height: 1.2;
+  white-space: pre;
+}
+
+.prompt-card-chat {
+  align-self: flex-start;
+}
+
 .prompt-card-options {
   display: flex;
   flex-direction: column;

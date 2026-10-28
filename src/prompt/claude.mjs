@@ -117,6 +117,11 @@ function parseClaudeQuestion(screen) {
     selectedIndex,
     checkedOptionIndices: optionRows.flatMap((row, index) => row.checked ? [index] : []),
     customMenuIndex: preview ? null : customIndex,
+    // "Chat about this", the last row, under the rule: picked like any row
+    // (its place among the rows the cursor moves through, Submit counted)
+    chatMenuIndex: chatIndex < 0 ? null : submit ? rows.length : chatIndex,
+    // where the menu starts on this screen, for the text above it (claudeQuestionContext)
+    firstRowLine: rows[0].lineIndex,
     // an answer typed into the draft would join it: the row is emptied first
     ...(drafted ? {
       customSteps: (text) => [
@@ -407,6 +412,70 @@ export function parseClaudePrompt(screen) {
   if (secretPrompt(text) !== null) return null;
   const candidates = [parseClaudeQuestion(text), parseClaudeSubmit(text), parseClaudeApproval(text), parseClaudeConfirm(text)];
   return candidates.find((candidate) => candidate !== null && promptTailIsActive(candidate, text)) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// What the terminal shows above an open question. Claude Code writes the
+// message before an AskUserQuestion (an answer, a table) and the question to
+// its transcript only once the question is answered, so while it is open the
+// Chat lens has no trace of that message: the card carries it, as the
+// terminal draws it.
+//
+//   ● The message, its first line after Claude's bullet,
+//     continued two columns in (tables, lists, code as drawn)
+//
+//   ──────────────────────────  (the question's own rule)
+//    ☐ Header
+//   The question?
+//   ❯ 1. …
+//
+// The text runs from the last bullet above the question's rule to that rule,
+// without the bullet and the two-column indent. The rule, the question, its
+// rows and the key hint under them are terminal chrome and stay out. A bullet
+// that is a tool call (`● Read(a.ts)`) or a message of yours (`❯ …`) nearer
+// than any bullet means no message stands there: null. At most
+// MAX_CONTEXT characters, its last ones, cut at a line.
+
+export const MAX_CONTEXT = 6_000;
+const BULLET_RE = /^[●⏺][  ]/u;
+const TOOL_CALL_RE = /^[●⏺]\s+[\w.:-]+(?:\s[\w.:-]+)*(?:\s\(MCP\))?\(/u;
+const USER_ROW_RE = /^[❯>][  ]/u;
+
+// `screen`: the pane's recent lines, unwrapped (the message may have scrolled
+// above the visible screen). `card`: the question card the screen was read
+// for, already known to own the end of the screen; this screen must show that
+// same question (as many options, one or several). Its tail is not checked
+// again: an unwrapped line wider than the pane would hide Claude's frame.
+// Answers the text, null when no message stands above the question, or
+// undefined when the screen does not show that question (read again later).
+export function claudeQuestionContext(screen, card) {
+  const text = String(screen ?? "");
+  if (secretPrompt(text) !== null) return undefined;
+  const parsed = parseClaudeQuestion(text);
+  if (!parsed || !Number.isInteger(parsed.firstRowLine)) return undefined;
+  if (card && (parsed.options.length !== card.options?.length || parsed.multiSelect !== card.multiSelect)) return undefined;
+  const lines = text.replace(ANSI_RE, "").split(/\r?\n/).map((line) => line.replace(/\s+$/u, ""));
+  let rule = -1;
+  for (let index = parsed.firstRowLine - 1; index >= Math.max(0, parsed.firstRowLine - 60); index -= 1) {
+    if (SOLID_RULE_RE.test(lines[index].trim())) { rule = index; break; }
+  }
+  if (rule < 0) return null;
+  let bullet = -1;
+  for (let index = rule - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    if (BULLET_RE.test(line)) { bullet = index; break; }
+    if (USER_ROW_RE.test(line)) return null;
+  }
+  if (bullet < 0 || TOOL_CALL_RE.test(lines[bullet])) return null;
+  const body = lines.slice(bullet, rule).map((line, index) => index === 0 ? line.replace(BULLET_RE, "") : line.replace(/^ {1,2}/u, ""));
+  while (body.length > 0 && !body.at(-1).trim()) body.pop();
+  const whole = body.join("\n").replace(/^\s*\n/u, "");
+  if (!whole.trim()) return null;
+  if (whole.length <= MAX_CONTEXT) return whole;
+  // the end of it, from a line's start: what sits right above the question
+  const tail = whole.slice(-(MAX_CONTEXT - 2));
+  const cut = tail.indexOf("\n");
+  return `…\n${cut < 0 ? tail : tail.slice(cut + 1)}`;
 }
 
 // Whether the screen ends in Claude's /model list or /effort slider, whose
