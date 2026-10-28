@@ -70,3 +70,30 @@ export function writeCollapsedWorkspaceIds(storage, workspaceIds) {
     return false;
   }
 }
+
+export const EXPANDED_SPLIT_TABS_STORAGE_KEY = "herdrbridge-expanded-split-tabs";
+
+// A split session's pane list is folded until opened, so what is kept is the
+// tabs left open. Tab ids are checked as group ids are.
+export function readExpandedSplitTabIds(storage) {
+  try {
+    const value = storage?.getItem(EXPANDED_SPLIT_TABS_STORAGE_KEY);
+    return new Set(normalizedGroupIds(JSON.parse(value || "[]")));
+  } catch {
+    return new Set();
+  }
+}
+
+export function writeExpandedSplitTabIds(storage, tabIds) {
+  try {
+    if (!storage) return false;
+    storage.setItem(
+      EXPANDED_SPLIT_TABS_STORAGE_KEY,
+      // The newest are kept when there are too many.
+      JSON.stringify(normalizedGroupIds([...tabIds].slice(-MAX_STORED_GROUPS))),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}

@@ -6,8 +6,8 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatView.tsx and
 // ChatView.css, rewritten as plain DOM code without React.
-import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.4.0";
-import { lineDiff } from "./diff.js?v=1.4.0";
+import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.4.1";
+import { lineDiff } from "./diff.js?v=1.4.1";
 import {
   deliveredFiles,
   formatWorkDuration,
@@ -25,10 +25,10 @@ import {
   workStartsOpen,
   workSummary,
   workTitle,
-} from "./work-blocks.js?v=1.4.0";
-import { paneRenames } from "../pane-rename.js?v=1.4.0";
-import { ConversationLoader } from "./conversation-refresh.js?v=1.4.0";
-import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.4.0";
+} from "./work-blocks.js?v=1.4.1";
+import { paneRenames } from "../pane-rename.js?v=1.4.1";
+import { ConversationLoader } from "./conversation-refresh.js?v=1.4.1";
+import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.4.1";
 import {
   chatMayBecomeAvailable,
   chatReadBusy,
@@ -36,7 +36,7 @@ import {
   chooseLens,
   readPaneLens,
   writePaneLens,
-} from "../lens-preference.js?v=1.4.0";
+} from "../lens-preference.js?v=1.4.1";
 
 // Scrolling this close to the top reads the page before it.
 const LOAD_OLDER_PX = 400;
@@ -50,6 +50,8 @@ const KEPT_ANSWERS = 16;
 const BACKSTOP_MS = 15_000;
 // A pane whose chat may appear later (no session yet) is asked again after this.
 const RECHECK_MS = 10_000;
+// The agent turns whose text the prompt card looks for its context in.
+const AGENT_TEXT_TURNS = 2;
 
 function element(document, tag, { className, text, attrs } = {}) {
   const node = document.createElement(tag);
@@ -800,6 +802,12 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
       ticker = null;
     },
     get visible() { return visible; },
+    // The text of the last agent turns loaded (the prompt card asks whether
+    // its context is in it yet: prompt-card.js contextVisible).
+    get agentText() {
+      return loader.history.turns.filter((turn) => turn.role !== "user").slice(-AGENT_TEXT_TURNS)
+        .flatMap((turn) => turn.parts.filter((part) => part.kind === "text").map((part) => part.text)).join("\n\n");
+    },
     get scrollTop() { return scroller.scrollTop; },
     destroy() {
       clearInterval(backstop);

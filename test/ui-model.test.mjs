@@ -5,6 +5,7 @@ import {
   paneAgentKind,
   agentStatusIcon,
   agentStatusLabel,
+  mostUrgentStatus,
   paneSubtitle,
   detectTouchInput,
   displayRecordLabel,
@@ -830,6 +831,15 @@ test("chooses the status indicator at a row's far right", () => {
   assert.equal(agentStatusIcon(undefined), "·");
   assert.equal(agentStatusLabel("blocked"), "Needs your answer");
   assert.equal(agentStatusLabel("idle"), "idle");
+});
+
+test("a split session's row shows the most urgent of its panes' statuses", () => {
+  assert.equal(mostUrgentStatus(["done", "working", "blocked"]), "blocked");
+  assert.equal(mostUrgentStatus(["idle", "done", "working"]), "working");
+  assert.equal(mostUrgentStatus(["idle", "done"]), "done");
+  assert.equal(mostUrgentStatus(["unknown", "idle"]), "idle");
+  assert.equal(mostUrgentStatus(["unknown", "bogus"]), "unknown");
+  assert.equal(mostUrgentStatus([]), "unknown");
 });
 
 test("a session's second line is its folder, unless unknown or the same as the name", () => {

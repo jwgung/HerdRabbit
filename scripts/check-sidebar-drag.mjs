@@ -110,10 +110,10 @@ const url = `http://127.0.0.1:${server.address().port}`;
 const shots = process.env.DRAG_SCREENSHOTS;
 if (shots) await mkdir(shots, { recursive: true });
 
-// The sidebar as it reads now: each project's sessions, by their first pane.
+// The sidebar as it reads now: each project's sessions, by their row's name.
 const sidebar = (page) => page.evaluate(() => Object.fromEntries([...document.querySelectorAll(".workspace-group")].map((group) => [
   group.querySelector(".workspace-heading h3")?.textContent,
-  [...group.querySelectorAll(".tab-group")].map((tab) => tab.querySelector(".tab-label")?.textContent ?? tab.querySelector(".pane-title")?.textContent),
+  [...group.querySelectorAll(".tab-group")].map((tab) => tab.querySelector(".pane-title")?.textContent),
 ])));
 const projects = (page) => page.evaluate(() => [...document.querySelectorAll('.server-group:has([data-server-id="local"]) .workspace-group h3')].map((h) => h.textContent));
 const box = async (page, selector) => {
@@ -258,6 +258,16 @@ try {
     assert.ok(await page.locator(`${tabRow("w1:p3")} .sidebar-action-item`).first().isVisible());
     assert.equal(await page.locator(".sidebar-drag-ghost").count(), 0);
     await page.keyboard.press("Escape");
+
+    // 7. Infra is a split session's one row: it reorders within its project,
+    // below Web, its pane list folded or not.
+    assert.equal(await page.locator(`${tabRow("w1:p2")} .split-session-button`).count(), 1);
+    source = await box(page, `${tabRow("w1:p2")} .split-session-button`);
+    target = await box(page, tabRow("w1:p3"));
+    await mouseDrag(page, { x: source.x + 60, y: source.y + 12 }, { x: target.x + 60, y: target.y + target.height - 4 });
+    await page.waitForTimeout(400);
+    assert.deepEqual(callsNow().at(-1), ["moveTab", "w1:t2", 2]);
+    assert.deepEqual((await sidebar(page)).Platform, ["Web", "Infra"]);
     assert.deepEqual(errors, []);
     await context.close();
   }

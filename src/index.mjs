@@ -137,7 +137,10 @@ const updater = new AppUpdater({
   stateDir: config.updateDir,
   herdr: herdrUpdater,
   // Started by Herdr as a plugin: Herdr updates the plugin and restarts it.
-  plugin: config.pluginId ? { id: config.pluginId, binary: config.herdrBin } : null,
+  // Its folders let the run restart the plugin itself if Herdr's action cannot.
+  plugin: config.pluginId
+    ? { id: config.pluginId, binary: config.herdrBin, configDir: config.pluginConfigDir, stateDir: config.pluginStateDir }
+    : null,
 });
 // Without node-pty's native module this PC's panes are read-only mirrors of
 // their screens. A connected PC's panes still attach: that PC runs the pty.

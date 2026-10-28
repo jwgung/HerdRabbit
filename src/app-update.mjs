@@ -5,7 +5,7 @@ import { chmod, lstat, mkdir, open, readFile, realpath, rename } from "node:fs/p
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PLUGIN_ID } from "./config.mjs";
+import { PLUGIN_ID, absoluteFolder } from "./config.mjs";
 import { HttpError } from "./http-basics.mjs";
 
 // In-app update: whether main on origin has moved past this checkout, and
@@ -40,13 +40,93 @@ export const MAX_RUN_MS = 60 * 60_000;
 export const RESTART_WAIT_MS = 2 * 60_000;
 // The service units update.sh restarts, in the order it looks for them.
 export const SERVICE_UNITS = ["herdrabbit.service", "herdr-web-local.service"];
-// The only origins update.sh updates from.
+// The only origins update.sh updates from: where HerdRabbit lives now and
+// where it moves to (an installed checkout keeps the address it was cloned
+// from, which GitHub redirects after a transfer).
 export const OFFICIAL_ORIGINS = new Set([
   "https://github.com/ultivis-iot/HerdRabbit.git",
   "https://github.com/ultivis-iot/HerdRabbit",
   "git@github.com:ultivis-iot/HerdRabbit.git",
+  "https://github.com/jwgung/HerdRabbit.git",
+  "https://github.com/jwgung/HerdRabbit",
+  "git@github.com:jwgung/HerdRabbit.git",
 ]);
 export const RUN_STATES = new Set(["idle", "running", "succeeded", "failed"]);
+// What a run's failure may say beyond its reason (Herdr's own error text for
+// a restart that did not happen), bounded like Herdr's update detail.
+export const MAX_DETAIL = 300;
+// The shapes a status may have: how many steps, how long a step's label.
+const MAX_STEPS = 8;
+const MAX_STEP_LABEL = 80;
+// How much of the log file is read back for the page.
+const LOG_TAIL_BYTES = 64 * 1024;
+// A command that answers within this, in at most this many bytes, is read.
+const CAPTURE_TIMEOUT_MS = 10_000;
+const MAX_CAPTURED_BYTES = 1024 * 1024;
+// A command that ignores SIGTERM when its timeout fires is killed after this.
+export const KILL_GRACE_MS = 3_000;
+// How long a killed command is waited for after SIGKILL before the run goes
+// on without it (it is then treated as still there: its outcome is unknown).
+export const CLOSE_WAIT_MS = 2_000;
+// After `herdr plugin action invoke <id>.restart` answers, how long the run
+// watches Herdr's log of that action for its outcome: a restart stops the old
+// server (up to 5s) and waits for the new one (up to 15s).
+export const ACTION_WAIT_MS = 30_000;
+const ACTION_POLL_MS = 1_000;
+// How many reads of Herdr's action log in a row may fail (or lack the action)
+// before the run stops asking: its outcome then cannot be told.
+export const ACTION_LOOKUP_TRIES = 3;
+// The run's own restart, when Herdr's action could not run, gets as long.
+const DIRECT_RESTART_TIMEOUT_MS = 60_000;
+
+// The steps the page shows for a run, in order. A plugin run is Herdr's
+// update and the restart; update.sh's steps are the lines it logs (below).
+// "reload" is the page's own: it is current once the server has done its part.
+export const RUN_STEPS = Object.freeze({
+  plugin: Object.freeze([
+    { id: "fetch", label: "Download and build the new version" },
+    { id: "restart", label: "Restart HerdRabbit" },
+    { id: "reload", label: "Reload this page" },
+  ]),
+  script: Object.freeze([
+    { id: "fetch", label: "Fetch main" },
+    { id: "herdr", label: "Update Herdr" },
+    { id: "install", label: "Install dependencies" },
+    { id: "verify", label: "Verify the updated code" },
+    { id: "restart", label: "Restart HerdRabbit" },
+    { id: "reload", label: "Reload this page" },
+  ]),
+});
+const STEP_IDS = new Set(Object.values(RUN_STEPS).flat().map((step) => step.id));
+
+// update.sh's log lines (`log "..."`, printed as "  > ...") that begin a
+// step. update.sh names these next to the lines; test/app-update.test.mjs
+// fails when one of them is no longer printed there.
+export const SCRIPT_MARKERS = Object.freeze([
+  ["Fetching main", "fetch"],
+  ["Updating Herdr", "herdr"],
+  ["Installing runtime dependencies", "install"],
+  ["Verifying the updated code", "verify"],
+  ["Restarting ", "restart"],
+  ["Updated to ", "done"],
+]);
+
+// The step update.sh is at, from its log: the furthest step (in the order of
+// SCRIPT_MARKERS) whose marker line is in it, never one before `previous` --
+// a later line that only looks like an earlier step's does not move it back.
+// A log with none of them (or only other output) leaves `previous` as it was.
+export function scriptPhase(text, previous = null) {
+  const rank = (id) => SCRIPT_MARKERS.findIndex(([, step]) => step === id);
+  let phase = previous;
+  for (const entry of String(text ?? "").split(/\r?\n/u)) {
+    const match = /^ {2}> (.*)$/u.exec(entry);
+    if (!match) continue;
+    for (const [marker, id] of SCRIPT_MARKERS) {
+      if (match[1].startsWith(marker) && rank(id) > rank(phase)) phase = id;
+    }
+  }
+  return phase;
+}
 
 const REPOSITORY = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/u, "");
 const SHA = /^[0-9a-f]{4,40}$/u;
@@ -81,14 +161,22 @@ export function line(text, limit = MAX_NOTE_LENGTH) {
   return String(text ?? "").replace(/[\u0000-\u001f\u007f]/gu, " ").trim().slice(0, limit);
 }
 
+// A user:password an URL might carry.
+const maskCredentials = (text) => text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/giu, "$1***@");
+
+// What Herdr (or a connected PC) says about a failure, as one line: masked
+// like the log, since it is a line of that output, then bounded.
+export function cleanDetail(text, limit = MAX_DETAIL) {
+  return line(maskCredentials(String(text ?? "")), limit);
+}
+
 // A log is shown as it is, minus anything that would draw on the screen, and
 // minus a user:password an URL might carry.
 export function cleanLog(text) {
-  const cleaned = String(text ?? "")
+  const cleaned = maskCredentials(String(text ?? "")
     .replace(/\r\n?/gu, "\n")
     .replace(/\u001b\[[0-9;?]*[A-Za-z]/gu, "")
-    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/gu, "")
-    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/giu, "$1***@");
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/gu, ""));
   const tail = cleaned.split("\n").slice(-LOG_LINES).join("\n");
   const bytes = Buffer.from(tail, "utf8");
   if (bytes.length <= MAX_LOG_BYTES) return tail;
@@ -102,6 +190,7 @@ function revision(sha, version) {
   };
 }
 
+const cleanMode = (value) => value === "plugin" || value === "script" ? value : null;
 const code = (value) => typeof value === "string" && CODE.test(value) ? value : null;
 const time = (value) => typeof value === "string" && value.length <= 40 && Number.isFinite(Date.parse(value)) ? value : null;
 
@@ -119,19 +208,28 @@ export function cleanCheck(value) {
       .filter((note) => typeof note === "string").map((note) => line(note)).filter(Boolean),
     blocked: code(answer.blocked),
     error: code(answer.error),
+    mode: cleanMode(answer.mode),
   };
 }
 
 export function cleanRunStatus(value) {
   const status = value && typeof value === "object" ? value : {};
+  const steps = (Array.isArray(status.steps) ? status.steps : []).slice(0, MAX_STEPS)
+    .filter((step) => typeof step?.id === "string" && STEP_IDS.has(step.id) && typeof step.label === "string")
+    .map((step) => ({ id: step.id, label: line(step.label, MAX_STEP_LABEL) }))
+    .filter((step) => step.label);
   return {
     state: RUN_STATES.has(status.state) ? status.state : "idle",
     startedAt: time(status.startedAt),
     finishedAt: time(status.finishedAt),
     exitCode: Number.isSafeInteger(status.exitCode) ? status.exitCode : null,
     reason: code(status.reason),
+    detail: typeof status.detail === "string" ? cleanDetail(status.detail) || null : null,
     log: typeof status.log === "string" ? cleanLog(status.log) : "",
     version: typeof status.version === "string" && VERSION.test(status.version) ? status.version : null,
+    mode: cleanMode(status.mode),
+    steps,
+    phase: steps.some((step) => step.id === status.phase) ? status.phase : null,
   };
 }
 
@@ -193,15 +291,16 @@ export async function readRecord(stateDir, name = "update-state.json") {
   }
 }
 
-export async function readLogTail(path) {
+// The last `limit` bytes of a log, as written.
+async function readLogText(path, limit) {
   let handle;
   try {
     handle = await open(path, fsConstants.O_RDONLY | NOFOLLOW);
     const { size } = await handle.stat();
-    const length = Math.min(size, 64 * 1024);
+    const length = Math.min(size, limit);
     const buffer = Buffer.alloc(length);
     await handle.read(buffer, 0, length, size - length);
-    return cleanLog(buffer.toString("utf8"));
+    return buffer.toString("utf8");
   } catch {
     return "";
   } finally {
@@ -209,11 +308,22 @@ export async function readLogTail(path) {
   }
 }
 
+export async function readLogTail(path) {
+  return cleanLog(await readLogText(path, LOG_TAIL_BYTES));
+}
+
+// Enough of update.sh's log to find the step it is at: npm's and the checks'
+// output can run long between two of its lines.
+const PHASE_LOG_BYTES = 1024 * 1024;
+
 export class AppUpdater {
   #last = null;
   #checking = null;
   #starting = false;
   #lastStart = -Infinity;
+  // The step update.sh was last seen at, for a log whose window no longer
+  // holds the line that began it.
+  #lastPhase = null;
 
   // `exec(file, args, options)` answers { code, stdout } (execCommand): git,
   // systemctl and systemd-run all go through it, so a test can stand in for
@@ -241,7 +351,12 @@ export class AppUpdater {
     this.nodeBin = nodeBin;
     this.originAllowed = originAllowed;
     this.herdr = herdr;
-    this.plugin = plugin && PLUGIN_ID.test(plugin.id ?? "") && plugin.binary ? plugin : null;
+    this.plugin = plugin && PLUGIN_ID.test(plugin.id ?? "") && plugin.binary
+      ? {
+        id: plugin.id, binary: plugin.binary,
+        configDir: pluginFolder(plugin.configDir), stateDir: pluginFolder(plugin.stateDir),
+      }
+      : null;
     this.spawnImpl = spawnImpl;
     this.alive = alive;
     this.logFile = join(stateDir, "update.log");
@@ -340,7 +455,9 @@ export class AppUpdater {
   // left out when this PC has no Herdr updater.
   async check({ fresh = false } = {}) {
     const herdr = this.herdr?.check({ fresh }).catch(() => null);
-    const [answer, herdrAnswer] = await Promise.all([this.#check({ fresh }), herdr]);
+    const [found, herdrAnswer] = await Promise.all([this.#check({ fresh }), herdr]);
+    // How an update would run here, so the page can say what it does.
+    const answer = { ...found, mode: this.plugin ? "plugin" : "script" };
     return this.herdr ? { ...answer, herdr: herdrAnswer } : answer;
   }
 
@@ -419,22 +536,47 @@ export class AppUpdater {
         }
       }
     }
-    // A plugin run ends as soon as Herdr has queued the restart, while this
-    // server is still the one being replaced: its success is the new server's
-    // to tell, so until then the page keeps waiting for the restart.
+    // A plugin run ends once the restart is under way, while this server is
+    // still the one being replaced: its success is the new server's to tell,
+    // so until then the page keeps waiting for the restart.
     if (record?.state === "succeeded" && record.restartOf === this.pid) {
       const late = this.now() - Date.parse(record.finishedAt ?? "") > RESTART_WAIT_MS;
-      record = late ? { ...record, state: "failed", reason: "restart_failed" } : { ...record, state: "running" };
+      record = late
+        ? { ...record, state: "failed", reason: "restart_failed", phase: "restart" }
+        : { ...record, state: "running", phase: "restart" };
     }
+    const mode = cleanMode(record?.mode) ?? (this.plugin ? "plugin" : "script");
+    const text = record ? await readLogText(this.logFile, mode === "script" ? PHASE_LOG_BYTES : LOG_TAIL_BYTES) : "";
     return {
       state: record?.state ?? "idle",
       startedAt: record?.startedAt ?? null,
       finishedAt: record?.finishedAt ?? null,
       exitCode: Number.isSafeInteger(record?.exitCode) ? record.exitCode : null,
       reason: code(record?.reason),
-      log: record ? await readLogTail(this.logFile) : "",
+      detail: typeof record?.detail === "string" ? cleanDetail(record.detail) || null : null,
+      log: cleanLog(text),
       version: this.version ?? null,
+      mode,
+      steps: RUN_STEPS[mode],
+      phase: this.#phase(record, mode, text),
     };
+  }
+
+  // The step a run is at, by the ids of RUN_STEPS: a plugin run's is in its
+  // record, update.sh's in its log. A run that ended well leaves only the
+  // page's reload; one that failed stays at the step it failed in.
+  #phase(record, mode, text) {
+    if (!record || record.state === "idle") return null;
+    if (record.state === "succeeded") return "reload";
+    let phase;
+    if (mode === "script") {
+      const previous = this.#lastPhase?.startedAt === record.startedAt ? this.#lastPhase.phase : null;
+      phase = scriptPhase(text, previous) ?? "fetch";
+      this.#lastPhase = { startedAt: record.startedAt, phase };
+    } else {
+      phase = typeof record.phase === "string" && STEP_IDS.has(record.phase) ? record.phase : "fetch";
+    }
+    return phase === "done" ? "reload" : phase;
   }
 
   // Starts update.sh in a transient user unit of its own, so the service
@@ -466,7 +608,10 @@ export class AppUpdater {
         throw new HttpError(500, "update_state_unsafe", "The update log cannot be written safely.");
       }
       // The unit is named in the record only once systemd-run has made it.
-      const record = { state: "running", unit: null, startedAt, finishedAt: null, exitCode: null, reason: null };
+      const record = {
+        state: "running", unit: null, startedAt, finishedAt: null, exitCode: null, reason: null, detail: null,
+        mode: this.plugin ? "plugin" : "script", phase: "fetch",
+      };
       await writeRecord(this.stateDir, record);
       // npm and node next to the Node this runs on, wherever the user's
       // manager would otherwise look for them.
@@ -502,8 +647,11 @@ export class AppUpdater {
   async #startPlugin(record, path) {
     let pid = null;
     try {
+      // The plugin's folders, when Herdr named them, let the run restart the
+      // plugin itself should Herdr's restart action not run.
+      const folders = this.plugin.configDir && this.plugin.stateDir ? [this.plugin.configDir, this.plugin.stateDir] : [];
       const child = this.spawnImpl(this.nodeBin, [
-        join(this.repository, "scripts", "run-update.mjs"), this.stateDir, "--plugin", this.plugin.id, this.plugin.binary,
+        join(this.repository, "scripts", "run-update.mjs"), this.stateDir, "--plugin", this.plugin.id, this.plugin.binary, ...folders,
       ], {
         cwd: this.environment.HOME || homedir(),
         env: pluginRunEnvironment(this.environment, path),
@@ -529,6 +677,11 @@ export class AppUpdater {
   }
 }
 
+// A plugin folder named to the run: an absolute path, nothing else.
+export function pluginFolder(value) {
+  return absoluteFolder(value);
+}
+
 // What the plugin run needs to find Herdr, git and npm, Herdr's socket, and
 // the network the way this server's check reached it (proxies, CAs, npm's
 // settings): none of this server's HERDR_WEB_* settings.
@@ -549,43 +702,219 @@ export function pluginRunEnvironment(environment, path) {
   return env;
 }
 
-// One command with its output appended to the log; its exit code, or -1 when
-// it could not even start.
-function runLogged(spawnImpl, file, args, { cwd, fd }) {
+// A started command to its end: { code, timedOut, closed }. Its exit code once
+// it has closed, or -1 when it could not start. Past `timeout` it is stopped:
+// SIGTERM, then SIGKILL if it is still there after `killGraceMs`, and the
+// answer (-1, timedOut) waits for it to be gone -- up to `closeWaitMs` after
+// SIGKILL; one that is not gone even then answers `closed: false` and is
+// left behind, so nothing waits for it for ever.
+function runToEnd(child, { timeout = 0, killGraceMs = KILL_GRACE_MS, closeWaitMs = CLOSE_WAIT_MS }) {
   return new Promise((resolve) => {
-    let child;
-    try {
-      child = spawnImpl(file, args, { cwd, stdio: ["ignore", fd, fd] });
-    } catch {
-      resolve(-1);
-      return;
+    let settled = false;
+    let timedOut = false;
+    const timers = [];
+    const later = (ms, then) => { timers.push(setTimeout(then, ms)); };
+    const signal = (name) => { try { child.kill(name); } catch { /* gone */ } };
+    const done = (code, closed) => {
+      if (settled) return;
+      settled = true;
+      for (const timer of timers) clearTimeout(timer);
+      resolve({ code, timedOut, closed });
+    };
+    // Before a timeout, an error is a command that could not start; after
+    // one, a signal that could not be sent, and only its close counts.
+    child.once("error", () => { if (!timedOut) done(-1, true); });
+    child.once("close", (exit) => done(!timedOut && Number.isInteger(exit) ? exit : -1, true));
+    if (timeout > 0) {
+      later(timeout, () => {
+        timedOut = true;
+        signal("SIGTERM");
+        later(killGraceMs, () => {
+          signal("SIGKILL");
+          later(closeWaitMs, () => done(-1, false));
+        });
+      });
     }
-    child.once("error", () => resolve(-1));
-    child.once("close", (exit) => resolve(Number.isInteger(exit) ? exit : -1));
   });
+}
+
+// One command with its output appended to the log, as runToEnd answers it.
+function runLoggedToEnd(spawnImpl, file, args, { cwd, fd, env, ...bounds }) {
+  let child;
+  try {
+    child = spawnImpl(file, args, { cwd, stdio: ["ignore", fd, fd], ...(env ? { env } : {}) });
+  } catch {
+    return Promise.resolve({ code: -1, timedOut: false, closed: true });
+  }
+  return runToEnd(child, bounds);
+}
+
+// One command with its output appended to the log; its exit code, or -1 when
+// it could not even start or took longer than `timeout` (it is then stopped,
+// by SIGKILL if it ignores SIGTERM, and waited for until it is gone).
+export async function runLogged(spawnImpl, file, args, options) {
+  return (await runLoggedToEnd(spawnImpl, file, args, options)).code;
+}
+
+// One command whose output is read as an answer: { code, stdout, stderr,
+// timedOut, closed }, code -1 when it could not start or took longer than
+// `timeout` (stopped and waited for as runToEnd does).
+export async function runCaptured(spawnImpl, file, args, { cwd, timeout = CAPTURE_TIMEOUT_MS, ...bounds }) {
+  let child;
+  try {
+    child = spawnImpl(file, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+  } catch {
+    return { code: -1, stdout: "", stderr: "", timedOut: false, closed: true };
+  }
+  const out = [];
+  const err = [];
+  let size = 0;
+  const keep = (chunks) => (chunk) => {
+    size += chunk.length;
+    if (size <= MAX_CAPTURED_BYTES) chunks.push(chunk);
+  };
+  child.stdout?.on("data", keep(out));
+  child.stderr?.on("data", keep(err));
+  const end = await runToEnd(child, { timeout, ...bounds });
+  return {
+    code: end.code, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8"),
+    timedOut: end.timedOut, closed: end.closed,
+  };
+}
+
+const LOG_ID = /^[A-Za-z0-9._:-]{1,64}$/u;
+
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+// The id of Herdr's log for the action `herdr plugin action invoke` queued:
+// its answer is JSON with the log under `result.log` (or, older, `log`).
+export function invokedLogId(stdout) {
+  const answer = parseJson(String(stdout ?? "").trim());
+  const candidates = [answer?.result?.log?.log_id, answer?.log?.log_id, answer?.result?.log_id, answer?.log_id];
+  const id = candidates.find((value) => typeof value === "string" && LOG_ID.test(value));
+  return id ?? null;
+}
+
+// How an action in `herdr plugin log list` ended: "pending" while it runs,
+// "ok" when it exited 0, and otherwise "failed" with what Herdr says about it
+// -- its error (a command that could not even start: "No such file or
+// directory (os error 2)" when node is not on Herdr's PATH), or the last
+// line it printed.
+export function actionOutcome(entry) {
+  if (!entry || typeof entry !== "object") return { outcome: "pending", detail: null };
+  const error = typeof entry.error === "string" && entry.error.trim() ? entry.error.trim() : null;
+  const exit = Number.isSafeInteger(entry.exit_code) ? entry.exit_code : null;
+  const finished = Number.isFinite(entry.finished_unix_ms) || error !== null || exit !== null ||
+    entry.status === "succeeded" || entry.status === "failed";
+  if (!finished) return { outcome: "pending", detail: null };
+  if (!error && (exit === 0 || (exit === null && entry.status === "succeeded"))) return { outcome: "ok", detail: null };
+  const lastLine = (text) => String(typeof text === "string" ? text : "").split(/\r?\n/u).map((item) => item.trim()).filter(Boolean).at(-1);
+  const said = error ?? lastLine(entry.stderr) ?? lastLine(entry.stdout);
+  const detail = [said, exit !== null ? `exit code ${exit}` : null].filter(Boolean).join(" -- ") || "the restart action failed";
+  return { outcome: "failed", detail: cleanDetail(detail) };
+}
+
+// The checkout Herdr installed the plugin into, from `herdr plugin list
+// --json`: only an absolute folder that holds scripts/plugin.mjs.
+async function installedRoot(spawnImpl, binary, id, cwd) {
+  const answer = await runCaptured(spawnImpl, binary, ["plugin", "list", "--plugin", id, "--json"], { cwd });
+  if (answer.code !== 0) return null;
+  const plugins = parseJson(answer.stdout.trim())?.result?.plugins;
+  const plugin = Array.isArray(plugins) ? plugins.find((item) => item?.plugin_id === id) : null;
+  const root = pluginFolder(plugin?.plugin_root);
+  if (!root) return null;
+  try {
+    const entry = await lstat(join(root, "scripts", "plugin.mjs"));
+    return entry.isFile() ? root : null;
+  } catch {
+    return null;
+  }
 }
 
 // The plugin run (scripts/run-update.mjs --plugin): Herdr fetches and builds
 // the new checkout, then the plugin's restart action moves the server onto
-// it. Herdr queues that action and answers at once, so the run has ended when
-// the restart begins; the page sees the server come back. A failed update
-// leaves the server as it is.
+// it. Herdr only queues that action, so the run follows it in Herdr's log of
+// plugin actions until it has ended. An action Herdr could not run (the
+// node on its PATH is gone) is done here instead: scripts/plugin.mjs restart
+// from the new checkout, with this Node and the folders Herdr gives actions.
+// A restart that neither managed is a failed run whose detail is Herdr's
+// error; one whose outcome could not be told is a run that ended well with
+// "Could not confirm the restart (...)" as its detail. A failed update leaves
+// the server as it is. `invokeBounds` ({ timeout, killGraceMs, closeWaitMs })
+// shortens how long the restart's invoke is waited for, for tests.
 export async function runPluginUpdate({
   stateDir, id, binary, cwd = homedir(), spawnImpl = spawn, now = () => Date.now(),
+  pluginDirs = null, nodeBin = process.execPath, environment = process.env,
+  sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
+  actionWaitMs = ACTION_WAIT_MS, actionPollMs = ACTION_POLL_MS, invokeBounds = {},
 }) {
   if (!PLUGIN_ID.test(id ?? "")) throw new TypeError("a plugin id is required");
   const logFile = join(stateDir, "update.log");
   await checkStateDir(stateDir);
   const log = await open(logFile, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | NOFOLLOW, 0o600);
+  const say = (text) => log.write(`  > ${text}\n`).catch(() => {});
+  // The step the page shows, written while the run is still "running".
+  const enter = async (phase) => {
+    const record = await readRecord(stateDir);
+    if (record?.state === "running") await writeRecord(stateDir, { ...record, phase }).catch(() => {});
+  };
   let exitCode;
   let reason = null;
+  let detail = null;
+  let phase = "fetch";
   try {
+    await say(`Updating the ${id} plugin with Herdr`);
     exitCode = await runLogged(spawnImpl, binary, ["plugin", "update", id, "--yes"], { cwd, fd: log.fd });
     if (exitCode !== 0) {
-      reason = "script_failed";
+      reason = "update_failed";
     } else {
-      exitCode = await runLogged(spawnImpl, binary, ["plugin", "action", "invoke", `${id}.restart`], { cwd, fd: log.fd });
-      if (exitCode !== 0) reason = "restart_failed";
+      phase = "restart";
+      await enter(phase);
+      await say("Restarting HerdRabbit");
+      const invoked = await runCaptured(spawnImpl, binary, ["plugin", "action", "invoke", `${id}.restart`], { cwd, ...invokeBounds });
+      if (invoked.stdout || invoked.stderr) await log.write(`${invoked.stdout}${invoked.stderr}`.replace(/\n?$/u, "\n")).catch(() => {});
+      // Restarted directly only when Herdr's restart is known not to have
+      // happened: Herdr refused it, or its log says it failed. Anything less
+      // certain (an invoke that timed out, a log that cannot be read, an
+      // action still running) is never restarted a second time; the run
+      // ends well with why it could not tell, and the page's wait decides.
+      let failure = null;
+      let unconfirmed = null;
+      const logId = invokedLogId(invoked.stdout);
+      if (invoked.code !== 0 && !invoked.timedOut) {
+        failure = cleanDetail(invoked.stderr.trim().split("\n").at(-1) || `herdr plugin action invoke exited with ${invoked.code}`);
+      } else if (!invoked.closed) {
+        unconfirmed = "herdr plugin action invoke did not stop when its time was up";
+      } else if (!logId) {
+        unconfirmed = invoked.timedOut ? "herdr plugin action invoke did not answer in time" : "Herdr did not name the log of its restart action";
+      } else {
+        const outcome = await followAction({ spawnImpl, binary, id, cwd, logId, now, sleep, actionWaitMs, actionPollMs });
+        if (outcome.outcome === "failed") failure = outcome.detail;
+        else if (outcome.outcome !== "ok") unconfirmed = outcome.detail;
+      }
+      if (unconfirmed) {
+        detail = cleanDetail(`Could not confirm the restart (${unconfirmed})`);
+        await say(`${detail}; whether it ran is told by the server that answers next`);
+      }
+      if (failure) {
+        await say(`Herdr could not restart HerdRabbit: ${failure}`);
+        const restarted = await restartDirectly({ spawnImpl, binary, id, cwd, pluginDirs, nodeBin, environment, fd: log.fd, say });
+        if (restarted.ok) {
+          exitCode = 0;
+        } else {
+          exitCode = restarted.code ?? 1;
+          reason = "restart_failed";
+          detail = cleanDetail(restarted.detail ? `${failure}; ${restarted.detail}` : failure);
+        }
+      } else {
+        exitCode = 0;
+      }
     }
   } finally {
     await log.close().catch(() => {});
@@ -597,8 +926,87 @@ export async function runPluginUpdate({
     finishedAt: new Date(now()).toISOString(),
     exitCode,
     reason,
+    detail,
+    phase,
   });
   return exitCode;
+}
+
+// Herdr's log of the queued action, asked until it has ended or the wait is
+// over. The outcome is "ok", "failed" (detail: what Herdr says), "pending"
+// (it was still running when the wait was over) or "lookup_failed" (detail:
+// why it could not be read). A read that fails -- the command, its JSON, its
+// shape -- or a good list without the action is a miss, and
+// ACTION_LOOKUP_TRIES misses in a row end the asking.
+async function followAction({ spawnImpl, binary, id, cwd, logId, now, sleep, actionWaitMs, actionPollMs }) {
+  const deadline = now() + actionWaitMs;
+  let misses = 0;
+  for (;;) {
+    const answer = await runCaptured(spawnImpl, binary, ["plugin", "log", "list", "--plugin", id, "--limit", "50"], { cwd });
+    const read = actionLogs(answer);
+    const entry = read.logs?.find((item) => item?.log_id === logId);
+    let miss = read.miss ?? null;
+    if (!miss && !entry) miss = `Herdr's action log has no ${logId}`;
+    if (!miss) {
+      const outcome = actionOutcome(entry);
+      if (outcome.outcome !== "pending") return outcome;
+    }
+    misses = miss ? misses + 1 : 0;
+    if (misses >= ACTION_LOOKUP_TRIES) return { outcome: "lookup_failed", detail: miss };
+    if (now() >= deadline) {
+      return miss
+        ? { outcome: "lookup_failed", detail: miss }
+        : { outcome: "pending", detail: `the restart action was still running after ${Math.round(actionWaitMs / 1000)}s` };
+    }
+    await sleep(actionPollMs);
+  }
+}
+
+// One answer of `herdr plugin log list`: { logs } or { miss: why not }.
+function actionLogs(answer) {
+  if (answer.timedOut) return { miss: "herdr plugin log list did not answer in time" };
+  if (answer.code !== 0) return { miss: `herdr plugin log list exited with ${answer.code}` };
+  const parsed = parseJson(answer.stdout.trim());
+  if (parsed === null) return { miss: "herdr plugin log list did not answer JSON" };
+  const logs = parsed?.result?.logs;
+  if (!Array.isArray(logs)) return { miss: "herdr plugin log list answered without a list of logs" };
+  return { logs };
+}
+
+// The restart Herdr's action would have run, run from here: only with the
+// new checkout and both plugin folders known, so it finds the same settings
+// and server record; otherwise it is not tried at all.
+async function restartDirectly({ spawnImpl, binary, id, cwd, pluginDirs, nodeBin, environment, fd, say }) {
+  const configDir = pluginFolder(pluginDirs?.configDir);
+  const stateDir = pluginFolder(pluginDirs?.stateDir);
+  if (!configDir || !stateDir) {
+    await say("Not restarting it directly: this server was not told the plugin's folders");
+    return { ok: false, code: null, detail: "the plugin's folders are unknown, so HerdRabbit did not restart it directly" };
+  }
+  const root = await installedRoot(spawnImpl, binary, id, cwd);
+  if (!root) {
+    await say("Not restarting it directly: Herdr did not name the new checkout");
+    return { ok: false, code: null, detail: "the new checkout could not be found, so HerdRabbit did not restart it directly" };
+  }
+  await say(`Restarting it directly with ${nodeBin}`);
+  const env = {
+    ...pluginRunEnvironment(environment, environment.PATH ?? ""),
+    HERDR_PLUGIN_ID: id,
+    HERDR_PLUGIN_ROOT: root,
+    HERDR_PLUGIN_CONFIG_DIR: configDir,
+    HERDR_PLUGIN_STATE_DIR: stateDir,
+    HERDR_BIN_PATH: binary,
+  };
+  const { code, timedOut } = await runLoggedToEnd(spawnImpl, nodeBin, [join(root, "scripts", "plugin.mjs"), "restart"], {
+    cwd: root, fd, env, timeout: DIRECT_RESTART_TIMEOUT_MS,
+  });
+  if (code === 0) {
+    await say("Restarted directly");
+    return { ok: true, code };
+  }
+  const why = timedOut ? `the direct restart did not end within ${DIRECT_RESTART_TIMEOUT_MS / 1000}s`
+    : code === -1 ? "the direct restart could not start" : `the direct restart exited with ${code}`;
+  return { ok: false, code, detail: why };
 }
 
 // The run itself (scripts/run-update.mjs, inside the transient unit): update.sh

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { discoverPeers, readTailnetPeers, tailnetLoginOf } from "../src/tailnet-peers.mjs";
 
-const HUB_VERSION = "1.4.0";
+const HUB_VERSION = "1.4.1";
 
 const status = {
   BackendState: "Running",

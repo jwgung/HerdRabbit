@@ -135,6 +135,16 @@ test("the server learns its plugin id from Herdr, never from the settings", () =
   assert.equal("HERDR_WEB_PLUGIN_ID" in serverEnvironment(byHand, { HERDR_WEB_PLUGIN_ID: "other" }), false);
 });
 
+test("the server learns the plugin's config and state folders from Herdr, never from the settings", () => {
+  const env = serverEnvironment(ENV, { HERDR_WEB_PLUGIN_STATE_DIR: "/elsewhere" });
+  assert.equal(env.HERDR_WEB_PLUGIN_CONFIG_DIR, "/cfg");
+  assert.equal(env.HERDR_WEB_PLUGIN_STATE_DIR, "/state");
+  const { HERDR_PLUGIN_ID: _, ...byHand } = ENV;
+  const manual = serverEnvironment(byHand, { HERDR_WEB_PLUGIN_STATE_DIR: "/elsewhere" });
+  assert.equal("HERDR_WEB_PLUGIN_CONFIG_DIR" in manual, false);
+  assert.equal("HERDR_WEB_PLUGIN_STATE_DIR" in manual, false);
+});
+
 test("start writes the settings template on first run", async () => {
   const machine = fakeMachine();
   const { result, lines } = await start(machine.deps);

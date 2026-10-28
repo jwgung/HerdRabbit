@@ -28,7 +28,12 @@ case "$name:$*" in
   'herdr:update --handoff'|'custom-herdr:update --handoff') [ "$UPDATE_TEST_MODE" != herdr-update-failed ] ;;
   'systemctl:'*'--property=Environment --value') if [ "$UPDATE_TEST_MODE" = service-herdr ]; then printf 'HERDR_WEB_PORT=38787 HERDR_BIN=%s/custom-herdr\\n' "$UPDATE_TEST_BIN"; fi ;;
   'git:rev-parse --show-toplevel') printf '%s\\n' "$UPDATE_TEST_REPO" ;;
-  'git:remote get-url origin') printf 'https://github.com/ultivis-iot/HerdRabbit.git\\n' ;;
+  'git:remote get-url origin') case "$UPDATE_TEST_MODE" in
+      origin-moved) printf 'https://github.com/jwgung/HerdRabbit.git\\n' ;;
+      origin-moved-ssh) printf 'git@github.com:jwgung/HerdRabbit.git\\n' ;;
+      origin-foreign) printf 'https://github.com/someone/HerdRabbit.git\\n' ;;
+      *) printf 'https://github.com/ultivis-iot/HerdRabbit.git\\n' ;;
+    esac ;;
   'git:rev-parse --git-path herdrabbit-update.lock') printf '%s/lock\\n' "$UPDATE_TEST_REPO" ;;
   'git:branch --show-current') if [ "$UPDATE_TEST_MODE" = branch ]; then printf 'dev\\n'; else printf 'main\\n'; fi ;;
   'git:status --porcelain') if [ "$UPDATE_TEST_MODE" = dirty ]; then printf ' M local-file\\n'; fi ;;
@@ -78,6 +83,22 @@ test("updater locates its installation and verifies before restarting without re
     "Herdr is checked against the incoming code's minimum");
   assert.match(commands, /git merge --ff-only FETCH_HEAD/);
   assert.doesNotMatch(commands, /install-service|tailscale|reset --hard/);
+});
+
+test("updater accepts HerdRabbit at its new address, whichever way it was cloned", async (t) => {
+  for (const mode of ["origin-moved", "origin-moved-ssh"]) {
+    const { result, commands } = await runFixture(t, mode);
+    assert.equal(result.code, undefined, `${mode}: ${result.stderr}`);
+    assert.match(result.stdout, /Updated to 123abcd/);
+    assert.match(commands, /git fetch origin main/);
+  }
+});
+
+test("updater refuses an origin that is neither address and changes nothing", async (t) => {
+  const { result, commands } = await runFixture(t, "origin-foreign");
+  assert.notEqual(result.code, undefined);
+  assert.match(result.stderr, /origin is not ultivis-iot\/HerdRabbit or jwgung\/HerdRabbit/);
+  assert.doesNotMatch(commands, /git fetch origin main|npm ci|systemctl --user restart/);
 });
 
 test("updater updates the Herdr the service runs, not the shell's", async (t) => {

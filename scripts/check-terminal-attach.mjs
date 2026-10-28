@@ -114,7 +114,12 @@ try {
 
     // Another pane from the sidebar: the first is left, the second attached.
     if (mobile) await page.locator("#mobile-sidebar-toggle, .mobile-sidebar-toggle, [aria-label='Open sidebar']").first().click().catch(() => {});
-    await page.locator('[data-pane-id="w1:p2"]').first().click();
+    // p2 shares a split session with p1: its row is in the session's pane list.
+    {
+      const paneList = page.locator('.tab-group:has(.pane-button[data-pane-id="w1:p2"]) .split-disclosure');
+      if (await paneList.getAttribute("aria-expanded") === "false") await paneList.click();
+    }
+    await page.locator('.pane-button[data-pane-id="w1:p2"]').click();
     await page.waitForFunction(() => document.querySelector("#terminal-xterm .xterm-rows")?.textContent.includes("ready"));
     await page.waitForTimeout(100);
     assert.equal(ptys.at(-1).options.args.at(-1), "term_w1:p2");

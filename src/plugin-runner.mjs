@@ -149,6 +149,15 @@ export function pageUrl(host, port) {
 // to run the hook -- the systemd service never has it either. HERDR_BIN_PATH
 // becomes HERDR_BIN unless the settings name one, and HERDR_PLUGIN_ID becomes
 // HERDR_WEB_PLUGIN_ID: the in-app update asks Herdr to update that plugin.
+// The plugin's config and state folders go on the same way, as
+// HERDR_WEB_PLUGIN_CONFIG_DIR and HERDR_WEB_PLUGIN_STATE_DIR: when Herdr's
+// restart action cannot run, the in-app update restarts the plugin itself
+// with the folders Herdr would have given that action.
+const PLUGIN_FOLDERS = [
+  ["HERDR_PLUGIN_CONFIG_DIR", "HERDR_WEB_PLUGIN_CONFIG_DIR"],
+  ["HERDR_PLUGIN_STATE_DIR", "HERDR_WEB_PLUGIN_STATE_DIR"],
+];
+
 export function serverEnvironment(processEnv, settings, { tailnetHost = "" } = {}) {
   const env = {};
   for (const [key, value] of Object.entries(processEnv)) {
@@ -161,6 +170,10 @@ export function serverEnvironment(processEnv, settings, { tailnetHost = "" } = {
   Object.assign(env, settings);
   delete env.HERDR_WEB_PLUGIN_ID;
   if (processEnv.HERDR_PLUGIN_ID) env.HERDR_WEB_PLUGIN_ID = processEnv.HERDR_PLUGIN_ID;
+  for (const [from, to] of PLUGIN_FOLDERS) {
+    delete env[to];
+    if (processEnv.HERDR_PLUGIN_ID && processEnv[from]) env[to] = processEnv[from];
+  }
   if (!settings.HERDR_WEB_ALLOWED_HOSTS && tailnetHost) env.HERDR_WEB_ALLOWED_HOSTS = tailnetHost;
   return env;
 }

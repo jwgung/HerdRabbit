@@ -36,8 +36,8 @@ main() {
     UPDATE_DIRECTORY="$(pwd -P)"
     [ "$(git rev-parse --show-toplevel)" = "$UPDATE_DIRECTORY" ] || fail "run this script from a HerdRabbit repository root"
     case "$(git remote get-url origin)" in
-        https://github.com/ultivis-iot/HerdRabbit.git|https://github.com/ultivis-iot/HerdRabbit|git@github.com:ultivis-iot/HerdRabbit.git) ;;
-        *) fail "origin is not ultivis-iot/HerdRabbit" ;;
+        https://github.com/ultivis-iot/HerdRabbit.git|https://github.com/ultivis-iot/HerdRabbit|git@github.com:ultivis-iot/HerdRabbit.git|https://github.com/jwgung/HerdRabbit.git|https://github.com/jwgung/HerdRabbit|git@github.com:jwgung/HerdRabbit.git) ;;
+        *) fail "origin is not ultivis-iot/HerdRabbit or jwgung/HerdRabbit" ;;
     esac
     UPDATE_LOCK="$(git rev-parse --git-path herdrabbit-update.lock)"
     exec 9>"$UPDATE_LOCK"
@@ -69,7 +69,10 @@ main() {
         log "         To open this PC's page, run 'npm run install-service' after the update (it asks for a password)."
     fi
 
-    log "Fetching main in $UPDATE_DIRECTORY"
+    # The page's Update window shows which step a run is at from the lines
+    # marked "step:" (SCRIPT_MARKERS in src/app-update.mjs). Keep their wording
+    # in step with it; test/app-update.test.mjs fails when one is no longer printed.
+    log "Fetching main in $UPDATE_DIRECTORY" # step: fetch
     git fetch origin main
     git merge-base --is-ancestor HEAD FETCH_HEAD || fail "local main has unpublished or divergent commits; reconcile it manually"
     # Herdr comes first, checked against the minimum the incoming code names,
@@ -82,26 +85,26 @@ main() {
     # --handoff moves running panes onto the new Herdr instead of stopping them.
     # A failed download leaves the installed Herdr in place; the version check
     # decides whether that one is still new enough.
-    log "Updating Herdr"
+    log "Updating Herdr" # step: herdr
     "$HERDR_BIN" update --handoff || log "Warning: Herdr could not be updated; keeping the installed version"
     # Passed to the check alone: exported, it would reach the tests below.
     HERDR_VERSION_MODULE="$INCOMING_DIRECTORY/src/herdr-version.mjs" node scripts/check-herdr-version.mjs || { rm -rf "$INCOMING_DIRECTORY"; fail "Herdr is missing or too old for the new HerdRabbit; update it and run this script again"; }
     rm -rf "$INCOMING_DIRECTORY"
     PREVIOUS_HEAD="$(git rev-parse HEAD)"
     git merge --ff-only FETCH_HEAD
-    log "Installing runtime dependencies"
+    log "Installing runtime dependencies" # step: install
     npm ci --omit=dev || roll_back "dependency installation failed"
-    log "Verifying the updated code"
+    log "Verifying the updated code" # step: verify
     npm run verify || roll_back "verification failed"
     log "Configuring Claude to use native terminal scrollback"
     # Not rolled back: it only edits Claude's settings, and the new code has
     # already passed verification.
     node scripts/configure-claude.mjs
-    log "Restarting $UPDATE_SERVICE"
+    log "Restarting $UPDATE_SERVICE" # step: restart
     RESTARTED=1
     systemctl --user restart "$UPDATE_SERVICE" || roll_back "the service did not restart; check journalctl --user -u $UPDATE_SERVICE"
     systemctl --user is-active --quiet "$UPDATE_SERVICE" || roll_back "service is not active; check journalctl --user -u $UPDATE_SERVICE"
-    log "Updated to $(git rev-parse --short HEAD). Refresh the web app or PWA."
+    log "Updated to $(git rev-parse --short HEAD). Refresh the web app or PWA." # step: done
     log "Existing service settings and saved SSH connections are preserved."
 
     # A unit that drifted to 0.0.0.0 -- hand-edited, or written by an older

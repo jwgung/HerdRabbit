@@ -1,16 +1,16 @@
-// Browser check of a split tab. On a wide screen the tab's heading opens the
-// grid: every pane in a cell placed as Herdr lays it out, a cell too small to
+// Browser check of a split tab. On a wide screen the tab's one sidebar row
+// opens the grid: every pane in a cell placed as Herdr lays it out, a cell too small to
 // read shows its name only, a press focuses a cell and makes it the selected
 // pane (typing in it reaches that pane alone, the composer follows), cells
 // never resize a pane's pty, the ⋯ menu splits, zooms and closes, a refused
 // split is said, and ⤢ opens the pane alone with Back to grid. A pane row in
-// the sidebar opens its pane alone. Leaving the grid closes the cells'
+// the row's dropdown opens its pane alone. Leaving the grid closes the cells'
 // sockets. No cell attaches before Herdr's layout is read, a close always
 // says the user meant it, and the cells follow the terminal font size. On a
 // phone there is no grid: the selected pane shows with a map of the tab above
 // it, a pane the layout does not have yet is still counted and tappable, and
-// a tap on the map switches pane. A connected PC's split tab is its pane rows
-// only: no grid, no map. Behind a password, a grid is not redrawn while
+// a tap on the map switches pane. A connected PC's split tab is one row too,
+// but opens a pane alone: no grid, no map. Behind a password, a grid is not redrawn while
 // nothing changed, has no terminal find, completes a notification for its
 // pane once that pane's cell is on screen (not zoomed out), and its cells
 // reconnect after a hidden page or a sign-out and sign-in.
@@ -177,6 +177,13 @@ try {
     const cellShows = (paneId, text) => page.waitForFunction(([id, wanted]) =>
       document.querySelector(`.pane-grid-cell[data-pane-id="${id}"] .xterm-rows`)?.textContent.replace(/ /gu, " ").includes(wanted), [paneId, text]);
     const pressed = (paneId) => page.locator(`.pane-button[data-pane-id="${paneId}"]`).getAttribute("aria-pressed");
+    // A split session's one row, and the arrow that shows its panes under it.
+    const splitRow = (tabId) => page.locator(`.split-session-button[data-tab-id="${tabId}"]`);
+    const showPanes = async (tabId) => {
+      const arrow = page.locator(`.tab-group[data-tab-id="${tabId}"] .split-disclosure`);
+      if (await arrow.getAttribute("aria-expanded") !== "true") await arrow.click();
+      await page.locator(`.tab-group[data-tab-id="${tabId}"] .split-panes`).waitFor({ state: "visible" });
+    };
 
     if (!mobile) {
       // A pane row opens its pane alone, with a way to the tab's grid.
@@ -185,9 +192,11 @@ try {
       await page.locator("#grid-back").waitFor({ state: "visible" });
       assert.equal(await page.locator("#pane-map").isVisible(), false, "no map on a wide screen");
 
-      // The tab's heading opens the grid, cells placed as Herdr has them.
-      const heading = page.locator('.tab-grid-open[data-tab-id="w1:t1"]');
-      assert.match(await heading.textContent(), /Split work\s*4/u);
+      // The tab's one row opens the grid, cells placed as Herdr has them.
+      const heading = splitRow("w1:t1");
+      assert.equal(await heading.locator(".pane-title").textContent(), "Split work");
+      assert.equal(await heading.locator(".split-badge").textContent(), "4");
+      assert.equal(await heading.locator(".pane-status").getAttribute("class"), "pane-status ui-status state-blocked", "the most urgent status of its panes");
       // A pane shown alone needs no layout.
       await page.waitForTimeout(400);
       assert.deepEqual(layoutReads, [], "no layout is read for a pane shown alone");
@@ -340,6 +349,7 @@ try {
       assert.equal(await cell("w1:p2").evaluate((node) => node.classList.contains("is-focused")), true);
 
       // A pane row opens its pane alone, and the cells' sockets close.
+      await showPanes("w1:t1");
       await page.locator('.pane-button[data-pane-id="w1:p3"]').click();
       await grid.waitFor({ state: "hidden" });
       await page.waitForFunction(() => document.querySelectorAll(".pane-grid-cell").length === 0);
@@ -367,18 +377,18 @@ try {
         }
         await route.continue().catch(() => {});
       });
-      await page.locator('.tab-grid-open[data-tab-id="w1:t3"]').waitFor({ timeout: 8000 });
+      await splitRow("w1:t3").waitFor({ timeout: 8000 });
       // Past the layout's age, so opening tab A reads it again, and that read is held.
       await page.waitForTimeout(3300);
       const heldRead = page.waitForRequest((request) => decodeURIComponent(request.url()).includes("/w1:p1/layout"));
-      await page.locator('.tab-grid-open[data-tab-id="w1:t1"]').click();
+      await splitRow("w1:t1").click();
       await heldRead;
-      await page.locator('.tab-grid-open[data-tab-id="w1:t3"]').click();
+      await splitRow("w1:t3").click();
       await page.waitForFunction(() => document.querySelectorAll('.pane-grid-cell[data-pane-id^="w1:p2"]').length === 2);
       await cell("w1:p20").locator(".xterm").waitFor({ timeout: 4000 });
       // Back to tab A: a second read of it answers while the first is still
       // held, and the first, answering last, does not undo it.
-      await page.locator('.tab-grid-open[data-tab-id="w1:t1"]').click();
+      await splitRow("w1:t1").click();
       await cell("w1:p1").locator(".xterm").waitFor({ timeout: 4000 });
       assert.ok(readsOfA >= 2, "tab A is read again");
       releaseA();
@@ -388,7 +398,7 @@ try {
       assert.equal(await page.locator(".pane-grid-zoom").isVisible(), false, "an older read of the tab answering late is dropped");
       assert.equal(await page.locator(".pane-grid-cell:not([hidden])").count(), 4);
       await page.unroute("**/api/panes/*/layout");
-      await page.locator('.tab-grid-open[data-tab-id="w1:t3"]').click();
+      await splitRow("w1:t3").click();
       // Tab into a cell selects it: keyboard focus is a press too.
       await cell("w1:p21").locator(".xterm").waitFor();
       assert.equal(await cell("w1:p21").getAttribute("role"), "group");
@@ -401,12 +411,11 @@ try {
       assert.equal(await page.locator('.pane-button[data-pane-id="w1:p21"]').getAttribute("aria-pressed"), "true", "Tab into a cell selects its pane");
       await page.locator('.pane-button[data-pane-id="w1:p3"]').click();
       await grid.waitFor({ state: "hidden" });
-      // A tab with one pane has no grid heading.
-      assert.equal(await page.locator('.tab-grid-open[data-tab-id="w1:t2"]').count(), 0);
-      // Nor has a connected PC's split tab: its panes open alone, no way to a grid.
-      assert.equal(await page.locator('.tab-grid-open[data-tab-id="laptop!w1:t1"]').count(), 0);
+      // A tab with one pane is not a split row.
+      assert.equal(await splitRow("w1:t2").count(), 0);
+      // A connected PC's split tab is one row, but it opens its pane alone: no way to a grid.
       const readsBefore = layoutReads.length;
-      await page.locator('.pane-button[data-pane-id="laptop!w1:p1"]').click();
+      await splitRow("laptop!w1:t1").click();
       await page.locator("#pane-title").filter({ hasText: /one/u }).waitFor();
       await page.waitForTimeout(400);
       assert.equal(await grid.isVisible(), false);
@@ -437,13 +446,14 @@ try {
       await page.locator("#pane-title").filter({ hasText: /gamma/u }).waitFor();
       await page.waitForFunction(() => document.querySelector('.pane-map-cell[data-pane-id="w1:p3"]')?.getAttribute("aria-pressed") === "true");
       assert.match(await page.locator(".pane-map-count").textContent(), /^3 \/ 5$/u);
-      // The tab's heading in the sidebar keeps a phone on one pane and the map.
+      // The tab's row in the sidebar keeps a phone on its pane and the map.
       await page.locator("#mobile-sidebar-open").click();
       await page.waitForTimeout(400);
-      await page.locator('.tab-grid-open[data-tab-id="w1:t1"]').click();
+      await splitRow("w1:t1").click();
       await page.waitForTimeout(400);
       assert.equal(await grid.isVisible(), false);
       assert.equal(await map.isVisible(), true);
+      await page.locator("#pane-title").filter({ hasText: /gamma/u }).waitFor();
       // A one-pane tab has no map.
       await page.locator("#mobile-sidebar-open").click();
       await page.waitForTimeout(400);
@@ -452,6 +462,7 @@ try {
       // Nor has a connected PC's split tab.
       await page.locator("#mobile-sidebar-open").click();
       await page.waitForTimeout(400);
+      await showPanes("laptop!w1:t1");
       await page.locator('.pane-button[data-pane-id="laptop!w1:p2"]').click();
       await page.locator("#pane-title").filter({ hasText: /two/u }).waitFor();
       await page.waitForTimeout(400);
@@ -510,7 +521,7 @@ try {
     await page.locator("#terminal-xterm .xterm").click();
     await page.keyboard.press("Control+f");
     await page.locator("#terminal-find").waitFor({ state: "visible" });
-    await page.locator('.tab-grid-open[data-tab-id="w1:t1"]').click();
+    await page.locator('.split-session-button[data-tab-id="w1:t1"]').click();
     await page.locator(".pane-grid").waitFor({ state: "visible" });
     for (const paneId of ["w1:p1", "w1:p2", "w1:p3"]) await cellShows(paneId, `pane ${paneId}`);
     const findHidden = () => page.locator("#terminal-find").evaluate((node) => node.hidden);
@@ -602,6 +613,86 @@ try {
     await context.close();
     signedServer.close();
     console.log("ok: desktop grid lifecycle");
+  }
+  // Two split sessions' grids switched at once, many times, on a server whose
+  // panes cannot attach (each cell falls back at once, as where node-pty is
+  // missing). Each grid is let go as soon as its cells' terminals open, or a
+  // task later once xterm cleared their screens and before it drew the next
+  // frame: xterm still has work of its own queued for those terminals, and
+  // none of it may fail once a terminal is gone.
+  {
+    reset();
+    panes.push({ pane_id: "w1:p20", tab_id: "w1:t3", workspace_id: "w1", cwd: "/work/zeta", agent_status: "idle" },
+      { pane_id: "w1:p21", tab_id: "w1:t3", workspace_id: "w1", cwd: "/work/eta", agent_status: "idle" });
+    rects.set("w1:p20", { x: 0, y: 0, width: 60, height: 40 });
+    rects.set("w1:p21", { x: 60, y: 0, width: 60, height: 40 });
+    const { server: bareServer } = createHerdrHttpServer({ herdr, logger: { info() {}, error() {} } });
+    bareServer.listen(0, "127.0.0.1");
+    await once(bareServer, "listening");
+    const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 844 } });
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => { if (message.type() === "error") errors.push(`console: ${message.text()}`); });
+    await page.goto(`http://127.0.0.1:${bareServer.address().port}/?pane=${encodeURIComponent("w1:p1")}`);
+    await page.locator('.split-session-button[data-tab-id="w1:t3"]').waitFor();
+    const switches = await page.evaluate(async (rounds) => {
+      const rowOf = (tabId) => document.querySelector(`.split-session-button[data-tab-id="${tabId}"]`);
+      // Resolves once a cell of the grid has a terminal: at once, or a task later.
+      const opened = (paneIds, later) => new Promise((resolve, reject) => {
+        const has = () => paneIds.some((id) => document.querySelector(`.pane-grid-cell[data-pane-id="${id}"] .xterm`));
+        const done = () => { observer.disconnect(); clearTimeout(limit); if (later) setTimeout(resolve, 0); else resolve(); };
+        const observer = new MutationObserver(() => { if (has()) done(); });
+        const limit = setTimeout(() => { observer.disconnect(); reject(new Error(`no terminal opened for ${paneIds}`)); }, 5000);
+        observer.observe(document.body, { childList: true, subtree: true });
+        if (has()) done();
+      });
+      const tabs = [["w1:t1", ["w1:p1", "w1:p2", "w1:p3"]], ["w1:t3", ["w1:p20", "w1:p21"]]];
+      let count = 0;
+      for (let round = 0; round < rounds; round += 1) {
+        const [tabId, paneIds] = tabs[round % 2];
+        const ready = opened(paneIds, round % 4 >= 2);
+        rowOf(tabId).click();
+        await ready;
+        count += 1;
+      }
+      rowOf(tabs[rounds % 2][0]).click();
+      return count;
+    }, 12);
+    assert.equal(switches, 12);
+    await page.waitForTimeout(600);
+    assert.deepEqual(errors, [], "switching grids at once throws and logs nothing");
+    // The same terminals the grid's cells use, let go in the very task they
+    // opened in: a cell (which keeps its pane's size) that was just told that
+    // size, and a terminal that sizes its pane. xterm has measuring of its
+    // own queued for each, and it may not fail on a terminal let go.
+    await page.evaluate(async () => {
+      const version = new URL(document.querySelector('script[type="module"][src*="app.js"]')?.src ?? location.href).search;
+      const xterm = await import(`/vendor/xterm.mjs${version}`);
+      const { createAttachedTerminal } = await import(`/xterm-terminal.js${version}`);
+      for (let round = 0; round < 6; round += 1) {
+        const listeners = [];
+        const connection = { onAttach: (listener) => listeners.push(listener), onReconnect() {}, attach() {}, detach() {},
+          resize() {}, resume() {}, pause() {}, ptyInput() { return true; }, acknowledge() {}, takeOver() {} };
+        const host = document.createElement("div");
+        host.style.cssText = "position:fixed;left:0;top:0;width:480px;height:240px";
+        document.body.append(host);
+        const keepSize = round % 2 === 0;
+        const terminal = createAttachedTerminal({ host, connection, xterm, fontSize: 13, keepSize, onFallback() {} });
+        terminal.show(`w1:p${round}`);
+        for (const listener of listeners) {
+          listener({ type: "pane-geometry", pane_id: `w1:p${round}`, cols: 40, rows: 10, owner: false });
+          listener({ type: "pty-data", pane_id: `w1:p${round}`, data: "hello\r\n" });
+        }
+        terminal.dispose();
+        host.remove();
+      }
+    });
+    await page.waitForTimeout(600);
+    assert.deepEqual(errors, [], "a terminal let go as it opens throws nothing later");
+    await context.close();
+    bareServer.close();
+    console.log("ok: grids switched at once");
   }
 } finally {
   await browser.close();
