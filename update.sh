@@ -36,8 +36,8 @@ main() {
     UPDATE_DIRECTORY="$(pwd -P)"
     [ "$(git rev-parse --show-toplevel)" = "$UPDATE_DIRECTORY" ] || fail "run this script from a HerdRabbit repository root"
     case "$(git remote get-url origin)" in
-        https://github.com/ultivis-iot/HerdRabbit.git|https://github.com/ultivis-iot/HerdRabbit|git@github.com:ultivis-iot/HerdRabbit.git) ;;
-        *) fail "origin is not ultivis-iot/HerdRabbit" ;;
+        https://github.com/ultivis-iot/HerdRabbit.git|https://github.com/ultivis-iot/HerdRabbit|git@github.com:ultivis-iot/HerdRabbit.git|https://github.com/jwgung/HerdRabbit.git|https://github.com/jwgung/HerdRabbit|git@github.com:jwgung/HerdRabbit.git) ;;
+        *) fail "origin is not ultivis-iot/HerdRabbit or jwgung/HerdRabbit" ;;
     esac
     UPDATE_LOCK="$(git rev-parse --git-path herdrabbit-update.lock)"
     exec 9>"$UPDATE_LOCK"

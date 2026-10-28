@@ -337,6 +337,12 @@ test("the service units and official addresses here are the ones update.sh uses"
   for (const unit of SERVICE_UNITS) assert.match(script, new RegExp(`UPDATE_SERVICE=${unit.replace(".", "\\.")}`, "u"), `${unit} is not in update.sh`);
   const allowed = script.match(/^\s*(https:\/\/github\.com\/ultivis-iot[^)]*)\)\s*;;/mu)?.[1].split("|").map((origin) => origin.trim());
   assert.deepEqual(new Set(allowed), OFFICIAL_ORIGINS, "update.sh and the app allow different origins");
+  // Both owners, in each of the three spellings.
+  for (const owner of ["ultivis-iot", "jwgung"]) {
+    for (const origin of [`https://github.com/${owner}/HerdRabbit.git`, `https://github.com/${owner}/HerdRabbit`, `git@github.com:${owner}/HerdRabbit.git`]) {
+      assert.ok(OFFICIAL_ORIGINS.has(origin), `${origin} is allowed`);
+    }
+  }
 });
 
 test("the run records how update.sh ended and keeps its output as the log", async (context) => {

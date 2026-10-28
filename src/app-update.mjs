@@ -40,11 +40,16 @@ export const MAX_RUN_MS = 60 * 60_000;
 export const RESTART_WAIT_MS = 2 * 60_000;
 // The service units update.sh restarts, in the order it looks for them.
 export const SERVICE_UNITS = ["herdrabbit.service", "herdr-web-local.service"];
-// The only origins update.sh updates from.
+// The only origins update.sh updates from: where HerdRabbit lives now and
+// where it moves to (an installed checkout keeps the address it was cloned
+// from, which GitHub redirects after a transfer).
 export const OFFICIAL_ORIGINS = new Set([
   "https://github.com/ultivis-iot/HerdRabbit.git",
   "https://github.com/ultivis-iot/HerdRabbit",
   "git@github.com:ultivis-iot/HerdRabbit.git",
+  "https://github.com/jwgung/HerdRabbit.git",
+  "https://github.com/jwgung/HerdRabbit",
+  "git@github.com:jwgung/HerdRabbit.git",
 ]);
 export const RUN_STATES = new Set(["idle", "running", "succeeded", "failed"]);
 // What a run's failure may say beyond its reason (Herdr's own error text for

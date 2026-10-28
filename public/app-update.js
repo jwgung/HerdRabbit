@@ -12,7 +12,7 @@
 export const BLOCKED_TEXT = {
   running: "An update is already running.",
   not_service: "HerdRabbit is not running as its systemd user service here, so it cannot update itself. Run update.sh on that PC.",
-  wrong_origin: "This checkout's origin is not ultivis-iot/HerdRabbit. Update it by hand.",
+  wrong_origin: "This checkout's origin is not ultivis-iot/HerdRabbit or jwgung/HerdRabbit. Update it by hand.",
   not_main: "This checkout is not on the main branch.",
   local_changes: "This checkout has local changes. Commit or move them first.",
   diverged: "Local main has commits that are not on origin. Reconcile it by hand.",
