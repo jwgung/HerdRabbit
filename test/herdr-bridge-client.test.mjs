@@ -204,3 +204,30 @@ test("a pane layout names its panes by scoped id", async () => {
   assert.equal(layout.tab_id, `${sessionId}~w2:t1`);
   assert.equal(layout.zoomed, false);
 });
+
+test("panes are swapped and relocated within one Herdr session, answered under scoped ids", async () => {
+  const json = (result) => ({ stdout: JSON.stringify({ result }), stderr: "" });
+  const layout = json({ layout: { tab_id: "w2:t1", workspace_id: "w2", zoomed: false,
+    panes: [{ pane_id: "w2:p3", rect: { x: 0, y: 0, width: 5, height: 5 } }, { pane_id: "w2:p4", rect: { x: 5, y: 0, width: 5, height: 5 } }] } });
+  const full = Object.assign(new Error("failed"), { stderr: JSON.stringify({ error: { code: "pane_split_failed", message: "no room" } }) });
+  const fake = recordingRunner([
+    { stdout: JSON.stringify({ sessions: [{ name: "review", default: false, running: true }] }), stderr: "" },
+    json({ snapshot: snapshot("리뷰") }),
+    layout, { stdout: "", stderr: "" },
+    layout, json({ move_result: { pane: { pane_id: "w2:p3", tab_id: "w2:t9" }, created_tab: { tab_id: "w2:t9" } } }), full, full, full,
+  ]);
+  const client = new HerdrBridgeClient({ runner: fake.runner });
+  const sessionId = sessionIds.sessionIdForName("review");
+  await client.snapshot();
+  assert.deepEqual(await client.swapPanes(`${sessionId}~w2:p3`, `${sessionId}~w2:p4`), { pane_id: `${sessionId}~w2:p3` });
+  assert.deepEqual(fake.calls[3].args, ["--session=review", "pane", "swap", "--source-pane", "w2:p3", "--target-pane", "w2:p4"]);
+  // Left in a session of its own: its pane and that session come back scoped.
+  assert.deepEqual(await client.relocatePane(`${sessionId}~w2:p3`, `${sessionId}~w2:p4`, "right"), {
+    pane_id: `${sessionId}~w2:p3`, placed: false, restored: false, tab_id: `${sessionId}~w2:t9`,
+    message: "no room. The pane is in a session of its own now.",
+  });
+  const other = `${sessionIds.sessionIdForName("other")}~w1:p1`;
+  await assert.rejects(client.swapPanes(`${sessionId}~w2:p3`, other), InputValidationError);
+  await assert.rejects(client.relocatePane(`${sessionId}~w2:p3`, other, "left"), InputValidationError);
+  assert.equal(fake.calls.length, 9, "nothing is asked across sessions");
+});

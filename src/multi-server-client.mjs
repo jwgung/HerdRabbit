@@ -267,6 +267,17 @@ export class MultiServerClient {
     const target = this.#localPane(targetId);
     return pane.client.movePaneSplit(pane.id, target.id, side);
   }
+  // Rearranging a split tab's panes: this machine's only, like its split.
+  swapPanes(id, targetId) {
+    const pane = this.#localPane(id);
+    const target = this.#localPane(targetId);
+    return pane.client.swapPanes(pane.id, target.id);
+  }
+  relocatePane(id, targetId, side) {
+    const pane = this.#localPane(id);
+    const target = this.#localPane(targetId);
+    return pane.client.relocatePane(pane.id, target.id, side);
+  }
   // This machine's panes only: a connected PC's processes are not this one's to look into.
   async paneProcessInfo(id) {
     const { entry, id: localId } = this.target(id);

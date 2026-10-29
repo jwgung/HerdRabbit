@@ -3380,6 +3380,84 @@ body.is-sidebar-dragging * {
   user-select: none;
 }
 
+/* A cell is picked up by its header and dropped on another: in its middle the
+   two swap, near an edge it goes on that side (the dashed half shows where). */
+.pane-grid.can-rearrange .pane-grid-cell-header {
+  cursor: grab;
+}
+
+.pane-grid.can-rearrange .pane-grid-cell-header :is(button, summary) {
+  cursor: pointer;
+}
+
+body.is-pane-rearranging,
+body.is-pane-rearranging * {
+  cursor: grabbing !important;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.pane-grid-cell.is-drag-source {
+  opacity: 0.45;
+}
+
+.pane-grid-cell.is-swap-target {
+  border-color: var(--accent);
+}
+
+.pane-grid-drop-preview[data-kind="swap"] {
+  display: grid;
+  place-items: center;
+  border-style: solid;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.pane-grid-drop-preview[hidden] {
+  display: none;
+}
+
+.pane-grid-drop-label {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pane-grid-drop-label[hidden] {
+  display: none;
+}
+
+/* The carried cell's name, following the pointer. */
+.pane-grid-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  max-width: 280px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 10px 28px var(--mobile-shadow);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.pane-grid-drag-ghost-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pane-grid-cell.is-focused .pane-grid-cell-header {
   color: var(--text);
 }

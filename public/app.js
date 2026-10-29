@@ -127,11 +127,13 @@ import {
 import {
   addTile,
   layoutRects,
+  moveTile,
   paneDropKind,
   prune as pruneViewTiles,
   readViewSplit,
   removeTile,
   renameTiles,
+  swapTiles,
   tiles as viewTiles,
   writeViewSplit,
 } from "./view-split.js?v=1.4.2";
@@ -3734,6 +3736,8 @@ const paneGrid = createPaneGrid({
     focusComposer();
   },
   onUnzoom: (paneId) => void paneGridAction(paneId, "zoom", { mode: "toggle" }),
+  onRearrange: (drop) => void rearrangeGridPanes(drop),
+  canRearrange: () => !state.mutationBusy,
   onAuthenticationRequired: () => showLogin(),
   terminalOptions: {
     isLinkablePath: isLinkableTerminalPath,
@@ -3761,6 +3765,7 @@ const viewGrid = createPaneGrid({
     selectPane(paneId, { view: "solo" });
     focusComposer();
   },
+  onRearrange: (drop) => rearrangeViewTiles(drop),
   onAuthenticationRequired: () => showLogin(),
   terminalOptions: {
     isLinkablePath: isLinkableTerminalPath,
@@ -3768,6 +3773,20 @@ const viewGrid = createPaneGrid({
     onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
   },
 });
+
+// A tile dragged onto another: the two trade places (its middle) or it goes
+// next to that tile on a side. This window's layout alone: Herdr hears
+// nothing. The dragged tile stays selected and keeps the typing.
+function rearrangeViewTiles({ paneId, targetPaneId, kind, side }) {
+  const next = kind === "swap" ? swapTiles(viewSplit.tree, paneId, targetPaneId)
+    : moveTile(viewSplit.tree, paneId, targetPaneId, side);
+  if (!next || next === viewSplit.tree) return;
+  viewSplit.focus = paneId;
+  setViewSplit(next, true);
+  if (state.selectedPaneId !== paneId) selectPane(paneId, { view: "tiles" });
+  else renderPaneViews();
+  viewGrid.focus(paneId);
+}
 
 // The grid on screen, the Herdr tab's or the view split's, or null.
 function shownGrid() {
@@ -4245,6 +4264,46 @@ async function movePaneIntoSplit(request) {
   } else void refreshTerminal();
   // After the selection, which clears the feedback line.
   if (unplaced) setFeedback(unplaced, true);
+}
+
+// A cell of a Herdr grid dragged onto another of the same tab: the two swap
+// places (dropped in its middle), or it moves next to it on a side (Herdr
+// lifts it out of the tab and splits it back in there). The pane stays
+// selected in the grid; should Herdr answer it under another id, what the
+// page keeps under its id follows it. A relocate that could not finish says
+// where the pane is now (`placed` false: put back in its session, or in a
+// session of its own).
+async function rearrangeGridPanes({ paneId, targetPaneId, kind, side }) {
+  if (state.mutationBusy || !shownGridTabId || paneTabId(paneId) !== shownGridTabId || paneTabId(targetPaneId) !== shownGridTabId) return;
+  const tabId = shownGridTabId;
+  state.mutationBusy = true;
+  setFeedback("");
+  let finalId = paneId;
+  let notice = null;
+  try {
+    const result = kind === "swap"
+      ? await api(`/api/panes/${encodeURIComponent(paneId)}/swap`, { method: "POST", body: { targetPaneId } })
+      : await api(`/api/panes/${encodeURIComponent(paneId)}/relocate`, { method: "POST", body: { targetPaneId, side } });
+    if (typeof result?.pane_id === "string" && result.pane_id !== paneId) {
+      finalId = result.pane_id;
+      followMovedPaneState([{ from: paneId, to: finalId }]);
+      if (state.selectedPaneId === paneId) state.selectedPaneId = finalId;
+    }
+    if (result?.placed === false) notice = result.message || "Could not move the pane there.";
+  } catch (error) {
+    notice = error.message;
+  } finally {
+    state.mutationBusy = false;
+  }
+  await refreshAfterPaneChange();
+  if (snapshotRecords().panes.some((item) => idOf(item, "pane_id", "id") === finalId)) {
+    // Left in a session of its own, it shows there, alone.
+    const inGrid = paneTabId(finalId) === tabId;
+    selectPane(finalId, inGrid ? { fromGrid: true } : { view: "solo" });
+    if (inGrid) paneGrid.focus(finalId);
+  } else void refreshTerminal();
+  // After the selection, which clears the feedback line.
+  if (notice) setFeedback(notice, true);
 }
 
 // The strip over the Terminal lens that says why the terminal is not live:

@@ -1398,6 +1398,25 @@ export function createHerdrHttpServer({
         }
         return;
       }
+      // Rearranging a split tab's panes (this machine's only): two panes of
+      // one tab trade places, or one moves next to another on a side. A
+      // relocate whose second step failed is still a 200 with `placed: false`
+      // and a message: the pane moved, and the page has to follow it.
+      const paneRearrangeMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/(swap|relocate)$/);
+      if (method === "POST" && paneRearrangeMatch) {
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, maxBodyBytes);
+        const paneId = decodePaneId(paneRearrangeMatch[1]);
+        const swap = paneRearrangeMatch[2] === "swap";
+        if (typeof herdr[swap ? "swapPanes" : "relocatePane"] !== "function") {
+          throw new HerdrCommandError("That is not available for this PC yet.", { code: "link_unsupported" });
+        }
+        if (typeof body.targetPaneId !== "string") throw new InputValidationError("Invalid target pane id");
+        sendJson(response, 200, swap
+          ? await herdr.swapPanes(paneId, body.targetPaneId)
+          : await herdr.relocatePane(paneId, body.targetPaneId, body.side));
+        return;
+      }
       const outputMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/output$/);
       if (method === "GET" && outputMatch) {
         const paneId = decodePaneId(outputMatch[1]);

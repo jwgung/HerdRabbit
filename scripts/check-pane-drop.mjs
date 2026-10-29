@@ -14,7 +14,8 @@
 // takes the typing, a sidebar row of a tile focuses it and another pane opens
 // alone with Back to split view, ⤢ opens a tile alone, a reload brings the
 // view split back, a vanished pane's tile goes, and ✕ takes tiles out until
-// the last one shows alone.
+// the last one shows alone. A tile carried by its header swaps with another
+// (its middle) or goes beside it (an edge), nothing sent, kept on reload.
 // PANE_DROP_SHOTS=<folder> keeps pictures taken mid-drag and of the view
 // split (two and three tiles) in both themes.
 import assert from "node:assert/strict";
@@ -231,6 +232,9 @@ async function mouseDrag(page, from, to, { shot } = {}) {
   await page.mouse.up();
   return during;
 }
+
+const focusedTile = (page, paneId) => page.waitForFunction((id) =>
+  document.querySelector(`.pane-grid.is-view .pane-grid-cell[data-pane-id="${id}"]`)?.classList.contains("is-focused"), paneId);
 
 const near = (actual, expected, what) => {
   for (const key of ["x", "y", "width", "height"]) {
@@ -620,6 +624,104 @@ try {
     await context.close();
   }
 
+
+  // The view split's tiles rearranged by their headers: the middle of another
+  // tile swaps the two, an edge puts the tile beside it there. All in this
+  // window: no request, Herdr untouched, and a reload keeps it.
+  {
+    reset();
+    calls.length = 0;
+    const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 860 }, colorScheme: "dark" });
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const posts = [];
+    page.on("request", (request) => { if (request.method() === "POST" && new URL(request.url()).pathname.startsWith("/api/")) posts.push(new URL(request.url()).pathname); });
+    // Alpha | (Gamma over Delta), Alpha focused: set once, so a reload reads what the page kept.
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem("herdrbridge-view-split")) return;
+      sessionStorage.setItem("herdrbridge-view-split", JSON.stringify({
+        tree: { dir: "right", first: "w1:p3", second: { dir: "down", first: "w2:p1", second: "w2:p2", ratio: 0.5 }, ratio: 0.5 },
+        shown: true, focus: "w1:p3",
+      }));
+    });
+    const herdrBefore = JSON.stringify(herdrState);
+    await page.goto(`${url}/?pane=${encodeURIComponent("w1:p3")}`);
+    const tileBox = async (paneId) => page.locator(tile(paneId)).boundingBox();
+    await page.waitForFunction(() => document.querySelectorAll(".pane-grid.is-view .pane-grid-cell .xterm").length === 3);
+    assert.equal(await page.locator(".pane-grid.is-view.can-rearrange").count(), 1);
+    const carry = async (paneId, to, { release = true } = {}) => {
+      const header = await page.locator(`${tile(paneId)} .pane-grid-cell-header`).boundingBox();
+      const from = { x: header.x + 30, y: header.y + header.height / 2 };
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      for (let step = 1; step <= 12; step += 1) await page.mouse.move(from.x + ((to.x - from.x) * step) / 12, from.y + ((to.y - from.y) * step) / 12);
+      await page.waitForTimeout(60);
+      const seen = await page.evaluate(() => {
+        const mark = document.querySelector(".pane-grid-drop-preview");
+        return { ghost: Boolean(document.querySelector(".pane-grid-drag-ghost")),
+          kind: mark && !mark.hidden ? mark.dataset.kind : null, side: mark && !mark.hidden ? mark.dataset.side ?? null : null };
+      });
+      if (release) await page.mouse.up();
+      return seen;
+    };
+    const stored = () => page.evaluate(() => JSON.parse(sessionStorage.getItem("herdrbridge-view-split")));
+    const close = (a, b, what) => near(a, b, what);
+
+    // 1. Its own tile is no drop; Escape cancels.
+    let seen = await carry("w1:p3", at(await tileBox("w1:p3"), 0.5, 0.6));
+    assert.ok(seen.ghost);
+    assert.equal(seen.kind, null);
+    seen = await carry("w1:p3", at(await tileBox("w2:p2"), 0.5, 0.5), { release: false });
+    assert.equal(seen.kind, "swap");
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    assert.equal((await stored()).tree.first, "w1:p3", "nothing moved");
+
+    // 2. Alpha onto Delta's middle: the two trade places.
+    const alphaBefore = await tileBox("w1:p3");
+    const deltaBefore = await tileBox("w2:p2");
+    seen = await carry("w1:p3", at(deltaBefore, 0.5, 0.5));
+    assert.equal(seen.kind, "swap");
+    await page.waitForFunction(() => document.querySelector('.pane-grid.is-view .pane-grid-cell[data-pane-id="w1:p3"]').style.top === "50%");
+    close(await tileBox("w1:p3"), deltaBefore, "Alpha sits where Delta was");
+    close(await tileBox("w2:p2"), alphaBefore, "Delta sits where Alpha was");
+    assert.deepEqual((await stored()).tree, { dir: "right", first: "w2:p2", second: { dir: "down", first: "w2:p1", second: "w1:p3", ratio: 0.5 }, ratio: 0.5 });
+    await focusedTile(page, "w1:p3");
+    assert.equal(await page.locator('.pane-button[data-pane-id="w1:p3"]').getAttribute("aria-pressed"), "true", "the carried pane stays selected");
+
+    // 3. Gamma onto Delta's left edge: Gamma goes to Delta's left half, Alpha takes the right column.
+    const deltaNow = await tileBox("w2:p2");
+    seen = await carry("w2:p1", at(deltaNow, 0.06, 0.5));
+    assert.equal(seen.kind, "side");
+    assert.equal(seen.side, "left");
+    await page.waitForFunction(() => document.querySelector('.pane-grid.is-view .pane-grid-cell[data-pane-id="w1:p3"]').style.top === "0%");
+    const gamma = await tileBox("w2:p1");
+    const delta = await tileBox("w2:p2");
+    assert.ok(gamma.x < delta.x && Math.abs(gamma.y - delta.y) <= 1 && Math.abs(gamma.height - delta.height) <= 1, "Gamma sits left of Delta");
+    assert.deepEqual((await stored()).tree,
+      { dir: "right", first: { dir: "right", first: "w2:p1", second: "w2:p2", ratio: 0.5 }, second: "w1:p3", ratio: 0.5 });
+    await focusedTile(page, "w2:p1");
+    // Typing goes to the carried tile.
+    await page.keyboard.type("moved gamma");
+    const typedBy = Date.now() + 3000;
+    while (!/moved gamma/u.test(ptyOf("w2:p1")?.written ?? "") && Date.now() < typedBy) await page.waitForTimeout(100);
+    assert.match(ptyOf("w2:p1").written, /moved gamma/u);
+
+    // 4. A reload keeps the rearranged view split.
+    const before = await Promise.all(["w1:p3", "w2:p1", "w2:p2"].map(tileBox));
+    await page.reload();
+    await page.waitForFunction(() => document.querySelectorAll(".pane-grid.is-view .pane-grid-cell .xterm").length === 3);
+    const after = await Promise.all(["w1:p3", "w2:p1", "w2:p2"].map(tileBox));
+    before.forEach((box, index) => close(after[index], box, `tile ${index} after reload`));
+    await focusedTile(page, "w2:p1");
+    assert.deepEqual(posts, [], "nothing was sent to the server");
+    assert.deepEqual(calls, [], "Herdr was asked nothing");
+    assert.equal(JSON.stringify(herdrState), herdrBefore, "Herdr's sessions are as they were");
+    assert.deepEqual(errors, []);
+    await context.close();
+  }
   // A narrow screen: the sidebar is a drawer over the terminal and nothing splits.
   {
     reset();
@@ -640,7 +742,7 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log("Pane drop (four sides, middle no-op, pane alone, reorder kept, split/other machine/self/connected PC/other project over a grid no zones, refusal said, unplaced swap said; another project on the pane alone a view split: four sides, Herdr untouched, typing, sidebar, back, reload, pruned, removed; narrow screen none): passed");
+  console.log("Pane drop (tiles swapped and moved by their headers, kept on reload, nothing sent; four sides, middle no-op, pane alone, reorder kept, split/other machine/self/connected PC/other project over a grid no zones, refusal said, unplaced swap said; another project on the pane alone a view split: four sides, Herdr untouched, typing, sidebar, back, reload, pruned, removed; narrow screen none): passed");
 } finally {
   await browser.close();
   await new Promise((resolve) => server.close(resolve));

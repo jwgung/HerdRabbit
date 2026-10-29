@@ -768,6 +768,106 @@ export class HerdrClient {
     return { pane_id: moved };
   }
 
+  // --- Rearranging the panes of one split tab -------------------------------
+  // The tab `paneId` is in and its panes, from Herdr's layout of it, with
+  // `targetPaneId` checked to be another pane of the same tab. A zoomed tab is
+  // not rearranged: it shows one pane, and moving another would be blind.
+  async #rearrangeTab(paneId, targetPaneId) {
+    const safePaneId = validatePaneId(paneId);
+    const safeTargetId = validatePaneId(targetPaneId);
+    if (safePaneId === safeTargetId) throw new InputValidationError("A pane cannot be dropped on itself");
+    const layout = (await this.paneLayout(safePaneId))?.layout;
+    if (!layout || !Array.isArray(layout.panes)) {
+      throw new HerdrCommandError("Herdr returned an unexpected layout", { code: "invalid_herdr_response" });
+    }
+    // Only ids shaped like pane ids are ever handed back to Herdr.
+    const paneIds = layout.panes.map((item) => item?.pane_id).filter((id) => typeof id === "string" && PANE_ID_PATTERN.test(id));
+    if (!paneIds.includes(safePaneId) || !paneIds.includes(safeTargetId) || paneIds.length < 2) {
+      throw new InputValidationError("Those panes are not in the same session");
+    }
+    if (layout.zoomed === true) throw new InputValidationError("Unzoom the session before moving its panes");
+    let { tab_id: tabId, workspace_id: workspaceId } = layout;
+    if (typeof tabId !== "string" || typeof workspaceId !== "string") {
+      ({ tab_id: tabId, workspace_id: workspaceId } = await this.#paneInfo(safePaneId));
+    }
+    return {
+      paneId: safePaneId, targetPaneId: safeTargetId, paneIds,
+      tabId: validateTabId(tabId), workspaceId: validateWorkspaceId(workspaceId),
+    };
+  }
+
+  // Two panes of one tab trade places. Both keep their ids.
+  async swapPanes(paneId, targetPaneId) {
+    const tab = await this.#rearrangeTab(paneId, targetPaneId);
+    await this.#run(["pane", "swap", "--source-pane", tab.paneId, "--target-pane", tab.targetPaneId], { json: false });
+    return { pane_id: tab.paneId };
+  }
+
+  // Moves a pane next to another of its own tab, on `side`. Herdr does not
+  // move a pane within its tab (it answers "unchanged"), so the pane is lifted
+  // into a tab of its own in the same project and then split back in beside
+  // the target; left and up are a swap afterwards, as in movePaneSplit. The
+  // pane keeps its id in Herdr 0.9.5; whatever id Herdr answers is returned.
+  // Should the way back in fail, the pane is put back in its tab beside one of
+  // its old neighbours if Herdr allows (`restored` true), else it stays in its
+  // own session (`restored` false, with that session's `tab_id`): either way
+  // `placed` is false and `message` says what happened. A failed lift leaves
+  // the pane where it was and throws.
+  async relocatePane(paneId, targetPaneId, side) {
+    const safeSide = validateSplitSide(side);
+    const tab = await this.#rearrangeTab(paneId, targetPaneId);
+    const direction = safeSide === "left" || safeSide === "right" ? "right" : "down";
+    const lifted = await this.#run(["pane", "move", tab.paneId, "--new-tab", "--workspace", tab.workspaceId, "--no-focus"]);
+    let liftedId;
+    let liftedTabId = null;
+    try {
+      ({ paneId: liftedId, tabId: liftedTabId } = movedPaneIds(lifted));
+    } catch {
+      // Moved, but the answer does not say where: Herdr keeps a moved pane's id.
+      liftedId = tab.paneId;
+    }
+    let placedId;
+    try {
+      placedId = movedPaneIds(await this.#run([
+        "pane", "move", liftedId, "--tab", tab.tabId, "--split", direction, "--target-pane", tab.targetPaneId, "--no-focus",
+      ])).paneId;
+    } catch (error) {
+      return this.#returnLiftedPane(liftedId, liftedTabId, tab, error?.message || "Herdr could not move the pane there.");
+    }
+    if (safeSide === "left" || safeSide === "up") {
+      try {
+        await this.#run(["pane", "swap", "--pane", placedId, "--direction", safeSide], { json: false });
+      } catch (error) {
+        return { pane_id: placedId, placed: false, message: error?.message || "Herdr could not swap the pane" };
+      }
+    }
+    return { pane_id: placedId };
+  }
+
+  // A pane lifted out of its tab that could not go back in where it was
+  // dropped: it goes back beside one of the panes it left (the target last,
+  // since a split of it just failed), else it is left in its own session.
+  async #returnLiftedPane(liftedId, liftedTabId, tab, why) {
+    const reason = /[.!?]$/u.test(why) ? why : `${why}.`;
+    const others = tab.paneIds.filter((id) => id !== tab.paneId && id !== tab.targetPaneId);
+    const anchors = [...others.slice(0, 2), tab.targetPaneId];
+    for (const anchor of anchors) {
+      for (const direction of ["right", "down"]) {
+        try {
+          const back = movedPaneIds(await this.#run([
+            "pane", "move", liftedId, "--tab", tab.tabId, "--split", direction, "--target-pane", anchor, "--no-focus",
+          ]));
+          return { pane_id: back.paneId, placed: false, restored: true,
+            message: `${reason} The pane was put back in its session.` };
+        } catch {
+          // The next neighbour, or the next way of splitting it.
+        }
+      }
+    }
+    return { pane_id: liftedId, placed: false, restored: false, ...(liftedTabId ? { tab_id: liftedTabId } : {}),
+      message: `${reason} The pane is in a session of its own now.` };
+  }
+
   // `source` "detection" is the screen as herdr reads it for agent states:
   // the live bottom of the pane, whatever the viewport is scrolled to.
   async readPane(paneId, { lines = 160, format = "ansi", source = "recent-unwrapped" } = {}) {

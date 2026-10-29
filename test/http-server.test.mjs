@@ -1417,3 +1417,80 @@ test("a connected PC's pane layout is refused like its split, close, zoom and mo
   assert.equal(mine.status, 200);
   assert.deepEqual(layouts, ["w1:p1"]);
 });
+
+test("pane swap and relocate routes need write authorization, a target, and pass both to Herdr", async (context) => {
+  const calls = [];
+  const herdr = {
+    async snapshot() { return { workspaces: [], tabs: [], panes: [] }; },
+    async swapPanes(...args) {
+      calls.push(["swapPanes", ...args]);
+      if (args[1] === "w1:p9") throw new HerdrCommandError("cannot swap", { code: "pane_swap_failed" });
+      return { pane_id: args[0] };
+    },
+    async relocatePane(...args) {
+      calls.push(["relocatePane", ...args]);
+      return args[2] === "left"
+        ? { pane_id: "w1:p2", placed: false, restored: true, message: "no room. The pane was put back in its session." }
+        : { pane_id: "w1:p2" };
+    },
+  };
+  const app = await startServer(herdr);
+  context.after(() => closeServer(app.server));
+  const headers = { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl };
+  const post = (path, body, extra = headers) => fetch(`${app.baseUrl}/api/panes/${path}`, { method: "POST", headers: extra, body: JSON.stringify(body) });
+
+  assert.equal((await post("w1%3Ap2/swap", { targetPaneId: "w1:p3" }, { "Content-Type": "application/json" })).status, 403);
+  assert.equal((await post("w1%3Ap2/relocate", { targetPaneId: "w1:p3", side: "left" }, { "Content-Type": "application/json" })).status, 403);
+  assert.equal(calls.length, 0);
+  assert.equal((await post("w1%3Ap2/swap", {})).status, 400);
+  assert.equal((await post("w1%3Ap2/relocate", { targetPaneId: 3, side: "left" })).status, 400);
+  assert.equal(calls.length, 0, "no target, no call");
+
+  const swap = await post("w1%3Ap2/swap", { targetPaneId: "w1:p3" });
+  assert.equal(swap.status, 200);
+  assert.deepEqual(await swap.json(), { pane_id: "w1:p2" });
+  const refused = await post("w1%3Ap2/swap", { targetPaneId: "w1:p9" });
+  assert.equal(refused.status, 502);
+  assert.equal((await refused.json()).error.code, "pane_swap_failed");
+  const moved = await post("w1%3Ap2/relocate", { targetPaneId: "w1:p3", side: "down" });
+  assert.deepEqual(await moved.json(), { pane_id: "w1:p2" });
+  // Not placed is still an answer: the page follows the pane and says why.
+  const unplaced = await post("w1%3Ap2/relocate", { targetPaneId: "w1:p3", side: "left" });
+  assert.equal(unplaced.status, 200);
+  assert.deepEqual(await unplaced.json(), { pane_id: "w1:p2", placed: false, restored: true, message: "no room. The pane was put back in its session." });
+  assert.deepEqual(calls, [
+    ["swapPanes", "w1:p2", "w1:p3"],
+    ["swapPanes", "w1:p2", "w1:p9"],
+    ["relocatePane", "w1:p2", "w1:p3", "down"],
+    ["relocatePane", "w1:p2", "w1:p3", "left"],
+  ]);
+});
+
+test("a connected PC's panes are not swapped or relocated, and a herdr without them says so", async (context) => {
+  const linkId = "link_11111111-1111-1111-1111-111111111111";
+  const local = {
+    async snapshot() { return { herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }; },
+    async swapPanes() { throw new Error("never asked"); },
+    async relocatePane() { throw new Error("never asked"); },
+  };
+  const herdr = new MultiServerClient({
+    local,
+    profiles: { list: () => [{ id: linkId, name: "Dev box", transport: "link", address: "http://127.0.0.1:1" }] },
+    remoteFactory: () => ({ async swapPanes() { throw new Error("never asked"); }, close() {} }),
+  });
+  const app = await startServer(herdr);
+  context.after(() => closeServer(app.server));
+  const headers = { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl };
+  const pane = encodeURIComponent(`${linkId}!hs_x~wB:p1`);
+  for (const [action, body] of [["swap", { targetPaneId: `${linkId}!hs_x~wB:p2` }], ["relocate", { targetPaneId: `${linkId}!hs_x~wB:p2`, side: "left" }]]) {
+    const refused = await fetch(`${app.baseUrl}/api/panes/${pane}/${action}`, { method: "POST", headers, body: JSON.stringify(body) });
+    assert.equal(refused.status, 501, action);
+    assert.equal((await refused.json()).error.code, "link_unsupported");
+  }
+  // A herdr that cannot rearrange (an older client) is refused the same way.
+  const bare = await startServer({ async snapshot() { return { workspaces: [], tabs: [], panes: [] }; } });
+  context.after(() => closeServer(bare.server));
+  const old = await fetch(`${bare.baseUrl}/api/panes/w1%3Ap1/swap`, { method: "POST",
+    headers: { ...headers, Origin: bare.baseUrl }, body: JSON.stringify({ targetPaneId: "w1:p2" }) });
+  assert.equal(old.status, 501);
+});

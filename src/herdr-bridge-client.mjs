@@ -324,6 +324,32 @@ export class HerdrBridgeClient {
     return { ...result, pane_id: scopedId(pane.sessionName, result.pane_id) };
   }
 
+  // Rearranging a split tab's panes: both panes of the same Herdr session
+  // (their client checks they share a tab). Answers carry the page's own ids.
+  #rearrangeTargets(paneId, targetPaneId) {
+    const pane = this.#targetForScopedId(paneId, validation.validatePaneId);
+    const target = this.#targetForScopedId(targetPaneId, validation.validatePaneId);
+    if (pane.sessionName !== target.sessionName) {
+      throw new InputValidationError("Those panes are not in the same session");
+    }
+    return { pane, target, client: this.#clientForSession(pane.sessionName) };
+  }
+
+  #scopeRearranged(sessionName, result) {
+    const scope = (id) => (typeof id === "string" && id.length > 0 ? scopedId(sessionName, id) : id);
+    return { ...result, pane_id: scope(result.pane_id), ...(result.tab_id ? { tab_id: scope(result.tab_id) } : {}) };
+  }
+
+  async swapPanes(paneId, targetPaneId) {
+    const { pane, target, client } = this.#rearrangeTargets(paneId, targetPaneId);
+    return this.#scopeRearranged(pane.sessionName, await client.swapPanes(pane.localId, target.localId));
+  }
+
+  async relocatePane(paneId, targetPaneId, side) {
+    const { pane, target, client } = this.#rearrangeTargets(paneId, targetPaneId);
+    return this.#scopeRearranged(pane.sessionName, await client.relocatePane(pane.localId, target.localId, side));
+  }
+
   async paneFind(paneId, request) {
     const target = this.#targetForScopedId(paneId, validation.validatePaneId);
     return this.#clientForSession(target.sessionName).paneFind(target.localId, request);

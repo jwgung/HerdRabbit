@@ -92,6 +92,27 @@ export function renameTiles(tree, moves) {
   }));
 }
 
+// `tree` with the tiles of panes `a` and `b` trading places. Unchanged when
+// either is not a tile, or they are the same.
+export function swapTiles(tree, a, b) {
+  const present = tiles(tree);
+  if (a === b || !present.includes(a) || !present.includes(b)) return tree;
+  const swap = (node) => (isLeaf(node) ? (node === a ? b : node === b ? a : node)
+    : { ...node, first: swap(node.first), second: swap(node.second) });
+  return swap(tree);
+}
+
+// `tree` with `paneId`'s tile taken out and put next to `targetPaneId`'s on
+// `side` (left, right, up or down), taking half of it. Unchanged when either
+// is not a tile, they are the same, or the side is not one.
+export function moveTile(tree, paneId, targetPaneId, side) {
+  const present = tiles(tree);
+  if (!SIDES.includes(side) || paneId === targetPaneId || !present.includes(paneId) || !present.includes(targetPaneId)) return tree;
+  const rest = without(tree, (leaf) => leaf === paneId);
+  const next = addTile(isLeaf(rest) ? null : rest, targetPaneId, paneId, side);
+  return tiles(next).length === present.length ? next : tree;
+}
+
 // Each tile's rect in VIEW_AREA, as Herdr's `pane layout` answers for a tab:
 // { area, panes: [{ pane_id, rect: { x, y, width, height } }] }, whole cells
 // that cover the area exactly. null for no view split.

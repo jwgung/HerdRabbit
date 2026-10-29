@@ -454,3 +454,108 @@ test("a pane moves only when alone in its tab and dropped on another pane", asyn
   await assert.rejects(new HerdrClient({ runner: same.runner }).movePaneSplit("w1:p5", "w1:p1", "middle"), InputValidationError);
   assert.equal(same.calls.length, 0);
 });
+
+// A tab's layout as `pane layout` answers it, with its tab and project.
+const tabLayout = (panes, extra = {}) => jsonReply({ layout: {
+  tab_id: "w1:t1", workspace_id: "w1", zoomed: false, ...extra,
+  panes: panes.map((pane_id, index) => ({ pane_id, rect: { x: index * 40, y: 0, width: 40, height: 40 } })),
+} });
+const herdrRefusal = (code, message) => Object.assign(new Error("failed"), { stderr: JSON.stringify({ error: { code, message } }) });
+const done = { stdout: "", stderr: "" };
+
+test("two panes of one tab trade places", async () => {
+  const fake = recordingRunner([tabLayout(["w1:p1", "w1:p2", "w1:p3"]), done]);
+  assert.deepEqual(await new HerdrClient({ runner: fake.runner }).swapPanes("w1:p1", "w1:p3"), { pane_id: "w1:p1" });
+  assert.deepEqual(fake.calls.map((call) => call.args), [
+    ["pane", "layout", "--pane", "w1:p1"],
+    ["pane", "swap", "--source-pane", "w1:p1", "--target-pane", "w1:p3"],
+  ]);
+});
+
+test("panes are swapped or relocated only within one unzoomed tab, never onto themselves", async () => {
+  const none = recordingRunner([]);
+  const client = new HerdrClient({ runner: none.runner });
+  await assert.rejects(client.swapPanes("w1:p1", "w1:p1"), InputValidationError);
+  await assert.rejects(client.relocatePane("w1:p1", "w1:p1", "left"), InputValidationError);
+  await assert.rejects(client.relocatePane("w1:p1", "w1:p2", "middle"), InputValidationError);
+  await assert.rejects(client.swapPanes("w1:p1", "--help"), InputValidationError);
+  assert.equal(none.calls.length, 0, "nothing is asked of Herdr");
+  // Another tab's pane.
+  const apart = recordingRunner([tabLayout(["w1:p1", "w1:p2"]), tabLayout(["w1:p1", "w1:p2"])]);
+  await assert.rejects(new HerdrClient({ runner: apart.runner }).swapPanes("w1:p1", "w1:p9"), InputValidationError);
+  await assert.rejects(new HerdrClient({ runner: apart.runner }).relocatePane("w1:p1", "w1:p9", "right"), InputValidationError);
+  assert.equal(apart.calls.length, 2, "only the layout was read");
+  // A zoomed tab.
+  const zoomed = recordingRunner([tabLayout(["w1:p1", "w1:p2"], { zoomed: true }), tabLayout(["w1:p1", "w1:p2"], { zoomed: true })]);
+  await assert.rejects(new HerdrClient({ runner: zoomed.runner }).swapPanes("w1:p1", "w1:p2"), /Unzoom/u);
+  await assert.rejects(new HerdrClient({ runner: zoomed.runner }).relocatePane("w1:p1", "w1:p2", "down"), /Unzoom/u);
+  assert.equal(zoomed.calls.length, 2);
+  // A swap Herdr refuses says Herdr's reason.
+  const refused = recordingRunner([tabLayout(["w1:p1", "w1:p2"]), herdrRefusal("pane_swap_failed", "cannot swap")]);
+  await assert.rejects(new HerdrClient({ runner: refused.runner }).swapPanes("w1:p1", "w1:p2"), { code: "pane_swap_failed", message: "cannot swap" });
+});
+
+test("a pane relocates within its tab by leaving it and splitting back in beside the target", async () => {
+  const lifted = jsonReply({ move_result: { changed: true, pane: { pane_id: "w1:p1", tab_id: "w1:t7" }, created_tab: { tab_id: "w1:t7" } } });
+  const back = jsonReply({ move_result: { changed: true, pane: { pane_id: "w1:p1", tab_id: "w1:t1" } } });
+  const right = recordingRunner([tabLayout(["w1:p1", "w1:p2", "w1:p3"]), lifted, back]);
+  assert.deepEqual(await new HerdrClient({ runner: right.runner }).relocatePane("w1:p1", "w1:p3", "right"), { pane_id: "w1:p1" });
+  assert.deepEqual(right.calls.map((call) => call.args), [
+    ["pane", "layout", "--pane", "w1:p1"],
+    ["pane", "move", "w1:p1", "--new-tab", "--workspace", "w1", "--no-focus"],
+    ["pane", "move", "w1:p1", "--tab", "w1:t1", "--split", "right", "--target-pane", "w1:p3", "--no-focus"],
+  ]);
+  // Up is down and then a swap up.
+  const up = recordingRunner([tabLayout(["w1:p1", "w1:p2"]), lifted, back, done]);
+  assert.deepEqual(await new HerdrClient({ runner: up.runner }).relocatePane("w1:p1", "w1:p2", "up"), { pane_id: "w1:p1" });
+  assert.deepEqual(up.calls.at(-2).args.slice(5, 7), ["--split", "down"]);
+  assert.deepEqual(up.calls.at(-1).args, ["pane", "swap", "--pane", "w1:p1", "--direction", "up"]);
+  // A swap that fails after the move: the pane is beside the target, on the other side.
+  const left = recordingRunner([tabLayout(["w1:p1", "w1:p2"]), lifted, back, herdrRefusal("pane_swap_failed", "no pane to the left")]);
+  assert.deepEqual(await new HerdrClient({ runner: left.runner }).relocatePane("w1:p1", "w1:p2", "left"),
+    { pane_id: "w1:p1", placed: false, message: "no pane to the left" });
+  // Herdr's answer names the pane under a new id: that is the one returned.
+  const renamed = recordingRunner([tabLayout(["w1:p1", "w1:p2"]), lifted,
+    jsonReply({ move_result: { pane: { pane_id: "w1:p8", tab_id: "w1:t1" } } })]);
+  assert.deepEqual(await new HerdrClient({ runner: renamed.runner }).relocatePane("w1:p1", "w1:p2", "down"), { pane_id: "w1:p8" });
+  // Without a tab or project in the layout, the pane's own record says them.
+  const bare = recordingRunner([
+    jsonReply({ layout: { panes: [{ pane_id: "w1:p1" }, { pane_id: "w1:p2" }] } }),
+    jsonReply({ pane: { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1" } }), lifted, back,
+  ]);
+  assert.deepEqual(await new HerdrClient({ runner: bare.runner }).relocatePane("w1:p1", "w1:p2", "right"), { pane_id: "w1:p1" });
+  assert.deepEqual(bare.calls[1].args, ["pane", "get", "w1:p1"]);
+});
+
+test("a relocate whose lift fails leaves the pane where it was and says why", async () => {
+  const fake = recordingRunner([tabLayout(["w1:p1", "w1:p2"]), herdrRefusal("pane_move_failed", "cannot move")]);
+  await assert.rejects(new HerdrClient({ runner: fake.runner }).relocatePane("w1:p1", "w1:p2", "right"), { code: "pane_move_failed", message: "cannot move" });
+  assert.equal(fake.calls.length, 2, "nothing more is tried");
+});
+
+test("a relocate that cannot split back in puts the pane back in its tab, or says it is alone now", async () => {
+  const lifted = jsonReply({ move_result: { pane: { pane_id: "w1:p1", tab_id: "w1:t7" }, created_tab: { tab_id: "w1:t7" } } });
+  const full = () => herdrRefusal("pane_split_failed", "There is no room to split this pane.");
+  // Back beside a neighbour that was not the target.
+  const restored = recordingRunner([tabLayout(["w1:p1", "w1:p2", "w1:p3"]), lifted, full(),
+    jsonReply({ move_result: { pane: { pane_id: "w1:p1", tab_id: "w1:t1" } } })]);
+  assert.deepEqual(await new HerdrClient({ runner: restored.runner }).relocatePane("w1:p1", "w1:p3", "left"), {
+    pane_id: "w1:p1", placed: false, restored: true,
+    message: "There is no room to split this pane. The pane was put back in its session.",
+  });
+  assert.deepEqual(restored.calls.at(-1).args, ["pane", "move", "w1:p1", "--tab", "w1:t1", "--split", "right", "--target-pane", "w1:p2", "--no-focus"]);
+  assert.equal(restored.calls.filter((call) => call.args[1] === "swap").length, 0, "no swap after a failed placement");
+  // Of two panes, the target is the only neighbour: it is tried right, then down.
+  const second = recordingRunner([tabLayout(["w1:p1", "w1:p2"]), lifted, full(), full(),
+    jsonReply({ move_result: { pane: { pane_id: "w1:p1", tab_id: "w1:t1" } } })]);
+  const answer = await new HerdrClient({ runner: second.runner }).relocatePane("w1:p1", "w1:p2", "right");
+  assert.equal(answer.restored, true);
+  assert.deepEqual(second.calls.at(-1).args.slice(5, 9), ["--split", "down", "--target-pane", "w1:p2"]);
+  // Nothing takes it back: it stays in the session it was lifted into, and says so.
+  const stranded = recordingRunner([tabLayout(["w1:p1", "w1:p2", "w1:p3"]), lifted, full(), full(), full(), full(), full()]);
+  assert.deepEqual(await new HerdrClient({ runner: stranded.runner }).relocatePane("w1:p1", "w1:p3", "down"), {
+    pane_id: "w1:p1", placed: false, restored: false, tab_id: "w1:t7",
+    message: "There is no room to split this pane. The pane is in a session of its own now.",
+  });
+  assert.equal(stranded.calls.length, 7, "the target and its one other neighbour, each right and down");
+});

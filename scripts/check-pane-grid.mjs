@@ -13,11 +13,15 @@
 // but opens a pane alone: no grid, no map. Behind a password, a grid is not redrawn while
 // nothing changed, has no terminal find, completes a notification for its
 // pane once that pane's cell is on screen (not zoomed out), and its cells
-// reconnect after a hidden page or a sign-out and sign-in.
+// reconnect after a hidden page or a sign-out and sign-in. A cell carried by
+// its header onto another's middle swaps the two, onto an edge goes beside it
+// (same cells and terminals, the carried pane still selected); its own cell,
+// Escape and a zoomed tab do nothing, refusals are said, and the header's
+// buttons and the terminal's selection and typing are as before.
 // Runs on a desktop and a phone against an in-process fake herdr.
 //
-// PANE_GRID_SHOTS=<folder> keeps pictures of the grid, the zoomed grid and the
-// phone's map in both themes.
+// PANE_GRID_SHOTS=<folder> keeps pictures of the grid, the zoomed grid, the
+// phone's map and a cell carried over a swap and over an edge, in both themes.
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { join } from "node:path";
@@ -56,6 +60,8 @@ function reset() {
 }
 reset();
 const sent = [];
+// What the grid asked Herdr to rearrange.
+const rearranged = [];
 const herdr = {
   async snapshot() {
     return {
@@ -95,6 +101,38 @@ const herdr = {
     return { pane_id: id };
   },
   async zoomPane(paneId) { zoomed = zoomed === paneId ? null : paneId; },
+  // Two panes trade places: their rects, and their order in the snapshot.
+  async swapPanes(paneId, targetPaneId) {
+    rearranged.push(["swap", paneId, targetPaneId]);
+    const [a, b] = [rects.get(paneId), rects.get(targetPaneId)];
+    rects.set(paneId, b);
+    rects.set(targetPaneId, a);
+    const [i, j] = [panes.findIndex((pane) => pane.pane_id === paneId), panes.findIndex((pane) => pane.pane_id === targetPaneId)];
+    [panes[i], panes[j]] = [panes[j], panes[i]];
+    return { pane_id: paneId };
+  },
+  // A pane leaves its place (the pane sharing that whole edge takes it) and
+  // takes the half of the target on `side`, keeping its id.
+  async relocatePane(paneId, targetPaneId, side) {
+    rearranged.push(["relocate", paneId, targetPaneId, side]);
+    const old = rects.get(paneId);
+    const heir = [...rects.entries()].find(([id, rect]) => id !== paneId && panes.some((pane) => pane.pane_id === id && pane.tab_id === "w1:t1") && (
+      (rect.x === old.x && rect.width === old.width && (rect.y + rect.height === old.y || old.y + old.height === rect.y)) ||
+      (rect.y === old.y && rect.height === old.height && (rect.x + rect.width === old.x || old.x + old.width === rect.x))));
+    if (!heir) throw new Error(`no pane takes ${paneId}'s place`);
+    const [heirId, rect] = heir;
+    rects.set(heirId, { x: Math.min(rect.x, old.x), y: Math.min(rect.y, old.y),
+      width: rect.x === old.x ? rect.width : rect.width + old.width, height: rect.y === old.y ? rect.height : rect.height + old.height });
+    const target = rects.get(targetPaneId);
+    const across = side === "left" || side === "right";
+    const cut = across ? Math.floor(target.width / 2) : Math.floor(target.height / 2);
+    const first = across ? { ...target, width: cut } : { ...target, height: cut };
+    const second = across ? { ...target, x: target.x + cut, width: target.width - cut } : { ...target, y: target.y + cut, height: target.height - cut };
+    const before = side === "left" || side === "up";
+    rects.set(targetPaneId, before ? second : first);
+    rects.set(paneId, before ? first : second);
+    return { pane_id: paneId };
+  },
   async closePane(paneId) { panes = panes.filter((pane) => pane.pane_id !== paneId); rects.delete(paneId); },
 };
 
@@ -613,6 +651,220 @@ try {
     await context.close();
     signedServer.close();
     console.log("ok: desktop grid lifecycle");
+  }
+
+  // Rearranging a grid on a desktop: a cell carried by its header onto
+  // another's middle swaps the two; onto its edge it goes beside it on that
+  // side. The carried pane stays selected and its cell (and terminal) is the
+  // same one. Its own cell, Escape, a zoomed tab and a refusal ask nothing or
+  // say why; the header's buttons and the terminal work as before.
+  {
+    reset();
+    ptys.length = 0;
+    rearranged.length = 0;
+    const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 844 } });
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const requests = [];
+    page.on("request", (request) => {
+      const path = decodeURIComponent(new URL(request.url()).pathname);
+      const match = path.match(/^\/api\/panes\/([^/]+)\/(swap|relocate)$/u);
+      if (match) requests.push([match[2], match[1], request.postDataJSON()]);
+    });
+    const cell = (paneId) => page.locator(`.pane-grid-cell[data-pane-id="${paneId}"]`);
+    const boxOf = async (paneId) => cell(paneId).boundingBox();
+    const headerPoint = async (paneId) => {
+      const box = await cell(paneId).locator(".pane-grid-cell-header").boundingBox();
+      return { x: box.x + Math.min(40, box.width / 2), y: box.y + Math.min(12, box.height / 2) };
+    };
+    const at = (box, fx, fy) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+    const shots = process.env.PANE_GRID_SHOTS;
+    // Carries `paneId`'s cell from its header to `to`; `during` runs mid-drag.
+    const carry = async (paneId, to, { during, release = true } = {}) => {
+      const from = await headerPoint(paneId);
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      for (let step = 1; step <= 12; step += 1) {
+        await page.mouse.move(from.x + ((to.x - from.x) * step) / 12, from.y + ((to.y - from.y) * step) / 12);
+      }
+      await page.waitForTimeout(60);
+      const seen = await page.evaluate(() => {
+        const mark = document.querySelector(".pane-grid-drop-preview");
+        const rect = mark && !mark.hidden ? mark.getBoundingClientRect() : null;
+        return {
+          ghost: document.querySelector(".pane-grid-drag-ghost")?.textContent ?? null,
+          kind: rect ? mark.dataset.kind : null,
+          side: rect ? mark.dataset.side ?? null : null,
+          preview: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null,
+          swapTarget: document.querySelector(".pane-grid-cell.is-swap-target")?.dataset.paneId ?? null,
+          source: document.querySelector(".pane-grid-cell.is-drag-source")?.dataset.paneId ?? null,
+        };
+      });
+      if (during) await during();
+      if (release) await page.mouse.up();
+      return seen;
+    };
+    const shootDrag = async (name) => {
+      if (!shots) return;
+      for (const theme of ["dark", "light"]) {
+        await page.evaluate((value) => window.herdrTheme.set(value), theme);
+        await page.waitForTimeout(250);
+        await page.screenshot({ path: join(shots, `${name}-desktop-${theme}.png`) });
+      }
+      await page.evaluate(() => window.herdrTheme.set("dark"));
+    };
+    const near = (actual, expected, what) => {
+      for (const key of ["x", "y", "width", "height"]) assert.ok(Math.abs(actual[key] - expected[key]) <= 3, `${what} ${key}: ${actual[key]} vs ${expected[key]}`);
+    };
+    await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
+    await page.evaluate(() => window.herdrTheme.set("dark"));
+    await page.locator('.split-session-button[data-tab-id="w1:t1"]').click();
+    for (const paneId of ["w1:p1", "w1:p2", "w1:p3"]) await cell(paneId).locator(".xterm").waitFor();
+    assert.equal(await page.locator(".pane-grid.can-rearrange").count(), 1, "the headers can be picked up");
+
+    // The cells as drawn now: a swap or a move must keep them, terminals and all.
+    await page.evaluate(() => {
+      window.cellNodes = new Map([...document.querySelectorAll(".pane-grid-cell")].map((node) => [node.dataset.paneId, node]));
+      window.cellTerminals = new Map([...document.querySelectorAll(".pane-grid-cell")].map((node) => [node.dataset.paneId, node.querySelector(".xterm")]));
+    });
+    const ptyCount = (paneId) => ptys.filter((pty) => pty.paneId === paneId).length;
+    const p1Ptys = ptyCount("w1:p1");
+
+    // 1. Dropped on its own cell, nothing happens.
+    let seen = await carry("w1:p1", at(await boxOf("w1:p1"), 0.5, 0.5));
+    assert.match(seen.ghost ?? "", /alpha/u, "the cell's name follows the pointer");
+    assert.equal(seen.source, "w1:p1");
+    assert.equal(seen.preview, null, "its own cell is no drop");
+    await page.waitForTimeout(250);
+    assert.deepEqual(requests, []);
+    assert.equal(await page.locator(".pane-grid-drag-ghost").count(), 0, "the label leaves with the drag");
+
+    // 2. Escape puts it back mid-drag, and reaches no terminal.
+    const typedBefore = ["w1:p1", "w1:p2", "w1:p3"].map((id) => ptyOf(id).written).join("|");
+    seen = await carry("w1:p1", at(await boxOf("w1:p3"), 0.5, 0.5), { release: false });
+    assert.equal(seen.kind, "swap");
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator(".pane-grid-drag-ghost").count(), 0, "Escape ends the drag");
+    assert.equal(await page.locator(".pane-grid-drop-preview").count(), 0);
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+    assert.deepEqual(requests, [], "Escape cancels the drop");
+    assert.equal(["w1:p1", "w1:p2", "w1:p3"].map((id) => ptyOf(id).written).join("|"), typedBefore, "the Escape reached no pane");
+
+    // 3. The middle of another cell swaps the two: the whole cell lights up.
+    const p1Before = await boxOf("w1:p1");
+    const p3Before = await boxOf("w1:p3");
+    seen = await carry("w1:p1", at(p3Before, 0.5, 0.5), { during: () => shootDrag("rearrange-swap") });
+    assert.equal(seen.kind, "swap");
+    assert.equal(seen.swapTarget, "w1:p3");
+    near(seen.preview, p3Before, "the swap lights the whole cell");
+    await page.waitForFunction(() => document.querySelector('.pane-grid-cell[data-pane-id="w1:p1"]').style.top === "50%");
+    assert.deepEqual(requests.at(-1), ["swap", "w1:p1", { targetPaneId: "w1:p3" }]);
+    assert.deepEqual(rearranged.at(-1), ["swap", "w1:p1", "w1:p3"]);
+    near(await boxOf("w1:p1"), p3Before, "p1 sits where p3 was");
+    near(await boxOf("w1:p3"), p1Before, "p3 sits where p1 was");
+    // The carried pane stays selected, in the same cell with the same terminal.
+    await page.waitForFunction(() => document.querySelector('.pane-grid-cell[data-pane-id="w1:p1"]').classList.contains("is-focused"));
+    assert.equal(await page.locator('.pane-button[data-pane-id="w1:p1"]').getAttribute("aria-pressed"), "true");
+    assert.deepEqual(await page.evaluate(() => ["w1:p1", "w1:p3"].map((id) => {
+      const node = document.querySelector(`.pane-grid-cell[data-pane-id="${id}"]`);
+      return window.cellNodes.get(id) === node && window.cellTerminals.get(id) === node.querySelector(".xterm");
+    })), [true, true], "the cells and their terminals are kept");
+    assert.equal(ptyCount("w1:p1"), p1Ptys, "p1 did not attach again");
+    // Typing still reaches the carried pane.
+    await page.keyboard.type("after swap");
+    await page.waitForTimeout(300);
+    assert.match(ptyOf("w1:p1").written, /after swap/u, "the carried pane keeps the typing");
+
+    // 4. An edge moves it beside that cell: the dashed half shows where.
+    // p2 sits over p1 now; dropped on p1's bottom edge it goes under p1.
+    const p1Now = await boxOf("w1:p1");
+    seen = await carry("w1:p2", at(p1Now, 0.5, 0.92), { during: () => shootDrag("rearrange-edge") });
+    assert.equal(seen.kind, "side");
+    assert.equal(seen.side, "down");
+    assert.equal(seen.swapTarget, null);
+    near(seen.preview, { x: p1Now.x, y: p1Now.y + p1Now.height / 2, width: p1Now.width, height: p1Now.height / 2 }, "the half it would take");
+    await page.waitForFunction(() => document.querySelector('.pane-grid-cell[data-pane-id="w1:p2"]').style.top === "50%");
+    assert.deepEqual(requests.at(-1), ["relocate", "w1:p2", { targetPaneId: "w1:p1", side: "down" }]);
+    const p2After = await boxOf("w1:p2");
+    const p1After = await boxOf("w1:p1");
+    assert.ok(p2After.y > p1After.y && Math.abs(p2After.x - p1After.x) <= 1, "p2 sits under p1");
+    await page.waitForFunction(() => document.querySelector('.pane-grid-cell[data-pane-id="w1:p2"]').classList.contains("is-focused"));
+    assert.equal(await page.locator('.pane-button[data-pane-id="w1:p2"]').getAttribute("aria-pressed"), "true");
+    assert.equal(await page.evaluate(() => window.cellNodes.get("w1:p2") === document.querySelector('.pane-grid-cell[data-pane-id="w1:p2"]')), true);
+
+    // 5. A cell too small to read is carried by its header (all it shows): onto p3's middle.
+    assert.equal(await cell("w1:p4").evaluate((node) => node.classList.contains("is-tiny")), true);
+    seen = await carry("w1:p4", at(await boxOf("w1:p3"), 0.5, 0.5));
+    assert.equal(seen.kind, "swap");
+    await page.waitForFunction(() => document.querySelector('.pane-grid-cell[data-pane-id="w1:p4"]').style.left === "0%");
+    assert.deepEqual(rearranged.at(-1), ["swap", "w1:p4", "w1:p3"]);
+    await cell("w1:p4").locator(".xterm").waitFor();
+
+    // 6. A move that could not finish is said, and the pane is followed.
+    await page.route("**/api/panes/*/relocate", (route) => route.fulfill({ json: {
+      pane_id: "w1:p1", placed: false, restored: true, message: "There is no room to split this pane. The pane was put back in its session." } }));
+    const before = rearranged.length;
+    seen = await carry("w1:p1", at(await boxOf("w1:p4"), 0.08, 0.5));
+    assert.equal(seen.side, "left");
+    await page.locator("#action-feedback").filter({ hasText: "The pane was put back in its session." }).waitFor();
+    assert.equal(rearranged.length, before);
+    await page.unroute("**/api/panes/*/relocate");
+    // A refusal is said too.
+    await page.route("**/api/panes/*/swap", (route) => route.fulfill({ status: 400,
+      json: { error: { code: "invalid_input", message: "Those panes are not in the same session" } } }));
+    await carry("w1:p1", at(await boxOf("w1:p4"), 0.5, 0.5));
+    await page.locator("#action-feedback").filter({ hasText: "Those panes are not in the same session" }).waitFor();
+    await page.unroute("**/api/panes/*/swap");
+
+    // 7. The header's buttons still work: ⋯ opens its menu, ⤢ opens the pane alone.
+    const asked = requests.length;
+    // (A press that selects another pane clears the feedback line, which moves the grid: select first.)
+    await cell("w1:p2").locator(".xterm").click();
+    await page.waitForFunction(() => !document.querySelector("#action-feedback")?.textContent);
+    await cell("w1:p2").locator(".pane-grid-menu > summary").click();
+    await page.locator('.pane-grid-cell[data-pane-id="w1:p2"] [data-action="split-right"]').waitFor({ state: "visible" });
+    await cell("w1:p2").locator(".pane-grid-menu > summary").click();
+    await page.locator('.pane-grid-cell[data-pane-id="w1:p2"] [data-action="split-right"]').waitFor({ state: "hidden" });
+    // The terminal keeps its selection and typing: a drag inside it selects text, carries nothing.
+    const term = await cell("w1:p1").locator(".xterm-screen").boundingBox();
+    await page.mouse.move(term.x + 6, term.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(term.x + 120, term.y + 30, { steps: 8 });
+    assert.equal(await page.locator(".pane-grid-drag-ghost").count(), 0, "a drag in the terminal carries no cell");
+    await page.mouse.up();
+    assert.ok(await page.locator(".pane-grid-cell[data-pane-id='w1:p1'] .xterm-selection div").count() > 0, "the terminal selected text");
+    await page.keyboard.type("still typing");
+    await page.waitForTimeout(300);
+    assert.match(ptyOf("w1:p1").written, /still typing/u);
+    assert.equal(requests.length, asked, "neither asked to move anything");
+    await cell("w1:p2").locator(".pane-grid-expand").click();
+    await page.locator(".pane-grid").waitFor({ state: "hidden" });
+    assert.equal(await page.locator('.pane-button[data-pane-id="w1:p2"]').getAttribute("aria-pressed"), "true");
+    await page.locator("#grid-back").click();
+    await page.locator(".pane-grid").waitFor({ state: "visible" });
+    await cell("w1:p2").locator(".xterm").waitFor();
+
+    // 8. A zoomed tab is not rearranged: its header carries nothing.
+    zoomed = "w1:p2";
+    await page.locator(".pane-grid-zoom").waitFor({ state: "visible", timeout: 8000 });
+    assert.equal(await page.locator(".pane-grid.can-rearrange").count(), 0);
+    const zoomedBox = await boxOf("w1:p2");
+    seen = await carry("w1:p2", at(zoomedBox, 0.9, 0.9));
+    assert.equal(seen.ghost, null, "no drag while zoomed");
+    await page.waitForTimeout(250);
+    assert.equal(requests.length, asked);
+    zoomed = null;
+    await page.locator(".pane-grid-zoom").waitFor({ state: "hidden", timeout: 8000 });
+
+    // 9. A connected PC's split tab has no grid, so nothing to carry.
+    await page.locator('.split-session-button[data-tab-id="laptop!w1:t1"]').click();
+    await page.locator("#pane-title").filter({ hasText: /one/u }).waitFor();
+    assert.equal(await page.locator(".pane-grid:not([hidden]) .pane-grid-cell").count(), 0);
+    assert.deepEqual(errors, [], "no script errors");
+    await context.close();
+    console.log("ok: desktop grid rearranged");
   }
   // Two split sessions' grids switched at once, many times, on a server whose
   // panes cannot attach (each cell falls back at once, as where node-pty is

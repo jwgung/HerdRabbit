@@ -4,6 +4,7 @@
 // both views place a pane at its share of the tab's area, whatever the count.
 import { createAttachedTerminal } from "./xterm-terminal.js?v=1.4.2";
 import { terminalConnection } from "./terminal-connection.js?v=1.4.2";
+import { MOUSE_DRAG_SLOP, dropPreview, dropSide } from "./sidebar-drag.js?v=1.4.2";
 
 // A cell smaller than this (in Herdr's cells) is too small to read: it shows
 // the pane's name until it is focused, rather than a terminal nobody can use.
@@ -70,6 +71,25 @@ export function gridCells(layout, paneIds) {
   return { zoomedPaneId, area, cells };
 }
 
+// A cell dragged by its header onto another cell: within this share of the
+// other's width (or height) of an edge it goes next to that cell on that side;
+// the middle (the rest, about 40% each way) swaps the two.
+export const REARRANGE_EDGE_BAND = 0.3;
+
+// What a cell dropped at (x, y) on a cell whose screen box is `box` does:
+// { kind: "swap", preview } in the middle, { kind: "side", side, preview }
+// near an edge (the half of `box` it would take), null outside `box`.
+export function rearrangeDrop(box, x, y) {
+  if (!box || !(box.width > 0) || !(box.height > 0)) return null;
+  const right = box.left + box.width;
+  const bottom = box.top + box.height;
+  if (x < box.left || x > right || y < box.top || y > bottom) return null;
+  const edges = { left: box.left, top: box.top, width: box.width, height: box.height, right, bottom };
+  const side = dropSide(edges, x, y, REARRANGE_EDGE_BAND);
+  if (side) return { kind: "side", side, preview: dropPreview(edges, side) };
+  return { kind: "swap", preview: { left: box.left, top: box.top, width: box.width, height: box.height } };
+}
+
 function element(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -103,8 +123,14 @@ function icon(path) {
 // Herdr tab: the same cells, placed by the same math from its layoutRects,
 // each header naming its pane's project too (`context`), and every tile a
 // terminal (its rects are the browser's, never too small to read).
+// `onRearrange({ paneId, targetPaneId, kind, side })` hears a cell dragged by
+// its header onto another: kind "swap" (dropped in the other's middle) or
+// "side" with the side of the other it goes to. A mouse drags once it moves a
+// few pixels; Escape cancels. There is no dragging while a pane is zoomed,
+// with fewer than two cells, or while `canRearrange()` says no.
 export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, onSelect, onExpand, onUnzoom = () => {},
-  onAuthenticationRequired = () => {}, terminalOptions = {}, mode = "herdr" }) {
+  onAuthenticationRequired = () => {}, terminalOptions = {}, mode = "herdr",
+  onRearrange = null, canRearrange = () => true }) {
   const view = mode === "view";
   const root = element("div", view ? "pane-grid is-view" : "pane-grid");
   root.hidden = true;
@@ -130,6 +156,120 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
   // While paused (a hidden page, a sign-in asked for) the cells keep their
   // panes but no socket: resume() connects each again.
   let paused = false;
+
+  // Dragging a cell by its header. `press` is a mouse held on a header that
+  // has not moved far enough yet; `drag` the cell being carried, with the
+  // label following the pointer and the drop it would make now (`target`).
+  let press = null;
+  let drag = null;
+  const dropMark = element("div", "pane-drop-preview pane-grid-drop-preview");
+  dropMark.setAttribute("aria-hidden", "true");
+  const dropText = element("span", "pane-grid-drop-label");
+  dropMark.append(dropText);
+
+  const visibleCells = () => [...cells.values()].filter((cell) => !cell.node.hidden);
+  const rearrangeable = () => Boolean(onRearrange) && !root.hidden && !zoomedPaneId &&
+    !root.classList.contains("is-waiting") && visibleCells().length >= 2 && canRearrange() !== false;
+
+  function setDropTarget(target) {
+    drag.target = target;
+    for (const cell of cells.values()) {
+      cell.node.classList.toggle("is-swap-target", target?.kind === "swap" && target.paneId === cell.paneId);
+    }
+    dropMark.hidden = !target;
+    if (!target) return;
+    dropMark.dataset.kind = target.kind;
+    if (target.side) dropMark.dataset.side = target.side;
+    else delete dropMark.dataset.side;
+    dropText.textContent = target.kind === "swap" ? "Swap" : "";
+    dropText.hidden = target.kind !== "swap";
+    dropMark.style.left = `${target.preview.left}px`;
+    dropMark.style.top = `${target.preview.top}px`;
+    dropMark.style.width = `${target.preview.width}px`;
+    dropMark.style.height = `${target.preview.height}px`;
+  }
+
+  // The cell under the pointer and what a drop there would do; over the
+  // dragged cell itself, or off the cells, nothing.
+  function dropAt(x, y) {
+    for (const cell of visibleCells()) {
+      const box = cell.node.getBoundingClientRect();
+      if (x < box.left || x > box.right || y < box.top || y > box.bottom) continue;
+      if (cell === drag.cell) return null;
+      const drop = rearrangeDrop(box, x, y);
+      return drop ? { ...drop, paneId: cell.paneId } : null;
+    }
+    return null;
+  }
+
+  function followDrag(x, y) {
+    drag.ghost.style.transform = `translate(${Math.round(x + 14)}px, ${Math.round(y + 12)}px)`;
+    setDropTarget(dropAt(x, y));
+  }
+
+  function beginDrag(event) {
+    const { cell, pointerId } = press;
+    press = null;
+    if (!cell.node.isConnected || cells.get(cell.paneId) !== cell || !rearrangeable()) return;
+    const ghost = element("div", "pane-grid-drag-ghost");
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.append(element("span", cell.status.className, cell.status.textContent),
+      element("span", "pane-grid-drag-ghost-label", cell.label.textContent));
+    document.body.append(ghost, dropMark);
+    dropMark.hidden = true;
+    drag = { cell, pointerId, ghost, target: null };
+    cell.node.classList.add("is-drag-source");
+    root.classList.add("is-rearranging");
+    document.body.classList.add("is-pane-rearranging");
+    // The pointer stays the header's: the terminals it crosses see no
+    // movement (no selection, no mouse reports to the program in them).
+    try { cell.header.setPointerCapture(pointerId); } catch { /* the pointer may already be gone */ }
+    followDrag(event.clientX, event.clientY);
+  }
+
+  // Ends a drag; `drop` makes the move the pointer is over, if any.
+  function endDrag(drop) {
+    if (!drag) return;
+    const done = drag;
+    drag = null;
+    done.ghost.remove();
+    dropMark.remove();
+    done.cell.node.classList.remove("is-drag-source");
+    for (const cell of cells.values()) cell.node.classList.remove("is-swap-target");
+    root.classList.remove("is-rearranging");
+    document.body.classList.remove("is-pane-rearranging");
+    try { done.cell.header.releasePointerCapture(done.pointerId); } catch { /* already released */ }
+    const target = drop ? done.target : null;
+    if (!target || !cells.has(target.paneId) || !cells.has(done.cell.paneId)) return;
+    onRearrange({ paneId: done.cell.paneId, targetPaneId: target.paneId, kind: target.kind, side: target.side ?? null });
+  }
+
+  if (onRearrange) {
+    window.addEventListener("pointermove", (event) => {
+      if (drag) {
+        if (event.pointerId === drag.pointerId) {
+          event.preventDefault();
+          followDrag(event.clientX, event.clientY);
+        }
+        return;
+      }
+      if (!press || event.pointerId !== press.pointerId) return;
+      if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > MOUSE_DRAG_SLOP) beginDrag(event);
+    });
+    const release = (drop) => (event) => {
+      if (drag && event.pointerId === drag.pointerId) endDrag(drop);
+      else if (press && event.pointerId === press.pointerId) press = null;
+    };
+    window.addEventListener("pointerup", release(true));
+    window.addEventListener("pointercancel", release(false));
+    // Escape puts the cell back; it reaches no terminal.
+    window.addEventListener("keydown", (event) => {
+      if (!drag || event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      endDrag(false);
+    }, true);
+  }
 
   function attach(cell) {
     if (cell.attached) return;
@@ -171,6 +311,8 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
   }
 
   function dispose(cell) {
+    if (drag?.cell === cell) endDrag(false);
+    if (press?.cell === cell) press = null;
     detach(cell);
     cell.terminal?.dispose();
     cell.node.remove();
@@ -199,7 +341,16 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     // terminal's textarea) selects it like a press does.
     node.tabIndex = 0;
     node.setAttribute("role", "group");
-    const cell = { paneId, node, status, context, label, expand, body, note, menuSlot, menuKey: null, terminal: null, connection: null, attached: false };
+    const cell = { paneId, node, header, status, context, label, expand, body, note, menuSlot, menuKey: null, terminal: null, connection: null, attached: false };
+    // A mouse held on the header (not on its buttons) may pick the cell up.
+    header.addEventListener("pointerdown", (event) => {
+      if (!event.isPrimary || event.pointerType === "touch" || event.button !== 0 || drag || press) return;
+      if (event.target.closest(".pane-grid-menu-slot, .pane-grid-expand") || !rearrangeable()) return;
+      press = { cell, pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    });
+    header.addEventListener("lostpointercapture", (event) => {
+      if (drag?.cell === cell && event.pointerId === drag.pointerId) endDrag(false);
+    });
     // Any press in the cell makes it the selected pane; a press on its
     // terminal also leaves the typing there.
     node.addEventListener("pointerdown", (event) => {
@@ -253,11 +404,15 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       const placed = gridCells(layout, panes.map((pane) => pane.paneId));
       zoomedPaneId = placed.zoomedPaneId;
       zoomBar.hidden = !zoomedPaneId;
+      // The headers show they can be picked up.
+      root.classList.toggle("can-rearrange", Boolean(onRearrange) && !zoomedPaneId && !waiting && placed.cells.length >= 2);
       if (zoomedPaneId) zoomText.textContent = `Zoomed: ${info.get(zoomedPaneId)?.label ?? "pane"}`;
       const where = new Map(placed.cells.map((cell) => [cell.paneId, cell]));
       for (const [paneId, cell] of cells) {
         if (!where.has(paneId)) { dispose(cell); cells.delete(paneId); }
       }
+      // A zoom (made elsewhere) puts a carried cell back.
+      if (zoomedPaneId) endDrag(false);
       for (const pane of panes) {
         const place = where.get(pane.paneId);
         if (!place) continue;
@@ -330,6 +485,8 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     },
     // Leaves the grid: every cell lets its pane and its socket go.
     hide() {
+      endDrag(false);
+      press = null;
       root.hidden = true;
       zoomBar.hidden = true;
       drawnKey = null;

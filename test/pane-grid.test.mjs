@@ -28,3 +28,21 @@ test("a pane the layout does not list yet is left out", () => {
   const layout = { area: { x: 0, y: 0, width: 10, height: 10 }, panes: [{ pane_id: "w1:p1", rect: { x: 0, y: 0, width: 10, height: 10 } }] };
   assert.deepEqual(gridCells(layout, ["w1:p1", "w1:p2"]).cells.map((cell) => cell.paneId), ["w1:p1"]);
 });
+
+test("a cell dropped in another's middle swaps; near an edge it goes on that side", async () => {
+  const { REARRANGE_EDGE_BAND, rearrangeDrop } = await import("../public/pane-grid.js");
+  const box = { left: 100, top: 50, width: 200, height: 100 };
+  assert.equal(REARRANGE_EDGE_BAND, 0.3);
+  assert.deepEqual(rearrangeDrop(box, 200, 100), { kind: "swap", preview: { left: 100, top: 50, width: 200, height: 100 } });
+  // The middle 40% each way swaps.
+  assert.equal(rearrangeDrop(box, 100 + 200 * 0.31, 100).kind, "swap");
+  assert.equal(rearrangeDrop(box, 200, 50 + 100 * 0.69).kind, "swap");
+  assert.deepEqual(rearrangeDrop(box, 110, 100), { kind: "side", side: "left", preview: { left: 100, top: 50, width: 100, height: 100 } });
+  assert.deepEqual(rearrangeDrop(box, 290, 100), { kind: "side", side: "right", preview: { left: 200, top: 50, width: 100, height: 100 } });
+  assert.deepEqual(rearrangeDrop(box, 200, 55), { kind: "side", side: "up", preview: { left: 100, top: 50, width: 200, height: 50 } });
+  assert.deepEqual(rearrangeDrop(box, 200, 145), { kind: "side", side: "down", preview: { left: 100, top: 100, width: 200, height: 50 } });
+  // Outside, or a box of no size, is no drop.
+  assert.equal(rearrangeDrop(box, 99, 100), null);
+  assert.equal(rearrangeDrop(box, 200, 151), null);
+  assert.equal(rearrangeDrop({ left: 0, top: 0, width: 0, height: 10 }, 0, 5), null);
+});

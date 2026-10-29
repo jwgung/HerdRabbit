@@ -6,12 +6,14 @@ import {
   VIEW_SPLIT_STORAGE_KEY,
   addTile,
   layoutRects,
+  moveTile,
   paneDropKind,
   parseTree,
   prune,
   readViewSplit,
   removeTile,
   renameTiles,
+  swapTiles,
   tiles,
   writeViewSplit,
 } from "../public/view-split.js";
@@ -155,4 +157,42 @@ test("a split session, another machine's or the pane's own is no drop", () => {
   assert.equal(paneDropKind(snapshot, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen: "solo", ...allowed }), null);
   assert.equal(paneDropKind(snapshot, { tabId: "w2:t1", targetPaneId: "laptop!w1:p1" }, { screen: "solo", ...allowed }), null);
   assert.equal(paneDropKind(snapshot, { tabId: "w1:t1", targetPaneId: "w1:p1" }, { screen: "solo", ...allowed }), null);
+});
+
+test("two tiles trade places and nothing else moves", () => {
+  const three = addTile(addTile(null, "a", "b", "right"), "b", "c", "down");
+  assert.deepEqual(swapTiles(three, "a", "c"), { dir: "right", first: "c", second: { dir: "down", first: "b", second: "a", ratio: 0.5 }, ratio: 0.5 });
+  assert.deepEqual(swapTiles(swapTiles(three, "a", "c"), "c", "a"), three);
+  // Not a tile, or the same tile: unchanged.
+  assert.equal(swapTiles(three, "a", "z"), three);
+  assert.equal(swapTiles(three, "a", "a"), three);
+  assert.equal(swapTiles(null, "a", "b"), null);
+});
+
+test("a tile moves next to another on any side, taking half of it", () => {
+  // a | (b over c): a goes under c.
+  const three = addTile(addTile(null, "a", "b", "right"), "b", "c", "down");
+  const moved = moveTile(three, "a", "c", "down");
+  assert.deepEqual(moved, { dir: "down", first: "b", second: { dir: "down", first: "c", second: "a", ratio: 0.5 }, ratio: 0.5 });
+  assert.deepEqual(tiles(moved), ["b", "c", "a"]);
+  assert.deepEqual(moveTile(three, "c", "a", "left"),
+    { dir: "right", first: { dir: "right", first: "c", second: "a", ratio: 0.5 }, second: "b", ratio: 0.5 });
+  assert.deepEqual(moveTile(three, "c", "b", "up"),
+    { dir: "right", first: "a", second: { dir: "down", first: "c", second: "b", ratio: 0.5 }, ratio: 0.5 });
+  // Of two tiles, one goes on any side of the other.
+  const two = addTile(null, "a", "b", "right");
+  assert.deepEqual(moveTile(two, "a", "b", "right"), { dir: "right", first: "b", second: "a", ratio: 0.5 });
+  assert.deepEqual(moveTile(two, "a", "b", "down"), { dir: "down", first: "b", second: "a", ratio: 0.5 });
+  assert.deepEqual(moveTile(two, "b", "a", "up"), { dir: "down", first: "b", second: "a", ratio: 0.5 });
+  // Unchanged: onto itself, a pane that is no tile, a side that is none.
+  assert.equal(moveTile(three, "a", "a", "left"), three);
+  assert.equal(moveTile(three, "z", "a", "left"), three);
+  assert.equal(moveTile(three, "a", "z", "left"), three);
+  assert.equal(moveTile(three, "a", "b", "middle"), three);
+  // Every rearranged tree is still one a reload reads back.
+  const full = ["c", "d", "e", "f"].reduce((tree, id, index) => addTile(tree, ["a", "b", "c", "d"][index], id, "right"), two);
+  assert.equal(tiles(full).length, MAX_TILES);
+  for (const tree of [moveTile(full, "a", "f", "down"), swapTiles(full, "a", "f"), moved]) {
+    assert.deepEqual(parseTree(JSON.parse(JSON.stringify(tree))), tree);
+  }
 });
