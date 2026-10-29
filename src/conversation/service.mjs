@@ -7,6 +7,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { CLAUDE_TRANSCRIPT, SESSION_ID, locateClaudeTranscript, pendingClaudeAsk, readTail } from "./claude.mjs";
 import { CODEX_TRANSCRIPT, THREAD_ID, isCodexProcess, locateCodexRollout } from "./codex.mjs";
+import { KIRO_TRANSCRIPT, SESSION_ID as KIRO_SESSION_ID, kiroWorkspaceHash } from "./kiro.mjs";
 import { OPENCODE_SESSION, OPENCODE_SESSION_ID } from "./opencode.mjs";
 import { opencodeRunningVersion } from "./opencode-process.mjs";
 import {
@@ -30,7 +31,7 @@ const MISSING_LOCATE_TTL_MS = 2_000;
 // The screen a Codex pane is matched by, as a last resort.
 const MATCH_SCREEN_LINES = 400;
 
-const FORMATS = { claude: CLAUDE_TRANSCRIPT, codex: CODEX_TRANSCRIPT, opencode: OPENCODE_SESSION };
+const FORMATS = { claude: CLAUDE_TRANSCRIPT, codex: CODEX_TRANSCRIPT, opencode: OPENCODE_SESSION, kiro: KIRO_TRANSCRIPT };
 
 // What a link's client must answer for its panes' conversations to be relayed.
 const LINK_CALLS = ["conversationPage", "conversationToolOutput", "conversationSignature", "conversationPendingAsk"];
@@ -253,7 +254,30 @@ export class ConversationService {
       return { paneId, serverId, agent, format, store, session, path: found.value, key: found.key };
     }
     if (agent === "opencode") return this.#resolveOpencode(paneId, { serverId, agent, format, own, pane, panes: snapshot?.panes ?? [] });
+    if (agent === "kiro") return this.#resolveKiro(paneId, { serverId, agent, format, own, cwds });
     return this.#resolveCodex(paneId, { serverId, agent, format, own, cwds });
+  }
+
+  // Kiro writes its transcript under a directory named for the workspace it ran
+  // in: `<config>/sessions/<sha256(cwd) first 16 hex>/sess_<uuid>/messages.jsonl`.
+  // Herdr reports no Kiro session id, so the pane's cwd names the workspace
+  // directory and the newest `sess_` in it is the pane's conversation. With more
+  // than one cwd (foreground and start), each is tried in turn.
+  async #resolveKiro(paneId, { serverId, agent, format, own, cwds }) {
+    const store = this.#store(serverId)?.kiro;
+    if (!store) throw this.#noStore();
+    // Herdr may one day report a session id; prefer it when it is a sess uuid.
+    const reported = own && (own.kind === undefined || own.kind === "id") && typeof own.value === "string"
+      && KIRO_SESSION_ID.test(own.value) ? own.value : null;
+    const hashes = cwds.map((cwd) => kiroWorkspaceHash(cwd)).filter((hash) => hash !== null);
+    const found = await this.#located(`kiro\0${serverId}\0${reported ?? ""}\0${hashes.join("\0")}`,
+      () => store.locate({ session: reported, hashes }));
+    if (found.value === null) {
+      // nothing names the workspace or its session yet: wait for herdr to report the pane
+      throw new ConversationUnavailable(hashes.length === 0 ? "no_session_id" : "transcript_missing");
+    }
+    const { session, path } = found.value;
+    return { paneId, serverId, agent, format, store: this.#store(serverId), session, path, key: found.key };
   }
 
   // OpenCode's session is a row of its database: the store is that database,

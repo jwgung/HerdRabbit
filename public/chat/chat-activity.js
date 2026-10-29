@@ -25,7 +25,7 @@ export function formatElapsed(ms) {
 }
 
 // The name a row or card gives the agent herdr names.
-const AGENT_LABELS = { claude: "Claude", codex: "Codex", opencode: "OpenCode" };
+const AGENT_LABELS = { claude: "Claude", codex: "Codex", opencode: "OpenCode", kiro: "Kiro" };
 export function agentLabel(agent) {
   return AGENT_LABELS[String(agent ?? "").toLowerCase()] ?? "The agent";
 }

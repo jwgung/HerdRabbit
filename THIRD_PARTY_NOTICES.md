@@ -13,7 +13,8 @@ rollout fixtures in `test/conversation-codex.test.mjs`), the Chat lens (`public/
 `public/chat/prompt-card.css`, and the Claude and Codex screens in `test/prompt-claude.test.mjs`,
 `test/prompt-codex.test.mjs` and `test/fixtures/codex-prompt.mjs`), the editable extra-keys bar
 (`public/key-bar-preference.js`, `public/key-bar.css`), the per-pane composer drafts
-(`public/composer-draft-preference.js`) and the xterm composition patch
+(`public/composer-draft-preference.js`), the Kiro program mark (the `kiro` entry of
+`AGENT_MARKS` in `public/app.js`) and the xterm composition patch
 (`vendor/xterm/xterm-5.5.0-ime.patch`, applied by `scripts/build-xterm.mjs`) are adapted from herdr-web-ui,
 https://github.com/devswha/herdr-web-ui
 

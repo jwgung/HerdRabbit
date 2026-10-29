@@ -1935,6 +1935,13 @@ const AGENT_MARKS = Object.freeze({
   // OpenCode's mark: a pixelated "O" — outer ring with an inner block,
   // the same shape as the published favicon
   opencode: { box: "#131010", fills: [{ d: "M6 4.5h12v15H6V4.5ZM9 7.5v9h6v-9H9Z", color: "#ffffff" }, { d: "M9 10.5h6v6H9v-6Z", color: "#5A5858" }] },
+  // Cursor's mark: a text caret on a dark field, the terminal cursor it is named for
+  cursor: { box: "#111111", strokes: ["M9 5h6M9 19h6M12 5v14"], color: "#ffffff", width: 1.9 },
+  // Kiro's Ghostie mark on its brand violet (from ovis / devswha, MIT)
+  kiro: { box: "#9046FF", fills: [
+    { d: "M8 16.4c-1.7 3.6 1.8 4.5 4.4 2.4.8 2.4 3.6.6 4.6-1.2 2.3-4.1 1.4-8.3 1.2-9.2-1.6-5.8-9.6-5.8-11 0q-.4 1.7-.5 3.5l-.4 1.7-.6 1.2c-.5.9-.3 2.5 2 1.7z", color: "#ffffff" },
+    { d: "M12.7 11c-.6 0-.7-.8-.7-1.3q0-.6.2-1l.5-.2q.5 0 .6.3l.2 1q0 1.1-.8 1.2m2.7 0c-.6 0-.7-.8-.7-1.3q0-.6.2-1l.5-.2q.5 0 .6.3.3.3.2 1 0 1.1-.8 1.2", color: "#9046FF" },
+  ] },
   other: { strokes: ["M12 3c.7 5 2 6.3 7 7-5 .7-6.3 2-7 7-.7-5-2-6.3-7-7 5-.7 6.3-2 7-7z", "M19 17v4M17 19h4"], width: 1.6 },
   shell: { strokes: ["M5 8l5 4-5 4", "M13 17h6"], width: 1.9 },
 });
