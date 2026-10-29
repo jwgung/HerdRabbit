@@ -12,7 +12,8 @@
 // own session, Close pane) lined up with every other ⋯; a pane there opens
 // alone; the row opens the grid on a desktop and the pane with the map on a
 // phone, stays highlighted while one of its panes is selected, and its ⋯ menu
-// renames, separates and closes the whole session.
+// renames, separates and closes the whole session. A folded sidebar's rail
+// lists the sessions even with the Files tab chosen.
 // Runs against a fake herdr on a desktop and a phone layout.
 // SIDEBAR_SCREENSHOTS=<folder> keeps pictures in both themes.
 import assert from "node:assert/strict";
@@ -439,6 +440,20 @@ try {
     await page.locator('.tab-group[data-tab-id="w1:t10"]').waitFor({ state: "detached" });
     assert.match(asked ?? "", /Close session “Split session”/u);
     assert.deepEqual(tabCalls.at(-1), ["close", "w1:t10"]);
+    if (!mobile) {
+      // Folded to the rail with the Files tab chosen, the rail still lists the
+      // sessions (the file tree has no room there); unfolding brings Files back.
+      await page.locator("#tab-files").click();
+      await page.locator("#file-panel").waitFor({ state: "visible" });
+      await page.locator("#sidebar-toggle").click();
+      await page.waitForTimeout(500);
+      assert.equal(await page.locator("#file-panel").isVisible(), false, "the rail does not show the file tree");
+      assert.equal(await page.locator("#workspace-list").isVisible(), true, "the rail shows the sessions");
+      await page.locator("#sidebar-toggle").click();
+      await page.waitForTimeout(500);
+      assert.equal(await page.locator("#file-panel").isVisible(), true, "Files is back once unfolded");
+      assert.equal(await page.locator("#workspace-list").isVisible(), false);
+    }
     assert.deepEqual(errors, []);
     await context.close();
   }

@@ -482,6 +482,7 @@ const state = {
   snapshotBusy: false,
   lastOutputRequestAt: 0,
   desktopSidebarCollapsed: false,
+  navigatorTab: "sessions",
   mobileSidebarOpen: false,
   // The pane on screen, attached or mirrored, and a mirrored pane's text.
   // While a grid shows the selected pane's tab it is that pane, in its cell,
@@ -640,6 +641,7 @@ function syncSidebar() {
     !desktopMedia.matches && presentation.open,
   );
   elements.navigator.inert = presentation.navigatorInert;
+  applyNavigatorPanels();
   elements.sidebarToggle.setAttribute("aria-expanded", String(presentation.toggleExpanded));
   elements.sidebarToggle.setAttribute("aria-label", presentation.toggleLabel);
   elements.sidebarToggle.title = presentation.toggleLabel;
@@ -6888,12 +6890,21 @@ async function revealInFiles(filePath, name, server) {
   row?.focus({ preventScroll: true });
 }
 
+// The collapsed rail is for moving between sessions, so it shows the session
+// list whichever tab is chosen: a file tree squeezed into the rail is blank.
+// Expanding the sidebar again brings the chosen tab back.
+function applyNavigatorPanels() {
+  const files = state.navigatorTab === "files" && !document.body.classList.contains("sidebar-collapsed");
+  elements.workspaceList.hidden = files;
+  elements.filePanel.hidden = !files;
+}
+
 function showNavigatorTab(tab, { load = true } = {}) {
   const files = tab === "files";
   elements.tabSessions.setAttribute("aria-selected", String(!files));
   elements.tabFiles.setAttribute("aria-selected", String(files));
-  elements.workspaceList.hidden = files;
-  elements.filePanel.hidden = !files;
+  state.navigatorTab = tab;
+  applyNavigatorPanels();
   writeNavigatorTab(browsePathStorage, tab);
   if (files && load) {
     if (browseState.root) void refreshBrowseFolder({ silent: true });
