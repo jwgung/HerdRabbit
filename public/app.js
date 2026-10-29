@@ -917,6 +917,7 @@ function buildSettingsMenu() {
     actions: [
       { key: "notifications", label: "Notifications", paths: BELL_ICON, onSelect: () => void togglePushNotifications() },
       { key: "theme", label: "Theme", paths: SUN_ICON, onSelect: () => window.herdrTheme?.set(window.herdrTheme.current() === "dark" ? "light" : "dark") },
+      { separator: true, key: "separator-tools" },
       {
         key: "keys",
         label: "Edit keys",
@@ -966,7 +967,7 @@ function buildSettingsMenu() {
         onSelect: () => paneGrid.resetFont(),
       },
       { key: "update", label: "Update", paths: UPDATE_ICON, onSelect: () => updatePanel.open() },
-      { separator: true, key: "separator" },
+      { separator: true, key: "separator-security" },
       {
         key: "passkeys",
         label: "Passkeys",
@@ -1040,7 +1041,7 @@ function syncSettingsMenu() {
   // machine has none. Removing needs no WebAuthn, so a browser without it still
   // gets the list: that is how a lost device's passkey is taken off elsewhere.
   for (const key of ["passkeys", "sessions"]) item(key).hidden = !state.authRequired;
-  menu.querySelector('[role="separator"]').hidden = !state.authRequired;
+  menu.querySelector('[data-separator="separator-security"]').hidden = !state.authRequired;
 }
 
 // The PCs the Update window lists: this one, then each connected PC.
@@ -1603,6 +1604,7 @@ function sidebarActionMenu({
     if (action.separator) {
       const rule = createElement("div", { className: "sidebar-action-separator" });
       rule.setAttribute("role", "separator");
+      if (action.key) rule.dataset.separator = action.key;
       popover.append(rule);
       continue;
     }
