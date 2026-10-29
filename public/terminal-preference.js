@@ -44,3 +44,48 @@ export function adjustedTerminalFontSize(fontSize, direction) {
   }
   return current;
 }
+
+// The text size of a Herdr grid, chosen by the user (null: the grid picks the
+// largest that fits its stage). Kept apart from the size of a single pane, in
+// the same storage, in the half steps the grid's fonts go in.
+export const GRID_FONT_STORAGE_KEY = "herdrbridge-grid-font";
+export const MIN_GRID_FONT = 4;
+export const MAX_GRID_FONT = 32;
+
+export function normalizedGridFont(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const size = Number(value);
+  if (!Number.isFinite(size)) return null;
+  return Math.min(MAX_GRID_FONT, Math.max(MIN_GRID_FONT, Math.round(size * 2) / 2));
+}
+
+export function readGridFont(storage) {
+  try {
+    return normalizedGridFont(storage?.getItem(GRID_FONT_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+// `fontSize` null puts the grid back to picking its own.
+export function writeGridFont(storage, fontSize) {
+  try {
+    if (!storage) return false;
+    const size = normalizedGridFont(fontSize);
+    if (size === null) storage.removeItem(GRID_FONT_STORAGE_KEY);
+    else storage.setItem(GRID_FONT_STORAGE_KEY, String(size));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// One step from the font the grid has now (a half step stays one), the same
+// step a single pane's text size takes.
+export function adjustedGridFont(fontSize, direction) {
+  const current = normalizedGridFont(fontSize);
+  if (current === null) return null;
+  if (direction === "smaller") return normalizedGridFont(current - 1);
+  if (direction === "larger") return normalizedGridFont(current + 1);
+  return current;
+}

@@ -5,6 +5,7 @@
 import { createAttachedTerminal } from "./xterm-terminal.js?v=1.4.5";
 import { terminalConnection } from "./terminal-connection.js?v=1.4.5";
 import { MOUSE_DRAG_SLOP, dropPreview, dropSide } from "./sidebar-drag.js?v=1.4.5";
+import { adjustedGridFont, normalizedGridFont } from "./terminal-preference.js?v=1.4.5";
 
 // A cell smaller than this (in Herdr's cells) is too small to read: it shows
 // the pane's name until it is focused, rather than a terminal nobody can use.
@@ -204,6 +205,8 @@ function icon(path) {
 // `menuFor(pane, zoomed)` builds a cell's ⋯ menu; `onSelect(paneId)` hears a
 // cell focused, `onExpand(paneId)` the cell opened alone, `onUnzoom(paneId)`
 // the zoom undone.
+// `manualFont` is the text size the user chose for the grid (null: the largest
+// that fits the stage); `onFontChange(manualFont)` hears it change.
 // `mode: "view"` is this window's own view split (view-split.js) rather than a
 // Herdr tab: the same cells, placed by the same math from its layoutRects,
 // each header naming its pane's project too (`context`), and every tile a
@@ -215,8 +218,9 @@ function icon(path) {
 // with fewer than two cells, or while `canRearrange()` says no.
 export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, onSelect, onExpand, onUnzoom = () => {},
   onAuthenticationRequired = () => {}, terminalOptions = {}, mode = "herdr",
-  onRearrange = null, canRearrange = () => true }) {
+  onRearrange = null, canRearrange = () => true, manualFont = null, onFontChange = () => {} }) {
   const view = mode === "view";
+  manualFont = view ? null : normalizedGridFont(manualFont);
   const root = element("div", view ? "pane-grid is-view" : "pane-grid");
   root.hidden = true;
   const zoomBar = element("div", "pane-grid-zoom");
@@ -278,6 +282,21 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     });
   }
 
+  // The user's text size applies to a Herdr grid of several cells, not to a
+  // view split's tiles or a zoomed pane (those read at the single pane's size).
+  const adjustable = () => !view && !root.hidden && !zoomedPaneId && !root.classList.contains("is-waiting") && boardFont !== null;
+
+  function setManualFont(next) {
+    next = normalizedGridFont(next);
+    if (next === manualFont) return;
+    manualFont = next;
+    // A pinch resized the cell's terminal itself: the fit sets every cell anew.
+    for (const cell of cells.values()) cell.font = null;
+    if (boardFrame !== null) { cancelAnimationFrame(boardFrame); boardFrame = null; }
+    fitBoard();
+    onFontChange(manualFont);
+  }
+
   function unfitBoard() {
     board.classList.remove("is-fitted");
     board.style.width = "";
@@ -311,7 +330,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       });
     }
     metrics ??= characterMetrics(getComputedStyle(board).getPropertyValue("--mono").trim() || "monospace");
-    const fitted = letterbox({ room, cells: shaped, metrics, dpr: window.devicePixelRatio || 1, maxFont: GRID_MAX_FONT });
+    const fitted = letterbox({ room, cells: shaped, metrics, dpr: window.devicePixelRatio || 1, maxFont: manualFont ?? GRID_MAX_FONT });
     if (!fitted) { unfitBoard(); return; }
     board.classList.add("is-fitted");
     board.style.width = `${fitted.width}px`;
@@ -502,6 +521,8 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
         // at the usual font. Neither answers herdr's capability queries as typing.
         keepSize: !view,
         quietReplies: true,
+        // A pinch on a Herdr grid's cell sizes the grid's text.
+        onFontSizeChange: view ? undefined : (size) => { if (adjustable()) setManualFont(size); },
         onFallback: (paneId, problem) => {
           cell.note.textContent = problem?.code === "busy" || problem?.code === "too_many_attachments"
             ? "Too many terminals are open to show this one."
@@ -716,11 +737,30 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       if (terminal && cell?.attached) cell.terminal.focus();
     },
     // The terminal font size a view split's tiles read at. A Herdr grid's
-    // cells take the font their board fits instead (up to GRID_MAX_FONT).
+    // cells take the font their board fits instead (up to the user's own
+    // choice, `manualFont`, or GRID_MAX_FONT).
     setFontSize(size) {
       fontSize = size;
       if (!view) return;
       for (const cell of cells.values()) cell.terminal?.setFontSize(size);
+    },
+    // Whether the user's text size applies here now (see adjustable()), and
+    // the font the cells have.
+    get adjustable() { return adjustable(); },
+    get manualFont() { return manualFont; },
+    get font() { return boardFont; },
+    // One step smaller or larger from the font the cells have now. A step up
+    // that the stage has no room for puts the grid back to fitting itself.
+    adjustFont(direction) {
+      if (!adjustable()) return false;
+      const wanted = adjustedGridFont(boardFont, direction);
+      setManualFont(wanted);
+      if (direction === "larger" && boardFont < wanted) setManualFont(null);
+      return true;
+    },
+    // Back to the largest font the stage fits.
+    resetFont() {
+      setManualFont(null);
     },
     // Every cell's socket closes; each keeps its pane, to attach on resume().
     pause() {

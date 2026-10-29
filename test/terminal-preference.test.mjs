@@ -52,3 +52,33 @@ test("falls back safely for malformed or unavailable preferences", () => {
   assert.equal(readTerminalFontSize({ getItem() { throw new Error("blocked"); } }), 12);
   assert.equal(writeTerminalFontSize(null, 14), false);
 });
+
+test("a grid's own text size is kept apart, in half steps from 4 to 32", async () => {
+  const { GRID_FONT_STORAGE_KEY, adjustedGridFont, normalizedGridFont, readGridFont, writeGridFont } =
+    await import("../public/terminal-preference.js");
+  assert.equal(GRID_FONT_STORAGE_KEY, "herdrbridge-grid-font");
+  assert.equal(normalizedGridFont(null), null);
+  assert.equal(normalizedGridFont("nope"), null);
+  assert.equal(normalizedGridFont(9.7), 9.5);
+  assert.equal(normalizedGridFont(1), 4);
+  assert.equal(normalizedGridFont(99), 32);
+  // One step like a single pane's, from the font the grid has now.
+  assert.equal(adjustedGridFont(13.5, "smaller"), 12.5);
+  assert.equal(adjustedGridFont(13.5, "larger"), 14.5);
+  assert.equal(adjustedGridFont(4.5, "smaller"), 4);
+  assert.equal(adjustedGridFont(32, "larger"), 32);
+  assert.equal(adjustedGridFont(null, "larger"), null);
+  const stored = new Map();
+  const storage = { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value), removeItem: (key) => stored.delete(key) };
+  assert.equal(readGridFont(storage), null);
+  assert.equal(writeGridFont(storage, 11.5), true);
+  assert.equal(readGridFont(storage), 11.5);
+  assert.equal(stored.has(TERMINAL_FONT_SIZE_STORAGE_KEY), false);
+  writeGridFont(storage, null);
+  assert.equal(readGridFont(storage), null);
+  // Storage that throws or is missing is tolerated.
+  const broken = { getItem() { throw new Error("no"); }, setItem() { throw new Error("no"); }, removeItem() { throw new Error("no"); } };
+  assert.equal(readGridFont(broken), null);
+  assert.equal(writeGridFont(broken, 12), false);
+  assert.equal(writeGridFont(null, 12), false);
+});

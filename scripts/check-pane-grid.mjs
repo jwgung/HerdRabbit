@@ -7,7 +7,8 @@
 // the row's dropdown opens its pane alone. Leaving the grid closes the cells'
 // sockets. No cell attaches before Herdr's layout is read, a close always
 // says the user meant it, and the cells take the font their board fits, not
-// the terminal font size chosen for one pane. On a
+// the terminal font size chosen for one pane (the user adjusts the grid's own
+// text size with Ctrl+wheel, and Ctrl+0 resets it). On a
 // phone there is no grid: the selected pane shows with a map of the tab above
 // it, a pane the layout does not have yet is still counted and tappable, and
 // a tap on the map switches pane. A connected PC's split tab is one row too,
@@ -427,8 +428,8 @@ try {
       assert.match(asked ?? "", /waiting for your answer/u);
       assert.equal(await cell("w1:p3").count(), 1, "a dismissed close keeps the pane");
       assert.equal(closeBodies.length, 1, "a dismissed close asks nothing");
-      // The cells take the font their board fits: a smaller terminal font
-      // size (for a pane shown alone) leaves them as they are.
+      // Ctrl+wheel on the grid sizes the grid's text, not the terminal font
+      // size chosen for a pane shown alone: that setting stays as it is.
       const screenWidth = (paneId) => cell(paneId).locator(".xterm-screen").evaluate((node) => node.offsetWidth);
       const setting = () => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--terminal-font-size")));
       await gridSettled(page);
@@ -438,10 +439,14 @@ try {
       await page.keyboard.down("Control");
       for (let step = 0; step < 6; step += 1) await page.mouse.wheel(0, 120);
       await page.keyboard.up("Control");
-      assert.ok(await setting() < sizeBefore, "the setting got smaller");
+      assert.equal(await setting(), sizeBefore, "the global setting does not follow a grid adjustment");
       await page.waitForTimeout(300);
       await gridSettled(page);
-      assert.equal(await screenWidth("w1:p1"), widthBefore, "the cells keep the font their board fits");
+      assert.ok(await screenWidth("w1:p1") < widthBefore, "the grid's own adjustment resizes the cells");
+      await page.keyboard.press("Control+0");
+      await page.waitForTimeout(300);
+      await gridSettled(page);
+      assert.equal(await screenWidth("w1:p1"), widthBefore, "Ctrl+0 puts the cells back to the font their board fits");
 
       // No grid cell ever resized a pane: no resize frame, every attach keeps the size.
       const gridSockets = sockets.filter((socket) => socket.frames.some((frame) => frame.type === "attach" && frame.keepSize === true));
@@ -1081,6 +1086,69 @@ try {
       console.log(`  ${count} cells at 1700x1100: board ${seen.board} in stage ${seen.stage}, font ${seen.cells[0].font}`);
       assert.deepEqual(errors, []);
       await context.close();
+    }
+
+    // The grid's text size is the user's to adjust: Ctrl+wheel steps it from
+    // the font the cells have, every cell alike, the board shrinking with it
+    // and the cells still filled; larger returns up to the fit; Ctrl+0 (or
+    // Settings) goes back to auto. The global setting stays as it is, and a
+    // pane alone still follows it.
+    for (const count of [2, 4]) {
+      const { context, page, errors } = await open(count);
+      const setting = () => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--terminal-font-size")));
+      const stored = () => page.evaluate(() => localStorage.getItem("herdrbridge-grid-font"));
+      const global = await setting();
+      const auto = await filled(page, `${count} cells, auto`);
+      const autoFont = parseFloat(auto.cells[0].font);
+      const stage = await page.locator(".pane-grid").boundingBox();
+      await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2);
+      const wheel = async (deltaY, times = 1) => {
+        await page.keyboard.down("Control");
+        for (let step = 0; step < times; step += 1) await page.mouse.wheel(0, deltaY);
+        await page.keyboard.up("Control");
+        await gridSettled(page);
+      };
+      await wheel(120, 3);
+      const small = await fill(page);
+      const smallFont = parseFloat(small.cells[0].font);
+      assert.ok(smallFont < autoFont, `${count} cells: smaller shrinks the font (${autoFont} -> ${smallFont})`);
+      assert.equal(new Set(small.cells.map((cell) => cell.font)).size, 1, `${count} cells: every cell shrinks equally`);
+      assert.ok(small.board[0] < auto.board[0] || small.board[1] < auto.board[1], `${count} cells: the board shrinks (${auto.board} -> ${small.board})`);
+      for (const cell of small.cells) {
+        assert.ok(cell.slackX >= -0.5 && cell.slackX <= 3, `${count} cells, smaller: ${cell.pane} fills its width (${cell.slackX}px spare)`);
+        assert.ok(cell.slackY >= -0.5 && cell.slackY <= Math.max(3, cell.header), `${count} cells, smaller: ${cell.pane} fills its height (${cell.slackY}px spare)`);
+      }
+      assert.ok(Math.abs(small.gapLeft - small.gapRight) <= 1, `${count} cells, smaller: the board stays centred`);
+      assert.equal(await stored(), String(smallFont), "the choice is remembered");
+      assert.equal(await setting(), global, `${count} cells: the global setting is unchanged`);
+      // Larger comes back up to the fit and no further.
+      await wheel(-120, 10);
+      assert.equal(parseFloat((await fill(page)).cells[0].font), autoFont, `${count} cells: larger returns up to the fit`);
+      assert.equal(await stored(), null, `${count} cells: back at the fit it is automatic again`);
+      // Reset: from a smaller size, Ctrl+0 and the Settings item both go back to auto.
+      await wheel(120, 3);
+      assert.ok(parseFloat((await fill(page)).cells[0].font) < autoFont);
+      await page.keyboard.press("Control+0");
+      await gridSettled(page);
+      assert.equal(parseFloat((await fill(page)).cells[0].font), autoFont, `${count} cells: Ctrl+0 goes back to auto`);
+      await wheel(120, 3);
+      await page.locator(".settings-button").click();
+      await page.locator('[data-action="grid-font"]').click();
+      await gridSettled(page);
+      assert.equal(parseFloat((await fill(page)).cells[0].font), autoFont, `${count} cells: Reset text size goes back to auto`);
+      assert.equal(await setting(), global, `${count} cells: the global setting is still unchanged`);
+      // A pane alone follows the global setting.
+      await cellOf(page, "w1:p1").locator(".pane-grid-expand").click();
+      await page.locator("#grid-back").waitFor({ state: "visible" });
+      await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2);
+      await page.keyboard.down("Control");
+      await page.mouse.wheel(0, 120);
+      await page.keyboard.up("Control");
+      await page.waitForTimeout(200);
+      assert.equal(await setting(), global - 1, `${count} cells: a pane alone still takes the global setting`);
+      assert.deepEqual(errors, []);
+      await context.close();
+      console.log(`  ${count} cells: grid text size ${autoFont} -> ${smallFont}px, reset to auto`);
     }
 
     // A swap slides: the two cells carry an animation, then sit at each other's place.

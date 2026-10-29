@@ -99,7 +99,9 @@ import {
 } from "./workspace-preference.js?v=1.4.5";
 import {
   adjustedTerminalFontSize,
+  readGridFont,
   readTerminalFontSize,
+  writeGridFont,
   writeTerminalFontSize,
 } from "./terminal-preference.js?v=1.4.5";
 import {
@@ -941,6 +943,13 @@ function buildSettingsMenu() {
         // (icon, notification), so opening from inside the app gives a second window.
         onSelect: () => void window.open("/", "_blank", "noopener"),
       },
+      {
+        // A Herdr grid whose text size was chosen by hand: back to the largest that fits.
+        key: "grid-font",
+        label: "Reset text size",
+        paths: RETURN_ICON,
+        onSelect: () => paneGrid.resetFont(),
+      },
       { key: "update", label: "Update", paths: UPDATE_ICON, onSelect: () => updatePanel.open() },
       { separator: true, key: "separator" },
       {
@@ -974,6 +983,7 @@ function syncSettingsMenu() {
     button.querySelector("span").textContent = text;
     if (icon) button.querySelector("svg").replaceWith(createIcon(icon));
   };
+  item("grid-font").hidden = paneGrid.manualFont === null;
   const push = settingsMenu.push;
   const notifications = item("notifications");
   notifications.hidden = !push || push.hidden;
@@ -1128,7 +1138,10 @@ async function togglePushNotifications() {
   }
 }
 
+// On a Herdr grid the text size steps the grid's own font, from the one its
+// cells have now; the size chosen for a single pane stays as it is.
 function adjustTerminalFont(direction) {
+  if (paneGrid.adjustFont(direction)) return;
   applyTerminalFontSize(adjustedTerminalFontSize(state.terminalFontSize, direction));
 }
 
@@ -3747,6 +3760,11 @@ const paneGrid = createPaneGrid({
   xterm,
   credentials: () => ({ csrf: state.csrfToken, launchToken: state.launchToken }),
   fontSize: state.terminalFontSize,
+  manualFont: readGridFont(panePreferenceStorage),
+  onFontChange: (font) => {
+    writeGridFont(panePreferenceStorage, font);
+    syncSettingsMenu();
+  },
   menuFor: paneGridMenu,
   onSelect: (paneId) => selectPane(paneId, { fromGrid: true }),
   onExpand: (paneId) => {
@@ -7236,6 +7254,19 @@ function activateLensShortcut(event) {
   chatLens.toggle();
   return true;
 }
+
+// Mod+0 puts a Herdr grid's text size back to the largest that fits.
+function activateGridFontReset(event) {
+  if (!state.authenticated || event.altKey || event.shiftKey || event.key !== "0" ||
+      !(event.ctrlKey || event.metaKey) || document.querySelector("dialog[open]") ||
+      !paneGrid.adjustable || paneGrid.manualFont === null) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  paneGrid.resetFont();
+  return true;
+}
+
+document.addEventListener("keydown", activateGridFontReset, { capture: true });
 
 document.addEventListener("keydown", (event) => {
   if (activateLensShortcut(event)) return;

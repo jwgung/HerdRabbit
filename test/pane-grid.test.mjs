@@ -102,3 +102,15 @@ test("a moved cell is put back where it was by a translate and a scale", async (
   assert.equal(flipDelta({ left: 0, top: 0, width: 10, height: 10 }, { left: 0, top: 0, width: 0, height: 0 }), null);
 });
 
+
+test("a font chosen for the grid shrinks the board; a larger one stays at the fit", async () => {
+  const { GRID_MAX_FONT, letterbox } = await import("../public/pane-grid.js");
+  const room = { width: 1200, height: 600 };
+  const fit = (maxFont) => letterbox({ room, cells: halves, metrics, maxFont });
+  assert.equal(fit(GRID_MAX_FONT).font, 14);
+  const smaller = fit(10);
+  assert.equal(smaller.font, 10);
+  assert.ok(smaller.width < fit(GRID_MAX_FONT).width && smaller.height < fit(GRID_MAX_FONT).height);
+  assert.deepEqual(fit(20), fit(GRID_MAX_FONT));
+  assert.equal(fit(10.5).font, 10.5);
+});
