@@ -313,6 +313,12 @@ export class HerdrBridgeClient {
     return this.#clientForSession(target.sessionName).zoomPane(target.localId);
   }
 
+  async movePaneOut(paneId) {
+    const target = this.#targetForScopedId(paneId, validation.validatePaneId);
+    const result = await this.#clientForSession(target.sessionName).movePaneOut(target.localId);
+    return { pane_id: scopedId(target.sessionName, result.pane_id), tab_id: scopedId(target.sessionName, result.tab_id) };
+  }
+
   // A pane drops next to another of the same Herdr session only.
   async movePaneSplit(paneId, targetPaneId, side) {
     const pane = this.#targetForScopedId(paneId, validation.validatePaneId);

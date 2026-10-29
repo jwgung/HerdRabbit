@@ -2956,18 +2956,20 @@ function renderNavigation() {
         paneList.id = `split-${tabId.replace(/[^A-Za-z0-9_-]/gu, "_")}-panes`;
         paneList.hidden = !state.expandedSplitTabIds.has(tabId);
         tabGroup.classList.toggle("is-expanded", !paneList.hidden);
-        // Each pane says its own name: the session's name is on the row.
-        for (const pane of tabPanes) paneList.append(paneButton(pane, tab, workspace));
+        // Each pane says its own name: the session's name is on the row. On
+        // this machine each has its own ⋯ with the grid cell's actions.
+        const local = isLocalRecord(tabPanes[0]);
+        for (const pane of tabPanes) paneList.append(splitPaneRow(pane, tab, workspace, local));
         sessionRow.classList.add("split-session-row");
         if (editingTab) {
           sessionRow.classList.add("is-editing");
           sessionRow.append(tabRenameForm(tab, tabId, tabLabel));
         } else {
-          // The arrow is laid over the row next to its badge, after the button
-          // in reading order, so the icon stays in the column every row uses.
+          // The arrow takes the place of the row's program mark: laid over the
+          // mark's column, first in reading order as it is first on screen.
           sessionRow.append(
-            splitSessionButton(tabId, sessionLabel, tabPanes, workspace),
             splitDisclosureButton(tabGroup, tabId, sessionLabel, paneList),
+            splitSessionButton(tabId, sessionLabel, tabPanes, workspace),
           );
         }
         tabGroup.append(sessionRow, paneList);
@@ -3004,6 +3006,14 @@ function renderNavigation() {
               renderNavigation();
             },
           },
+          // Undoes the split: each pane but the first becomes a session of its
+          // own. This machine's only, as the grid's actions are.
+          ...(split && isLocalRecord(tabPanes[0]) ? [{
+            key: "separate-all",
+            label: "Separate all panes",
+            paths: SEPARATE_ICON,
+            onSelect: () => void separateSplitSession(tabId, sessionLabel),
+          }] : []),
           {
             label: "Close session",
             paths: ["M6 6l12 12M18 6 6 18"],
@@ -4086,6 +4096,9 @@ function splitSessionButton(tabId, name, tabPanes, workspace) {
     `${name}, split session, ${paneIds.length} panes, ${statusText}, ${where}`,
   );
   button.title = `${name} · ${paneIds.length} panes · ${statusText}`;
+  // Its mark column holds the arrow (laid over it, see splitDisclosureButton):
+  // the focus pane's mark is drawn only in the folded sidebar's rail, which
+  // has no arrow.
   button.append(agentMark(paneAgentKind(focusPane, agentForPane(focusPaneId))));
   const copy = createElement("span", { className: "pane-copy" });
   copy.append(createElement("strong", { className: "pane-title", text: name }));
@@ -4104,9 +4117,10 @@ function splitSessionButton(tabId, name, tabPanes, workspace) {
   return button;
 }
 
-// The arrow beside a split session's pane count: shows or hides its panes under it.
-// Folded until opened; which are open is kept in this browser. A pane selected
-// in a folded session does not open it: the row shows it selected.
+// The arrow at the start of a split session's row, in the column the other
+// rows' program marks sit in: shows or hides its panes under it. Folded until
+// opened; which are open is kept in this browser. A pane selected in a folded
+// session does not open it: the row shows it selected.
 function splitDisclosureButton(tabGroup, tabId, name, paneList) {
   const expanded = state.expandedSplitTabIds.has(tabId);
   const labelFor = (open) => `${open ? "Hide" : "Show"} the panes of ${name}`;
@@ -4135,6 +4149,26 @@ const SPLIT_RIGHT_ICON = ["M4 5h16v14H4z", "M12 5v14"];
 const SPLIT_DOWN_ICON = ["M4 5h16v14H4z", "M4 12h16"];
 const ZOOM_ICON = ["M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"];
 const UNZOOM_ICON = ["M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"];
+const MOVE_OUT_ICON = ["M14 4h6v6", "M20 4l-8 8", "M19 14v5H5V5h5"];
+const SEPARATE_ICON = ["M3 5h7v14H3z", "M14 5h7v14h-7z"];
+
+// A pane's actions, the same in a grid cell's ⋯ and a split session's pane
+// row in the sidebar.
+function paneActions(paneId, zoomed) {
+  return [
+    { key: "split-right", label: "Split right", paths: SPLIT_RIGHT_ICON,
+      onSelect: () => void paneGridAction(paneId, "split", { direction: "right" }) },
+    { key: "split-down", label: "Split down", paths: SPLIT_DOWN_ICON,
+      onSelect: () => void paneGridAction(paneId, "split", { direction: "down" }) },
+    { key: "zoom", label: zoomed ? "Unzoom" : "Zoom", paths: zoomed ? UNZOOM_ICON : ZOOM_ICON,
+      onSelect: () => void paneGridAction(paneId, "zoom", { mode: "toggle" }) },
+    { key: "move-out", label: "Move out to its own session", paths: MOVE_OUT_ICON,
+      onSelect: () => void movePanesOut([paneId]) },
+    { separator: true },
+    { key: "close", label: "Close pane", paths: ["M6 6l12 12M18 6 6 18"], danger: true,
+      onSelect: () => void closePaneFromGrid(paneId) },
+  ];
+}
 
 function paneGridMenu(pane, zoomed) {
   return sidebarActionMenu({
@@ -4142,18 +4176,84 @@ function paneGridMenu(pane, zoomed) {
     label: `More actions for ${pane.label}`,
     className: "pane-grid-menu",
     escapesOverflow: true,
-    actions: [
-      { key: "split-right", label: "Split right", paths: SPLIT_RIGHT_ICON,
-        onSelect: () => void paneGridAction(pane.paneId, "split", { direction: "right" }) },
-      { key: "split-down", label: "Split down", paths: SPLIT_DOWN_ICON,
-        onSelect: () => void paneGridAction(pane.paneId, "split", { direction: "down" }) },
-      { key: "zoom", label: zoomed ? "Unzoom" : "Zoom", paths: zoomed ? UNZOOM_ICON : ZOOM_ICON,
-        onSelect: () => void paneGridAction(pane.paneId, "zoom", { mode: "toggle" }) },
-      { separator: true },
-      { key: "close", label: "Close pane", paths: ["M6 6l12 12M18 6 6 18"], danger: true,
-        onSelect: () => void closePaneFromGrid(pane.paneId) },
-    ],
+    actions: paneActions(pane.paneId, zoomed),
   });
+}
+
+// A pane of a split session in the sidebar's list: its row, and on this
+// machine a ⋯ with the grid cell's actions, laid over the row's right padding
+// as every session row's is. Zoom reads Unzoom when the layout last read of
+// its tab (the tab on screen) says it is zoomed.
+function splitPaneRow(pane, tab, workspace, local) {
+  const row = createElement("div", { className: "split-pane-row" });
+  const button = paneButton(pane, tab, workspace);
+  row.append(button);
+  if (!local) return row;
+  const paneId = button.dataset.paneId;
+  const tabId = idOf(pane, "tab_id", "tabId");
+  const layout = paneLayout.tabId === tabId ? paneLayout.layout : null;
+  const zoomed = Boolean(layout?.zoomed);
+  row.append(sidebarActionMenu({
+    id: `split-pane-${paneId}`,
+    label: `More actions for ${paneDisplayTitle("", pane, "Terminal", agentForPane(paneId))}`,
+    className: "session-action-menu split-pane-menu",
+    actions: paneActions(paneId, zoomed),
+  }));
+  return row;
+}
+
+// Takes panes out of their split session, one after another, each into a
+// session of its own in the same project. A pane Herdr renames is followed
+// (what the page keeps under its id, and the selection). A session left with
+// one pane shows it alone again. The first refusal stops the rest and is said
+// in the feedback line; the sidebar is read once at the end.
+async function movePanesOut(paneIds) {
+  if (paneIds.length === 0) return;
+  if (state.mutationBusy) {
+    setFeedback("Another change is still in progress. Try again in a moment.", true);
+    return;
+  }
+  const fromTabId = paneTabId(paneIds[0]);
+  let left = panesOfTab(fromTabId).length;
+  state.mutationBusy = true;
+  setFeedback("");
+  let refusal = "";
+  try {
+    for (const paneId of paneIds) {
+      try {
+        const result = await api(`/api/panes/${encodeURIComponent(paneId)}/move-out`, { method: "POST", body: {} });
+        left -= 1;
+        const movedTo = typeof result?.pane_id === "string" ? result.pane_id : paneId;
+        if (movedTo !== paneId) {
+          followMovedPaneState([{ from: paneId, to: movedTo }]);
+          if (state.selectedPaneId === paneId) {
+            state.selectedPaneId = movedTo;
+            state.preferredPaneId = movedTo;
+            writePanePreference(panePreferenceStorage, movedTo);
+          }
+        }
+      } catch (error) {
+        refusal = error.message;
+        break;
+      }
+    }
+  } finally {
+    state.mutationBusy = false;
+  }
+  if (fromTabId && left <= 1) state.paneViews.delete(fromTabId);
+  await refreshAfterPaneChange();
+  void refreshTerminal();
+  if (refusal) setFeedback(refusal, true);
+}
+
+// The split session's ⋯ "Separate all panes": every pane but the first to a
+// session of its own, once the user says so.
+function separateSplitSession(tabId, name) {
+  const paneIds = panesOfTab(tabId).map((pane) => idOf(pane, "pane_id", "id"));
+  if (paneIds.length < 2) return;
+  const count = paneIds.length;
+  if (!window.confirm(`Separate the ${count} panes of “${name}” into ${count} sessions? Each pane keeps running; only the split is undone.`)) return;
+  void movePanesOut(paneIds.slice(1));
 }
 
 function closePaneFromGrid(paneId) {

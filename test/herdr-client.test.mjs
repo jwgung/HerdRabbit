@@ -559,3 +559,34 @@ test("a relocate that cannot split back in puts the pane back in its tab, or say
   });
   assert.equal(stranded.calls.length, 7, "the target and its one other neighbour, each right and down");
 });
+
+test("moves a pane out of its split session into a tab of its own, returning what Herdr names", async () => {
+  const fake = recordingRunner([
+    layoutOf(["w1:p5", 0, 0, 50, 40], ["w1:p6", 50, 0, 50, 40]),
+    jsonReply({ move_result: { pane: { pane_id: "w1:p5", tab_id: "w1:t4" }, created_tab: { tab_id: "w1:t4" } } }),
+  ]);
+  const client = new HerdrClient({ runner: fake.runner });
+  assert.deepEqual(await client.movePaneOut("w1:p5"), { pane_id: "w1:p5", tab_id: "w1:t4" });
+  assert.deepEqual(fake.calls.map((call) => call.args), [
+    ["pane", "layout", "--pane", "w1:p5"],
+    ["pane", "move", "w1:p5", "--new-tab", "--no-focus"],
+  ]);
+  // Should Herdr give the pane a new id, that is the one that comes back.
+  const renamed = recordingRunner([
+    layoutOf(["w1:p5", 0, 0, 50, 40], ["w1:p6", 50, 0, 50, 40]),
+    jsonReply({ move_result: { pane: { pane_id: "w1:p9", tab_id: "w1:t4" } } }),
+  ]);
+  assert.deepEqual(await new HerdrClient({ runner: renamed.runner }).movePaneOut("w1:p5"), { pane_id: "w1:p9", tab_id: "w1:t4" });
+  const garbled = recordingRunner([layoutOf(["w1:p5", 0, 0, 5, 5], ["w1:p6", 5, 0, 5, 5]), jsonReply({ move_result: {} })]);
+  await assert.rejects(new HerdrClient({ runner: garbled.runner }).movePaneOut("w1:p5"), { code: "invalid_herdr_response" });
+});
+
+test("a pane alone in its tab is not moved out, and a bad id asks Herdr nothing", async () => {
+  const alone = recordingRunner([layoutOf(["w1:p5", 0, 0, 100, 40])]);
+  await assert.rejects(new HerdrClient({ runner: alone.runner }).movePaneOut("w1:p5"), { code: "split_session" });
+  assert.equal(alone.calls.length, 1, "only the layout is read");
+  const none = recordingRunner([]);
+  await assert.rejects(new HerdrClient({ runner: none.runner }).movePaneOut("--new-tab"), InputValidationError);
+  await assert.rejects(new HerdrClient({ runner: none.runner }).movePaneOut("w1:t1"), InputValidationError);
+  assert.equal(none.calls.length, 0);
+});

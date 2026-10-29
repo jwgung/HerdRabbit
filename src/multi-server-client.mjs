@@ -262,6 +262,7 @@ export class MultiServerClient {
   splitPane(id, direction) { const pane = this.#localPane(id); return pane.client.splitPane(pane.id, direction); }
   closePane(id) { const pane = this.#localPane(id); return pane.client.closePane(pane.id); }
   zoomPane(id) { const pane = this.#localPane(id); return pane.client.zoomPane(pane.id); }
+  movePaneOut(id) { const pane = this.#localPane(id); return pane.client.movePaneOut(pane.id); }
   movePaneSplit(id, targetId, side) {
     const pane = this.#localPane(id);
     const target = this.#localPane(targetId);

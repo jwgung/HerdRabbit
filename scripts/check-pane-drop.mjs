@@ -167,9 +167,9 @@ const attachments = new PaneAttachments({
   spawnPty: (options) => {
     const paneId = options.args[2].replace(/^term_/u, "");
     const pty = {
-      paneId, options, written: "", killed: false,
+      paneId, options, written: "", killed: false, sizes: [],
       write(data) { this.written += data; },
-      resize() {}, pause() {}, resume() {},
+      resize(cols, rows) { this.sizes.push([cols, rows]); }, pause() {}, resume() {},
       kill() { this.killed = true; },
     };
     ptys.push(pty);
@@ -514,6 +514,16 @@ try {
     await tileCount(2);
     await page.waitForFunction(() => document.querySelectorAll(".pane-grid.is-view .pane-grid-cell .xterm").length === 2);
     await shot("view-split-2");
+    // A view split tile sizes its pane to the tile and reads at the usual font:
+    // it does not keep the pane's own size and shrink the text to fit it in.
+    const fontOf = (paneId) => page.locator(`${tile(paneId)} .xterm-rows`).evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
+    for (const paneId of ["w1:p3", "w2:p1"]) {
+      assert.ok(await fontOf(paneId) >= 9, `${paneId}: the tile's text is not shrunk to a sliver (${await fontOf(paneId)}px)`);
+      // The pane's own size is 80x24 (the fake's answer); an observing cell would
+      // attach at that size, a tile that sizes its pane asks for its own.
+      const { cols, rows } = ptyOf(paneId).options;
+      assert.ok(cols !== 80 || rows !== 24, `${paneId}: the tile sizes its pane (${cols}x${rows})`);
+    }
     await page.locator(`${tile("w2:p1")} .xterm`).click();
     await page.keyboard.type("hello gamma");
     const typedBy = Date.now() + 3000;
