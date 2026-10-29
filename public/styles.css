@@ -520,6 +520,14 @@ body.sidebar-collapsed .terminal-panel {
   background: var(--line);
 }
 
+/* A row's or a cell's menu is as wide as its longest label ("Move out to its
+   own session"), not a fixed 150px that breaks it over two lines. */
+.sidebar-action-popover {
+  width: max-content;
+  min-width: 150px;
+  max-width: min(280px, calc(100vw - 24px));
+}
+
 /* Longer labels than a row menu carries ("Notifications: Blocked"). */
 .settings-menu > .sidebar-action-popover {
   width: 210px;

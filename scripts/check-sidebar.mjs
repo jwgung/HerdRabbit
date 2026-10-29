@@ -442,6 +442,17 @@ try {
     assert.match(asked ?? "", /Close session “Split session”/u);
     assert.deepEqual(tabCalls.at(-1), ["close", "w1:t10"]);
     if (!mobile) {
+      // At its narrowest the sidebar still draws every row as one line each.
+      await page.evaluate(() => document.documentElement.style.setProperty("--navigator-width", "260px"));
+      await page.evaluate(() => document.querySelectorAll(".split-disclosure[aria-expanded='false']").forEach((arrow) => arrow.click()));
+      await page.waitForTimeout(400);
+      if (shots) await page.locator(".navigator").screenshot({ path: join(shots, "sidebar-narrow-desktop.png") });
+      await page.locator(`${menuOf("w1:t9")} > summary`).click();
+      const heights = await page.locator(`${menuOf("w1:t9")} .sidebar-action-item:visible`).evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height));
+      assert.ok(heights.length >= 2 && Math.max(...heights) - Math.min(...heights) < 4, `menu labels stay on one line: ${heights}`);
+      await page.keyboard.press("Escape");
+      await page.evaluate(() => document.documentElement.style.removeProperty("--navigator-width"));
+      await page.waitForTimeout(200);
       // Folded to the rail with the Files tab chosen, the rail still lists the
       // sessions (the file tree has no room there); unfolding brings Files back.
       await page.locator("#tab-files").click();
