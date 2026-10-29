@@ -13,7 +13,7 @@ function claim(overrides = {}) {
     from: LINKED_ADDRESS,
     name: "dev-box",
     address: `http://${LINKED_ADDRESS}:30001`,
-    version: "1.4.3",
+    version: "1.4.4",
     protocol: 1,
     ...overrides,
   };
@@ -25,7 +25,7 @@ test("a machine may announce itself and nothing else", () => {
   const registry = announcementRegistry();
   assert.equal(registry.record(claim()).ok, true);
   assert.deepEqual(registry.list(), [{
-    name: "dev-box", address: `http://${LINKED_ADDRESS}:30001`, version: "1.4.3", protocol: 1,
+    name: "dev-box", address: `http://${LINKED_ADDRESS}:30001`, version: "1.4.4", protocol: 1,
   }]);
 
   assert.equal(registry.record(claim({ address: "http://100.64.0.9:30001" })).ok, false);
@@ -111,7 +111,7 @@ async function hub(context, registry) {
 const announce = (base, headers, body) => fetch(`${base}/api/announce`, {
   method: "POST",
   headers: { "content-type": "application/json", ...headers },
-  body: JSON.stringify(body ?? { name: "dev-box", address: `http://${LINKED_ADDRESS}:30001`, version: "1.4.3", link_protocol: 1 }),
+  body: JSON.stringify(body ?? { name: "dev-box", address: `http://${LINKED_ADDRESS}:30001`, version: "1.4.4", link_protocol: 1 }),
 });
 
 test("the hub takes an announcement only from its own tailnet", async (context) => {
@@ -139,7 +139,7 @@ test("the hub refuses an announcement that points somewhere else", async (contex
   const response = await announce(
     base,
     { [PEER_LOGIN_HEADER]: OWNER, [PEER_ADDRESS_HEADER]: LINKED_ADDRESS },
-    { name: "impostor", address: "http://100.64.0.9:30001", version: "1.4.3", link_protocol: 1 },
+    { name: "impostor", address: "http://100.64.0.9:30001", version: "1.4.4", link_protocol: 1 },
   );
   assert.equal(response.status, 400);
   assert.equal(registry.size, 0);
