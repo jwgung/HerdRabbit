@@ -8,6 +8,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { CLAUDE_TRANSCRIPT, SESSION_ID, locateClaudeTranscript, pendingClaudeAsk, readTail } from "./claude.mjs";
 import { CODEX_TRANSCRIPT, THREAD_ID, isCodexProcess, locateCodexRollout } from "./codex.mjs";
 import { KIRO_TRANSCRIPT, SESSION_ID as KIRO_SESSION_ID, kiroWorkspaceHash } from "./kiro.mjs";
+import { AGY_TRANSCRIPT, isAgyProcess } from "./agy.mjs";
 import { OPENCODE_SESSION, OPENCODE_SESSION_ID } from "./opencode.mjs";
 import { opencodeRunningVersion } from "./opencode-process.mjs";
 import {
@@ -31,7 +32,7 @@ const MISSING_LOCATE_TTL_MS = 2_000;
 // The screen a Codex pane is matched by, as a last resort.
 const MATCH_SCREEN_LINES = 400;
 
-const FORMATS = { claude: CLAUDE_TRANSCRIPT, codex: CODEX_TRANSCRIPT, opencode: OPENCODE_SESSION, kiro: KIRO_TRANSCRIPT };
+const FORMATS = { claude: CLAUDE_TRANSCRIPT, codex: CODEX_TRANSCRIPT, opencode: OPENCODE_SESSION, kiro: KIRO_TRANSCRIPT, agy: AGY_TRANSCRIPT };
 
 // What a link's client must answer for its panes' conversations to be relayed.
 const LINK_CALLS = ["conversationPage", "conversationToolOutput", "conversationSignature", "conversationPendingAsk"];
@@ -255,6 +256,7 @@ export class ConversationService {
     }
     if (agent === "opencode") return this.#resolveOpencode(paneId, { serverId, agent, format, own, pane, panes: snapshot?.panes ?? [] });
     if (agent === "kiro") return this.#resolveKiro(paneId, { serverId, agent, format, own, cwds });
+    if (agent === "agy") return this.#resolveAgy(paneId, { serverId, agent, format });
     return this.#resolveCodex(paneId, { serverId, agent, format, own, cwds });
   }
 
@@ -278,6 +280,37 @@ export class ConversationService {
     }
     const { session, path } = found.value;
     return { paneId, serverId, agent, format, store: this.#store(serverId), session, path, key: found.key };
+  }
+
+  // agy writes its ledger under a session directory named by a uuid, with no
+  // cwd mapping: the pane's own agy process holds a presence lock that names
+  // the session, so the session is found from the pane's foreground pids.
+  async #resolveAgy(paneId, { serverId, agent, format }) {
+    const store = this.#store(serverId)?.agy;
+    if (!store) throw this.#noStore();
+    const pids = await this.#agyPids(paneId);
+    const found = await this.#located(`agy\0${serverId}\0${paneId}\0${pids.join(",")}`,
+      () => store.locate({ pids }));
+    if (found.value === null) {
+      // agy not running in this pane, or no single lock: nothing to show yet
+      throw new ConversationUnavailable("no_session_id");
+    }
+    const { session, path } = found.value;
+    return { paneId, serverId, agent, format, store: this.#store(serverId), session, path, key: found.key };
+  }
+
+  // The pane's foreground agy process ids, by herdr's process info.
+  async #agyPids(paneId) {
+    if (typeof this.herdr.paneProcessInfo !== "function") return [];
+    try {
+      const info = await this.herdr.paneProcessInfo(paneId);
+      const processes = info?.process_info?.foreground_processes ?? info?.foreground_processes ?? [];
+      return Array.isArray(processes)
+        ? processes.filter((item) => Number.isSafeInteger(item?.pid) && isAgyProcess(item)).map((item) => item.pid)
+        : [];
+    } catch {
+      return [];
+    }
   }
 
   // OpenCode's session is a row of its database: the store is that database,

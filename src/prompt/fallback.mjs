@@ -25,7 +25,7 @@ import {
 } from "./screen.mjs";
 
 // Who a card says is waiting, by the agent herdr names.
-const ASKERS = { claude: "Claude", codex: "Codex", opencode: "OpenCode", kiro: "Kiro" };
+const ASKERS = { claude: "Claude", codex: "Codex", opencode: "OpenCode", kiro: "Kiro", agy: "Antigravity" };
 
 const ASKED_RE = /\?\s*(?:[([][^)\]]*[)\]])?\s*$/;
 const YES_NO_RE = /[([]\s*y(?:es)?\s*\/\s*n(?:o)?\s*[)\]]\s*[:?]?\s*$/i;

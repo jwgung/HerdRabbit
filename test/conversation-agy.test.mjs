@@ -11,10 +11,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   AGY_TRANSCRIPT,
+  agyStoreFromLocks,
   agyUserText,
+  localAgyStore,
   parseAgyMetadata,
   parseAgyTranscript,
 } from "../src/conversation/agy.mjs";
+import { ConversationService } from "../src/conversation/service.mjs";
+import { ConversationUnavailable } from "../src/conversation/pages.mjs";
+import { localTranscriptStore } from "../src/conversation/stores.mjs";
 
 let step = 0;
 const rec = (payload) => JSON.stringify({ step_index: step++, status: "DONE", created_at: "2026-10-16T20:56:34Z", ...payload });
@@ -144,4 +149,84 @@ test("parses a real agy transcript without throwing", async (context) => {
   assert.ok(turns.every((turn) => turn.parts.length > 0));
   // the conversation opens with the person's first prompt
   assert.equal(turns[0].role, "user");
+});
+
+// ---------------------------------------------------------------------------
+// The store: a session is found by the presence lock the pane's agy process
+// holds, and its transcript is read from the brain directory beside it.
+
+const UUID = "ec36e9be-42a3-407e-b586-8ddb11fa0374";
+
+test("derives the session and transcript path from a single presence lock", () => {
+  const root = "/home/me/.gemini/antigravity-cli";
+  const store = agyStoreFromLocks([
+    "/home/me/.gemini/antigravity-cli/presence/" + UUID + ".lock",
+  ]);
+  assert.equal(store.session, UUID);
+  assert.equal(store.path, root + "/brain/" + UUID + "/.system_generated/logs/transcript_full.jsonl");
+});
+
+test("non-lock paths are ignored; exactly one lock must remain", () => {
+  const lock = "/r/presence/" + UUID + ".lock";
+  // other open files the process holds are not locks
+  assert.ok(agyStoreFromLocks(["/r/presence/" + UUID + ".lock", "/etc/hosts", "/r/brain/x/log"]));
+  // no lock at all, or more than one, is not a usable session
+  assert.equal(agyStoreFromLocks(["/etc/hosts"]), null);
+  assert.equal(agyStoreFromLocks([
+    "/r/presence/" + UUID + ".lock",
+    "/r/presence/11111111-1111-4111-8111-111111111111.lock",
+  ]), null);
+  // a path shaped like a lock but not under presence/ does not count
+  assert.equal(agyStoreFromLocks(["/r/brain/" + UUID + ".lock"]), null);
+  assert.ok(lock);
+});
+
+test("the store reads a transcript the brain directory holds", async (context) => {
+  const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "herdrabbit-agy-"));
+  context.after(() => rm(dir, { recursive: true, force: true }));
+  const logs = join(dir, "brain", UUID, ".system_generated", "logs");
+  await mkdir(logs, { recursive: true });
+  const path = join(logs, "transcript_full.jsonl");
+  const body = jsonl([userInput("hi"), planner({ content: "hello" })]);
+  await writeFile(path, body);
+
+  const store = localAgyStore(dir);
+  const info = await store.stat(path);
+  assert.ok(info && info.size === Buffer.byteLength(body));
+  const bytes = await store.read(path, 0, info.size);
+  assert.equal(bytes.toString("utf8"), body);
+  // a file that is not there is a miss, not a throw
+  assert.equal(await store.stat(join(logs, "missing.jsonl")), null);
+});
+
+// ---------------------------------------------------------------------------
+// The conversation service routes an agy pane to the agy resolver.
+
+test("an agy pane is routed to the agy resolver, not refused as unsupported", async () => {
+  const pane = { pane_id: "w1:p1", agent: "agy", cwd: "/work/app" };
+  const herdr = {
+    async snapshot() { return { panes: [pane] }; },
+    // the pane runs agy, but with no reachable presence lock the session is not found
+    async paneProcessInfo() { return { process_info: { foreground_processes: [{ pid: 999999, name: "agy" }] } }; },
+  };
+  const service = new ConversationService({ herdr });
+  // reaching #resolveAgy (not "not_supported_agent") proves the route is wired;
+  // with no lock the reason is "no_session_id", never "not_supported_agent"
+  await assert.rejects(
+    service.resolve("w1:p1"),
+    (error) => error instanceof ConversationUnavailable && error.reason === "no_session_id",
+  );
+});
+
+test("a pane whose agent has no reader is still refused as unsupported", async () => {
+  const pane = { pane_id: "w1:p1", agent: "gemini", cwd: "/work/app" };
+  const herdr = { async snapshot() { return { panes: [pane] }; } };
+  const service = new ConversationService({ herdr });
+  await assert.rejects(
+    service.resolve("w1:p1"),
+    (error) => error instanceof ConversationUnavailable && error.reason === "not_supported_agent",
+  );
 });
