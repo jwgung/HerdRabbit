@@ -21,6 +21,7 @@ import { HttpError } from "../http-basics.mjs";
 import { claudeQuestionContext, fillClaudeCard, parseClaudePrompt } from "./claude.mjs";
 import { parseCodexPrompt } from "./codex.mjs";
 import { parseFallbackPrompt } from "./fallback.mjs";
+import { parseKiroPrompt } from "./kiro.mjs";
 import { SUPPORTED_OPENCODE_TUI, fillOpencodeCard, opencodeDialogOpen, parseOpencodePrompt } from "./opencode.mjs";
 import { InvalidAnswer, answerSteps, moveKeysOf, publicCard, verifiesCursor } from "./screen.mjs";
 
@@ -70,6 +71,7 @@ const SCREEN_DEFAULTS = Object.freeze({ read: null, noCard: () => false, format:
 const AGENT_SCREENS = Object.freeze(Object.fromEntries(Object.entries({
   claude: { read: parseClaudePrompt, fill: fillClaudeCard, context: claudeQuestionContext },
   codex: { read: parseCodexPrompt },
+  kiro: { read: parseKiroPrompt },
   opencode: { read: parseOpencodePrompt, noCard: opencodeDialogOpen, format: "ansi", source: "visible", fill: fillOpencodeCard, supports: SUPPORTED_OPENCODE_TUI },
 }).map(([name, screen]) => [name, Object.freeze({ ...SCREEN_DEFAULTS, ...screen })])));
 
