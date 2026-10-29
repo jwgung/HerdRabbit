@@ -232,6 +232,23 @@ test("panes are swapped and relocated within one Herdr session, answered under s
   assert.equal(fake.calls.length, 9, "nothing is asked across sessions");
 });
 
+test("a split tab is evened out within its Herdr session, answered under its scoped id", async () => {
+  const json = (result) => ({ stdout: JSON.stringify({ result }), stderr: "" });
+  const layout = (at) => json({ layout: { area: { x: 0, y: 0, width: 120, height: 40 }, zoomed: false, panes: [
+    { pane_id: "w2:p3", rect: { x: 0, y: 0, width: at, height: 40 } }, { pane_id: "w2:p4", rect: { x: at, y: 0, width: 120 - at, height: 40 } }] } });
+  const fake = recordingRunner([
+    { stdout: JSON.stringify({ sessions: [{ name: "review", default: false, running: true }] }), stderr: "" },
+    json({ snapshot: snapshot("리뷰") }),
+    layout(30), { stdout: "", stderr: "" }, layout(60),
+  ]);
+  const client = new HerdrBridgeClient({ runner: fake.runner });
+  const sessionId = sessionIds.sessionIdForName("review");
+  await client.snapshot();
+  assert.deepEqual(await client.evenLayout(`${sessionId}~w2:p4`), { pane_id: `${sessionId}~w2:p4`, changed: true, steps: 1, even: true });
+  assert.deepEqual(fake.calls[3].args, ["--session=review", "pane", "resize", "--pane", "w2:p3", "--direction", "right", "--amount", "0.2500"]);
+  await assert.rejects(client.evenLayout("w2:p4"), InputValidationError);
+});
+
 test("a pane moved out comes back under scoped pane and tab ids of its Herdr session", async () => {
   const json = (result) => ({ stdout: JSON.stringify({ result }), stderr: "" });
   const fake = recordingRunner([

@@ -21,7 +21,9 @@
 // buttons and the terminal's selection and typing are as before. A split
 // session's pane rows in the sidebar carry the cell's ⋯ (not a connected PC's), a pane
 // moves out of its split into a session of its own from there or from a cell,
-// and the split row's ⋯ separates all its panes.
+// and the split row's ⋯ separates all its panes. Even out layout, from the
+// split row's ⋯ or a cell's, gives the panes equal shares and the cells slide
+// there; a layout that cannot be evened out is said.
 // Runs on a desktop and a phone against an in-process fake herdr.
 //
 // PANE_GRID_SHOTS=<folder> keeps pictures of the grid, the zoomed grid, the
@@ -29,6 +31,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { join } from "node:path";
+import { evenLayoutStep } from "../src/even-layout.mjs";
 import { HerdrCommandError } from "../src/herdr-client.mjs";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { PaneAttachments } from "../src/pane-attachments.mjs";
@@ -146,6 +149,28 @@ const herdr = {
     rects.set(targetPaneId, before ? second : first);
     rects.set(paneId, before ? first : second);
     return { pane_id: paneId };
+  },
+  // Herdr's `pane resize`, simply: the pane's border on that side moves, and
+  // every pane of the tab on that line with it. Planned as the real client does.
+  async evenLayout(paneId) {
+    rearranged.push(["even-layout", paneId]);
+    let steps = 0;
+    for (let step = evenLayoutStep((await this.paneLayout(paneId)).layout); step && steps < 60;
+      step = evenLayoutStep((await this.paneLayout(paneId)).layout)) {
+      const across = step.direction === "left" || step.direction === "right";
+      const [pos, size] = across ? ["x", "width"] : ["y", "height"];
+      const moved = rects.get(step.paneId);
+      const line = step.direction === "right" || step.direction === "down" ? moved[pos] + moved[size] : moved[pos];
+      const by = Math.round(step.amount * (across ? 120 : 40)) * (step.direction === "right" || step.direction === "down" ? 1 : -1);
+      const tabId = panes.find((pane) => pane.pane_id === paneId)?.tab_id;
+      for (const pane of panes.filter((item) => item.tab_id === tabId)) {
+        const rect = rects.get(pane.pane_id);
+        if (rect[pos] + rect[size] === line) rect[size] += by;
+        else if (rect[pos] === line) { rect[pos] += by; rect[size] -= by; }
+      }
+      steps += 1;
+    }
+    return { pane_id: paneId, changed: steps > 0, steps, even: true };
   },
   async closePane(paneId) { panes = panes.filter((pane) => pane.pane_id !== paneId); rects.delete(paneId); },
   // Herdr's `pane move --new-tab`: the pane leaves its tab for a new one.
@@ -940,10 +965,10 @@ try {
       3: { "w1:p1": [0, 0, 60, 40], "w1:p2": [60, 0, 60, 20], "w1:p3": [60, 20, 60, 20] },
       4: { "w1:p1": [0, 0, 60, 20], "w1:p2": [60, 0, 60, 20], "w1:p3": [0, 20, 60, 20], "w1:p4": [60, 20, 60, 20] },
     };
-    const lay = (count) => {
+    const lay = (count, shape = layouts[count]) => {
       reset();
-      panes = panes.filter((pane) => pane.tab_id !== "w1:t1" || pane.pane_id in layouts[count]);
-      for (const [id, [x, y, width, height]] of Object.entries(layouts[count])) rects.set(id, { x, y, width, height });
+      panes = panes.filter((pane) => pane.tab_id !== "w1:t1" || pane.pane_id in shape);
+      for (const [id, [x, y, width, height]] of Object.entries(shape)) rects.set(id, { x, y, width, height });
     };
     // What each cell's terminal leaves unfilled (px past its padding), the
     // fonts, and where the board sits in the stage.
@@ -1016,8 +1041,8 @@ try {
       for (let step = 1; step <= 10; step += 1) await page.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
       await page.mouse.up();
     };
-    const open = async (count, { reducedMotion = "no-preference", viewport = { width: 1280, height: 844 } } = {}) => {
-      lay(count);
+    const open = async (count, { reducedMotion = "no-preference", viewport = { width: 1280, height: 844 }, shape } = {}) => {
+      lay(count, shape);
       const context = await browser.newContext({ serviceWorkers: "block", viewport });
       const page = await context.newPage();
       await page.emulateMedia({ reducedMotion });
@@ -1094,6 +1119,35 @@ try {
       await page.waitForFunction(() => !document.querySelector(".pane-grid-cell.is-leaving"));
       assert.deepEqual(await page.evaluate(() => window.leavingCells), [["w1:p1", null, 1]], "the closed pane's cell fades out");
       await filled(page, "after a close");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+
+    // Even out layout, from a cell's ⋯: Herdr's borders move, the grid reads
+    // the layout again and its cells slide to equal shares; the feedback says
+    // so. A layout the server cannot even out says why.
+    {
+      const { context, page, errors } = await open(3, { shape: { "w1:p1": [0, 0, 84, 40], "w1:p2": [84, 0, 36, 16], "w1:p3": [84, 16, 36, 24] } });
+      await gridSettled(page);
+      assert.deepEqual(await shares(page), { "w1:p1": [0, 0], "w1:p2": [0.7, 0], "w1:p3": [0.7, 0.4] });
+      const sliding = page.waitForFunction(() => document.querySelector('.pane-grid-cell[data-pane-id="w1:p2"]')?.getAnimations()
+        .some((animation) => !(animation instanceof CSSTransition) && animation.effect?.getTiming().duration >= 150), null, { polling: "raf" });
+      const asked = page.waitForRequest((request) => request.method() === "POST" && decodeURIComponent(request.url()).endsWith("/w1:p2/even-layout"));
+      await cellOf(page, "w1:p2").locator(".pane-grid-menu > summary").click();
+      await page.locator('.pane-grid-cell[data-pane-id="w1:p2"] [data-action="even-layout"]').click();
+      assert.deepEqual((await asked).postDataJSON(), {});
+      await sliding;
+      await page.locator("#action-feedback").filter({ hasText: "Layout evened out." }).waitFor();
+      // The fake's terminals keep their size (Herdr would resize them), so only
+      // the cells' places are checked.
+      await gridSettled(page);
+      assert.deepEqual(await shares(page), { "w1:p1": [0, 0], "w1:p2": [0.5, 0], "w1:p3": [0.5, 0.5] }, "the cells take equal shares");
+      assert.deepEqual(rearranged.at(-1), ["even-layout", "w1:p2"]);
+      await page.route("**/api/panes/*/even-layout", (route) => route.fulfill({ status: 200,
+        json: { pane_id: "w1:p2", changed: false, steps: 0, even: false, message: "This layout is not made of splits that can be evened out." } }));
+      await cellOf(page, "w1:p3").locator(".pane-grid-menu > summary").click();
+      await page.locator('.pane-grid-cell[data-pane-id="w1:p3"] [data-action="even-layout"]').click();
+      await page.locator('#action-feedback[data-error="true"]').filter({ hasText: "not made of splits" }).waitFor();
       assert.deepEqual(errors, []);
       await context.close();
     }
@@ -1209,8 +1263,9 @@ try {
   // machine's only: a connected PC's pane rows have none), closing with the
   // cell's confirmation rules. A pane moves out of its split from there or
   // from a cell's ⋯, and is followed should Herdr rename it; a refusal is
-  // said. The split row's ⋯ separates every pane but the first, one after
-  // another, once the user says so, and the grid gives way to one pane alone.
+  // said. The split row's ⋯ evens out the panes (a one-pane session's has no
+  // such item) and separates every pane but the first, one after another,
+  // once the user says so, and the grid gives way to one pane alone.
   for (const mobile of [false, true]) {
     reset();
     const context = await browser.newContext({ serviceWorkers: "block", hasTouch: mobile, isMobile: mobile,
@@ -1220,7 +1275,7 @@ try {
     page.on("pageerror", (error) => errors.push(error.message));
     const requests = [];
     page.on("request", (request) => {
-      const match = decodeURIComponent(new URL(request.url()).pathname).match(/^\/api\/panes\/([^/]+)\/(split|zoom|close|move-out)$/u);
+      const match = decodeURIComponent(new URL(request.url()).pathname).match(/^\/api\/panes\/([^/]+)\/(split|zoom|close|move-out|even-layout)$/u);
       if (match && request.method() === "POST") requests.push([match[2], match[1], request.postDataJSON()]);
     });
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p2")}`);
@@ -1264,10 +1319,13 @@ try {
       };
     });
     assert.equal(menus.local.length, 4, "each of this machine's pane rows has a ⋯");
-    for (const items of menus.local) assert.deepEqual(items, ["split-right", "split-down", "zoom", "move-out", "close"]);
+    for (const items of menus.local) assert.deepEqual(items, ["split-right", "split-down", "zoom", "even-layout", "move-out", "close"]);
     assert.equal(menus.remote, 0, "a connected PC's pane rows have no ⋯");
-    assert.deepEqual(menus.localRow, ["Rename", "separate-all", "Close session"]);
-    assert.deepEqual(menus.remoteRow, ["Rename", "Close session"], "no Separate all for a connected PC");
+    assert.deepEqual(menus.localRow, ["Rename", "even-layout", "separate-all", "Close session"]);
+    assert.deepEqual(menus.remoteRow, ["Rename", "Close session"], "no Even out or Separate all for a connected PC");
+    // A session of one pane has nothing to even out or separate.
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.tab-group[data-tab-id="w1:t2"] .session-row > .session-action-menu .sidebar-action-item')]
+      .map((item) => item.dataset.action ?? item.textContent)), ["Rename", "Close session"]);
 
     // Close from a pane row asks first when its agent is waiting for an
     // answer or working; a dismissed close asks the server nothing.
@@ -1279,6 +1337,13 @@ try {
       assert.match(asked ?? "", reason);
     }
     assert.deepEqual(requests, [], "a dismissed close asks nothing");
+
+    // The split row's ⋯ evens out the session's panes, without asking: the
+    // feedback says it is done.
+    await rowMenu("w1:t1", "even-layout");
+    await feedbackSays("Layout evened out.");
+    assert.deepEqual(requests.at(-1), ["even-layout", "w1:p1", {}]);
+    assert.deepEqual(["w1:p1", "w1:p2", "w1:p4"].map((id) => rects.get(id).width), [40, 40, 40], "three equal columns");
 
     // The selected pane moved out, renamed by Herdr: it stays selected under
     // its new id, a session of its own in the same project.

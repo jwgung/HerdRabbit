@@ -1417,6 +1417,21 @@ export function createHerdrHttpServer({
           : await herdr.relocatePane(paneId, body.targetPaneId, body.side));
         return;
       }
+      // Evening out a split tab (this machine's only): its panes take equal
+      // shares, resized in Herdr where every device sees it. A layout it
+      // cannot even out is still a 200, with `even: false` and a message.
+      const paneEvenMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/even-layout$/);
+      if (method === "POST" && paneEvenMatch) {
+        requireWriteAuthorization(request, csrfToken);
+        // Nothing to say but the pane: no body, or a JSON object ({}).
+        const hasBody = Number(request.headers["content-length"] || 0) > 0 || Boolean(request.headers["transfer-encoding"]);
+        if (hasBody) await readJsonBody(request, maxBodyBytes);
+        if (typeof herdr.evenLayout !== "function") {
+          throw new HerdrCommandError("That is not available for this PC yet.", { code: "link_unsupported" });
+        }
+        sendJson(response, 200, await herdr.evenLayout(decodePaneId(paneEvenMatch[1])));
+        return;
+      }
       // Taking a pane out of its split session into a session of its own in
       // the same project. It comes back as { pane_id, tab_id }: the page
       // follows the pane should Herdr have given it a new id.

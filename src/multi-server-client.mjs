@@ -279,6 +279,7 @@ export class MultiServerClient {
     const target = this.#localPane(targetId);
     return pane.client.relocatePane(pane.id, target.id, side);
   }
+  evenLayout(id) { const pane = this.#localPane(id); return pane.client.evenLayout(pane.id); }
   // This machine's panes only: a connected PC's processes are not this one's to look into.
   async paneProcessInfo(id) {
     const { entry, id: localId } = this.target(id);

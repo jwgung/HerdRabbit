@@ -350,7 +350,7 @@ try {
       assert.equal(child.iconX, split["w1:t8"].iconX + 10, `${child.id} mark one tree step in`);
       assert.equal(child.statusX, plainRow.statusX, `${child.id} status in the sessions' column`);
       assert.deepEqual(child.menu, ["split-right:Split right", "split-down:Split down", "zoom:Zoom",
-        "move-out:Move out to its own session", "close:Close pane"], `${child.id} ⋯ has the grid cell's actions`);
+        "even-layout:Even out layout", "move-out:Move out to its own session", "close:Close pane"], `${child.id} ⋯ has the grid cell's actions`);
       assert.ok(child.menuAfterStatus, `${child.id} ⋯ at the far right, after the status`);
     }
     // Every ⋯ still ends on one line, the panes' ones included.

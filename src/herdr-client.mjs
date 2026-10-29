@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { subscribeHerdrStatuses } from "./herdr-status-stream.mjs";
 import { callHerdrSocket } from "./herdr-rpc.mjs";
 import { claudeInputBox, restoredDraftStep } from "./prompt/claude-input.mjs";
+import { canEvenLayout, evenLayoutStep, layoutRects, layoutSignature, layoutUnevenness } from "./even-layout.mjs";
 
 const execFileAsync = promisify(execFile);
 // Herdr IDs may contain letters (for example wB:p1). Require the exact end
@@ -16,6 +17,8 @@ const MAX_TEXT_LENGTH = 8_000;
 const MAX_WORKSPACE_LABEL_LENGTH = 120;
 const MAX_HERDR_SESSION_NAME_LENGTH = 240;
 export const MAX_PANE_READ_LINES = 100_001;
+// Resizes one even-out may ask of Herdr: a regular grid takes a handful.
+const MAX_EVEN_STEPS = 60;
 // More projects or sessions than anyone keeps open; Herdr refuses an index
 // past its own list anyway.
 const MAX_INSERT_INDEX = 10_000;
@@ -881,6 +884,80 @@ export class HerdrClient {
     const result = await this.#run(["pane", "move", safePaneId, "--new-tab", "--no-focus"]);
     const { paneId: moved, tabId } = movedPaneIds(result);
     return { pane_id: moved, tab_id: tabId };
+  }
+
+  // Gives the panes of `paneId`'s tab equal shares of it, one `pane resize`
+  // at a time (planned in src/even-layout.mjs), reading the layout again
+  // after each. A zoomed tab or a pane alone is refused. It stops after
+  // MAX_EVEN_STEPS resizes, or once a resize moves nothing or brings back a
+  // layout seen already; a layout it cannot even out says so (`even` false,
+  // with a message). One that ends further from even than it started (or a
+  // resize Herdr refuses partway) is moved back toward the rects it had, as
+  // far as Herdr allows. Answers { pane_id, changed, steps, even }.
+  async evenLayout(paneId) {
+    const safePaneId = validatePaneId(paneId);
+    const read = async () => {
+      const layout = (await this.paneLayout(safePaneId))?.layout;
+      if (!layout || !Array.isArray(layout.panes)) {
+        throw new HerdrCommandError("Herdr returned an unexpected layout", { code: "invalid_herdr_response" });
+      }
+      return layout;
+    };
+    const original = await read();
+    if (original.panes.length < 2) {
+      throw new HerdrCommandError("That session has only one pane.", { code: "split_session" });
+    }
+    if (original.zoomed === true) throw new InputValidationError("Unzoom the session before evening out its panes");
+    let steps = 0;
+    // The layout as Herdr last answered it.
+    let layout = original;
+    const answer = (fields) => ({ pane_id: safePaneId, changed: layoutSignature(layout) !== layoutSignature(original), steps, ...fields });
+    if (!canEvenLayout(original)) {
+      return answer({ even: false, message: "This layout is not made of splits that can be evened out." });
+    }
+    // One resize as planned, the layout read again; false when there was
+    // nothing to do, or Herdr moved nothing or brought back a layout seen
+    // already (going in circles).
+    const seen = new Set([layoutSignature(original)]);
+    const resize = async (goal, limit) => {
+      const step = evenLayoutStep(layout, goal);
+      if (!step || steps >= limit || !PANE_ID_PATTERN.test(step.paneId)) return false;
+      await this.#run([
+        "pane", "resize", "--pane", step.paneId, "--direction", step.direction, "--amount", step.amount.toFixed(4),
+      ], { json: false });
+      steps += 1;
+      layout = await read();
+      const signature = layoutSignature(layout);
+      if (seen.has(signature)) return false;
+      seen.add(signature);
+      return true;
+    };
+    let failure = null;
+    try {
+      while (await resize(null, MAX_EVEN_STEPS));
+    } catch (error) {
+      failure = error;
+      layout = await read().catch(() => layout);
+    }
+    if (!failure && layoutUnevenness(layout) === 0) return answer({ even: true });
+    const why = failure
+      ? (failure.message || "Herdr could not resize a pane.").replace(/(?<![.!?])$/u, ".")
+      : steps >= MAX_EVEN_STEPS ? "It took too many steps." : "Herdr would not move the borders any closer.";
+    if (!failure && layoutUnevenness(layout) <= layoutUnevenness(original)) {
+      return answer({ even: false, message: `The panes could not all be evened out. ${why}` });
+    }
+    // Further from even than it began: back toward where the panes were.
+    const goal = layoutRects(original);
+    const limit = steps * 2;
+    seen.clear();
+    seen.add(layoutSignature(layout));
+    try {
+      while (await resize(goal, limit));
+    } catch {
+      // As far back as Herdr allows.
+    }
+    return answer({ even: false, restored: evenLayoutStep(layout, goal) === null,
+      message: `The panes could not be evened out. ${why} They were moved back as far as possible.` });
   }
 
   // `source` "detection" is the screen as herdr reads it for agent states:

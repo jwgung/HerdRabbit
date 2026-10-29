@@ -560,6 +560,72 @@ test("a relocate that cannot split back in puts the pane back in its tab, or say
   assert.equal(stranded.calls.length, 7, "the target and its one other neighbour, each right and down");
 });
 
+// Two columns of a 120-wide tab, the border at `at`.
+const columns = (at, extra = {}) => jsonReply({ layout: { area: { x: 0, y: 0, width: 120, height: 40 }, zoomed: false, ...extra,
+  panes: [{ pane_id: "w1:p1", rect: { x: 0, y: 0, width: at, height: 40 } }, { pane_id: "w1:p2", rect: { x: at, y: 0, width: 120 - at, height: 40 } }] } });
+
+test("a tab's panes are evened out one resize at a time, the layout read after each", async () => {
+  const fake = recordingRunner([columns(90), done, columns(60)]);
+  assert.deepEqual(await new HerdrClient({ runner: fake.runner }).evenLayout("w1:p1"), { pane_id: "w1:p1", changed: true, steps: 1, even: true });
+  assert.deepEqual(fake.calls.map((call) => call.args), [
+    ["pane", "layout", "--pane", "w1:p1"],
+    ["pane", "resize", "--pane", "w1:p2", "--direction", "left", "--amount", "0.2500"],
+    ["pane", "layout", "--pane", "w1:p1"],
+  ]);
+  // Already even: nothing is resized.
+  const even = recordingRunner([columns(61)]);
+  assert.deepEqual(await new HerdrClient({ runner: even.runner }).evenLayout("w1:p2"), { pane_id: "w1:p2", changed: false, steps: 0, even: true });
+  assert.equal(even.calls.length, 1);
+});
+
+test("a zoomed tab, a lone pane and a bad id are not evened out", async () => {
+  const none = recordingRunner([]);
+  await assert.rejects(new HerdrClient({ runner: none.runner }).evenLayout("--help"), InputValidationError);
+  assert.equal(none.calls.length, 0);
+  const zoomed = recordingRunner([columns(90, { zoomed: true })]);
+  await assert.rejects(new HerdrClient({ runner: zoomed.runner }).evenLayout("w1:p1"), /Unzoom/u);
+  const alone = recordingRunner([layoutOf(["w1:p1", 0, 0, 120, 40])]);
+  await assert.rejects(new HerdrClient({ runner: alone.runner }).evenLayout("w1:p1"), { code: "split_session" });
+  assert.equal(zoomed.calls.length + alone.calls.length, 2, "only the layout was read");
+  // Panes that do not tile as splits: said, and nothing moved.
+  const gap = recordingRunner([layoutOf(["w1:p1", 0, 0, 50, 40], ["w1:p2", 60, 0, 60, 40])]);
+  const answer = await new HerdrClient({ runner: gap.runner }).evenLayout("w1:p1");
+  assert.equal(answer.even, false);
+  assert.equal(answer.changed, false);
+  assert.match(answer.message, /not made of splits/u);
+});
+
+test("an even-out that Herdr will not take further stops where it got, or goes back when that is worse", async () => {
+  // A resize that moves nothing: it stops, closer than it began, and says so.
+  const stuck = recordingRunner([columns(90), done, columns(80), done, columns(80)]);
+  const answer = await new HerdrClient({ runner: stuck.runner }).evenLayout("w1:p1");
+  assert.deepEqual({ ...answer, message: undefined }, { pane_id: "w1:p1", changed: true, steps: 2, even: false, message: undefined });
+  assert.match(answer.message, /could not all be evened out/u);
+  assert.equal(stuck.calls.length, 5, "no way back is tried");
+  // Overshot, then refused: the border goes back to where it was.
+  const refused = recordingRunner([columns(70), done, columns(40), herdrRefusal("pane_resize_failed", "cannot resize"), columns(40), done, columns(70)]);
+  const back = await new HerdrClient({ runner: refused.runner }).evenLayout("w1:p1");
+  assert.equal(back.even, false);
+  assert.equal(back.restored, true);
+  assert.equal(back.steps, 2);
+  assert.match(back.message, /cannot resize\. They were moved back/u);
+  assert.deepEqual(refused.calls.at(-2).args, ["pane", "resize", "--pane", "w1:p1", "--direction", "right", "--amount", "0.2500"]);
+});
+
+test("an even-out stops at its cap of resizes", async () => {
+  // A Herdr that moves the border one cell per resize, however far it is asked.
+  const wide = (at) => jsonReply({ layout: { area: { x: 0, y: 0, width: 400, height: 40 }, zoomed: false, panes: [
+    { pane_id: "w1:p1", rect: { x: 0, y: 0, width: at, height: 40 } }, { pane_id: "w1:p2", rect: { x: at, y: 0, width: 400 - at, height: 40 } }] } });
+  const slow = [wide(390)];
+  for (let at = 389; at > 300; at -= 1) slow.push(done, wide(at));
+  const fake = recordingRunner(slow);
+  const capped = await new HerdrClient({ runner: fake.runner }).evenLayout("w1:p1");
+  assert.equal(fake.calls.filter((call) => call.args[1] === "resize").length, 60, "no more than 60 resizes");
+  assert.equal(capped.steps, 60);
+  assert.equal(capped.even, false);
+  assert.match(capped.message, /too many steps/u);
+});
+
 test("moves a pane out of its split session into a tab of its own, returning what Herdr names", async () => {
   const fake = recordingRunner([
     layoutOf(["w1:p5", 0, 0, 50, 40], ["w1:p6", 50, 0, 50, 40]),

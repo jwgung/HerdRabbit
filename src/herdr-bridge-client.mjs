@@ -356,6 +356,11 @@ export class HerdrBridgeClient {
     return this.#scopeRearranged(pane.sessionName, await client.relocatePane(pane.localId, target.localId, side));
   }
 
+  async evenLayout(paneId) {
+    const target = this.#targetForScopedId(paneId, validation.validatePaneId);
+    return this.#scopeRearranged(target.sessionName, await this.#clientForSession(target.sessionName).evenLayout(target.localId));
+  }
+
   async paneFind(paneId, request) {
     const target = this.#targetForScopedId(paneId, validation.validatePaneId);
     return this.#clientForSession(target.sessionName).paneFind(target.localId, request);

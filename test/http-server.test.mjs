@@ -1549,3 +1549,60 @@ test("a connected PC's pane is not moved out: only this machine's are", async (c
   assert.equal(mine.status, 200);
   assert.deepEqual(moved, ["w1:p1"]);
 });
+
+test("a split tab is evened out with write authorization, a layout it cannot even out still answering", async (context) => {
+  const calls = [];
+  const herdr = {
+    async snapshot() { return { workspaces: [], tabs: [], panes: [] }; },
+    async evenLayout(paneId) {
+      calls.push(paneId);
+      if (paneId === "w1:p9") throw new HerdrCommandError("That session has only one pane.", { code: "split_session" });
+      if (paneId === "w1:p3") return { pane_id: paneId, changed: false, steps: 0, even: false, message: "This layout is not made of splits that can be evened out." };
+      return { pane_id: paneId, changed: true, steps: 3, even: true };
+    },
+  };
+  const app = await startServer(herdr);
+  context.after(() => closeServer(app.server));
+  const headers = { "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl };
+  const post = (pane, init = {}) => fetch(`${app.baseUrl}/api/panes/${pane}/even-layout`, { method: "POST", headers, ...init });
+
+  assert.equal((await post("w1%3Ap2", { headers: { Origin: app.baseUrl } })).status, 403, "no CSRF token, no resize");
+  assert.equal(calls.length, 0);
+  const evened = await post("w1%3Ap2", { headers: { ...headers, "Content-Type": "application/json" }, body: "{}" });
+  assert.equal(evened.status, 200);
+  assert.deepEqual(await evened.json(), { pane_id: "w1:p2", changed: true, steps: 3, even: true });
+  const uneven = await post("w1%3Ap3");
+  assert.equal(uneven.status, 200);
+  assert.equal((await uneven.json()).even, false);
+  const alone = await post("w1%3Ap9");
+  assert.equal(alone.status, 409);
+  assert.equal((await alone.json()).error.code, "split_session");
+  assert.equal((await fetch(`${app.baseUrl}/api/panes/w1%3Ap2/even-layout`)).status, 404, "a GET resizes nothing");
+  assert.deepEqual(calls, ["w1:p2", "w1:p3", "w1:p9"]);
+});
+
+test("a connected PC's split tab is not evened out, and a herdr without it says so", async (context) => {
+  const linkId = "link_11111111-1111-1111-1111-111111111111";
+  const evened = [];
+  const local = {
+    async snapshot() { return { herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }; },
+    async evenLayout(id) { evened.push(id); return { pane_id: id, changed: false, steps: 0, even: true }; },
+  };
+  const herdr = new MultiServerClient({
+    local,
+    profiles: { list: () => [{ id: linkId, name: "Dev box", transport: "link", address: "http://127.0.0.1:1" }] },
+    remoteFactory: () => ({ async evenLayout() { throw new Error("never asked"); }, close() {} }),
+  });
+  const app = await startServer(herdr);
+  context.after(() => closeServer(app.server));
+  const headers = { "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl };
+  const refused = await fetch(`${app.baseUrl}/api/panes/${encodeURIComponent(`${linkId}!hs_x~wB:p1`)}/even-layout`, { method: "POST", headers });
+  assert.equal(refused.status, 501);
+  assert.equal((await refused.json()).error.code, "link_unsupported");
+  assert.equal((await fetch(`${app.baseUrl}/api/panes/w1%3Ap1/even-layout`, { method: "POST", headers })).status, 200);
+  assert.deepEqual(evened, ["w1:p1"]);
+  const bare = await startServer({ async snapshot() { return { workspaces: [], tabs: [], panes: [] }; } });
+  context.after(() => closeServer(bare.server));
+  const old = await fetch(`${bare.baseUrl}/api/panes/w1%3Ap1/even-layout`, { method: "POST", headers: { ...headers, Origin: bare.baseUrl } });
+  assert.equal(old.status, 501);
+});

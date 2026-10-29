@@ -3008,9 +3008,15 @@ function renderNavigation() {
               renderNavigation();
             },
           },
-          // Undoes the split: each pane but the first becomes a session of its
-          // own. This machine's only, as the grid's actions are.
+          // Gives the panes equal shares of the session, and undoes the
+          // split: each pane but the first becomes a session of its own.
+          // This machine's only, as the grid's actions are.
           ...(split && isLocalRecord(tabPanes[0]) ? [{
+            key: "even-layout",
+            label: "Even out layout",
+            paths: EVEN_ICON,
+            onSelect: () => void evenOutLayout(idOf(tabPanes[0], "pane_id", "id")),
+          }, {
             key: "separate-all",
             label: "Separate all panes",
             paths: SEPARATE_ICON,
@@ -4153,6 +4159,7 @@ const ZOOM_ICON = ["M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"];
 const UNZOOM_ICON = ["M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"];
 const MOVE_OUT_ICON = ["M14 4h6v6", "M20 4l-8 8", "M19 14v5H5V5h5"];
 const SEPARATE_ICON = ["M3 5h7v14H3z", "M14 5h7v14h-7z"];
+const EVEN_ICON = ["M3 5h18v14H3z", "M9 5v14", "M15 5v14"];
 
 // A pane's actions, the same in a grid cell's ⋯ and a split session's pane
 // row in the sidebar.
@@ -4164,6 +4171,8 @@ function paneActions(paneId, zoomed) {
       onSelect: () => void paneGridAction(paneId, "split", { direction: "down" }) },
     { key: "zoom", label: zoomed ? "Unzoom" : "Zoom", paths: zoomed ? UNZOOM_ICON : ZOOM_ICON,
       onSelect: () => void paneGridAction(paneId, "zoom", { mode: "toggle" }) },
+    { key: "even-layout", label: "Even out layout", paths: EVEN_ICON,
+      onSelect: () => void evenOutLayout(paneId) },
     { key: "move-out", label: "Move out to its own session", paths: MOVE_OUT_ICON,
       onSelect: () => void movePanesOut([paneId]) },
     { separator: true },
@@ -4246,6 +4255,37 @@ async function movePanesOut(paneIds) {
   await refreshAfterPaneChange();
   void refreshTerminal();
   if (refusal) setFeedback(refusal, true);
+}
+
+// "Even out layout": the panes of `paneId`'s split session take equal shares
+// of it. Herdr resizes them, so every device sees it; the grid re-reads the
+// layout and its cells slide to their new places. Said in the feedback line:
+// evened out, or why not (Herdr's reason, or a layout it could only partly
+// even out or had to put back).
+async function evenOutLayout(paneId) {
+  if (state.mutationBusy) {
+    setFeedback("Another change is still in progress. Try again in a moment.", true);
+    return;
+  }
+  state.mutationBusy = true;
+  setFeedback("");
+  let notice;
+  let failed = false;
+  try {
+    const result = await api(`/api/panes/${encodeURIComponent(paneId)}/even-layout`, { method: "POST", body: {} });
+    if (result?.even === false) {
+      notice = result.message || "Could not even out the layout.";
+      failed = true;
+    } else notice = result?.changed === false ? "The panes are already even." : "Layout evened out.";
+  } catch (error) {
+    notice = error.message;
+    failed = true;
+  } finally {
+    state.mutationBusy = false;
+  }
+  await refreshAfterPaneChange();
+  void refreshTerminal();
+  setFeedback(notice, failed);
 }
 
 // The split session's ⋯ "Separate all panes": every pane but the first to a
