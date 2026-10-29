@@ -3374,6 +3374,26 @@ body.is-sidebar-dragging * {
   background: var(--terminal-bg);
 }
 
+/* A Herdr grid's board is the tab's own shape in the cells' font, so no cell
+   has room its terminal cannot fill. It is centred across the stage and kept
+   at its top: a note shown or cleared under the stage moves no cell. */
+.pane-grid-board.is-fitted {
+  box-sizing: content-box;
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+/* Cells slide from their own top left corner; a leaving cell's copy fades
+   where it was, out of the way of the pointer. */
+.pane-grid-cell {
+  transform-origin: 0 0;
+}
+
+.pane-grid-cell.is-leaving {
+  z-index: 0;
+  pointer-events: none;
+}
+
 .pane-grid-cell {
   position: absolute;
   box-sizing: border-box;
@@ -3434,6 +3454,17 @@ body.is-pane-rearranging * {
 
 .pane-grid-cell.is-swap-target {
   border-color: var(--accent);
+}
+
+/* The dashed preview eases between the places it shows rather than jumping. */
+.pane-grid-drop-preview {
+  transition: left 120ms ease-out, top 120ms ease-out, width 120ms ease-out, height 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pane-grid-drop-preview {
+    transition: none;
+  }
 }
 
 .pane-grid-drop-preview[data-kind="swap"] {

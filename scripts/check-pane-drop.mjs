@@ -236,6 +236,18 @@ async function mouseDrag(page, from, to, { shot } = {}) {
 const focusedTile = (page, paneId) => page.waitForFunction((id) =>
   document.querySelector(`.pane-grid.is-view .pane-grid-cell[data-pane-id="${id}"]`)?.classList.contains("is-focused"), paneId);
 
+// The grid has taken its shape: its board fitted to the cells' font, nothing
+// sliding, and every cell where it was for a few frames running.
+const gridSettled = (page) => page.waitForFunction(() => {
+  const nodes = [...document.querySelectorAll(".pane-grid:not([hidden]) :is(.pane-grid-board, .pane-grid-cell:not([hidden]))")];
+  if (nodes.some((node) => node.getAnimations().length > 0)) return false;
+  const shape = JSON.stringify(nodes.map((node) => { const r = node.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }));
+  const last = window.__gridShape;
+  window.__gridShape = shape;
+  window.__gridStill = shape === last ? (window.__gridStill ?? 0) + 1 : 0;
+  return window.__gridStill >= 6;
+}, null, { polling: "raf" });
+
 const near = (actual, expected, what) => {
   for (const key of ["x", "y", "width", "height"]) {
     assert.ok(Math.abs(actual[key] - expected[key]) <= 2, `${what} ${key}: ${actual[key]} vs ${expected[key]}`);
@@ -279,6 +291,7 @@ try {
     const sources = { left: "w1:p3", right: "w1:p4", up: "w1:p7", down: "w1:p8" };
     let cellCount = 2;
     for (const [side, sourcePane] of Object.entries(sources)) {
+      await gridSettled(page);
       const source = await box(page, tabRow(sourcePane));
       const target = await box(page, cell("w1:p2"));
       const during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone[side]),
@@ -657,7 +670,8 @@ try {
     });
     const herdrBefore = JSON.stringify(herdrState);
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p3")}`);
-    const tileBox = async (paneId) => page.locator(tile(paneId)).boundingBox();
+    // Where a tile is once the tiles have slid into place.
+    const tileBox = async (paneId) => { await gridSettled(page); return page.locator(tile(paneId)).boundingBox(); };
     await page.waitForFunction(() => document.querySelectorAll(".pane-grid.is-view .pane-grid-cell .xterm").length === 3);
     assert.equal(await page.locator(".pane-grid.is-view.can-rearrange").count(), 1);
     const carry = async (paneId, to, { release = true } = {}) => {
@@ -667,6 +681,8 @@ try {
       await page.mouse.down();
       for (let step = 1; step <= 12; step += 1) await page.mouse.move(from.x + ((to.x - from.x) * step) / 12, from.y + ((to.y - from.y) * step) / 12);
       await page.waitForTimeout(60);
+      // The dashed preview eases to where it points now.
+      await page.waitForFunction(() => (document.querySelector(".pane-grid-drop-preview")?.getAnimations().length ?? 0) === 0);
       const seen = await page.evaluate(() => {
         const mark = document.querySelector(".pane-grid-drop-preview");
         return { ghost: Boolean(document.querySelector(".pane-grid-drag-ghost")),
