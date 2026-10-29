@@ -2,7 +2,7 @@
 // opens the grid: every pane in a cell placed as Herdr lays it out, a cell too small to
 // read shows its name only, a press focuses a cell and makes it the selected
 // pane (typing in it reaches that pane alone, the composer follows), cells
-// never resize a pane's pty, the ⋯ menu splits, zooms and closes, a refused
+// that keep their panes' sizes never resize a pane's pty, the ⋯ menu splits, zooms and closes, a refused
 // split is said, and ⤢ opens the pane alone with Back to grid. A pane row in
 // the row's dropdown opens its pane alone. Leaving the grid closes the cells'
 // sockets. No cell attaches before Herdr's layout is read, a close always
@@ -24,7 +24,11 @@
 // moves out of its split into a session of its own from there or from a cell,
 // and the split row's ⋯ separates all its panes. Even out layout, from the
 // split row's ⋯ or a cell's, gives the panes equal shares and the cells slide
-// there; a layout that cannot be evened out is said.
+// there; a layout that cannot be evened out is said. By default (Settings >
+// Fit panes to this window) a grid's cells fill the stage and size their
+// panes to themselves at the terminal font, one resize per changed cell; with
+// the setting off (the sections above that say so) they keep their panes'
+// sizes on a letterboxed board, as described above.
 // Runs on a desktop and a phone against an in-process fake herdr.
 //
 // PANE_GRID_SHOTS=<folder> keeps pictures of the grid, the zoomed grid, the
@@ -226,6 +230,14 @@ server.listen(0, "127.0.0.1");
 await once(server, "listening");
 const url = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ args: ["--no-sandbox"] });
+// A context whose Herdr grids keep their panes' sizes and scale their text
+// (Settings > Fit panes to this window, off); the grid fits its panes to the
+// window by default.
+const keepingSizes = async (options) => {
+  const context = await browser.newContext(options);
+  await context.addInitScript(() => { try { localStorage.setItem("herdrbridge-grid-fit", "off"); } catch {} });
+  return context;
+};
 
 // The grid has taken its shape: its board fitted to the cells' font, nothing
 // sliding, and every cell where it was for a few frames running.
@@ -248,7 +260,7 @@ try {
     if (mobile) panes.splice(4, 0, { pane_id: "w1:p8", tab_id: "w1:t1", workspace_id: "w1", cwd: "/work/epsilon", agent_status: "idle" });
     ptys.length = 0;
     sent.length = 0;
-    const context = await browser.newContext({ serviceWorkers: "block", hasTouch: mobile, isMobile: mobile,
+    const context = await keepingSizes({ serviceWorkers: "block", hasTouch: mobile, isMobile: mobile,
       viewport: { width: mobile ? 390 : 1280, height: 844 } });
     const page = await context.newPage();
     const errors = [];
@@ -604,7 +616,7 @@ try {
     signedServer.listen(0, "127.0.0.1");
     await once(signedServer, "listening");
     const signedUrl = `http://127.0.0.1:${signedServer.address().port}`;
-    const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 844 } });
+    const context = await keepingSizes({ serviceWorkers: "block", viewport: { width: 1280, height: 844 } });
     const page = await context.newPage();
     // No offer to add a passkey after signing in.
     await page.addInitScript(() => Object.defineProperty(window, "PublicKeyCredential", { value: undefined, configurable: true }));
@@ -1048,7 +1060,7 @@ try {
     };
     const open = async (count, { reducedMotion = "no-preference", viewport = { width: 1280, height: 844 }, shape } = {}) => {
       lay(count, shape);
-      const context = await browser.newContext({ serviceWorkers: "block", viewport });
+      const context = await keepingSizes({ serviceWorkers: "block", viewport });
       const page = await context.newPage();
       await page.emulateMedia({ reducedMotion });
       const errors = [];
@@ -1246,6 +1258,266 @@ try {
       await context.close();
     }
     console.log("ok: the board fits its cells, and layout changes slide");
+  }
+  // Fit panes to this window (the default): a Herdr grid adapts to the window
+  // as Herdr adapts to its own. The cells, placed by Herdr's proportions, fill
+  // the stage; each sizes its pane to itself at the terminal font (resize
+  // frames carry the cell's columns and rows), the font being the one chosen
+  // for a pane alone, which Ctrl+wheel changes again. A slide or a sidebar
+  // dragged wider sends each pane one size at the end, polls send none, a
+  // sliver waits as a name until focused and then never sizes its pane below
+  // 10x3, and the setting switches modes live.
+  {
+    const lay = (shape) => {
+      reset();
+      panes = panes.filter((pane) => pane.tab_id !== "w1:t1" || pane.pane_id in shape);
+      for (const [id, [x, y, width, height]] of Object.entries(shape)) rects.set(id, { x, y, width, height });
+    };
+    const shapes = {
+      2: { "w1:p1": [0, 0, 60, 40], "w1:p2": [60, 0, 60, 40] },
+      3: { "w1:p1": [0, 0, 60, 40], "w1:p2": [60, 0, 60, 20], "w1:p3": [60, 20, 60, 20] },
+      4: { "w1:p1": [0, 0, 60, 20], "w1:p2": [60, 0, 60, 20], "w1:p3": [0, 20, 60, 20], "w1:p4": [60, 20, 60, 20] },
+    };
+    const shots = process.env.PANE_GRID_SHOTS;
+    // Opens the tab's grid with `shape` (null: the fake's own four panes, p4 a
+    // sliver); every frame of the cells' sockets is kept.
+    const open = async (shape, viewport = { width: 1280, height: 844 }) => {
+      if (shape) lay(shape); else reset();
+      ptys.length = 0;
+      const context = await browser.newContext({ serviceWorkers: "block", viewport });
+      const page = await context.newPage();
+      const errors = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      const sockets = [];
+      page.on("websocket", (ws) => {
+        const socket = { frames: [] };
+        ws.on("framesent", ({ payload }) => { try { socket.frames.push(JSON.parse(payload)); } catch {} });
+        sockets.push(socket);
+      });
+      await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
+      await page.locator("#terminal-xterm .xterm").waitFor({ state: "visible" });
+      // Every socket from here on is a cell's.
+      const from = sockets.length;
+      await page.locator('.split-session-button[data-tab-id="w1:t1"]').click();
+      const shown = Object.keys(shape ?? { "w1:p1": 0, "w1:p2": 0, "w1:p3": 0 });
+      await page.waitForFunction((ids) => ids.every((id) => document.querySelector(`.pane-grid-cell[data-pane-id="${id}"] .xterm-rows`)
+        ?.textContent.replace(/ /gu, " ").includes(`pane ${id}`)), shown);
+      // The frames the cells sent for `paneId`, of `type`.
+      const framesOf = (paneId, type) => sockets.slice(from).flatMap((socket) => socket.frames)
+        .filter((frame) => frame.paneId === paneId && frame.type === type);
+      const resizes = (paneId) => framesOf(paneId, "resize").length;
+      return { context, page, errors, framesOf, resizes };
+    };
+    // The size herdr's pty of `paneId` has now.
+    const ptySize = (paneId) => {
+      const pty = ptyOf(paneId);
+      return pty ? pty.sizes.at(-1) ?? [pty.options.cols, pty.options.rows] : null;
+    };
+    const setting = (page) => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--terminal-font-size")));
+    // The stage, the board, and each cell: its box, font, columns and rows
+    // (rows as drawn, columns from the screen's width) and what its terminal
+    // leaves unfilled.
+    const look = (page) => page.evaluate(() => {
+      const box = (node) => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+      const boardNode = document.querySelector(".pane-grid:not([hidden]) .pane-grid-board");
+      const inner = boardNode.getBoundingClientRect();
+      return {
+        stage: box(document.querySelector(".pane-grid:not([hidden])")),
+        board: box(boardNode),
+        boardInner: { x: inner.x + boardNode.clientLeft, y: inner.y + boardNode.clientTop, width: boardNode.clientWidth, height: boardNode.clientHeight },
+        fitted: boardNode.classList.contains("is-fitted"),
+        cells: [...boardNode.querySelectorAll(".pane-grid-cell:not([hidden])")].map((node) => {
+          const rows = node.querySelector(".xterm-rows");
+          const cell = { pane: node.dataset.paneId, tiny: node.classList.contains("is-tiny"), box: box(node) };
+          if (!rows) return cell;
+          const style = getComputedStyle(rows);
+          const font = parseFloat(style.fontSize);
+          const context = document.createElement("canvas").getContext("2d");
+          context.font = `${font}px ${style.fontFamily}`;
+          const charWidth = context.measureText("W").width;
+          const screen = node.querySelector(".xterm-screen").getBoundingClientRect();
+          const body = node.querySelector(".pane-grid-terminal");
+          const pad = getComputedStyle(node.querySelector(".xterm"));
+          return {
+            ...cell, font, charWidth, rowHeight: screen.height / rows.children.length,
+            cols: Math.round(screen.width / charWidth), rows: rows.children.length,
+            slackX: body.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight) - screen.width,
+            slackY: body.clientHeight - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom) - screen.height,
+          };
+        }),
+      };
+    });
+    // The cells fill the stage at Herdr's proportions, each terminal filling
+    // its cell at the terminal font, its pane sized to it.
+    const fitted = async (page, shape, what) => {
+      await gridSettled(page);
+      // A size is told once the cell keeps still a while.
+      await page.waitForTimeout(500);
+      const seen = await look(page);
+      const near = (actual, expected, slack, label) => assert.ok(Math.abs(actual - expected) <= slack, `${what}: ${label} (${actual} vs ${expected})`);
+      assert.equal(seen.fitted, false, `${what}: no letterboxed board`);
+      for (const key of ["x", "y", "width", "height"]) near(seen.board[key], seen.stage[key], 3, `the cells fill the stage ${key}`);
+      const font = await setting(page);
+      const area = { width: 120, height: 40 };
+      for (const cell of seen.cells) {
+        const [x, y, width, height] = shape[cell.pane];
+        near(cell.box.x - seen.boardInner.x, seen.boardInner.width * x / area.width, 2, `${cell.pane} left`);
+        near(cell.box.y - seen.boardInner.y, seen.boardInner.height * y / area.height, 2, `${cell.pane} top`);
+        near(cell.box.width, seen.boardInner.width * width / area.width, 2, `${cell.pane} width`);
+        near(cell.box.height, seen.boardInner.height * height / area.height, 2, `${cell.pane} height`);
+        assert.equal(cell.font, font, `${what}: ${cell.pane} reads at the terminal font`);
+        assert.ok(cell.slackX >= -0.5 && cell.slackX < cell.charWidth + 1, `${what}: ${cell.pane} fills its width (${cell.slackX}px spare)`);
+        assert.ok(cell.slackY >= -0.5 && cell.slackY < cell.rowHeight + 1, `${what}: ${cell.pane} fills its height (${cell.slackY}px spare)`);
+        const [cols, rows] = ptySize(cell.pane);
+        assert.equal(rows, cell.rows, `${what}: ${cell.pane}'s pty has the cell's rows`);
+        assert.ok(Math.abs(cols - cell.cols) <= 1, `${what}: ${cell.pane}'s pty has the cell's columns (${cols} vs ${cell.cols})`);
+      }
+      return seen;
+    };
+    // The last size the cells asked for `paneId` (attach or resize) is its pty's.
+    const askedLast = (framesOf, paneId) => {
+      const asked = [...framesOf(paneId, "attach"), ...framesOf(paneId, "resize")];
+      const last = framesOf(paneId, "resize").at(-1) ?? framesOf(paneId, "attach").at(-1);
+      assert.ok(asked.length > 0);
+      assert.deepEqual([last.cols, last.rows], ptySize(paneId), `${paneId}: the frames carry the size its pty has`);
+    };
+    const toggleFit = async (page, on) => {
+      await page.locator(".settings-button").click();
+      const item = page.locator('[data-action="grid-fit"]');
+      assert.equal(await item.getAttribute("aria-checked"), String(!on));
+      await item.click();
+      await page.locator(".settings-button").click();
+      assert.equal(await page.locator('[data-action="grid-fit"]').getAttribute("aria-checked"), String(on));
+      assert.match(await page.locator('[data-action="grid-fit"] span').textContent(), on ? /: On$/u : /: Off$/u);
+      await page.locator(".settings-button").click();
+      assert.equal(await page.evaluate(() => localStorage.getItem("herdrbridge-grid-fit")), on ? "on" : "off", "the choice is remembered");
+    };
+
+    for (const [count, viewport] of [[2, { width: 1280, height: 844 }], [4, { width: 1280, height: 844 }], [2, { width: 1700, height: 1100 }], [4, { width: 1700, height: 1100 }]]) {
+      const what = `fit, ${count} cells at ${viewport.width}x${viewport.height}`;
+      const { context, page, errors, framesOf, resizes } = await open(shapes[count], viewport);
+      const ids = Object.keys(shapes[count]);
+      const seen = await fitted(page, shapes[count], what);
+      for (const paneId of ids) {
+        assert.ok(framesOf(paneId, "attach").every((frame) => frame.keepSize !== true), `${what}: ${paneId} attaches to size its pane`);
+        askedLast(framesOf, paneId);
+        // Its terminal answers none of herdr's queries as typing.
+        assert.equal(ptyOf(paneId).written, "", `${what}: ${paneId} is typed nothing by its cell`);
+      }
+      // Polls with nothing changed send no size.
+      const before = ids.map(resizes);
+      await page.waitForTimeout(2500);
+      assert.deepEqual(ids.map(resizes), before, `${what}: polls send no resize`);
+      console.log(`  ${what}: cells ${seen.cells.map((cell) => `${cell.cols}x${cell.rows}`).join(", ")} at ${seen.cells[0].font}px; resize frames ${before.join("/")}`);
+      if (shots && viewport.width === 1700) await page.screenshot({ path: join(shots, `fit-on-${count}-1700.png`) });
+      // The grid's own text size has no say here: no Reset text size.
+      await page.locator(".settings-button").click();
+      assert.equal(await page.locator('[data-action="grid-font"]').isVisible(), false, `${what}: no Reset text size`);
+      await page.locator(".settings-button").click();
+      if (viewport.width === 1280) {
+        // Ctrl+wheel changes the terminal font, and the cells (and their panes) follow it.
+        const global = await setting(page);
+        const stage = await page.locator(".pane-grid").boundingBox();
+        await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2);
+        await page.keyboard.down("Control");
+        await page.mouse.wheel(0, 120);
+        await page.keyboard.up("Control");
+        await page.waitForFunction((was) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--terminal-font-size")) === was - 1, global);
+        const smaller = await fitted(page, shapes[count], `${what}, a smaller font`);
+        assert.equal(smaller.cells[0].font, global - 1);
+        assert.ok(smaller.cells[0].cols > seen.cells[0].cols, `${what}: a smaller font fits more columns (${seen.cells[0].cols} -> ${smaller.cells[0].cols})`);
+        for (const paneId of ids) askedLast(framesOf, paneId);
+        assert.equal(await page.evaluate(() => localStorage.getItem("herdrbridge-grid-font")), null, "the grid's own size is untouched");
+      } else {
+        // The setting switches modes live: off, the cells attach again keeping
+        // their panes' sizes on a letterboxed board; on again, they size them.
+        const attachesBefore = ids.map((id) => framesOf(id, "attach").length);
+        await toggleFit(page, false);
+        await page.waitForFunction(() => document.querySelector(".pane-grid-board")?.classList.contains("is-fitted"));
+        await gridSettled(page);
+        for (const [index, paneId] of ids.entries()) {
+          const attaches = framesOf(paneId, "attach");
+          assert.ok(attaches.length > attachesBefore[index], `${paneId} attaches again`);
+          assert.equal(attaches.at(-1).keepSize, true, `off: ${paneId} keeps its pane's size`);
+        }
+        if (shots) await page.screenshot({ path: join(shots, `fit-off-${count}-1700.png`) });
+        const sizesOff = ids.map(resizes);
+        await page.waitForTimeout(600);
+        assert.deepEqual(ids.map(resizes), sizesOff, "off: a cell sends no resize");
+        await toggleFit(page, true);
+        await page.waitForFunction(() => !document.querySelector(".pane-grid-board")?.classList.contains("is-fitted"));
+        await fitted(page, shapes[count], `${what}, on again`);
+        for (const paneId of ids) assert.notEqual(framesOf(paneId, "attach").at(-1).keepSize, true, `on again: ${paneId} sizes its pane`);
+      }
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+
+    // A swap slides the cells by a transform: each pane whose cell changed
+    // size hears it once, the others nothing. A sidebar dragged wider sends
+    // each pane one size, at the end.
+    {
+      const shape = shapes[3];
+      const { context, page, errors, resizes } = await open(shape);
+      const ids = Object.keys(shape);
+      await fitted(page, shape, "fit, 3 cells");
+      const before = ids.map(resizes);
+      const sliding = page.waitForFunction(() => ["w1:p1", "w1:p3"].every((id) =>
+        document.querySelector(`.pane-grid-cell[data-pane-id="${id}"]`)?.getAnimations()
+          .some((animation) => !(animation instanceof CSSTransition) && animation.effect?.getTiming().duration >= 150)), null, { polling: "raf" });
+      const header = await page.locator('.pane-grid-cell[data-pane-id="w1:p1"] .pane-grid-cell-header').boundingBox();
+      const target = await page.locator('.pane-grid-cell[data-pane-id="w1:p3"]').boundingBox();
+      const from = { x: header.x + 30, y: header.y + header.height / 2 };
+      const to = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      for (let step = 1; step <= 10; step += 1) await page.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+      await page.mouse.up();
+      await sliding;
+      const swapped = { "w1:p1": shape["w1:p3"], "w1:p2": shape["w1:p2"], "w1:p3": shape["w1:p1"] };
+      await fitted(page, swapped, "fit, after a swap");
+      const afterSwap = ids.map(resizes);
+      assert.deepEqual(afterSwap.map((count, index) => count - before[index]), [1, 0, 1], "a swap: one resize per pane whose cell changed size, none per frame");
+      // The sidebar dragged 160px wider, a frame at a time.
+      const handle = await page.locator("#navigator-resizer").boundingBox();
+      const start = { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2 };
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      for (let step = 1; step <= 32; step += 1) {
+        await page.mouse.move(start.x + step * 5, start.y);
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
+      }
+      await page.mouse.up();
+      await fitted(page, swapped, "fit, the sidebar wider");
+      const afterDrag = ids.map(resizes);
+      assert.deepEqual(afterDrag.map((count, index) => count - afterSwap[index]), [1, 1, 1], "a sidebar drag: one resize per pane, at the end");
+      console.log(`  fit: resize frames per pane (p1/p2/p3): ${before.join("/")} at first, +${afterSwap.map((count, index) => count - before[index]).join("/")} for a swap, +${afterDrag.map((count, index) => count - afterSwap[index]).join("/")} for a 32-frame sidebar drag`);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+
+    // A sliver waits as a name; focused, it attaches, never sizing its pane
+    // below 10x3. Typing reaches the focused cell's pane alone.
+    {
+      const { context, page, errors, framesOf } = await open(null);
+      await gridSettled(page);
+      const sliver = page.locator('.pane-grid-cell[data-pane-id="w1:p4"]');
+      assert.equal(await sliver.evaluate((node) => node.classList.contains("is-tiny")), true, "the sliver is a name");
+      assert.equal(framesOf("w1:p4", "attach").length, 0, "the sliver does not attach");
+      await sliver.click();
+      await sliver.locator(".xterm").waitFor();
+      await page.waitForTimeout(600);
+      const [cols, rows] = ptySize("w1:p4");
+      assert.ok(cols >= 10 && rows >= 3, `a focused sliver sizes its pane no smaller than 10x3 (${cols}x${rows})`);
+      await page.locator('.pane-grid-cell[data-pane-id="w1:p2"] .xterm').click();
+      await page.keyboard.type("only p2");
+      await page.waitForTimeout(300);
+      assert.match(ptyOf("w1:p2").written, /only p2/u);
+      for (const other of ["w1:p1", "w1:p3", "w1:p4"]) assert.doesNotMatch(ptyOf(other)?.written ?? "", /only/u, `${other} hears nothing`);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    console.log("ok: a grid fits its panes to the window");
   }
   // Two split sessions' grids switched at once, many times, on a server whose
   // panes cannot attach (each cell falls back at once, as where node-pty is

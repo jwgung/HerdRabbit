@@ -76,7 +76,7 @@ class UnicodeGraphemesAddon {
 }
 class WebLinksAddon {}
 
-function setup() {
+function setup(options = {}) {
   const sent = [];
   const listeners = { attach: [], reconnect: [] };
   const connection = {
@@ -129,6 +129,7 @@ function setup() {
     onStateChange: (state) => states.push(state),
     onRetry: (paneId) => retries.push(paneId),
     onCopy: (ok) => copies.push(ok),
+    ...options,
   });
   const receive = (message) => { for (const listener of listeners.attach) listener(message); };
   const reconnect = () => { for (const listener of listeners.reconnect) listener(); };
@@ -217,6 +218,23 @@ test("a page that does not set the size shows the other page's grid and never as
   receive({ type: "pane-geometry", pane_id: "a", cols: 100, rows: 30, owner: true });
   assert.ok(!classes.has("is-adopted"));
   assert.equal(term().cols, 100, "once it sets the size, it fits its own frame");
+});
+
+test("a terminal never sizes its pane below its least size, and says a new size once its frame keeps still", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const { view, sent, term } = setup({ minCols: 120, minRows: 10, resizeDelay: 250 });
+  view.show("a");
+  assert.deepEqual(sent.at(-1), ["attach", "a", { cols: 120, rows: 30 }], "the frame's 100 columns are too few: it asks for 120");
+  assert.deepEqual([term().cols, term().rows], [120, 30]);
+  const resizes = () => sent.filter(([kind]) => kind === "resize");
+  context.mock.timers.tick(200);
+  term().resize(130, 30);
+  context.mock.timers.tick(200);
+  term().resize(140, 30);
+  context.mock.timers.tick(249);
+  assert.deepEqual(resizes(), [], "nothing while the frame keeps changing");
+  context.mock.timers.tick(1);
+  assert.deepEqual(resizes(), [["resize", "a", 140, 30]], "one size, the last");
 });
 
 test("typing while the socket reconnects is reported, and waits for the pane to attach again", () => {

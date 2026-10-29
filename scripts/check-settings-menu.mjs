@@ -1,8 +1,9 @@
 // Browser check of the ⚙ settings menu at the foot of the sidebar. The footer
 // holds the uploads button and the settings button only; the menu opens upward
 // inside the viewport and lists Notifications (only where push works), the
-// theme switch, Edit keys, Enter (touch devices only), New window and -- with sign-in on -- Passkeys and Signed-in
-// devices. Escape closes the menu alone. Each item does what its old button
+// theme switch, Edit keys, Enter (touch devices only), New window, Fit panes
+// to this window (wide screens only, on until switched off, kept in this
+// browser) and -- with sign-in on -- Passkeys and Signed-in devices. Escape closes the menu alone. Each item does what its old button
 // did. Runs on a desktop and a phone against an in-process fake herdr.
 //
 // SETTINGS_SHOTS=<folder> keeps pictures of the footer and the open menu in
@@ -92,9 +93,11 @@ try {
       if (full) assert.match(labels[0], /^Notifications: (Off|Blocked)$/);
       // The Enter item shows on a touch device only.
       const keys = mobile ? ["Edit keys", "Enter: Auto"] : ["Edit keys"];
+      // Fitting a grid's panes to the window is for a wide screen's grid.
+      const windowItems = mobile ? ["New window"] : ["New window", "Fit panes to this window: On"];
       assert.deepEqual(
         labels.slice(full ? 1 : 0),
-        full ? [labels[1], ...keys, "New window", "Passkeys", "Signed-in devices"] : [labels[0], ...keys, "New window"],
+        full ? [labels[1], ...keys, ...windowItems, "Passkeys", "Signed-in devices"] : [labels[0], ...keys, ...windowItems],
       );
       assert.match(labels[full ? 1 : 0], /^Switch to (light|dark) mode$/);
       // It opens upward and stays inside the viewport.
@@ -122,6 +125,19 @@ try {
           await button.click();
           await menu.waitFor({ state: "visible" });
           assert.equal(await menu.locator('[data-action="enter-key"] span').textContent(), label);
+        }
+      }
+
+      if (!mobile) {
+        // Fit panes to this window: off and on again, kept in this browser.
+        for (const [label, stored, checked] of [["Fit panes to this window: Off", "off", "false"], ["Fit panes to this window: On", "on", "true"]]) {
+          await menu.locator('[data-action="grid-fit"]').click();
+          await menu.waitFor({ state: "hidden" });
+          assert.equal(await page.evaluate(() => localStorage.getItem("herdrbridge-grid-fit")), stored);
+          await button.click();
+          await menu.waitFor({ state: "visible" });
+          assert.equal(await menu.locator('[data-action="grid-fit"] span').textContent(), label);
+          assert.equal(await menu.locator('[data-action="grid-fit"]').getAttribute("aria-checked"), checked);
         }
       }
 

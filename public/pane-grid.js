@@ -7,10 +7,32 @@ import { terminalConnection } from "./terminal-connection.js?v=1.4.6";
 import { MOUSE_DRAG_SLOP, dropPreview, dropSide } from "./sidebar-drag.js?v=1.4.6";
 import { adjustedGridFont, normalizedGridFont } from "./terminal-preference.js?v=1.4.6";
 
-// A cell smaller than this (in Herdr's cells) is too small to read: it shows
-// the pane's name until it is focused, rather than a terminal nobody can use.
+// A cell smaller than this (in Herdr's cells, or for a cell that sizes its
+// pane, in its own at the terminal font) is too small to read: it shows the
+// pane's name until it is focused, rather than a terminal nobody can use. A
+// cell that sizes its pane never sizes it smaller than this either.
 export const MIN_ATTACH_COLS = 10;
 export const MIN_ATTACH_ROWS = 3;
+
+// What a cell takes around its terminal's screen, in px: its border and
+// header, and the terminal's padding (styles.css, .pane-grid-cell).
+const CELL_CHROME_X = 2 + 8;
+const CELL_CHROME_Y = 2 + 24 + 6;
+
+// How many columns and rows a cell of `width` by `height` px (its frame)
+// holds for a font whose character is `charWidth` by `charHeight`.
+export function cellCapacity({ width, height, charWidth, charHeight, dpr = 1 }) {
+  if (!(charWidth > 0) || !(charHeight > 0)) return { cols: 0, rows: 0 };
+  return {
+    cols: Math.max(0, Math.floor((width - CELL_CHROME_X) / charWidth)),
+    rows: Math.max(0, Math.floor((height - CELL_CHROME_Y) / (Math.ceil(charHeight * dpr) / dpr))),
+  };
+}
+
+// A cell that sizes its pane tells the pane its size once the cell has kept
+// still this long: a sidebar dragged wider, or a window resized, sends each
+// pane one size at the end rather than one per frame.
+export const FIT_RESIZE_DELAY_MS = 250;
 
 // A terminal cell is about twice as tall as it is wide, so a tab's shape on
 // screen is its columns times this over its rows; the phone's map keeps that
@@ -196,8 +218,13 @@ function icon(path) {
   return svg;
 }
 
-// The grid inside `host`. Each cell has a terminal socket of its own, attached
-// with keepSize: a cell shows the pane at Herdr's size and never resizes it.
+// The grid inside `host`. Each cell has a terminal socket of its own. With
+// `fit` (setFit() changes it live) a Herdr grid adapts to this window the way
+// Herdr adapts to its own: its cells, placed by Herdr's proportions, fill the
+// stage, and each sizes its pane to itself at the terminal font (`fontSize`),
+// as long as the grid is open (other screens on those panes see that size).
+// Without it a cell attaches with keepSize: it shows the pane at Herdr's size
+// and never resizes it, and the cells share the font their board fits.
 // `panes` given to show() are { paneId, label, status, statusIcon, statusText };
 // its `layout` is undefined while not read yet (the cells wait, unattached, so
 // none attaches only to let go once Herdr's sizes are known) and null when it
@@ -205,8 +232,10 @@ function icon(path) {
 // `menuFor(pane, zoomed)` builds a cell's ⋯ menu; `onSelect(paneId)` hears a
 // cell focused, `onExpand(paneId)` the cell opened alone, `onUnzoom(paneId)`
 // the zoom undone.
-// `manualFont` is the text size the user chose for the grid (null: the largest
-// that fits the stage); `onFontChange(manualFont)` hears it change.
+// `manualFont` is the text size the user chose for a grid without `fit` (null:
+// the largest that fits the stage); `onFontChange(manualFont)` hears it change.
+// A grid with `fit` reads at `fontSize`, which a pinch on a cell changes
+// through `terminalOptions.onFontSizeChange`.
 // `mode: "view"` is this window's own view split (view-split.js) rather than a
 // Herdr tab: the same cells, placed by the same math from its layoutRects,
 // each header naming its pane's project too (`context`), and every tile a
@@ -218,8 +247,11 @@ function icon(path) {
 // with fewer than two cells, or while `canRearrange()` says no.
 export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, onSelect, onExpand, onUnzoom = () => {},
   onAuthenticationRequired = () => {}, terminalOptions = {}, mode = "herdr",
-  onRearrange = null, canRearrange = () => true, manualFont = null, onFontChange = () => {} }) {
+  onRearrange = null, canRearrange = () => true, manualFont = null, onFontChange = () => {}, fit = false }) {
   const view = mode === "view";
+  // Whether the cells size their panes to themselves: a view split's tiles
+  // always do (they have no layout of Herdr's to keep).
+  const sizing = () => view || fit;
   manualFont = view ? null : normalizedGridFont(manualFont);
   const root = element("div", view ? "pane-grid is-view" : "pane-grid");
   root.hidden = true;
@@ -258,9 +290,10 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
 
   const visibleCells = () => [...cells.values()].filter((cell) => !cell.node.hidden);
 
-  // A Herdr grid's board is the tab's shape in the cells' shared font,
-  // centred in the stage: every cell is filled by its terminal. A view split's
-  // tiles size their panes to themselves and fill the stage as they are.
+  // A Herdr grid's board (without `fit`) is the tab's shape in the cells'
+  // shared font, centred in the stage: every cell is filled by its terminal.
+  // Cells that size their panes to themselves fill the stage as they are, and
+  // only see again which of them have room for a terminal.
   let boardFrame = null;
   let boardFont = null;
   // A character's size per font in the terminals' font family.
@@ -282,9 +315,10 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     });
   }
 
-  // The user's text size applies to a Herdr grid of several cells, not to a
-  // view split's tiles or a zoomed pane (those read at the single pane's size).
-  const adjustable = () => !view && !root.hidden && !zoomedPaneId && !root.classList.contains("is-waiting") && boardFont !== null;
+  // The grid's own text size applies to a Herdr grid of several cells that
+  // keep their panes' sizes, not to cells that size their panes, a view
+  // split's tiles or a zoomed pane (those read at the single pane's size).
+  const adjustable = () => !sizing() && !root.hidden && !zoomedPaneId && !root.classList.contains("is-waiting") && boardFont !== null;
 
   function setManualFont(next) {
     next = normalizedGridFont(next);
@@ -304,6 +338,13 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
   }
 
   function fitBoard() {
+    if (fit && !view) {
+      unfitBoard();
+      boardFont = null;
+      // The stage or the font changed: a cell may have room for a terminal now, or not any more.
+      if (!root.hidden) for (const cell of cells.values()) settle(cell);
+      return;
+    }
     if (view || root.hidden || root.classList.contains("is-waiting")) { unfitBoard(); return; }
     const style = getComputedStyle(board);
     const borderX = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
@@ -354,6 +395,8 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
 
   // Cells slide from where they were (`before`) to where they are now, new
   // ones fade in and `leaving` ones (copies left where they were) fade out.
+  // They slide by a transform alone: a cell takes its new size at once, so no
+  // terminal is resized frame by frame and a pane a cell sizes hears it once.
   function slide(before, leaving) {
     if (!before || reducedMotion() || typeof Element.prototype.animate !== "function") {
       for (const ghost of leaving) ghost.remove();
@@ -515,14 +558,17 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
         connection: cell.connection,
         xterm,
         fontSize,
-        // A Herdr grid cell is placed by Herdr's layout and keeps the pane's size
-        // (the font shrinks to fit); a tile of this window's view split has no
-        // layout of Herdr's to match, so it sizes its pane to the tile and reads
-        // at the usual font. Neither answers herdr's capability queries as typing.
-        keepSize: !view,
+        // A Herdr grid cell is placed by Herdr's layout. With `fit` it sizes
+        // its pane to itself and reads at the usual font, as a tile of this
+        // window's view split (which has no layout of Herdr's) does; without,
+        // it keeps the pane's size and the font shrinks to fit. None answers
+        // herdr's capability queries as typing.
+        keepSize: !sizing(),
         quietReplies: true,
-        // A pinch on a Herdr grid's cell sizes the grid's text.
-        onFontSizeChange: view ? undefined : (size) => { if (adjustable()) setManualFont(size); },
+        ...(fit && !view ? { minCols: MIN_ATTACH_COLS, minRows: MIN_ATTACH_ROWS, resizeDelay: FIT_RESIZE_DELAY_MS } : {}),
+        // A pinch on a cell that keeps its pane's size sizes the grid's text;
+        // on one that sizes its pane, the terminal font.
+        onFontSizeChange: sizing() ? terminalOptions.onFontSizeChange : (size) => { if (adjustable()) setManualFont(size); },
         onFallback: (paneId, problem) => {
           cell.note.textContent = problem?.code === "busy" || problem?.code === "too_many_attachments"
             ? "Too many terminals are open to show this one."
@@ -537,7 +583,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     cell.note.hidden = true;
     if (!paused) cell.terminal.show(cell.paneId);
     // A cell joining a fitted board starts at the font the others share.
-    if (!view && boardFont !== null && cell.font !== boardFont) {
+    if (!sizing() && boardFont !== null && cell.font !== boardFont) {
       cell.font = boardFont;
       cell.terminal.setFontSize(boardFont);
     }
@@ -552,13 +598,47 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     cell.connection.pause();
   }
 
+  // A cell keeps its place but lets its terminal and socket go for good: the
+  // next attach makes them anew.
+  function release(cell) {
+    if (cell.watched) sizeWatch?.unobserve(cell.watched);
+    cell.watched = null;
+    detach(cell);
+    cell.terminal?.dispose();
+    cell.terminal = null;
+    cell.connection = null;
+    cell.font = null;
+  }
+
   function dispose(cell) {
     if (drag?.cell === cell) endDrag(false);
     if (press?.cell === cell) press = null;
-    if (cell.watched) sizeWatch?.unobserve(cell.watched);
-    detach(cell);
-    cell.terminal?.dispose();
+    release(cell);
     cell.node.remove();
+  }
+
+  // Whether a cell has room for a terminal worth reading: a zoomed pane and a
+  // view split's tile always do; a cell that keeps its pane's size has it when
+  // Herdr gives the pane room, one that sizes its pane when it holds enough
+  // columns and rows at the terminal font.
+  function hasRoom(cell) {
+    if (view || cell.zoomed) return true;
+    if (!fit) return cell.place.cols >= MIN_ATTACH_COLS && cell.place.rows >= MIN_ATTACH_ROWS;
+    metrics ??= characterMetrics(getComputedStyle(board).getPropertyValue("--mono").trim() || "monospace");
+    const room = cellCapacity({ width: cell.node.clientWidth, height: cell.node.clientHeight, ...metrics(fontSize), dpr: window.devicePixelRatio || 1 });
+    return room.cols >= MIN_ATTACH_COLS && room.rows >= MIN_ATTACH_ROWS;
+  }
+
+  // Attaches the cell's pane or lets it go, as where it is now allows:
+  // lazily, a hidden cell lets its pane go, and a tiny one waits until it is
+  // focused or zoomed.
+  function settle(cell) {
+    const roomy = hasRoom(cell);
+    const tiny = !roomy && !cell.focused;
+    cell.node.classList.toggle("is-tiny", tiny);
+    cell.roomy = roomy;
+    if (root.classList.contains("is-waiting") || cell.node.hidden || tiny) detach(cell);
+    else attach(cell);
   }
 
   function createCell(paneId) {
@@ -585,7 +665,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     node.tabIndex = 0;
     node.setAttribute("role", "group");
     const cell = { paneId, node, header, status, context, label, expand, body, note, menuSlot, menuKey: null, terminal: null, connection: null, attached: false,
-      box: null, roomy: false, font: null, watched: null };
+      box: null, place: null, zoomed: false, focused: false, roomy: false, font: null, watched: null };
     // A mouse held on the header (not on its buttons) may pick the cell up.
     header.addEventListener("pointerdown", (event) => {
       if (!event.isPrimary || event.pointerType === "touch" || event.button !== 0 || drag || press) return;
@@ -713,14 +793,8 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
           more.setAttribute("aria-label", `More actions for ${pane.label}`);
           more.title = `More actions for ${pane.label}`;
         }
-        // Lazily: a hidden cell lets its pane go, and a tiny one waits until
-        // it is focused or zoomed.
-        const roomy = view || zoomed || (place.cols >= MIN_ATTACH_COLS && place.rows >= MIN_ATTACH_ROWS);
-        const tiny = !roomy && !focused;
-        cell.node.classList.toggle("is-tiny", tiny);
-        cell.roomy = roomy;
-        if (waiting || hidden || tiny) detach(cell);
-        else attach(cell);
+        Object.assign(cell, { place, zoomed, focused });
+        settle(cell);
       }
       board.append(...leaving);
       // The board takes its new shape before the cells slide into it.
@@ -736,13 +810,33 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       const cell = cells.get(paneId);
       if (terminal && cell?.attached) cell.terminal.focus();
     },
-    // The terminal font size a view split's tiles read at. A Herdr grid's
-    // cells take the font their board fits instead (up to the user's own
-    // choice, `manualFont`, or GRID_MAX_FONT).
+    // The terminal font size cells that size their panes read at. Cells that
+    // keep their panes' sizes take the font their board fits instead (up to
+    // the user's own choice, `manualFont`, or GRID_MAX_FONT).
     setFontSize(size) {
       fontSize = size;
-      if (!view) return;
+      if (!sizing()) return;
       for (const cell of cells.values()) cell.terminal?.setFontSize(size);
+      // A larger font may leave a cell too small to read, a smaller one make room.
+      scheduleBoardFit();
+    },
+    // Whether the cells size their panes to themselves (see createPaneGrid).
+    // Changed while shown, every cell attaches its pane again the new way.
+    get fit() { return fit; },
+    setFit(next) {
+      next = Boolean(next);
+      if (view || next === fit) return;
+      fit = next;
+      endDrag(false);
+      press = null;
+      stopSliding();
+      if (boardFrame !== null) { cancelAnimationFrame(boardFrame); boardFrame = null; }
+      for (const cell of cells.values()) release(cell);
+      boardFont = null;
+      unfitBoard();
+      if (root.hidden) return;
+      for (const cell of cells.values()) settle(cell);
+      fitBoard();
     },
     // Whether the user's text size applies here now (see adjustable()), and
     // the font the cells have.

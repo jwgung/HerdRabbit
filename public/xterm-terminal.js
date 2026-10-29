@@ -66,7 +66,9 @@ const MIRROR_SCROLLBACK = 1000;
 // pane grid): it attaches at the pane's own grid, sends no resize, and fits
 // that grid into its frame by the font size instead. `quietReplies` (on with
 // keepSize) keeps xterm's own answers to the program's queries from being typed
-// into the pane.
+// into the pane. A terminal that sizes its pane never sizes it below `minCols`
+// by `minRows` (a frame smaller than that shows the corner of that grid), and
+// tells the pane its size once its frame has kept still `resizeDelay` ms.
 // xterm queues work of its own that it does not cancel when disposed: its
 // viewport measures itself on a timer once the terminal opens, and on an
 // animation frame after each screen reset (the clear every new pane starts
@@ -129,7 +131,8 @@ export function createScanScheduler(run, { interval = LINK_SCAN_INTERVAL_MS, now
 export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
   onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer"),
   isLinkablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {},
-  onCopy = () => {}, onViewMoved = () => {}, keepSize = false, quietReplies = keepSize }) {
+  onCopy = () => {}, onViewMoved = () => {}, keepSize = false, quietReplies = keepSize,
+  minCols = 1, minRows = 1, resizeDelay = RESIZE_DEBOUNCE_MS }) {
   const { Terminal, FitAddon, UnicodeGraphemesAddon } = xterm;
   let term = null;
   // The finger scroll; a glide stops when the pane changes or goes away.
@@ -325,7 +328,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       clearTimeout(resizeTimer);
       // The size belongs to the pane shown when it changed, never to the next one.
       const resized = paneId;
-      resizeTimer = setTimeout(() => { if (!disposed && resized && resized === paneId) connection.resize(resized, cols, rows); }, RESIZE_DEBOUNCE_MS);
+      resizeTimer = setTimeout(() => { if (!disposed && resized && resized === paneId) connection.resize(resized, cols, rows); }, resizeDelay);
     });
     // A finger drag scrolls herdr's history: it becomes the wheel that herdr
     // reads, one notch per three lines the finger travels, gliding on after a
@@ -486,8 +489,16 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   function wantedSize() {
     const proposed = fit.proposeDimensions();
     return proposed && proposed.cols > 0 && proposed.rows > 0
-      ? { cols: proposed.cols, rows: proposed.rows }
+      ? { cols: Math.max(minCols, proposed.cols), rows: Math.max(minRows, proposed.rows) }
       : { cols: term.cols, rows: term.rows };
+  }
+
+  // Sizes the terminal to its frame, no smaller than its least size.
+  function fitOwned() {
+    const proposed = fit.proposeDimensions();
+    if (!proposed || (proposed.cols >= minCols && proposed.rows >= minRows)) { fit.fit(); return; }
+    const { cols, rows } = wantedSize();
+    if (term.cols !== cols || term.rows !== rows) term.resize(cols, rows);
   }
 
   function fitNow() {
@@ -497,13 +508,13 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     if (keyboardOpen) return;
     fullHeight = host.clientHeight;
     if (keepSize) { fitFont(); return; }
-    if (owner) { fit.fit(); return; }
+    if (owner) { fitOwned(); return; }
     // Not this page's grid to change: it only says what it would want, for
     // when it takes the size over by typing.
     const { cols, rows } = wantedSize();
     clearTimeout(resizeTimer);
     const resized = paneId;
-    resizeTimer = setTimeout(() => { if (!disposed && resized && resized === paneId) connection.resize(resized, cols, rows); }, RESIZE_DEBOUNCE_MS);
+    resizeTimer = setTimeout(() => { if (!disposed && resized && resized === paneId) connection.resize(resized, cols, rows); }, resizeDelay);
   }
 
   // A keepSize terminal keeps the pane's columns and rows and scales its font
@@ -635,7 +646,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   function attachCurrent() {
     if (disposed) return;
     const size = wantedSize();
-    if (owner) fit.fit();
+    if (owner) fitOwned();
     connection.attach(paneId, keepSize ? { ...size, keepSize: true } : size);
   }
 

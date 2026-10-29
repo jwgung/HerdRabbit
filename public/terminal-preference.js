@@ -89,3 +89,26 @@ export function adjustedGridFont(fontSize, direction) {
   if (direction === "larger") return normalizedGridFont(current + 1);
   return current;
 }
+
+// Whether a Herdr grid's cells size their panes to themselves, as Herdr sizes
+// them to its own window (on, the default), or keep the size Herdr gave them
+// and scale their text to fit (off). Kept in the same storage.
+export const GRID_FIT_STORAGE_KEY = "herdrbridge-grid-fit";
+
+export function readGridFit(storage) {
+  try {
+    return storage?.getItem(GRID_FIT_STORAGE_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+export function writeGridFit(storage, fit) {
+  try {
+    if (!storage) return false;
+    storage.setItem(GRID_FIT_STORAGE_KEY, fit ? "on" : "off");
+    return true;
+  } catch {
+    return false;
+  }
+}

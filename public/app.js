@@ -99,8 +99,10 @@ import {
 } from "./workspace-preference.js?v=1.4.6";
 import {
   adjustedTerminalFontSize,
+  readGridFit,
   readGridFont,
   readTerminalFontSize,
+  writeGridFit,
   writeGridFont,
   writeTerminalFontSize,
 } from "./terminal-preference.js?v=1.4.6";
@@ -881,6 +883,7 @@ const DEVICES_ICON = ["M4 5h16v10H4z", "M8 19h8", "M12 15v4"];
 const NEW_WINDOW_ICON = ["M5 5h14v14H5z", "M5 9h14", "M12 11v6", "M9 14h6"];
 const UPDATE_ICON = ["M12 3v12", "M7 10l5 5 5-5", "M5 20h14"];
 const RETURN_ICON = ["M20 5v6a4 4 0 0 1-4 4H5", "M9 11l-4 4 4 4"];
+const FIT_PANES_ICON = ["M3 4h18v16H3z", "M12 4v16", "M12 12h9"];
 const GEAR_ICON = [
   "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
   "M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z",
@@ -944,6 +947,18 @@ function buildSettingsMenu() {
         onSelect: () => void window.open("/", "_blank", "noopener"),
       },
       {
+        // Wide screens only: whether a Herdr grid's cells size their panes to
+        // this window (on) or keep Herdr's sizes and scale their text (off).
+        key: "grid-fit",
+        label: "Fit panes to this window",
+        paths: FIT_PANES_ICON,
+        onSelect: () => {
+          paneGrid.setFit(!paneGrid.fit);
+          writeGridFit(panePreferenceStorage, paneGrid.fit);
+          syncSettingsMenu();
+        },
+      },
+      {
         // A Herdr grid whose text size was chosen by hand: back to the largest that fits.
         key: "grid-font",
         label: "Reset text size",
@@ -983,7 +998,15 @@ function syncSettingsMenu() {
     button.querySelector("span").textContent = text;
     if (icon) button.querySelector("svg").replaceWith(createIcon(icon));
   };
-  item("grid-font").hidden = paneGrid.manualFont === null;
+  const gridFit = item("grid-fit");
+  gridFit.hidden = !desktopMedia.matches;
+  gridFit.setAttribute("role", "menuitemcheckbox");
+  gridFit.setAttribute("aria-checked", String(paneGrid.fit));
+  setLabel(gridFit, `Fit panes to this window: ${paneGrid.fit ? "On" : "Off"}`);
+  gridFit.title = paneGrid.fit
+    ? "A grid sizes each pane to its cell (other screens on those panes see that size while it is open)"
+    : "A grid keeps each pane at Herdr's size and scales its text to fit";
+  item("grid-font").hidden = paneGrid.fit || paneGrid.manualFont === null;
   const push = settingsMenu.push;
   const notifications = item("notifications");
   notifications.hidden = !push || push.hidden;
@@ -1138,8 +1161,9 @@ async function togglePushNotifications() {
   }
 }
 
-// On a Herdr grid the text size steps the grid's own font, from the one its
-// cells have now; the size chosen for a single pane stays as it is.
+// On a Herdr grid whose cells keep their panes' sizes the text size steps the
+// grid's own font, from the one its cells have now; the size chosen for a
+// single pane stays as it is. A grid fitted to the window reads at that size.
 function adjustTerminalFont(direction) {
   if (paneGrid.adjustFont(direction)) return;
   applyTerminalFontSize(adjustedTerminalFontSize(state.terminalFontSize, direction));
@@ -3760,6 +3784,7 @@ const paneGrid = createPaneGrid({
   xterm,
   credentials: () => ({ csrf: state.csrfToken, launchToken: state.launchToken }),
   fontSize: state.terminalFontSize,
+  fit: readGridFit(panePreferenceStorage),
   manualFont: readGridFont(panePreferenceStorage),
   onFontChange: (font) => {
     writeGridFont(panePreferenceStorage, font);
@@ -3776,6 +3801,8 @@ const paneGrid = createPaneGrid({
   canRearrange: () => !state.mutationBusy,
   onAuthenticationRequired: () => showLogin(),
   terminalOptions: {
+    // A pinch on a cell that sizes its pane sets the terminal font, as on a pane alone.
+    onFontSizeChange: applyTerminalFontSize,
     isLinkablePath: isLinkableTerminalPath,
     onPath: openTerminalPath,
     onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),

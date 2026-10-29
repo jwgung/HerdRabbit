@@ -82,3 +82,23 @@ test("a grid's own text size is kept apart, in half steps from 4 to 32", async (
   assert.equal(writeGridFont(broken, 12), false);
   assert.equal(writeGridFont(null, 12), false);
 });
+
+test("a grid fits its panes to the window unless the user turned that off", async () => {
+  const { GRID_FIT_STORAGE_KEY, readGridFit, writeGridFit } = await import("../public/terminal-preference.js");
+  assert.equal(GRID_FIT_STORAGE_KEY, "herdrbridge-grid-fit");
+  const stored = new Map();
+  const storage = { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) };
+  assert.equal(readGridFit(storage), true, "on by default");
+  assert.equal(writeGridFit(storage, false), true);
+  assert.equal(readGridFit(storage), false);
+  assert.equal(writeGridFit(storage, true), true);
+  assert.equal(readGridFit(storage), true);
+  stored.set(GRID_FIT_STORAGE_KEY, "garbage");
+  assert.equal(readGridFit(storage), true);
+  // Storage that throws or is missing is tolerated, and the grid fits.
+  const broken = { getItem() { throw new Error("no"); }, setItem() { throw new Error("no"); } };
+  assert.equal(readGridFit(broken), true);
+  assert.equal(readGridFit(null), true);
+  assert.equal(writeGridFit(broken, false), false);
+  assert.equal(writeGridFit(null, false), false);
+});

@@ -3595,7 +3595,8 @@ body.is-pane-rearranging * {
   display: inline-flex;
 }
 
-/* The pane at Herdr's own size, its font scaled to fill the cell. */
+/* The pane sized to the cell, or (Fit panes to this window off) at Herdr's
+   own size, its font scaled to fill the cell. */
 .pane-grid-terminal {
   position: relative;
   min-height: 0;

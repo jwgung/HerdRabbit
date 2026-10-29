@@ -114,3 +114,16 @@ test("a font chosen for the grid shrinks the board; a larger one stays at the fi
   assert.deepEqual(fit(20), fit(GRID_MAX_FONT));
   assert.equal(fit(10.5).font, 10.5);
 });
+
+test("a cell that sizes its pane holds the columns and rows its frame has room for, past its header", async () => {
+  const { cellCapacity } = await import("../public/pane-grid.js");
+  // 10px of border and padding across, 32px of border, header and padding down.
+  assert.deepEqual(cellCapacity({ width: 810, height: 432, charWidth: 8, charHeight: 16 }), { cols: 100, rows: 25 });
+  assert.deepEqual(cellCapacity({ width: 817, height: 447, charWidth: 8, charHeight: 16 }), { cols: 100, rows: 25 });
+  // A character's height is rounded up to device pixels: 15.5px rows, not 15.2.
+  assert.deepEqual(cellCapacity({ width: 810, height: 432, charWidth: 8, charHeight: 15.2, dpr: 2 }), { cols: 100, rows: 25 });
+  assert.deepEqual(cellCapacity({ width: 810, height: 432, charWidth: 8, charHeight: 15.5, dpr: 2 }), { cols: 100, rows: 25 });
+  assert.deepEqual(cellCapacity({ width: 810, height: 432, charWidth: 8, charHeight: 15, dpr: 2 }), { cols: 100, rows: 26 });
+  assert.deepEqual(cellCapacity({ width: 5, height: 5, charWidth: 8, charHeight: 16 }), { cols: 0, rows: 0 });
+  assert.deepEqual(cellCapacity({ width: 800, height: 400, charWidth: 0, charHeight: 16 }), { cols: 0, rows: 0 });
+});
