@@ -13,7 +13,10 @@
 // but opens a pane alone: no grid, no map. Behind a password, a grid is not redrawn while
 // nothing changed, has no terminal find, completes a notification for its
 // pane once that pane's cell is on screen (not zoomed out), and its cells
-// reconnect after a hidden page or a sign-out and sign-in.
+// reconnect after a hidden page or a sign-out and sign-in. A split session's
+// pane rows in the sidebar carry the cell's ⋯ (not a connected PC's), a pane
+// moves out of its split into a session of its own from there or from a cell,
+// and the split row's ⋯ separates all its panes.
 // Runs on a desktop and a phone against an in-process fake herdr.
 //
 // PANE_GRID_SHOTS=<folder> keeps pictures of the grid, the zoomed grid and the
@@ -21,6 +24,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { join } from "node:path";
+import { HerdrCommandError } from "../src/herdr-client.mjs";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { PaneAttachments } from "../src/pane-attachments.mjs";
 import { createPasswordConfiguration, PasswordAuth } from "../src/password-auth.mjs";
@@ -34,7 +38,15 @@ let panes;
 let rects;
 let zoomed;
 let nextPane;
+// Sessions made by moving a pane out of a split, the panes moved out (in
+// order), and the id Herdr gives the next pane moved out, should it rename it.
+let movedTabs;
+let movedOut;
+let renameOnMove;
 function reset() {
+  movedTabs = [];
+  movedOut = [];
+  renameOnMove = null;
   panes = [
     { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", cwd: "/work/alpha", agent_status: "idle" },
     { pane_id: "w1:p2", tab_id: "w1:t1", workspace_id: "w1", cwd: "/work/beta", agent_status: "working" },
@@ -61,6 +73,7 @@ const herdr = {
     return {
       workspaces: [{ workspace_id: "w1", label: "Platform" }, { workspace_id: "laptop!w1", label: "Laptop work", ...laptop }],
       tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "Split work" }, ...(panes.some((pane) => pane.tab_id === "w1:t3") ? [{ tab_id: "w1:t3", workspace_id: "w1", label: "Second split" }] : []), { tab_id: "w1:t2", workspace_id: "w1", label: "Alone" },
+        ...movedTabs.map((tab_id) => ({ tab_id, workspace_id: "w1", label: "" })),
         { tab_id: "laptop!w1:t1", workspace_id: "laptop!w1", label: "Laptop split", ...laptop }],
       panes: panes.map((pane) => ({ ...pane })),
       agents: [],
@@ -96,6 +109,25 @@ const herdr = {
   },
   async zoomPane(paneId) { zoomed = zoomed === paneId ? null : paneId; },
   async closePane(paneId) { panes = panes.filter((pane) => pane.pane_id !== paneId); rects.delete(paneId); },
+  // Herdr's `pane move --new-tab`: the pane leaves its tab for a new one.
+  async movePaneOut(paneId) {
+    const pane = panes.find((item) => item.pane_id === paneId);
+    if (!pane) throw new HerdrCommandError("That pane is no longer open", { code: "pane_not_found" });
+    if (panes.filter((item) => item.tab_id === pane.tab_id).length < 2) {
+      throw new HerdrCommandError("That pane is already a session of its own.", { code: "split_session" });
+    }
+    movedOut.push(paneId);
+    const tabId = `w1:t${40 + movedTabs.length}`;
+    movedTabs.push(tabId);
+    pane.tab_id = tabId;
+    if (renameOnMove) {
+      rects.delete(pane.pane_id);
+      pane.pane_id = renameOnMove;
+      renameOnMove = null;
+    }
+    rects.set(pane.pane_id, { x: 0, y: 0, width: 120, height: 40 });
+    return { pane_id: pane.pane_id, tab_id: tabId };
+  },
 };
 
 // Each pty records what was typed into it and every resize herdr would see.
@@ -693,6 +725,154 @@ try {
     await context.close();
     bareServer.close();
     console.log("ok: grids switched at once");
+  }
+  // A split session's panes in the sidebar have the grid cell's ⋯ (this
+  // machine's only: a connected PC's pane rows have none), closing with the
+  // cell's confirmation rules. A pane moves out of its split from there or
+  // from a cell's ⋯, and is followed should Herdr rename it; a refusal is
+  // said. The split row's ⋯ separates every pane but the first, one after
+  // another, once the user says so, and the grid gives way to one pane alone.
+  for (const mobile of [false, true]) {
+    reset();
+    const context = await browser.newContext({ serviceWorkers: "block", hasTouch: mobile, isMobile: mobile,
+      viewport: { width: mobile ? 390 : 1280, height: 844 } });
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const requests = [];
+    page.on("request", (request) => {
+      const match = decodeURIComponent(new URL(request.url()).pathname).match(/^\/api\/panes\/([^/]+)\/(split|zoom|close|move-out)$/u);
+      if (match && request.method() === "POST") requests.push([match[2], match[1], request.postDataJSON()]);
+    });
+    await page.goto(`${url}/?pane=${encodeURIComponent("w1:p2")}`);
+    await page.locator("#pane-title").filter({ hasText: /beta/u }).waitFor();
+    const openSidebar = async () => {
+      if (!mobile || !(await page.locator(".navigator").evaluate((node) => node.inert))) return;
+      await page.locator("#mobile-sidebar-open").click();
+      await page.waitForTimeout(500);
+    };
+    const showPanes = async (tabId) => {
+      await openSidebar();
+      const arrow = page.locator(`.tab-group[data-tab-id="${tabId}"] .split-disclosure`);
+      if (await arrow.getAttribute("aria-expanded") !== "true") await arrow.click();
+      await page.locator(`.tab-group[data-tab-id="${tabId}"] .split-panes`).waitFor({ state: "visible" });
+    };
+    const row = (paneId) => `.split-pane-row:has(> .pane-button[data-pane-id="${paneId}"])`;
+    const paneMenu = async (paneId, action) => {
+      await showPanes("w1:t1");
+      await page.locator(`${row(paneId)} > .split-pane-menu > summary`).click();
+      await page.locator(`${row(paneId)} [data-action="${action}"]`).click();
+    };
+    const rowMenu = async (tabId, action) => {
+      await openSidebar();
+      const menu = `.tab-group[data-tab-id="${tabId}"] .session-row > .session-action-menu`;
+      await page.locator(`${menu} > summary`).click();
+      await page.locator(`${menu} [data-action="${action}"]`).click();
+    };
+    const feedbackSays = (text) => page.waitForFunction((wanted) => document.querySelector("#action-feedback")?.textContent.includes(wanted), text);
+    const isSplit = (tabId) => page.locator(`.tab-group[data-tab-id="${tabId}"][data-split="true"]`).count();
+
+    await showPanes("w1:t1");
+    await showPanes("laptop!w1:t1");
+    const menus = await page.evaluate(() => {
+      const actions = (root) => [...root.querySelectorAll(".sidebar-action-item")].map((item) => item.dataset.action ?? item.textContent);
+      const group = (tabId) => document.querySelector(`.tab-group[data-tab-id="${tabId}"]`);
+      return {
+        local: [...group("w1:t1").querySelectorAll(".split-pane-menu")].map(actions),
+        remote: group("laptop!w1:t1").querySelectorAll(".split-pane-menu").length,
+        localRow: actions(group("w1:t1").querySelector(".session-row > .session-action-menu")),
+        remoteRow: actions(group("laptop!w1:t1").querySelector(".session-row > .session-action-menu")),
+      };
+    });
+    assert.equal(menus.local.length, 4, "each of this machine's pane rows has a ⋯");
+    for (const items of menus.local) assert.deepEqual(items, ["split-right", "split-down", "zoom", "move-out", "close"]);
+    assert.equal(menus.remote, 0, "a connected PC's pane rows have no ⋯");
+    assert.deepEqual(menus.localRow, ["Rename", "separate-all", "Close session"]);
+    assert.deepEqual(menus.remoteRow, ["Rename", "Close session"], "no Separate all for a connected PC");
+
+    // Close from a pane row asks first when its agent is waiting for an
+    // answer or working; a dismissed close asks the server nothing.
+    for (const [paneId, reason] of [["w1:p3", /waiting for your answer/u], ["w1:p2", /still working/u]]) {
+      let asked = null;
+      page.once("dialog", (dialog) => { asked = dialog.message(); void dialog.dismiss(); });
+      await paneMenu(paneId, "close");
+      await page.waitForTimeout(200);
+      assert.match(asked ?? "", reason);
+    }
+    assert.deepEqual(requests, [], "a dismissed close asks nothing");
+
+    // The selected pane moved out, renamed by Herdr: it stays selected under
+    // its new id, a session of its own in the same project.
+    renameOnMove = "w1:p60";
+    await paneMenu("w1:p2", "move-out");
+    await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w1:p60"]')?.getAttribute("aria-pressed") === "true");
+    assert.deepEqual(requests.at(-1), ["move-out", "w1:p2", {}]);
+    assert.deepEqual(movedOut, ["w1:p2"]);
+    assert.equal(await page.locator('.tab-group[data-tab-id="w1:t40"]:not([data-split]) .pane-button[data-pane-id="w1:p60"]').count(), 1, "its own session row");
+    assert.equal(await page.locator('.workspace-group[data-workspace-id="w1"] .tab-group[data-tab-id="w1:t40"]').count(), 1, "in the same project");
+    await page.locator("#pane-title").filter({ hasText: /beta/u }).waitFor();
+    assert.equal(await isSplit("w1:t1"), 1, "three panes are still a split");
+
+    // A done pane that is not the session's last closes at once, said meant.
+    await paneMenu("w1:p4", "close");
+    await page.locator(row("w1:p4")).waitFor({ state: "detached" });
+    assert.deepEqual(requests.at(-1), ["close", "w1:p4", { confirmed: true }]);
+    // Split and zoom ask what the grid's ⋯ asks.
+    await paneMenu("w1:p1", "split-right");
+    await page.locator(row("w1:p5")).waitFor();
+    assert.deepEqual(requests.at(-1), ["split", "w1:p1", { direction: "right" }]);
+    await paneMenu("w1:p1", "zoom");
+    await page.waitForTimeout(300);
+    assert.deepEqual(requests.at(-1), ["zoom", "w1:p1", { mode: "toggle" }]);
+    zoomed = null;
+
+    // A move-out Herdr refuses is said, and nothing moves.
+    await page.route("**/api/panes/*/move-out", (route) => route.fulfill({ status: 409,
+      json: { error: { code: "split_session", message: "That pane is already a session of its own." } } }));
+    await paneMenu("w1:p5", "move-out");
+    await feedbackSays("That pane is already a session of its own.");
+    await page.unroute("**/api/panes/*/move-out");
+    assert.deepEqual(movedOut, ["w1:p2"]);
+
+    if (!mobile) {
+      // The grid cell's ⋯ moves a pane out too. Opening a cell's ⋯ selects
+      // its pane, so the pane moved out stays selected, alone in its session.
+      await page.locator('.split-session-button[data-tab-id="w1:t1"]').click();
+      await page.locator('.pane-grid-cell[data-pane-id="w1:p5"]').waitFor();
+      await page.locator('.pane-grid-cell[data-pane-id="w1:p5"] .pane-grid-menu > summary').click();
+      await page.locator('.pane-grid-cell[data-pane-id="w1:p5"] [data-action="move-out"]').click();
+      await page.locator('.pane-grid-cell[data-pane-id="w1:p5"]').waitFor({ state: "detached" });
+      assert.deepEqual(movedOut, ["w1:p2", "w1:p5"]);
+      await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w1:p5"]')?.getAttribute("aria-pressed") === "true");
+      assert.equal(await page.locator('.tab-group[data-tab-id="w1:t41"] .pane-button[data-pane-id="w1:p5"]').count(), 1);
+      assert.equal(await page.locator(".terminal-panel.is-grid").count(), 0, "the moved pane shows alone");
+      // The two left are still a split, and its grid opens for Separate all.
+      await page.locator('.split-session-button[data-tab-id="w1:t1"]').click();
+      await page.waitForFunction(() => document.querySelectorAll(".pane-grid:not([hidden]) .pane-grid-cell").length === 2);
+    }
+
+    // Separate all: nothing without the user's say-so...
+    const before = requests.length;
+    let asked = null;
+    page.once("dialog", (dialog) => { asked = dialog.message(); void dialog.dismiss(); });
+    await rowMenu("w1:t1", "separate-all");
+    await page.waitForTimeout(200);
+    const count = mobile ? 3 : 2;
+    assert.match(asked ?? "", new RegExp(`Separate the ${count} panes of “Split work” into ${count} sessions`, "u"));
+    assert.equal(requests.length, before, "a dismissed separate asks nothing");
+    // ...then every pane but the first, one after another.
+    page.once("dialog", (dialog) => void dialog.accept());
+    await rowMenu("w1:t1", "separate-all");
+    await page.waitForFunction(() => !document.querySelector('.tab-group[data-tab-id="w1:t1"][data-split="true"]'));
+    const separated = mobile ? ["w1:p5", "w1:p3"] : ["w1:p3"];
+    assert.deepEqual(movedOut.slice(-separated.length), separated);
+    assert.deepEqual(requests.slice(before).map(([action, paneId]) => [action, paneId]), separated.map((id) => ["move-out", id]));
+    assert.equal(await page.locator('.tab-group[data-tab-id="w1:t1"] .pane-button[data-pane-id="w1:p1"]').count(), 1, "the first pane stays in the session");
+    await page.waitForTimeout(300);
+    assert.equal(await page.locator(".terminal-panel.is-grid").count(), 0, "a session of one pane shows it alone");
+    assert.deepEqual(errors, [], "no script errors");
+    await context.close();
+    console.log(`ok: ${mobile ? "phone" : "desktop"} pane actions in the sidebar and moving out`);
   }
 } finally {
   await browser.close();

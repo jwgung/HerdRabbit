@@ -768,6 +768,21 @@ export class HerdrClient {
     return { pane_id: moved };
   }
 
+  // Takes a pane out of its split session into a session (Herdr tab) of its
+  // own in the same project: the undo of a split or a drop. A pane alone in
+  // its tab has nothing to leave and is refused. Herdr has kept the pane's id
+  // so far, but the one it answers with is what comes back, with the new tab's.
+  async movePaneOut(paneId) {
+    const safePaneId = validatePaneId(paneId);
+    const tabPanes = await this.#tabLayout(safePaneId);
+    if (tabPanes.length < 2) {
+      throw new HerdrCommandError("That pane is already a session of its own.", { code: "split_session" });
+    }
+    const result = await this.#run(["pane", "move", safePaneId, "--new-tab", "--no-focus"]);
+    const { paneId: moved, tabId } = movedPaneIds(result);
+    return { pane_id: moved, tab_id: tabId };
+  }
+
   // `source` "detection" is the screen as herdr reads it for agent states:
   // the live bottom of the pane, whatever the viewport is scrolled to.
   async readPane(paneId, { lines = 160, format = "ansi", source = "recent-unwrapped" } = {}) {

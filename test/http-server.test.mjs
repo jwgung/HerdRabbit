@@ -1417,3 +1417,58 @@ test("a connected PC's pane layout is refused like its split, close, zoom and mo
   assert.equal(mine.status, 200);
   assert.deepEqual(layouts, ["w1:p1"]);
 });
+
+test("a pane moves out of its split session with write authorization, with or without a body", async (context) => {
+  const calls = [];
+  const herdr = {
+    async snapshot() { return { workspaces: [], tabs: [], panes: [] }; },
+    async movePaneOut(paneId) {
+      calls.push(paneId);
+      if (paneId === "w1:p9") throw new HerdrCommandError("That pane is already a session of its own.", { code: "split_session" });
+      return { pane_id: "w1:p2", tab_id: "w1:t5" };
+    },
+  };
+  const app = await startServer(herdr);
+  context.after(() => closeServer(app.server));
+  const headers = { "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl };
+  const post = (pane, init = {}) => fetch(`${app.baseUrl}/api/panes/${pane}/move-out`, { method: "POST", headers, ...init });
+
+  assert.equal((await post("w1%3Ap2", { headers: { Origin: app.baseUrl } })).status, 403, "no CSRF token, no move");
+  assert.equal(calls.length, 0);
+  const bare = await post("w1%3Ap2");
+  assert.equal(bare.status, 200);
+  assert.deepEqual(await bare.json(), { pane_id: "w1:p2", tab_id: "w1:t5" });
+  const empty = await post("w1%3Ap2", { headers: { ...headers, "Content-Type": "application/json" }, body: "{}" });
+  assert.equal(empty.status, 200);
+  assert.equal((await post("w1%3Ap2", { headers: { ...headers, "Content-Type": "text/plain" }, body: "x" })).status, 415);
+  const alone = await post("w1%3Ap9");
+  assert.equal(alone.status, 409);
+  assert.equal((await alone.json()).error.code, "split_session");
+  assert.equal((await fetch(`${app.baseUrl}/api/panes/w1%3Ap2/move-out`)).status, 404, "a GET is no move");
+  assert.deepEqual(calls, ["w1:p2", "w1:p2", "w1:p9"]);
+});
+
+test("a connected PC's pane is not moved out: only this machine's are", async (context) => {
+  const linkId = "link_11111111-1111-1111-1111-111111111111";
+  const moved = [];
+  const local = {
+    async snapshot() { return { herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }; },
+    async movePaneOut(id) { moved.push(id); return { pane_id: id, tab_id: "w1:t3" }; },
+  };
+  const herdr = new MultiServerClient({
+    local,
+    profiles: { list: () => [{ id: linkId, name: "Dev box", transport: "link", address: "http://127.0.0.1:1" }] },
+    remoteFactory: () => ({ async movePaneOut() { throw new Error("never asked"); }, close() {} }),
+  });
+  const app = await startServer(herdr);
+  context.after(() => closeServer(app.server));
+  const post = (pane) => fetch(`${app.baseUrl}/api/panes/${pane}/move-out`, {
+    method: "POST", headers: { "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl },
+  });
+  const refused = await post(encodeURIComponent(`${linkId}!hs_x~wB:p1`));
+  assert.equal(refused.status, 501);
+  assert.equal((await refused.json()).error.code, "link_unsupported");
+  const mine = await post("w1%3Ap1");
+  assert.equal(mine.status, 200);
+  assert.deepEqual(moved, ["w1:p1"]);
+});

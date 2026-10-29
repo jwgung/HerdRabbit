@@ -3,13 +3,16 @@
 // a monitor, "Host" and a connection dot. A split session (a tab of several
 // panes) is one row: its name (the tab's, else its focus pane's title, else
 // "Split session"), a grid badge with the pane count and the most urgent status
-// of its panes. It is drawn as every other session row: its mark lines up with
-// theirs, and its arrow sits between the badge and the status. The arrow shows
-// its panes under it (kept after a reload) as full session rows one tree step
-// in, as tall and as far apart as other rows, with no guide line; a pane there
-// opens alone; the row opens the grid on a desktop and the pane with
-// the map on a phone, stays highlighted while one of its panes is selected,
-// and its ⋯ menu renames and closes the whole session.
+// of its panes. It is drawn as every other session row, but where their
+// program mark is it has the arrow (one arrow, none at the right): centred on
+// the marks' column, its pill right before the status in their column. The
+// arrow shows its panes under it (kept after a reload) as full session rows
+// one tree step in, as tall and as far apart as other rows, with no guide
+// line, each with its own ⋯ (Split right, Split down, Zoom, Move out to its
+// own session, Close pane) lined up with every other ⋯; a pane there opens
+// alone; the row opens the grid on a desktop and the pane with the map on a
+// phone, stays highlighted while one of its panes is selected, and its ⋯ menu
+// renames, separates and closes the whole session.
 // Runs against a fake herdr on a desktop and a phone layout.
 // SIDEBAR_SCREENSHOTS=<folder> keeps pictures in both themes.
 import assert from "node:assert/strict";
@@ -239,6 +242,8 @@ try {
       const badge = rect(row.querySelector(".split-badge"));
       const status = rect(row.querySelector(".pane-status"));
       const arrowBox = rect(arrow);
+      const icon = row.querySelector(".agent-icon");
+      const rowBox = rect(row);
       return [group.dataset.tabId, {
         rows: group.querySelectorAll(".session-row").length,
         name: row.querySelector(".pane-title").textContent,
@@ -252,12 +257,17 @@ try {
         children: Object.fromEntries([...list.querySelectorAll(".pane-button")].map((button) => [button.dataset.paneId, button.getAttribute("aria-pressed")])),
         indented: shown ? list.querySelector(".pane-button").getBoundingClientRect().left > row.getBoundingClientRect().left : null,
         height: row.getBoundingClientRect().height,
-        // Centred between the pill and the status, and (a 44px touch target
-        // reaching into the gaps) over neither of them.
-        arrowBetween: badge.right <= arrowBox.left + 1 && arrowBox.right <= status.left + 1 &&
-          Math.abs((arrowBox.left + arrowBox.right) / 2 - (badge.right + status.left) / 2) <= 6,
+        // One arrow, in the mark's place: centred where the marks are, and
+        // the row's own mark not drawn under it.
+        arrows: group.querySelectorAll(".split-disclosure").length,
+        arrowCentre: [(arrowBox.left + arrowBox.right) / 2, (arrowBox.top + arrowBox.bottom) / 2],
+        rowCentreY: (rowBox.top + rowBox.bottom) / 2,
+        arrowBeforeName: arrowBox.left < rect(row.querySelector(".pane-title")).left,
+        markHidden: getComputedStyle(icon).visibility === "hidden",
+        // The pill sits right before the status: no track is kept for an arrow there.
+        pillToStatus: status.left - badge.right,
         arrowSize: [arrowBox.width, arrowBox.height],
-        iconX: rect(row.querySelector(".agent-icon")).left,
+        iconX: rect(icon).left,
         statusX: status.left,
         sub: row.querySelector(".pane-cwd")?.textContent ?? null,
         guideLine: getComputedStyle(list).borderLeftWidth,
@@ -268,6 +278,14 @@ try {
           height: rect(button).height,
           sub: button.querySelector(".pane-cwd")?.textContent ?? null,
           background: getComputedStyle(button).backgroundColor,
+          menu: [...(button.closest(".split-pane-row")?.querySelectorAll(":scope > .split-pane-menu .sidebar-action-item") ?? [])]
+            .map((item) => `${item.dataset.action}:${item.textContent}`),
+          menuAfterStatus: (() => {
+            const summary = button.closest(".split-pane-row")?.querySelector(":scope > .split-pane-menu > summary");
+            if (!summary) return false;
+            const menu = rect(summary);
+            return rect(button.querySelector(".pane-status")).right <= menu.left + 1 && menu.right <= rect(button).right + 1;
+          })(),
         })) : [],
         firstChildGap: shown ? rect(list.querySelector(".pane-button")).top - rect(row).bottom : null,
       }];
@@ -275,8 +293,10 @@ try {
     // A plain session row with a folder line (Release) and one without (Infra).
     const plainRows = await page.evaluate(() => Object.fromEntries(["w1:p1", "w1:p2"].map((id) => {
       const button = document.querySelector(`.pane-button[data-pane-id="${id}"]`);
+      const iconBox = button.querySelector(".agent-icon").getBoundingClientRect();
       return [id, {
-        iconX: button.querySelector(".agent-icon").getBoundingClientRect().left,
+        iconX: iconBox.left,
+        iconCentreX: (iconBox.left + iconBox.right) / 2,
         statusX: button.querySelector(".pane-status").getBoundingClientRect().left,
         height: button.getBoundingClientRect().height,
         gap: button.closest(".tab-group").nextElementSibling.getBoundingClientRect().top - button.getBoundingClientRect().bottom,
@@ -292,11 +312,16 @@ try {
     ]);
     for (const [id, tab] of Object.entries(split)) {
       assert.equal(tab.rows, 1, `${id} is one row`);
-      assert.deepEqual([tab.expanded, tab.shown, tab.controls, tab.arrowBetween], ["false", false, true, true], `${id} folded, arrow between the badge and the status`);
+      assert.deepEqual([tab.expanded, tab.shown, tab.controls], ["false", false, true], `${id} folded, its arrow a button that controls the list`);
       assert.ok(tab.height >= 40, `${id} is a 40px touch target`);
-      // Drawn as a session row: its mark and status in the columns every row uses.
-      assert.equal(tab.iconX, plainRow.iconX, `${id} mark lines up with the other sessions' marks`);
+      // Drawn as a session row: the arrow in the marks' column, status in the statuses'.
+      assert.equal(tab.arrows, 1, `${id} has one arrow: none at the right`);
+      assert.ok(Math.abs(tab.arrowCentre[0] - plainRow.iconCentreX) <= 1, `${id} arrow centred on the marks' column: ${tab.arrowCentre[0]} vs ${plainRow.iconCentreX}`);
+      assert.ok(Math.abs(tab.arrowCentre[1] - tab.rowCentreY) <= 1, `${id} arrow centred in the row's height`);
+      assert.ok(tab.arrowBeforeName && tab.markHidden, `${id} arrow takes the place of the mark`);
+      assert.equal(tab.iconX, plainRow.iconX, `${id} mark column lines up with the other sessions' marks`);
       assert.equal(tab.statusX, plainRow.statusX, `${id} status lines up with the other sessions' statuses`);
+      assert.ok(tab.pillToStatus >= 8 && tab.pillToStatus <= 12, `${id} pill right before the status: ${tab.pillToStatus}`);
       if (mobile) assert.ok(tab.arrowSize[0] >= 44 && tab.arrowSize[1] >= 44, `${id} arrow is a 44px touch target: ${tab.arrowSize}`);
       assert.equal(tab.pressed, "false");
     }
@@ -322,7 +347,21 @@ try {
       assert.equal(child.height, like.height, `${child.id} is as tall as a session row`);
       assert.equal(child.iconX, split["w1:t8"].iconX + 10, `${child.id} mark one tree step in`);
       assert.equal(child.statusX, plainRow.statusX, `${child.id} status in the sessions' column`);
+      assert.deepEqual(child.menu, ["split-right:Split right", "split-down:Split down", "zoom:Zoom",
+        "move-out:Move out to its own session", "close:Close pane"], `${child.id} ⋯ has the grid cell's actions`);
+      assert.ok(child.menuAfterStatus, `${child.id} ⋯ at the far right, after the status`);
     }
+    // Every ⋯ still ends on one line, the panes' ones included.
+    const openRights = await page.evaluate(() => [...document.querySelectorAll("#workspace-list .sidebar-action-menu > summary")]
+      .filter((summary) => summary.getClientRects().length > 0).map((summary) => Math.round(summary.getBoundingClientRect().right)));
+    assert.equal(new Set(openRights).size, 1, `every menu ends on one line: ${openRights}`);
+    // A pane's ⋯ opens over the list; the menu of each pane is its own.
+    await page.locator('.split-pane-row:has([data-pane-id="w1:p9"]) > .split-pane-menu > summary').click();
+    await page.locator('.split-pane-row:has([data-pane-id="w1:p9"]) [data-action="move-out"]').waitFor({ state: "visible" });
+    await page.locator('.split-pane-row:has([data-pane-id="w1:p9"]) .sidebar-action-popover').evaluate((menu) => menu.scrollIntoView({ block: "end" }));
+    await shoot("split-pane-menu");
+    await page.keyboard.press("Escape");
+    if (mobile) await openSidebar();
     assert.equal(split["w1:t8"].childRows[0].sub, "pair-a", "a pane titled by its agent shows its folder line");
     await pressOnArrow("Space");
     assert.equal((await splitState())["w1:t8"].shown, false);
@@ -372,6 +411,7 @@ try {
     assert.equal(await page.locator('.pane-button[data-pane-id="w1:p9"]').getAttribute("aria-pressed"), String(mobile));
     await openSidebar();
 
+    let asked = null;
     // The row's ⋯ menu renames the whole session in place...
     const menuOf = (tabId) => `.tab-group[data-tab-id="${tabId}"] .session-row > .session-action-menu`;
     await page.locator(`${menuOf("w1:t9")} > summary`).click();
@@ -382,8 +422,17 @@ try {
     await input.press("Enter");
     await page.waitForFunction(() => document.querySelector('.split-session-button[data-tab-id="w1:t9"] .pane-title')?.textContent === "Lint pair");
     assert.deepEqual(tabCalls.at(-1), ["rename", "w1:t9", "Lint pair"]);
+    // ...offers to separate its panes (the server here cannot, so nothing is
+    // asked of it once the user says no)...
+    page.once("dialog", (dialog) => { asked = dialog.message(); void dialog.dismiss(); });
+    await page.locator(`${menuOf("w1:t9")} > summary`).click();
+    await page.locator(`${menuOf("w1:t9")} [data-action="separate-all"]`).click();
+    assert.match(asked ?? "", /Separate the 2 panes of “Lint pair” into 2 sessions/u);
+    await page.waitForTimeout(200);
+    assert.equal(await page.locator('.tab-group[data-tab-id="w1:t9"][data-split="true"]').count(), 1, "a dismissed separate keeps the split");
+    if (mobile && !(await page.locator(`${menuOf("w1:t10")} > summary`).isVisible())) await openSidebar();
     // ...and closes it, once the user says so.
-    let asked = null;
+    asked = null;
     page.once("dialog", (dialog) => { asked = dialog.message(); void dialog.accept(); });
     await page.locator(`${menuOf("w1:t10")} > summary`).click();
     await page.locator(`${menuOf("w1:t10")} .sidebar-action-item`, { hasText: "Close session" }).click();

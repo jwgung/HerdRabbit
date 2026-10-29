@@ -628,24 +628,37 @@ body.sidebar-collapsed .terminal-panel {
 }
 
 /* A split session is one row drawn as every other session row: the same
-   button, so its mark, name, folder line, status and ⋯ sit where theirs do.
-   Its pane count is a pill, and the arrow that shows its panes is a row
-   action like ⋯, laid over an empty grid track between the pill and the
-   status (a button cannot sit inside the row's button). The track is the
-   arrow's width; the arrow's right edge is the row's right padding (36px),
-   the status (14px) and the grid gap (10px) in from the right. */
+   button, so its name, folder line, status and ⋯ sit where theirs do. Its
+   pane count is a pill before the status. Where the other rows have their
+   program's mark, it has the arrow that shows its panes: a row action like ⋯,
+   laid over the mark's column (a button cannot sit inside the row's button),
+   whose own mark is drawn only in the folded rail, where there is no arrow. */
 .split-session-button {
-  grid-template-columns: 18px minmax(0, 1fr) auto 28px 14px;
+  grid-template-columns: 18px minmax(0, 1fr) auto 14px;
+}
+
+.split-session-button > .agent-icon {
+  visibility: hidden;
+}
+
+body.sidebar-collapsed .split-session-button > .agent-icon {
+  visibility: visible;
 }
 
 .split-session-row.is-editing {
   padding: 5px 8px;
 }
 
+/* Centred on the mark column: the row's 1px border and 10px padding, then
+   half of the 18px column, less half of the arrow's 28px. Centred in the row's
+   height, as the marks are. */
 .split-disclosure {
   position: absolute;
-  top: 6px;
-  right: 60px;
+  top: 0;
+  bottom: 0;
+  left: 6px;
+  margin-block: auto;
+  z-index: 1;
 }
 
 .split-disclosure svg {
@@ -679,7 +692,7 @@ body.sidebar-collapsed .terminal-panel {
 }
 
 .split-session-button .pane-status {
-  grid-column: 5;
+  grid-column: 4;
 }
 
 /* Its panes are session rows of their own, one tree step (the 10px a
@@ -696,11 +709,16 @@ body.sidebar-collapsed .terminal-panel {
   display: none;
 }
 
-/* On touch the arrow is a 44px target centred on its 28px track: it reaches
-   8px into the 10px gaps either side, so it covers neither the pill nor the
-   status, and the name keeps its width. Vertically centred where ⋯ is. */
+/* On touch the arrow is a 44px target on the same centre: it reaches 2px
+   past the row's left edge and 3px into the name's start. */
 @media (hover: none) {
-  .split-session-row .split-disclosure { top: -1px; right: 52px; width: 44px; min-width: 44px; height: 44px; flex-basis: 44px; }
+  .split-session-row .split-disclosure { left: -2px; width: 44px; min-width: 44px; height: 44px; flex-basis: 44px; }
+}
+
+/* A pane of the list wears a ⋯ as a session row does (this machine's only). */
+.split-pane-row {
+  position: relative;
+  min-width: 0;
 }
 
 body.sidebar-collapsed .split-disclosure,

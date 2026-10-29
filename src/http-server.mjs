@@ -1398,6 +1398,21 @@ export function createHerdrHttpServer({
         }
         return;
       }
+      // Taking a pane out of its split session into a session of its own in
+      // the same project. It comes back as { pane_id, tab_id }: the page
+      // follows the pane should Herdr have given it a new id.
+      const paneMoveOutMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/move-out$/);
+      if (method === "POST" && paneMoveOutMatch) {
+        requireWriteAuthorization(request, csrfToken);
+        // Nothing to say but the pane: no body, or a JSON object ({}).
+        const hasBody = Number(request.headers["content-length"] || 0) > 0 || Boolean(request.headers["transfer-encoding"]);
+        if (hasBody) await readJsonBody(request, maxBodyBytes);
+        if (typeof herdr.movePaneOut !== "function") {
+          throw new HerdrCommandError("That is not available for this PC yet.", { code: "link_unsupported" });
+        }
+        sendJson(response, 200, await herdr.movePaneOut(decodePaneId(paneMoveOutMatch[1])));
+        return;
+      }
       const outputMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/output$/);
       if (method === "GET" && outputMatch) {
         const paneId = decodePaneId(outputMatch[1]);

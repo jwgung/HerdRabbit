@@ -204,3 +204,18 @@ test("a pane layout names its panes by scoped id", async () => {
   assert.equal(layout.tab_id, `${sessionId}~w2:t1`);
   assert.equal(layout.zoomed, false);
 });
+
+test("a pane moved out comes back under scoped pane and tab ids of its Herdr session", async () => {
+  const json = (result) => ({ stdout: JSON.stringify({ result }), stderr: "" });
+  const fake = recordingRunner([
+    { stdout: JSON.stringify({ sessions: [{ name: "review", default: false, running: true }] }), stderr: "" },
+    json({ snapshot: snapshot("리뷰") }),
+    json({ layout: { panes: [{ pane_id: "w2:p3", rect: { x: 0, y: 0, width: 5, height: 5 } }, { pane_id: "w2:p4", rect: { x: 5, y: 0, width: 5, height: 5 } }] } }),
+    json({ move_result: { pane: { pane_id: "w2:p4", tab_id: "w2:t7" }, created_tab: { tab_id: "w2:t7" } } }),
+  ]);
+  const client = new HerdrBridgeClient({ runner: fake.runner });
+  const sessionId = sessionIds.sessionIdForName("review");
+  await client.snapshot();
+  assert.deepEqual(await client.movePaneOut(`${sessionId}~w2:p4`), { pane_id: `${sessionId}~w2:p4`, tab_id: `${sessionId}~w2:t7` });
+  assert.deepEqual(fake.calls.at(-1).args, ["--session=review", "pane", "move", "w2:p4", "--new-tab", "--no-focus"]);
+});
