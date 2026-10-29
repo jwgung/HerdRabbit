@@ -64,7 +64,9 @@ const MIRROR_SCROLLBACK = 1000;
 // herdr ended the attach), and when it is tried again (Infinity: never).
 // `keepSize` makes a viewer that never sets the pane's size (a cell of the
 // pane grid): it attaches at the pane's own grid, sends no resize, and fits
-// that grid into its frame by the font size instead.
+// that grid into its frame by the font size instead. `quietReplies` (on with
+// keepSize) keeps xterm's own answers to the program's queries from being typed
+// into the pane.
 // xterm queues work of its own that it does not cancel when disposed: its
 // viewport measures itself on a timer once the terminal opens, and on an
 // animation frame after each screen reset (the clear every new pane starts
@@ -87,7 +89,7 @@ export function disposeTerminal(term) {
 export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
   onWebLink = (uri) => window.open(uri, "_blank", "noopener,noreferrer"),
   isLinkablePath = () => false, onPath = () => {}, onFontSizeChange = () => {}, onRetry = () => {},
-  onCopy = () => {}, onViewMoved = () => {}, keepSize = false }) {
+  onCopy = () => {}, onViewMoved = () => {}, keepSize = false, quietReplies = keepSize }) {
   const { Terminal, FitAddon, UnicodeGraphemesAddon } = xterm;
   let term = null;
   // The finger scroll; a glide stops when the pane changes or goes away.
@@ -244,7 +246,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
         // and device attribute queries) and reports focus by itself; sent to the
         // pane those answers land as typed text, in a shell's prompt or an
         // agent's input box. A viewer sends only real typing and mouse reports.
-        if (keepSize && !wasUserInput && !reporting) return;
+        if (quietReplies && !wasUserInput && !reporting) return;
         send(data, wasUserInput && !reporting);
       };
     } else {

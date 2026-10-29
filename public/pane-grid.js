@@ -146,7 +146,12 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
         connection: cell.connection,
         xterm,
         fontSize,
-        keepSize: true,
+        // A Herdr grid cell is placed by Herdr's layout and keeps the pane's size
+        // (the font shrinks to fit); a tile of this window's view split has no
+        // layout of Herdr's to match, so it sizes its pane to the tile and reads
+        // at the usual font. Neither answers herdr's capability queries as typing.
+        keepSize: !view,
+        quietReplies: true,
         onFallback: (paneId, problem) => {
           cell.note.textContent = problem?.code === "busy" || problem?.code === "too_many_attachments"
             ? "Too many terminals are open to show this one."
