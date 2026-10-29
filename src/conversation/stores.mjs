@@ -16,6 +16,7 @@ import { isAbsolute, join, sep } from "node:path";
 import { JOB_SHORT_ID, SESSION_ID } from "./claude.mjs";
 import { THREAD_ID } from "./codex.mjs";
 import { SESSION_ID as KIRO_SESSION_ID } from "./kiro.mjs";
+import { defaultAgyDataDir, localAgyStore } from "./agy.mjs";
 import { defaultOpencodeDb, localOpencodeStore } from "./opencode.mjs";
 
 const MiB = 1024 * 1024;
@@ -57,7 +58,7 @@ async function isFile(path, statFile = stat) {
 }
 
 // `statFile`: how a candidate file is looked at (a test counts the calls).
-export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), codexHome = defaultCodexHome(), opencodeDb = defaultOpencodeDb(), kiroConfigDir = defaultKiroConfigDir(), limits = LOCAL_LIMITS, statFile = stat } = {}) {
+export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), codexHome = defaultCodexHome(), opencodeDb = defaultOpencodeDb(), kiroConfigDir = defaultKiroConfigDir(), agyDataDir = defaultAgyDataDir(), limits = LOCAL_LIMITS, statFile = stat } = {}) {
   const projects = join(configDir, "projects");
   // session id -> the file a project scan found it in; checked again on every use
   const found = new Map();
@@ -69,6 +70,7 @@ export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), cod
     codex: localCodexFiles(codexHome),
     opencode: localOpencodeStore({ path: opencodeDb }),
     kiro: localKiroStore(kiroConfigDir),
+    agy: localAgyStore(agyDataDir),
     ...limits,
     async locate(session, projectDirs) {
       if (!SESSION_ID.test(session)) return null;
