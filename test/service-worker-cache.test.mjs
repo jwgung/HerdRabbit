@@ -51,7 +51,7 @@ test("serves the latest application asset instead of a stale cached copy", async
   const { fetchHandler } = loadFetchHandler();
   let responsePromise;
   fetchHandler({
-    request: new Request("https://herd-rabbit.test/app.js?v=1.4.6"),
+    request: new Request("https://herd-rabbit.test/app.js?v=1.4.7"),
     respondWith(value) {
       responsePromise = value;
     },
@@ -65,7 +65,7 @@ test("stores the latest application asset for the next offline launch", async ()
   const { fetchHandler, storedBody } = loadFetchHandler();
   let responsePromise;
   fetchHandler({
-    request: new Request("https://herd-rabbit.test/app.js?v=1.4.6"),
+    request: new Request("https://herd-rabbit.test/app.js?v=1.4.7"),
     respondWith(value) {
       responsePromise = value;
     },
