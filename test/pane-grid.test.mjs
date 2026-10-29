@@ -46,3 +46,56 @@ test("a cell dropped in another's middle swaps; near an edge it goes on that sid
   assert.equal(rearrangeDrop(box, 200, 151), null);
   assert.equal(rearrangeDrop({ left: 0, top: 0, width: 0, height: 10 }, 0, 5), null);
 });
+
+// Two cells side by side, each 60 columns by 40 rows of a 6 x 12 px font at
+// 12px (360 x 480), with 10 px beside the screen across and 33 down.
+const halves = (screens) => [
+  { width: 0.5, height: 1, extraX: 10, extraY: 33, screens },
+  { width: 0.5, height: 1, extraX: 10, extraY: 33, screens },
+];
+
+test("the board is the tab's shape in the cells' font, the largest that fits the room", async () => {
+  const { letterbox } = await import("../public/pane-grid.js");
+  const screens = new Map([[12, { width: 360, height: 480 }]]);
+  // A wide room: the height binds, and the board is narrower than the room.
+  assert.deepEqual(letterbox({ room: { width: 1200, height: 600 }, cells: halves(screens), maxFont: 12 }),
+    { font: 12, width: 741, height: 514, exact: true });
+  // A narrow one: a smaller font, its size guessed until the cells are drawn at it.
+  const narrow = letterbox({ room: { width: 600, height: 600 }, cells: halves(screens), maxFont: 12 });
+  assert.equal(narrow.font, 9.5);
+  assert.equal(narrow.exact, false);
+  assert.ok(narrow.width <= 600 && narrow.height <= 600);
+  // Drawn at 9.5 a little larger than guessed, it no longer fits: one step
+  // down, guessed from what 9.5 drew.
+  screens.set(9.5, { width: 290, height: 390 });
+  assert.deepEqual(letterbox({ room: { width: 600, height: 600 }, cells: halves(screens), maxFont: 12 }),
+    { font: 9, width: 571, height: 404, exact: false });
+  // Never past the font the user chose, nor below the least.
+  assert.equal(letterbox({ room: { width: 5000, height: 5000 }, cells: halves(screens), maxFont: 12 }).font, 12);
+  const tiny = letterbox({ room: { width: 40, height: 40 }, cells: halves(screens), maxFont: 12 });
+  assert.deepEqual([tiny.font, tiny.width, tiny.height], [4, 40, 40]);
+  // No cell drawn yet: nothing to fit to.
+  assert.equal(letterbox({ room: { width: 600, height: 600 }, cells: halves(new Map()), maxFont: 12 }), null);
+});
+
+test("a stacked layout makes the board as tall as its tallest column needs", async () => {
+  const { letterbox } = await import("../public/pane-grid.js");
+  const at = (width, height) => new Map([[10, { width, height }]]);
+  const cells = [
+    { width: 0.5, height: 1, extraX: 10, extraY: 33, screens: at(300, 400) },
+    { width: 0.5, height: 0.5, extraX: 10, extraY: 33, screens: at(300, 190) },
+    { width: 0.5, height: 0.5, extraX: 10, extraY: 33, screens: at(300, 190) },
+  ];
+  // The stack needs (190 + 33) * 2 = 446 px, more than the tall cell's 433.
+  assert.deepEqual(letterbox({ room: { width: 1000, height: 1000 }, cells, maxFont: 10 }), { font: 10, width: 621, height: 447, exact: true });
+});
+
+test("a moved cell is put back where it was by a translate and a scale", async () => {
+  const { flipDelta } = await import("../public/pane-grid.js");
+  assert.deepEqual(flipDelta({ left: 0, top: 0, width: 200, height: 100 }, { left: 200, top: 100, width: 100, height: 100 }),
+    { x: -200, y: -100, scaleX: 2, scaleY: 1 });
+  // Where it was (to half a pixel), or no box to slide to: nothing to do.
+  assert.equal(flipDelta({ left: 10, top: 10, width: 100, height: 50 }, { left: 10.3, top: 10, width: 100.2, height: 50 }), null);
+  assert.equal(flipDelta(null, { left: 0, top: 0, width: 10, height: 10 }), null);
+  assert.equal(flipDelta({ left: 0, top: 0, width: 10, height: 10 }, { left: 0, top: 0, width: 0, height: 0 }), null);
+});

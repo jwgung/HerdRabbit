@@ -90,6 +90,73 @@ export function rearrangeDrop(box, x, y) {
   return { kind: "swap", preview: { left: box.left, top: box.top, width: box.width, height: box.height } };
 }
 
+// The font every cell of a Herdr grid shares and the board that holds them
+// with nothing to spare. A cell keeps its pane's columns and rows, so the
+// board takes the shape of Herdr's tab in this font, not the stage's.
+// `room` is the most the board can be ({ width, height } px); each of `cells`
+// is its share of the board ({ width, height } in 0..1), the px it takes
+// beside its terminal's screen (`extraX`, `extraY`: header, borders, padding)
+// and the screen's size at the fonts it has been seen at (`screens`: font ->
+// { width, height }). A font not seen yet is guessed in proportion from the
+// nearest one seen (`exact` false then: draw the cells at it and ask again).
+// Steps of `step` from `maxFont` down to `minFont`; null when no cell has been
+// drawn yet.
+export function letterbox({ room, cells, maxFont, minFont = 4, step = 0.5 }) {
+  const seen = cells.filter((cell) => cell.screens?.size > 0 && cell.width > 0 && cell.height > 0);
+  if (seen.length === 0 || !(room?.width > 0) || !(room?.height > 0)) return null;
+  const screenAt = (cell, font) => {
+    const exact = cell.screens.get(font);
+    if (exact) return exact;
+    let near = null;
+    for (const [seenFont, size] of cell.screens) {
+      if (!near || Math.abs(seenFont - font) < Math.abs(near.font - font)) near = { font: seenFont, ...size };
+    }
+    const ratio = font / near.font;
+    return { width: near.width * ratio, height: near.height * ratio };
+  };
+  const boardAt = (font) => {
+    let width = 0;
+    let height = 0;
+    let exact = true;
+    for (const cell of seen) {
+      exact &&= cell.screens.has(font);
+      const screen = screenAt(cell, font);
+      width = Math.max(width, (screen.width + cell.extraX) / cell.width);
+      height = Math.max(height, (screen.height + cell.extraY) / cell.height);
+    }
+    // A pixel to spare: a cell's frame is measured in whole pixels.
+    return { width: Math.ceil(width) + 1, height: Math.ceil(height) + 1, exact };
+  };
+  let font = maxFont;
+  while (font > minFont) {
+    const board = boardAt(font);
+    if (board.width <= room.width && board.height <= room.height) return { font, ...board };
+    font = Math.max(minFont, Math.ceil(font / step) * step - step);
+  }
+  const board = boardAt(minFont);
+  return { font: minFont, ...board, width: Math.min(board.width, room.width), height: Math.min(board.height, room.height) };
+}
+
+// How a cell moved between two layouts, as the transform that puts it back
+// where it was ({ x, y, scaleX, scaleY } from its new box's top left), or
+// null when it is where it was.
+export function flipDelta(before, after) {
+  if (!before || !after || !(after.width > 0) || !(after.height > 0)) return null;
+  const delta = {
+    x: before.left - after.left,
+    y: before.top - after.top,
+    scaleX: before.width / after.width,
+    scaleY: before.height / after.height,
+  };
+  const still = Math.abs(delta.x) < 0.5 && Math.abs(delta.y) < 0.5 &&
+    Math.abs(before.width - after.width) < 0.5 && Math.abs(before.height - after.height) < 0.5;
+  return still ? null : delta;
+}
+
+// How long a layout change takes to slide into place.
+export const LAYOUT_MOTION_MS = 200;
+const LAYOUT_EASING = "cubic-bezier(0.2, 0, 0, 1)";
+
 function element(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -168,6 +235,148 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
   dropMark.append(dropText);
 
   const visibleCells = () => [...cells.values()].filter((cell) => !cell.node.hidden);
+
+  // A Herdr grid's board is the tab's shape in the cells' shared font,
+  // centred in the stage: every cell is filled by its terminal. A view split's
+  // tiles size their panes to themselves and fill the stage as they are.
+  // Each cell's `screens` remembers its screen's size at the fonts it has been
+  // drawn at (font -> { width, height }).
+  let boardFrame = null;
+  let boardFont = null;
+  // While cells slide to a new layout nothing is fitted again: once, at the end.
+  let moving = null;
+  let fitWaiting = false;
+  const sizeWatch = typeof ResizeObserver === "function" ? new ResizeObserver(() => scheduleBoardFit()) : null;
+  sizeWatch?.observe(root);
+
+  function scheduleBoardFit() {
+    if (view || boardFrame !== null) return;
+    if (moving) { fitWaiting = true; return; }
+    boardFrame = requestAnimationFrame(() => {
+      boardFrame = null;
+      fitBoard();
+    });
+  }
+
+  function unfitBoard() {
+    board.classList.remove("is-fitted");
+    board.style.width = "";
+    board.style.height = "";
+  }
+
+  function fitBoard() {
+    if (view || root.hidden || root.classList.contains("is-waiting")) { unfitBoard(); return; }
+    const style = getComputedStyle(board);
+    const borderX = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+    const borderY = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    const above = zoomBar.hidden ? 0 : zoomBar.offsetHeight + (parseFloat(getComputedStyle(root).rowGap) || 0);
+    const room = { width: root.clientWidth - borderX, height: root.clientHeight - above - borderY };
+    const measured = [];
+    for (const cell of visibleCells()) {
+      const screen = cell.attached ? cell.body.querySelector(".xterm-screen") : null;
+      const xtermNode = screen?.closest(".xterm");
+      const rowsNode = cell.body.querySelector(".xterm-rows");
+      // A sliver too small to read shapes nothing: it takes the font it fits.
+      if (!screen || !rowsNode || cell.body.hidden || !cell.roomy) continue;
+      if (!cell.watched) { sizeWatch?.observe(screen); cell.watched = screen; }
+      const shown = screen.getBoundingClientRect();
+      const font = parseFloat(getComputedStyle(rowsNode).fontSize);
+      if (!(shown.width > 0) || !(shown.height > 0) || !(font > 0)) continue;
+      // The pane changed its size: what was seen at other fonts is no longer so.
+      const known = cell.screens.get(font);
+      if (known && (Math.abs(known.width - shown.width) > 0.5 || Math.abs(known.height - shown.height) > 0.5)) cell.screens.clear();
+      cell.screens.set(font, { width: shown.width, height: shown.height });
+      const padding = getComputedStyle(xtermNode);
+      const frame = cell.node.getBoundingClientRect();
+      measured.push({
+        cell,
+        width: cell.box.width,
+        height: cell.box.height,
+        extraX: frame.width - (cell.body.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight)),
+        extraY: frame.height - (cell.body.clientHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom)),
+        screens: cell.screens,
+      });
+    }
+    let fitted = letterbox({ room, cells: measured, maxFont: fontSize });
+    // A font only guessed is tried: xterm measures a new font at once, so the
+    // screens' sizes at it are read here and the board asked for again. Each
+    // try learns one font for good, so a few settle it.
+    for (let tries = 0; fitted && !fitted.exact && tries < 8; tries += 1) {
+      for (const { cell } of measured) {
+        if (cell.screens.has(fitted.font)) continue;
+        cell.font = fitted.font;
+        cell.terminal.setFontSize(fitted.font);
+        const screen = cell.body.querySelector(".xterm-screen").getBoundingClientRect();
+        cell.screens.set(fitted.font, { width: screen.width, height: screen.height });
+      }
+      fitted = letterbox({ room, cells: measured, maxFont: fontSize });
+    }
+    if (!fitted) { unfitBoard(); return; }
+    board.classList.add("is-fitted");
+    board.style.width = `${fitted.width}px`;
+    board.style.height = `${fitted.height}px`;
+    boardFont = fitted.font;
+    for (const cell of cells.values()) {
+      if (cell.terminal && cell.font !== fitted.font) {
+        cell.font = fitted.font;
+        cell.terminal.setFontSize(fitted.font);
+      }
+    }
+  }
+
+  // Where each shown cell is on screen now, to slide from.
+  function cellBoxes() {
+    if (root.hidden || root.classList.contains("is-waiting")) return null;
+    return new Map(visibleCells().map((cell) => [cell.paneId, cell.node.getBoundingClientRect()]));
+  }
+
+  const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+
+  // Cells slide from where they were (`before`) to where they are now, new
+  // ones fade in and `leaving` ones (copies left where they were) fade out.
+  function slide(before, leaving) {
+    if (!before || reducedMotion() || typeof Element.prototype.animate !== "function") {
+      for (const ghost of leaving) ghost.remove();
+      return;
+    }
+    const timing = { duration: LAYOUT_MOTION_MS, easing: LAYOUT_EASING };
+    const animations = [];
+    for (const cell of visibleCells()) {
+      const was = before.get(cell.paneId);
+      if (!was) {
+        animations.push(cell.node.animate([{ opacity: 0, transform: "scale(0.96)" }, { opacity: 1, transform: "none" }], timing));
+        continue;
+      }
+      const delta = flipDelta(was, cell.node.getBoundingClientRect());
+      if (!delta) continue;
+      animations.push(cell.node.animate([
+        { transform: `translate(${delta.x}px, ${delta.y}px) scale(${delta.scaleX}, ${delta.scaleY})` },
+        { transform: "none" },
+      ], timing));
+    }
+    for (const ghost of leaving) {
+      const fade = ghost.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(0.96)" }], timing);
+      fade.finished.catch(() => {}).finally(() => ghost.remove());
+      animations.push(fade);
+    }
+    if (animations.length === 0) return;
+    const run = Symbol("slide");
+    moving = run;
+    root.classList.add("is-moving");
+    Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
+      if (moving !== run) return;
+      moving = null;
+      root.classList.remove("is-moving");
+      if (fitWaiting) { fitWaiting = false; scheduleBoardFit(); }
+    });
+  }
+
+  // Slides still running are cut short where they are.
+  function stopSliding() {
+    for (const node of board.children) for (const animation of node.getAnimations?.() ?? []) animation.finish();
+    moving = null;
+    root.classList.remove("is-moving");
+  }
   const rearrangeable = () => Boolean(onRearrange) && !root.hidden && !zoomedPaneId &&
     !root.classList.contains("is-waiting") && visibleCells().length >= 2 && canRearrange() !== false;
 
@@ -305,6 +514,12 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     cell.attached = true;
     cell.note.hidden = true;
     if (!paused) cell.terminal.show(cell.paneId);
+    // A cell joining a fitted board starts at the font the others share.
+    if (!view && boardFont !== null && cell.font !== boardFont) {
+      cell.font = boardFont;
+      cell.terminal.setFontSize(boardFont);
+    }
+    scheduleBoardFit();
   }
 
   // A cell that leaves or shrinks lets its pane and socket go.
@@ -318,6 +533,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
   function dispose(cell) {
     if (drag?.cell === cell) endDrag(false);
     if (press?.cell === cell) press = null;
+    if (cell.watched) sizeWatch?.unobserve(cell.watched);
     detach(cell);
     cell.terminal?.dispose();
     cell.node.remove();
@@ -346,7 +562,8 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     // terminal's textarea) selects it like a press does.
     node.tabIndex = 0;
     node.setAttribute("role", "group");
-    const cell = { paneId, node, header, status, context, label, expand, body, note, menuSlot, menuKey: null, terminal: null, connection: null, attached: false };
+    const cell = { paneId, node, header, status, context, label, expand, body, note, menuSlot, menuKey: null, terminal: null, connection: null, attached: false,
+      box: null, roomy: false, font: null, screens: new Map(), watched: null };
     // A mouse held on the header (not on its buttons) may pick the cell up.
     header.addEventListener("pointerdown", (event) => {
       if (!event.isPrimary || event.pointerType === "touch" || event.button !== 0 || drag || press) return;
@@ -400,6 +617,10 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       const key = JSON.stringify([panes, layout === undefined ? "waiting" : layout, selectedPaneId]);
       if (key === drawnKey && !root.hidden) return;
       drawnKey = key;
+      // Where the cells are now, for the new layout to slide from.
+      const before = cellBoxes();
+      stopSliding();
+      const leaving = [];
       if (!root.isConnected) host.append(root);
       root.hidden = false;
       selected = selectedPaneId;
@@ -414,7 +635,21 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       if (zoomedPaneId) zoomText.textContent = `Zoomed: ${info.get(zoomedPaneId)?.label ?? "pane"}`;
       const where = new Map(placed.cells.map((cell) => [cell.paneId, cell]));
       for (const [paneId, cell] of cells) {
-        if (!where.has(paneId)) { dispose(cell); cells.delete(paneId); }
+        if (where.has(paneId)) continue;
+        // A copy of a leaving cell stays where it was while it fades.
+        if (before?.has(paneId) && !waiting) {
+          const ghost = cell.node.cloneNode(true);
+          ghost.classList.add("is-leaving");
+          // Not the pane's cell any more: nothing finds it by the pane.
+          ghost.dataset.leavingPaneId = paneId;
+          delete ghost.dataset.paneId;
+          ghost.removeAttribute("tabindex");
+          ghost.setAttribute("aria-hidden", "true");
+          ghost.inert = true;
+          leaving.push(ghost);
+        }
+        dispose(cell);
+        cells.delete(paneId);
       }
       // A zoom (made elsewhere) puts a carried cell back.
       if (zoomedPaneId) endDrag(false);
@@ -426,6 +661,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
         const hidden = Boolean(zoomedPaneId) && !zoomed;
         const box = zoomed ? { left: 0, top: 0, width: 1, height: 1 } : place;
         cell.node.hidden = hidden;
+        cell.box = box;
         cell.node.style.left = `${box.left * 100}%`;
         cell.node.style.top = `${box.top * 100}%`;
         cell.node.style.width = `${box.width * 100}%`;
@@ -460,9 +696,15 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
         const roomy = view || zoomed || (place.cols >= MIN_ATTACH_COLS && place.rows >= MIN_ATTACH_ROWS);
         const tiny = !roomy && !focused;
         cell.node.classList.toggle("is-tiny", tiny);
+        cell.roomy = roomy;
         if (waiting || hidden || tiny) detach(cell);
         else attach(cell);
       }
+      board.append(...leaving);
+      // The board takes its new shape before the cells slide into it.
+      if (boardFrame !== null) { cancelAnimationFrame(boardFrame); boardFrame = null; }
+      fitBoard();
+      slide(waiting ? null : before, leaving);
     },
     // Moves the focus ring and the typing to `paneId`'s cell.
     focus(paneId, { terminal = true } = {}) {
@@ -475,7 +717,12 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     // The terminal font size the cells' fonts grow to at most.
     setFontSize(size) {
       fontSize = size;
-      for (const cell of cells.values()) cell.terminal?.setFontSize(size);
+      boardFont = null;
+      for (const cell of cells.values()) {
+        cell.font = null;
+        cell.terminal?.setFontSize(size);
+      }
+      scheduleBoardFit();
     },
     // Every cell's socket closes; each keeps its pane, to attach on resume().
     pause() {
@@ -492,11 +739,15 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     hide() {
       endDrag(false);
       press = null;
+      stopSliding();
+      for (const ghost of board.querySelectorAll(".is-leaving")) ghost.remove();
       root.hidden = true;
       zoomBar.hidden = true;
       drawnKey = null;
       for (const cell of cells.values()) dispose(cell);
       cells.clear();
+      boardFont = null;
+      unfitBoard();
       if (view) root.remove();
     },
   };

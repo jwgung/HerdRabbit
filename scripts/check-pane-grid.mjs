@@ -200,6 +200,18 @@ await once(server, "listening");
 const url = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ args: ["--no-sandbox"] });
 
+// The grid has taken its shape: its board fitted to the cells' font, nothing
+// sliding, and every cell where it was for a few frames running.
+const gridSettled = (page) => page.waitForFunction(() => {
+  const nodes = [...document.querySelectorAll(".pane-grid:not([hidden]) :is(.pane-grid-board, .pane-grid-cell:not([hidden]))")];
+  if (nodes.some((node) => node.getAnimations().length > 0)) return false;
+  const shape = JSON.stringify(nodes.map((node) => { const r = node.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }));
+  const last = window.__gridShape;
+  window.__gridShape = shape;
+  window.__gridStill = shape === last ? (window.__gridStill ?? 0) + 1 : 0;
+  return window.__gridStill >= 6;
+}, null, { polling: "raf" });
+
 const ptyOf = (paneId) => ptys.filter((pty) => pty.paneId === paneId && !pty.killed).at(-1);
 
 try {
@@ -291,6 +303,7 @@ try {
       assert.equal(await page.locator("#terminal-xterm").isVisible(), false, "the single terminal steps aside");
       assert.equal(await page.locator("#grid-back").isVisible(), false);
       assert.equal(await page.locator(".pane-grid-cell").count(), 4);
+      await gridSettled(page);
       const board = await page.locator(".pane-grid-board").boundingBox();
       const near = (actual, expected, what) => assert.ok(Math.abs(actual - expected) <= 3, `${what}: ${actual} vs ${expected}`);
       const p1 = await cell("w1:p1").boundingBox();
@@ -364,6 +377,7 @@ try {
       await menu("w1:p1", "zoom");
       await page.locator(".pane-grid-zoom").waitFor({ state: "visible" });
       assert.equal(await page.locator(".pane-grid-cell:visible").count(), 1);
+      await gridSettled(page);
       const zoomedBox = await cell("w1:p1").boundingBox();
       const boardNow = await page.locator(".pane-grid-board").boundingBox();
       near(zoomedBox.width, boardNow.width, "the zoomed pane fills the grid");
@@ -705,7 +719,17 @@ try {
       if (match) requests.push([match[2], match[1], request.postDataJSON()]);
     });
     const cell = (paneId) => page.locator(`.pane-grid-cell[data-pane-id="${paneId}"]`);
-    const boxOf = async (paneId) => cell(paneId).boundingBox();
+    // Where a cell is once the cells have slid into place.
+    const boxOf = async (paneId) => { await gridSettled(page); return cell(paneId).boundingBox(); };
+    // A cell's place as shares of the board: the board takes the tab's shape
+    // in its cells' font, so a layout whose panes changed size may resize it.
+    const shareOf = async (paneId) => {
+      const [box, board] = [await boxOf(paneId), await page.locator(".pane-grid-board").boundingBox()];
+      return { x: (box.x - board.x) / board.width, y: (box.y - board.y) / board.height, width: box.width / board.width, height: box.height / board.height };
+    };
+    const nearShare = (actual, expected, what) => {
+      for (const key of ["x", "y", "width", "height"]) assert.ok(Math.abs(actual[key] - expected[key]) <= 0.01, `${what} ${key}: ${actual[key]} vs ${expected[key]}`);
+    };
     const headerPoint = async (paneId) => {
       const box = await cell(paneId).locator(".pane-grid-cell-header").boundingBox();
       return { x: box.x + Math.min(40, box.width / 2), y: box.y + Math.min(12, box.height / 2) };
@@ -721,6 +745,8 @@ try {
         await page.mouse.move(from.x + ((to.x - from.x) * step) / 12, from.y + ((to.y - from.y) * step) / 12);
       }
       await page.waitForTimeout(60);
+      // The dashed preview eases to where it points now.
+      await page.waitForFunction(() => (document.querySelector(".pane-grid-drop-preview")?.getAnimations().length ?? 0) === 0);
       const seen = await page.evaluate(() => {
         const mark = document.querySelector(".pane-grid-drop-preview");
         const rect = mark && !mark.hidden ? mark.getBoundingClientRect() : null;
@@ -787,6 +813,7 @@ try {
     // 3. The middle of another cell swaps the two: the whole cell lights up.
     const p1Before = await boxOf("w1:p1");
     const p3Before = await boxOf("w1:p3");
+    const [p1Share, p3Share] = [await shareOf("w1:p1"), await shareOf("w1:p3")];
     seen = await carry("w1:p1", at(p3Before, 0.5, 0.5), { during: () => shootDrag("rearrange-swap") });
     assert.equal(seen.kind, "swap");
     assert.equal(seen.swapTarget, "w1:p3");
@@ -794,8 +821,8 @@ try {
     await page.waitForFunction(() => document.querySelector('.pane-grid-cell[data-pane-id="w1:p1"]').style.top === "50%");
     assert.deepEqual(requests.at(-1), ["swap", "w1:p1", { targetPaneId: "w1:p3" }]);
     assert.deepEqual(rearranged.at(-1), ["swap", "w1:p1", "w1:p3"]);
-    near(await boxOf("w1:p1"), p3Before, "p1 sits where p3 was");
-    near(await boxOf("w1:p3"), p1Before, "p3 sits where p1 was");
+    nearShare(await shareOf("w1:p1"), p3Share, "p1 sits where p3 was");
+    nearShare(await shareOf("w1:p3"), p1Share, "p3 sits where p1 was");
     // The carried pane stays selected, in the same cell with the same terminal.
     await page.waitForFunction(() => document.querySelector('.pane-grid-cell[data-pane-id="w1:p1"]').classList.contains("is-focused"));
     assert.equal(await page.locator('.pane-button[data-pane-id="w1:p1"]').getAttribute("aria-pressed"), "true");
@@ -897,6 +924,178 @@ try {
     assert.deepEqual(errors, [], "no script errors");
     await context.close();
     console.log("ok: desktop grid rearranged");
+  }
+  // A Herdr grid's board takes the tab's shape in the cells' shared font, so
+  // every cell's terminal fills its cell: on two, three and four cells, and
+  // again once the stage is resized or the sidebar folded. A layout change
+  // slides the cells into place (a closed pane's cell fades); with reduced
+  // motion they move at once.
+  {
+    const layouts = {
+      2: { "w1:p1": [0, 0, 60, 40], "w1:p2": [60, 0, 60, 40] },
+      3: { "w1:p1": [0, 0, 60, 40], "w1:p2": [60, 0, 60, 20], "w1:p3": [60, 20, 60, 20] },
+      4: { "w1:p1": [0, 0, 60, 20], "w1:p2": [60, 0, 60, 20], "w1:p3": [0, 20, 60, 20], "w1:p4": [60, 20, 60, 20] },
+    };
+    const lay = (count) => {
+      reset();
+      panes = panes.filter((pane) => pane.tab_id !== "w1:t1" || pane.pane_id in layouts[count]);
+      for (const [id, [x, y, width, height]] of Object.entries(layouts[count])) rects.set(id, { x, y, width, height });
+    };
+    // What each cell's terminal leaves unfilled (px past its padding), the
+    // fonts, and where the board sits in the stage.
+    const fill = (page) => page.evaluate(() => {
+      const board = document.querySelector(".pane-grid-board").getBoundingClientRect();
+      const stage = document.querySelector(".pane-grid").getBoundingClientRect();
+      const cells = [...document.querySelectorAll(".pane-grid-cell:not([hidden])")].map((node) => {
+        const body = node.querySelector(".pane-grid-terminal");
+        const screen = node.querySelector(".xterm-screen").getBoundingClientRect();
+        const pad = getComputedStyle(node.querySelector(".xterm"));
+        return {
+          pane: node.dataset.paneId,
+          font: getComputedStyle(node.querySelector(".xterm-rows")).fontSize,
+          header: node.querySelector(".pane-grid-cell-header").getBoundingClientRect().height,
+          slackX: body.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight) - screen.width,
+          slackY: body.clientHeight - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom) - screen.height,
+        };
+      });
+      return { cells, gapLeft: board.left - stage.left, gapRight: stage.right - board.right, boardTop: board.top - stage.top,
+        aspect: board.width / board.height, stageAspect: stage.width / stage.height };
+    });
+    const filled = async (page, what) => {
+      await gridSettled(page);
+      const seen = await fill(page);
+      assert.equal(new Set(seen.cells.map((cell) => cell.font)).size, 1, `${what}: the cells share one font: ${seen.cells.map((cell) => cell.font)}`);
+      // The board grows until one way runs out of room: some cell is filled
+      // to the pixel that way.
+      assert.ok(seen.cells.some((cell) => cell.slackY <= 3) || seen.cells.every((cell) => cell.slackX <= 3),
+        `${what}: the cells are filled to the pixel one way at least: ${JSON.stringify(seen.cells)}`);
+      for (const cell of seen.cells) {
+        assert.ok(cell.slackX >= -0.5 && cell.slackX <= 3, `${what}: ${cell.pane} fills its width (${cell.slackX}px spare)`);
+        // A cell as tall as the two stacked beside it has a header fewer than
+        // they have: it may keep up to that spare, the rest fill to the pixel.
+        assert.ok(cell.slackY >= -0.5 && cell.slackY <= Math.max(3, cell.header), `${what}: ${cell.pane} fills its height (${cell.slackY}px spare)`);
+      }
+      // The board is the tab's shape, not the stage's: centred across it, at its top.
+      assert.ok(Math.abs(seen.gapLeft - seen.gapRight) <= 1, `${what}: the board is centred (${seen.gapLeft} / ${seen.gapRight})`);
+      assert.ok(Math.abs(seen.boardTop) <= 1, `${what}: the board starts at the stage's top`);
+      return seen;
+    };
+    const cellOf = (page, paneId) => page.locator(`.pane-grid-cell[data-pane-id="${paneId}"]`);
+    const shares = (page) => page.evaluate(() => {
+      const board = document.querySelector(".pane-grid-board").getBoundingClientRect();
+      return Object.fromEntries([...document.querySelectorAll(".pane-grid-cell:not([hidden])")].map((node) => {
+        const box = node.getBoundingClientRect();
+        return [node.dataset.paneId, [(box.x - board.x) / board.width, (box.y - board.y) / board.height].map((share) => Math.round(share * 100) / 100)];
+      }));
+    });
+    // p1 carried by its header onto p4's middle.
+    const swapOnto = async (page, paneId, targetId) => {
+      await gridSettled(page);
+      const header = await cellOf(page, paneId).locator(".pane-grid-cell-header").boundingBox();
+      const target = await cellOf(page, targetId).boundingBox();
+      const from = { x: header.x + 30, y: header.y + header.height / 2 };
+      const to = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      for (let step = 1; step <= 10; step += 1) await page.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
+      await page.mouse.up();
+    };
+    const open = async (count, { reducedMotion = "no-preference" } = {}) => {
+      lay(count);
+      const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 844 } });
+      const page = await context.newPage();
+      await page.emulateMedia({ reducedMotion });
+      const errors = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
+      await page.locator("#terminal-xterm .xterm").waitFor({ state: "visible" });
+      await page.locator('.split-session-button[data-tab-id="w1:t1"]').click();
+      // Every cell attached and drawn at its pane's size.
+      await page.waitForFunction((ids) => ids.every((id) => document.querySelector(`.pane-grid-cell[data-pane-id="${id}"] .xterm-rows`)
+        ?.textContent.replace(/ /gu, " ").includes(`pane ${id}`)), Object.keys(layouts[count]));
+      return { context, page, errors };
+    };
+
+    for (const count of [2, 3, 4]) {
+      const { context, page, errors } = await open(count);
+      const seen = await filled(page, `${count} cells`);
+      assert.ok(seen.gapLeft > 1 || seen.boardTop > 1 || Math.abs(seen.aspect - seen.stageAspect) < 0.02, `${count} cells: the board is letterboxed`);
+      await page.setViewportSize({ width: 1100, height: 700 });
+      await filled(page, `${count} cells, a smaller window`);
+      await page.locator("#sidebar-toggle").click();
+      await filled(page, `${count} cells, the sidebar folded`);
+      await page.locator("#sidebar-toggle").click();
+      await filled(page, `${count} cells, the sidebar back`);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+
+    // A swap slides: the two cells carry an animation, then sit at each other's place.
+    {
+      const { context, page, errors } = await open(4);
+      const before = await shares(page);
+      const preview = await page.evaluate(() => {
+        const mark = document.createElement("div");
+        mark.className = "pane-drop-preview pane-grid-drop-preview";
+        document.body.append(mark);
+        const { transitionDuration } = getComputedStyle(mark);
+        mark.remove();
+        return transitionDuration;
+      });
+      assert.ok(parseFloat(preview) >= 0.1, `the drop preview eases between places (${preview})`);
+      const sliding = page.waitForFunction(() => ["w1:p1", "w1:p4"].every((id) =>
+        document.querySelector(`.pane-grid-cell[data-pane-id="${id}"]`)?.getAnimations()
+          .some((animation) => !(animation instanceof CSSTransition) && animation.effect?.getTiming().duration >= 150)), null, { polling: "raf" });
+      await swapOnto(page, "w1:p1", "w1:p4");
+      await sliding;
+      await filled(page, "after a swap");
+      const after = await shares(page);
+      assert.deepEqual([after["w1:p1"], after["w1:p4"]], [before["w1:p4"], before["w1:p1"]], "the swapped cells settle at each other's place");
+      // A closed pane's cell fades where it was; the others slide into its room.
+      await page.evaluate(() => {
+        window.leavingCells = [];
+        new MutationObserver((changes) => {
+          for (const change of changes) for (const node of change.addedNodes) {
+            if (node.classList?.contains("is-leaving")) window.leavingCells.push([node.dataset.leavingPaneId, node.dataset.paneId ?? null, node.getAnimations().length]);
+          }
+        }).observe(document.querySelector(".pane-grid-board"), { childList: true });
+      });
+      await cellOf(page, "w1:p1").locator(".pane-grid-menu > summary").click();
+      await page.locator('.pane-grid-cell[data-pane-id="w1:p1"] [data-action="close"]').click();
+      await page.waitForFunction(() => document.querySelectorAll(".pane-grid-cell:not(.is-leaving)").length === 3);
+      await page.waitForFunction(() => !document.querySelector(".pane-grid-cell.is-leaving"));
+      assert.deepEqual(await page.evaluate(() => window.leavingCells), [["w1:p1", null, 1]], "the closed pane's cell fades out");
+      await filled(page, "after a close");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+
+    // Reduced motion: the cells jump, and the preview does not ease.
+    {
+      const { context, page, errors } = await open(4, { reducedMotion: "reduce" });
+      const preview = await page.evaluate(() => {
+        const mark = document.createElement("div");
+        mark.className = "pane-drop-preview pane-grid-drop-preview";
+        document.body.append(mark);
+        const { transitionDuration } = getComputedStyle(mark);
+        mark.remove();
+        return transitionDuration;
+      });
+      assert.ok(parseFloat(preview) < 0.001, `reduced motion: the preview jumps (${preview})`);
+      const moved = page.waitForFunction(() => {
+        const node = document.querySelector('.pane-grid-cell[data-pane-id="w1:p1"]');
+        if (node?.style.left !== "50%") return null;
+        // The slides are the page's own animations (not a style's transition).
+        return { sliding: [...document.querySelectorAll(".pane-grid-cell")].flatMap((cell) => cell.getAnimations())
+          .filter((animation) => !(animation instanceof CSSTransition) && !(animation instanceof CSSAnimation)).length };
+      }, null, { polling: "raf" });
+      await swapOnto(page, "w1:p1", "w1:p4");
+      assert.deepEqual(await (await moved).jsonValue(), { sliding: 0 }, "reduced motion: nothing slides");
+      await filled(page, "after a swap, reduced motion");
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    console.log("ok: the board fits its cells, and layout changes slide");
   }
   // Two split sessions' grids switched at once, many times, on a server whose
   // panes cannot attach (each cell falls back at once, as where node-pty is
