@@ -47,47 +47,49 @@ test("a cell dropped in another's middle swaps; near an edge it goes on that sid
   assert.equal(rearrangeDrop({ left: 0, top: 0, width: 0, height: 10 }, 0, 5), null);
 });
 
-// Two cells side by side, each 60 columns by 40 rows of a 6 x 12 px font at
-// 12px (360 x 480), with 10 px beside the screen across and 33 down.
-const halves = (screens) => [
-  { width: 0.5, height: 1, extraX: 10, extraY: 33, screens },
-  { width: 0.5, height: 1, extraX: 10, extraY: 33, screens },
+// A font whose W is half as wide as the font size and whose ascent and
+// descent are the font size.
+const metrics = (font) => ({ charWidth: font / 2, charHeight: font });
+// Two cells side by side, each 60 columns by 40 rows, with 10 px beside the
+// screen across and 33 down.
+const halves = [
+  { width: 0.5, height: 1, cols: 60, rows: 40, extraX: 10, extraY: 33 },
+  { width: 0.5, height: 1, cols: 60, rows: 40, extraX: 10, extraY: 33 },
 ];
 
+test("a screen is drawn at whole device pixels: lines round up, the whole to CSS pixels", async () => {
+  const { screenSize } = await import("../public/pane-grid.js");
+  assert.deepEqual(screenSize({ charWidth: 6.3, charHeight: 12.2, cols: 10, rows: 10 }), { width: 63, height: 130 });
+  assert.deepEqual(screenSize({ charWidth: 6.3, charHeight: 12.2, cols: 10, rows: 10, dpr: 2 }), { width: 63, height: 125 });
+  // 13.5px and 14px lines are both 14px tall.
+  assert.equal(screenSize({ ...metrics(13.5), cols: 60, rows: 40 }).height, screenSize({ ...metrics(14), cols: 60, rows: 40 }).height);
+});
+
 test("the board is the tab's shape in the cells' font, the largest that fits the room", async () => {
-  const { letterbox } = await import("../public/pane-grid.js");
-  const screens = new Map([[12, { width: 360, height: 480 }]]);
-  // A wide room: the height binds, and the board is narrower than the room.
-  assert.deepEqual(letterbox({ room: { width: 1200, height: 600 }, cells: halves(screens), maxFont: 12 }),
-    { font: 12, width: 741, height: 514, exact: true });
-  // A narrow one: a smaller font, its size guessed until the cells are drawn at it.
-  const narrow = letterbox({ room: { width: 600, height: 600 }, cells: halves(screens), maxFont: 12 });
-  assert.equal(narrow.font, 9.5);
-  assert.equal(narrow.exact, false);
-  assert.ok(narrow.width <= 600 && narrow.height <= 600);
-  // Drawn at 9.5 a little larger than guessed, it no longer fits: one step
-  // down, guessed from what 9.5 drew.
-  screens.set(9.5, { width: 290, height: 390 });
-  assert.deepEqual(letterbox({ room: { width: 600, height: 600 }, cells: halves(screens), maxFont: 12 }),
-    { font: 9, width: 571, height: 404, exact: false });
-  // Never past the font the user chose, nor below the least.
-  assert.equal(letterbox({ room: { width: 5000, height: 5000 }, cells: halves(screens), maxFont: 12 }).font, 12);
-  const tiny = letterbox({ room: { width: 40, height: 40 }, cells: halves(screens), maxFont: 12 });
-  assert.deepEqual([tiny.font, tiny.width, tiny.height], [4, 40, 40]);
-  // No cell drawn yet: nothing to fit to.
-  assert.equal(letterbox({ room: { width: 600, height: 600 }, cells: halves(new Map()), maxFont: 12 }), null);
+  const { GRID_MAX_FONT, letterbox } = await import("../public/pane-grid.js");
+  assert.equal(GRID_MAX_FONT, 32);
+  const fit = (room) => letterbox({ room, cells: halves, metrics, maxFont: GRID_MAX_FONT });
+  // A wide room: the height binds (14px lines: 560 + 33), the board is narrower than the room.
+  assert.deepEqual(fit({ width: 1200, height: 600 }), { font: 14, width: 861, height: 594 });
+  // A narrow one: the width binds (9.5px: 285 + 10 per half).
+  assert.deepEqual(fit({ width: 600, height: 600 }), { font: 9.5, width: 591, height: 434 });
+  // A large room grows the font to the grid's cap, whatever font one pane is read at.
+  assert.equal(fit({ width: 9000, height: 9000 }).font, 32);
+  // Too small for the least font: the board is cut to the room.
+  assert.deepEqual(fit({ width: 40, height: 40 }), { font: 4, width: 40, height: 40 });
+  // No cell with a terminal yet: nothing to fit to.
+  assert.equal(letterbox({ room: { width: 600, height: 600 }, cells: [{ width: 1, height: 1, cols: 0, rows: 0, extraX: 0, extraY: 0 }], metrics, maxFont: 32 }), null);
 });
 
 test("a stacked layout makes the board as tall as its tallest column needs", async () => {
   const { letterbox } = await import("../public/pane-grid.js");
-  const at = (width, height) => new Map([[10, { width, height }]]);
   const cells = [
-    { width: 0.5, height: 1, extraX: 10, extraY: 33, screens: at(300, 400) },
-    { width: 0.5, height: 0.5, extraX: 10, extraY: 33, screens: at(300, 190) },
-    { width: 0.5, height: 0.5, extraX: 10, extraY: 33, screens: at(300, 190) },
+    { width: 0.5, height: 1, cols: 58, rows: 38, extraX: 10, extraY: 33 },
+    { width: 0.5, height: 0.5, cols: 58, rows: 18, extraX: 10, extraY: 33 },
+    { width: 0.5, height: 0.5, cols: 58, rows: 18, extraX: 10, extraY: 33 },
   ];
-  // The stack needs (190 + 33) * 2 = 446 px, more than the tall cell's 433.
-  assert.deepEqual(letterbox({ room: { width: 1000, height: 1000 }, cells, maxFont: 10 }), { font: 10, width: 621, height: 447, exact: true });
+  // At 10px the stack needs (180 + 33) * 2 = 426 px, more than the tall cell's 380 + 33.
+  assert.deepEqual(letterbox({ room: { width: 601, height: 427 }, cells, metrics, maxFont: 32 }), { font: 10, width: 601, height: 427 });
 });
 
 test("a moved cell is put back where it was by a translate and a scale", async () => {
@@ -99,3 +101,4 @@ test("a moved cell is put back where it was by a translate and a scale", async (
   assert.equal(flipDelta(null, { left: 0, top: 0, width: 10, height: 10 }), null);
   assert.equal(flipDelta({ left: 0, top: 0, width: 10, height: 10 }, { left: 0, top: 0, width: 0, height: 0 }), null);
 });
+

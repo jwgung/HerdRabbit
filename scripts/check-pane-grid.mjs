@@ -6,7 +6,8 @@
 // split is said, and ⤢ opens the pane alone with Back to grid. A pane row in
 // the row's dropdown opens its pane alone. Leaving the grid closes the cells'
 // sockets. No cell attaches before Herdr's layout is read, a close always
-// says the user meant it, and the cells follow the terminal font size. On a
+// says the user meant it, and the cells take the font their board fits, not
+// the terminal font size chosen for one pane. On a
 // phone there is no grid: the selected pane shows with a map of the tab above
 // it, a pane the layout does not have yet is still counted and tappable, and
 // a tap on the map switches pane. A connected PC's split tab is one row too,
@@ -401,9 +402,11 @@ try {
       assert.match(asked ?? "", /waiting for your answer/u);
       assert.equal(await cell("w1:p3").count(), 1, "a dismissed close keeps the pane");
       assert.equal(closeBodies.length, 1, "a dismissed close asks nothing");
-      // The cells follow the terminal font size: a smaller one shrinks them.
+      // The cells take the font their board fits: a smaller terminal font
+      // size (for a pane shown alone) leaves them as they are.
       const screenWidth = (paneId) => cell(paneId).locator(".xterm-screen").evaluate((node) => node.offsetWidth);
       const setting = () => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--terminal-font-size")));
+      await gridSettled(page);
       const [widthBefore, sizeBefore] = [await screenWidth("w1:p1"), await setting()];
       const p1Box = await cell("w1:p1").boundingBox();
       await page.mouse.move(p1Box.x + p1Box.width / 2, p1Box.y + p1Box.height / 2);
@@ -411,8 +414,9 @@ try {
       for (let step = 0; step < 6; step += 1) await page.mouse.wheel(0, 120);
       await page.keyboard.up("Control");
       assert.ok(await setting() < sizeBefore, "the setting got smaller");
-      await page.waitForFunction(([width]) =>
-        document.querySelector('.pane-grid-cell[data-pane-id="w1:p1"] .xterm-screen').offsetWidth < width, [widthBefore]);
+      await page.waitForTimeout(300);
+      await gridSettled(page);
+      assert.equal(await screenWidth("w1:p1"), widthBefore, "the cells keep the font their board fits");
 
       // No grid cell ever resized a pane: no resize frame, every attach keeps the size.
       const gridSockets = sockets.filter((socket) => socket.frames.some((frame) => frame.type === "attach" && frame.keepSize === true));
@@ -958,8 +962,14 @@ try {
           slackY: body.clientHeight - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom) - screen.height,
         };
       });
+      // How much of the room inside the stage the board takes, the way it is most filled.
+      const boardNode = document.querySelector(".pane-grid-board");
+      const borderX = boardNode.offsetWidth - boardNode.clientWidth;
+      const borderY = boardNode.offsetHeight - boardNode.clientHeight;
+      const room = Math.max(boardNode.clientWidth / (stage.width - borderX), boardNode.clientHeight / (stage.height - borderY));
       return { cells, gapLeft: board.left - stage.left, gapRight: stage.right - board.right, boardTop: board.top - stage.top,
-        aspect: board.width / board.height, stageAspect: stage.width / stage.height };
+        aspect: board.width / board.height, stageAspect: stage.width / stage.height, room,
+        board: [Math.round(board.width), Math.round(board.height)], stage: [Math.round(stage.width), Math.round(stage.height)] };
     });
     const filled = async (page, what) => {
       await gridSettled(page);
@@ -978,6 +988,12 @@ try {
       // The board is the tab's shape, not the stage's: centred across it, at its top.
       assert.ok(Math.abs(seen.gapLeft - seen.gapRight) <= 1, `${what}: the board is centred (${seen.gapLeft} / ${seen.gapRight})`);
       assert.ok(Math.abs(seen.boardTop) <= 1, `${what}: the board starts at the stage's top`);
+      // As large as the stage allows: the next font step up would not fit
+      // (or the font is at the grid's cap), whatever the font chosen for one pane.
+      const font = parseFloat(seen.cells[0].font);
+      assert.ok(seen.room <= 1.001, `${what}: the board fits the stage (${seen.board} in ${seen.stage})`);
+      assert.ok(font >= 32 || seen.room * (font + 0.5) / font >= 0.995,
+        `${what}: the board is as large as a font step allows (${seen.board} in ${seen.stage} at ${font}px)`);
       return seen;
     };
     const cellOf = (page, paneId) => page.locator(`.pane-grid-cell[data-pane-id="${paneId}"]`);
@@ -1000,9 +1016,9 @@ try {
       for (let step = 1; step <= 10; step += 1) await page.mouse.move(from.x + ((to.x - from.x) * step) / 10, from.y + ((to.y - from.y) * step) / 10);
       await page.mouse.up();
     };
-    const open = async (count, { reducedMotion = "no-preference" } = {}) => {
+    const open = async (count, { reducedMotion = "no-preference", viewport = { width: 1280, height: 844 } } = {}) => {
       lay(count);
-      const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 844 } });
+      const context = await browser.newContext({ serviceWorkers: "block", viewport });
       const page = await context.newPage();
       await page.emulateMedia({ reducedMotion });
       const errors = [];
@@ -1019,6 +1035,7 @@ try {
     for (const count of [2, 3, 4]) {
       const { context, page, errors } = await open(count);
       const seen = await filled(page, `${count} cells`);
+      console.log(`  ${count} cells at 1280x844: board ${seen.board} in stage ${seen.stage}, font ${seen.cells[0].font}`);
       assert.ok(seen.gapLeft > 1 || seen.boardTop > 1 || Math.abs(seen.aspect - seen.stageAspect) < 0.02, `${count} cells: the board is letterboxed`);
       await page.setViewportSize({ width: 1100, height: 700 });
       await filled(page, `${count} cells, a smaller window`);
@@ -1026,6 +1043,17 @@ try {
       await filled(page, `${count} cells, the sidebar folded`);
       await page.locator("#sidebar-toggle").click();
       await filled(page, `${count} cells, the sidebar back`);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+    // A larger window grows the cells' font past the one chosen for a single
+    // pane: the board keeps filling the stage.
+    for (const count of [2, 3, 4]) {
+      const { context, page, errors } = await open(count, { viewport: { width: 1700, height: 1100 } });
+      const seen = await filled(page, `${count} cells, a large window`);
+      const chosen = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--terminal-font-size")));
+      assert.ok(parseFloat(seen.cells[0].font) > chosen, `${count} cells, a large window: the font grows past ${chosen}px (${seen.cells[0].font})`);
+      console.log(`  ${count} cells at 1700x1100: board ${seen.board} in stage ${seen.stage}, font ${seen.cells[0].font}`);
       assert.deepEqual(errors, []);
       await context.close();
     }

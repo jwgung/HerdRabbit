@@ -90,51 +90,65 @@ export function rearrangeDrop(box, x, y) {
   return { kind: "swap", preview: { left: box.left, top: box.top, width: box.width, height: box.height } };
 }
 
+// The size xterm draws a screen of `cols` by `rows` at, for a font whose
+// character is `charWidth` by `charHeight` (as xterm measures it: the width
+// of a W, the font's ascent and descent): a cell is that width and that
+// height rounded up to device pixels, the screen all its cells rounded to
+// whole CSS pixels (xterm's renderer at a line height of 1, no letter spacing).
+export function screenSize({ charWidth, charHeight, cols, rows, dpr = 1 }) {
+  return {
+    width: Math.round((charWidth * dpr * cols) / dpr),
+    height: Math.round((Math.ceil(charHeight * dpr) * rows) / dpr),
+  };
+}
+
 // The font every cell of a Herdr grid shares and the board that holds them
 // with nothing to spare. A cell keeps its pane's columns and rows, so the
 // board takes the shape of Herdr's tab in this font, not the stage's.
 // `room` is the most the board can be ({ width, height } px); each of `cells`
-// is its share of the board ({ width, height } in 0..1), the px it takes
-// beside its terminal's screen (`extraX`, `extraY`: header, borders, padding)
-// and the screen's size at the fonts it has been seen at (`screens`: font ->
-// { width, height }). A font not seen yet is guessed in proportion from the
-// nearest one seen (`exact` false then: draw the cells at it and ask again).
-// Steps of `step` from `maxFont` down to `minFont`; null when no cell has been
-// drawn yet.
-export function letterbox({ room, cells, maxFont, minFont = 4, step = 0.5 }) {
-  const seen = cells.filter((cell) => cell.screens?.size > 0 && cell.width > 0 && cell.height > 0);
-  if (seen.length === 0 || !(room?.width > 0) || !(room?.height > 0)) return null;
-  const screenAt = (cell, font) => {
-    const exact = cell.screens.get(font);
-    if (exact) return exact;
-    let near = null;
-    for (const [seenFont, size] of cell.screens) {
-      if (!near || Math.abs(seenFont - font) < Math.abs(near.font - font)) near = { font: seenFont, ...size };
-    }
-    const ratio = font / near.font;
-    return { width: near.width * ratio, height: near.height * ratio };
-  };
+// is its share of the board ({ width, height } in 0..1), its terminal's
+// `cols` and `rows`, and the px it takes beside its screen (`extraX`,
+// `extraY`: header, borders, padding). `metrics(font)` is a character's size
+// at a font ({ charWidth, charHeight }). Fonts go in steps of `step` from
+// `maxFont` down; the answer is the largest that fits (at `minFont` the board
+// is cut to the room), null when no cell has a terminal yet.
+export function letterbox({ room, cells, metrics, dpr = 1, maxFont, minFont = 4, step = 0.5 }) {
+  const shaped = cells.filter((cell) => cell.width > 0 && cell.height > 0 && cell.cols > 0 && cell.rows > 0);
+  if (shaped.length === 0 || !(room?.width > 0) || !(room?.height > 0)) return null;
   const boardAt = (font) => {
+    const character = metrics(font);
     let width = 0;
     let height = 0;
-    let exact = true;
-    for (const cell of seen) {
-      exact &&= cell.screens.has(font);
-      const screen = screenAt(cell, font);
+    for (const cell of shaped) {
+      const screen = screenSize({ ...character, cols: cell.cols, rows: cell.rows, dpr });
       width = Math.max(width, (screen.width + cell.extraX) / cell.width);
       height = Math.max(height, (screen.height + cell.extraY) / cell.height);
     }
     // A pixel to spare: a cell's frame is measured in whole pixels.
-    return { width: Math.ceil(width) + 1, height: Math.ceil(height) + 1, exact };
+    return { width: Math.ceil(width) + 1, height: Math.ceil(height) + 1 };
   };
-  let font = maxFont;
-  while (font > minFont) {
+  for (let font = maxFont; font > minFont; font = Math.ceil(font / step) * step - step) {
     const board = boardAt(font);
     if (board.width <= room.width && board.height <= room.height) return { font, ...board };
-    font = Math.max(minFont, Math.ceil(font / step) * step - step);
   }
   const board = boardAt(minFont);
-  return { font: minFont, ...board, width: Math.min(board.width, room.width), height: Math.min(board.height, room.height) };
+  return { font: minFont, width: Math.min(board.width, room.width), height: Math.min(board.height, room.height) };
+}
+
+// A character's size in `family` at each font, measured as xterm measures it
+// (the width of a W, the font's ascent and descent), remembered per font.
+function characterMetrics(family) {
+  const known = new Map();
+  let context = null;
+  return (font) => {
+    if (known.has(font)) return known.get(font);
+    context ??= (typeof OffscreenCanvas === "function" ? new OffscreenCanvas(10, 10) : document.createElement("canvas")).getContext("2d");
+    context.font = `${font}px ${family}`;
+    const measured = context.measureText("W");
+    const size = { charWidth: measured.width, charHeight: measured.fontBoundingBoxAscent + measured.fontBoundingBoxDescent };
+    known.set(font, size);
+    return size;
+  };
 }
 
 // How a cell moved between two layouts, as the transform that puts it back
@@ -152,6 +166,10 @@ export function flipDelta(before, after) {
     Math.abs(before.width - after.width) < 0.5 && Math.abs(before.height - after.height) < 0.5;
   return still ? null : delta;
 }
+
+// The most a Herdr grid's font grows to: the board fills the stage as far as
+// this, whatever the font chosen for a single pane.
+export const GRID_MAX_FONT = 32;
 
 // How long a layout change takes to slide into place.
 export const LAYOUT_MOTION_MS = 200;
@@ -239,15 +257,17 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
   // A Herdr grid's board is the tab's shape in the cells' shared font,
   // centred in the stage: every cell is filled by its terminal. A view split's
   // tiles size their panes to themselves and fill the stage as they are.
-  // Each cell's `screens` remembers its screen's size at the fonts it has been
-  // drawn at (font -> { width, height }).
   let boardFrame = null;
   let boardFont = null;
+  // A character's size per font in the terminals' font family.
+  let metrics = null;
   // While cells slide to a new layout nothing is fitted again: once, at the end.
   let moving = null;
   let fitWaiting = false;
   const sizeWatch = typeof ResizeObserver === "function" ? new ResizeObserver(() => scheduleBoardFit()) : null;
   sizeWatch?.observe(root);
+  // A font that arrives late measures anew.
+  document.fonts?.addEventListener?.("loadingdone", () => { metrics = null; scheduleBoardFit(); });
 
   function scheduleBoardFit() {
     if (view || boardFrame !== null) return;
@@ -271,46 +291,27 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     const borderY = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
     const above = zoomBar.hidden ? 0 : zoomBar.offsetHeight + (parseFloat(getComputedStyle(root).rowGap) || 0);
     const room = { width: root.clientWidth - borderX, height: root.clientHeight - above - borderY };
-    const measured = [];
+    const shaped = [];
     for (const cell of visibleCells()) {
       const screen = cell.attached ? cell.body.querySelector(".xterm-screen") : null;
-      const xtermNode = screen?.closest(".xterm");
-      const rowsNode = cell.body.querySelector(".xterm-rows");
       // A sliver too small to read shapes nothing: it takes the font it fits.
-      if (!screen || !rowsNode || cell.body.hidden || !cell.roomy) continue;
+      if (!screen || cell.body.hidden || !cell.roomy) continue;
       if (!cell.watched) { sizeWatch?.observe(screen); cell.watched = screen; }
-      const shown = screen.getBoundingClientRect();
-      const font = parseFloat(getComputedStyle(rowsNode).fontSize);
-      if (!(shown.width > 0) || !(shown.height > 0) || !(font > 0)) continue;
-      // The pane changed its size: what was seen at other fonts is no longer so.
-      const known = cell.screens.get(font);
-      if (known && (Math.abs(known.width - shown.width) > 0.5 || Math.abs(known.height - shown.height) > 0.5)) cell.screens.clear();
-      cell.screens.set(font, { width: shown.width, height: shown.height });
-      const padding = getComputedStyle(xtermNode);
+      const drawn = cell.terminal.drawn;
+      if (!drawn || !(screen.offsetWidth > 0)) continue;
+      const padding = getComputedStyle(screen.closest(".xterm"));
       const frame = cell.node.getBoundingClientRect();
-      measured.push({
-        cell,
+      shaped.push({
         width: cell.box.width,
         height: cell.box.height,
+        cols: drawn.cols,
+        rows: drawn.rows,
         extraX: frame.width - (cell.body.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight)),
         extraY: frame.height - (cell.body.clientHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom)),
-        screens: cell.screens,
       });
     }
-    let fitted = letterbox({ room, cells: measured, maxFont: fontSize });
-    // A font only guessed is tried: xterm measures a new font at once, so the
-    // screens' sizes at it are read here and the board asked for again. Each
-    // try learns one font for good, so a few settle it.
-    for (let tries = 0; fitted && !fitted.exact && tries < 8; tries += 1) {
-      for (const { cell } of measured) {
-        if (cell.screens.has(fitted.font)) continue;
-        cell.font = fitted.font;
-        cell.terminal.setFontSize(fitted.font);
-        const screen = cell.body.querySelector(".xterm-screen").getBoundingClientRect();
-        cell.screens.set(fitted.font, { width: screen.width, height: screen.height });
-      }
-      fitted = letterbox({ room, cells: measured, maxFont: fontSize });
-    }
+    metrics ??= characterMetrics(getComputedStyle(board).getPropertyValue("--mono").trim() || "monospace");
+    const fitted = letterbox({ room, cells: shaped, metrics, dpr: window.devicePixelRatio || 1, maxFont: GRID_MAX_FONT });
     if (!fitted) { unfitBoard(); return; }
     board.classList.add("is-fitted");
     board.style.width = `${fitted.width}px`;
@@ -563,7 +564,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     node.tabIndex = 0;
     node.setAttribute("role", "group");
     const cell = { paneId, node, header, status, context, label, expand, body, note, menuSlot, menuKey: null, terminal: null, connection: null, attached: false,
-      box: null, roomy: false, font: null, screens: new Map(), watched: null };
+      box: null, roomy: false, font: null, watched: null };
     // A mouse held on the header (not on its buttons) may pick the cell up.
     header.addEventListener("pointerdown", (event) => {
       if (!event.isPrimary || event.pointerType === "touch" || event.button !== 0 || drag || press) return;
@@ -714,15 +715,12 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       const cell = cells.get(paneId);
       if (terminal && cell?.attached) cell.terminal.focus();
     },
-    // The terminal font size the cells' fonts grow to at most.
+    // The terminal font size a view split's tiles read at. A Herdr grid's
+    // cells take the font their board fits instead (up to GRID_MAX_FONT).
     setFontSize(size) {
       fontSize = size;
-      boardFont = null;
-      for (const cell of cells.values()) {
-        cell.font = null;
-        cell.terminal?.setFontSize(size);
-      }
-      scheduleBoardFit();
+      if (!view) return;
+      for (const cell of cells.values()) cell.terminal?.setFontSize(size);
     },
     // Every cell's socket closes; each keeps its pane, to attach on resume().
     pause() {

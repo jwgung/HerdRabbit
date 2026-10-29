@@ -772,6 +772,10 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       term.options.fontSize = size;
       fitNow();
     },
+    // The font the terminal is drawn at now (a keepSize one may have fitted
+    // itself below the most it grows to) and its columns and rows; null
+    // before it has a terminal.
+    get drawn() { return term && !disposed ? { fontSize: term.options.fontSize, cols: term.cols, rows: term.rows } : null; },
     // The last lines of the screen that hold text, for the page to tell whether
     // a program asks for a password. `paneId` is the pane the screen belongs
     // to, and `fresh` is false whenever the text cannot be trusted to be that
