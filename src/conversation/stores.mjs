@@ -15,6 +15,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 import { JOB_SHORT_ID, SESSION_ID } from "./claude.mjs";
 import { THREAD_ID } from "./codex.mjs";
+import { SESSION_ID as KIRO_SESSION_ID } from "./kiro.mjs";
 import { defaultOpencodeDb, localOpencodeStore } from "./opencode.mjs";
 
 const MiB = 1024 * 1024;
@@ -39,6 +40,13 @@ export function defaultCodexHome(environment = process.env, home = homedir()) {
   return configured && isAbsolute(configured) ? configured : join(home, ".codex");
 }
 
+// Where this server's own Kiro writes its sessions: `$KIRO_CONFIG_DIR`, else
+// `~/.kiro`. Transcripts sit under `<dir>/sessions/<workspace hash>/sess_<uuid>/`.
+export function defaultKiroConfigDir(environment = process.env, home = homedir()) {
+  const configured = environment.KIRO_CONFIG_DIR;
+  return configured && isAbsolute(configured) ? configured : join(home, ".kiro");
+}
+
 // Only an absent path is a miss: an unreadable store is an error to report, not an empty one.
 function absent(error) {
   return error?.code === "ENOENT" || error?.code === "ENOTDIR";
@@ -49,7 +57,7 @@ async function isFile(path, statFile = stat) {
 }
 
 // `statFile`: how a candidate file is looked at (a test counts the calls).
-export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), codexHome = defaultCodexHome(), opencodeDb = defaultOpencodeDb(), limits = LOCAL_LIMITS, statFile = stat } = {}) {
+export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), codexHome = defaultCodexHome(), opencodeDb = defaultOpencodeDb(), kiroConfigDir = defaultKiroConfigDir(), limits = LOCAL_LIMITS, statFile = stat } = {}) {
   const projects = join(configDir, "projects");
   // session id -> the file a project scan found it in; checked again on every use
   const found = new Map();
@@ -60,6 +68,7 @@ export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), cod
     codexHome,
     codex: localCodexFiles(codexHome),
     opencode: localOpencodeStore({ path: opencodeDb }),
+    kiro: localKiroStore(kiroConfigDir),
     ...limits,
     async locate(session, projectDirs) {
       if (!SESSION_ID.test(session)) return null;
@@ -319,6 +328,69 @@ export function localCodexFiles(home) {
         }
       }
       return open;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// This machine's Kiro sessions, under `<config>/sessions`.
+//
+// Kiro names a session's directory after the workspace it ran in:
+// `sessions/<sha256(cwd) first 16 hex>/sess_<uuid>/messages.jsonl`. Herdr
+// reports no Kiro session id, so the pane's cwd gives the workspace hash and
+// the newest `sess_` directory under it holds the pane's conversation. A
+// reported session, should herdr ever give one, is preferred.
+
+const SESS_DIR = /^sess_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+export function localKiroStore(configDir) {
+  const sessions = join(configDir, "sessions");
+  // The transcript of one session directory, or null when it has no messages file.
+  async function transcriptOf(hash, sessionDir) {
+    const path = join(sessions, hash, sessionDir, "messages.jsonl");
+    try {
+      const info = await stat(path);
+      return info.isFile() ? { path, mtimeMs: info.mtimeMs } : null;
+    } catch (error) {
+      if (absent(error)) return null;
+      throw error;
+    }
+  }
+  return {
+    configDir,
+    // { session, hashes }: a reported session uuid (or null), and the workspace
+    // hashes to look under, most specific first. Returns { session, path } for
+    // the newest session with a transcript, or null when none is written yet.
+    async locate({ session = null, hashes = [] } = {}) {
+      for (const hash of hashes) {
+        if (typeof hash !== "string" || !/^[0-9a-f]{16}$/u.test(hash)) continue;
+        let entries;
+        try {
+          entries = await readdir(join(sessions, hash));
+        } catch (error) {
+          if (absent(error) || error?.code === "EACCES") continue;
+          throw error;
+        }
+        const dirs = entries.filter((name) => SESS_DIR.test(name));
+        // Herdr reported a session: only that one in this workspace is the pane's.
+        if (session !== null && KIRO_SESSION_ID.test(session)) {
+          const named = `sess_${session}`;
+          if (!dirs.includes(named)) continue;
+          const found = await transcriptOf(hash, named);
+          if (found) return { session, path: found.path };
+          continue;
+        }
+        // No reported session: the newest sess_ with a transcript is the pane's.
+        let best = null;
+        for (const dir of dirs) {
+          const found = await transcriptOf(hash, dir);
+          if (found && (best === null || found.mtimeMs > best.mtimeMs)) {
+            best = { session: SESS_DIR.exec(dir)[1], path: found.path, mtimeMs: found.mtimeMs };
+          }
+        }
+        if (best) return { session: best.session, path: best.path };
+      }
+      return null;
     },
   };
 }

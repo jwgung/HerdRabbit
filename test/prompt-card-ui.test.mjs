@@ -10,8 +10,8 @@ import { TERMINAL_FONT_SIZE_STORAGE_KEY } from "../public/terminal-preference.js
 
 const card = { id: "abc123def456", agent: "claude", title: "Bash command", options: [{ label: "Yes" }, { label: "No" }], customOptionIndex: null };
 
-test("a Claude, Codex or OpenCode pane is watched for a card whatever its status; other panes only while blocked", () => {
-  for (const agent of ["claude", "codex", "opencode"]) {
+test("a Claude, Codex, OpenCode or Kiro pane is watched for a card whatever its status; other panes only while blocked", () => {
+  for (const agent of ["claude", "codex", "opencode", "kiro"]) {
     for (const status of ["blocked", "idle", "working", "done", "unknown", null]) assert.equal(shouldWatchPrompt(status, agent), true);
   }
   for (const agent of [null, "gemini", "unknown"]) {
@@ -76,6 +76,7 @@ test("the dock shows the card in the Chat lens, a banner over the terminal, the 
   assert.equal(dockMode({ card, lens: "terminal", expanded: true }), "overlay");
   assert.equal(bannerText(card), "Claude is asking: Bash command");
   assert.equal(bannerText({ ...card, agent: "codex", title: "Would you like to run the following command?" }), "Codex is asking: Would you like to run the following command?");
+  assert.equal(bannerText({ ...card, agent: "kiro", title: "Run this command?" }), "Kiro is asking: Run this command?");
   assert.equal(bannerText({ ...card, fallback: true }), "This pane is waiting for input");
 });
 
@@ -93,6 +94,7 @@ test("the working row shows while the agent works, or briefly after a send, neve
   assert.equal(workingText(null, now), "Claude is working");
   assert.equal(workingText(now - 5_000, now, "codex"), "Codex is working · 5s");
   assert.equal(workingText(now - 5_000, now, "opencode"), "OpenCode is working · 5s");
+  assert.equal(workingText(now - 5_000, now, "kiro"), "Kiro is working · 5s");
   assert.equal(workingText(null, now, "gemini"), "The agent is working");
 });
 

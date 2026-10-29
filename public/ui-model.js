@@ -585,6 +585,8 @@ const MARKED_AGENTS = [
   ["codex", ["codex"]],
   ["agy", ["agy", "antigravity"]],
   ["opencode", ["opencode"]],
+  ["cursor", ["cursor"]],
+  ["kiro", ["kiro"]],
 ];
 
 // The marked agent a lower-case program name starts with, or null.

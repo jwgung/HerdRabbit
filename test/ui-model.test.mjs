@@ -817,6 +817,11 @@ test("picks a program mark from the agent a pane names", () => {
   assert.equal(paneAgentKind({}, { agent: "Antigravity" }), "agy");
   assert.equal(paneAgentKind({ agent: "opencode" }, null), "opencode");
   assert.equal(paneAgentKind({}, { agent: "OpenCode" }), "opencode");
+  assert.equal(paneAgentKind({ agent: "cursor" }, null), "cursor");
+  assert.equal(paneAgentKind({}, { agent: "Cursor" }), "cursor");
+  assert.equal(paneAgentKind({ agent_session: { agent: "cursor-agent" } }, null), "cursor");
+  assert.equal(paneAgentKind({ agent: "kiro" }, null), "kiro");
+  assert.equal(paneAgentKind({}, { agent: "Kiro" }), "kiro");
   assert.equal(paneAgentKind({}, null), "shell");
   assert.equal(paneAgentKind({ agent: "bash" }, { name: "builder" }), "shell");
   assert.equal(paneAgentKind({ agent: "  " }, { agent: "" }), "shell");
