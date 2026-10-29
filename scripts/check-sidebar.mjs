@@ -13,7 +13,8 @@
 // alone; the row opens the grid on a desktop and the pane with the map on a
 // phone, stays highlighted while one of its panes is selected, and its ⋯ menu
 // renames, separates and closes the whole session. A folded sidebar's rail
-// lists the sessions even with the Files tab chosen.
+// lists the sessions even with the Files tab chosen, and keeps the footer's
+// uploads and settings buttons.
 // Runs against a fake herdr on a desktop and a phone layout.
 // SIDEBAR_SCREENSHOTS=<folder> keeps pictures in both themes.
 import assert from "node:assert/strict";
@@ -449,6 +450,18 @@ try {
       await page.waitForTimeout(500);
       assert.equal(await page.locator("#file-panel").isVisible(), false, "the rail does not show the file tree");
       assert.equal(await page.locator("#workspace-list").isVisible(), true, "the rail shows the sessions");
+      // The footer's two controls stay in reach, inside the rail.
+      for (const selector of ["#file-uploads", ".navigator-footer .settings-button"]) {
+        const box = await page.locator(selector).boundingBox();
+        assert.ok(box && box.x >= 0 && box.x + box.width <= 70, `${selector} sits in the rail`);
+      }
+      if (shots) await page.locator(".navigator").screenshot({ path: join(shots, "sidebar-rail-desktop.png") });
+      await page.locator(".navigator-footer .settings-button").click();
+      await page.waitForTimeout(300);
+      const menuBox = await page.locator(".navigator-footer .settings-menu .sidebar-action-popover").boundingBox();
+      assert.ok(menuBox && menuBox.x >= 0 && menuBox.y >= 0, "the settings menu opens on screen from the rail");
+      await page.keyboard.press("Escape");
+      await page.locator(".navigator-footer .settings-button").click().catch(() => {});
       await page.locator("#sidebar-toggle").click();
       await page.waitForTimeout(500);
       assert.equal(await page.locator("#file-panel").isVisible(), true, "Files is back once unfolded");

@@ -163,10 +163,15 @@ body.sidebar-collapsed .navigator {
   transform: translateX(calc(-1 * (var(--navigator-width, 310px) - var(--sidebar-rail))));
 }
 
-/* The rail is for moving between sessions. The footer's controls stay with the
-   expanded sidebar, and the rail gets their height back. */
+/* The rail is for moving between sessions, but the footer's two controls (the
+   uploads folder and the settings menu, the only way to Update) stay within
+   reach: stacked in the rail, which is the sidebar's last --sidebar-rail. */
 body.sidebar-collapsed .navigator-footer {
-  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 0 12px calc(var(--navigator-width, 310px) - var(--sidebar-rail));
 }
 
 body.sidebar-collapsed .navigator-tabs {

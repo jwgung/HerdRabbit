@@ -30,9 +30,10 @@ test("this machine's dot says whether the page is connected, instead of a footer
   assert.match(app, /function serverConnection\(server\) \{\s*if \(server\.id === "local" && state\.connection\.kind === "error"\)/u);
   assert.match(app, /const connection = serverConnection\(server\);/u);
   assert.match(styles, /\.server-heading\.is-error \.server-icon \{ stroke: var\(--danger\); \}/u);
-  // With the footer dot gone the rail has no footer at all; its height goes to
-  // the sessions.
-  assert.match(styles, /body\.sidebar-collapsed \.navigator-footer \{\s*display: none;\s*\}/u);
+  // The rail keeps the footer's two controls (uploads, and settings with
+  // Update), stacked in the rail's width, instead of hiding the footer.
+  assert.match(styles, /body\.sidebar-collapsed \.navigator-footer \{\s*flex-direction: column;/u);
+  assert.doesNotMatch(styles, /body\.sidebar-collapsed \.navigator-footer \{\s*display: none;/u);
   // The footer's two controls sit at opposite ends: uploads at the start, settings at the end.
   assert.match(styles, /:is\(\.navigator-footer, \.ui-sidebar-footer\) \{[^}]*justify-content: space-between;/u);
   assert.match(styles, /\.navigator \.navigator-footer \{\s*grid-row: 4;\s*justify-content: space-between;\s*\}/u);
