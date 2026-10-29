@@ -8,7 +8,7 @@ globalThis.ResizeObserver = class { observe() {} };
 // Frames never come: the link underlines are not drawn here.
 globalThis.requestAnimationFrame = () => 0;
 globalThis.cancelAnimationFrame = () => {};
-const { createAttachedTerminal, mirrorFrame } = await import("../public/xterm-terminal.js");
+const { createAttachedTerminal, mirrorFrame, disposeTerminal, createScanScheduler } = await import("../public/xterm-terminal.js");
 
 // xterm stand-ins: writes wait until the test lets them finish, as xterm's do.
 class Terminal {
@@ -602,4 +602,57 @@ test("a failed attach tells the page why and until when, and Reconnect tries it 
   view.show("c");
   receive({ type: "attach-unavailable", pane_id: "c", code: "attach_unsupported" });
   assert.equal(problems.at(-1).retryAt, Infinity, "never tried again");
+});
+
+test("disposing a terminal also disposes xterm's screen DPR monitor, once, and copes with its absence", () => {
+  const calls = [];
+  const monitor = { dispose: () => calls.push("monitor") };
+  const term = {
+    _core: { viewport: {}, _coreBrowserService: { _screenDprMonitor: monitor } },
+    dispose() { calls.push("term"); this._core._coreBrowserService = undefined; },
+  };
+  disposeTerminal(term);
+  assert.deepEqual(calls, ["term", "monitor"]);
+  const bare = { _core: { viewport: {} }, dispose() { calls.push("bare"); } };
+  disposeTerminal(bare);
+  disposeTerminal({ _core: { viewport: {}, _coreBrowserService: { _screenDprMonitor: {} } }, dispose() {} });
+  assert.equal(calls.at(-1), "bare");
+});
+
+test("link scans run at most every interval, the last request is never lost, and flush scans on the next frame", () => {
+  let time = 0;
+  const timers = [];
+  const frames = [];
+  let scans = 0;
+  const scheduler = createScanScheduler(() => { scans += 1; }, {
+    interval: 250, now: () => time,
+    setTimer: (fn, ms) => timers.push({ fn, at: time + ms, live: true }) - 1,
+    clearTimer: (id) => { timers[id].live = false; },
+    frame: (fn) => frames.push(fn) - 1,
+    cancelFrame: (id) => { frames[id] = null; },
+  });
+  const runFrames = () => { for (const fn of frames.splice(0)) fn?.(); };
+  const advance = (to) => { time = to; for (const t of timers) if (t.live && t.at <= to) { t.live = false; t.fn(); } runFrames(); };
+  scheduler.schedule();
+  scheduler.schedule();
+  runFrames();
+  assert.equal(scans, 1);
+  time = 100;
+  scheduler.schedule();
+  scheduler.schedule();
+  runFrames();
+  assert.equal(scans, 1, "held until the interval is over");
+  advance(250);
+  assert.equal(scans, 2, "the held request runs once at the end of the interval");
+  time = 300;
+  scheduler.schedule();
+  scheduler.flush();
+  runFrames();
+  assert.equal(scans, 3, "flush does not wait");
+  advance(400);
+  assert.equal(scans, 3, "the held request was replaced by the flush");
+  scheduler.schedule();
+  scheduler.cancel();
+  advance(1000);
+  assert.equal(scans, 3);
 });

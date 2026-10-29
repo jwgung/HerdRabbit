@@ -74,6 +74,9 @@ const MIRROR_SCROLLBACK = 1000;
 // (opened, then hidden before xterm measured it), that work reads a renderer
 // that is not there and throws. A terminal let go has nothing left to
 // measure, so that work is made a no-op before xterm is disposed.
+// xterm also never disposes its screen DPR monitor, which keeps a window
+// `resize` and a media-query listener per terminal alive for good; it is let
+// go here once xterm is.
 // (xterm 5.5 private API; the bundle is pinned.)
 export function disposeTerminal(term) {
   const viewport = term?._core?.viewport;
@@ -83,7 +86,44 @@ export function disposeTerminal(term) {
   } else if (term) {
     console.warn("xterm's viewport is missing: a terminal let go at once may still measure itself.");
   }
+  const dprMonitor = term?._core?._coreBrowserService?._screenDprMonitor;
   term?.dispose();
+  dprMonitor?.dispose?.();
+}
+
+// How often the screen is scanned for links and find marks at most. Every
+// rendered frame of a streaming pane used to scan the whole screen.
+const LINK_SCAN_INTERVAL_MS = 250;
+
+// Runs `run` on a frame, but not again sooner than `interval` after it last
+// ran: a request inside that time is held and runs once, at its end, so the
+// last state is always scanned. `flush` asks for a run on the next frame
+// whatever the time. The clocks are parameters so a test can drive them.
+export function createScanScheduler(run, { interval = LINK_SCAN_INTERVAL_MS, now = () => performance.now(),
+  setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = (id) => clearTimeout(id),
+  frame = (fn) => requestAnimationFrame(fn), cancelFrame = (id) => cancelAnimationFrame(id) } = {}) {
+  let last = -Infinity;
+  let pending = null;
+  const fire = () => {
+    pending = null;
+    last = now();
+    run();
+  };
+  const start = (wait) => {
+    pending = wait > 0
+      ? { id: setTimer(() => { pending = { frame: true, id: frame(fire) }; }, wait), frame: false }
+      : { id: frame(fire), frame: true };
+  };
+  const cancel = () => {
+    if (!pending) return;
+    if (pending.frame) cancelFrame(pending.id); else clearTimer(pending.id);
+    pending = null;
+  };
+  return {
+    schedule() { if (!pending) start(last + interval - now()); },
+    flush() { cancel(); start(0); },
+    cancel,
+  };
 }
 
 export function createAttachedTerminal({ host, connection, xterm, fontSize, onFallback, onStateChange = () => {},
@@ -188,7 +228,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       if (!event.ctrlKey && !event.metaKey && event.deltaY !== 0) onViewMoved();
     }, { capture: true, passive: true });
     term.onRender(scheduleLinks);
-    term.onResize(scheduleLinks);
+    term.onResize(scheduleLinksNow);
     // Ctrl+V pastes through the browser (xterm brackets it); Ctrl+C copies a selection.
     // Ctrl+Enter is a line feed, Ctrl+J, as a native terminal gives it: a new
     // line in Claude Code and Codex rather than sending. xterm alone would make
@@ -398,13 +438,15 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   // screen cell of herdr's current match, marked apart.
   let findMarks = null;
   let find = null;
-  let linksFrame = null;
+  const linkScans = createScanScheduler(() => { if (!disposed) refreshLinks(); });
   function scheduleLinks() {
-    if (disposed || !marks || linksFrame !== null) return;
-    linksFrame = requestAnimationFrame(() => {
-      linksFrame = null;
-      refreshLinks();
-    });
+    if (disposed || !marks) return;
+    linkScans.schedule();
+  }
+  // A resize or a new find query shows at once rather than on the next scan.
+  function scheduleLinksNow() {
+    if (disposed || !marks) return;
+    linkScans.flush();
   }
 
   function refreshLinks() {
@@ -417,8 +459,11 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     }
     screenLinks = findScreenLinks(rows, { isLinkablePath });
     const screen = marks.parentElement;
-    const cellWidth = screen ? screen.offsetWidth / term.cols : 0;
-    const cellHeight = screen ? screen.offsetHeight / term.rows : 0;
+    // xterm already measured the cell; asking the screen's size instead
+    // forces a layout on every scan.
+    const cell = term._core?._renderService?.dimensions?.css?.cell;
+    const cellWidth = cell?.width > 0 ? cell.width : screen ? screen.offsetWidth / term.cols : 0;
+    const cellHeight = cell?.height > 0 ? cell.height : screen ? screen.offsetHeight / term.rows : 0;
     findMarks.replaceChildren(...(find ? findOccurrences(rows, find.query, find.current) : []).map((found) => {
       const mark = findMarks.ownerDocument.createElement("span");
       if (found.current) mark.className = "is-current";
@@ -749,7 +794,7 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
     // on screen) apart; null clears the marks.
     setFind(next) {
       find = next && next.query ? { query: next.query, current: next.current ?? null } : null;
-      scheduleLinks();
+      scheduleLinksNow();
     },
     focus() { term?.focus(); },
     // Lets the pane go and frees the terminal for good (a grid cell that left).
@@ -765,9 +810,8 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       for (const timer of retryTimers.values()) clearTimeout(timer);
       retryTimers.clear();
       if (fitFrame !== null) cancelAnimationFrame(fitFrame);
-      if (linksFrame !== null) cancelAnimationFrame(linksFrame);
+      linkScans.cancel();
       fitFrame = null;
-      linksFrame = null;
       sizeWatch?.disconnect();
       sizeWatch = null;
       heldFrame = null;
