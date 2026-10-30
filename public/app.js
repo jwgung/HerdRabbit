@@ -2,7 +2,7 @@ import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?
 import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.4.13";
 import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.4.13";
 import { createUpdatePanel } from "./app-update.js?v=1.4.13";
-import { createApiClient } from "./api-client.js?v=1.4.13";
+import { createApiClient, paneApi } from "./api-client.js?v=1.4.13";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -543,6 +543,7 @@ const { api, transferRequest, conversationRequest } = createApiClient({
     showLogin();
   },
 });
+const paneCalls = paneApi(api);
 
 // The list above the composer: `@` file references (names in the pane's
 // folder) and, at the start of the text, the `/` commands of the pane's
@@ -571,7 +572,7 @@ const composerPopup = createComposerPopup({
         const pane = selectedRecords().pane;
         return { paneId, agent: chatAgent(pane, agentForPane(paneId)), cwd: pane?.foreground_cwd || pane?.cwd || null };
       },
-      fetchCommands: (paneId) => api(`/api/panes/${encodeURIComponent(paneId)}/commands`),
+      fetchCommands: (paneId) => paneCalls.commands(paneId),
     }),
   ],
 });
@@ -3690,7 +3691,7 @@ function paneLayoutFor(tabId) {
     paneLayout.loadingKey = key;
     const read = ++paneLayout.reads;
     paneLayout.latest.set(key, read);
-    api(`/api/panes/${encodeURIComponent(paneIds[0])}/layout`)
+    paneCalls.layout(paneIds[0])
       .then((payload) => payload?.layout ?? null, () => null)
       .then((layout) => {
         if (paneLayout.latest.get(key) !== read) return;
@@ -4216,7 +4217,7 @@ async function movePanesOut(paneIds) {
   try {
     for (const paneId of paneIds) {
       try {
-        const result = await api(`/api/panes/${encodeURIComponent(paneId)}/move-out`, { method: "POST", body: {} });
+        const result = await paneCalls.moveOut(paneId);
         left -= 1;
         const movedTo = typeof result?.pane_id === "string" ? result.pane_id : paneId;
         if (movedTo !== paneId) {
@@ -4256,7 +4257,7 @@ async function evenOutLayout(paneId) {
   let notice;
   let failed = false;
   try {
-    const result = await api(`/api/panes/${encodeURIComponent(paneId)}/even-layout`, { method: "POST", body: {} });
+    const result = await paneCalls.evenLayout(paneId);
     if (result?.even === false) {
       notice = result.message || "Could not even out the layout.";
       failed = true;
@@ -4314,7 +4315,7 @@ async function paneGridAction(paneId, action, body = {}) {
   const at = siblings.indexOf(paneId);
   const neighbour = siblings[at + 1] ?? siblings[at - 1] ?? null;
   try {
-    result = await api(`/api/panes/${encodeURIComponent(paneId)}/${action}`, { method: "POST", body });
+    result = await paneCalls.act(paneId, action, body);
     if (action === "close" && state.selectedPaneId === paneId && neighbour) {
       state.selectedPaneId = neighbour;
       state.preferredPaneId = neighbour;
@@ -4369,7 +4370,7 @@ async function movePaneIntoSplit(request) {
   let movedTo = null;
   let unplaced = null;
   try {
-    const result = await api(`/api/panes/${encodeURIComponent(request.paneId)}/move`, { method: "POST", body: request.body });
+    const result = await paneCalls.move(request.paneId, request.body);
     movedTo = typeof result?.pane_id === "string" ? result.pane_id : null;
     if (movedTo && movedTo !== request.paneId) {
       followMovedPaneState([{ from: request.paneId, to: movedTo }]);
@@ -4408,8 +4409,8 @@ async function rearrangeGridPanes({ paneId, targetPaneId, kind, side }) {
   let notice = null;
   try {
     const result = kind === "swap"
-      ? await api(`/api/panes/${encodeURIComponent(paneId)}/swap`, { method: "POST", body: { targetPaneId } })
-      : await api(`/api/panes/${encodeURIComponent(paneId)}/relocate`, { method: "POST", body: { targetPaneId, side } });
+      ? await paneCalls.swap(paneId, targetPaneId)
+      : await paneCalls.relocate(paneId, targetPaneId, side);
     if (typeof result?.pane_id === "string" && result.pane_id !== paneId) {
       finalId = result.pane_id;
       followMovedPaneState([{ from: paneId, to: finalId }]);
@@ -4578,7 +4579,7 @@ let terminalParkTimer = null;
 function showNewestTerminalOutput(paneId, { retry = true } = {}) {
   const attached = attachedTerminal.scrollToBottom();
   if (!attached && state.terminalParked !== paneId) return;
-  api(`/api/panes/${encodeURIComponent(paneId)}/scroll-bottom`, { method: "POST", body: {} }).catch(() => {
+  paneCalls.scrollToBottom(paneId).catch(() => {
     if (!retry) return;
     window.setTimeout(() => {
       if (chatLens.lens === "terminal" && state.selectedPaneId === paneId) showNewestTerminalOutput(paneId, { retry: false });
@@ -4679,8 +4680,8 @@ terminalFind = createTerminalFind({
   olderButton: document.querySelector("#terminal-find-older"),
   newerButton: document.querySelector("#terminal-find-newer"),
   closeButton: document.querySelector("#terminal-find-close"),
-  search: (paneId, body) => api(`/api/panes/${encodeURIComponent(paneId)}/find`, { method: "POST", body }),
-  reveal: (paneId, body) => api(`/api/panes/${encodeURIComponent(paneId)}/reveal`, { method: "POST", body }),
+  search: (paneId, body) => paneCalls.find(paneId, body),
+  reveal: (paneId, body) => paneCalls.reveal(paneId, body),
   // How many terminal rows the bar lies over, measured, so a match is
   // scrolled clear of it whatever the bar's size.
   coverRows: () => {
