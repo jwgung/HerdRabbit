@@ -109,7 +109,7 @@ try {
       }
       const keys = ["Edit keys"];
       // Fitting a grid's panes to the window is for a wide screen's grid.
-      const windowItems = mobile ? [] : ["Fit panes to this window: On"];
+      const windowItems = mobile ? [] : ["Fit panes to this window"];
       assert.deepEqual(
         labels.slice(full ? 1 : 0),
         full ? [labels[1], ...keys, ...windowItems, "Passkeys", "Signed-in devices"] : [labels[0], ...keys, ...windowItems],
@@ -133,15 +133,30 @@ try {
       assert.match(await menu.getByRole("menuitem", { name: /Switch to/ }).textContent(), before === "dark" ? /dark mode/ : /light mode/);
 
       if (!mobile) {
-        // Fit panes to this window: off and on again, kept in this browser.
-        for (const [label, stored, checked] of [["Fit panes to this window: Off", "off", "false"], ["Fit panes to this window: On", "on", "true"]]) {
-          await menu.locator('[data-action="grid-fit"]').click();
+        // Fit panes to this window: off and on again, kept in this browser. The
+        // label stays; on or off is the item's colour (accent / muted) and its
+        // accessible name.
+        const fit = menu.locator('[data-action="grid-fit"]');
+        const fitColour = () => fit.evaluate((node) => {
+          const probe = document.createElement("span");
+          probe.style.color = node.dataset.toggle === "on" ? "var(--accent)" : "var(--muted)";
+          node.append(probe);
+          const value = [getComputedStyle(node).color, getComputedStyle(probe).color];
+          probe.remove();
+          return value;
+        });
+        for (const [state, stored, checked] of [["off", "off", "false"], ["on", "on", "true"]]) {
+          await fit.click();
           await menu.waitFor({ state: "hidden" });
           assert.equal(await page.evaluate(() => localStorage.getItem("herdrbridge-grid-fit")), stored);
           await button.click();
           await menu.waitFor({ state: "visible" });
-          assert.equal(await menu.locator('[data-action="grid-fit"] span').textContent(), label);
-          assert.equal(await menu.locator('[data-action="grid-fit"]').getAttribute("aria-checked"), checked);
+          assert.equal(await fit.locator("span").textContent(), "Fit panes to this window");
+          assert.equal(await fit.getAttribute("data-toggle"), state);
+          assert.equal(await fit.getAttribute("aria-checked"), checked);
+          assert.equal(await fit.getAttribute("aria-label"), `Fit panes to this window, ${state}`);
+          const [colour, expected] = await fitColour();
+          assert.equal(colour, expected, `the item takes the ${state} colour`);
         }
       }
 

@@ -983,10 +983,13 @@ function syncSettingsMenu() {
   gridFit.hidden = !desktopMedia.matches;
   gridFit.setAttribute("role", "menuitemcheckbox");
   gridFit.setAttribute("aria-checked", String(paneGrid.fit));
-  setLabel(gridFit, `Fit panes to this window: ${paneGrid.fit ? "On" : "Off"}`);
+  setLabel(gridFit, "Fit panes to this window");
+  // On or off shows as the item's colour, as Notifications does.
+  gridFit.dataset.toggle = paneGrid.fit ? "on" : "off";
   gridFit.title = paneGrid.fit
-    ? "A grid sizes each pane to its cell (other screens on those panes see that size while it is open)"
-    : "A grid keeps each pane at Herdr's size and scales its text to fit";
+    ? "On: a grid sizes each pane to its cell (other screens on those panes see that size while it is open)"
+    : "Off: a grid keeps each pane at Herdr's size and scales its text to fit";
+  gridFit.setAttribute("aria-label", `Fit panes to this window, ${paneGrid.fit ? "on" : "off"}`);
   item("grid-font").hidden = paneGrid.fit || paneGrid.manualFont === null;
   const push = settingsMenu.push;
   const notifications = item("notifications");
