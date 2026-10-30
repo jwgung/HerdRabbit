@@ -255,23 +255,28 @@ export class ConversationService {
       return { paneId, serverId, agent, format, store, session, path: found.value, key: found.key };
     }
     if (agent === "opencode") return this.#resolveOpencode(paneId, { serverId, agent, format, own, pane, panes: snapshot?.panes ?? [] });
-    if (agent === "kiro") return this.#resolveKiro(paneId, { serverId, agent, format, own, cwds });
+    if (agent === "kiro") return this.#resolveKiro(paneId, { serverId, agent, format, own, cwds, pane, panes: snapshot?.panes ?? [] });
     if (agent === "agy") return this.#resolveAgy(paneId, { serverId, agent, format });
     return this.#resolveCodex(paneId, { serverId, agent, format, own, cwds });
   }
 
   // Kiro writes its transcript under a directory named for the workspace it ran
   // in: `<config>/sessions/<sha256(cwd) first 16 hex>/sess_<uuid>/messages.jsonl`.
-  // Herdr reports no Kiro session id, so the pane's cwd names the workspace
-  // directory and the newest `sess_` in it is the pane's conversation. With more
-  // than one cwd (foreground and start), each is tried in turn.
-  async #resolveKiro(paneId, { serverId, agent, format, own, cwds }) {
+  // Herdr reports no Kiro session id. The pane's own Kiro process says which
+  // session it runs (the log it holds open names it); without that, the newest
+  // `sess_` under the cwd's hash is the pane's, but only while it is the one
+  // Kiro pane in that folder: two panes there would both show the same one.
+  async #resolveKiro(paneId, { serverId, agent, format, own, cwds, pane, panes }) {
     const store = this.#store(serverId)?.kiro;
     if (!store) throw this.#noStore();
-    // Herdr may one day report a session id; prefer it when it is a sess uuid.
-    const reported = own && (own.kind === undefined || own.kind === "id") && typeof own.value === "string"
+    const reportedId = own && (own.kind === undefined || own.kind === "id") && typeof own.value === "string"
       && KIRO_SESSION_ID.test(own.value) ? own.value : null;
+    const running = reportedId === null && typeof store.sessionsOfPids === "function"
+      ? await this.#located(`kiro-pid\0${serverId}\0${paneId}`, () => this.#kiroRunningSession(store, paneId))
+      : { value: null };
+    const reported = reportedId ?? running.value;
     const hashes = cwds.map((cwd) => kiroWorkspaceHash(cwd)).filter((hash) => hash !== null);
+    if (reported === null && this.#kiroFolderShared(pane, panes, serverId)) throw new ConversationUnavailable("no_session_id");
     const found = await this.#located(`kiro\0${serverId}\0${reported ?? ""}\0${hashes.join("\0")}`,
       () => store.locate({ session: reported, hashes }));
     if (found.value === null) {
@@ -280,6 +285,34 @@ export class ConversationService {
     }
     const { session, path } = found.value;
     return { paneId, serverId, agent, format, store: this.#store(serverId), session, path, key: found.key };
+  }
+
+  // The one session the pane's foreground processes run Kiro on, by the log
+  // Kiro holds open; null when none or more than one says.
+  async #kiroRunningSession(store, paneId) {
+    if (typeof this.herdr.paneProcessInfo !== "function") return null;
+    try {
+      const info = await this.herdr.paneProcessInfo(paneId);
+      const processes = info?.process_info?.foreground_processes ?? info?.foreground_processes ?? [];
+      if (!Array.isArray(processes)) return null;
+      const sessions = await store.sessionsOfPids(processes.map((item) => item?.pid));
+      return sessions.length === 1 ? sessions[0] : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Whether another Kiro pane of this server works in this pane's folder: the
+  // folder's newest session could then be either pane's.
+  #kiroFolderShared(pane, panes, serverId) {
+    const folderOf = (candidate) => [candidate?.foreground_cwd, candidate?.cwd]
+      .find((value) => typeof value === "string" && value.startsWith("/")) ?? null;
+    const folder = folderOf(pane);
+    if (folder === null) return false;
+    return panes.some((peer) => peer && peer !== pane && peer.pane_id !== pane.pane_id
+      && paneAgentName(peer) === "kiro"
+      && (typeof peer.server_id === "string" && peer.server_id ? peer.server_id : LOCAL) === serverId
+      && folderOf(peer) === folder);
   }
 
   // agy writes its ledger under a session directory named by a uuid, with no

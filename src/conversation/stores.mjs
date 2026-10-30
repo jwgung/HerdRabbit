@@ -58,7 +58,7 @@ async function isFile(path, statFile = stat) {
 }
 
 // `statFile`: how a candidate file is looked at (a test counts the calls).
-export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), codexHome = defaultCodexHome(), opencodeDb = defaultOpencodeDb(), kiroConfigDir = defaultKiroConfigDir(), agyDataDir = defaultAgyDataDir(), limits = LOCAL_LIMITS, statFile = stat } = {}) {
+export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), codexHome = defaultCodexHome(), opencodeDb = defaultOpencodeDb(), kiroConfigDir = defaultKiroConfigDir(), agyDataDir = defaultAgyDataDir(), procRoot = "/proc", limits = LOCAL_LIMITS, statFile = stat } = {}) {
   const projects = join(configDir, "projects");
   // session id -> the file a project scan found it in; checked again on every use
   const found = new Map();
@@ -69,7 +69,7 @@ export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), cod
     codexHome,
     codex: localCodexFiles(codexHome),
     opencode: localOpencodeStore({ path: opencodeDb }),
-    kiro: localKiroStore(kiroConfigDir),
+    kiro: localKiroStore(kiroConfigDir, { procRoot }),
     agy: localAgyStore(agyDataDir),
     ...limits,
     async locate(session, projectDirs) {
@@ -339,14 +339,25 @@ export function localCodexFiles(home) {
 //
 // Kiro names a session's directory after the workspace it ran in:
 // `sessions/<sha256(cwd) first 16 hex>/sess_<uuid>/messages.jsonl`. Herdr
-// reports no Kiro session id, so the pane's cwd gives the workspace hash and
-// the newest `sess_` directory under it holds the pane's conversation. A
-// reported session, should herdr ever give one, is preferred.
+// reports no Kiro session id. The pane's own Kiro process says which session it
+// runs: one of its processes holds its log (`<config>/logs/<started>/kiro.log`)
+// open, and the log names the session it loads. Without that (no /proc, or a
+// process that has not logged yet), the newest `sess_` under the cwd's hash is
+// the pane's, but only while no other Kiro pane works in the same folder.
 
 const SESS_DIR = /^sess_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+// The session a Kiro log line is about: the one a session/new or load names,
+// or the conversation a later line belongs to.
+const LOG_SESSION_RE = /(?:sessionId=|\\?"(?:sessionId|conversationId)\\?":\\?")sess_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/giu;
+// How much of a log's end is read for the session it is on now.
+const LOG_TAIL_BYTES = 256 * 1024;
+// A process tree walked for its open log, at most.
+const MAX_TREE = 64;
+const MAX_KIRO_DESCRIPTORS = 512;
 
-export function localKiroStore(configDir) {
+export function localKiroStore(configDir, { procRoot = "/proc" } = {}) {
   const sessions = join(configDir, "sessions");
+  const logs = join(configDir, "logs");
   // The transcript of one session directory, or null when it has no messages file.
   async function transcriptOf(hash, sessionDir) {
     const path = join(sessions, hash, sessionDir, "messages.jsonl");
@@ -358,8 +369,67 @@ export function localKiroStore(configDir) {
       throw error;
     }
   }
+  // `pids` and the processes under them, breadth first: Kiro's log is held by
+  // a worker a few levels below the kiro-cli herdr names.
+  async function tree(pids) {
+    const seen = new Set();
+    const queue = pids.filter((pid) => Number.isSafeInteger(pid) && pid > 1);
+    while (queue.length > 0 && seen.size < MAX_TREE) {
+      const pid = queue.shift();
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      for (const task of await names(join(procRoot, String(pid), "task"))) {
+        let children = "";
+        try { children = await readFile(join(procRoot, String(pid), "task", task, "children"), "utf8"); } catch { continue; }
+        for (const child of children.split(/\s+/u)) {
+          const value = Number(child);
+          if (Number.isSafeInteger(value) && value > 1 && !seen.has(value)) queue.push(value);
+        }
+      }
+    }
+    return [...seen];
+  }
+  // The Kiro logs a process holds open, as paths under <config>/logs.
+  async function heldLogs(pid) {
+    const held = new Set();
+    for (const descriptor of (await names(join(procRoot, String(pid), "fd"))).slice(0, MAX_KIRO_DESCRIPTORS)) {
+      try {
+        const target = await readlink(join(procRoot, String(pid), "fd", descriptor));
+        if (target.startsWith(`${logs}${sep}`) && target.endsWith(`${sep}kiro.log`)) held.add(target);
+      } catch { /* a descriptor may close while it is read */ }
+    }
+    return held;
+  }
+  // The session a log names last: the one its process is on now.
+  async function lastSessionIn(path) {
+    let handle;
+    try {
+      handle = await open(path, "r");
+      const { size } = await handle.stat();
+      const start = Math.max(0, size - LOG_TAIL_BYTES);
+      const buffer = Buffer.alloc(size - start);
+      await handle.read(buffer, 0, buffer.length, start);
+      return [...buffer.toString("utf8").matchAll(LOG_SESSION_RE)].at(-1)?.[1]?.toLowerCase() ?? null;
+    } catch {
+      return null;
+    } finally {
+      await handle?.close();
+    }
+  }
   return {
     configDir,
+    // The sessions these pids' Kiro runs, by the log one of their processes
+    // holds open. Distinct ids; none without /proc or before Kiro has logged.
+    async sessionsOfPids(pids) {
+      const found = new Set();
+      for (const pid of await tree(pids)) {
+        for (const log of await heldLogs(pid)) {
+          const session = await lastSessionIn(log);
+          if (session !== null) found.add(session);
+        }
+      }
+      return [...found];
+    },
     // { session, hashes }: a reported session uuid (or null), and the workspace
     // hashes to look under, most specific first. Returns { session, path } for
     // the newest session with a transcript, or null when none is written yet.
