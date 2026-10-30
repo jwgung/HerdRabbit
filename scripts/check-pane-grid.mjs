@@ -1013,6 +1013,49 @@ try {
         aspect: board.width / board.height, stageAspect: stage.width / stage.height, room,
         board: [Math.round(board.width), Math.round(board.height)], stage: [Math.round(stage.width), Math.round(stage.height)] };
     });
+    // The board the grid would need at `font`, measured as pane-grid.js's
+    // letterbox measures it (a W's width, the font's ascent and descent, a cell's
+    // chrome as it is now), and the room it has.
+    const nextStepBoard = (page, font) => page.evaluate((font) => {
+      const root = document.querySelector(".pane-grid:not([hidden])");
+      const boardNode = root.querySelector(".pane-grid-board");
+      const style = getComputedStyle(boardNode);
+      const borderX = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+      const borderY = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+      const zoom = root.querySelector(".pane-grid-zoom");
+      const above = !zoom || zoom.hidden ? 0 : zoom.offsetHeight + (parseFloat(getComputedStyle(root).rowGap) || 0);
+      const family = style.getPropertyValue("--mono").trim() || "monospace";
+      const context = document.createElement("canvas").getContext("2d");
+      const measure = (size) => {
+        context.font = `${size}px ${family}`;
+        const text = context.measureText("W");
+        return { charWidth: text.width, charHeight: text.fontBoundingBoxAscent + text.fontBoundingBoxDescent };
+      };
+      const dpr = window.devicePixelRatio || 1;
+      const now = measure(parseFloat(getComputedStyle(root.querySelector(".pane-grid-cell:not([hidden]) .xterm-rows")).fontSize));
+      const next = measure(font);
+      let width = 0;
+      let height = 0;
+      for (const node of root.querySelectorAll(".pane-grid-cell:not([hidden])")) {
+        const body = node.querySelector(".pane-grid-terminal");
+        const screen = node.querySelector(".xterm-screen");
+        const pad = getComputedStyle(node.querySelector(".xterm"));
+        const frame = node.getBoundingClientRect();
+        const rows = node.querySelector(".xterm-rows").childElementCount;
+        const cols = Math.round(screen.offsetWidth / now.charWidth);
+        const inner = body.getBoundingClientRect();
+        const extraX = frame.width - (inner.width - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight));
+        const extraY = frame.height - (inner.height - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom));
+        const screenWidth = Math.round((next.charWidth * dpr * cols) / dpr);
+        const screenHeight = Math.round((Math.ceil(next.charHeight * dpr) * rows) / dpr);
+        width = Math.max(width, (screenWidth + extraX) / (parseFloat(node.style.width) / 100));
+        height = Math.max(height, (screenHeight + extraY) / (parseFloat(node.style.height) / 100));
+      }
+      return {
+        board: [Math.ceil(width) + 1, Math.ceil(height) + 1],
+        room: [root.clientWidth - borderX, root.clientHeight - above - borderY],
+      };
+    }, font);
     const filled = async (page, what) => {
       await gridSettled(page);
       const seen = await fill(page);
@@ -1034,8 +1077,15 @@ try {
       // (or the font is at the grid's cap), whatever the font chosen for one pane.
       const font = parseFloat(seen.cells[0].font);
       assert.ok(seen.room <= 1.001, `${what}: the board fits the stage (${seen.board} in ${seen.stage})`);
-      assert.ok(font >= 32 || seen.room * (font + 0.5) / font >= 0.995,
-        `${what}: the board is as large as a font step allows (${seen.board} in ${seen.stage} at ${font}px)`);
+      // A board short of the stage by more than a step's scale may still be the
+      // largest: a font whose line height rounds (11px at 10px, 12px at 10.5px)
+      // grows by more than its step. Then the next step, measured as the app
+      // measures it, must not fit.
+      if (font < 32 && seen.room * (font + 0.5) / font < 0.995) {
+        const next = await nextStepBoard(page, font + 0.5);
+        assert.ok(next.board[0] > next.room[0] || next.board[1] > next.room[1],
+          `${what}: the board is as large as a font step allows (${seen.board} in ${seen.stage} at ${font}px; ${font + 0.5}px would need ${next.board} in ${next.room})`);
+      }
       return seen;
     };
     const cellOf = (page, paneId) => page.locator(`.pane-grid-cell[data-pane-id="${paneId}"]`);
