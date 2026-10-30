@@ -8,10 +8,12 @@
 // plain functions; slashCommandsSource hands them to the list above the
 // composer (composer-popup.js).
 
+import { agentNamesWith } from "./agents.js?v=1.4.13";
+
 export const MAX_SLASH_MATCHES = 50;
 export const SLASH_DEBOUNCE_MS = 60;
 export const SLASH_CACHE_MS = 10_000;
-export const SLASH_AGENTS = Object.freeze(["claude", "codex", "opencode"]);
+export const SLASH_AGENTS = Object.freeze(agentNamesWith("slash"));
 export const SLASH_SOURCES = Object.freeze(["built-in", "user", "project", "plugin"]);
 
 // The `/command` word the caret is in, or null. Only the text's first word

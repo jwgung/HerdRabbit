@@ -2,6 +2,8 @@
 // Codex's) as a chat, or its terminal.
 // The last one chosen is kept per pane; a pane never chosen for opens in Chat
 // on a phone-sized or touch layout and in Terminal on a desktop.
+import { agentNamesWith, listOfNames, productNamesWith } from "./agents.js?v=1.4.13";
+
 export const LENS_STORAGE_KEY = "herdrbridge-pane-lens";
 export const LENSES = Object.freeze(["chat", "terminal"]);
 // Enough for every pane anyone keeps open; the oldest choices go first.
@@ -73,8 +75,8 @@ export function chooseLens({ stored = null, chatAvailable = false, compact = fal
   return wanted === "chat" && !chatAvailable ? "terminal" : wanted;
 }
 
-// The agents whose conversation the server can read.
-export const CHAT_AGENTS = Object.freeze(["claude", "codex", "opencode", "kiro", "agy"]);
+// The agents whose conversation the server can read (public/agents.js).
+export const CHAT_AGENTS = Object.freeze(agentNamesWith("chat"));
 
 function agentNames(pane, agent) {
   return [pane?.agent, pane?.agent_session?.agent, agent?.agent]
@@ -87,7 +89,7 @@ export function isClaudePane(pane, agent) {
 }
 
 // The agent the snapshot names for this pane when the chat can read its
-// conversation ("claude", "codex", "opencode" or "kiro"), else null. The pane's own agent comes
+// conversation (one of CHAT_AGENTS), else null. The pane's own agent comes
 // first, as the server reads it.
 export function chatAgent(pane, agent) {
   const [name] = agentNames(pane, agent);
@@ -98,7 +100,7 @@ export function chatAgent(pane, agent) {
 const UNAVAILABLE_TEXT = {
   pane_not_found: "Chat is unavailable: this pane is gone.",
   not_claude: "Chat is only for Claude Code panes.",
-  not_supported_agent: "Chat is only for Claude Code, Codex, OpenCode, Kiro and Antigravity panes.",
+  not_supported_agent: `Chat is only for ${listOfNames(productNamesWith("chat"))} panes.`,
   unsupported_opencode_version: "Chat can't read this OpenCode version's conversations yet.",
   opencode_needs_newer_node: "Chat needs Node 22.5 or newer on this machine to read OpenCode conversations.",
   no_session_id: "Chat appears once the agent reports its session.",
