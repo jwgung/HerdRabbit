@@ -734,6 +734,47 @@ export function agentCompletionIdentity(agent, pane) {
   return null;
 }
 
+// Which panes' finished work the page had already seen, from the records it
+// holds now: those it acknowledged under the very identity they carry. Asked
+// before a new snapshot replaces the records.
+export function seenCompletions({ panes, agents, acknowledged }) {
+  const seen = new Set();
+  for (const pane of array(panes)) {
+    const paneId = idOf(pane, "pane_id", "id");
+    const agent = array(agents).find((item) => idOf(item, "pane_id", "paneId") === paneId);
+    if (acknowledged.get(paneId) === agentCompletionIdentity(agent, pane)) seen.add(paneId);
+  }
+  return seen;
+}
+
+// What a snapshot that has just arrived over HTTP does to the status events the
+// page got over the socket and has not yet seen confirmed. The snapshot may
+// have been taken before a newer event, so it must not undo one.
+//   pending         paneId -> { pane_id, agent_status, sequence } of the newest
+//                   event for that pane; `sequence` counts events as they arrive
+//   requestedAfter  the newest event's sequence when the snapshot was asked for:
+//                   an event up to it was already true when the snapshot was
+//                   taken, a later one may not be in it
+//   seen            seenCompletions from before the snapshot
+// drop: events to forget (the pane is gone, or the snapshot shows them);
+// apply: events to put back on the records, in order; acknowledge: [paneId,
+// identity] for a finish the page had seen, now under the snapshot's identity.
+export function reconcileLiveStatus({ pending, requestedAfter, panes, agents, seen }) {
+  const drop = [];
+  const apply = [];
+  const acknowledge = [];
+  for (const [paneId, event] of pending) {
+    const pane = array(panes).find((item) => idOf(item, "pane_id", "id") === paneId);
+    if (!pane) { drop.push(paneId); continue; }
+    const agent = array(agents).find((item) => idOf(item, "pane_id", "paneId") === paneId);
+    if (agentStatus(agent, pane) === event.agent_status && event.sequence <= requestedAfter) {
+      drop.push(paneId);
+      if (event.agent_status === "done" && seen.has(paneId)) acknowledge.push([paneId, agentCompletionIdentity(agent, pane)]);
+    } else apply.push(event);
+  }
+  return { drop, apply, acknowledge };
+}
+
 export function visibleAgentStatus(agent, pane, acknowledgedCompletion = null) {
   const status = agentStatus(agent, pane);
   if (

@@ -53,6 +53,8 @@ import {
   aiRestartHint,
   isAiLoginWorkspace,
   paneKeepsInputHistory,
+  reconcileLiveStatus,
+  seenCompletions,
   navigationModel,
   serverConnectionState,
   legacyMachinesNotice,
@@ -3357,26 +3359,21 @@ async function refreshSnapshot() {
     // when this snapshot was asked for: it shows the panes as they were then, or later
     const requestedAt = Date.now();
     const payload = await api("/api/snapshot");
-    const previouslyAcknowledged = new Set(snapshotRecords().panes.filter(pane => {
-      const id = idOf(pane, "pane_id", "id");
-      return state.acknowledgedCompletions.get(id) === agentCompletionIdentity(agentForPane(id), pane);
-    }).map(pane => idOf(pane, "pane_id", "id")));
+    const held = snapshotRecords();
+    const seen = seenCompletions({ panes: held.panes, agents: held.agents, acknowledged: state.acknowledgedCompletions });
     state.snapshot = payload.snapshot || {};
     // when the snapshot last arrived was asked for (one that failed or was skipped leaves it)
     state.snapshotAt = requestedAt;
     const records = snapshotRecords();
     const paneIds = records.panes.map(pane => idOf(pane, "pane_id", "id"));
-    for (const [paneId, event] of liveStatusUpdates) {
-      const pane = records.panes.find(pane => idOf(pane, "pane_id", "id") === paneId);
-      if (!pane) { liveStatusUpdates.delete(paneId); continue; }
-      const agent = agentForPane(paneId);
-      if (agentStatus(agent, pane) === event.agent_status && event.sequence <= statusAtRequest) {
-        liveStatusUpdates.delete(paneId);
-        if (event.agent_status === "done" && previouslyAcknowledged.has(paneId)) {
-          state.acknowledgedCompletions.set(paneId, agentCompletionIdentity(agent, pane));
-        }
-      } else applyLiveStatus(event); // A slow HTTP response must not undo a newer event.
-    }
+    // What each status event received meanwhile does is reconcileLiveStatus's (ui-model.js):
+    // a slow HTTP response must not undo a newer event.
+    const reconciled = reconcileLiveStatus({
+      pending: liveStatusUpdates, requestedAfter: statusAtRequest, panes: records.panes, agents: records.agents, seen,
+    });
+    for (const paneId of reconciled.drop) liveStatusUpdates.delete(paneId);
+    for (const event of reconciled.apply) applyLiveStatus(event);
+    for (const [paneId, identity] of reconciled.acknowledge) state.acknowledgedCompletions.set(paneId, identity);
     terminalStream.watchStatuses(paneIds);
     pruneViewSplit(paneIds);
     choosePane();
