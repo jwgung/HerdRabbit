@@ -18,6 +18,11 @@ export function sendJson(response, status, payload) {
   response.end(body);
 }
 
+export function sendEmpty(response, status) {
+  response.statusCode = status;
+  response.end();
+}
+
 // AI account actions, answered by the browser API and the link under their own
 // prefixes. The sign-in id segment is only picked out here; the account manager
 // decides whether it is one it issued.

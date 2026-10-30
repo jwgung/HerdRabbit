@@ -4,10 +4,8 @@ import { pipeline } from "node:stream/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
-  HerdrCommandError,
   InputValidationError,
   ALLOWED_KEYS,
-  MAX_PANE_READ_LINES,
   validation,
 } from "./herdr-client.mjs";
 import { PasswordAttemptsByKey, PasswordAuth } from "./password-auth.mjs";
@@ -15,8 +13,9 @@ import { browserLabel, passkeyLabel } from "./passkey-auth.mjs";
 import { OutputRevisions } from "./output-revisions.mjs";
 import { attachTerminalWebSocket } from "./terminal-websocket.mjs";
 import {
-  HttpError, acceptUpload, aiAccountRoute, conversationCursor, decodePaneId, readJsonBody, requestedVersions, sendJson,
+  HttpError, acceptUpload, aiAccountRoute, decodePaneId, readJsonBody, sendEmpty, sendJson,
 } from "./http-basics.mjs";
+import { createPaneRoutes, outputReadLines, outputWindow } from "./pane-routes.mjs";
 import {
   PEER_ADDRESS_HEADER, PEER_LOGIN_HEADER,
   isLoopbackSocket, nearestForwardedAddress, normalizeLogin, socketAddress,
@@ -33,7 +32,7 @@ import { ConversationMonitor } from "./conversation/monitor.mjs";
 import { ConversationService } from "./conversation/service.mjs";
 import { errorResponse } from "./error-response.mjs";
 import { PromptService } from "./prompt/service.mjs";
-import { SlashCommandCatalog, paneCommandTarget } from "./slash-commands.mjs";
+import { SlashCommandCatalog } from "./slash-commands.mjs";
 import { runLimiter } from "./app-update.mjs";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
@@ -127,9 +126,6 @@ const STATIC_FILES = new Map([
 // once a different one answers after the restart.
 const BOOT_ID = randomBytes(9).toString("base64url");
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
-const DEFAULT_OUTPUT_LINES = 200;
-const MAX_OUTPUT_LINES = MAX_PANE_READ_LINES - 1;
-const OUTPUT_REVISION_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 // Framed rather than drawn by an element, so it answers for itself rather than
 // borrowing the app's headers -- the app's answer to being framed is "never".
 function setFramedHeaders(response, type) {
@@ -162,11 +158,6 @@ function applySecurityHeaders(response) {
   response.setHeader("Cache-Control", "no-store");
 }
 
-
-function sendEmpty(response, status) {
-  response.statusCode = status;
-  response.end();
-}
 
 function requestHostname(request) {
   const host = request.headers.host;
@@ -272,50 +263,6 @@ function sendAuthenticatedSession(response, request, auth, extra = {}) {
   return launchToken;
 }
 
-
-function parseOutputLineLimit(value) {
-  if (value === null || value === "") return DEFAULT_OUTPUT_LINES;
-  const lines = Number(value);
-  if (!Number.isInteger(lines) || lines < 1 || lines > MAX_OUTPUT_LINES) {
-    throw new HttpError(
-      400,
-      "invalid_output_lines",
-      `Output lines must be between 1 and ${MAX_OUTPUT_LINES}`,
-    );
-  }
-  return lines;
-}
-
-function parseOutputRevision(value) {
-  if (value === null || value === "") return null;
-  if (!OUTPUT_REVISION_PATTERN.test(value)) {
-    throw new HttpError(400, "invalid_output_revision", "Output revision is invalid");
-  }
-  return value;
-}
-
-// Herdr answers a read short: blank rows at the bottom are trimmed and wrapped
-// rows come back joined, so a Claude pane asked for 201 rows sends 199. One row
-// past the window cannot tell whether older rows exist; half as many again, and
-// never fewer than MIN_OUTPUT_OVERREAD_LINES, can.
-const MIN_OUTPUT_OVERREAD_LINES = 64;
-
-export function outputReadLines(lines) {
-  const overread = Math.max(MIN_OUTPUT_OVERREAD_LINES, Math.ceil(lines / 2));
-  return Math.min(MAX_PANE_READ_LINES, lines + overread);
-}
-
-export function outputWindow(output, requestedLines) {
-  const rows = output === "" ? [] : String(output).split("\n");
-  const hasMore = rows.length > requestedLines;
-  const visibleRows = hasMore ? rows.slice(-requestedLines) : rows;
-  return {
-    output: visibleRows.join("\n"),
-    requestedLines,
-    returnedLines: visibleRows.length,
-    hasMore,
-  };
-}
 
 // Unlike readJsonBody, an oversized upload cannot be drained: the point of the
 // limit is to not read it. Content-Length settles the question before a byte
@@ -526,6 +473,8 @@ async function serveStatic(response, pathname, method) {
   response.end(method === "HEAD" ? undefined : body);
   return true;
 }
+
+export { outputReadLines, outputWindow };
 
 export function createHerdrHttpServer({
   herdr,
@@ -1363,245 +1312,9 @@ export function createHerdrHttpServer({
         return;
       }
 
-      const layoutMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/layout$/);
-      if (method === "GET" && layoutMatch) {
-        if (typeof herdr.paneLayout !== "function") {
-          throw new HerdrCommandError("That is not available for this PC yet.", { code: "link_unsupported" });
-        }
-        const layout = await herdr.paneLayout(decodePaneId(layoutMatch[1]));
-        sendJson(response, 200, layout?.result ?? layout ?? {});
-        return;
-      }
-      // Splitting a tab's panes. Ids are the page's own (scoped); a pane
-      // dropped or split comes back as its new id (a dropped one that could
-      // not then be swapped to the left or the top says `placed: false`).
-      const paneSplitMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/(split|close|zoom|move)$/);
-      if (method === "POST" && paneSplitMatch) {
-        requireWriteAuthorization(request, csrfToken);
-        const body = await readJsonBody(request, maxBodyBytes);
-        const paneId = decodePaneId(paneSplitMatch[1]);
-        if (paneSplitMatch[2] === "split") {
-          sendJson(response, 200, await herdr.splitPane(paneId, body.direction));
-        } else if (paneSplitMatch[2] === "move") {
-          if (typeof body.targetPaneId !== "string") throw new InputValidationError("Invalid target pane id");
-          sendJson(response, 200, await herdr.movePaneSplit(paneId, body.targetPaneId, body.side));
-        } else if (paneSplitMatch[2] === "zoom") {
-          if (body.mode !== "toggle") throw new InputValidationError("Zoom mode must be toggle");
-          await herdr.zoomPane(paneId);
-          sendJson(response, 200, {});
-        } else {
-          if (body.confirmed !== true) {
-            throw new HttpError(400, "confirmation_required", "Close confirmation is required");
-          }
-          await herdr.closePane(paneId);
-          sendJson(response, 200, {});
-        }
-        return;
-      }
-      // Rearranging a split tab's panes (this machine's only): two panes of
-      // one tab trade places, or one moves next to another on a side. A
-      // relocate whose second step failed is still a 200 with `placed: false`
-      // and a message: the pane moved, and the page has to follow it.
-      const paneRearrangeMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/(swap|relocate)$/);
-      if (method === "POST" && paneRearrangeMatch) {
-        requireWriteAuthorization(request, csrfToken);
-        const body = await readJsonBody(request, maxBodyBytes);
-        const paneId = decodePaneId(paneRearrangeMatch[1]);
-        const swap = paneRearrangeMatch[2] === "swap";
-        if (typeof herdr[swap ? "swapPanes" : "relocatePane"] !== "function") {
-          throw new HerdrCommandError("That is not available for this PC yet.", { code: "link_unsupported" });
-        }
-        if (typeof body.targetPaneId !== "string") throw new InputValidationError("Invalid target pane id");
-        sendJson(response, 200, swap
-          ? await herdr.swapPanes(paneId, body.targetPaneId)
-          : await herdr.relocatePane(paneId, body.targetPaneId, body.side));
-        return;
-      }
-      // Evening out a split tab (this machine's only): its panes take equal
-      // shares, resized in Herdr where every device sees it. A layout it
-      // cannot even out is still a 200, with `even: false` and a message.
-      const paneEvenMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/even-layout$/);
-      if (method === "POST" && paneEvenMatch) {
-        requireWriteAuthorization(request, csrfToken);
-        // Nothing to say but the pane: no body, or a JSON object ({}).
-        const hasBody = Number(request.headers["content-length"] || 0) > 0 || Boolean(request.headers["transfer-encoding"]);
-        if (hasBody) await readJsonBody(request, maxBodyBytes);
-        if (typeof herdr.evenLayout !== "function") {
-          throw new HerdrCommandError("That is not available for this PC yet.", { code: "link_unsupported" });
-        }
-        sendJson(response, 200, await herdr.evenLayout(decodePaneId(paneEvenMatch[1])));
-        return;
-      }
-      // Taking a pane out of its split session into a session of its own in
-      // the same project. It comes back as { pane_id, tab_id }: the page
-      // follows the pane should Herdr have given it a new id.
-      const paneMoveOutMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/move-out$/);
-      if (method === "POST" && paneMoveOutMatch) {
-        requireWriteAuthorization(request, csrfToken);
-        // Nothing to say but the pane: no body, or a JSON object ({}).
-        const hasBody = Number(request.headers["content-length"] || 0) > 0 || Boolean(request.headers["transfer-encoding"]);
-        if (hasBody) await readJsonBody(request, maxBodyBytes);
-        if (typeof herdr.movePaneOut !== "function") {
-          throw new HerdrCommandError("That is not available for this PC yet.", { code: "link_unsupported" });
-        }
-        sendJson(response, 200, await herdr.movePaneOut(decodePaneId(paneMoveOutMatch[1])));
-        return;
-      }
-      const outputMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/output$/);
-      if (method === "GET" && outputMatch) {
-        const paneId = decodePaneId(outputMatch[1]);
-        const lines = parseOutputLineLimit(url.searchParams.get("lines"));
-        const since = parseOutputRevision(url.searchParams.get("since"));
-        // Legacy history=hybrid requests also use the terminal's own scrollback.
-        const output = await herdr.readPane(paneId, {
-          lines: outputReadLines(lines),
-          format: "ansi",
-        });
-        const window = outputWindow(output, lines);
-        const update = outputRevisions.update({ paneId, window, since });
-        if (update === null) {
-          sendEmpty(response, 204);
-          return;
-        }
-        sendJson(response, 200, update);
-        return;
-      }
-
-      // A Claude or Codex pane's conversation, a page of turns at a time. The ETag is
-      // the answer's version: an unchanged poll costs no body.
-      const conversationMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/conversation$/);
-      if (method === "GET" && conversationMatch) {
-        const answer = await conversationService.page(decodePaneId(conversationMatch[1]), {
-          before: conversationCursor(url.searchParams.get("before")),
-          since: conversationCursor(url.searchParams.get("since")),
-          ifNoneMatch: requestedVersions(request.headers["if-none-match"]),
-        });
-        response.setHeader("ETag", `"${answer.version}"`);
-        if (answer.notModified) {
-          sendEmpty(response, 304);
-          return;
-        }
-        sendJson(response, 200, answer);
-        return;
-      }
-
-      // One tool call's whole output (capped), which a page only previews.
-      const toolOutputMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/conversation\/tools\/([^/]+)$/);
-      if (method === "GET" && toolOutputMatch) {
-        sendJson(response, 200, await conversationService.toolOutput(
-          decodePaneId(toolOutputMatch[1]), decodePaneId(toolOutputMatch[2]),
-        ));
-        return;
-      }
-
-      // The `/` commands the pane's agent takes, for the composer's list:
-      // names, descriptions and where each comes from, never a file's body.
-      // A pane on a connected PC gets that PC's own list, which it builds from
-      // its own files and snapshot; one that cannot say gets its agent's own
-      // commands only.
-      const commandsMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/commands$/);
-      if (method === "GET" && commandsMatch) {
-        requireSameOrigin(request);
-        const paneId = decodePaneId(commandsMatch[1]);
-        const target = paneCommandTarget(await herdr.snapshot(), paneId);
-        if (!target) throw new HttpError(404, "pane_not_found", "That pane is gone.");
-        const serverId = typeof target.pane.server_id === "string" && target.pane.server_id ? target.pane.server_id : LOCAL_SERVER;
-        if (serverId === LOCAL_SERVER && !paneId.includes("!")) {
-          sendJson(response, 200, await slashCommandCatalog.list({ agent: target.agent, cwd: target.cwd }));
-          return;
-        }
-        sendJson(response, 200, await slashCommandCatalog.listRemote({
-          agent: target.agent,
-          key: paneId,
-          ask: () => typeof herdr.paneCommands === "function" ? herdr.paneCommands(paneId) : null,
-        }));
-        return;
-      }
-
-      // The card a blocked pane shows (approval, question, menu), or null.
-      const promptMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/prompt$/);
-      if (method === "GET" && promptMatch) {
-        sendJson(response, 200, { card: await promptService.card(decodePaneId(promptMatch[1])) });
-        return;
-      }
-
-      // An option of that card, by its id: a card that changed meanwhile is a
-      // 409 prompt_changed, and nothing is sent.
-      const answerMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/prompt\/answer$/);
-      if (method === "POST" && answerMatch) {
-        requireWriteAuthorization(request, csrfToken);
-        const body = await readJsonBody(request, maxBodyBytes);
-        const paneId = decodePaneId(answerMatch[1]);
-        await promptService.answer(paneId, body);
-        outputWatcher.input(paneId);
-        sendJson(response, 200, { ok: true });
-        return;
-      }
-
-      const textMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/text$/);
-      if (method === "POST" && textMatch) {
-        requireWriteAuthorization(request, csrfToken);
-        const body = await readJsonBody(request, maxBodyBytes);
-        const paneId = decodePaneId(textMatch[1]);
-        const secret = body.submit === true && await asksForSecret(paneId);
-        await herdr.sendText(paneId, body.text, {
-          submit: body.submit === true,
-        });
-        promptService.nudge(paneId);
-        if (body.submit === true && !secret) {
-          notificationMonitor?.recordRequest(paneId, body.text);
-        }
-        sendJson(response, 200, { ok: true, ...(secret ? { secret } : {}) });
-        return;
-      }
-
-      const keysMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/keys$/);
-      if (method === "POST" && keysMatch) {
-        requireWriteAuthorization(request, csrfToken);
-        const body = await readJsonBody(request, maxBodyBytes);
-        await herdr.sendKeys(decodePaneId(keysMatch[1]), body.keys, { stop: validation.validateStop(body.stop) });
-        promptService.nudge(decodePaneId(keysMatch[1]));
-        sendJson(response, 200, { ok: true });
-        return;
-      }
-
-      // Find in the pane's whole history. It moves nothing (the reveal below
-      // does); the CSRF check stays for consistency. A history that changed
-      // since the match before is a 409 stale_content; the page searches anew.
-      const findMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/find$/);
-      if (method === "POST" && findMatch) {
-        requireWriteAuthorization(request, csrfToken);
-        const body = await readJsonBody(request, maxBodyBytes);
-        const find = validation.validateFindRequest({
-          query: body.query, direction: body.direction,
-          previous: body.previous, contentRevision: body.contentRevision,
-        });
-        sendJson(response, 200, await herdr.paneFind(decodePaneId(findMatch[1]), find));
-        return;
-      }
-
-      // Scrolls the pane's view, which every client of the pane shares, to a
-      // match a find gave. A history that changed since is a 409 stale_content.
-      const revealMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/reveal$/);
-      if (method === "POST" && revealMatch) {
-        requireWriteAuthorization(request, csrfToken);
-        const body = await readJsonBody(request, maxBodyBytes);
-        const reveal = validation.validateRevealRequest({
-          match: body.match, contentRevision: body.contentRevision,
-          ...(body.coverRows === undefined ? {} : { coverRows: body.coverRows }),
-        });
-        sendJson(response, 200, await herdr.paneReveal(decodePaneId(revealMatch[1]), reveal));
-        return;
-      }
-
-      // Scrolls the pane's shared view to the newest output (the page asks when
-      // the reader goes from the Chat lens to the Terminal lens).
-      const scrollBottomMatch = url.pathname.match(/^\/api\/panes\/([^/]+)\/scroll-bottom$/);
-      if (method === "POST" && scrollBottomMatch) {
-        requireWriteAuthorization(request, csrfToken);
-        sendJson(response, 200, await herdr.paneScrollToBottom(decodePaneId(scrollBottomMatch[1])));
-        return;
-      }
+      // Everything under /api/panes/:id (src/pane-routes.mjs). Here, after the
+      // sign-in gate above, so each of those routes is behind it.
+      if (await paneRoutes(request, response, url, method)) return;
 
       if (
         method !== "GET" &&
@@ -1711,6 +1424,19 @@ export function createHerdrHttpServer({
   const herdrRuns = runLimiter(60_000, now);
   const withDirectorySlot = directoryReadLimiter(4);
   const outputWatcher = terminalOutputWatcher({ herdr, outputWindow, outputReadLines });
+  const paneRoutes = createPaneRoutes({
+    herdr,
+    conversationService,
+    promptService,
+    slashCommandCatalog,
+    notificationMonitor,
+    outputRevisions,
+    outputWatcher,
+    asksForSecret,
+    requireWrite: (request) => requireWriteAuthorization(request, csrfToken),
+    requireSameOrigin,
+    maxBodyBytes,
+  });
   attachTerminalWebSocket({
     server,
     onSessionsEnded: (listener) => auth.onSessionsEnded?.(listener) ?? (() => {}),
