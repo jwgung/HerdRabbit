@@ -1,3 +1,5 @@
+import { AGENTS, MARK_PRIORITY } from "./agents.js?v=1.4.13";
+
 export const HISTORY_PAGE_LINES = 200;
 const AGENT_STATUS_ICONS = Object.freeze({
   blocked: "×",
@@ -751,14 +753,7 @@ const SHELL_NAMES = new Set(["", "shell", "terminal", "bash", "zsh", "sh", "fish
 
 // The agents with a mark of their own, in the order a pane is tested for them,
 // by the names their program goes by.
-const MARKED_AGENTS = [
-  ["claude", ["claude"]],
-  ["codex", ["codex"]],
-  ["agy", ["agy", "antigravity"]],
-  ["opencode", ["opencode"]],
-  ["cursor", ["cursor"]],
-  ["kiro", ["kiro"]],
-];
+const MARKED_AGENTS = MARK_PRIORITY.map((name) => [name, AGENTS.find((agent) => agent.name === name).marks]);
 
 // The marked agent a lower-case program name starts with, or null.
 function markedAgentOf(name) {

@@ -11,14 +11,15 @@
 // https://github.com/devswha/herdr-web-ui -- src/components/PromptCard.tsx
 // and PromptCard.css, rewritten as plain DOM code without React.
 import { agentLabel } from "./chat-activity.js?v=1.4.13";
+import { agentNamesWith } from "../agents.js?v=1.4.13";
 
 // After an answer, the card is looked for once more this much later.
 const RECHECK_AFTER_ANSWER_MS = 1_500;
 
-// The agents whose panes the server reads with their own reader.
-const READ_AGENTS = Object.freeze(["claude", "codex", "opencode", "kiro", "agy"]);
+// The agents whose panes the server reads with their own reader (public/agents.js).
+const READ_AGENTS = Object.freeze(agentNamesWith("card"));
 
-// A Claude, Codex, OpenCode or Kiro pane is asked for its card whatever herdr says
+// Such a pane is asked for its card whatever herdr says
 // it is doing (it does not always say blocked while a menu waits); any other
 // pane only while it is blocked.
 export function shouldWatchPrompt(status, agent = null) {

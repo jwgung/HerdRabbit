@@ -3,6 +3,8 @@
 // a pending bubble until the transcript has it.
 
 // How long a sent message waits for the transcript before its bubble goes.
+import { agentLabelFor, agentNamesWith } from "../agents.js?v=1.4.13";
+
 export const PENDING_MS = 30_000;
 // How long a send alone (no status yet) keeps the working row up.
 export const OPTIMISTIC_MS = 30_000;
@@ -25,9 +27,8 @@ export function formatElapsed(ms) {
 }
 
 // The name a row or card gives the agent herdr names.
-const AGENT_LABELS = { claude: "Claude", codex: "Codex", opencode: "OpenCode", kiro: "Kiro", agy: "Antigravity" };
 export function agentLabel(agent) {
-  return AGENT_LABELS[String(agent ?? "").toLowerCase()] ?? "The agent";
+  return agentLabelFor(agent);
 }
 
 export function workingText(since, now = Date.now(), agent = "claude") {
@@ -113,7 +114,7 @@ export function settlePending(pending, turns, now = Date.now(), maxAge = PENDING
 
 // The agents whose chat offers Stop: Esc interrupts them (OpenCode's takes
 // two, see stopPresses).
-const STOP_AGENTS = Object.freeze(["claude", "codex", "opencode"]);
+const STOP_AGENTS = Object.freeze(agentNamesWith("stop"));
 
 // What Stop sends to the agent: how many Escs, and the pause between them.
 // OpenCode (1.18.34, packages/tui/src/component/prompt/index.tsx) interrupts
