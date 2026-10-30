@@ -33,9 +33,7 @@ import {
   outputPollingDecision,
   outputTextForUpdate,
   paneShortcutTarget,
-  selectedPaneIdForSnapshot,
-  waitsForRemotePane,
-  keepsVanishedRemotePane,
+  paneSelectionAfterSnapshot,
   sidebarPresentation,
   visibleAgentStatus,
   paneAgentKind,
@@ -3357,56 +3355,46 @@ function selectedAgentStatus() {
   return agentStatus(agentForPane(state.selectedPaneId), pane);
 }
 
+// ?pane= names the pane a link or notification opened; once it is used up (or
+// given up on), a reload must not open it again. `onlyIf` drops it only when
+// it still names that pane.
+function dropPaneFromAddress(onlyIf = null) {
+  const currentUrl = new URL(window.location.href);
+  if (onlyIf !== null && currentUrl.searchParams.get("pane") !== onlyIf) return;
+  currentUrl.searchParams.delete("pane");
+  window.history.replaceState(null, "", currentUrl);
+}
+
+// What to select is decided by paneSelectionAfterSnapshot (ui-model.js); this
+// carries it out.
 function choosePane() {
-  const { herdrSessions, panes } = snapshotRecords();
-  if (pendingNotificationPaneId && panes.some(
-    (pane) => idOf(pane, "pane_id", "id") === pendingNotificationPaneId,
-  )) {
-    if (state.selectedPaneId !== pendingNotificationPaneId) resetInputHistoryNavigation();
-    state.selectedPaneId = pendingNotificationPaneId;
-    syncComposerDraft();
-    pendingNotificationPaneId = null;
-    writePanePreference(panePreferenceStorage, state.selectedPaneId);
-    const currentUrl = new URL(window.location.href);
-    currentUrl.searchParams.delete("pane");
-    window.history.replaceState(null, "", currentUrl);
+  const { herdrSessions, panes, servers } = snapshotRecords();
+  const before = state.selectedPaneId;
+  const plan = paneSelectionAfterSnapshot({
+    panes,
+    servers,
+    herdrSessions,
+    selectedPaneId: state.selectedPaneId,
+    preferredPaneId: state.preferredPaneId,
+    pendingPaneId: pendingNotificationPaneId,
+    pendingSince: pendingNotificationSince,
+    openedAt: pageOpenedAt,
+    now: Date.now(),
+    waitLimitMs: PENDING_REMOTE_PANE_MS,
+  });
+  if (plan.selectedPaneId !== before) resetInputHistoryNavigation();
+  state.selectedPaneId = plan.selectedPaneId;
+  state.preferredPaneId = plan.preferredPaneId;
+  pendingNotificationPaneId = plan.pendingPaneId;
+  if (plan.remember) writePanePreference(panePreferenceStorage, plan.remember);
+  if (plan.adopted) {
+    dropPaneFromAddress();
     closeMobileSidebar();
   }
-  // A link to another server's pane arrives before that server's panes have
-  // loaded: wait for them rather than open some other pane in its place.
-  // The page opening on such a pane (from its address or the last visit) waits the same way.
-  const awaited = pendingNotificationPaneId ?? (state.selectedPaneId ? null : state.preferredPaneId);
-  const awaitedSince = pendingNotificationPaneId ? pendingNotificationSince : pageOpenedAt;
-  if (waitsForRemotePane(
-    awaited, panes, snapshotRecords().servers, Date.now() - awaitedSince, PENDING_REMOTE_PANE_MS,
-  )) return;
-  if (awaited?.includes("!") && !panes.some((pane) => idOf(pane, "pane_id", "id") === awaited)) {
-    if (awaited === pendingNotificationPaneId) pendingNotificationPaneId = null;
-    // Given up on: a reload must not wait for it all over again.
-    const currentUrl = new URL(window.location.href);
-    if (currentUrl.searchParams.get("pane") === awaited) {
-      currentUrl.searchParams.delete("pane");
-      window.history.replaceState(null, "", currentUrl);
-    }
-  }
-  if (keepsVanishedRemotePane(state.selectedPaneId, panes, snapshotRecords().servers)) return;
-  const defaultHerdrSessionId = idOf(
-    herdrSessions.find((session) => session.default === true),
-    "session_id",
-    "id",
-  ) || null;
-  const nextPaneId = selectedPaneIdForSnapshot(
-    panes,
-    state.selectedPaneId || state.preferredPaneId,
-    defaultHerdrSessionId,
-  );
-  if (state.selectedPaneId !== nextPaneId) resetInputHistoryNavigation();
-  state.selectedPaneId = nextPaneId;
-  if (nextPaneId) {
-    state.preferredPaneId = nextPaneId;
-    writePanePreference(panePreferenceStorage, nextPaneId);
-  }
-  syncComposerDraft();
+  if (plan.giveUp) dropPaneFromAddress(plan.giveUp);
+  // A pane being waited for, or kept while its server returns, leaves the
+  // composer as it is unless a notification's pane has just taken its place.
+  if (plan.adopted || !plan.stop) syncComposerDraft();
 }
 
 const liveStatusUpdates = new Map();

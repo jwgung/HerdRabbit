@@ -510,6 +510,74 @@ export function selectedPaneIdForSnapshot(
   return paneIds[0] || null;
 }
 
+// What a snapshot's arrival does to the pane on screen, decided from what the
+// page holds and nothing else; the page then does what it says.
+//   adopted    a notification's pane has arrived and was selected (the page
+//              drops ?pane= from its address and closes the phone sidebar)
+//   giveUp     a pane on another server that will not come: the page drops it
+//              from ?pane= so a reload does not wait for it all over again
+//   stop       "waiting": a pane on a connecting server is awaited, so no other
+//              pane is opened in its place; "vanished": the pane on screen
+//              stays while its server comes back. Either way nothing after
+//              the notification step changes.
+//   remember   the pane to keep as the one to open next time, or null
+// The new selection, preference and pending notification pane come back in
+// selectedPaneId, preferredPaneId and pendingPaneId.
+export function paneSelectionAfterSnapshot({
+  panes,
+  servers,
+  herdrSessions,
+  selectedPaneId,
+  preferredPaneId,
+  pendingPaneId,
+  pendingSince,
+  openedAt,
+  now,
+  waitLimitMs,
+}) {
+  const present = (paneId) => array(panes).some((pane) => idOf(pane, "pane_id", "id") === paneId);
+  let selected = selectedPaneId ?? null;
+  let preferred = preferredPaneId ?? null;
+  let pending = pendingPaneId ?? null;
+  let adopted = false;
+  if (pending && present(pending)) {
+    selected = pending;
+    pending = null;
+    adopted = true;
+  }
+  const outcome = (stop, giveUp, next) => ({
+    selectedPaneId: next === undefined ? selected : next,
+    preferredPaneId: next ? next : preferred,
+    pendingPaneId: pending,
+    adopted,
+    giveUp,
+    stop,
+    remember: next === undefined ? (adopted ? selected : null) : next,
+  });
+
+  // A pane of another server arrives before that server's panes have loaded;
+  // the page opening on one (from its address or the last visit) waits the same way.
+  const awaited = pending ?? (selected ? null : preferred);
+  const awaitedSince = pending ? pendingSince : openedAt;
+  if (waitsForRemotePane(awaited, panes, servers, now - awaitedSince, waitLimitMs)) {
+    return outcome("waiting", null);
+  }
+  let giveUp = null;
+  if (awaited?.includes("!") && !present(awaited)) {
+    if (awaited === pending) pending = null;
+    giveUp = awaited;
+  }
+  if (keepsVanishedRemotePane(selected, panes, servers)) return outcome("vanished", giveUp);
+
+  const defaultHerdrSessionId = idOf(
+    array(herdrSessions).find((session) => session.default === true),
+    "session_id",
+    "id",
+  ) || null;
+  const next = selectedPaneIdForSnapshot(panes, selected || preferred, defaultHerdrSessionId);
+  return outcome(null, giveUp, next);
+}
+
 export function displayRecordLabel(record, fallback) {
   const values = [
     record?.label,
