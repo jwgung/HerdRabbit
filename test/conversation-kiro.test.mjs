@@ -333,3 +333,22 @@ test("two Kiro panes in one folder whose sessions cannot be told show neither, n
   const alone = new ConversationService({ herdr: { async snapshot() { return { panes: [panes[0]] }; } }, localStore: localTranscriptStore({ configDir: "/nonexistent", kiroConfigDir: configDir }) });
   assert.equal((await alone.resolve("w1:p1")).session, UUID_A);
 });
+
+// Kiro writes a Reasoning record of only "..." where its thinking is kept
+// encrypted (reasoningSignature), most often right after the answer. It is no
+// thinking to show, and a part after the answer would fold the answer into the
+// work block as if the agent were still at it.
+test("a Reasoning of only dots is no thinking part, so the answer stays the turn's last words", () => {
+  const turns = parseKiroTranscript(jsonl([
+    user("what next?"),
+    turnStart(),
+    reasoning("Let me weigh the two options.", "claude-opus"),
+    say("Pick the code page."),
+    reasoning("...", "claude-opus"),
+    reasoning("  …  ", "claude-opus"),
+  ]));
+  assert.deepEqual(turns[1].parts.map((part) => [part.kind, part.text]), [
+    ["thinking", "Let me weigh the two options."],
+    ["text", "Pick the code page."],
+  ]);
+});
