@@ -55,7 +55,7 @@ test("switching lenses only hides one: the terminal stays attached and xterm fit
   assert.match(view, /savedScrollTop = scroller\.scrollTop;/u);
 });
 
-test("the page wires the lens: selection, sending, Mod+J, and reads with If-None-Match", () => {
+test("the page wires the lens: selection, sending, Mod+J, and reads through the conversation client", () => {
   assert.match(app, /chatLens\.select\(paneId, \{ agent: chatAgent\(pane, agent\), status: agentStatus\(agent, pane\) \}\);/u);
   // shown on its way and followed to the end at once; taken back if the send fails
   assert.match(app, /chatLens\.sent\(paneId, null\);\s*let pending = null;\s*try \{/u);
@@ -64,9 +64,8 @@ test("the page wires the lens: selection, sending, Mod+J, and reads with If-None
   assert.match(shortcut, /event\.key\.toLowerCase\(\) !== "j"/u);
   assert.match(shortcut, /chatLens\.toggle\(\);/u);
   assert.match(app, /if \(activateLensShortcut\(event\)\) return;/u);
-  const request = app.match(/async function conversationRequest\(path, \{ etag \} = \{\}\) \{[\s\S]*?\n\}/u)?.[0] ?? "";
-  assert.match(request, /headers\.set\("If-None-Match", etag\)/u);
-  assert.match(request, /response\.status === 304/u);
+  // reads send If-None-Match and treat a 304 as "not modified": test/api-client.test.mjs
+  assert.match(app, /const \{ api, transferRequest, conversationRequest \} = createApiClient\(/u);
   // long in the chat, the terminal is let go; it comes back on return
   assert.match(app, /const TERMINAL_PARK_MS = 5 \* 60_000;/u);
   assert.match(app, /if \(state\.terminalParked === paneId\) return;/u);
