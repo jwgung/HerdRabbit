@@ -360,14 +360,18 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       const drawn = cell.terminal.drawn;
       if (!drawn || !(screen.offsetWidth > 0)) continue;
       const padding = getComputedStyle(screen.closest(".xterm"));
+      // The frame and the terminal's box in the same fractional px: clientWidth
+      // rounds, and a chrome that moved with the cell's rounding (by up to a
+      // pixel each way) made the fit flip between two fonts for ever.
       const frame = cell.node.getBoundingClientRect();
+      const body = cell.body.getBoundingClientRect();
       shaped.push({
         width: cell.box.width,
         height: cell.box.height,
         cols: drawn.cols,
         rows: drawn.rows,
-        extraX: frame.width - (cell.body.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight)),
-        extraY: frame.height - (cell.body.clientHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom)),
+        extraX: frame.width - (body.width - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight)),
+        extraY: frame.height - (body.height - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom)),
       });
     }
     metrics ??= characterMetrics(getComputedStyle(board).getPropertyValue("--mono").trim() || "monospace");
