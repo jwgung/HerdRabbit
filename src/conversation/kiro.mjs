@@ -69,10 +69,14 @@ export function parseKiroTurns(text) {
     if (type === "assistant") {
       const content = string(payload.content);
       if (content.length === 0) continue;
-      const turn = assistantTurn(ts);
-      if (ts) turn.end_ts = ts;
       // Kiro records thinking as an assistant record of operationType "Reasoning".
       const kind = payload.operationType === "Reasoning" ? "thinking" : "text";
+      // A Reasoning of only "..." stands for thinking Kiro keeps encrypted
+      // (reasoningSignature), most often written right after the answer: no
+      // words to show, and after the answer it would read as work still going.
+      if (kind === "thinking" && /^[\s.…]*$/u.test(content)) continue;
+      const turn = assistantTurn(ts);
+      if (ts) turn.end_ts = ts;
       turn.parts.push({ kind, text: content });
       continue;
     }
