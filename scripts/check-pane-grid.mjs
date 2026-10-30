@@ -1013,10 +1013,11 @@ try {
         aspect: board.width / board.height, stageAspect: stage.width / stage.height, room,
         board: [Math.round(board.width), Math.round(board.height)], stage: [Math.round(stage.width), Math.round(stage.height)] };
     });
-    // The board the grid would need at `font`, measured as pane-grid.js's
-    // letterbox measures it (a W's width, the font's ascent and descent, a cell's
-    // chrome as it is now), and the room it has.
-    const nextStepBoard = (page, font) => page.evaluate((font) => {
+    // The board the grid needs at `font`, computed as pane-grid.js's letterbox
+    // computes it (a W's width, the font's ascent and descent) from the cells'
+    // real chrome (frame minus the terminal's box, in fractional px), the room
+    // it has, and the board the app set.
+    const boardAtFont = (page, font) => page.evaluate((font) => {
       const root = document.querySelector(".pane-grid:not([hidden])");
       const boardNode = root.querySelector(".pane-grid-board");
       const style = getComputedStyle(boardNode);
@@ -1054,6 +1055,7 @@ try {
       return {
         board: [Math.ceil(width) + 1, Math.ceil(height) + 1],
         room: [root.clientWidth - borderX, root.clientHeight - above - borderY],
+        set: [parseFloat(boardNode.style.width), parseFloat(boardNode.style.height)],
       };
     }, font);
     const filled = async (page, what) => {
@@ -1077,12 +1079,18 @@ try {
       // (or the font is at the grid's cap), whatever the font chosen for one pane.
       const font = parseFloat(seen.cells[0].font);
       assert.ok(seen.room <= 1.001, `${what}: the board fits the stage (${seen.board} in ${seen.stage})`);
-      // A board short of the stage by more than a step's scale may still be the
-      // largest: a font whose line height rounds (11px at 10px, 12px at 10.5px)
-      // grows by more than its step. Then the next step, measured as the app
-      // measures it, must not fit.
-      if (font < 32 && seen.room * (font + 0.5) / font < 0.995) {
-        const next = await nextStepBoard(page, font + 0.5);
+      // The board is the one its cells need at this font, to the pixel: the app
+      // read each cell's chrome right. A chrome off by a fraction of a pixel
+      // (as when it mixed fractional and whole px) shows here whatever the font,
+      // and made the fit flip between two fonts where it crossed a pixel.
+      const now = await boardAtFont(page, font);
+      assert.deepEqual(now.set, now.board, `${what}: the board is what its cells need at ${font}px`);
+      // As large as a step allows: the next step up would not fit. Asked always,
+      // not by the board's share of the stage: the chrome does not grow with the
+      // font, and a line height that rounds (11px at 10px, 12px at 10.5px) grows
+      // by more than the step.
+      if (font < 32) {
+        const next = await boardAtFont(page, font + 0.5);
         assert.ok(next.board[0] > next.room[0] || next.board[1] > next.room[1],
           `${what}: the board is as large as a font step allows (${seen.board} in ${seen.stage} at ${font}px; ${font + 0.5}px would need ${next.board} in ${next.room})`);
       }
