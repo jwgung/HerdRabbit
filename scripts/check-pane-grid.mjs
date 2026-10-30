@@ -1388,7 +1388,10 @@ try {
       await item.click();
       await page.locator(".settings-button").click();
       assert.equal(await page.locator('[data-action="grid-fit"]').getAttribute("aria-checked"), String(on));
-      assert.match(await page.locator('[data-action="grid-fit"] span').textContent(), on ? /: On$/u : /: Off$/u);
+      // The label stays; on or off is the item's data-toggle (its colour) and its accessible name.
+      assert.equal(await page.locator('[data-action="grid-fit"] span').textContent(), "Fit panes to this window");
+      assert.equal(await page.locator('[data-action="grid-fit"]').getAttribute("data-toggle"), on ? "on" : "off");
+      assert.equal(await page.locator('[data-action="grid-fit"]').getAttribute("aria-label"), `Fit panes to this window, ${on ? "on" : "off"}`);
       await page.locator(".settings-button").click();
       assert.equal(await page.evaluate(() => localStorage.getItem("herdrbridge-grid-fit")), on ? "on" : "off", "the choice is remembered");
     };
