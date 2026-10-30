@@ -117,3 +117,39 @@ export function terminalStatusSentence(status) {
   const { reason, countdown } = terminalStatusParts(status);
   return reason + countdown;
 }
+
+// Where the pane on screen is in attaching, and why each pane last failed to.
+// The page notes what it hears of the attach and asks for the pane's:
+//   note(paneId, next, now)    the pane's attach is "attaching", "held" or "live";
+//                              only the pane on screen has one, so this replaces
+//                              any other pane's. The same state again keeps its
+//                              `since`. A reason carries over until "live".
+//   failed(paneId, problem, now)  the pane could not attach (it is mirrored);
+//                              remembered for any pane, and the attach of the
+//                              pane on screen becomes "failed"
+//   of(paneId)                 { paneId, state, since, problem } for terminalStatus,
+//                              or null; a pane not on screen that failed is
+//                              "failed" with `since` 0
+export function createAttachTracker() {
+  let attach = null;
+  const problems = new Map();
+  return {
+    note(paneId, next, now = Date.now()) {
+      if (next === "live") problems.delete(paneId);
+      const same = attach?.paneId === paneId;
+      const problem = next === "live" ? null : (same ? attach.problem : null) ?? problems.get(paneId) ?? null;
+      const since = same && attach.state === next ? attach.since : now;
+      attach = { paneId, state: next, since, problem };
+    },
+    failed(paneId, problem, now = Date.now()) {
+      problems.set(paneId, problem);
+      if (attach?.paneId === paneId) attach = { paneId, state: "failed", since: now, problem };
+    },
+    of(paneId) {
+      if (!paneId) return null;
+      if (attach?.paneId === paneId) return attach;
+      if (problems.has(paneId)) return { paneId, state: "failed", since: 0, problem: problems.get(paneId) };
+      return null;
+    },
+  };
+}
