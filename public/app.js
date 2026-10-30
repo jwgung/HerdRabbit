@@ -53,6 +53,8 @@ import {
   aiRestartHint,
   isAiLoginWorkspace,
   paneKeepsInputHistory,
+  navigationModel,
+  serverConnectionState,
   legacyMachinesNotice,
 } from "./ui-model.js?v=1.4.13";
 import {
@@ -857,10 +859,7 @@ function closeMobileSidebar({ restoreFocus = false } = {}) {
 // what a separate footer dot used to say. A linked machine's row keeps saying
 // only whether HerdRabbit reaches it.
 function serverConnection(server) {
-  if (server.id === "local" && state.connection.kind === "error") {
-    return { online: false, error: true, text: state.connection.text };
-  }
-  return { online: server.available === true, error: false, text: server.status };
+  return serverConnectionState(server, state.connection);
 }
 
 function setConnection(kind, text) {
@@ -2833,85 +2832,62 @@ function renderNavigation() {
   }
   navigationRedrawHeld = false;
   const { servers, herdrSessions, workspaces, tabs, panes } = snapshotRecords();
+  // What the tree is made of is decided by navigationModel (ui-model.js); this
+  // draws it, with the page's own editing and dragging.
+  const tree = navigationModel({
+    servers, herdrSessions, workspaces, tabs, panes,
+    statusOfPane: (paneId, pane) => visibleStatusForPane(paneId, agentForPane(paneId), pane),
+    pageConnection: state.connection,
+  });
   elements.workspaceList.replaceChildren();
   // Shown even for this machine alone: its row is where the machine is managed,
   // AI accounts included.
-  const showServers = servers.length > 0;
-  const serverGroups = new Map();
-  if (showServers) {
-    for (const server of servers) {
-      const group = createElement("section", { className: "server-group" });
-      const editingServer = state.editingServerId === server.id;
-      const connection = serverConnection(server);
-      const heading = createElement("div", {
-        className: `server-heading${connection.online ? " is-online" : ""}${connection.error ? " is-error" : ""}${editingServer ? " is-editing" : ""}`,
-      });
-      heading.dataset.serverId = server.id;
-      heading.dataset.serverName = server.name;
-      heading.title = `${server.name}: ${connection.text}`;
-      heading.setAttribute("aria-label", heading.title);
-      heading.append(createIcon(["M4 5h16v11H4z", "M9 20h6", "M12 16v4"], "server-icon"));
-      if (editingServer) heading.append(serverRenameForm(server));
-      else {
-        heading.append(createElement("strong", { text: server.name }));
-        // This PC is the host the page is served from; another machine keeps
-        // its words for the states a dot cannot tell apart.
-        if (server.id === "local") heading.append(createElement("small", { className: "server-role", text: "Host" }));
-        else if (!server.available) {
-          heading.append(createElement("small", {
-            text: server.status === "Connecting" ? "Connecting" : "Offline",
-          }));
-        }
-        const dot = createElement("span", { className: "server-dot" });
-        dot.setAttribute("aria-hidden", "true");
-        heading.append(dot);
-        // A server is managed where it is seen. The dialog is for adding one.
-        heading.append(serverActionMenu(server));
+  const serverBodies = new Map();
+  for (const node of tree.servers) {
+    const server = node.record;
+    const group = createElement("section", { className: "server-group" });
+    const editingServer = state.editingServerId === server.id;
+    const connection = node.connection;
+    const heading = createElement("div", {
+      className: `server-heading${connection.online ? " is-online" : ""}${connection.error ? " is-error" : ""}${editingServer ? " is-editing" : ""}`,
+    });
+    heading.dataset.serverId = server.id;
+    heading.dataset.serverName = server.name;
+    heading.title = `${server.name}: ${connection.text}`;
+    heading.setAttribute("aria-label", heading.title);
+    heading.append(createIcon(["M4 5h16v11H4z", "M9 20h6", "M12 16v4"], "server-icon"));
+    if (editingServer) heading.append(serverRenameForm(server));
+    else {
+      heading.append(createElement("strong", { text: server.name }));
+      // This PC is the host the page is served from; another machine keeps
+      // its words for the states a dot cannot tell apart.
+      if (node.role === "host") heading.append(createElement("small", { className: "server-role", text: "Host" }));
+      else if (node.role) {
+        heading.append(createElement("small", { text: node.role === "connecting" ? "Connecting" : "Offline" }));
       }
-      group.append(heading);
-      const body = createElement("div", { className: "server-body" });
-      if (!server.available || !herdrSessions.some((session) => session.server_id === server.id)) {
-        body.append(createElement("p", { className: "server-empty", text: server.available ? "No Herdr sessions. Start Herdr on this server." : server.status }));
-      }
-      group.append(body);
-      attachGroupCollapse(group, heading, body, `server:${server.id}`, server.name);
-      serverGroups.set(server.id, body);
-      elements.workspaceList.append(group);
+      const dot = createElement("span", { className: "server-dot" });
+      dot.setAttribute("aria-hidden", "true");
+      heading.append(dot);
+      // A server is managed where it is seen. The dialog is for adding one.
+      heading.append(serverActionMenu(server));
     }
+    group.append(heading);
+    const body = createElement("div", { className: "server-body" });
+    if (node.emptyText !== null) body.append(createElement("p", { className: "server-empty", text: node.emptyText }));
+    group.append(body);
+    attachGroupCollapse(group, heading, body, `server:${server.id}`, server.name);
+    serverBodies.set(node.id, body);
+    elements.workspaceList.append(group);
   }
-  // A session heading earns its place only when there is something to tell
-  // apart: more than one session on a server, or one that is not running. With
-  // servers shown, the server heading already says which machine this is.
-  const sessionsPerServer = new Map();
-  for (const session of herdrSessions) {
-    const id = session.server_id || "local";
-    sessionsPerServer.set(id, (sessionsPerServer.get(id) || 0) + 1);
-  }
-  const showHerdrSessionGroups = [...sessionsPerServer.values()].some((count) => count > 1) ||
-    herdrSessions.some((session) => session.available !== true);
 
-  const appendWorkspace = (parent, workspace) => {
-    const workspaceId = idOf(workspace, "workspace_id", "id");
+  const appendWorkspace = (parent, node) => {
+    const workspace = node.record;
+    const workspaceId = node.id;
     const group = createElement("section", { className: "workspace-group" });
     group.dataset.workspaceId = workspaceId;
     group.dataset.dropScope = dropScope(workspace);
     const workspaceLabel = displayRecordLabel(workspace, "Project");
-    const workspaceTabs = tabs.filter(
-      (tab) => idOf(tab, "workspace_id", "workspaceId") === workspaceId,
-    );
-    const workspaceTabIds = new Set(
-      workspaceTabs.map((tab) => idOf(tab, "tab_id", "id")),
-    );
-    const hasCompletion = panes.some((pane) => {
-      if (!workspaceTabIds.has(idOf(pane, "tab_id", "tabId"))) return false;
-      const paneId = idOf(pane, "pane_id", "id");
-      return visibleStatusForPane(paneId, agentForPane(paneId), pane) === "done";
-    });
-    const hasRequest = panes.some((pane) => {
-      if (!workspaceTabIds.has(idOf(pane, "tab_id", "tabId"))) return false;
-      const paneId = idOf(pane, "pane_id", "id");
-      return visibleStatusForPane(paneId, agentForPane(paneId), pane) === "blocked";
-    });
+    const { hasCompletion, hasRequest } = node;
     const children = createElement("div", { className: "workspace-children" });
     children.id = `workspace-${workspaceId}-children`;
     const childrenInner = createElement("div", {
@@ -2925,15 +2901,13 @@ function renderNavigation() {
     children.setAttribute("aria-hidden", String(collapsed));
     group.append(workspaceHeading(group, workspace, workspaceLabel, children));
 
-    for (const tab of workspaceTabs) {
-      const tabId = idOf(tab, "tab_id", "id");
+    for (const { record: tab, id: tabId, panes: tabPanes } of node.tabs) {
       const tabGroup = createElement("div", { className: "tab-group" });
       tabGroup.dataset.tabId = tabId;
       tabGroup.dataset.workspaceId = workspaceId;
       tabGroup.dataset.dropScope = group.dataset.dropScope;
       const tabLabel = displayTabLabel(tab);
       const editingTab = state.editingTabId === tabId;
-      const tabPanes = panes.filter((pane) => idOf(pane, "tab_id", "tabId") === tabId);
       const split = tabPanes.length > 1;
       const sessionRow = createElement("div", { className: "session-row" });
       let sessionLabel;
@@ -3029,81 +3003,61 @@ function renderNavigation() {
     parent.append(group);
   };
 
-  if (!showHerdrSessionGroups && workspaces.length === 0) {
-    const empty = createElement("p", {
+  const appendSession = (parent, node) => {
+    const session = node.record;
+    const sessionGroup = createElement("section", {
+      className: "herdr-session-group",
+    });
+    const sessionHeading = createElement("div", {
+      className: "herdr-session-heading",
+    });
+    const statusDot = createElement("span", {
+      className: `herdr-session-dot${node.tone === "online" ? " is-online" : node.tone === "error" ? " is-error" : ""}`,
+    });
+    statusDot.setAttribute("aria-hidden", "true");
+    sessionHeading.setAttribute("aria-label", `Herdr ${session.name}, ${node.status}`);
+    sessionHeading.title = node.status;
+    sessionHeading.append(
+      statusDot,
+      createElement("strong", { text: session.name }),
+      createElement("small", { text: node.status }),
+    );
+    sessionGroup.append(sessionHeading);
+    const sessionBody = createElement("div", { className: "herdr-session-body" });
+    if (node.workspaces.length === 0) {
+      sessionBody.append(createElement("p", {
+        className: "herdr-session-empty",
+        text: node.emptyText,
+      }));
+    } else {
+      for (const workspaceNode of node.workspaces) appendWorkspace(sessionBody, workspaceNode);
+    }
+    sessionGroup.append(sessionBody);
+    attachGroupCollapse(
+      sessionGroup,
+      sessionHeading,
+      sessionBody,
+      `session:${node.id}`,
+      displayRecordLabel(session, "Herdr session"),
+    );
+    parent.append(sessionGroup);
+  };
+
+  // Projects (or their sessions) belong to a machine, so they go inside that
+  // machine's body. Appending them to the list itself would leave them as
+  // siblings of the machine heading, which then collapses over nothing.
+  const draw = (parent, node) => (node.kind === "session" ? appendSession : appendWorkspace)(parent, node);
+  for (const node of tree.servers) {
+    for (const child of node.children) draw(serverBodies.get(node.id), child);
+  }
+  if (tree.empty) {
+    elements.workspaceList.append(createElement("p", {
       className: "empty-state",
       text: "No open projects.",
-    });
-    elements.workspaceList.append(empty);
+    }));
     return;
   }
-
-  if (showHerdrSessionGroups) {
-    for (const session of herdrSessions) {
-      const sessionId = idOf(session, "session_id", "id");
-      const sessionGroup = createElement("section", {
-        className: "herdr-session-group",
-      });
-      const sessionHeading = createElement("div", {
-        className: "herdr-session-heading",
-      });
-      const status = session.available === true
-        ? "Running"
-        : session.running === true ? "Connection failed" : "Stopped";
-      const statusDot = createElement("span", {
-        className: `herdr-session-dot${
-          session.available === true
-            ? " is-online"
-            : session.running === true ? " is-error" : ""
-        }`,
-      });
-      statusDot.setAttribute("aria-hidden", "true");
-      sessionHeading.setAttribute("aria-label", `Herdr ${session.name}, ${status}`);
-      sessionHeading.title = status;
-      sessionHeading.append(
-        statusDot,
-        createElement("strong", { text: session.name }),
-        createElement("small", { text: status }),
-      );
-      sessionGroup.append(sessionHeading);
-      const sessionBody = createElement("div", { className: "herdr-session-body" });
-
-      const sessionWorkspaces = workspaces.filter(
-        (workspace) => idOf(
-          workspace,
-          "herdr_session_id",
-          "herdrSessionId",
-        ) === sessionId,
-      );
-      if (sessionWorkspaces.length === 0) {
-        sessionBody.append(createElement("p", {
-          className: "herdr-session-empty",
-          text: session.available === true ? "No open projects" : status,
-        }));
-      } else {
-        for (const workspace of sessionWorkspaces) {
-          appendWorkspace(sessionBody, workspace);
-        }
-      }
-      sessionGroup.append(sessionBody);
-      attachGroupCollapse(
-        sessionGroup,
-        sessionHeading,
-        sessionBody,
-        `session:${sessionId}`,
-        displayRecordLabel(session, "Herdr session"),
-      );
-      (serverGroups.get(session.server_id) || elements.workspaceList).append(sessionGroup);
-    }
-    return;
-  }
-
-  // Without session headings the projects still belong to a machine, so they go
-  // inside that server's body. Appending them to the list itself would leave
-  // them as siblings of the server heading, which then collapses over nothing.
-  for (const workspace of workspaces) {
-    appendWorkspace(serverGroups.get(workspace.server_id) || elements.workspaceList, workspace);
-  }
+  for (const child of tree.children) draw(elements.workspaceList, child);
 }
 
 // Every place the page keeps state under a pane's id, each with how it follows

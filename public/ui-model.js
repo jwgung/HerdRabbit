@@ -578,6 +578,109 @@ export function paneSelectionAfterSnapshot({
   return outcome(null, giveUp, next);
 }
 
+// How the page sees a machine's connection. This machine shows the page's own
+// trouble reaching its server (`pageConnection`: { kind, text }); any other
+// shows what the server says of it.
+export function serverConnectionState(server, pageConnection) {
+  if (server.id === "local" && pageConnection?.kind === "error") {
+    return { online: false, error: true, text: pageConnection.text };
+  }
+  return { online: server.available === true, error: false, text: server.status };
+}
+
+// What the sidebar's tree is made of, decided from the snapshot and nothing
+// else; the page draws it and keeps its own editing and dragging to itself.
+//   servers    the machines, each with `children` (what stands under it)
+//   children   what stands outside every machine
+//   empty      nothing to show under the machines: no projects, and no
+//              session headings to say why
+// A node is { kind: "session" | "workspace", id, record, ... }:
+//   session    status ("Running", "Connection failed", "Stopped"), tone
+//              ("online", "error", "stopped"), emptyText, workspaces
+//   workspace  tabs ({ id, record, panes }), hasCompletion, hasRequest
+// A session heading earns its place only when there is something to tell
+// apart: more than one session on a machine, or one that is not running.
+// Without one the projects belong to a machine directly; a node of a machine
+// that is not listed stands outside.
+// `statusOfPane(paneId, pane)`: the status the sidebar shows for a pane.
+export function navigationModel({
+  servers,
+  herdrSessions,
+  workspaces,
+  tabs,
+  panes,
+  statusOfPane,
+  pageConnection = null,
+}) {
+  const sessions = array(herdrSessions);
+  const sessionsPerServer = new Map();
+  for (const session of sessions) {
+    const id = session.server_id || "local";
+    sessionsPerServer.set(id, (sessionsPerServer.get(id) || 0) + 1);
+  }
+  const showSessionGroups = [...sessionsPerServer.values()].some((count) => count > 1) ||
+    sessions.some((session) => session.available !== true);
+
+  const workspaceNode = (workspace) => {
+    const id = idOf(workspace, "workspace_id", "id");
+    const tabNodes = array(tabs)
+      .filter((tab) => idOf(tab, "workspace_id", "workspaceId") === id)
+      .map((tab) => {
+        const tabId = idOf(tab, "tab_id", "id");
+        return {
+          id: tabId,
+          record: tab,
+          panes: array(panes).filter((pane) => idOf(pane, "tab_id", "tabId") === tabId),
+        };
+      });
+    const anyPane = (status) => tabNodes.some((tab) => tab.panes.some(
+      (pane) => statusOfPane(idOf(pane, "pane_id", "id"), pane) === status,
+    ));
+    return {
+      kind: "workspace", id, record: workspace, tabs: tabNodes,
+      hasCompletion: anyPane("done"), hasRequest: anyPane("blocked"),
+    };
+  };
+
+  const sessionNode = (session) => {
+    const id = idOf(session, "session_id", "id");
+    const status = session.available === true ? "Running" : session.running === true ? "Connection failed" : "Stopped";
+    return {
+      kind: "session", id, record: session, status,
+      tone: session.available === true ? "online" : session.running === true ? "error" : "stopped",
+      emptyText: session.available === true ? "No open projects" : status,
+      workspaces: array(workspaces)
+        .filter((workspace) => idOf(workspace, "herdr_session_id", "herdrSessionId") === id)
+        .map(workspaceNode),
+    };
+  };
+
+  const serverNodes = array(servers).map((server) => ({
+    id: server.id,
+    record: server,
+    connection: serverConnectionState(server, pageConnection),
+    role: server.id === "local" ? "host"
+      : !server.available ? (server.status === "Connecting" ? "connecting" : "offline") : null,
+    emptyText: !server.available || !sessions.some((session) => session.server_id === server.id)
+      ? (server.available ? "No Herdr sessions. Start Herdr on this server." : server.status)
+      : null,
+    children: [],
+  }));
+  const root = [];
+  const placeIn = (serverId) => serverNodes.find((node) => node.id === serverId)?.children ?? root;
+  if (showSessionGroups) {
+    for (const session of sessions) placeIn(session.server_id).push(sessionNode(session));
+  } else {
+    for (const workspace of array(workspaces)) placeIn(workspace.server_id).push(workspaceNode(workspace));
+  }
+  return {
+    servers: serverNodes,
+    children: root,
+    showSessionGroups,
+    empty: !showSessionGroups && array(workspaces).length === 0,
+  };
+}
+
 export function displayRecordLabel(record, fallback) {
   const values = [
     record?.label,

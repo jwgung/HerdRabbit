@@ -27,8 +27,9 @@ test("this machine's dot says whether the page is connected, instead of a footer
   assert.ok(set, "setConnection must exist");
   assert.match(set, /state\.connection = \{ kind, text \};/u);
   assert.match(set, /\.server-heading\[data-server-id="local"\]/u);
-  assert.match(app, /function serverConnection\(server\) \{\s*if \(server\.id === "local" && state\.connection\.kind === "error"\)/u);
-  assert.match(app, /const connection = serverConnection\(server\);/u);
+  // The rule is serverConnectionState (ui-model.js, tested in nav-model.test.mjs); the in-place update and the redraw both read it.
+  assert.match(app, /function serverConnection\(server\) \{\s*return serverConnectionState\(server, state\.connection\);/u);
+  assert.match(app, /const connection = node\.connection;/u);
   assert.match(styles, /\.server-heading\.is-error \.server-icon \{ stroke: var\(--danger\); \}/u);
   // The rail keeps the footer's two controls (uploads, and settings with
   // Update), stacked in the rail's width, instead of hiding the footer.
@@ -69,7 +70,8 @@ test("uses the same fillable Herdr icon to toggle the sidebar", () => {
 test("shows the server row even when this machine is the only one", () => {
   // The row's menu is how a machine is managed, AI accounts included, so it
   // cannot wait for a second machine to be linked.
-  assert.match(app, /const showServers = servers\.length > 0;/);
+  // Every machine listed gets its row (navigationModel; test/nav-model.test.mjs), this one alone included.
+  assert.match(app, /for \(const node of tree\.servers\) \{\s*const server = node\.record;/u);
   assert.match(app, /label: "AI accounts"[\s\S]*?onSelect: \(\) => showAiAccounts\(server\)/);
   // Herdr SSH machines are gone: nothing adds, renames, turns off or removes one.
   assert.doesNotMatch(app, /\/api\/machines|#add-machine|transport === "machine"/u);
