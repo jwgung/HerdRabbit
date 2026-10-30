@@ -528,18 +528,19 @@ body.sidebar-collapsed .terminal-panel {
   max-width: min(280px, calc(100vw - 24px));
 }
 
-/* The settings menu's widest labels ("Fit panes to this window: Off"). */
+/* The settings menu's widest labels ("Fit panes to this window"). */
 .settings-menu > .sidebar-action-popover {
   width: 210px;
 }
 
-/* Notifications on, off or blocked, shown as the item's colour; the words are
-   in its tooltip and accessible name. */
-.settings-menu .sidebar-action-item[data-notify="on"] {
-  color: var(--status-ok);
+/* A setting that is on or off shows it as the item's colour: the app's accent
+   when on, muted when off (Notifications also red when the browser blocks
+   them). The words are in its tooltip and accessible name. */
+.settings-menu .sidebar-action-item:is([data-notify="on"], [data-toggle="on"]) {
+  color: var(--accent);
 }
 
-.settings-menu .sidebar-action-item[data-notify="off"] {
+.settings-menu .sidebar-action-item:is([data-notify="off"], [data-toggle="off"]) {
   color: var(--muted);
 }
 
