@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ApiError, createApiClient } from "../public/api-client.js";
+import { ApiError, createApiClient, paneApi } from "../public/api-client.js";
 
 // A fake network: each call is answered with the next queued Response, and the
 // page's hooks are recorded.
@@ -148,4 +148,88 @@ test("conversationRequest says not modified on a 304, and sends no etag when it 
   answer({ turns: [] });
   await client.conversationRequest("/api/panes/w1/conversation");
   assert.equal(sent[1].init.headers.has("If-None-Match"), false);
+});
+
+// The pane verbs, over a fake api that records what it was asked.
+function panes() {
+  const asked = [];
+  const result = { ok: true };
+  const verbs = paneApi((...args) => { asked.push(args); return Promise.resolve(result); });
+  return { verbs, asked, result };
+}
+const PANE = "hs_x~w1:p1";
+const AT = "/api/panes/hs_x~w1%3Ap1";
+
+test("reading verbs are plain GETs of the pane's own path", async () => {
+  const { verbs, asked, result } = panes();
+  assert.equal(await verbs.commands(PANE), result);
+  await verbs.layout(PANE);
+  assert.deepEqual(asked, [[`${AT}/commands`], [`${AT}/layout`]]);
+});
+
+test("a pane id is one path segment, whatever it holds", async () => {
+  const { verbs, asked } = panes();
+  await verbs.layout("link_1!hs_x~w1:p1");
+  await verbs.layout("a/../b?c#d");
+  assert.deepEqual(asked, [
+    ["/api/panes/link_1!hs_x~w1%3Ap1/layout"],
+    ["/api/panes/a%2F..%2Fb%3Fc%23d/layout"],
+  ]);
+});
+
+test("a grid action is a POST of its body, for the three actions the server has", async () => {
+  const { verbs, asked } = panes();
+  await verbs.act(PANE, "split", { direction: "right" });
+  await verbs.act(PANE, "close", { confirmed: true });
+  await verbs.act(PANE, "zoom", { mode: "toggle" });
+  assert.deepEqual(asked, [
+    [`${AT}/split`, { method: "POST", body: { direction: "right" } }],
+    [`${AT}/close`, { method: "POST", body: { confirmed: true } }],
+    [`${AT}/zoom`, { method: "POST", body: { mode: "toggle" } }],
+  ]);
+});
+
+test("an action the server does not have is refused here, before anything is sent", () => {
+  const { verbs, asked } = panes();
+  for (const action of ["swap", "../tabs/w1/close", "", undefined]) {
+    assert.throws(() => verbs.act(PANE, action, {}), TypeError);
+  }
+  assert.deepEqual(asked, []);
+});
+
+test("rearranging verbs send what the server reads from them", async () => {
+  const { verbs, asked } = panes();
+  await verbs.move(PANE, { targetPaneId: "w1:p2", side: "left" });
+  await verbs.swap(PANE, "w1:p2");
+  await verbs.relocate(PANE, "w1:p2", "top");
+  await verbs.moveOut(PANE);
+  await verbs.evenLayout(PANE);
+  await verbs.scrollToBottom(PANE);
+  assert.deepEqual(asked, [
+    [`${AT}/move`, { method: "POST", body: { targetPaneId: "w1:p2", side: "left" } }],
+    [`${AT}/swap`, { method: "POST", body: { targetPaneId: "w1:p2" } }],
+    [`${AT}/relocate`, { method: "POST", body: { targetPaneId: "w1:p2", side: "top" } }],
+    [`${AT}/move-out`, { method: "POST", body: {} }],
+    [`${AT}/even-layout`, { method: "POST", body: {} }],
+    [`${AT}/scroll-bottom`, { method: "POST", body: {} }],
+  ]);
+});
+
+test("find and reveal pass the page's request on as it is", async () => {
+  const { verbs, asked } = panes();
+  const search = { query: "x", direction: "older" };
+  const reveal = { match: { row: 3 }, contentRevision: "r1", coverRows: 2 };
+  await verbs.find(PANE, search);
+  await verbs.reveal(PANE, reveal);
+  assert.deepEqual(asked, [
+    [`${AT}/find`, { method: "POST", body: search }],
+    [`${AT}/reveal`, { method: "POST", body: reveal }],
+  ]);
+  assert.equal(asked[0][1].body, search, "the same object, not a copy");
+});
+
+test("a refusal from the server comes back to the caller untouched", async () => {
+  const refusal = new ApiError("No room.", { status: 409, code: "no_room" });
+  const verbs = paneApi(() => Promise.reject(refusal));
+  await assert.rejects(verbs.act(PANE, "split", {}), (error) => error === refusal);
 });

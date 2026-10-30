@@ -89,3 +89,31 @@ export function createApiClient({
 
   return { api, transferRequest, conversationRequest };
 }
+
+// What the page asks of one pane (the server's /api/panes/:id/..., src/pane-routes.mjs),
+// as verbs over an `api`. The pane id is one path segment whatever it holds, and
+// the path, the method and the body's shape are settled here. A body is sent as
+// given; `{}` goes only where the server wants nothing but the pane.
+const PANE_ACTIONS = new Set(["split", "close", "zoom"]);
+
+export function paneApi(api) {
+  const at = (paneId, tail) => `/api/panes/${encodeURIComponent(paneId)}/${tail}`;
+  const post = (paneId, tail, body) => api(at(paneId, tail), { method: "POST", body });
+  return {
+    commands: (paneId) => api(at(paneId, "commands")),
+    layout: (paneId) => api(at(paneId, "layout")),
+    // From the grid: "split", "close" (with { confirmed: true }) or "zoom".
+    act(paneId, action, body) {
+      if (!PANE_ACTIONS.has(action)) throw new TypeError(`Not a pane action: ${action}`);
+      return post(paneId, action, body);
+    },
+    move: (paneId, body) => post(paneId, "move", body),
+    swap: (paneId, targetPaneId) => post(paneId, "swap", { targetPaneId }),
+    relocate: (paneId, targetPaneId, side) => post(paneId, "relocate", { targetPaneId, side }),
+    moveOut: (paneId) => post(paneId, "move-out", {}),
+    evenLayout: (paneId) => post(paneId, "even-layout", {}),
+    scrollToBottom: (paneId) => post(paneId, "scroll-bottom", {}),
+    find: (paneId, body) => post(paneId, "find", body),
+    reveal: (paneId, body) => post(paneId, "reveal", body),
+  };
+}
