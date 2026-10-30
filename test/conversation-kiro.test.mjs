@@ -13,10 +13,12 @@ import {
   parseKiroTranscript,
 } from "../src/conversation/kiro.mjs";
 import {
+  ConversationUnavailable,
   TOOL_OUTPUT_PREVIEW_CHARS,
   forgetConversationState,
   transcriptPage as pageOf,
 } from "../src/conversation/pages.mjs";
+import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
 import { mkdir } from "node:fs/promises";
 
@@ -227,4 +229,107 @@ test("several cwds are tried in turn; the first workspace that holds a session w
   const path = await writeSession(start, UUID_A, jsonl([user("hi")]));
   const found = await store.locate({ session: null, hashes: [kiroWorkspaceHash(foreground), kiroWorkspaceHash(start)] });
   assert.equal(found.path, path);
+});
+
+// ---------------------------------------------------------------------------
+// Several Kiro panes in one folder: each pane's own Kiro process says which
+// session it runs, through the log file it holds open
+// (<config>/logs/<started>/kiro.log). A fake /proc stands in for Linux's.
+
+// Writes `pid`'s fake /proc entry: its children, and an open descriptor on `file`.
+async function fakeProcess(procRoot, pid, { children = [], file = null } = {}) {
+  const { symlink } = await import("node:fs/promises");
+  await mkdir(join(procRoot, String(pid), "task", String(pid)), { recursive: true });
+  await writeFile(join(procRoot, String(pid), "task", String(pid), "children"), children.length ? `${children.join(" ")} ` : "");
+  await mkdir(join(procRoot, String(pid), "fd"), { recursive: true });
+  if (file) await symlink(file, join(procRoot, String(pid), "fd", "3"));
+}
+
+async function kiroLog(configDir, started, sessions) {
+  const dir = join(configDir, "logs", started);
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, "kiro.log");
+  const line = (message) => JSON.stringify({ timestamp: "2026-10-29T08:40:01.494Z", level: "info", message });
+  await writeFile(path, `${sessions.map((session) => [
+    line(`[KiroAgent] ACP session/new sessionId=sess_${session} modeId=vibe idempotent=false`),
+    line(`fs.loadSession.ok {"system":"fs","sessionId":"sess_${session}","durationMs":4}`),
+  ].join("\n")).join("\n")}\n`);
+  return path;
+}
+
+test("the session a Kiro process runs is read from the log it holds open, through its child", async (context) => {
+  const configDir = await mkdtemp(join(tmpdir(), "herdrabbit-kiro-"));
+  const procRoot = await mkdtemp(join(tmpdir(), "herdrabbit-proc-"));
+  context.after(() => Promise.all([rm(configDir, { recursive: true, force: true }), rm(procRoot, { recursive: true, force: true })]));
+  const log = await kiroLog(configDir, "20261029T084001414", [UUID_A]);
+  // kiro-cli → its TUI → the worker that holds the log
+  await fakeProcess(procRoot, 100, { children: [101] });
+  await fakeProcess(procRoot, 101, { children: [102] });
+  await fakeProcess(procRoot, 102, { file: log });
+  const store = localTranscriptStore({ kiroConfigDir: configDir, procRoot }).kiro;
+  assert.deepEqual(await store.sessionsOfPids([100]), [UUID_A]);
+  // a process holding no Kiro log runs no session
+  await fakeProcess(procRoot, 200);
+  assert.deepEqual(await store.sessionsOfPids([200]), []);
+});
+
+test("a session resumed later in the same process wins over the one it started with", async (context) => {
+  const configDir = await mkdtemp(join(tmpdir(), "herdrabbit-kiro-"));
+  const procRoot = await mkdtemp(join(tmpdir(), "herdrabbit-proc-"));
+  context.after(() => Promise.all([rm(configDir, { recursive: true, force: true }), rm(procRoot, { recursive: true, force: true })]));
+  const log = await kiroLog(configDir, "20261029T114235702", [UUID_A, UUID_B]);
+  await fakeProcess(procRoot, 300, { file: log });
+  const store = localTranscriptStore({ kiroConfigDir: configDir, procRoot }).kiro;
+  assert.deepEqual(await store.sessionsOfPids([300]), [UUID_B]);
+});
+
+test("two Kiro panes in one folder each show their own conversation", async (context) => {
+  forgetConversationState();
+  const configDir = await mkdtemp(join(tmpdir(), "herdrabbit-kiro-"));
+  const procRoot = await mkdtemp(join(tmpdir(), "herdrabbit-proc-"));
+  context.after(() => Promise.all([rm(configDir, { recursive: true, force: true }), rm(procRoot, { recursive: true, force: true })]));
+  const cwd = "/home/me/project";
+  const writeSession = async (session, text, mtime) => {
+    const dir = join(configDir, "sessions", kiroWorkspaceHash(cwd), `sess_${session}`);
+    await mkdir(dir, { recursive: true });
+    const path = join(dir, "messages.jsonl");
+    await writeFile(path, text);
+    const { utimes } = await import("node:fs/promises");
+    await utimes(path, mtime, mtime);
+    return path;
+  };
+  const older = await writeSession(UUID_A, jsonl([user("first pane")]), 1_000);
+  const newer = await writeSession(UUID_B, jsonl([user("second pane")]), 2_000);
+  await fakeProcess(procRoot, 100, { file: await kiroLog(configDir, "a", [UUID_A]) });
+  await fakeProcess(procRoot, 200, { file: await kiroLog(configDir, "b", [UUID_B]) });
+  const panes = [
+    { pane_id: "w1:p1", agent: "kiro", cwd },
+    { pane_id: "w1:p2", agent: "kiro", cwd },
+  ];
+  const pids = { "w1:p1": 100, "w1:p2": 200 };
+  const herdr = {
+    async snapshot() { return { panes }; },
+    async paneProcessInfo(paneId) { return { process_info: { foreground_processes: [{ pid: pids[paneId], name: "kiro-cli" }] } }; },
+  };
+  const service = new ConversationService({ herdr, localStore: localTranscriptStore({ configDir: "/nonexistent", kiroConfigDir: configDir, procRoot }) });
+  assert.equal((await service.resolve("w1:p1")).path, older);
+  assert.equal((await service.resolve("w1:p2")).path, newer);
+});
+
+test("two Kiro panes in one folder whose sessions cannot be told show neither, never the same one", async (context) => {
+  forgetConversationState();
+  const configDir = await mkdtemp(join(tmpdir(), "herdrabbit-kiro-"));
+  context.after(() => rm(configDir, { recursive: true, force: true }));
+  const cwd = "/home/me/project";
+  const dir = join(configDir, "sessions", kiroWorkspaceHash(cwd), `sess_${UUID_A}`);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "messages.jsonl"), jsonl([user("hi")]));
+  const panes = [{ pane_id: "w1:p1", agent: "kiro", cwd }, { pane_id: "w1:p2", agent: "kiro", cwd }];
+  // no process info: the system cannot say which pane runs which session
+  const herdr = { async snapshot() { return { panes }; } };
+  const service = new ConversationService({ herdr, localStore: localTranscriptStore({ configDir: "/nonexistent", kiroConfigDir: configDir }) });
+  await assert.rejects(service.resolve("w1:p1"), (error) => error instanceof ConversationUnavailable && error.reason === "no_session_id");
+  // alone in its folder, a pane still shows the folder's newest session
+  const alone = new ConversationService({ herdr: { async snapshot() { return { panes: [panes[0]] }; } }, localStore: localTranscriptStore({ configDir: "/nonexistent", kiroConfigDir: configDir }) });
+  assert.equal((await alone.resolve("w1:p1")).session, UUID_A);
 });
