@@ -528,9 +528,23 @@ body.sidebar-collapsed .terminal-panel {
   max-width: min(280px, calc(100vw - 24px));
 }
 
-/* Longer labels than a row menu carries ("Notifications: Blocked"). */
+/* The settings menu's widest labels ("Fit panes to this window: Off"). */
 .settings-menu > .sidebar-action-popover {
   width: 210px;
+}
+
+/* Notifications on, off or blocked, shown as the item's colour; the words are
+   in its tooltip and accessible name. */
+.settings-menu .sidebar-action-item[data-notify="on"] {
+  color: var(--status-ok);
+}
+
+.settings-menu .sidebar-action-item[data-notify="off"] {
+  color: var(--muted);
+}
+
+.settings-menu .sidebar-action-item[data-notify="blocked"] {
+  color: var(--danger);
 }
 
 /* A newer version somewhere: a dot on the ⚙ button and on its menu item. */

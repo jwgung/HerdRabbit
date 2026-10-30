@@ -111,9 +111,9 @@ import {
   writeAcknowledgedCompletions,
 } from "./completion-preference.js?v=1.4.11";
 import {
-  enterKeyModeLabel,
+  ENTER_KEY_MODES,
+  enterKeyModeHint,
   looksLikePhysicalKey,
-  nextEnterKeyMode,
   readEnterKeyMode,
   writeEnterKeyMode,
 } from "./enter-key-preference.js?v=1.4.11";
@@ -880,7 +880,6 @@ const BELL_ICON = ["M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8h18c0-1-3-1-3-8Z", "M10 20h4
 const KEYBOARD_ICON = ["M2.5 6h19v12h-19z", "M6 9.5h.01M9 9.5h.01M12 9.5h.01M15 9.5h.01M18 9.5h.01M6 12.5h.01M18 12.5h.01M8.5 15h7"];
 const PASSKEY_ICON = ["M8 15a4 4 0 1 1 3.9-5H21v3h-2v2h-3v-2h-4.1A4 4 0 0 1 8 15Z", "M8 11h.01"];
 const DEVICES_ICON = ["M4 5h16v10H4z", "M8 19h8", "M12 15v4"];
-const NEW_WINDOW_ICON = ["M5 5h14v14H5z", "M5 9h14", "M12 11v6", "M9 14h6"];
 const UPDATE_ICON = ["M12 3v12", "M7 10l5 5 5-5", "M5 20h14"];
 const RETURN_ICON = ["M20 5v6a4 4 0 0 1-4 4H5", "M9 11l-4 4 4 4"];
 const FIT_PANES_ICON = ["M3 4h18v16H3z", "M12 4v16", "M12 12h9"];
@@ -929,25 +928,6 @@ function buildSettingsMenu() {
         },
       },
       {
-        // Touch devices only: what the composer's Enter does there.
-        key: "enter-key",
-        label: enterKeyModeLabel(enterKeyMode),
-        paths: RETURN_ICON,
-        onSelect: () => {
-          enterKeyMode = nextEnterKeyMode(enterKeyMode);
-          writeEnterKeyMode(panePreferenceStorage, enterKeyMode);
-          syncSettingsMenu();
-        },
-      },
-      {
-        key: "new-window",
-        label: "New window",
-        paths: NEW_WINDOW_ICON,
-        // The manifest's focus-existing launch handler only governs launches
-        // (icon, notification), so opening from inside the app gives a second window.
-        onSelect: () => void window.open("/", "_blank", "noopener"),
-      },
-      {
         // Wide screens only: whether a Herdr grid's cells size their panes to
         // this window (on) or keep Herdr's sizes and scale their text (off).
         key: "grid-fit",
@@ -983,8 +963,8 @@ function buildSettingsMenu() {
     ],
   });
   elements.navigatorFooter.append(settingsMenu.details);
-  // Whether this is a touch environment can change with the window, so the
-  // Enter item is shown or hidden again each time the menu opens.
+  // Whether this is a wide screen can change with the window, so the items
+  // that depend on it are shown or hidden again each time the menu opens.
   settingsMenu.details.addEventListener("toggle", () => {
     if (settingsMenu.details.open) syncSettingsMenu();
   });
@@ -1012,24 +992,17 @@ function syncSettingsMenu() {
   const notifications = item("notifications");
   notifications.hidden = !push || push.hidden;
   if (push && !push.hidden) {
-    const status = push.state === "enabled" ? "On" : push.state === "denied" ? "Blocked" : "Off";
-    setLabel(notifications, `Notifications: ${status}`);
+    // On, off or blocked shows as the item's colour; the words go to the
+    // tooltip and to assistive technology.
+    notifications.dataset.notify = push.state === "enabled" ? "on" : push.state === "denied" ? "blocked" : "off";
+    notifications.setAttribute("role", "menuitemcheckbox");
+    notifications.setAttribute("aria-checked", String(push.state === "enabled"));
     notifications.disabled = push.disabled;
     notifications.title = push.label;
     notifications.setAttribute("aria-label", push.label);
   }
   const theme = item("theme");
   setLabel(theme, settingsMenu.themeLabel, settingsMenu.themeIcon);
-  const enterKey = item("enter-key");
-  enterKey.hidden = !usesTouchInputEnvironment();
-  setLabel(enterKey, enterKeyModeLabel(enterKeyMode));
-  const enterKeyHint = {
-    auto: "Enter sends once a physical keyboard is typed on, otherwise inserts a new line",
-    newline: "Enter inserts a new line; the arrow button or Ctrl+Enter sends",
-    send: "Enter sends; Shift+Enter inserts a new line",
-  }[enterKeyMode];
-  enterKey.title = enterKeyHint;
-  enterKey.setAttribute("aria-label", `${enterKeyModeLabel(enterKeyMode)}. ${enterKeyHint}`);
   const update = item("update");
   update.hidden = !settingsMenu.update.visible;
   setLabel(update, settingsMenu.update.available ? "Update available" : "Update");
@@ -5644,7 +5617,34 @@ document.querySelector("#key-bar-close").addEventListener("click", () => keyBarD
 
 function openKeyBarDialog() {
   renderKeyBarDialog();
+  renderEnterKeyChoice();
   keyBarDialog.root.showModal();
+}
+
+// What the composer's Enter does, chosen in Edit keys. Touch devices only: with
+// a mouse-oriented environment Enter always sends.
+const enterKeyChoice = {
+  root: document.querySelector("#key-bar-enter"),
+  hint: document.querySelector("#key-bar-enter-hint"),
+  buttons: [...document.querySelectorAll("#key-bar-enter [data-enter-mode]")],
+};
+
+function renderEnterKeyChoice() {
+  enterKeyChoice.root.hidden = !usesTouchInputEnvironment();
+  for (const button of enterKeyChoice.buttons) {
+    button.setAttribute("aria-pressed", String(button.dataset.enterMode === enterKeyMode));
+  }
+  enterKeyChoice.hint.textContent = enterKeyModeHint(enterKeyMode);
+}
+
+for (const button of enterKeyChoice.buttons) {
+  button.addEventListener("click", () => {
+    const mode = button.dataset.enterMode;
+    if (!ENTER_KEY_MODES.includes(mode)) return;
+    enterKeyMode = mode;
+    writeEnterKeyMode(panePreferenceStorage, enterKeyMode);
+    renderEnterKeyChoice();
+  });
 }
 
 renderKeyBar();
