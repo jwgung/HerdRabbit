@@ -54,6 +54,7 @@ const APP_SHELL = [
   "/theme.js?v=1.4.13",
   "/app.js?v=1.4.13",
   "/app-update.js?v=1.4.13",
+  "/api-client.js?v=1.4.13",
   "/vendor/simplewebauthn-browser.js?v=1.4.13",
   "/terminal-links.js?v=1.4.13",
   "/terminal-connection.js?v=1.4.13",

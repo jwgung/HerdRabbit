@@ -2,6 +2,7 @@ import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?
 import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.4.13";
 import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.4.13";
 import { createUpdatePanel } from "./app-update.js?v=1.4.13";
+import { createApiClient } from "./api-client.js?v=1.4.13";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -531,6 +532,17 @@ const state = {
   // session's row on a phone opens where the user was.
   lastPaneOfTab: new Map(),
 };
+
+// Made right after `state`, which it reads, and before anything at the top
+// level hands `api` on (createUpdatePanel below does).
+const { api, transferRequest, conversationRequest } = createApiClient({
+  launchToken: () => state.launchToken,
+  csrfToken: () => state.csrfToken,
+  onAuthenticationRequired: () => {
+    state.launchToken = clearLaunchToken(launchSessionStorage);
+    showLogin();
+  },
+});
 
 // The list above the composer: `@` file references (names in the pane's
 // folder) and, at the start of the text, the `/` commands of the pane's
@@ -1324,52 +1336,6 @@ function rememberSentInput(paneId, text) {
   state.inputHistoryByPane.set(paneId, history);
   writeInputHistories(panePreferenceStorage, state.inputHistoryByPane);
   resetInputHistoryNavigation();
-}
-
-class ApiError extends Error {
-  constructor(message, { status, code, details } = {}) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.code = code;
-    this.details = details;
-  }
-}
-
-async function api(path, options = {}) {
-  const { body, csrf = true, ...fetchOptions } = options;
-  const headers = new Headers(options.headers);
-  if (body !== undefined) {
-    headers.set("Content-Type", "application/json");
-  }
-  if (csrf && fetchOptions.method && fetchOptions.method !== "GET") {
-    headers.set("X-Herdr-CSRF", state.csrfToken);
-  }
-  if (state.launchToken) {
-    headers.set("X-Herdr-Launch-Token", state.launchToken);
-  }
-
-  const response = await fetch(path, {
-    ...fetchOptions,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-    credentials: "same-origin",
-  });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new ApiError(payload?.error?.message || `HTTP ${response.status}`, {
-      status: response.status,
-      code: payload?.error?.code,
-      details: payload?.error?.details,
-    });
-    if (error.code === "authentication_required") {
-      state.launchToken = clearLaunchToken(launchSessionStorage);
-      showLogin();
-    }
-    throw error;
-  }
-  return payload;
 }
 
 function array(value) {
@@ -4597,28 +4563,6 @@ if (window.visualViewport) {
 
 // A conversation page or tool output for the Chat lens. The answer's ETag
 // comes back as If-None-Match, so an unchanged page costs no body (a 304).
-async function conversationRequest(path, { etag } = {}) {
-  const headers = new Headers();
-  if (etag) headers.set("If-None-Match", etag);
-  if (state.launchToken) headers.set("X-Herdr-Launch-Token", state.launchToken);
-  const response = await fetch(path, { headers, credentials: "same-origin", cache: "no-store" });
-  if (response.status === 304) return { notModified: true };
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = new ApiError(payload?.error?.message || `HTTP ${response.status}`, {
-      status: response.status,
-      code: payload?.error?.code,
-      details: payload?.error?.details,
-    });
-    if (error.code === "authentication_required") {
-      state.launchToken = clearLaunchToken(launchSessionStorage);
-      showLogin();
-    }
-    throw error;
-  }
-  return { payload, etag: response.headers.get("ETag") };
-}
-
 // After this long in the Chat lens without the terminal, the terminal is let
 // go (detached); switching back attaches it again and herdr redraws it.
 const TERMINAL_PARK_MS = 5 * 60_000;
@@ -5766,36 +5710,6 @@ function syncAttachAvailability() {
   // Where a file lands is not obvious once it can differ from the session in
   // front of you, so the control says it rather than leaving it to be found out.
   elements.attachButton.title = `Upload a file to ${serverLabel(uploadServerId())}`;
-}
-
-// The session gate wants a launch token header, which a plain link cannot send,
-// so every transfer goes through fetch with the same credentials as api().
-function transferHeaders(extra = {}) {
-  const headers = new Headers(extra);
-  if (state.launchToken) headers.set("X-Herdr-Launch-Token", state.launchToken);
-  return headers;
-}
-
-async function transferRequest(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: transferHeaders(options.headers),
-    credentials: "same-origin",
-  });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    const error = new ApiError(payload?.error?.message || `HTTP ${response.status}`, {
-      status: response.status,
-      code: payload?.error?.code,
-      details: payload?.error?.details,
-    });
-    if (error.code === "authentication_required") {
-      state.launchToken = clearLaunchToken(launchSessionStorage);
-      showLogin();
-    }
-    throw error;
-  }
-  return response;
 }
 
 function insertTransferPath(path) {
