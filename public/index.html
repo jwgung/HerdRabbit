@@ -385,6 +385,15 @@
             <button id="key-bar-combo-add" class="secondary-button" type="button">Add combination</button>
           </div>
         </div>
+        <div id="key-bar-enter" class="key-bar-add" hidden>
+          <span id="key-bar-enter-label" class="key-bar-field">Enter in the message box</span>
+          <div class="key-bar-row" role="group" aria-labelledby="key-bar-enter-label">
+            <button type="button" class="key-bar-mod" data-enter-mode="auto" aria-pressed="true">Auto</button>
+            <button type="button" class="key-bar-mod" data-enter-mode="newline" aria-pressed="false">New line</button>
+            <button type="button" class="key-bar-mod" data-enter-mode="send" aria-pressed="false">Send</button>
+          </div>
+          <p id="key-bar-enter-hint" class="key-bar-hint" aria-live="polite"></p>
+        </div>
         <div class="dialog-actions">
           <button id="key-bar-reset" class="secondary-button" type="button">Reset to default</button>
           <button id="key-bar-close" class="primary-button" type="button">Done</button>

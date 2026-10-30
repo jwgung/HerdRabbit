@@ -111,6 +111,10 @@
   gap: 6px;
 }
 
+.key-bar-add[hidden] {
+  display: none;
+}
+
 .key-bar-field {
   color: var(--muted);
   font-size: 12px;

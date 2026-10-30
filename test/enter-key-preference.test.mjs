@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  ENTER_KEY_MODES,
   ENTER_KEY_STORAGE_KEY,
-  enterKeyModeLabel,
+  enterKeyModeHint,
+  enterKeyModeName,
   looksLikePhysicalKey,
-  nextEnterKeyMode,
   readEnterKeyMode,
   writeEnterKeyMode,
 } from "../public/enter-key-preference.js";
@@ -45,7 +46,7 @@ test("does not count shortcuts, named keys or synthetic events", () => {
   assert.equal(looksLikePhysicalKey(null), false);
 });
 
-test("keeps the Enter mode per browser and cycles auto, new line, send", () => {
+test("keeps the Enter mode per browser, and names and explains each choice", () => {
   const store = new Map();
   const storage = { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) };
   assert.equal(readEnterKeyMode(storage), "auto");
@@ -56,12 +57,13 @@ test("keeps the Enter mode per browser and cycles auto, new line, send", () => {
   assert.equal(readEnterKeyMode(storage), "send");
   store.set(ENTER_KEY_STORAGE_KEY, "bogus");
   assert.equal(readEnterKeyMode(storage), "auto");
-  assert.equal(nextEnterKeyMode("auto"), "newline");
-  assert.equal(nextEnterKeyMode("newline"), "send");
-  assert.equal(nextEnterKeyMode("send"), "auto");
-  assert.equal(enterKeyModeLabel("auto"), "Enter: Auto");
-  assert.equal(enterKeyModeLabel("newline"), "Enter: New line");
-  assert.equal(enterKeyModeLabel("send"), "Enter: Send");
+  // Edit keys offers the three as one choice, in this order, each with what it does.
+  assert.deepEqual(ENTER_KEY_MODES, ["auto", "newline", "send"]);
+  assert.deepEqual(ENTER_KEY_MODES.map(enterKeyModeName), ["Auto", "New line", "Send"]);
+  assert.match(enterKeyModeHint("auto"), /physical keyboard/u);
+  assert.match(enterKeyModeHint("newline"), /new line/u);
+  assert.match(enterKeyModeHint("send"), /Shift\+Enter/u);
+  assert.equal(enterKeyModeName("bogus"), "Auto");
 });
 
 test("survives storage that is missing or throws", () => {

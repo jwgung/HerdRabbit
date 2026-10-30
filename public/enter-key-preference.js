@@ -23,13 +23,19 @@ export function writeEnterKeyMode(storage, mode) {
   } catch {}
 }
 
-export function nextEnterKeyMode(mode) {
-  const index = ENTER_KEY_MODES.indexOf(mode);
-  return ENTER_KEY_MODES[(index + 1) % ENTER_KEY_MODES.length];
+export function enterKeyModeName(mode) {
+  return LABELS[mode] || LABELS.auto;
 }
 
-export function enterKeyModeLabel(mode) {
-  return `Enter: ${LABELS[mode] || LABELS.auto}`;
+// What each choice does, under the choice in Edit keys.
+const HINTS = Object.freeze({
+  auto: "Enter sends once a physical keyboard is typed on, otherwise inserts a new line.",
+  newline: "Enter inserts a new line; the arrow button or Ctrl+Enter sends.",
+  send: "Enter sends; Shift+Enter inserts a new line.",
+});
+
+export function enterKeyModeHint(mode) {
+  return HINTS[mode] || HINTS.auto;
 }
 
 // A keydown that only a physical keyboard sends: a letter or digit with its

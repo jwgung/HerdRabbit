@@ -1,7 +1,8 @@
 // Browser check of the ⚙ settings menu at the foot of the sidebar. The footer
 // holds the uploads button and the settings button only; the menu opens upward
-// inside the viewport and lists Notifications (only where push works), the
-// theme switch, Edit keys, Enter (touch devices only), New window, Fit panes
+// inside the viewport and lists Notifications (only where push works; its
+// state shown as its colour), the theme switch, Edit keys (whose dialog holds
+// the Enter choice on touch devices), Fit panes
 // to this window (wide screens only, on until switched off, kept in this
 // browser) and -- with sign-in on -- Passkeys and Signed-in devices. Escape closes the menu alone. Each item does what its old button
 // did. Runs on a desktop and a phone against an in-process fake herdr.
@@ -89,16 +90,31 @@ try {
       await button.click();
       await menu.waitFor({ state: "visible" });
       const labels = await menu.locator("button:visible").allTextContents();
-      // Headless Chromium has no notification permission, so the state reads Blocked.
-      if (full) assert.match(labels[0], /^Notifications: (Off|Blocked)$/);
-      // The Enter item shows on a touch device only.
-      const keys = mobile ? ["Edit keys", "Enter: Auto"] : ["Edit keys"];
+      // Headless Chromium has no notification permission, so the state reads blocked:
+      // the label is the word alone, the state its colour and accessible name.
+      if (full) {
+        assert.equal(labels[0], "Notifications");
+        const notify = menu.locator('[data-action="notifications"]');
+        assert.match(await notify.getAttribute("data-notify"), /^(off|blocked)$/);
+        assert.match(await notify.getAttribute("aria-label"), /notifications/i);
+        const [colour, expected] = await notify.evaluate((node) => {
+          const probe = document.createElement("span");
+          probe.style.color = node.dataset.notify === "blocked" ? "var(--danger)" : "var(--muted)";
+          node.append(probe);
+          const value = [getComputedStyle(node).color, getComputedStyle(probe).color];
+          probe.remove();
+          return value;
+        });
+        assert.equal(colour, expected, "the item takes its state's colour");
+      }
+      const keys = ["Edit keys"];
       // Fitting a grid's panes to the window is for a wide screen's grid.
-      const windowItems = mobile ? ["New window"] : ["New window", "Fit panes to this window: On"];
+      const windowItems = mobile ? [] : ["Fit panes to this window: On"];
       assert.deepEqual(
         labels.slice(full ? 1 : 0),
         full ? [labels[1], ...keys, ...windowItems, "Passkeys", "Signed-in devices"] : [labels[0], ...keys, ...windowItems],
       );
+      assert.equal(await menu.locator('[data-action="new-window"], [data-action="enter-key"]').count(), 0, "New window and Enter are not menu items");
       assert.match(labels[full ? 1 : 0], /^Switch to (light|dark) mode$/);
       // It opens upward and stays inside the viewport.
       const box = await menu.boundingBox();
@@ -115,18 +131,6 @@ try {
       await button.click();
       await menu.waitFor({ state: "visible" });
       assert.match(await menu.getByRole("menuitem", { name: /Switch to/ }).textContent(), before === "dark" ? /dark mode/ : /light mode/);
-
-      if (mobile) {
-        // Enter: cycles auto, new line, send and back, kept in this browser.
-        for (const [label, stored] of [["Enter: New line", "newline"], ["Enter: Send", "send"], ["Enter: Auto", "auto"]]) {
-          await menu.locator('[data-action="enter-key"]').click();
-          await menu.waitFor({ state: "hidden" });
-          assert.equal(await page.evaluate(() => localStorage.getItem("herdrBridge.enterKey.v1")), stored);
-          await button.click();
-          await menu.waitFor({ state: "visible" });
-          assert.equal(await menu.locator('[data-action="enter-key"] span').textContent(), label);
-        }
-      }
 
       if (!mobile) {
         // Fit panes to this window: off and on again, kept in this browser.
@@ -158,20 +162,26 @@ try {
         await page.waitForTimeout(400);
       };
 
-      // Edit keys opens its dialog.
+      // Edit keys opens its dialog. On a touch device it holds the Enter choice:
+      // three buttons, one pressed, kept in this browser; elsewhere no choice.
       await button.click();
       await page.locator('.settings-menu [data-action="keys"]').click();
       await page.locator("#key-bar-dialog").waitFor({ state: "visible" });
+      const enterChoice = page.locator("#key-bar-enter");
+      assert.equal(await enterChoice.isVisible(), mobile, "the Enter choice shows on a touch device only");
+      if (mobile) {
+        const pressed = () => enterChoice.locator('[aria-pressed="true"]').allTextContents();
+        assert.deepEqual(await enterChoice.locator("button").allTextContents(), ["Auto", "New line", "Send"]);
+        assert.deepEqual(await pressed(), ["Auto"]);
+        for (const [label, stored] of [["New line", "newline"], ["Send", "send"], ["Auto", "auto"]]) {
+          await enterChoice.getByRole("button", { name: label, exact: true }).click();
+          assert.deepEqual(await pressed(), [label]);
+          assert.equal(await page.evaluate(() => localStorage.getItem("herdrBridge.enterKey.v1")), stored);
+          assert.ok((await page.locator("#key-bar-enter-hint").textContent()).length > 0, "the choice says what it does");
+        }
+      }
       await page.keyboard.press("Escape");
       await page.locator("#key-bar-dialog").waitFor({ state: "hidden" });
-
-      // New window opens a second window on the app's root.
-      await reachButton();
-      await button.click();
-      const [opened] = await Promise.all([context.waitForEvent("page"), page.locator('.settings-menu [data-action="new-window"]').click()]);
-      await opened.waitForLoadState();
-      assert.equal(new URL(opened.url()).pathname, "/");
-      await opened.close();
 
       if (full) {
         for (const [action, dialog] of [["passkeys", "#passkeys-dialog"], ["sessions", "#sessions-dialog"]]) {
