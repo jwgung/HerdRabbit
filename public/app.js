@@ -71,7 +71,7 @@ import {
   writeNavigatorWidth,
 } from "./browse-preference.js?v=1.4.16";
 import { terminalConnection } from "./terminal-connection.js?v=1.4.16";
-import { terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.4.16";
+import { createAttachTracker, terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.4.16";
 import { createAttachedTerminal } from "./xterm-terminal.js?v=1.4.16";
 import { createPaneGrid, renderPaneMap } from "./pane-grid.js?v=1.4.16";
 import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.4.16";
@@ -3553,8 +3553,7 @@ const attachedTerminal = createAttachedTerminal({
   fontSize: state.terminalFontSize,
   // A pane that cannot attach is mirrored from the polled screen instead.
   onFallback: (paneId, problem) => {
-    terminalAttachProblems.set(paneId, problem);
-    if (terminalAttach?.paneId === paneId) terminalAttach = { paneId, state: "failed", since: Date.now(), problem };
+    attachTracker.failed(paneId, problem);
     renderTerminalStatus();
     if (paneId !== state.selectedPaneId) return;
     showTerminalMessage("Loading output…");
@@ -4388,20 +4387,14 @@ async function rearrangeGridPanes({ paneId, targetPaneId, kind, side }) {
 // the socket is down, or the pane on screen could not attach. Quiet during a
 // normal connect, gone as soon as the terminal is live again. A held pane has
 // its own strip (#terminal-held), and the Chat lens shows neither.
-// The pane on screen's attach ({ paneId, state, since, problem }), and why each
-// pane last failed to attach (cleared once it attaches).
-let terminalAttach = null;
-const terminalAttachProblems = new Map();
+// Where the pane on screen is in attaching, and why each pane last failed to.
+const attachTracker = createAttachTracker();
 let terminalConnectionState = terminalStream.connectionState;
 let terminalStatusTimer = null;
 let terminalStatusShown = null;
 
 function noteTerminalAttach(paneId, next) {
-  if (next === "live") terminalAttachProblems.delete(paneId);
-  const same = terminalAttach?.paneId === paneId;
-  const problem = next === "live" ? null : (same ? terminalAttach.problem : null) ?? terminalAttachProblems.get(paneId) ?? null;
-  const since = same && terminalAttach.state === next ? terminalAttach.since : Date.now();
-  terminalAttach = { paneId, state: next, since, problem };
+  attachTracker.note(paneId, next);
   renderTerminalStatus();
 }
 
@@ -4415,11 +4408,7 @@ function renderTerminalStatus() {
   window.clearTimeout(terminalStatusTimer);
   terminalStatusTimer = null;
   const paneId = state.selectedPaneId;
-  let attach = null;
-  if (paneId && terminalAttach?.paneId === paneId) attach = terminalAttach;
-  else if (paneId && terminalAttachProblems.has(paneId)) {
-    attach = { paneId, state: "failed", since: 0, problem: terminalAttachProblems.get(paneId) };
-  }
+  const attach = attachTracker.of(paneId);
   const signedOut = terminalConnectionState.state === "signed-out";
   const { status, recheckAt } = ((state.authenticated && !document.hidden) || signedOut) && !shownGrid()
     ? terminalStatus({
