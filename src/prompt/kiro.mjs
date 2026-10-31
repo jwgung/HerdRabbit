@@ -15,10 +15,12 @@ import { ANSI_RE, cleanLine, finishPrompt, isDivider } from "./screen.mjs";
 
 // The hint under every Kiro menu, or the first line of it on a narrow pane.
 const HINT_RE = /^esc to \S+.*\b(?:to navigate|to select|to see more options)\b/u;
-// The hint's further lines on a narrow pane: indented well past it, made of
-// the hint's own words, at most two of them.
+// The hint's further lines on a narrow pane: right under it, indented well
+// past it, made of the hint's own words, at most two of them, and only while
+// the hint has not ended (its last words: "to select", "to edit", "options").
 const HINT_MORE_RE = /^ {8,}(?:(?:[↑↓↵·]+|Tab|Enter|to|edit|select|navigate|see|more|options)(?: +|$))+$/u;
 const HINT_MORE_LINES = 2;
+const HINT_END_RE = /\b(?:select|edit|options)$/u;
 // A row's further lines on a narrow pane are indented as rows are, and go on
 // mid-sentence; a row of its own starts with a capital ("Allow once").
 const ROW_MORE_RE = /^\p{Ll}/u;
@@ -28,7 +30,7 @@ const ROW_RE = /^ {0,2}(❯) +(\S.*)$|^ {3,6}(\S.*)$/u;
 const APPROVAL_RE = /\brequires approval$/u;
 // Lines a menu may keep under its hint: the trust menu says where to revoke it,
 // in a note that ends with a file's path, and on a narrow pane that path goes
-// on in pieces (no spaces), a few at most.
+// on in pieces (no spaces) right under it, a few at most, until it ends.
 const AFTER_HINT_RE = /^Revoke later\b/u;
 const NOTE_MORE_RE = /^\S+$/u;
 const NOTE_MORE_LINES = 3;
@@ -55,17 +57,33 @@ function menuRows(lines, end) {
   return joined;
 }
 
-// Whether the shown lines under the hint are only the menu's own: the hint's
-// further lines, then the trust menu's note and its further lines.
-function menuOwnsEnd(lines, after) {
+// Whether the shown lines under the hint (`after`, line indices) are only the
+// menu's own: the hint's further lines, then the trust menu's note and its
+// further lines.
+function menuOwnsEnd(lines, hintIndex, after) {
   let index = 0;
-  while (index < after.length && index < HINT_MORE_LINES && HINT_MORE_RE.test(lines[after[index]].replace(ANSI_RE, "").replace(/\s+$/u, ""))) index += 1;
+  let hint = cleanLine(lines[hintIndex]);
+  let last = hintIndex;
+  while (index < after.length && index < HINT_MORE_LINES && after[index] === last + 1 && !HINT_END_RE.test(hint)) {
+    const raw = lines[after[index]].replace(ANSI_RE, "").replace(/\s+$/u, "");
+    if (!HINT_MORE_RE.test(raw)) break;
+    hint = cleanLine(raw);
+    last = after[index];
+    index += 1;
+  }
   if (index === after.length) return true;
-  const note = cleanLine(lines[after[index]]);
+  let note = cleanLine(lines[after[index]]);
   if (!AFTER_HINT_RE.test(note)) return false;
-  const pieces = after.slice(index + 1).map((line) => cleanLine(lines[line]));
-  if (pieces.length > NOTE_MORE_LINES || !pieces.every((piece) => NOTE_MORE_RE.test(piece))) return false;
-  return NOTE_END_RE.test(note + pieces.join(""));
+  last = after[index];
+  let pieces = 0;
+  for (const line of after.slice(index + 1)) {
+    const piece = cleanLine(lines[line]);
+    if (NOTE_END_RE.test(note) || pieces === NOTE_MORE_LINES || line !== last + 1 || !NOTE_MORE_RE.test(piece)) return false;
+    note += piece;
+    last = line;
+    pieces += 1;
+  }
+  return NOTE_END_RE.test(note);
 }
 
 // The lines above the rows up to a rule: the question and what it is about.
@@ -103,7 +121,7 @@ export function parseKiroPrompt(screen) {
   const hintIndex = shown.findLast((index) => HINT_RE.test(cleanLine(lines[index])));
   if (hintIndex === undefined) return null;
   // the menu must still own the screen's end: an answered one sits above later output
-  if (!menuOwnsEnd(lines, shown.filter((index) => index > hintIndex))) return null;
+  if (!menuOwnsEnd(lines, hintIndex, shown.filter((index) => index > hintIndex))) return null;
   let end = hintIndex;
   while (end > 0 && (isDivider(lines[end - 1]) || !cleanLine(lines[end - 1]))) end -= 1;
   const rows = menuRows(lines, end);
