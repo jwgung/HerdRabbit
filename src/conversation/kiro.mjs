@@ -272,10 +272,43 @@ const TURN_MARK = Buffer.from('"turn_start"');
 // steering message Kiro cleared before the model had it opens no page, so the
 // message and its resend fall in one page, which shows the message once. Kiro
 // clears such a message as its turn ends, a few records before the resend (at
-// most 3 KiB apart in the transcripts seen): a page's window is scanned with
-// STEERING_CONTEXT_BYTES before it, so its edge falling between them changes
-// nothing.
+// most 3 KiB apart in the transcripts seen). A page's window is scanned with
+// STEERING_CONTEXT_BYTES before it, so its edge falling between them does not
+// make the resend a start, and a page cut mid-turn moves past the spans
+// kiroUnbroken names. A steering message longer than that context, read at a
+// window's edge, can still show twice.
 const STEERING_CONTEXT_BYTES = 64 * 1024;
+
+// The spans a page must not start inside (offsets into `bytes`): from a
+// steering message to the line that shows it in its place, its resend or
+// Kiro's instructions that give it to the model. A page cut between them
+// would show the message on both sides.
+export function kiroUnbroken(bytes) {
+  const spans = [];
+  const queue = steeringQueue();
+  const steerAt = new Map();
+  for (let offset = 0; offset < bytes.length;) {
+    const newline = bytes.indexOf(0x0a, offset);
+    const end = newline === -1 ? bytes.length : newline;
+    const line = bytes.subarray(offset, end);
+    if (line.includes(Buffer.from('"user"'))) {
+      let entry = null;
+      try { entry = JSON.parse(line.toString("utf8")); } catch { /* a torn line holds nothing */ }
+      const payload = record(entry?.payload);
+      if (payload.type === "user") {
+        const user = userRecordOf(entry, payload);
+        queue.note(user);
+        if (user.kind === "steer" && user.words && user.id !== null) steerAt.set(user.id, offset);
+        const shows = user.kind === "injection" ? user.consumed : user.kind === "prompt" && user.words ? queue.resends(user) : [];
+        for (const id of shows) {
+          if (steerAt.has(id)) spans.push([steerAt.get(id), end + 1]);
+        }
+      }
+    }
+    offset = end + 1;
+  }
+  return spans;
+}
 export function kiroTurnStarts(bytes) {
   const starts = [];
   let userOffset = -1;
@@ -323,6 +356,7 @@ export const KIRO_TRANSCRIPT = Object.freeze({
   source: "kiro-transcript",
   turnStarts: kiroTurnStarts,
   startContextBytes: STEERING_CONTEXT_BYTES,
+  unbroken: kiroUnbroken,
   parse: parseKiroTurns,
   metadata: parseKiroMetadata,
   headBytes: 0,
