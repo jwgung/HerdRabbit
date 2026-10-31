@@ -56,3 +56,25 @@ test("an empty interim leaves the text as it is", () => {
   recognition.say(["", false]);
   assert.equal(textarea.value, "안녕");
 });
+
+// Settings → Speech log: each result event as the browser gave it (every
+// result, from 0, with resultIndex) and what the box held after it.
+test("each recognizer event is told to onLog with every result and the box after it", () => {
+  const entries = [];
+  const textarea = { value: "", dispatchEvent() {} };
+  const button = { classList: { toggle() {} }, setAttribute() {}, addEventListener(type, handler) { this.click = handler; } };
+  createSpeechButton({ button, textarea, Recognition: FakeRecognition, onLog: (entry) => entries.push(entry) });
+  button.click();
+  const recognition = FakeRecognition.last;
+  recognition.say(["네", true], ["네트워크", false]);
+  recognition.onerror({ error: "no-speech" });
+  recognition.onend();
+  assert.deepEqual(entries.map((entry) => entry.type), ["start", "result", "error", "end"]);
+  assert.deepEqual(entries[1], {
+    type: "result",
+    resultIndex: 0,
+    results: [{ final: true, text: "네" }, { final: false, text: "네트워크" }],
+    box: "네 네트워크",
+  });
+  assert.equal(entries[2].error, "no-speech");
+});

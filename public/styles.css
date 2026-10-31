@@ -3098,6 +3098,22 @@ body.is-resizing-sidebar {
   border-style: dashed;
 }
 
+/* Settings → Speech log: one line per recognizer event, kept whole so a
+   phone's screenshot shows each result as the browser gave it. */
+.speech-log-body {
+  margin: 0;
+  min-height: 120px;
+  max-height: min(60vh, 520px);
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input);
+  background: var(--surface-raised);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .viewer-image,
 .viewer-video {
   max-width: 100%;

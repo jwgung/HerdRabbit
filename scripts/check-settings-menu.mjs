@@ -110,9 +110,13 @@ try {
       const keys = ["Edit keys"];
       // Fitting a grid's panes to the window is for a wide screen's grid.
       const windowItems = mobile ? [] : ["Fit panes to this window"];
+      // Speech log, for now, where the browser can take dictation.
+      const speechItems = await page.evaluate(() => Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)) ? ["Speech log"] : [];
       assert.deepEqual(
         labels.slice(full ? 1 : 0),
-        full ? [labels[1], ...keys, ...windowItems, "Passkeys", "Signed-in devices"] : [labels[0], ...keys, ...windowItems],
+        full
+          ? [labels[1], ...keys, ...windowItems, ...speechItems, "Passkeys", "Signed-in devices"]
+          : [labels[0], ...keys, ...windowItems, ...speechItems],
       );
       assert.equal(await menu.locator('[data-action="new-window"], [data-action="enter-key"]').count(), 0, "New window and Enter are not menu items");
       assert.match(labels[full ? 1 : 0], /^Switch to (light|dark) mode$/);
@@ -197,6 +201,17 @@ try {
       }
       await page.keyboard.press("Escape");
       await page.locator("#key-bar-dialog").waitFor({ state: "hidden" });
+
+      // Speech log opens its dialog, empty until dictation hears something.
+      if (speechItems.length) {
+        await reachButton();
+        await button.click();
+        await page.locator('.settings-menu [data-action="speech-log"]').click();
+        await page.locator("#speech-log-dialog").waitFor({ state: "visible" });
+        assert.match(await page.locator("#speech-log-body").textContent(), /^Nothing heard yet\./u);
+        await page.locator("#speech-log-close").click();
+        await page.locator("#speech-log-dialog").waitFor({ state: "hidden" });
+      }
 
       if (full) {
         for (const [action, dialog] of [["passkeys", "#passkeys-dialog"], ["sessions", "#sessions-dialog"]]) {
