@@ -91,3 +91,41 @@ test("a blocked Kiro pane whose screen is no Kiro menu still gets the fallback c
   assert.equal(fallback.agent, "kiro");
   assert.deepEqual(labels(fallback), ["Yes (y)", "No (n)", "Enter", "Esc"]);
 });
+
+// Recorded screens (test/fixtures/kiro-prompt.mjs): what a phone-width pane
+// shows. Each was a fallback card (Enter / Esc) before Kiro's reader read it.
+import {
+  KIRO_APPROVAL_44_CURSOR0, KIRO_APPROVAL_44_CURSOR2, KIRO_APPROVAL_58_CURSOR0, KIRO_APPROVAL_60_CURSOR2, KIRO_TRUST_60,
+} from "./fixtures/kiro-prompt.mjs";
+
+test("on a rule row the hint says Enter shows more options, and the menu is still a card", () => {
+  const parsed = parseKiroPrompt(KIRO_APPROVAL_60_CURSOR2);
+  assert.equal(parsed?.kind, "approval");
+  assert.equal(parsed.question, "Write File requires approval");
+  assert.deepEqual(labels(parsed), KIRO_APPROVAL_ROWS);
+  assert.equal(parsed.selectedIndex, 2);
+  assert.deepEqual(keys(answerSteps(parsed, { option: 0 })), ["up", "up", "enter"]);
+});
+
+test("a row too long for the pane goes on to the next line and is still one option", () => {
+  for (const [screen, cursor] of [[KIRO_APPROVAL_58_CURSOR0, 0], [KIRO_APPROVAL_44_CURSOR0, 0], [KIRO_APPROVAL_44_CURSOR2, 2]]) {
+    const parsed = parseKiroPrompt(screen);
+    assert.deepEqual(labels(parsed), KIRO_APPROVAL_ROWS, `rows at cursor ${cursor}`);
+    assert.equal(parsed.selectedIndex, cursor);
+    assert.match(parsed.body, /^fs_write → note2?\.txt$/u);
+  }
+  // the selected row's second line belongs to it: down from it skips that line
+  assert.deepEqual(keys(answerSteps(parseKiroPrompt(KIRO_APPROVAL_44_CURSOR2), { option: 3 })), ["down", "enter"]);
+});
+
+test("a narrow pane's menu with its hint on two lines, or its note under the hint on three, is a card", () => {
+  assert.deepEqual(labels(parseKiroPrompt(KIRO_APPROVAL_58_CURSOR0)), KIRO_APPROVAL_ROWS);
+  const trust = parseKiroPrompt(KIRO_TRUST_60);
+  assert.equal(trust?.question, "Trust this workspace?");
+  assert.deepEqual(labels(trust), ["Trust, continue", "Don't trust, exit"]);
+});
+
+test("output under a narrow pane's answered menu still means it is no card", () => {
+  assert.equal(parseKiroPrompt(`${KIRO_APPROVAL_44_CURSOR0}  Allowed once\n• Write note.txt\n`), null);
+  assert.equal(parseKiroPrompt(`${KIRO_APPROVAL_60_CURSOR2}\n  Allowed once\n`), null);
+});
