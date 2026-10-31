@@ -468,3 +468,24 @@ test("the same subagent request is the same card at every width that shows its s
     assert.equal(parsed.id, wide.id, `width ${width}`);
   }
 });
+
+// Third review of #120: two subagents waiting at once are both named, each on
+// its own line, the same at a wide and a narrow pane. Made from the recorded
+// 160- and 62-column screens with the second agent's row waiting too.
+test("two subagents waiting at once are both named, at any width", () => {
+  const pad = " ".repeat(56);
+  const twice = (screen) => screen
+    .replace("⚠ 1 tool approval pending", "⚠ 2 tool approvals pending")
+    // the first agent waits too: its status as the pane shows a waiting one
+    .replace("general-task-execution Thinking...", "general-task-execution WebFetch ⚠ tool approval needed")
+    .replace(`general-task-execution Comple\n${pad}ted`, `general-task-execution WebFet\n${pad}ch ⚠\n${pad}tool\n${pad}approv\n${pad}al\n${pad}needed`);
+  const wide = parseKiroPrompt(twice(KIRO_SUBAGENT_APPROVAL_SECOND_160));
+  const narrow = parseKiroPrompt(twice(KIRO_SUBAGENT_APPROVAL_SECOND_62));
+  assert.equal(wide?.question, "2 tool approvals pending");
+  assert.equal(wide.body, [
+    "Delegate fetching example general-task-execution WebFetch ⚠ tool approval needed",
+    "Delegate fetching example #2 general-task-execution WebFetch ⚠ tool approval needed",
+  ].join("\n"));
+  assert.equal(narrow.body, wide.body);
+  assert.equal(narrow.id, wide.id);
+});

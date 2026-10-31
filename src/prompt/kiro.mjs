@@ -164,8 +164,9 @@ const PENDING_MORE_RE = /^ {3}(?!\([a-z]\) )\S/u;
 const WRAP_SLACK = 5;
 const ORCHESTRATING_RE = /^• Orchestrating \(\d+ agents?\)$/u;
 // An agent row of the list: "  • <task> <agent type> <status>", its marker a
-// spinner while it works; its status, cut to a narrow column, goes on in
-// lines indented to that column.
+// spinner while it works (the list's own "  esc to cancel" and "  ctrl+g …"
+// lines have no marker and space before their words); its status, cut to a
+// narrow column, goes on in lines indented to that column.
 const AGENT_ROW_RE = /^ {2}\S (\S.*)$/u;
 const AGENT_MORE_RE = /^ {8,}\S/u;
 
@@ -189,7 +190,7 @@ function waitingAgents(lines, rule) {
   const rows = [];
   for (let index = start + 1; index < rule; index += 1) {
     const raw = lines[index].replace(ANSI_RE, "").replace(/\s+$/u, "");
-    if (AGENT_ROW_RE.test(raw) && !/^ {2}(?:esc|ctrl)\b/u.test(raw)) {
+    if (AGENT_ROW_RE.test(raw)) {
       rows.push({ first: raw, pieces: [] });
     } else if (rows.length > 0 && AGENT_MORE_RE.test(raw)) {
       rows.at(-1).pieces.push(raw);
