@@ -15,8 +15,10 @@ import { ANSI_RE, cleanLine, finishPrompt, isDivider } from "./screen.mjs";
 
 // The hint under every Kiro menu, or the first line of it on a narrow pane.
 const HINT_RE = /^esc to \S+.*\b(?:to navigate|to select|to see more options)\b/u;
-// The hint's further lines on a narrow pane: indented well past it.
-const HINT_MORE_RE = /^ {8,}\S/u;
+// The hint's further lines on a narrow pane: indented well past it, made of
+// the hint's own words, at most two of them.
+const HINT_MORE_RE = /^ {8,}(?:(?:[↑↓↵·]+|Tab|Enter|to|edit|select|navigate|see|more|options)(?: +|$))+$/u;
+const HINT_MORE_LINES = 2;
 // A row's further lines on a narrow pane are indented as rows are, and go on
 // mid-sentence; a row of its own starts with a capital ("Allow once").
 const ROW_MORE_RE = /^\p{Ll}/u;
@@ -25,9 +27,12 @@ const ROW_MORE_RE = /^\p{Ll}/u;
 const ROW_RE = /^ {0,2}(❯) +(\S.*)$|^ {3,6}(\S.*)$/u;
 const APPROVAL_RE = /\brequires approval$/u;
 // Lines a menu may keep under its hint: the trust menu says where to revoke it,
-// and on a narrow pane its path goes on in pieces (no spaces).
+// in a note that ends with a file's path, and on a narrow pane that path goes
+// on in pieces (no spaces), a few at most.
 const AFTER_HINT_RE = /^Revoke later\b/u;
 const NOTE_MORE_RE = /^\S+$/u;
+const NOTE_MORE_LINES = 3;
+const NOTE_END_RE = /\/\S*\.yaml$/u;
 // Read from at most this many lines above the hint.
 const MENU_LINES = 48;
 
@@ -54,10 +59,13 @@ function menuRows(lines, end) {
 // further lines, then the trust menu's note and its further lines.
 function menuOwnsEnd(lines, after) {
   let index = 0;
-  while (index < after.length && HINT_MORE_RE.test(lines[after[index]].replace(ANSI_RE, ""))) index += 1;
+  while (index < after.length && index < HINT_MORE_LINES && HINT_MORE_RE.test(lines[after[index]].replace(ANSI_RE, "").replace(/\s+$/u, ""))) index += 1;
   if (index === after.length) return true;
-  if (!AFTER_HINT_RE.test(cleanLine(lines[after[index]]))) return false;
-  return after.slice(index + 1).every((line) => NOTE_MORE_RE.test(cleanLine(lines[line])));
+  const note = cleanLine(lines[after[index]]);
+  if (!AFTER_HINT_RE.test(note)) return false;
+  const pieces = after.slice(index + 1).map((line) => cleanLine(lines[line]));
+  if (pieces.length > NOTE_MORE_LINES || !pieces.every((piece) => NOTE_MORE_RE.test(piece))) return false;
+  return NOTE_END_RE.test(note + pieces.join(""));
 }
 
 // The lines above the rows up to a rule: the question and what it is about.
