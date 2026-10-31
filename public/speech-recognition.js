@@ -71,6 +71,12 @@ export function createSpeechButton({ button, textarea, onStateChange = () => {},
   // `shown` is the interim text this box holds at its end right now (with the
   // space put before it), so the next result can take it out first. Without
   // that every interim update would be added after the last one.
+  // `heard` is the last final put in the box (its words and what was added for
+  // them), while no interim came after it: Android sends no interim results,
+  // and each better hearing of the same words as one more final, the words so
+  // far and then some. A final that goes on from it takes its place. A final
+  // after an interim (the desktop's way) is new words.
+  let heard = null;
   function withoutShown() {
     const value = textarea.value;
     return shown && value.endsWith(shown) ? value.slice(0, -shown.length) : value;
@@ -83,8 +89,10 @@ export function createSpeechButton({ button, textarea, onStateChange = () => {},
     if (!Recognition) return;
     textarea.value = withoutShown();
     shown = "";
+    heard = null;
     recognition = createRecognizer(Recognition, {
       onInterim: (text) => {
+        if (text.trim()) heard = null;
         const base = withoutShown();
         const next = appended(base, text.trim());
         shown = next.slice(base.length);
@@ -92,14 +100,23 @@ export function createSpeechButton({ button, textarea, onStateChange = () => {},
         onTextChange();
       },
       onFinal: (text) => {
-        // The final result replaces the interim that was shown for it.
-        textarea.value = appended(withoutShown(), text.trim());
+        const words = text.trim();
+        if (!words) return;
+        // The final result replaces the interim that was shown for it, or
+        // the final it hears better.
+        let base = withoutShown();
+        if (heard && words.startsWith(heard.words) && heard.added && base.endsWith(heard.added)) {
+          base = base.slice(0, -heard.added.length);
+        }
+        textarea.value = appended(base, words);
+        heard = { words, added: textarea.value.slice(base.length) };
         shown = "";
         textarea.dispatchEvent(new Event("input", { bubbles: true }));
       },
       onEnd: () => {
         // Chrome stops after a silence or a network hiccup; restart while the
-        // user is still dictating.
+        // user is still dictating. The next words are new ones.
+        heard = null;
         if (listening) {
           try {
             recognition.start();

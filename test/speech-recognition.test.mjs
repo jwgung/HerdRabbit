@@ -12,6 +12,11 @@ class FakeRecognition {
     const list = results.map(([transcript, isFinal]) => Object.assign([{ transcript }], { isFinal }));
     this.onresult({ resultIndex: 0, results: list });
   }
+  // `results` is the whole list so far; the event's new ones start at `resultIndex`
+  sayFrom(resultIndex, ...results) {
+    const list = results.map(([transcript, isFinal]) => Object.assign([{ transcript }], { isFinal }));
+    this.onresult({ resultIndex, results: list });
+  }
 }
 
 function setup(initial = "") {
@@ -93,4 +98,52 @@ test("a log that throws does not stop dictation or its restart", () => {
   recognition.onend();
   assert.equal(starts, 2, "started, then restarted after the end");
   assert.equal(speech.listening, true);
+});
+
+// Android Chrome, from a phone's Speech log (2026-10-31): no interim results;
+// each better hearing of the same words comes as one more final result, the
+// words so far and then some. Only the last is what was said.
+const ANDROID_FINALS = ["", "안녕하세요", "안녕하세요", "안녕하세요", "안녕하세요", "안녕하세요", "안녕하세요 공정원입니다"];
+
+function sayLikeAndroid(recognition, finals) {
+  finals.forEach((_text, index) => recognition.sayFrom(index, ...finals.slice(0, index + 1).map((text) => [text, true])));
+}
+
+test("Android's finals, each the same words heard again, land once as the last of them", () => {
+  const { textarea, recognition } = setup();
+  sayLikeAndroid(recognition, ANDROID_FINALS);
+  assert.equal(textarea.value, "안녕하세요 공정원입니다");
+});
+
+test("after Android's restart the next words follow, and text typed before stays", () => {
+  const { textarea, recognition } = setup("deploy");
+  sayLikeAndroid(recognition, ANDROID_FINALS);
+  recognition.onend();
+  const next = FakeRecognition.last;
+  // the same words said again after the restart are said twice
+  sayLikeAndroid(next, ["", "안녕하세요"]);
+  assert.equal(textarea.value, "deploy 안녕하세요 공정원입니다 안녕하세요");
+});
+
+test("on the desktop a final after an interim is new words, even when it starts as the last did", () => {
+  const { textarea, recognition } = setup();
+  recognition.say(["네", true]);
+  recognition.sayFrom(1, ["네", true], ["네트워크", false]);
+  recognition.sayFrom(1, ["네", true], ["네트워크 확인", true]);
+  assert.equal(textarea.value, "네 네트워크 확인");
+});
+
+test("a final right after a final that does not go on from it is new words", () => {
+  const { textarea, recognition } = setup();
+  recognition.sayFrom(0, ["네", true]);
+  recognition.sayFrom(1, ["네", true], ["알겠습니다", true]);
+  assert.equal(textarea.value, "네 알겠습니다");
+});
+
+test("a final is not taken back once the box was changed by hand after it", () => {
+  const { textarea, recognition } = setup();
+  recognition.sayFrom(0, ["안녕하세요", true]);
+  textarea.value += "!";
+  recognition.sayFrom(1, ["안녕하세요", true], ["안녕하세요 반가워요", true]);
+  assert.equal(textarea.value, "안녕하세요! 안녕하세요 반가워요");
 });
