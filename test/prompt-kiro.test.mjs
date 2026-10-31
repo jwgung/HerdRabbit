@@ -170,3 +170,39 @@ test("a hint that ended, a line after a blank, or a path after a whole note is o
     assert.equal(parseKiroPrompt(screen), null, name);
   }
 });
+
+// The menu a rule row opens: its scope is chosen there (s cycles it), and its
+// rows read as a card too (reported from a phone, 2026-10-31).
+import {
+  KIRO_RULE_WRITE_100, KIRO_RULE_WRITE_55, KIRO_RULE_WRITE_44, KIRO_RULE_WEB_56, KIRO_RULE_WEB_44, KIRO_DENY_RULE_WEB_55,
+} from "./fixtures/kiro-prompt.mjs";
+
+test("a rule's scope menu is a card: each row's name, what it matches as its description", () => {
+  for (const screen of [KIRO_RULE_WRITE_100, KIRO_RULE_WRITE_55, KIRO_RULE_WRITE_44]) {
+    const parsed = parseKiroPrompt(screen);
+    assert.equal(parsed?.question, "Create allow rule: sub.txt");
+    assert.deepEqual(labels(parsed), ['Trust "sub.txt"', "Trust entire tool (Write File)"]);
+    assert.equal(parsed.selectedIndex, 0);
+    assert.match(parsed.options[1].description, /^session$/u);
+    assert.match(parsed.body, /^fs_write → sub\.txt\nScope: +\[session\]/u);
+    assert.deepEqual(keys(answerSteps(parsed, { option: 1 })), ["down", "enter"]);
+  }
+  assert.equal(parseKiroPrompt(KIRO_RULE_WRITE_100).options[0].description, "exact match · session");
+});
+
+test("a tool with one rule has a one-row scope menu, and it is a card", () => {
+  for (const screen of [KIRO_RULE_WEB_56, KIRO_RULE_WEB_44]) {
+    const parsed = parseKiroPrompt(screen);
+    assert.equal(parsed?.question, "Create allow rule: web_search");
+    assert.deepEqual(labels(parsed), ["Trust entire tool (web_search)"]);
+    assert.deepEqual(keys(answerSteps(parsed, { option: 0 })), ["enter"]);
+  }
+  assert.deepEqual(labels(parseKiroPrompt(KIRO_DENY_RULE_WEB_55)), ["Deny entire tool (web_search)"]);
+});
+
+test("one row is a card only in a scope menu, and the scope menu still ends at its hint", () => {
+  const single = kiroApprovalScreen().replace(/ {3}Deny once\n| {3}Create[^\n]*\n/gu, "");
+  assert.equal(parseKiroPrompt(single), null, "an approval with one row is not one Kiro draws");
+  assert.equal(parseKiroPrompt(`${KIRO_RULE_WEB_56}  Rule created\n`), null);
+  assert.equal(parseKiroPrompt(`${KIRO_RULE_WRITE_44}        to\n`), null);
+});

@@ -10,6 +10,10 @@
 // offered the bare arrow keys instead of the rows. On a phone-width pane Kiro
 // breaks a long row, its hint and the note under it on to further lines, and
 // on a rule row its hint is "esc to close · Enter to see more options".
+// Enter on a rule row opens the rule's scope menu ("Create allow rule: …",
+// "Scope: [session] workspace user"): its rows have a second column (what the
+// rule matches, its scope), a tool with one rule has one row, and its hint
+// keeps "esc to go back" in a column of its own.
 import { secretPrompt } from "../secret-prompt.mjs";
 import { ANSI_RE, cleanLine, finishPrompt, isDivider } from "./screen.mjs";
 
@@ -18,9 +22,15 @@ const HINT_RE = /^esc to \S+.*\b(?:to navigate|to select|to see more options)\b/
 // The hint's further lines on a narrow pane: right under it, indented well
 // past it, made of the hint's own words, at most two of them, and only while
 // the hint has not ended (its last words: "to select", "to edit", "options").
-const HINT_MORE_RE = /^ {8,}(?:(?:[↑↓↵·]+|Tab|Enter|to|edit|select|navigate|see|more|options)(?: +|$))+$/u;
+const HINT_MORE_RE = /^ +(?:(?:[↑↓↵·]+|Tab|Enter|to|edit|select|navigate|see|more|options|go|back|s|cycle|scope)(?: +|$))+$/u;
 const HINT_MORE_LINES = 2;
-const HINT_END_RE = /\b(?:select|edit|options)$/u;
+// A hint's last words: one that ends so has no further lines. ("to select"
+// may still go on: "· Tab to edit" follows it on a narrow pane.)
+const HINT_END_RE = /\b(?:edit|options)$/u;
+// A row's second column, after a wide gap: what a rule matches, its scope.
+const COLUMN_GAP_RE = / {3,}/u;
+// The scope menu's line above its rows; only there is one row a menu.
+const SCOPE_RE = /^Scope:\s/u;
 // A row's further lines on a narrow pane are indented as rows are, and go on
 // mid-sentence; a row of its own starts with a capital ("Allow once").
 const ROW_MORE_RE = /^\p{Ll}/u;
@@ -45,13 +55,16 @@ function menuRows(lines, end) {
     const raw = lines[index].replace(ANSI_RE, "").replace(/\s+$/u, "");
     const match = raw.match(ROW_RE);
     if (!match) break;
-    rows.unshift({ label: (match[2] ?? match[3]).trim(), selected: match[1] === "❯", lineIndex: index });
+    const [label, ...columns] = (match[2] ?? match[3]).trim().split(COLUMN_GAP_RE);
+    rows.unshift({ label, description: columns.length ? columns.join(" · ") : null, selected: match[1] === "❯", lineIndex: index });
   }
-  // A row broken over two lines is one row.
+  // A row broken over two lines is one row: its second line goes on in lower
+  // case, or, where rows have a second column, comes without one.
   const joined = [];
   for (const row of rows) {
     const previous = joined.at(-1);
-    if (previous && !row.selected && ROW_MORE_RE.test(row.label)) previous.label = `${previous.label} ${row.label}`;
+    const more = previous && !row.selected && (ROW_MORE_RE.test(row.label) || (previous.description !== null && row.description === null));
+    if (more) previous.label = `${previous.label} ${row.label}`;
     else joined.push(row);
   }
   return joined;
@@ -125,16 +138,17 @@ export function parseKiroPrompt(screen) {
   let end = hintIndex;
   while (end > 0 && (isDivider(lines[end - 1]) || !cleanLine(lines[end - 1]))) end -= 1;
   const rows = menuRows(lines, end);
-  if (rows.length < 2 || rows.filter((row) => row.selected).length !== 1) return null;
+  if (rows.length === 0 || rows.filter((row) => row.selected).length !== 1) return null;
   const head = heading(lines, rows[0].lineIndex);
   if (!head) return null;
+  if (rows.length < 2 && !SCOPE_RE.test(head.body?.split("\n").at(-1) ?? "")) return null;
   const approval = APPROVAL_RE.test(head.question);
   return finishPrompt("kiro", {
     kind: approval ? "approval" : "menu",
     title: head.question,
     question: head.question,
     body: head.body,
-    options: rows.map((row) => ({ label: row.label, description: null })),
+    options: rows.map((row) => ({ label: row.label, description: row.description })),
     multiSelect: false,
     customOptionIndex: null,
   }, {
