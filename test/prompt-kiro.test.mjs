@@ -150,3 +150,23 @@ test("only the trust note's path goes on under it, and it ends where the path do
   // the note on one line, as on a wide pane, needs no further lines
   assert.equal(parseKiroPrompt(kiroTrustScreen())?.question, "Trust this workspace?");
 });
+
+// A hint has further lines only when it stops mid-sentence, and they come
+// right under it; a trust note that already ends with its path has no pieces
+// (second review of #104).
+test("a hint that ended, a line after a blank, or a path after a whole note is output, not the menu's", () => {
+  const A60 = kiroApprovalScreen();
+  for (const [name, screen] of [
+    ["ended hint + more", `${A60}          more\n`],
+    ["rule-row hint + to edit", `${KIRO_APPROVAL_60_CURSOR2}        to edit\n`],
+    ["rule-row hint + see more / options", `${KIRO_APPROVAL_60_CURSOR2}        see more\n        options\n`],
+    ["blank then Enter", `${KIRO_APPROVAL_60_CURSOR2}\n        Enter\n`],
+    ["wrapped hint already ended + select", `${KIRO_APPROVAL_58_CURSOR0}        select\n`],
+    ["44 + to after its ended second line", `${KIRO_APPROVAL_44_CURSOR0}        to\n`],
+    ["trust 60 + yaml line", `${KIRO_TRUST_60}/tmp/a.yaml\n`],
+    ["wide trust + yaml line", `${kiroTrustScreen()}/x/foo.yaml\n`],
+    ["wide trust + two pieces", `${kiroTrustScreen()}/x/a\n.yaml\n`],
+  ]) {
+    assert.equal(parseKiroPrompt(screen), null, name);
+  }
+});
