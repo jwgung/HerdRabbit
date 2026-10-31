@@ -356,10 +356,13 @@ const MAX_TREE = 64;
 const MAX_KIRO_DESCRIPTORS = 512;
 // Workspace folders looked through for a named session, at most.
 const MAX_KIRO_WORKSPACES = 4096;
+const MAX_MOVED_SESSIONS = 256;
 
 export function localKiroStore(configDir, { procRoot = "/proc" } = {}) {
   const sessions = join(configDir, "sessions");
   const logs = join(configDir, "logs");
+  // session uuid -> the workspace hash it was found under, outside the pane's
+  const movedSessions = new Map();
   // The transcript of one session directory, or null when it has no messages file.
   async function transcriptOf(hash, sessionDir) {
     const path = join(sessions, hash, sessionDir, "messages.jsonl");
@@ -432,10 +435,12 @@ export function localKiroStore(configDir, { procRoot = "/proc" } = {}) {
       }
       return [...found];
     },
-    // { session, hashes }: a reported session uuid (or null), and the workspace
-    // hashes to look under, most specific first. Returns { session, path } for
-    // the newest session with a transcript, or null when none is written yet.
-    async locate({ session = null, hashes = [] } = {}) {
+    // { session, hashes, anywhere }: a reported session uuid (or null), the
+    // workspace hashes to look under, most specific first, and whether the
+    // session may be under another workspace (the pane's own process named
+    // it). Returns { session, path } for the newest session with a
+    // transcript, or null when none is written yet.
+    async locate({ session = null, hashes = [], anywhere = false } = {}) {
       for (const hash of hashes) {
         if (typeof hash !== "string" || !/^[0-9a-f]{16}$/u.test(hash)) continue;
         let entries;
@@ -466,9 +471,17 @@ export function localKiroStore(configDir, { procRoot = "/proc" } = {}) {
       }
       // A named session not under the pane's folder: Kiro keeps writing under
       // the folder it started in, and a folder renamed since is reported at
-      // its new path. Its own name finds it under whichever folder holds it;
-      // without a name, another folder's sessions are never the pane's.
-      if (session !== null && KIRO_SESSION_ID.test(session)) {
+      // its new path. With `anywhere` (the name came from the pane's own Kiro
+      // process) its own name finds it under whichever folder holds it, the
+      // folder remembered once found; without a name, or with one only
+      // reported, another folder's sessions are never the pane's.
+      if (anywhere && session !== null && KIRO_SESSION_ID.test(session)) {
+        const remembered = movedSessions.get(session);
+        if (remembered !== undefined) {
+          const found = await transcriptOf(remembered, `sess_${session}`);
+          if (found) return { session, path: found.path };
+          movedSessions.delete(session);
+        }
         let workspaces;
         try {
           workspaces = await readdir(sessions);
@@ -479,7 +492,11 @@ export function localKiroStore(configDir, { procRoot = "/proc" } = {}) {
         for (const hash of workspaces.slice(0, MAX_KIRO_WORKSPACES)) {
           if (!/^[0-9a-f]{16}$/u.test(hash) || hashes.includes(hash)) continue;
           const found = await transcriptOf(hash, `sess_${session}`);
-          if (found) return { session, path: found.path };
+          if (found) {
+            movedSessions.set(session, hash);
+            if (movedSessions.size > MAX_MOVED_SESSIONS) movedSessions.delete(movedSessions.keys().next().value);
+            return { session, path: found.path };
+          }
         }
       }
       return null;
