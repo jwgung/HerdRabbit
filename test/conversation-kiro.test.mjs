@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { dirname } from "node:path";
 import {
   KIRO_TRANSCRIPT,
   kiroWorkspaceHash,
@@ -379,16 +380,24 @@ test("a session its process names is found even when the pane's folder was renam
   assert.equal(found.session, UUID_A);
 });
 
-test("a named session is looked for under other workspaces only by its own name", async (context) => {
+test("a named session is looked for under other workspaces only by its own name, and only when its process named it", async (context) => {
   const { store, writeSession } = await kiroHome(context);
   const elsewhere = await writeSession("/home/me/old-name", UUID_A, jsonl([user("mine")]));
   await writeSession("/home/me/other", UUID_B, jsonl([user("not mine")]), 9_000);
   const here = kiroWorkspaceHash("/home/me/new-name");
-  assert.equal((await store.locate({ session: UUID_A, hashes: [here] })).path, elsewhere);
+  assert.equal((await store.locate({ session: UUID_A, hashes: [here], anywhere: true })).path, elsewhere);
+  // found again where it was found, and again after it moves once more
+  assert.equal((await store.locate({ session: UUID_A, hashes: [here], anywhere: true })).path, elsewhere);
+  const { rename } = await import("node:fs/promises");
+  const moved = join(dirname(dirname(dirname(elsewhere))), kiroWorkspaceHash("/home/me/third"));
+  await rename(dirname(dirname(elsewhere)), moved);
+  assert.equal((await store.locate({ session: UUID_A, hashes: [here], anywhere: true })).path, join(moved, `sess_${UUID_A}`, "messages.jsonl"));
+  // a name only reported (not by the pane's process) is looked for in the pane's folder alone
+  assert.equal(await store.locate({ session: UUID_A, hashes: [here] }), null);
   // without a name, only the pane's own folder counts: another folder's newest is not the pane's
-  assert.equal(await store.locate({ session: null, hashes: [here] }), null);
+  assert.equal(await store.locate({ session: null, hashes: [here], anywhere: true }), null);
   const missing = "33333333-3333-4333-8333-333333333333";
-  assert.equal(await store.locate({ session: missing, hashes: [here] }), null);
+  assert.equal(await store.locate({ session: missing, hashes: [here], anywhere: true }), null);
 });
 
 // Kiro's steering: a message sent while Kiro works is written as the user's
@@ -427,4 +436,21 @@ test("steering instructions whose message has no record of its own show the mess
     say("ok"),
   ]));
   assert.deepEqual(texts(turns), ["start", "working", "외부 연동도 좋고", "300통 말고 더 마니 읽어", "ok"]);
+});
+
+test("a prompt that only starts like steering, or steering whose messages cannot be read, still shows", () => {
+  const pasted = "[LIVE STEERING - New message from user] was in the log";
+  const unreadable = rec({ type: "user", content: "[LIVE STEERING - New message from user]\n\n<message>새 형식</message>",
+    _meta: { kiro: { syntheticUserMessageReason: "steering-injection" } } });
+  const turns = parseKiroTranscript(jsonl([user(pasted), turnStart(), say("ok"), unreadable]));
+  assert.deepEqual(texts(turns), [pasted, "ok", "[LIVE STEERING - New message from user]\n\n<message>새 형식</message>"]);
+});
+
+test("the same steering message given to Kiro again shows once", () => {
+  const id = "steer-aaaa";
+  const turns = parseKiroTranscript(jsonl([
+    user("start"), turnStart(), say("working"),
+    steer(id, "더 읽어"), injected([id], ["더 읽어"]), say("reading"), injected([id], ["더 읽어"]), say("done"),
+  ]));
+  assert.deepEqual(texts(turns), ["start", "working", "더 읽어", "reading done"]);
 });

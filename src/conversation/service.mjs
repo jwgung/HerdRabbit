@@ -277,8 +277,11 @@ export class ConversationService {
     const reported = reportedId ?? running.value;
     const hashes = cwds.map((cwd) => kiroWorkspaceHash(cwd)).filter((hash) => hash !== null);
     if (reported === null && this.#kiroFolderShared(pane, panes, serverId)) throw new ConversationUnavailable("no_session_id");
-    const found = await this.#located(`kiro\0${serverId}\0${reported ?? ""}\0${hashes.join("\0")}`,
-      () => store.locate({ session: reported, hashes }));
+    // only a session the pane's own Kiro process names is looked for outside
+    // the pane's folder (one renamed since Kiro started)
+    const anywhere = reportedId === null && running.value !== null;
+    const found = await this.#located(`kiro\0${serverId}\0${reported ?? ""}\0${anywhere}\0${hashes.join("\0")}`,
+      () => store.locate({ session: reported, hashes, anywhere }));
     if (found.value === null) {
       // nothing names the workspace or its session yet: wait for herdr to report the pane
       throw new ConversationUnavailable(hashes.length === 0 ? "no_session_id" : "transcript_missing");

@@ -33,14 +33,11 @@ function toolSummary(name, args) {
 // Kiro's steering: a message sent while Kiro works is the user's own record
 // (`{ id: "steer-…", source: "steer" }`), and is given to the model again
 // inside instructions written as one more user record, marked
-// `_meta.kiro.syntheticUserMessageReason: "steering-injection"` (or, without
-// the mark, starting "[LIVE STEERING"). Each message in those sits in
-// `<user_message id="steer-…">…</user_message>`.
-const STEERING_HEAD = "[LIVE STEERING";
+// `_meta.kiro.syntheticUserMessageReason: "steering-injection"`. Each message
+// in those sits in `<user_message id="steer-…">…</user_message>`.
 const STEERING_MESSAGE_RE = /<user_message id="([^"]{1,128})">\n?([\s\S]*?)\n?<\/user_message>/gu;
 function steeringInjection(payload) {
-  return record(record(payload._meta).kiro).syntheticUserMessageReason === "steering-injection"
-    || string(payload.content).startsWith(STEERING_HEAD);
+  return record(record(payload._meta).kiro).syntheticUserMessageReason === "steering-injection";
 }
 function steeringMessages(content) {
   return [...content.matchAll(STEERING_MESSAGE_RE)]
@@ -85,8 +82,14 @@ export function parseKiroTurns(text) {
       if (payload.source === "steer" && typeof entry?.id === "string") shownSteers.add(entry.id);
       if (steeringInjection(payload)) {
         // Kiro's instructions to itself around a message sent while it
-        // worked: the message shows, once, as the user's words
-        for (const message of steeringMessages(content)) {
+        // worked: the message shows, once, as the user's words. Instructions
+        // whose messages cannot be read show as they are rather than not at all.
+        const messages = steeringMessages(content);
+        if (messages.length === 0) {
+          turns.push({ role: "user", ts, parts: [{ kind: "text", text: content }] });
+          continue;
+        }
+        for (const message of messages) {
           if (shownSteers.has(message.id)) continue;
           shownSteers.add(message.id);
           turns.push({ role: "user", ts, parts: [{ kind: "text", text: message.text }] });
