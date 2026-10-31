@@ -16,6 +16,7 @@
 // keeps "esc to go back" in a column of its own.
 import { secretPrompt } from "../secret-prompt.mjs";
 import { ANSI_RE, cleanLine, finishPrompt, isDivider } from "./screen.mjs";
+import { stringWidth } from "./text-width.mjs";
 
 // The hint under every Kiro menu, or the first line of it on a narrow pane.
 const HINT_RE = /^esc to \S+.*\b(?:to navigate|to select|to see more options)\b/u;
@@ -151,31 +152,81 @@ function heading(lines, rowsStart) {
 // orchestrates them: right under a rule, "⚠ 1 tool approval pending", then a
 // row per answer, "(a) Approve all pending", the cursor row " ❯ (a) …", any
 // other "   (f) …", a row too long for the pane going on in further lines at
-// the same indent. No hint line; the arrows move the ❯ and Enter picks.
+// the same indent. No hint line; the arrows move the ❯ and Enter picks. Kiro
+// asks about one subagent's tool at a time; the agent list above the rule
+// says which ("… general-task-execution WebFetch ⚠ tool approval needed").
 const PENDING_RE = /^⚠ (\d+) tool approvals? pending$/u;
 const PENDING_ROW_RE = /^ (?:(❯)| ) \(([a-z])\) (\S.*)$/u;
-const PENDING_MORE_RE = /^ {3}(?!\()\S/u;
+const PENDING_MORE_RE = /^ {3}(?!\([a-z]\) )\S/u;
+// A row's further line follows a line the pane had no room left on: its
+// first word would not have fitted after it, with this much slack (Kiro
+// leaves at most 4 columns at the end of a wrapped row in the screens seen).
+const WRAP_SLACK = 5;
+const ORCHESTRATING_RE = /^• Orchestrating \(\d+ agents?\)$/u;
+// An agent row of the list: "  • <task> <agent type> <status>", its marker a
+// spinner while it works; its status, cut to a narrow column, goes on in
+// lines indented to that column.
+const AGENT_ROW_RE = /^ {2}\S (\S.*)$/u;
+const AGENT_MORE_RE = /^ {8,}\S/u;
+const WAITING_RE = /\bapproval needed$/u;
+
+// Whether `line` goes on from `previous`, the pane `width` wide: a word wrap.
+function wrapsFrom(previous, line, width) {
+  const word = line.trim().split(/\s+/u, 1)[0];
+  return width - (stringWidth(previous) + 1 + stringWidth(word)) <= WRAP_SLACK;
+}
+
+// The agent rows above the rule that wait on a tool approval, whole, or null:
+// the card says which subagent and tool it is about, and another request in
+// its place is another card. A narrow pane may not show their status at all.
+function waitingAgents(lines, rule, width) {
+  let start = rule - 1;
+  while (start >= 0 && !ORCHESTRATING_RE.test(cleanLine(lines[start]))) start -= 1;
+  if (start < 0) return null;
+  const rows = [];
+  for (let index = start + 1; index < rule; index += 1) {
+    const raw = lines[index].replace(ANSI_RE, "").replace(/\s+$/u, "");
+    const row = raw.match(AGENT_ROW_RE);
+    if (row && !/^ {2}(?:esc|ctrl)\b/u.test(raw)) {
+      rows.push({ text: row[1].trim(), end: raw });
+      continue;
+    }
+    if (rows.length === 0 || !AGENT_MORE_RE.test(raw)) continue;
+    // a word cut at the column's edge goes on with no space
+    const last = rows.at(-1);
+    const piece = raw.trim();
+    last.text += stringWidth(last.end) >= width || last.full ? piece : ` ${piece}`;
+    last.full = stringWidth(raw) >= width;
+    last.end = raw;
+  }
+  const waiting = rows.map((row) => row.text).filter((text) => WAITING_RE.test(text));
+  return waiting.length > 0 ? waiting.join("\n") : null;
+}
 
 // The subagent approval card the screen ends with, or null.
 function pendingApprovals(lines, shown) {
   const head = shown.findLast((index) => PENDING_RE.test(cleanLine(lines[index])));
   if (head === undefined) return null;
-  // right under Kiro's rule, blank lines aside
+  // right under Kiro's rule, blank lines aside; the rule spans the pane
   let above = head - 1;
   while (above >= 0 && !cleanLine(lines[above])) above -= 1;
   if (above < 0 || !isDivider(lines[above])) return null;
+  const width = stringWidth(lines[above].replace(ANSI_RE, "").replace(/\s+$/u, ""));
   // every line under it is a row or a row's further line: an answered menu
   // has output under it, and a card for it would send keys into Kiro's input
   const rows = [];
+  let previous = null;
   for (const index of shown.filter((line) => line > head)) {
     const raw = lines[index].replace(ANSI_RE, "").replace(/\s+$/u, "");
     const row = raw.match(PENDING_ROW_RE);
     if (row) {
       rows.push({ key: row[2], label: row[3].trim(), selected: row[1] === "❯" });
-      continue;
+    } else if (rows.length > 0 && index === previous + 1 && PENDING_MORE_RE.test(raw) && wrapsFrom(lines[previous].replace(ANSI_RE, "").replace(/\s+$/u, ""), raw, width)) {
+      rows.at(-1).label = `${rows.at(-1).label} ${raw.trim()}`;
+    } else {
+      return null;
     }
-    if (rows.length === 0 || !PENDING_MORE_RE.test(raw)) return null;
-    rows.at(-1).label = `${rows.at(-1).label} ${raw.trim()}`;
+    previous = index;
   }
   if (rows.length < 2 || rows.filter((row) => row.selected).length !== 1) return null;
   if (new Set(rows.map((row) => row.key)).size !== rows.length) return null;
@@ -184,7 +235,7 @@ function pendingApprovals(lines, shown) {
     kind: "approval",
     title: question,
     question,
-    body: null,
+    body: waitingAgents(lines, above, width),
     options: rows.map((row) => ({ label: row.label, description: null })),
     multiSelect: false,
     customOptionIndex: null,
