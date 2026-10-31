@@ -30,6 +30,24 @@ function toolSummary(name, args) {
   return typeof first === "string" ? first.replace(/\s+/gu, " ").trim().slice(0, 120) : name;
 }
 
+// Kiro's steering: a message sent while Kiro works is the user's own record
+// (`{ id: "steer-…", source: "steer" }`), and is given to the model again
+// inside instructions written as one more user record, marked
+// `_meta.kiro.syntheticUserMessageReason: "steering-injection"` (or, without
+// the mark, starting "[LIVE STEERING"). Each message in those sits in
+// `<user_message id="steer-…">…</user_message>`.
+const STEERING_HEAD = "[LIVE STEERING";
+const STEERING_MESSAGE_RE = /<user_message id="([^"]{1,128})">\n?([\s\S]*?)\n?<\/user_message>/gu;
+function steeringInjection(payload) {
+  return record(record(payload._meta).kiro).syntheticUserMessageReason === "steering-injection"
+    || string(payload.content).startsWith(STEERING_HEAD);
+}
+function steeringMessages(content) {
+  return [...content.matchAll(STEERING_MESSAGE_RE)]
+    .map(([, id, text]) => ({ id, text: text.trim() }))
+    .filter((message) => message.text.length > 0);
+}
+
 // Splits transcript text into turns. A `turn_start` opens an assistant turn;
 // the user prompt written just before it is that turn's prompt. Adjacent
 // assistant records (Say text and Reasoning) merge into the open turn, and each
@@ -38,6 +56,8 @@ export function parseKiroTurns(text) {
   const turns = [];
   // tool parts still waiting for their result, by toolCallId
   const pending = new Map();
+  // steering messages already shown from their own record, by id
+  const shownSteers = new Set();
 
   const assistantTurn = (ts) => {
     const last = turns.at(-1);
@@ -62,6 +82,17 @@ export function parseKiroTurns(text) {
     if (type === "user") {
       const content = string(payload.content);
       if (content.trim().length === 0) continue;
+      if (payload.source === "steer" && typeof entry?.id === "string") shownSteers.add(entry.id);
+      if (steeringInjection(payload)) {
+        // Kiro's instructions to itself around a message sent while it
+        // worked: the message shows, once, as the user's words
+        for (const message of steeringMessages(content)) {
+          if (shownSteers.has(message.id)) continue;
+          shownSteers.add(message.id);
+          turns.push({ role: "user", ts, parts: [{ kind: "text", text: message.text }] });
+        }
+        continue;
+      }
       turns.push({ role: "user", ts, parts: [{ kind: "text", text: content }] });
       continue;
     }
