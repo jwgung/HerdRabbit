@@ -10,7 +10,7 @@
 // as an HTML string builder. HTML blocks (markdownHtml.ts) are left out: an
 // agent's text keeps them as text.
 
-import { findPaths, isFileName, isQuotablePath, namesPath } from "../path-links.js?v=1.4.17";
+import { findPaths, isFileName, isQuotablePath, namesPath } from "../path-links.js?v=1.4.18";
 
 // ---------------------------------------------------------------------------
 // Escaping and addresses.
