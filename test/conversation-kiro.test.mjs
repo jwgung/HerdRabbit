@@ -352,3 +352,79 @@ test("a Reasoning of only dots is no thinking part, so the answer stays the turn
     ["text", "Pick the code page."],
   ]);
 });
+
+// Kiro names a session's directory after the folder it started in and keeps
+// writing there. A folder renamed under a running Kiro (open-physics →
+// puppy-land, 2026-10-31) is reported at its new path, whose hash holds
+// nothing: the session its process names is found under whichever hash holds it.
+test("a session its process names is found even when the pane's folder was renamed since Kiro started", async (context) => {
+  forgetConversationState();
+  const configDir = await mkdtemp(join(tmpdir(), "herdrabbit-kiro-"));
+  const procRoot = await mkdtemp(join(tmpdir(), "herdrabbit-proc-"));
+  context.after(() => Promise.all([rm(configDir, { recursive: true, force: true }), rm(procRoot, { recursive: true, force: true })]));
+  const before = "/home/me/open-physics";
+  const after = "/home/me/puppy-land";
+  const dir = join(configDir, "sessions", kiroWorkspaceHash(before), `sess_${UUID_A}`);
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, "messages.jsonl");
+  await writeFile(path, jsonl([user("hi"), turnStart(), say("hello")]));
+  await fakeProcess(procRoot, 100, { file: await kiroLog(configDir, "a", [UUID_A]) });
+  const herdr = {
+    async snapshot() { return { panes: [{ pane_id: "w1:p1", agent: "kiro", cwd: after, foreground_cwd: after }] }; },
+    async paneProcessInfo() { return { process_info: { foreground_processes: [{ pid: 100, name: "kiro-cli" }] } }; },
+  };
+  const service = new ConversationService({ herdr, localStore: localTranscriptStore({ configDir: "/nonexistent", kiroConfigDir: configDir, procRoot }) });
+  const found = await service.resolve("w1:p1");
+  assert.equal(found.path, path);
+  assert.equal(found.session, UUID_A);
+});
+
+test("a named session is looked for under other workspaces only by its own name", async (context) => {
+  const { store, writeSession } = await kiroHome(context);
+  const elsewhere = await writeSession("/home/me/old-name", UUID_A, jsonl([user("mine")]));
+  await writeSession("/home/me/other", UUID_B, jsonl([user("not mine")]), 9_000);
+  const here = kiroWorkspaceHash("/home/me/new-name");
+  assert.equal((await store.locate({ session: UUID_A, hashes: [here] })).path, elsewhere);
+  // without a name, only the pane's own folder counts: another folder's newest is not the pane's
+  assert.equal(await store.locate({ session: null, hashes: [here] }), null);
+  const missing = "33333333-3333-4333-8333-333333333333";
+  assert.equal(await store.locate({ session: missing, hashes: [here] }), null);
+});
+
+// Kiro's steering: a message sent while Kiro works is written as the user's
+// own record ({ id: "steer-…", source: "steer" }), and then once more inside
+// the instructions Kiro gives itself (a user record marked
+// syntheticUserMessageReason "steering-injection"). Only the user's words show.
+const steer = (id, content) => ({ id, timestamp: "2026-10-31T14:11:51.010Z", payload: { type: "user", content, source: "steer" } });
+const injected = (ids, words) => rec({
+  type: "user",
+  content: `[LIVE STEERING - New message from user]\n\nThe user sent a new message while you are working. As the currently active agent, adjust your approach if necessary based on this guidance.\n\n${ids.map((id, index) => `<user_message id="${id}">\n${words[index]}\n</user_message>`).join("\n\n")}\n\nIMPORTANT: After completing your work, include a brief note about how you handled this steering message. Use this exact format:\n\n[STEERING ${ids[0]}: <describe what you did or why it wasn't applicable>]`,
+  _meta: { kiro: { syntheticUserMessageReason: "steering-injection", steeringConsumedIds: ids } },
+});
+
+test("a message sent while Kiro works shows once, as the user's words, not Kiro's steering instructions", () => {
+  const id = "steer-59da8b42-02c1-44e5-8b85-a3f78bbf6ab8";
+  const turns = parseKiroTranscript(jsonl([
+    user("read every mail"),
+    turnStart(),
+    say("Running both evals."),
+    steer(id, "한글로 말해..."),
+    toolCall("tool_01", "execute_bash", { command: "ls" }),
+    toolResult("tool_01", "ok", true),
+    injected([id], ["한글로 말해..."]),
+    say("알겠습니다."),
+  ]));
+  assert.deepEqual(texts(turns), ["read every mail", "Running both evals.", "한글로 말해...", "[tool] 알겠습니다."]);
+  assert.ok(!JSON.stringify(turns).includes("LIVE STEERING"));
+});
+
+test("steering instructions whose message has no record of its own show the message inside them", () => {
+  const turns = parseKiroTranscript(jsonl([
+    user("start"),
+    turnStart(),
+    say("working"),
+    injected(["steer-1", "steer-2"], ["외부 연동도 좋고", "300통 말고 더 마니 읽어"]),
+    say("ok"),
+  ]));
+  assert.deepEqual(texts(turns), ["start", "working", "외부 연동도 좋고", "300통 말고 더 마니 읽어", "ok"]);
+});

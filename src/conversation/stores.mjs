@@ -354,6 +354,8 @@ const LOG_TAIL_BYTES = 256 * 1024;
 // A process tree walked for its open log, at most.
 const MAX_TREE = 64;
 const MAX_KIRO_DESCRIPTORS = 512;
+// Workspace folders looked through for a named session, at most.
+const MAX_KIRO_WORKSPACES = 4096;
 
 export function localKiroStore(configDir, { procRoot = "/proc" } = {}) {
   const sessions = join(configDir, "sessions");
@@ -461,6 +463,24 @@ export function localKiroStore(configDir, { procRoot = "/proc" } = {}) {
           }
         }
         if (best) return { session: best.session, path: best.path };
+      }
+      // A named session not under the pane's folder: Kiro keeps writing under
+      // the folder it started in, and a folder renamed since is reported at
+      // its new path. Its own name finds it under whichever folder holds it;
+      // without a name, another folder's sessions are never the pane's.
+      if (session !== null && KIRO_SESSION_ID.test(session)) {
+        let workspaces;
+        try {
+          workspaces = await readdir(sessions);
+        } catch (error) {
+          if (absent(error) || error?.code === "EACCES") return null;
+          throw error;
+        }
+        for (const hash of workspaces.slice(0, MAX_KIRO_WORKSPACES)) {
+          if (!/^[0-9a-f]{16}$/u.test(hash) || hashes.includes(hash)) continue;
+          const found = await transcriptOf(hash, `sess_${session}`);
+          if (found) return { session, path: found.path };
+        }
       }
       return null;
     },
