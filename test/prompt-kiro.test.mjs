@@ -333,3 +333,94 @@ test("a Scope line cut off at the pane's edge offers no Change scope", () => {
     assert.ok(!labels(parsed).includes("Change scope"), cut);
   }
 });
+
+// Kiro's menu for its subagents' tool approvals (lifelog, 2026-11-01: a phone
+// showed the fallback card's Enter/Esc for it). No hint line: under a rule,
+// "⚠ N tool approval(s) pending", then rows "(a) …" with the ❯ on one. The
+// arrows move the ❯ and Enter picks, as in Kiro's other menus.
+import {
+  KIRO_SUBAGENT_APPROVAL_161, KIRO_SUBAGENT_APPROVAL_160, KIRO_SUBAGENT_APPROVAL_62,
+  KIRO_SUBAGENT_APPROVAL_55, KIRO_SUBAGENT_APPROVAL_44, KIRO_SUBAGENT_APPROVAL_44_DOWN,
+} from "./fixtures/kiro-prompt.mjs";
+
+const SUBAGENT_ROWS = [
+  "Approve all pending",
+  "Approve all pending and auto-approve future subagent requests",
+  "Configure individually (agent monitor)",
+  "Exit (cancel subagents)",
+];
+
+test("a subagent's pending tool approval is a card with Kiro's own rows, at any width", () => {
+  for (const [name, screen] of Object.entries({
+    KIRO_SUBAGENT_APPROVAL_161, KIRO_SUBAGENT_APPROVAL_160, KIRO_SUBAGENT_APPROVAL_62, KIRO_SUBAGENT_APPROVAL_55, KIRO_SUBAGENT_APPROVAL_44,
+  })) {
+    const parsed = parseKiroPrompt(screen);
+    assert.equal(parsed?.agent, "kiro", name);
+    assert.equal(parsed.kind, "approval", name);
+    assert.equal(parsed.question, "1 tool approval pending", name);
+    assert.deepEqual(labels(parsed), SUBAGENT_ROWS, name);
+    assert.equal(parsed.selectedIndex, 0, name);
+    assert.equal(publicCard(parsed).fallback, undefined, name);
+  }
+});
+
+test("a subagent approval row is answered by moving the cursor onto it, then Enter", () => {
+  const parsed = parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_44);
+  assert.deepEqual(keys(answerSteps(parsed, { option: 0 })), ["enter"]);
+  assert.deepEqual(keys(answerSteps(parsed, { option: 3 })), ["down", "down", "down", "enter"]);
+  const moved = parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_44_DOWN);
+  assert.equal(moved.selectedIndex, 1);
+  assert.equal(moved.id, parsed.id, "a moved cursor is the same card");
+  assert.deepEqual(keys(answerSteps(moved, { option: 0 })), ["up", "enter"]);
+});
+
+test("a subagent approval that is answered, or has anything else under it, is no card", () => {
+  const answered = KIRO_SUBAGENT_APPROVAL_160.replace(/─+\n ⚠[\s\S]*$/u, "");
+  assert.equal(parseKiroPrompt(answered), null);
+  assert.equal(parseKiroPrompt(`${KIRO_SUBAGENT_APPROVAL_160} Approved 1 tool request\n`), null);
+  assert.equal(parseKiroPrompt(`${KIRO_SUBAGENT_APPROVAL_160}›  ask a question\n`), null);
+  // the count alone, or one row, is no menu
+  assert.equal(parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_160.replace(/ ❯[\s\S]*$/u, "")), null);
+  assert.equal(parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_160.replace(/\n {3}\(f\)[\s\S]*$/u, "\n")), null);
+  // no cursor, or two, is no menu either
+  assert.equal(parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_160.replace(" ❯ (a)", "   (a)")), null);
+  assert.equal(parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_160.replace("   (c)", " ❯ (c)")), null);
+  // the count must sit right under Kiro's rule
+  assert.equal(parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_160.replace(/─+\n ⚠/u, "something\n ⚠")), null);
+});
+
+test("several pending approvals read the same way", () => {
+  const parsed = parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_160.replace("⚠ 1 tool approval pending", "⚠ 3 tool approvals pending"));
+  assert.equal(parsed?.question, "3 tool approvals pending");
+  assert.deepEqual(labels(parsed), SUBAGENT_ROWS);
+});
+
+test("a blocked Kiro pane's subagent approval is answered through the service, the cursor checked first", async (context) => {
+  const keepAlive = setInterval(() => {}, 1_000);
+  context.after(() => clearInterval(keepAlive));
+  const menu = { cursor: 0, answered: false };
+  const screen = () => menu.answered
+    ? KIRO_SUBAGENT_APPROVAL_160.replace(/─+\n ⚠[\s\S]*$/u, "")
+    : menu.cursor === 0 ? KIRO_SUBAGENT_APPROVAL_160 : KIRO_SUBAGENT_APPROVAL_160.replace(" ❯ (a)", "   (a)").replace("   (f)", " ❯ (f)");
+  const sent = [];
+  const herdr = {
+    async snapshot() { return { workspaces: [], tabs: [], panes: [{ pane_id: "w1:p1", agent: "kiro", agent_status: menu.answered ? "working" : "blocked" }], agents: [] }; },
+    async readPane() { return screen(); },
+    async sendKeys(_paneId, pressed) {
+      sent.push(...pressed);
+      for (const key of pressed) {
+        if (key === "down") menu.cursor += 1;
+        if (key === "enter") menu.answered = true;
+      }
+    },
+    async sendText() { throw new Error("no text"); },
+  };
+  const service = new PromptService({ herdr, stepDelayMs: 1, lookMs: 5, settleMs: 300 });
+  context.after(() => service.stop());
+  const card = await service.card("w1:p1");
+  assert.equal(card.fallback, undefined);
+  assert.deepEqual(card.options.map((option) => option.label), SUBAGENT_ROWS);
+  await service.answer("w1:p1", { cardId: card.id, option: 1 });
+  assert.deepEqual(sent, ["down", "enter"]);
+  assert.equal(await service.card("w1:p1"), null);
+});
