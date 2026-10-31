@@ -454,3 +454,74 @@ test("the same steering message given to Kiro again shows once", () => {
   ]));
   assert.deepEqual(texts(turns), ["start", "working", "더 읽어", "reading done"]);
 });
+
+// A steering message Kiro could not give the model before its turn ended:
+// Kiro writes it ({ source: "steer" }), clears it with a boundary record
+// (steeringClearedIds), and sends the same words as the next prompt
+// (puppy-land, 2026-10-30, "도장크기를 좀더 키워줘"). It shows once, as that
+// prompt, and the work around it stays one block.
+const boundary = (ids) => ({ id: `steering_boundary_${seq++}`, timestamp: "2026-10-30T04:27:05.000Z",
+  payload: { type: "user", content: "", source: "steer", _meta: { kiro: { steeringClearedIds: ids } } } });
+const turnEnd = () => rec({ type: "turn_end" });
+
+function resentSteering(id, words) {
+  return [
+    user("make the stamp"), turnStart(), say("drawing it"),
+    toolCall("tool_01", "execute_bash", { command: "ls" }), toolResult("tool_01", "ok", true),
+    steer(id, words), boundary([id]), say("the pixelation is from the viewport"), turnEnd(),
+    user(words), turnStart(), say("enlarging the stamp"),
+  ];
+}
+
+test("a steering message Kiro sends again as the next prompt shows once, as that prompt", () => {
+  const turns = parseKiroTranscript(jsonl(resentSteering("steer-d007", "도장크기를 좀더 키워줘")));
+  assert.deepEqual(texts(turns), [
+    "make the stamp",
+    "drawing it [tool] the pixelation is from the viewport",
+    "도장크기를 좀더 키워줘",
+    "enlarging the stamp",
+  ]);
+});
+
+test("a cleared steering message followed by other words shows as it was sent", () => {
+  const records = resentSteering("steer-e1", "p03 위젯은 뭐야?");
+  records[records.length - 3] = user("p03의 첫번째 위젯은 왜 비어있지");
+  assert.deepEqual(texts(parseKiroTranscript(jsonl(records))), [
+    "make the stamp", "drawing it [tool]", "p03 위젯은 뭐야?", "the pixelation is from the viewport",
+    "p03의 첫번째 위젯은 왜 비어있지", "enlarging the stamp",
+  ]);
+});
+
+test("a steering message given to the model and cleared later is no resend, even when the next prompt says the same", () => {
+  const id = "steer-c1";
+  const records = [
+    user("start"), turnStart(), say("working"),
+    steer(id, "더 읽어"), injected([id], ["더 읽어"]), say("reading"), boundary([id]), turnEnd(),
+    user("더 읽어"), turnStart(), say("again"),
+  ];
+  assert.deepEqual(texts(parseKiroTranscript(jsonl(records))), ["start", "working", "더 읽어", "reading", "더 읽어", "again"]);
+});
+
+test("pages never start at a steering message's resend, so its page holds the message too", async (context) => {
+  const directory = await temp(context);
+  const path = join(directory, "messages.jsonl");
+  const records = [];
+  for (let index = 0; index < 60; index += 1) records.push(user(`prompt ${index}`), turnStart(), say(`answer ${index}`), turnEnd());
+  records.push(...resentSteering("steer-p1", "다시 보내진 말"));
+  const { KIRO_TRANSCRIPT: format } = await import("../src/conversation/kiro.mjs");
+  const bytes = Buffer.from(jsonl(records));
+  const starts = format.turnStarts(bytes);
+  const resendAt = bytes.indexOf(Buffer.from(JSON.stringify(records.at(-3))));
+  assert.ok(resendAt > 0);
+  assert.ok(!starts.includes(resendAt), "the resend opens no page");
+  await writeFile(path, bytes);
+  const store = localTranscriptStore({ configDir: directory });
+  const all = [];
+  let page = await transcriptPage(store, path);
+  for (;;) {
+    all.unshift(...page.turns);
+    if (page.cursor === null) break;
+    page = await transcriptPage(store, path, { before: page.cursor });
+  }
+  assert.equal(texts(all).filter((text) => text === "다시 보내진 말").length, 1);
+});
