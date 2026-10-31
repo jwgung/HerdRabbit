@@ -57,7 +57,7 @@ function userRecordOf(entry, payload) {
     id: typeof entry?.id === "string" ? entry.id : null,
     content,
     words: content.trim().length > 0,
-    consumed,
+    consumed: [...new Set(consumed)],
     cleared: ids(kiro.steeringClearedIds),
   };
 }
@@ -272,11 +272,13 @@ const TURN_MARK = Buffer.from('"turn_start"');
 // steering message Kiro cleared before the model had it opens no page, so the
 // message and its resend fall in one page, which shows the message once. Kiro
 // clears such a message as its turn ends, a few records before the resend (at
-// most 3 KiB apart in the transcripts seen). A page's window is scanned with
+// most 3.5 KiB apart in the transcripts seen). A page's window is scanned with
 // STEERING_CONTEXT_BYTES before it, so its edge falling between them does not
-// make the resend a start, and a page cut mid-turn moves past the spans
-// kiroUnbroken names. A steering message longer than that context, read at a
-// window's edge, can still show twice.
+// make the resend a start, and a page cut mid-turn moves back past the spans
+// kiroUnbroken names. A cut more than STEERING_CONTEXT_BYTES after the
+// steering message (Kiro's instructions can come a megabyte later) cannot see
+// it and may still show it twice; a cut mid-turn only happens in a turn longer
+// than a page's window (4 MiB), and the longest seen is 1.24 MB.
 const STEERING_CONTEXT_BYTES = 64 * 1024;
 
 // The spans a page must not start inside (offsets into `bytes`): from a

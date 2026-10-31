@@ -597,6 +597,10 @@ async function walkEveryWindow(context, records, words, { step = 41 } = {}) {
   const path = join(directory, "messages.jsonl");
   const bytes = Buffer.from(jsonl(records));
   await writeFile(path, bytes);
+  const whole = texts(parseKiroTranscript(bytes.toString("utf8")));
+  // user words and assistant text, in order: a page that lost or repeated a
+  // record would read differently from the whole file
+  const flat = (turns) => texts(turns).join(" ").split(/\s+/u).filter(Boolean);
   for (let windowBytes = 200; windowBytes <= bytes.length + step; windowBytes += step) {
     for (const maxPageBytes of [windowBytes * 4]) {
       forgetConversationState();
@@ -604,14 +608,29 @@ async function walkEveryWindow(context, records, words, { step = 41 } = {}) {
       const store = new Proxy(base, { get: (target, key) => (key === "windowBytes" ? windowBytes : key === "maxPageBytes" ? maxPageBytes : target[key]) });
       const all = [];
       let page = await transcriptPage(store, path);
+      const newestCursor = page.cursor;
       for (let guard = 0; guard < 2_000; guard += 1) {
         all.unshift(...page.turns);
         if (page.cursor === null) break;
         page = await transcriptPage(store, path, { before: page.cursor });
       }
-      assert.equal(texts(all).filter((text) => text.split(" ").includes(words) || text === words).length, 1, `window ${windowBytes}, cap ${maxPageBytes}`);
+      const label = `window ${windowBytes}, cap ${maxPageBytes}`;
+      assert.equal(texts(all).filter((text) => text.split(" ").includes(words) || text === words).length, 1, label);
+      assert.deepEqual(flat(all), flat(parseKiroTranscript(bytes.toString("utf8"))), label);
+      // an open chat holding its newest page's cursor reads the same turns from it
+      if (newestCursor !== null) {
+        const held = await transcriptPage(store, path, { since: newestCursor });
+        const older = [];
+        let back = { cursor: newestCursor };
+        for (let guard = 0; guard < 2_000 && back.cursor !== null; guard += 1) {
+          back = await transcriptPage(store, path, { before: back.cursor });
+          older.unshift(...back.turns);
+        }
+        assert.deepEqual(flat([...older, ...held.turns]), flat(parseKiroTranscript(bytes.toString("utf8"))), `${label}, since`);
+      }
     }
   }
+  assert.ok(whole.length > 0);
 }
 
 test("a live turn after a steering message's resend, read in any window, shows the message once", async (context) => {
@@ -628,4 +647,31 @@ test("a steering message and the instructions that give it to the model, read in
   records.push(injected([id], ["건네진말"]));
   for (let index = 0; index < 20; index += 1) records.push(say(`more ${index} ${"z".repeat(60)}`));
   await walkEveryWindow(context, records, "건네진말");
+});
+
+test("a page filling an open chat's gap never reaches back past the cursor it holds, even for a steering message", async (context) => {
+  const directory = await temp(context);
+  const path = join(directory, "messages.jsonl");
+  const id = "steer-f1";
+  const records = [user("start"), turnStart(), say("first"), steer(id, "바닥말")];
+  for (let index = 0; index < 20; index += 1) records.push(say(`work ${index} ${"y".repeat(60)}`));
+  records.push(injected([id], ["바닥말"]));
+  for (let index = 0; index < 20; index += 1) records.push(say(`more ${index} ${"z".repeat(60)}`));
+  const bytes = Buffer.from(jsonl(records));
+  await writeFile(path, bytes);
+  // the chat holds a cursor between the message and Kiro's instructions
+  const held = bytes.indexOf(Buffer.from(JSON.stringify(records[10])));
+  assert.ok(held > bytes.indexOf(Buffer.from('"바닥말","source":"steer"')));
+  const base = localTranscriptStore({ configDir: directory });
+  const store = new Proxy(base, { get: (target, key) => (key === "windowBytes" ? 300 : key === "maxPageBytes" ? 1_200 : target[key]) });
+  forgetConversationState();
+  const { history_id: historyId } = await transcriptPage(store, path);
+  let before = bytes.length;
+  for (let guard = 0; guard < 100 && before > held; guard += 1) {
+    const page = await transcriptPage(store, path, { before: `${historyId}:${before}`, since: `${historyId}:${held}` });
+    const start = page.cursor === null ? 0 : Number(page.cursor.split(":").at(-1));
+    assert.ok(start >= held, `a page from ${start}, below the held ${held}`);
+    if (start === before) break;
+    before = start;
+  }
 });
