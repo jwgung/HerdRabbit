@@ -15,7 +15,7 @@ export function speechLogLine(entry, at) {
       .join(" | ");
     return `${time} result i=${entry.resultIndex} n=${entry.results.length} | ${results} => box ${quoted(entry.box)}`;
   }
-  if (entry.type === "error") return `${time} error ${entry.error} => box ${quoted(entry.box)}`;
+  if (entry.type === "error") return `${time} error ${entry.error}${entry.message ? ` ${quoted(entry.message)}` : ""} => box ${quoted(entry.box)}`;
   return `${time} ${entry.type} => box ${quoted(entry.box)}`;
 }
 
