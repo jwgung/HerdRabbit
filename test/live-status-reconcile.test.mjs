@@ -105,12 +105,17 @@ test("every pane is decided on its own, in the order the events are held", () =>
 });
 
 test("reconciling does not change what it was given", () => {
-  const events = pending(event("p1", "done", 1));
-  const panes = Object.freeze([Object.freeze(pane("p1", { agent_status: "done" }))]);
-  const agents = Object.freeze([]);
-  const seen = Object.freeze(new Set(["p1"]));
-  assert.doesNotThrow(() => reconcileLiveStatus({ pending: events, requestedAfter: 5, panes, agents, seen }));
-  assert.equal(events.size, 1);
+  const snapshot = (value) => JSON.stringify(value, (_key, item) => item instanceof Map || item instanceof Set ? [...item] : item);
+  const inputs = {
+    pending: pending(event("p1", "done", 1), event("p2", "working", 9), event("gone", "done", 9)),
+    requestedAfter: 5,
+    panes: [pane("p1", { agent_status: "done" }), pane("p2", { agent_status: "idle" })],
+    agents: [{ pane_id: "p2", agent_status: "idle" }],
+    seen: new Set(["p1"]),
+  };
+  const before = snapshot(inputs);
+  reconcileLiveStatus(inputs);
+  assert.equal(snapshot(inputs), before);
 });
 
 test("a finish is seen when the page acknowledged exactly the identity it has now", () => {
