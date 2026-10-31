@@ -1,4 +1,4 @@
-import { outputTextForUpdate } from "./ui-model.js?v=1.4.14";
+import { outputTextForUpdate } from "./ui-model.js?v=1.4.15";
 
 const CONVERSATION_MESSAGES = new Set(["conversation-changed", "conversation-unavailable"]);
 const PROMPT_MESSAGES = new Set(["prompt", "prompt-unavailable"]);
