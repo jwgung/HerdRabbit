@@ -55,6 +55,26 @@ export function parseKiroTurns(text) {
   const pending = new Map();
   // steering messages already shown from their own record, by id
   const shownSteers = new Set();
+  // steering messages given to the model (in Kiro's instructions), by id
+  const consumedSteers = new Set();
+  // the turn each steering message shows as, until a boundary clears it
+  const steerTurns = new Map();
+  // steering messages cleared before the model had them, by id: Kiro sends
+  // their words again as the next prompt
+  const undelivered = new Map();
+  // Takes a turn out, joining the assistant work on its two sides.
+  const removeTurn = (turn) => {
+    const at = turns.indexOf(turn);
+    if (at < 0) return;
+    turns.splice(at, 1);
+    const before = turns[at - 1];
+    const after = turns[at];
+    if (before?.role === "assistant" && after?.role === "assistant") {
+      before.parts.push(...after.parts);
+      if (after.end_ts) before.end_ts = after.end_ts;
+      turns.splice(at, 1);
+    }
+  };
 
   const assistantTurn = (ts) => {
     const last = turns.at(-1);
@@ -78,13 +98,22 @@ export function parseKiroTurns(text) {
 
     if (type === "user") {
       const content = string(payload.content);
+      const kiro = record(record(payload._meta).kiro);
+      // a boundary clearing steering messages: one never given to the model
+      // is sent again as the next prompt, which shows in its place
+      for (const id of Array.isArray(kiro.steeringClearedIds) ? kiro.steeringClearedIds : []) {
+        const shown = steerTurns.get(id);
+        if (shown && !consumedSteers.has(id)) undelivered.set(id, shown);
+        steerTurns.delete(id);
+      }
       if (content.trim().length === 0) continue;
-      if (payload.source === "steer" && typeof entry?.id === "string") shownSteers.add(entry.id);
       if (steeringInjection(payload)) {
         // Kiro's instructions to itself around a message sent while it
         // worked: the message shows, once, as the user's words. Instructions
         // whose messages cannot be read show as they are rather than not at all.
         const messages = steeringMessages(content);
+        for (const id of Array.isArray(kiro.steeringConsumedIds) ? kiro.steeringConsumedIds : []) consumedSteers.add(id);
+        for (const message of messages) consumedSteers.add(message.id);
         if (messages.length === 0) {
           turns.push({ role: "user", ts, parts: [{ kind: "text", text: content }] });
           continue;
@@ -95,6 +124,19 @@ export function parseKiroTurns(text) {
           turns.push({ role: "user", ts, parts: [{ kind: "text", text: message.text }] });
         }
         continue;
+      }
+      if (payload.source === "steer" && typeof entry?.id === "string") {
+        shownSteers.add(entry.id);
+        const turn = { role: "user", ts, parts: [{ kind: "text", text: content }] };
+        turns.push(turn);
+        steerTurns.set(entry.id, turn);
+        continue;
+      }
+      // the prompt that sends an undelivered steering message again: the
+      // message shows here alone, and the work it split is one block again
+      for (const [id, shown] of undelivered) {
+        if (shown.parts[0].text === content) removeTurn(shown);
+        undelivered.delete(id);
       }
       turns.push({ role: "user", ts, parts: [{ kind: "text", text: content }] });
       continue;
@@ -186,24 +228,49 @@ const TURN_MARK = Buffer.from('"turn_start"');
 
 // Offsets (into `bytes`) of the lines that open a turn: each `turn_start`. The
 // user prompt sits on the line just before it, so a page that begins on a
-// turn_start keeps the prompt with its answer.
+// turn_start keeps the prompt with its answer. A prompt that sends again a
+// steering message Kiro cleared before the model had it opens no page: the
+// page that holds the message holds its resend too, which shows in its place.
 export function kiroTurnStarts(bytes) {
   const starts = [];
   let userOffset = -1;
+  let resend = false;
+  // steering words by id, those given to the model, and those cleared before
+  const steers = new Map();
+  const consumed = new Set();
+  const undelivered = new Set();
   for (let offset = 0; offset < bytes.length;) {
     const newline = bytes.indexOf(0x0a, offset);
     const end = newline === -1 ? bytes.length : newline;
     const line = bytes.subarray(offset, end);
     if (line.includes(Buffer.from('"user"'))) {
       try {
-        if (record(JSON.parse(line.toString("utf8"))?.payload).type === "user") userOffset = offset;
+        const entry = JSON.parse(line.toString("utf8"));
+        const payload = record(entry?.payload);
+        if (payload.type === "user") {
+          const content = string(payload.content);
+          const kiro = record(record(payload._meta).kiro);
+          for (const id of Array.isArray(kiro.steeringConsumedIds) ? kiro.steeringConsumedIds : []) consumed.add(id);
+          for (const id of Array.isArray(kiro.steeringClearedIds) ? kiro.steeringClearedIds : []) {
+            if (steers.has(id) && !consumed.has(id)) undelivered.add(steers.get(id));
+            steers.delete(id);
+          }
+          if (payload.source === "steer") {
+            if (content.trim() && typeof entry?.id === "string") steers.set(entry.id, content);
+          } else if (kiro.syntheticUserMessageReason === undefined && content.trim()) {
+            userOffset = offset;
+            resend = undelivered.has(content);
+            undelivered.clear();
+          }
+        }
       } catch { /* a torn line opens nothing */ }
     } else if (line.includes(TURN_MARK)) {
       let entry = null;
       try { entry = JSON.parse(line.toString("utf8")); } catch { /* a cut or torn line opens nothing */ }
       if (record(entry?.payload).type === "turn_start") {
-        starts.push(userOffset >= 0 ? userOffset : offset);
+        if (!resend) starts.push(userOffset >= 0 ? userOffset : offset);
         userOffset = -1;
+        resend = false;
       }
     }
     offset = end + 1;
