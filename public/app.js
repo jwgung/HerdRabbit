@@ -155,7 +155,6 @@ import { createComposerPopup } from "./composer-popup.js?v=1.4.17";
 import { slashCommandsSource } from "./composer-slash.js?v=1.4.17";
 import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.4.17";
 import { createSpeechButton, speechSupported } from "./speech-recognition.js?v=1.4.17";
-import { createSpeechLog } from "./speech-log.js?v=1.4.17";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -896,7 +895,6 @@ const DEVICES_ICON = ["M4 5h16v10H4z", "M8 19h8", "M12 15v4"];
 const UPDATE_ICON = ["M12 3v12", "M7 10l5 5 5-5", "M5 20h14"];
 const RETURN_ICON = ["M20 5v6a4 4 0 0 1-4 4H5", "M9 11l-4 4 4 4"];
 const FIT_PANES_ICON = ["M3 4h18v16H3z", "M12 4v16", "M12 12h9"];
-const MIC_ICON = ["M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z", "M5 11a7 7 0 0 0 14 0", "M12 18v3"];
 const GEAR_ICON = [
   "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
   "M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z",
@@ -961,16 +959,6 @@ function buildSettingsMenu() {
         onSelect: () => paneGrid.resetFont(),
       },
       { key: "update", label: "Update", paths: UPDATE_ICON, onSelect: () => updatePanel.open() },
-      {
-        // For now: what dictation heard, to see how a phone's words come in twice.
-        key: "speech-log",
-        label: "Speech log",
-        paths: MIC_ICON,
-        onSelect: () => {
-          if (!desktopMedia.matches) closeMobileSidebar();
-          openSpeechLog();
-        },
-      },
       { separator: true, key: "separator-security" },
       {
         key: "passkeys",
@@ -1015,7 +1003,6 @@ function syncSettingsMenu() {
     : "Off: a grid keeps each pane at Herdr's size and scales its text to fit";
   gridFit.setAttribute("aria-label", `Fit panes to this window, ${paneGrid.fit ? "on" : "off"}`);
   item("grid-font").hidden = paneGrid.fit || paneGrid.manualFont === null;
-  item("speech-log").hidden = !speechSupported();
   const push = settingsMenu.push;
   const notifications = item("notifications");
   notifications.hidden = !push || push.hidden;
@@ -6143,34 +6130,6 @@ elements.attachButton.addEventListener("click", () => {
 // (Chrome's webkitSpeechRecognition, Google-backed, no key). The words land in
 // the textarea so they can be reviewed before sending.
 let speech = null;
-// Settings → Speech log: what the recognizer said, in this page only.
-const speechLog = createSpeechLog();
-const speechLogDialog = document.querySelector("#speech-log-dialog");
-const speechLogBody = document.querySelector("#speech-log-body");
-const speechLogFeedback = document.querySelector("#speech-log-feedback");
-function showSpeechLog() {
-  speechLogBody.textContent = speechLog.size ? speechLog.text() : "Nothing heard yet. Close this, dictate, and open it again.";
-}
-function openSpeechLog() {
-  speechLogFeedback.textContent = "";
-  showSpeechLog();
-  speechLogDialog.showModal();
-  speechLogBody.scrollTop = speechLogBody.scrollHeight;
-}
-document.querySelector("#speech-log-clear").addEventListener("click", () => {
-  speechLog.clear();
-  speechLogFeedback.textContent = "Cleared.";
-  showSpeechLog();
-});
-document.querySelector("#speech-log-copy").addEventListener("click", async () => {
-  try {
-    await navigator.clipboard.writeText(speechLog.text());
-    speechLogFeedback.textContent = "Copied.";
-  } catch {
-    speechLogFeedback.textContent = "Could not copy. Take a screenshot instead.";
-  }
-});
-document.querySelector("#speech-log-close").addEventListener("click", () => speechLogDialog.close());
 function speechStop() {
   if (speech) speech.stop();
 }
@@ -6181,7 +6140,6 @@ if (elements.dictateButton && speechSupported()) {
     textarea: elements.terminalInput,
     // words shown while still being heard come without an input event
     onTextChange: () => syncComposerExpanded({ defer: true }),
-    onLog: (entry) => speechLog.add(entry),
   });
 }
 

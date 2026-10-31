@@ -12,7 +12,7 @@ export function speechSupported() {
 }
 
 // One recognizer: continuous, interim results on, the user's language.
-function createRecognizer(Recognition, { onInterim, onFinal, onEnd, onError, onLog }) {
+function createRecognizer(Recognition, { onInterim, onFinal, onEnd, onError }) {
   const recognition = new Recognition();
   recognition.continuous = true;
   recognition.interimResults = true;
@@ -25,31 +25,19 @@ function createRecognizer(Recognition, { onInterim, onFinal, onEnd, onError, onL
       else interim += result[0].transcript;
     }
     onInterim(interim);
-    onLog({
-      type: "result",
-      resultIndex: event.resultIndex,
-      results: Array.from(event.results, (result) => ({ final: Boolean(result.isFinal), text: result[0]?.transcript ?? "" })),
-    });
   };
-  recognition.onend = () => { onLog({ type: "end" }); onEnd(); };
-  recognition.onerror = (event) => { onLog({ type: "error", error: event.error, message: event.message || "" }); onError(event.error); };
+  recognition.onend = () => onEnd();
+  recognition.onerror = (event) => onError(event.error);
   return recognition;
 }
 
 // `Recognition` is the browser's recognizer class; a test passes its own.
 // `onTextChange` hears of each change made to the text without an input
-// event (the words shown while still being heard). `onLog` hears what the
-// recognizer said (each result event as the browser gave it, its end and its
-// errors) and what the text box held after it: Settings → Speech log shows it.
-export function createSpeechButton({ button, textarea, onStateChange = () => {}, onTextChange = () => {}, onLog = () => {}, Recognition = SpeechRecognition }) {
+// event (the words shown while still being heard).
+export function createSpeechButton({ button, textarea, onStateChange = () => {}, onTextChange = () => {}, Recognition = SpeechRecognition }) {
   let recognition = null;
   let listening = false;
   let shown = "";
-  // what the recognizer said, with the box after it; a log that throws must
-  // never stop dictation
-  const note = (entry) => {
-    try { onLog({ ...entry, box: textarea.value }); } catch { /* the log is only for looking */ }
-  };
 
   function updateButton() {
     button.classList.toggle("listening", listening);
@@ -118,13 +106,7 @@ export function createSpeechButton({ button, textarea, onStateChange = () => {},
         // user is still dictating. The next words are new ones.
         heard = null;
         if (listening) {
-          try {
-            recognition.start();
-            note({ type: "restart" });
-          } catch {
-            note({ type: "restart-failed" });
-            stop();
-          }
+          try { recognition.start(); } catch { stop(); }
         } else {
           stop();
         }
@@ -133,7 +115,6 @@ export function createSpeechButton({ button, textarea, onStateChange = () => {},
         if (error === "not-allowed" || error === "service-not-allowed") stop();
         // "no-speech" and "aborted" are normal; the onEnd handler restarts.
       },
-      onLog: note,
     });
     try {
       recognition.start();
@@ -142,7 +123,6 @@ export function createSpeechButton({ button, textarea, onStateChange = () => {},
       recognition = null;
       listening = false;
     }
-    note({ type: listening ? "start" : "start-failed" });
     updateButton();
     onStateChange(listening);
   }
