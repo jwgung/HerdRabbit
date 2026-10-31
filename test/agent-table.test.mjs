@@ -13,8 +13,8 @@ const MATRIX = {
   claude:   { label: "Claude",      chat: true, card: true, slash: true,  stop: true },
   codex:    { label: "Codex",       chat: true, card: true, slash: true,  stop: true },
   opencode: { label: "OpenCode",    chat: true, card: true, slash: true,  stop: true },
-  kiro:     { label: "Kiro",        chat: true, card: true, slash: false, stop: false },
-  agy:      { label: "Antigravity", chat: true, card: true, slash: false, stop: false },
+  kiro:     { label: "Kiro",        chat: true, card: true, slash: false, stop: true },
+  agy:      { label: "Antigravity", chat: true, card: true, slash: false, stop: true },
 };
 
 test("each agent is offered exactly the features it has", () => {
