@@ -42,6 +42,8 @@ function scopeCycle(line) {
   const scopes = line.replace(SCOPE_RE, "").trim().split(/\s+/u);
   const at = scopes.findIndex((scope) => /^\[\S+\]$/u.test(scope));
   if (at < 0 || scopes.length < 2) return null;
+  // a line cut off at the pane's edge ("work…") may hide the next scope
+  if (scopes.some((scope) => /(?:…|\.\.\.)\]?$/u.test(scope))) return null;
   const name = (scope) => scope.replace(/^\[|\]$/gu, "");
   return { current: name(scopes[at]), next: name(scopes[(at + 1) % scopes.length]) };
 }

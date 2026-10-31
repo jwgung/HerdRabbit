@@ -302,15 +302,18 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     view.error = null;
     render();
     try {
-      await postJson(`/api/panes/${encodeURIComponent(id)}/prompt/answer`, answerBody(answered, choice));
+      const result = await postJson(`/api/panes/${encodeURIComponent(id)}/prompt/answer`, answerBody(answered, choice));
       if (answering === token && id === paneId) {
         answering = null;
-        if (card && card.id !== answered.id) {
-          // the next prompt is already here: it stays, ready to answer
+        if (result?.stays || (card && card.id !== answered.id)) {
+          // the next prompt is already here, or the menu is still up changed
+          // (Kiro's Change scope): the card stays, ready to answer, and a
+          // look brings the changed one
           view.pending = false;
           view.selected = initialSelection(card);
           render();
           onAnswered(id);
+          if (result?.stays && card?.id === answered.id) void refresh();
           return;
         }
         // gone from the screen: the push confirms it a moment later, and a
