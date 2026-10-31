@@ -206,3 +206,24 @@ test("one row is a card only in a scope menu, and the scope menu still ends at i
   assert.equal(parseKiroPrompt(`${KIRO_RULE_WEB_56}  Rule created\n`), null);
   assert.equal(parseKiroPrompt(`${KIRO_RULE_WRITE_44}        to\n`), null);
 });
+
+// Review of #107: a hint that ends at "to select" has ended; only the scope
+// menu's hint ("esc to go back …") goes on past it.
+test("output under a hint that ends at 'to select' is output, not the hint's", () => {
+  const ended = kiroApprovalScreen().replace(" · Tab to edit", "");
+  assert.ok(parseKiroPrompt(ended), "the screen alone is a card");
+  for (const tail of [" back\n", " to\n", " s\n", " go back\n", " Enter\n", " ·\n", "  to\n  back\n"]) {
+    assert.equal(parseKiroPrompt(`${ended}${tail}`), null, JSON.stringify(tail));
+  }
+  const trust = kiroTrustScreen().replace(/\n Revoke later[^\n]*/u, "");
+  assert.ok(parseKiroPrompt(trust));
+  assert.equal(parseKiroPrompt(`${trust} back\n`), null);
+});
+
+test("a scope row of its own without a second column is not joined to the row above", () => {
+  const screen = KIRO_RULE_WRITE_100.replace(
+    '   Trust entire tool (Write File)    session\n',
+    '   Trust command prefix\n   Trust entire tool (Write File)    session\n',
+  );
+  assert.deepEqual(labels(parseKiroPrompt(screen)), ['Trust "sub.txt"', "Trust command prefix", "Trust entire tool (Write File)"]);
+});

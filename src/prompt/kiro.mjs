@@ -19,14 +19,17 @@ import { ANSI_RE, cleanLine, finishPrompt, isDivider } from "./screen.mjs";
 
 // The hint under every Kiro menu, or the first line of it on a narrow pane.
 const HINT_RE = /^esc to \S+.*\b(?:to navigate|to select|to see more options)\b/u;
-// The hint's further lines on a narrow pane: right under it, indented well
-// past it, made of the hint's own words, at most two of them, and only while
-// the hint has not ended (its last words: "to select", "to edit", "options").
+// The hint's further lines on a narrow pane: right under it, indented, made
+// of the hint's own words, at most two of them, and only while the hint has
+// not ended.
 const HINT_MORE_RE = /^ +(?:(?:[↑↓↵·]+|Tab|Enter|to|edit|select|navigate|see|more|options|go|back|s|cycle|scope)(?: +|$))+$/u;
 const HINT_MORE_LINES = 2;
-// A hint's last words: one that ends so has no further lines. ("to select"
-// may still go on: "· Tab to edit" follows it on a narrow pane.)
-const HINT_END_RE = /\b(?:edit|options)$/u;
+// A hint's last words: one that ends so has no further lines. The scope menu's
+// hint ("esc to go back …") goes on past "to select" ("· s to cycle scope · Tab
+// to edit"); every other hint has ended there.
+const HINT_END_RE = /\b(?:select|edit|options)$/u;
+const SCOPE_HINT_END_RE = /\b(?:edit|options)$/u;
+const SCOPE_HINT_RE = /^esc to go\b/u;
 // A row's second column, after a wide gap: what a rule matches, its scope.
 const COLUMN_GAP_RE = / {3,}/u;
 // The scope menu's line above its rows; only there is one row a menu.
@@ -60,10 +63,14 @@ function menuRows(lines, end) {
   }
   // A row broken over two lines is one row: its second line goes on in lower
   // case, or, where rows have a second column, comes without one.
+  // A line that starts as the menu's rows do ("Trust …", "Deny …") is a row.
+  const rowWord = (label) => label.split(" ", 1)[0];
+  const firstWord = rows.length ? rowWord(rows[0].label) : null;
   const joined = [];
   for (const row of rows) {
     const previous = joined.at(-1);
-    const more = previous && !row.selected && (ROW_MORE_RE.test(row.label) || (previous.description !== null && row.description === null));
+    const columnless = previous?.description !== null && row.description === null && rowWord(row.label) !== firstWord;
+    const more = previous && !row.selected && (ROW_MORE_RE.test(row.label) || columnless);
     if (more) previous.label = `${previous.label} ${row.label}`;
     else joined.push(row);
   }
@@ -76,8 +83,9 @@ function menuRows(lines, end) {
 function menuOwnsEnd(lines, hintIndex, after) {
   let index = 0;
   let hint = cleanLine(lines[hintIndex]);
+  const ends = SCOPE_HINT_RE.test(hint) ? SCOPE_HINT_END_RE : HINT_END_RE;
   let last = hintIndex;
-  while (index < after.length && index < HINT_MORE_LINES && after[index] === last + 1 && !HINT_END_RE.test(hint)) {
+  while (index < after.length && index < HINT_MORE_LINES && after[index] === last + 1 && !ends.test(hint)) {
     const raw = lines[after[index]].replace(ANSI_RE, "").replace(/\s+$/u, "");
     if (!HINT_MORE_RE.test(raw)) break;
     hint = cleanLine(raw);
