@@ -242,6 +242,9 @@ export function answerSteps(parsed, answer) {
     throw new InvalidAnswer("A valid option is required.");
   }
   if (parsed.optionSteps) return parsed.optionSteps[index];
+  // an option of the card's own that is no row of the menu (Kiro's "Change
+  // scope", its s key): its steps, sent once the menu is seen still on screen
+  if (parsed.ownOptionSteps?.[index]) return parsed.ownOptionSteps[index];
   // Codex's "No, and tell Codex what to do differently (esc)" is its Esc
   if (parsed.rejectWithEscapeIndex === index) return keySteps([KEY.escape]);
   if (parsed.pickKey) return keySteps([parsed.pickKey(index)]);

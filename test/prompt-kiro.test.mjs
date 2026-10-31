@@ -181,7 +181,7 @@ test("a rule's scope menu is a card: each row's name, what it matches as its des
   for (const screen of [KIRO_RULE_WRITE_100, KIRO_RULE_WRITE_55, KIRO_RULE_WRITE_44]) {
     const parsed = parseKiroPrompt(screen);
     assert.equal(parsed?.question, "Create allow rule: sub.txt");
-    assert.deepEqual(labels(parsed), ['Trust "sub.txt"', "Trust entire tool (Write File)"]);
+    assert.deepEqual(labels(parsed), ['Trust "sub.txt"', "Trust entire tool (Write File)", "Change scope"]);
     assert.equal(parsed.selectedIndex, 0);
     assert.match(parsed.options[1].description, /^session$/u);
     assert.match(parsed.body, /^fs_write → sub\.txt\nScope: +\[session\]/u);
@@ -194,10 +194,10 @@ test("a tool with one rule has a one-row scope menu, and it is a card", () => {
   for (const screen of [KIRO_RULE_WEB_56, KIRO_RULE_WEB_44]) {
     const parsed = parseKiroPrompt(screen);
     assert.equal(parsed?.question, "Create allow rule: web_search");
-    assert.deepEqual(labels(parsed), ["Trust entire tool (web_search)"]);
+    assert.deepEqual(labels(parsed), ["Trust entire tool (web_search)", "Change scope"]);
     assert.deepEqual(keys(answerSteps(parsed, { option: 0 })), ["enter"]);
   }
-  assert.deepEqual(labels(parseKiroPrompt(KIRO_DENY_RULE_WEB_55)), ["Deny entire tool (web_search)"]);
+  assert.deepEqual(labels(parseKiroPrompt(KIRO_DENY_RULE_WEB_55)), ["Deny entire tool (web_search)", "Change scope"]);
 });
 
 test("one row is a card only in a scope menu, and the scope menu still ends at its hint", () => {
@@ -225,5 +225,60 @@ test("a scope row of its own without a second column is not joined to the row ab
     '   Trust entire tool (Write File)    session\n',
     '   Trust command prefix\n   Trust entire tool (Write File)    session\n',
   );
-  assert.deepEqual(labels(parseKiroPrompt(screen)), ['Trust "sub.txt"', "Trust command prefix", "Trust entire tool (Write File)"]);
+  assert.deepEqual(labels(parseKiroPrompt(screen)), ['Trust "sub.txt"', "Trust command prefix", "Trust entire tool (Write File)", "Change scope"]);
+});
+
+// The scope menu's own key: s cycles the rule's scope (session → workspace →
+// user → session), the cursor staying where it is. The card offers it as its
+// last option; it sends s and nothing else, and the card that comes back shows
+// the new scope.
+test("the scope menu offers changing the scope, as Kiro's s does", () => {
+  const parsed = parseKiroPrompt(KIRO_RULE_WRITE_100);
+  assert.deepEqual(labels(parsed), ['Trust "sub.txt"', "Trust entire tool (Write File)", "Change scope"]);
+  assert.equal(parsed.options[2].description, "session → workspace");
+  assert.deepEqual(answerSteps(parsed, { option: 2 }), [{ text: "s" }]);
+  // the rows are answered as before
+  assert.deepEqual(keys(answerSteps(parsed, { option: 1 })), ["down", "enter"]);
+  assert.deepEqual(labels(parseKiroPrompt(KIRO_RULE_WEB_44)), ["Trust entire tool (web_search)", "Change scope"]);
+});
+
+test("the next scope follows the one in brackets, and after user comes session", () => {
+  const at = (scope) => KIRO_RULE_WRITE_100.replace("Scope:  [session]   workspace    user",
+    { session: "Scope:  [session]   workspace    user", workspace: "Scope:   session   [workspace]   user", user: "Scope:   session    workspace   [user]" }[scope]);
+  assert.equal(parseKiroPrompt(at("workspace")).options.at(-1).description, "workspace → user");
+  assert.equal(parseKiroPrompt(at("user")).options.at(-1).description, "user → session");
+  assert.notEqual(parseKiroPrompt(at("user")).id, parseKiroPrompt(at("session")).id, "another scope is another card");
+});
+
+test("only the scope menu has a Change scope option", () => {
+  assert.ok(!labels(parseKiroPrompt(kiroApprovalScreen())).includes("Change scope"));
+  assert.ok(!labels(parseKiroPrompt(kiroTrustScreen())).includes("Change scope"));
+  const noBracket = KIRO_RULE_WRITE_100.replace("[session]", " session ");
+  assert.ok(!labels(parseKiroPrompt(noBracket)).includes("Change scope"), "no scope chosen, nothing to cycle");
+});
+
+test("Change scope through the service sends s once the same menu is still on screen, and no key", async (context) => {
+  const keepAlive = setInterval(() => {}, 1_000);
+  context.after(() => clearInterval(keepAlive));
+  const scopes = ["session", "workspace", "user"];
+  const menu = { scope: 0 };
+  const screen = () => KIRO_RULE_WRITE_100.replace("Scope:  [session]   workspace    user",
+    ["Scope:  [session]   workspace    user", "Scope:   session   [workspace]   user", "Scope:   session    workspace   [user]"][menu.scope]);
+  const sent = [];
+  const herdr = {
+    async snapshot() { return { workspaces: [], tabs: [], panes: [{ pane_id: "w1:p1", agent: "kiro", agent_status: "blocked" }], agents: [] }; },
+    async readPane() { return screen(); },
+    async sendKeys(_paneId, pressed) { sent.push(["keys", ...pressed]); },
+    async sendText(_paneId, text) { sent.push(["text", text]); if (text === "s") menu.scope = (menu.scope + 1) % scopes.length; },
+  };
+  const service = new PromptService({ herdr, stepDelayMs: 1, lookMs: 5, settleMs: 300 });
+  const card = await service.card("w1:p1");
+  assert.equal(card.options.at(-1).label, "Change scope");
+  await service.answer("w1:p1", { cardId: card.id, option: card.options.length - 1 });
+  assert.deepEqual(sent, [["text", "s"]]);
+  assert.equal(scopes[menu.scope], "workspace");
+  const next = await service.card("w1:p1");
+  assert.notEqual(next.id, card.id);
+  assert.equal(next.options.at(-1).description, "workspace → user");
+  service.stop();
 });
