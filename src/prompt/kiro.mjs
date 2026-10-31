@@ -42,9 +42,10 @@ function scopeCycle(line) {
   const scopes = line.replace(SCOPE_RE, "").trim().split(/\s+/u);
   const at = scopes.findIndex((scope) => /^\[\S+\]$/u.test(scope));
   if (at < 0 || scopes.length < 2) return null;
-  // a line cut off at the pane's edge ("work…") may hide the next scope
-  if (scopes.some((scope) => /(?:…|\.\.\.)\]?$/u.test(scope))) return null;
+  // a line cut off at the pane's edge ("work…", or a last scope gone) may
+  // hide the next scope: only Kiro's three, whole, are cycled
   const name = (scope) => scope.replace(/^\[|\]$/gu, "");
+  if (scopes.map(name).join(" ") !== "session workspace user") return null;
   return { current: name(scopes[at]), next: name(scopes[(at + 1) % scopes.length]) };
 }
 // A row's further lines on a narrow pane are indented as rows are, and go on

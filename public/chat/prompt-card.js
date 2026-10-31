@@ -214,6 +214,9 @@ export function createPromptDock({ document = globalThis.document, dock, connect
   let answering = null;
   // Whether the card's context is open, kept across redraws of the same card.
   let contextOpen = false;
+  // the card after an answer that left the menu up (Kiro's Change scope)
+  // stays open as this one was
+  let keepOpen = false;
 
   function resetView() {
     view = { pending: false, error: null, selected: initialSelection(card), custom: "" };
@@ -231,8 +234,9 @@ export function createPromptDock({ document = globalThis.document, dock, connect
       const error = keepError ? view.error : null;
       resetView();
       view.error = error;
-      if (moved) expanded = false;
+      if (moved && !(keepOpen && card)) expanded = false;
     }
+    if (moved) keepOpen = false;
     render();
   }
 
@@ -313,7 +317,10 @@ export function createPromptDock({ document = globalThis.document, dock, connect
           view.selected = initialSelection(card);
           render();
           onAnswered(id);
-          if (result?.stays && card?.id === answered.id) void refresh();
+          if (result?.stays && card?.id === answered.id) {
+            keepOpen = true;
+            void refresh();
+          }
           return;
         }
         // gone from the screen: the push confirms it a moment later, and a
