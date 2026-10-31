@@ -589,6 +589,22 @@
       </div>
     </dialog>
 
+    <dialog id="speech-log-dialog" class="app-dialog speech-log-dialog" aria-labelledby="speech-log-title">
+      <div class="dialog-form">
+        <div class="dialog-heading">
+          <h2 id="speech-log-title">Speech log</h2>
+          <p>What dictation heard on this page, as the browser sent it. It is not saved or sent anywhere.</p>
+        </div>
+        <pre id="speech-log-body" class="speech-log-body"></pre>
+        <p id="speech-log-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="speech-log-clear" class="secondary-button" type="button">Clear</button>
+          <button id="speech-log-close" class="secondary-button" type="button">Close</button>
+          <button id="speech-log-copy" class="primary-button" type="button">Copy</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="transfer-dialog" class="app-dialog" aria-labelledby="transfer-dialog-title">
       <div class="dialog-form">
         <div class="dialog-heading">
