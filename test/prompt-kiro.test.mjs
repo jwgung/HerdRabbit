@@ -326,7 +326,7 @@ test("a card Change scope did not redraw is refused for a moment", async (contex
 });
 
 test("a Scope line cut off at the pane's edge offers no Change scope", () => {
-  for (const cut of ["Scope:  [session]   workspace    us…", "Scope:  [session]   work...", "Scope:   session   [works…]"]) {
+  for (const cut of ["Scope:  [session]   workspace    us…", "Scope:  [session]   work...", "Scope:   session   [works…]", "Scope:   session   [workspace]"]) {
     const screen = KIRO_RULE_WRITE_100.replace("Scope:  [session]   workspace    user", cut);
     const parsed = parseKiroPrompt(screen);
     assert.ok(parsed, cut);

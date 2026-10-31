@@ -151,7 +151,9 @@ test("an answer the server says leaves the menu up keeps the card and looks agai
   const { readFile } = await import("node:fs/promises");
   const source = await readFile(new URL("../public/chat/prompt-card.js", import.meta.url), "utf8");
   assert.match(source, /const result = await postJson\(/u);
-  assert.match(source, /if \(result\?\.stays && card\?\.id === answered\.id\) void refresh\(\);\s*return;/u);
+  assert.match(source, /if \(result\?\.stays && card\?\.id === answered\.id\) \{\s*keepOpen = true;\s*void refresh\(\);\s*\}\s*return;/u);
+  // the changed card that comes stays open as the answered one was
+  assert.match(source, /if \(moved && !\(keepOpen && card\)\) expanded = false;\s*\}\s*if \(moved\) keepOpen = false;/u);
 });
 
 test("a dismissed banner comes back when the same prompt is asked again, and a refused watch is asked for again", async () => {
