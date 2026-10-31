@@ -341,6 +341,7 @@ test("a Scope line cut off at the pane's edge offers no Change scope", () => {
 import {
   KIRO_SUBAGENT_APPROVAL_161, KIRO_SUBAGENT_APPROVAL_160, KIRO_SUBAGENT_APPROVAL_62,
   KIRO_SUBAGENT_APPROVAL_55, KIRO_SUBAGENT_APPROVAL_44, KIRO_SUBAGENT_APPROVAL_44_DOWN,
+  KIRO_SUBAGENT_APPROVAL_SECOND_160, KIRO_SUBAGENT_APPROVAL_SECOND_62, KIRO_SUBAGENT_APPROVAL_SECOND_44, KIRO_SUBAGENT_APPROVAL_SECOND_32,
 } from "./fixtures/kiro-prompt.mjs";
 
 const SUBAGENT_ROWS = [
@@ -353,6 +354,7 @@ const SUBAGENT_ROWS = [
 test("a subagent's pending tool approval is a card with Kiro's own rows, at any width", () => {
   for (const [name, screen] of Object.entries({
     KIRO_SUBAGENT_APPROVAL_161, KIRO_SUBAGENT_APPROVAL_160, KIRO_SUBAGENT_APPROVAL_62, KIRO_SUBAGENT_APPROVAL_55, KIRO_SUBAGENT_APPROVAL_44,
+    KIRO_SUBAGENT_APPROVAL_SECOND_160, KIRO_SUBAGENT_APPROVAL_SECOND_62, KIRO_SUBAGENT_APPROVAL_SECOND_44, KIRO_SUBAGENT_APPROVAL_SECOND_32,
   })) {
     const parsed = parseKiroPrompt(screen);
     assert.equal(parsed?.agent, "kiro", name);
@@ -393,6 +395,33 @@ test("several pending approvals read the same way", () => {
   const parsed = parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_160.replace("⚠ 1 tool approval pending", "⚠ 3 tool approvals pending"));
   assert.equal(parsed?.question, "3 tool approvals pending");
   assert.deepEqual(labels(parsed), SUBAGENT_ROWS);
+});
+
+// Review of #120: the card says which subagent waits on which tool, from the
+// agent list above the rule, and another request in its place is another card.
+test("a subagent approval card names the subagent and tool it waits on, rebuilt from a narrow column", () => {
+  const first = parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_160);
+  assert.equal(first.body, "The user explicitly asked t… general-task-execution WebFetch ⚠ tool approval needed");
+  // 62 columns cut the status to a column of its own, mid-word
+  assert.equal(parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_62).body, first.body);
+  // of three agents, the one waiting
+  assert.equal(parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_161).body, "Ticket #66 (default model a… general-task-execution WebFetch ⚠ tool approval needed");
+  const second = parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_SECOND_160);
+  assert.equal(second.body, "Delegate fetching example #2 general-task-execution WebFetch ⚠ tool approval needed");
+  assert.equal(parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_SECOND_62).body, second.body);
+  assert.notEqual(second.id, first.id, "another request is another card");
+  // a pane too narrow for the status column shows none, as Kiro does
+  assert.equal(parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_44).body, null);
+  assert.equal(parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_SECOND_32).body, null);
+});
+
+test("a row's further line is one the pane wrapped to, even when it starts with a bracket", () => {
+  const rule = "─".repeat(30);
+  const screen = `• Orchestrating (1 agent)\n  esc to cancel\n${rule}\n ⚠ 1 tool approval pending\n ❯ (a) Approve all pending\n   (c) Configure individually\n   (agent monitor)\n   (x) Exit (cancel\n   subagents)\n`;
+  assert.deepEqual(labels(parseKiroPrompt(screen)), ["Approve all pending", "Configure individually (agent monitor)", "Exit (cancel subagents)"]);
+  // a short line with room left after it does not go on: what follows is output
+  assert.equal(parseKiroPrompt(`${KIRO_SUBAGENT_APPROVAL_160}   npm WARN deprecated foo\n`), null);
+  assert.equal(parseKiroPrompt(screen.replace("   (agent monitor)", "\n   (agent monitor)")), null, "a further line sits right under its row");
 });
 
 test("a blocked Kiro pane's subagent approval is answered through the service, the cursor checked first", async (context) => {
