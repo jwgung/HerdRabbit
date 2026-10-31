@@ -104,7 +104,6 @@ const STATIC_FILES = new Map([
   ["/theme.js", { path: `${PUBLIC_DIR}/theme.js`, type: "text/javascript; charset=utf-8" }],
   ["/styles.css", { path: `${PUBLIC_DIR}/styles.css`, type: "text/css; charset=utf-8" }],
   ["/speech-recognition.js", { path: `${PUBLIC_DIR}/speech-recognition.js`, type: "text/javascript; charset=utf-8" }],
-  ["/speech-log.js", { path: `${PUBLIC_DIR}/speech-log.js`, type: "text/javascript; charset=utf-8" }],
   ["/manifest.webmanifest", { path: `${PUBLIC_DIR}/manifest.webmanifest`, type: "application/manifest+json; charset=utf-8" }],
   ["/sw.js", { path: `${PUBLIC_DIR}/sw.js`, type: "text/javascript; charset=utf-8" }],
   ["/favicon.ico", { path: `${PUBLIC_DIR}/favicon.ico`, type: "image/x-icon" }],
