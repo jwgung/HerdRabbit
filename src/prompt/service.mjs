@@ -171,6 +171,9 @@ export class PromptService {
     // retried POST); another option on the same card is a new answer
     this.answered = new Map();
     this.answeredMs = 3_000;
+    // paneId -> { cardId, at }: a card changed by its own option (Kiro's s)
+    // that the terminal had not redrawn yet, refused for a moment
+    this.held = new Map();
     this.watches = new Map();
     // One tick looks at every watched pane: a snapshot (one per server, the
     // client's own), then the screens of the readable ones.
@@ -291,6 +294,8 @@ export class PromptService {
     const given = JSON.stringify([body.cardId, body.option ?? null, body.options ?? null, body.text ?? null, body.action ?? null]);
     const last = this.answered.get(paneId);
     if (last && last.answer === given && Date.now() - last.at < this.answeredMs) throw promptChanged();
+    const held = this.held.get(paneId);
+    if (held && held.cardId === body.cardId && Date.now() - held.at < this.answeredMs) throw promptChanged();
     const parsed = await this.read(paneId, null, { fresh: true });
     if (!parsed || parsed.id !== body.cardId) throw promptChanged();
     let steps;
@@ -307,6 +312,7 @@ export class PromptService {
     let typed = false;
     let typedText = "";
     let committed = false;
+    let stays = false;
     try {
       for (const [index, step] of steps.entries()) {
         // A step that is checked: "card", the same card still on screen;
@@ -344,10 +350,31 @@ export class PromptService {
         if (index < steps.length - 1) await delay(this.stepDelayMs);
       }
       this.answered.set(paneId, { answer: given, at: Date.now() });
+      // An option of the card's own (Kiro's s) leaves the menu up but changes
+      // it: until the terminal shows the changed card, an answer to this one
+      // (another device) would pick a row of the changed menu. The turn is
+      // held until the card changes; one that does not, refuses this card
+      // for a moment.
+      if (parsed.ownOptionSteps?.[body.option]) {
+        stays = true;
+        if (!(await this.#changed(paneId, parsed.id))) this.held.set(paneId, { cardId: parsed.id, at: Date.now() });
+      }
     } finally {
       this.nudge(paneId);
     }
-    return { ok: true };
+    // `stays`: the menu is still up, changed (the page keeps a card shown)
+    return stays ? { ok: true, stays } : { ok: true };
+  }
+
+  // Whether the screen stops showing the card `id`, within the settle time.
+  async #changed(paneId, id) {
+    const deadline = Date.now() + this.settleMs;
+    while (Date.now() < deadline) {
+      const shown = await this.read(paneId).catch(() => undefined);
+      if (shown !== undefined && shown?.id !== id) return true;
+      await delay(this.lookMs);
+    }
+    return false;
   }
 
   // Whether the screen shows the card `promptKey` with the cursor on `cursor`

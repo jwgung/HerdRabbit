@@ -247,9 +247,9 @@ export function createPaneRoutes({
     { method: "POST", pattern: pane("/prompt/answer"), async handle({ request, response, match }) {
       const body = await writeBody(request);
       const paneId = decodePaneId(match[1]);
-      await promptService.answer(paneId, body);
+      const result = await promptService.answer(paneId, body);
       outputWatcher.input(paneId);
-      sendJson(response, 200, { ok: true });
+      sendJson(response, 200, result);
     } },
 
     { method: "POST", pattern: pane("/text"), async handle({ request, response, match }) {

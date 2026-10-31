@@ -138,9 +138,20 @@ test("the chat's text size is its own, remembered and bounded", () => {
 test("an answer that lands after the next prompt arrived keeps that prompt on show", async () => {
   const { readFile } = await import("node:fs/promises");
   const source = await readFile(new URL("../public/chat/prompt-card.js", import.meta.url), "utf8");
-  assert.match(source, /if \(card && card\.id !== answered\.id\) \{[^}]*view\.pending = false;[^}]*view\.selected = initialSelection\(card\);/su);
-  const success = source.slice(source.indexOf("if (card && card.id !== answered.id)"));
+  const kept = "if (result?.stays || (card && card.id !== answered.id)) {";
+  assert.ok(source.includes(kept));
+  const success = source.slice(source.indexOf(kept));
+  assert.match(success, /^[^}]*view\.pending = false;[^}]*view\.selected = initialSelection\(card\);/su);
   assert.ok(success.indexOf("return;") < success.indexOf("setCard(null);"), "the next prompt is kept, not cleared");
+});
+
+// Review of #109: Kiro's Change scope leaves the menu up; the card is not
+// cleared, and a look brings the changed one.
+test("an answer the server says leaves the menu up keeps the card and looks again", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../public/chat/prompt-card.js", import.meta.url), "utf8");
+  assert.match(source, /const result = await postJson\(/u);
+  assert.match(source, /if \(result\?\.stays && card\?\.id === answered\.id\) void refresh\(\);\s*return;/u);
 });
 
 test("a dismissed banner comes back when the same prompt is asked again, and a refused watch is asked for again", async () => {

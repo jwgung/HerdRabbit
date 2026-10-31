@@ -282,3 +282,54 @@ test("Change scope through the service sends s once the same menu is still on sc
   assert.equal(next.options.at(-1).description, "workspace → user");
   service.stop();
 });
+
+// Review of #109: after s, Kiro redraws the menu a moment later. An answer to
+// the same card meanwhile (another device) would pick a row at the new scope.
+function slowScopeMenu({ redrawMs }) {
+  const menu = { scope: 0 };
+  const screen = () => KIRO_RULE_WRITE_100.replace("Scope:  [session]   workspace    user",
+    ["Scope:  [session]   workspace    user", "Scope:   session   [workspace]   user", "Scope:   session    workspace   [user]"][menu.scope]);
+  const sent = [];
+  const herdr = {
+    async snapshot() { return { workspaces: [], tabs: [], panes: [{ pane_id: "w1:p1", agent: "kiro", agent_status: "blocked" }], agents: [] }; },
+    async readPane() { return screen(); },
+    async sendKeys(_paneId, pressed) { sent.push(["keys", ...pressed]); },
+    async sendText(_paneId, text) {
+      sent.push(["text", text]);
+      if (text === "s" && redrawMs !== null) setTimeout(() => { menu.scope = (menu.scope + 1) % 3; }, redrawMs);
+    },
+  };
+  return { herdr, sent, menu };
+}
+
+test("an answer to the card right after Change scope, before Kiro redraws, sends nothing", async (context) => {
+  const { herdr, sent, menu } = slowScopeMenu({ redrawMs: 80 });
+  const service = new PromptService({ herdr, stepDelayMs: 1, lookMs: 5, settleMs: 300 });
+  context.after(() => service.stop());
+  const card = await service.card("w1:p1");
+  const scope = service.answer("w1:p1", { cardId: card.id, option: card.options.length - 1 });
+  const row = service.answer("w1:p1", { cardId: card.id, option: 0 });
+  assert.deepEqual(await scope, { ok: true, stays: true }, "the page is told the menu is still up");
+  await assert.rejects(row, (error) => error.code === "prompt_changed");
+  assert.deepEqual(sent, [["text", "s"]]);
+  assert.equal(menu.scope, 1);
+});
+
+test("a card Change scope did not redraw is refused for a moment", async (context) => {
+  const { herdr, sent } = slowScopeMenu({ redrawMs: null });
+  const service = new PromptService({ herdr, stepDelayMs: 1, lookMs: 5, settleMs: 60 });
+  context.after(() => service.stop());
+  const card = await service.card("w1:p1");
+  await service.answer("w1:p1", { cardId: card.id, option: card.options.length - 1 });
+  await assert.rejects(service.answer("w1:p1", { cardId: card.id, option: 0 }), (error) => error.code === "prompt_changed");
+  assert.deepEqual(sent, [["text", "s"]]);
+});
+
+test("a Scope line cut off at the pane's edge offers no Change scope", () => {
+  for (const cut of ["Scope:  [session]   workspace    us…", "Scope:  [session]   work...", "Scope:   session   [works…]"]) {
+    const screen = KIRO_RULE_WRITE_100.replace("Scope:  [session]   workspace    user", cut);
+    const parsed = parseKiroPrompt(screen);
+    assert.ok(parsed, cut);
+    assert.ok(!labels(parsed).includes("Change scope"), cut);
+  }
+});
