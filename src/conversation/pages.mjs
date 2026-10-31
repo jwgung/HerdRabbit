@@ -6,6 +6,9 @@
 //
 //   source              "claude-transcript", "codex-transcript", ...
 //   turnStarts(bytes)   offsets of the lines that open a turn
+//   startContextBytes   how far before a window turnStarts also reads, for a
+//                       format whose starts depend on records before them
+//                       (absent: the window alone)
 //   parse(text)         { turns, cleared }: cleared when the page holds a reset
 //   metadata(text)      { model, reasoning_effort, context? }
 //   headBytes           how much of the file's start the metadata also reads
@@ -101,6 +104,19 @@ export function toolInputFields(inputText) {
 // the same turn for as long as the file does. A cursor is
 // `<file identity>:<offset of the page's first turn>`.
 
+// The turn starts in `bytes` (read from `from`), as offsets into them. A
+// format whose starts depend on records before them (`startContextBytes`:
+// Kiro's resent steering message) is scanned with that many bytes before
+// `from` too; only starts at or after `from` count.
+async function startsIn(format, store, path, from, bytes) {
+  const context = Math.min(format.startContextBytes ?? 0, from);
+  if (context <= 0) return format.turnStarts(bytes);
+  const before = await store.read(path, from - context, context);
+  return format.turnStarts(Buffer.concat([before, bytes]))
+    .filter((start) => start >= before.length)
+    .map((start) => start - before.length);
+}
+
 // The page of turns ending at `to`: at most MAX_PAGE_PROMPTS prompts, starting
 // on a line that opens a turn, at `floor`, or at the very beginning. An older
 // page (`widen`) reaches further back a window at a time, up to maxPageBytes,
@@ -110,7 +126,7 @@ async function pageBefore(format, store, path, to, { floor, widen, windowBytes, 
   let from = Math.max(floor, to - windowBytes);
   let bytes = await store.read(path, from, to - from);
   for (;;) {
-    const starts = format.turnStarts(bytes);
+    const starts = await startsIn(format, store, path, from, bytes);
     const keep = starts.length > MAX_PAGE_PROMPTS ? starts[starts.length - MAX_PAGE_PROMPTS] : from === floor ? 0 : starts[0];
     if (keep !== undefined) return { start: from + keep, bytes: bytes.subarray(keep) };
     if (!widen || to - from >= maxPageBytes || from === floor) {

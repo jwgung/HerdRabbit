@@ -506,12 +506,15 @@ test("pages never start at a steering message's resend, so its page holds the me
   const directory = await temp(context);
   const path = join(directory, "messages.jsonl");
   const records = [];
-  for (let index = 0; index < 60; index += 1) records.push(user(`prompt ${index}`), turnStart(), say(`answer ${index}`), turnEnd());
+  for (let index = 0; index < 10; index += 1) records.push(user(`prompt ${index}`), turnStart(), say(`answer ${index}`), turnEnd());
   records.push(...resentSteering("steer-p1", "다시 보내진 말"));
+  const resend = records.at(-3);
+  // 49 turns after the resend: a page of 50 would begin exactly on it
+  for (let index = 0; index < 49; index += 1) records.push(user(`later ${index}`), turnStart(), say(`reply ${index}`), turnEnd());
   const { KIRO_TRANSCRIPT: format } = await import("../src/conversation/kiro.mjs");
   const bytes = Buffer.from(jsonl(records));
   const starts = format.turnStarts(bytes);
-  const resendAt = bytes.indexOf(Buffer.from(JSON.stringify(records.at(-3))));
+  const resendAt = bytes.indexOf(Buffer.from(JSON.stringify(resend)));
   assert.ok(resendAt > 0);
   assert.ok(!starts.includes(resendAt), "the resend opens no page");
   await writeFile(path, bytes);
@@ -524,4 +527,64 @@ test("pages never start at a steering message's resend, so its page holds the me
     page = await transcriptPage(store, path, { before: page.cursor });
   }
   assert.equal(texts(all).filter((text) => text === "다시 보내진 말").length, 1);
+  assert.equal(texts(all).filter((text) => text.startsWith("prompt ") || text.startsWith("later ")).length, 59);
+});
+
+test("a page opens at a prompt, never at a steering boundary or Kiro's steering instructions", () => {
+  const id = "steer-s1";
+  const records = [
+    user("start"), turnStart(), say("working"),
+    steer(id, "더 읽어"), injected([id], ["더 읽어"]), say("reading"), boundary([id]), turnEnd(),
+    boundary([]), turnStart(), say("a turn with no prompt of its own"),
+  ];
+  const bytes = Buffer.from(jsonl(records));
+  const at = (item) => bytes.indexOf(Buffer.from(JSON.stringify(item)));
+  // the prompt opens the first turn; the second, with no prompt, opens on its turn_start
+  assert.deepEqual(KIRO_TRANSCRIPT.turnStarts(bytes), [at(records[0]), at(records[9])]);
+});
+
+test("a steering message sent right as a turn starts, and sent again, shows once and keeps the turn's times", () => {
+  const id = "steer-t1";
+  const records = [
+    user("start"), turnStart(),
+    steer(id, "패치버전으로"), boundary([id]), turnEnd(),
+    user("패치버전으로"), turnStart(), say("patching", "2026-09-19T09:00:00.000Z"),
+  ];
+  const turns = parseKiroTranscript(jsonl(records));
+  assert.deepEqual(texts(turns), ["start", "패치버전으로", "patching"]);
+  // work split by a removed message is one block, from its first record to its last
+  const split = resentSteering("steer-t2", "다시");
+  split[2] = say("drawing it", "2026-09-19T08:00:01.000Z");
+  split[7] = say("the pixelation is from the viewport", "2026-09-19T08:00:09.000Z");
+  const merged = parseKiroTranscript(jsonl(split))[1];
+  assert.equal(merged.ts, "2026-09-19T08:00:01.000Z");
+  assert.equal(merged.end_ts, "2026-09-19T08:00:09.000Z");
+});
+
+test("a page window whose edge falls between a steering message and its resend still shows it once", async (context) => {
+  const directory = await temp(context);
+  const path = join(directory, "messages.jsonl");
+  const records = [];
+  for (let index = 0; index < 5; index += 1) records.push(user(`prompt ${index}`), turnStart(), say(`answer ${index}`), turnEnd());
+  records.push(...resentSteering("steer-w1", "창 경계의 말"));
+  for (let index = 0; index < 3; index += 1) records.push(user(`later ${index}`), turnStart(), say(`reply ${index}`), turnEnd());
+  const bytes = Buffer.from(jsonl(records));
+  await writeFile(path, bytes);
+  const steerAt = bytes.indexOf(Buffer.from('"창 경계의 말","source":"steer"'));
+  const resendAt = bytes.indexOf(Buffer.from(JSON.stringify(records.at(-15))));
+  assert.ok(steerAt > 0 && resendAt > steerAt);
+  // every window size puts the edge somewhere; some put it between the two
+  for (let windowBytes = 200; windowBytes <= bytes.length; windowBytes += 37) {
+    forgetConversationState();
+    const base = localTranscriptStore({ configDir: directory });
+    const store = new Proxy(base, { get: (target, key) => (key === "windowBytes" ? windowBytes : target[key]) });
+    const all = [];
+    let page = await transcriptPage(store, path);
+    for (let guard = 0; guard < 1_000; guard += 1) {
+      all.unshift(...page.turns);
+      if (page.cursor === null) break;
+      page = await transcriptPage(store, path, { before: page.cursor });
+    }
+    assert.equal(texts(all).filter((text) => text === "창 경계의 말").length, 1, `window ${windowBytes}`);
+  }
 });
