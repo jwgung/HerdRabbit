@@ -129,3 +129,24 @@ test("output under a narrow pane's answered menu still means it is no card", () 
   assert.equal(parseKiroPrompt(`${KIRO_APPROVAL_44_CURSOR0}  Allowed once\n• Write note.txt\n`), null);
   assert.equal(parseKiroPrompt(`${KIRO_APPROVAL_60_CURSOR2}\n  Allowed once\n`), null);
 });
+
+// What may follow a narrow menu's hint is its own further lines and nothing
+// else: an answered menu with output under it must not stay a card, or a
+// press would send its keys into Kiro's input (found in review of #104).
+test("output under a narrow pane's menu is not taken for the hint's further lines", () => {
+  for (const [screen, tail] of [
+    [KIRO_APPROVAL_60_CURSOR2, "        const x = 1;\n        return x;\n"],
+    [KIRO_APPROVAL_44_CURSOR0, "         12+  foo bar\n"],
+    [KIRO_APPROVAL_58_CURSOR0, "                edit\n                edit\n                edit\n"],
+  ]) {
+    assert.equal(parseKiroPrompt(`${screen}${tail}`), null, JSON.stringify(tail));
+  }
+});
+
+test("only the trust note's path goes on under it, and it ends where the path does", () => {
+  for (const tail of [">\n", "⠋\nThinking…\n", "        indented\n", "a\nb\nc\nd.yaml\n"]) {
+    assert.equal(parseKiroPrompt(`${KIRO_TRUST_60}${tail}`), null, JSON.stringify(tail));
+  }
+  // the note on one line, as on a wide pane, needs no further lines
+  assert.equal(parseKiroPrompt(kiroTrustScreen())?.question, "Trust this workspace?");
+});
