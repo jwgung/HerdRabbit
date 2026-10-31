@@ -16,7 +16,7 @@
 // keeps "esc to go back" in a column of its own.
 import { secretPrompt } from "../secret-prompt.mjs";
 import { ANSI_RE, cleanLine, finishPrompt, isDivider } from "./screen.mjs";
-import { stringWidth } from "./text-width.mjs";
+import { indexAtColumn, stringWidth } from "./text-width.mjs";
 
 // The hint under every Kiro menu, or the first line of it on a narrow pane.
 const HINT_RE = /^esc to \S+.*\b(?:to navigate|to select|to see more options)\b/u;
@@ -168,7 +168,6 @@ const ORCHESTRATING_RE = /^• Orchestrating \(\d+ agents?\)$/u;
 // lines indented to that column.
 const AGENT_ROW_RE = /^ {2}\S (\S.*)$/u;
 const AGENT_MORE_RE = /^ {8,}\S/u;
-const WAITING_RE = /\bapproval needed$/u;
 
 // Whether `line` goes on from `previous`, the pane `width` wide: a word wrap.
 function wrapsFrom(previous, line, width) {
@@ -176,30 +175,45 @@ function wrapsFrom(previous, line, width) {
   return width - (stringWidth(previous) + 1 + stringWidth(word)) <= WRAP_SLACK;
 }
 
-// The agent rows above the rule that wait on a tool approval, whole, or null:
-// the card says which subagent and tool it is about, and another request in
-// its place is another card. A narrow pane may not show their status at all.
-function waitingAgents(lines, rule, width) {
+// The agent rows above the rule that wait on a tool approval, or null: the
+// card says which subagent and tool it is about, and another request in its
+// place is another card. Each reads "<task> <agent type> <tool> ⚠ tool
+// approval needed" whatever the pane's width: a narrow pane cuts the status to
+// a column of its own, mid-word or at a word's end alike, so the status is read
+// with its spaces taken out, and the tool is what comes before its ⚠. A pane
+// too narrow for the status shows none.
+function waitingAgents(lines, rule) {
   let start = rule - 1;
   while (start >= 0 && !ORCHESTRATING_RE.test(cleanLine(lines[start]))) start -= 1;
   if (start < 0) return null;
   const rows = [];
   for (let index = start + 1; index < rule; index += 1) {
     const raw = lines[index].replace(ANSI_RE, "").replace(/\s+$/u, "");
-    const row = raw.match(AGENT_ROW_RE);
-    if (row && !/^ {2}(?:esc|ctrl)\b/u.test(raw)) {
-      rows.push({ text: row[1].trim(), end: raw });
-      continue;
+    if (AGENT_ROW_RE.test(raw) && !/^ {2}(?:esc|ctrl)\b/u.test(raw)) {
+      rows.push({ first: raw, pieces: [] });
+    } else if (rows.length > 0 && AGENT_MORE_RE.test(raw)) {
+      rows.at(-1).pieces.push(raw);
     }
-    if (rows.length === 0 || !AGENT_MORE_RE.test(raw)) continue;
-    // a word cut at the column's edge goes on with no space
-    const last = rows.at(-1);
-    const piece = raw.trim();
-    last.text += stringWidth(last.end) >= width || last.full ? piece : ` ${piece}`;
-    last.full = stringWidth(raw) >= width;
-    last.end = raw;
   }
-  const waiting = rows.map((row) => row.text).filter((text) => WAITING_RE.test(text));
+  const waiting = [];
+  for (const { first, pieces } of rows) {
+    let head;
+    let status;
+    if (pieces.length > 0) {
+      // the status column starts where its further lines are indented
+      const at = indexAtColumn(first, stringWidth(pieces[0].match(/^ */u)[0]));
+      if (at < 0) continue;
+      head = first.slice(0, at);
+      status = [first.slice(at), ...pieces].join("");
+    } else {
+      const one = first.match(/^(.*?)\s(\S+\s*⚠\s*tool\s*approval\s*needed)$/u);
+      if (!one) continue;
+      [, head, status] = one;
+    }
+    const tool = status.replace(/\s+/gu, "").match(/^(.+?)⚠toolapprovalneeded$/u);
+    if (!tool) continue;
+    waiting.push(`${head.replace(AGENT_ROW_RE, "$1").replace(/\s+/gu, " ").trim()} ${tool[1]} ⚠ tool approval needed`);
+  }
   return waiting.length > 0 ? waiting.join("\n") : null;
 }
 
@@ -235,7 +249,7 @@ function pendingApprovals(lines, shown) {
     kind: "approval",
     title: question,
     question,
-    body: waitingAgents(lines, above, width),
+    body: waitingAgents(lines, above),
     options: rows.map((row) => ({ label: row.label, description: null })),
     multiSelect: false,
     customOptionIndex: null,

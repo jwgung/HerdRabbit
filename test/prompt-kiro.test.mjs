@@ -453,3 +453,18 @@ test("a blocked Kiro pane's subagent approval is answered through the service, t
   assert.deepEqual(sent, ["down", "enter"]);
   assert.equal(await service.card("w1:p1"), null);
 });
+
+// Second review of #120: a status word that ends exactly at its column's edge
+// reads like one cut mid-word; the waiting tool is read with the status's
+// spaces taken out, so every width shows the same card.
+import { KIRO_SUBAGENT_APPROVAL_BY_WIDTH } from "./fixtures/kiro-prompt.mjs";
+
+test("the same subagent request is the same card at every width that shows its status", () => {
+  const wide = parseKiroPrompt(KIRO_SUBAGENT_APPROVAL_160);
+  for (const [width, screen] of Object.entries(KIRO_SUBAGENT_APPROVAL_BY_WIDTH)) {
+    const parsed = parseKiroPrompt(screen);
+    assert.deepEqual(labels(parsed), SUBAGENT_ROWS, `width ${width}`);
+    assert.equal(parsed.body, wide.body, `width ${width}`);
+    assert.equal(parsed.id, wide.id, `width ${width}`);
+  }
+});
