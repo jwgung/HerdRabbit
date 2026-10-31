@@ -147,12 +147,64 @@ function heading(lines, rowsStart) {
   return { question: block[0], body: block.slice(1).join("\n") || null };
 }
 
+// Kiro's menu for its subagents' tool approvals, at the screen's end while it
+// orchestrates them: right under a rule, "⚠ 1 tool approval pending", then a
+// row per answer, "(a) Approve all pending", the cursor row " ❯ (a) …", any
+// other "   (f) …", a row too long for the pane going on in further lines at
+// the same indent. No hint line; the arrows move the ❯ and Enter picks.
+const PENDING_RE = /^⚠ (\d+) tool approvals? pending$/u;
+const PENDING_ROW_RE = /^ (?:(❯)| ) \(([a-z])\) (\S.*)$/u;
+const PENDING_MORE_RE = /^ {3}(?!\()\S/u;
+
+// The subagent approval card the screen ends with, or null.
+function pendingApprovals(lines, shown) {
+  const head = shown.findLast((index) => PENDING_RE.test(cleanLine(lines[index])));
+  if (head === undefined) return null;
+  // right under Kiro's rule, blank lines aside
+  let above = head - 1;
+  while (above >= 0 && !cleanLine(lines[above])) above -= 1;
+  if (above < 0 || !isDivider(lines[above])) return null;
+  // every line under it is a row or a row's further line: an answered menu
+  // has output under it, and a card for it would send keys into Kiro's input
+  const rows = [];
+  for (const index of shown.filter((line) => line > head)) {
+    const raw = lines[index].replace(ANSI_RE, "").replace(/\s+$/u, "");
+    const row = raw.match(PENDING_ROW_RE);
+    if (row) {
+      rows.push({ key: row[2], label: row[3].trim(), selected: row[1] === "❯" });
+      continue;
+    }
+    if (rows.length === 0 || !PENDING_MORE_RE.test(raw)) return null;
+    rows.at(-1).label = `${rows.at(-1).label} ${raw.trim()}`;
+  }
+  if (rows.length < 2 || rows.filter((row) => row.selected).length !== 1) return null;
+  if (new Set(rows.map((row) => row.key)).size !== rows.length) return null;
+  const question = cleanLine(lines[head]).replace(/^⚠ /u, "");
+  return finishPrompt("kiro", {
+    kind: "approval",
+    title: question,
+    question,
+    body: null,
+    options: rows.map((row) => ({ label: row.label, description: null })),
+    multiSelect: false,
+    customOptionIndex: null,
+  }, {
+    responder: "kiro-menu",
+    menuLabels: rows.map((row) => row.label),
+    selectedIndex: rows.findIndex((row) => row.selected),
+    checkedOptionIndices: [],
+    customMenuIndex: null,
+  });
+}
+
 // The card a Kiro screen shows, with the reader's bookkeeping, or null.
 export function parseKiroPrompt(screen) {
   const text = String(screen ?? "");
   if (secretPrompt(text) !== null) return null;
   const lines = text.replace(ANSI_RE, "").split(/\r?\n/);
   const shown = lines.flatMap((line, index) => cleanLine(line) && !isDivider(line) ? [index] : []);
+  const pending = pendingApprovals(lines, shown);
+  if (pending) return pending;
   const hintIndex = shown.findLast((index) => HINT_RE.test(cleanLine(lines[index])));
   if (hintIndex === undefined) return null;
   // the menu must still own the screen's end: an answered one sits above later output
