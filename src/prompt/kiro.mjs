@@ -32,8 +32,19 @@ const SCOPE_HINT_END_RE = /\b(?:edit|options)$/u;
 const SCOPE_HINT_RE = /^esc to go\b/u;
 // A row's second column, after a wide gap: what a rule matches, its scope.
 const COLUMN_GAP_RE = / {3,}/u;
-// The scope menu's line above its rows; only there is one row a menu.
+// The scope menu's line above its rows; only there is one row a menu. The
+// chosen scope is in brackets; Kiro's s moves it to the next, round the line.
 const SCOPE_RE = /^Scope:\s/u;
+
+// The scope a menu's "Scope:" line has chosen and the one s moves it to, or null.
+function scopeCycle(line) {
+  if (!SCOPE_RE.test(line ?? "")) return null;
+  const scopes = line.replace(SCOPE_RE, "").trim().split(/\s+/u);
+  const at = scopes.findIndex((scope) => /^\[\S+\]$/u.test(scope));
+  if (at < 0 || scopes.length < 2) return null;
+  const name = (scope) => scope.replace(/^\[|\]$/gu, "");
+  return { current: name(scopes[at]), next: name(scopes[(at + 1) % scopes.length]) };
+}
 // A row's further lines on a narrow pane are indented as rows are, and go on
 // mid-sentence; a row of its own starts with a capital ("Allow once").
 const ROW_MORE_RE = /^\p{Ll}/u;
@@ -149,14 +160,19 @@ export function parseKiroPrompt(screen) {
   if (rows.length === 0 || rows.filter((row) => row.selected).length !== 1) return null;
   const head = heading(lines, rows[0].lineIndex);
   if (!head) return null;
-  if (rows.length < 2 && !SCOPE_RE.test(head.body?.split("\n").at(-1) ?? "")) return null;
+  const scopeLine = head.body?.split("\n").at(-1) ?? "";
+  if (rows.length < 2 && !SCOPE_RE.test(scopeLine)) return null;
   const approval = APPROVAL_RE.test(head.question);
+  // The scope menu's s, offered as one more option after the rows.
+  const cycle = scopeCycle(scopeLine);
+  const options = rows.map((row) => ({ label: row.label, description: row.description }));
+  if (cycle) options.push({ label: "Change scope", description: `${cycle.current} → ${cycle.next}` });
   return finishPrompt("kiro", {
     kind: approval ? "approval" : "menu",
     title: head.question,
     question: head.question,
     body: head.body,
-    options: rows.map((row) => ({ label: row.label, description: row.description })),
+    options,
     multiSelect: false,
     customOptionIndex: null,
   }, {
@@ -165,5 +181,6 @@ export function parseKiroPrompt(screen) {
     selectedIndex: rows.findIndex((row) => row.selected),
     checkedOptionIndices: [],
     customMenuIndex: null,
+    ...(cycle ? { ownOptionSteps: { [rows.length]: [{ text: "s" }] } } : {}),
   });
 }
