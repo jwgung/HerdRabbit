@@ -32,7 +32,7 @@ function createRecognizer(Recognition, { onInterim, onFinal, onEnd, onError, onL
     });
   };
   recognition.onend = () => { onLog({ type: "end" }); onEnd(); };
-  recognition.onerror = (event) => { onLog({ type: "error", error: event.error }); onError(event.error); };
+  recognition.onerror = (event) => { onLog({ type: "error", error: event.error, message: event.message || "" }); onError(event.error); };
   return recognition;
 }
 
@@ -45,6 +45,11 @@ export function createSpeechButton({ button, textarea, onStateChange = () => {},
   let recognition = null;
   let listening = false;
   let shown = "";
+  // what the recognizer said, with the box after it; a log that throws must
+  // never stop dictation
+  const note = (entry) => {
+    try { onLog({ ...entry, box: textarea.value }); } catch { /* the log is only for looking */ }
+  };
 
   function updateButton() {
     button.classList.toggle("listening", listening);
@@ -96,7 +101,13 @@ export function createSpeechButton({ button, textarea, onStateChange = () => {},
         // Chrome stops after a silence or a network hiccup; restart while the
         // user is still dictating.
         if (listening) {
-          try { recognition.start(); } catch { stop(); }
+          try {
+            recognition.start();
+            note({ type: "restart" });
+          } catch {
+            note({ type: "restart-failed" });
+            stop();
+          }
         } else {
           stop();
         }
@@ -105,7 +116,7 @@ export function createSpeechButton({ button, textarea, onStateChange = () => {},
         if (error === "not-allowed" || error === "service-not-allowed") stop();
         // "no-speech" and "aborted" are normal; the onEnd handler restarts.
       },
-      onLog: (entry) => onLog({ ...entry, box: textarea.value }),
+      onLog: note,
     });
     try {
       recognition.start();
@@ -114,7 +125,7 @@ export function createSpeechButton({ button, textarea, onStateChange = () => {},
       recognition = null;
       listening = false;
     }
-    onLog({ type: listening ? "start" : "start-failed", box: textarea.value });
+    note({ type: listening ? "start" : "start-failed" });
     updateButton();
     onStateChange(listening);
   }

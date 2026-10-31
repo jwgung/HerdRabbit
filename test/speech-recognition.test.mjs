@@ -69,7 +69,7 @@ test("each recognizer event is told to onLog with every result and the box after
   recognition.say(["네", true], ["네트워크", false]);
   recognition.onerror({ error: "no-speech" });
   recognition.onend();
-  assert.deepEqual(entries.map((entry) => entry.type), ["start", "result", "error", "end"]);
+  assert.deepEqual(entries.map((entry) => entry.type), ["start", "result", "error", "end", "restart"]);
   assert.deepEqual(entries[1], {
     type: "result",
     resultIndex: 0,
@@ -77,4 +77,20 @@ test("each recognizer event is told to onLog with every result and the box after
     box: "네 네트워크",
   });
   assert.equal(entries[2].error, "no-speech");
+});
+
+test("a log that throws does not stop dictation or its restart", () => {
+  const textarea = { value: "", dispatchEvent() {} };
+  const button = { classList: { toggle() {} }, setAttribute() {}, addEventListener(type, handler) { this.click = handler; } };
+  let starts = 0;
+  class Counting extends FakeRecognition { start() { starts += 1; } }
+  const speech = createSpeechButton({ button, textarea, Recognition: Counting, onLog: () => { throw new Error("log"); } });
+  button.click();
+  const recognition = FakeRecognition.last;
+  recognition.say(["안녕", true]);
+  assert.equal(textarea.value, "안녕");
+  recognition.onerror({ error: "no-speech" });
+  recognition.onend();
+  assert.equal(starts, 2, "started, then restarted after the end");
+  assert.equal(speech.listening, true);
 });
