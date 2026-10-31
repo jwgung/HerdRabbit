@@ -5,20 +5,29 @@
 // · ↵ to select"). Each row is answered as the terminal's user picks it: the
 // arrows move the ❯ onto it, then Enter (screen.mjs's answerSteps).
 //
-// Recorded from Kiro CLI on 2026-10-29 (test/fixtures/kiro-prompt.mjs). The
-// shared fallback card read these screens by their hint line only, and offered
-// the bare arrow keys instead of the rows.
+// Recorded from Kiro CLI on 2026-10-29 and 2026-10-30 (test/fixtures/kiro-prompt.mjs).
+// The shared fallback card read these screens by their hint line only, and
+// offered the bare arrow keys instead of the rows. On a phone-width pane Kiro
+// breaks a long row, its hint and the note under it on to further lines, and
+// on a rule row its hint is "esc to close · Enter to see more options".
 import { secretPrompt } from "../secret-prompt.mjs";
 import { ANSI_RE, cleanLine, finishPrompt, isDivider } from "./screen.mjs";
 
-// The hint under every Kiro menu.
-const HINT_RE = /\bto navigate\b.*\bto select\b/u;
+// The hint under every Kiro menu, or the first line of it on a narrow pane.
+const HINT_RE = /^esc to \S+.*\b(?:to navigate|to select|to see more options)\b/u;
+// The hint's further lines on a narrow pane: indented well past it.
+const HINT_MORE_RE = /^ {8,}\S/u;
+// A row's further lines on a narrow pane are indented as rows are, and go on
+// mid-sentence; a row of its own starts with a capital ("Allow once").
+const ROW_MORE_RE = /^\p{Ll}/u;
 // A menu row: the cursor row " ❯ Label", any other "   Label". The lines
 // above the rows (" shell → echo probe") sit one column further left.
 const ROW_RE = /^ {0,2}(❯) +(\S.*)$|^ {3,6}(\S.*)$/u;
 const APPROVAL_RE = /\brequires approval$/u;
-// Lines a menu may keep under its hint: the trust menu says where to revoke it.
+// Lines a menu may keep under its hint: the trust menu says where to revoke it,
+// and on a narrow pane its path goes on in pieces (no spaces).
 const AFTER_HINT_RE = /^Revoke later\b/u;
+const NOTE_MORE_RE = /^\S+$/u;
 // Read from at most this many lines above the hint.
 const MENU_LINES = 48;
 
@@ -31,7 +40,24 @@ function menuRows(lines, end) {
     if (!match) break;
     rows.unshift({ label: (match[2] ?? match[3]).trim(), selected: match[1] === "❯", lineIndex: index });
   }
-  return rows;
+  // A row broken over two lines is one row.
+  const joined = [];
+  for (const row of rows) {
+    const previous = joined.at(-1);
+    if (previous && !row.selected && ROW_MORE_RE.test(row.label)) previous.label = `${previous.label} ${row.label}`;
+    else joined.push(row);
+  }
+  return joined;
+}
+
+// Whether the shown lines under the hint are only the menu's own: the hint's
+// further lines, then the trust menu's note and its further lines.
+function menuOwnsEnd(lines, after) {
+  let index = 0;
+  while (index < after.length && HINT_MORE_RE.test(lines[after[index]].replace(ANSI_RE, ""))) index += 1;
+  if (index === after.length) return true;
+  if (!AFTER_HINT_RE.test(cleanLine(lines[after[index]]))) return false;
+  return after.slice(index + 1).every((line) => NOTE_MORE_RE.test(cleanLine(lines[line])));
 }
 
 // The lines above the rows up to a rule: the question and what it is about.
@@ -69,8 +95,7 @@ export function parseKiroPrompt(screen) {
   const hintIndex = shown.findLast((index) => HINT_RE.test(cleanLine(lines[index])));
   if (hintIndex === undefined) return null;
   // the menu must still own the screen's end: an answered one sits above later output
-  const after = shown.filter((index) => index > hintIndex);
-  if (after.length > 1 || after.some((index) => !AFTER_HINT_RE.test(cleanLine(lines[index])))) return null;
+  if (!menuOwnsEnd(lines, shown.filter((index) => index > hintIndex))) return null;
   let end = hintIndex;
   while (end > 0 && (isDivider(lines[end - 1]) || !cleanLine(lines[end - 1]))) end -= 1;
   const rows = menuRows(lines, end);
