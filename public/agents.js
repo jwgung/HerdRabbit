@@ -11,7 +11,8 @@
 //   card     its pane is asked for a prompt card whatever herdr says it is doing
 //            (any other agent only while blocked)
 //   slash    its `/` commands are listed in the composer
-//   stop     Chat offers a Stop button: Esc interrupts it
+//   stop     Chat offers a Stop button: Esc interrupts it (one Esc for Kiro
+//            CLI 2.35.1 and Antigravity CLI 1.4.10 too, checked 2026-10-30)
 //
 // The order is the order these are listed in. The mark a pane wears when the
 // names it carries disagree is MARK_PRIORITY's, not this order's. The drawing
@@ -22,8 +23,8 @@ export const AGENTS = Object.freeze([
   { name: "claude", label: "Claude", product: "Claude Code", marks: ["claude"], chat: true, card: true, slash: true, stop: true },
   { name: "codex", label: "Codex", marks: ["codex"], chat: true, card: true, slash: true, stop: true },
   { name: "opencode", label: "OpenCode", marks: ["opencode"], chat: true, card: true, slash: true, stop: true },
-  { name: "kiro", label: "Kiro", marks: ["kiro"], chat: true, card: true },
-  { name: "agy", label: "Antigravity", marks: ["agy", "antigravity"], chat: true, card: true },
+  { name: "kiro", label: "Kiro", marks: ["kiro"], chat: true, card: true, stop: true },
+  { name: "agy", label: "Antigravity", marks: ["agy", "antigravity"], chat: true, card: true, stop: true },
   { name: "cursor", marks: ["cursor"] },
 ].map((agent) => Object.freeze(agent)));
 

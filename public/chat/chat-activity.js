@@ -141,8 +141,8 @@ export function stopFollowUp(agent) {
     : null;
 }
 
-// Whether the composer shows Stop: the Chat lens is on a Claude, Codex or
-// OpenCode pane whose agent herdr says is working. A blocked agent has its card instead, and
+// Whether the composer shows Stop: the Chat lens is on the pane of an agent
+// with Stop (public/agents.js) whose agent herdr says is working. A blocked agent has its card instead, and
 // a send no status has answered yet is only a guess, so neither shows it.
 export function showsStop({ lens, agent, status }) {
   return lens === "chat" && STOP_AGENTS.includes(String(agent ?? "").toLowerCase()) && status === "working";
