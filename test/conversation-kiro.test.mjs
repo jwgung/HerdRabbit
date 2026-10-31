@@ -588,3 +588,44 @@ test("a page window whose edge falls between a steering message and its resend s
     assert.equal(texts(all).filter((text) => text === "창 경계의 말").length, 1, `window ${windowBytes}`);
   }
 });
+
+// A page cut mid-turn (the newest page with no turn start in its window, or an
+// older page at its byte cap) moves past a steering message and the line that
+// shows it in its place, so one page holds both.
+async function walkEveryWindow(context, records, words, { step = 41 } = {}) {
+  const directory = await temp(context);
+  const path = join(directory, "messages.jsonl");
+  const bytes = Buffer.from(jsonl(records));
+  await writeFile(path, bytes);
+  for (let windowBytes = 200; windowBytes <= bytes.length + step; windowBytes += step) {
+    for (const maxPageBytes of [windowBytes * 4]) {
+      forgetConversationState();
+      const base = localTranscriptStore({ configDir: directory });
+      const store = new Proxy(base, { get: (target, key) => (key === "windowBytes" ? windowBytes : key === "maxPageBytes" ? maxPageBytes : target[key]) });
+      const all = [];
+      let page = await transcriptPage(store, path);
+      for (let guard = 0; guard < 2_000; guard += 1) {
+        all.unshift(...page.turns);
+        if (page.cursor === null) break;
+        page = await transcriptPage(store, path, { before: page.cursor });
+      }
+      assert.equal(texts(all).filter((text) => text.split(" ").includes(words) || text === words).length, 1, `window ${windowBytes}, cap ${maxPageBytes}`);
+    }
+  }
+}
+
+test("a live turn after a steering message's resend, read in any window, shows the message once", async (context) => {
+  const records = [user("start"), turnStart(), say("first")];
+  records.push(...resentSteering("steer-l1", "살아있는말"));
+  for (let index = 0; index < 30; index += 1) records.push(say(`step ${index} ${"x".repeat(60)}`));
+  await walkEveryWindow(context, records, "살아있는말");
+});
+
+test("a steering message and the instructions that give it to the model, read in any window, show once", async (context) => {
+  const id = "steer-i1";
+  const records = [user("start"), turnStart(), say("first"), steer(id, "건네진말")];
+  for (let index = 0; index < 20; index += 1) records.push(say(`work ${index} ${"y".repeat(60)}`));
+  records.push(injected([id], ["건네진말"]));
+  for (let index = 0; index < 20; index += 1) records.push(say(`more ${index} ${"z".repeat(60)}`));
+  await walkEveryWindow(context, records, "건네진말");
+});

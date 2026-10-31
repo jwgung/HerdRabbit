@@ -9,6 +9,9 @@
 //   startContextBytes   how far before a window turnStarts also reads, for a
 //                       format whose starts depend on records before them
 //                       (absent: the window alone)
+//   unbroken(bytes)     optional: [start, end) byte spans a page must not
+//                       start inside (a page cut mid-turn moves back to
+//                       their start)
 //   parse(text)         { turns, cleared }: cleared when the page holds a reset
 //   metadata(text)      { model, reasoning_effort, context? }
 //   headBytes           how much of the file's start the metadata also reads
@@ -104,17 +107,31 @@ export function toolInputFields(inputText) {
 // the same turn for as long as the file does. A cursor is
 // `<file identity>:<offset of the page's first turn>`.
 
-// The turn starts in `bytes` (read from `from`), as offsets into them. A
-// format whose starts depend on records before them (`startContextBytes`:
-// Kiro's resent steering message) is scanned with that many bytes before
-// `from` too; only starts at or after `from` count.
-async function startsIn(format, store, path, from, bytes) {
-  const context = Math.min(format.startContextBytes ?? 0, from);
-  if (context <= 0) return format.turnStarts(bytes);
-  const before = await store.read(path, from - context, context);
-  return format.turnStarts(Buffer.concat([before, bytes]))
-    .filter((start) => start >= before.length)
-    .map((start) => start - before.length);
+// The turn starts in `scan` that fall at or after `lead` (the context bytes
+// read before the window), and the spans a page must not start inside, as
+// offsets from `lead`. A format whose starts depend on records before them
+// (`startContextBytes`: Kiro's resent steering message) is given that much
+// before the window; `unbroken(bytes)` names spans, such as a steering
+// message and its resend, that one page has to hold whole.
+function scanned(format, scan, lead) {
+  const starts = format.turnStarts(scan);
+  const unbroken = typeof format.unbroken === "function" ? format.unbroken(scan) : [];
+  return {
+    starts: lead === 0 ? starts : starts.filter((start) => start >= lead).map((start) => start - lead),
+    unbroken: unbroken.map(([start, end]) => [start - lead, end - lead]),
+  };
+}
+
+// `cut` moved back to the start of every unbroken span it falls inside, but
+// never below `lowest`.
+function beforeUnbroken(unbroken, cut, lowest) {
+  for (let moved = true; moved;) {
+    moved = false;
+    for (const [start, end] of unbroken) {
+      if (start < cut && cut < end && start >= lowest) { cut = start; moved = true; }
+    }
+  }
+  return cut;
 }
 
 // The page of turns ending at `to`: at most MAX_PAGE_PROMPTS prompts, starting
@@ -123,19 +140,29 @@ async function startsIn(format, store, path, from, bytes) {
 // for a turn longer than a window; the newest page never does and, with no
 // turn start in its window, starts mid-turn at a whole line.
 async function pageBefore(format, store, path, to, { floor, widen, windowBytes, maxPageBytes }) {
+  const contextBytes = format.startContextBytes ?? 0;
   let from = Math.max(floor, to - windowBytes);
-  let bytes = await store.read(path, from, to - from);
+  // `scan` holds the window and, before it, `lead` bytes of context
+  let lead = Math.min(contextBytes, from);
+  let scan = await store.read(path, from - lead, to - from + lead);
   for (;;) {
-    const starts = await startsIn(format, store, path, from, bytes);
+    const bytes = scan.subarray(lead);
+    const { starts, unbroken } = scanned(format, scan, lead);
     const keep = starts.length > MAX_PAGE_PROMPTS ? starts[starts.length - MAX_PAGE_PROMPTS] : from === floor ? 0 : starts[0];
     if (keep !== undefined) return { start: from + keep, bytes: bytes.subarray(keep) };
     if (!widen || to - from >= maxPageBytes || from === floor) {
-      const firstLine = bytes.indexOf(0x0a) + 1;
-      return { start: from + firstLine, bytes: bytes.subarray(firstLine) };
+      // a cut mid-turn starts at a whole line, and not inside a span one
+      // page has to hold whole (it may reach into the context for that)
+      const firstLine = beforeUnbroken(unbroken, bytes.indexOf(0x0a) + 1, floor - from);
+      return { start: from + firstLine, bytes: scan.subarray(lead + firstLine) };
     }
     const next = Math.max(floor, from - windowBytes, to - maxPageBytes);
-    bytes = Buffer.concat([await store.read(path, next, from - next), bytes]);
+    const nextLead = Math.min(contextBytes, next);
+    const scanFrom = from - lead;
+    const nextScanFrom = next - nextLead;
+    scan = Buffer.concat([await store.read(path, nextScanFrom, scanFrom - nextScanFrom), scan]);
     from = next;
+    lead = nextLead;
   }
 }
 
