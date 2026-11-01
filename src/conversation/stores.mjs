@@ -354,6 +354,8 @@ const LOG_TAIL_BYTES = 256 * 1024;
 // A process tree walked for its open log, at most.
 const MAX_TREE = 64;
 const MAX_KIRO_DESCRIPTORS = 512;
+// How Linux names an open file that was deleted: its old path and this.
+const DELETED_SUFFIX = " (deleted)";
 // Workspace folders looked through for a named session, at most.
 const MAX_KIRO_WORKSPACES = 4096;
 const MAX_MOVED_SESSIONS = 256;
@@ -394,13 +396,18 @@ export function localKiroStore(configDir, { procRoot = "/proc" } = {}) {
     }
     return [...seen];
   }
-  // The Kiro logs a process holds open, as paths under <config>/logs.
+  // The Kiro logs a process holds open, as the paths to read them by. A log
+  // Kiro's cleanup deleted while the process runs is still open and still
+  // written: its descriptor (/proc/<pid>/fd/<n>) reads it.
   async function heldLogs(pid) {
     const held = new Set();
     for (const descriptor of (await names(join(procRoot, String(pid), "fd"))).slice(0, MAX_KIRO_DESCRIPTORS)) {
       try {
-        const target = await readlink(join(procRoot, String(pid), "fd", descriptor));
-        if (target.startsWith(`${logs}${sep}`) && target.endsWith(`${sep}kiro.log`)) held.add(target);
+        const link = join(procRoot, String(pid), "fd", descriptor);
+        const target = await readlink(link);
+        const deleted = target.endsWith(DELETED_SUFFIX);
+        const path = deleted ? target.slice(0, -DELETED_SUFFIX.length) : target;
+        if (path.startsWith(`${logs}${sep}`) && path.endsWith(`${sep}kiro.log`)) held.add(deleted ? link : path);
       } catch { /* a descriptor may close while it is read */ }
     }
     return held;
