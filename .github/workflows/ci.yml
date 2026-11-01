@@ -71,4 +71,5 @@ jobs:
           else
             git tag -a "v$version" -m "HerdRabbit $version"
             git push origin "v$version"
+            gh release create "v$version" --title "HerdRabbit $version" --latest
           fi
