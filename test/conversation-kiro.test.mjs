@@ -3,6 +3,7 @@
 // paging cases mirror test/conversation-claude.test.mjs.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -679,21 +680,42 @@ test("a page filling an open chat's gap never reaches back past the cursor it ho
 // Kiro deletes old log folders while an older Kiro process still writes its
 // log there (puppy-land, 2026-11-01): Linux shows the open file as
 // "<path> (deleted)", and it is read through the process's descriptor.
-test("the session a Kiro process runs is read from its log even after the log was deleted", async (context) => {
+test("the session a Kiro process runs is read from its log even after the log was deleted", { skip: !existsSync("/proc/self/fd") }, async (context) => {
+  // this test's own process holds the log open, deleted, as Kiro's does
+  const configDir = await mkdtemp(join(tmpdir(), "herdrabbit-kiro-"));
+  context.after(() => rm(configDir, { recursive: true, force: true }));
+  const { open, unlink } = await import("node:fs/promises");
+  const log = await kiroLog(configDir, "20261030T083220680", [UUID_A, UUID_B]);
+  const held = await open(log, "a");
+  context.after(() => held.close());
+  await unlink(log);
+  const store = localTranscriptStore({ kiroConfigDir: configDir }).kiro;
+  assert.deepEqual(await store.sessionsOfPids([process.pid]), [UUID_B]);
+  // the same deleted log held twice is read once and named once
+  const again = await open(`/proc/self/fd/${held.fd}`, "r");
+  context.after(() => again.close());
+  assert.deepEqual(await store.sessionsOfPids([process.pid]), [UUID_B]);
+  // a deleted file that is no Kiro log names nothing
+  const otherDir = await mkdtemp(join(tmpdir(), "herdrabbit-kiro-"));
+  context.after(() => rm(otherDir, { recursive: true, force: true }));
+  const other = join(otherDir, "logs", "x", "other.txt");
+  await mkdir(join(otherDir, "logs", "x"), { recursive: true });
+  await writeFile(other, `sessionId=sess_${UUID_A}\n`);
+  const otherHeld = await open(other, "r");
+  context.after(() => otherHeld.close());
+  await unlink(other);
+  assert.deepEqual(await localTranscriptStore({ kiroConfigDir: otherDir }).kiro.sessionsOfPids([process.pid]), []);
+});
+
+// A descriptor seen as a deleted log but holding a file that is not deleted
+// (its number reused after the log closed) is not read.
+test("a log reported deleted that is a file still in place when opened names nothing", async (context) => {
   const configDir = await mkdtemp(join(tmpdir(), "herdrabbit-kiro-"));
   const procRoot = await mkdtemp(join(tmpdir(), "herdrabbit-proc-"));
   context.after(() => Promise.all([rm(configDir, { recursive: true, force: true }), rm(procRoot, { recursive: true, force: true })]));
-  const log = await kiroLog(configDir, "20261030T083220680", [UUID_A, UUID_B]);
-  // what the descriptor points at now: the old path, marked deleted (a file
-  // of that very name stands in for the open, deleted one)
+  const log = await kiroLog(configDir, "20261030T083220680", [UUID_A]);
   const { rename } = await import("node:fs/promises");
   await rename(log, `${log} (deleted)`);
-  await fakeProcess(procRoot, 100, { children: [101] });
-  await fakeProcess(procRoot, 101, { file: `${log} (deleted)` });
-  const store = localTranscriptStore({ kiroConfigDir: configDir, procRoot }).kiro;
-  assert.deepEqual(await store.sessionsOfPids([100]), [UUID_B]);
-  // a deleted file that is no Kiro log names nothing
-  await fakeProcess(procRoot, 200, { file: join(configDir, "other.txt (deleted)") });
-  await writeFile(join(configDir, "other.txt (deleted)"), `sessionId=sess_${UUID_A}\n`);
-  assert.deepEqual(await store.sessionsOfPids([200]), []);
+  await fakeProcess(procRoot, 100, { file: `${log} (deleted)` });
+  assert.deepEqual(await localTranscriptStore({ kiroConfigDir: configDir, procRoot }).kiro.sessionsOfPids([100]), []);
 });
