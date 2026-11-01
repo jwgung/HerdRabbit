@@ -2,7 +2,7 @@
 // Codex's) as a chat, or its terminal.
 // The last one chosen is kept per pane; a pane never chosen for opens in Chat
 // on a phone-sized or touch layout and in Terminal on a desktop.
-import { agentNamesWith, listOfNames, productNamesWith } from "./agents.js?v=1.4.20";
+import { agentNamesWith, listOfNames, productNamesWith } from "./agents.js?v=1.4.21";
 
 export const LENS_STORAGE_KEY = "herdrbridge-pane-lens";
 export const LENSES = Object.freeze(["chat", "terminal"]);
