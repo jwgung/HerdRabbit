@@ -115,6 +115,8 @@ test("shows queued prompts, notices and compaction; drops a cancelled re-send; c
     ["user", "notice", "done"],
     ["user", "compact", "summary text"],
   ]);
+  // a queued prompt was sent while Claude worked: it began no turn of its own
+  assert.deepEqual(turns.map((item) => item.queued ?? false), [false, false, true, false, false]);
 });
 
 test("a subagent's /clear leaves the conversation, its metadata and its history alone", async (context) => {

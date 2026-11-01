@@ -36,6 +36,27 @@ export function workingText(since, now = Date.now(), agent = "claude") {
   return since === null || since === undefined ? working : `${working} · ${formatElapsed(now - since)}`;
 }
 
+// When the agent's turn began, as its own screen counts it: the prompt that
+// began it, the last user turn with words or images that is no message sent
+// while it worked (`queued`) and no notice. `seen` (when this page saw it
+// start working, or sent a message) stands in when the transcript cannot say:
+// no such prompt, no time on it, a message from here not in it yet
+// (`sending`), or a prompt older than an idle the page saw (`idleAt`). A prompt
+// timed ahead of this device's clock counts from now. Time the turn waited on
+// the agent's question (`pausedMs`, Kiro's tool approvals) is left out, as
+// the agent's own clock leaves it out.
+export function workingSince({ turns = [], seen = null, now = Date.now(), idleAt = null, sending = false }) {
+  if (sending) return seen;
+  const prompt = (turns ?? []).findLast((turn) => turn?.role === "user" && !turn.queued
+    && (turn.parts ?? []).some((part) => part.kind === "text" || part.kind === "image"));
+  const at = typeof prompt?.ts === "string" ? Date.parse(prompt.ts) : Number.NaN;
+  if (!Number.isFinite(at)) return seen;
+  if (idleAt !== null && at < idleAt) return seen;
+  // the time the turn waited on a question the agent asked does not count
+  const paused = Number.isFinite(prompt.pausedMs) && prompt.pausedMs > 0 ? prompt.pausedMs : 0;
+  return Math.min(at + paused, now);
+}
+
 // A user turn's text as the composer would have sent it, for matching.
 export function comparableText(text) {
   return String(text ?? "").replace(/\s+/gu, " ").trim();

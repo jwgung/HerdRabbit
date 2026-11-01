@@ -28,7 +28,7 @@ import {
 } from "./work-blocks.js?v=1.4.21";
 import { paneRenames } from "../pane-rename.js?v=1.4.21";
 import { ConversationLoader } from "./conversation-refresh.js?v=1.4.21";
-import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingText } from "./chat-activity.js?v=1.4.21";
+import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingSince as turnBegan, workingText } from "./chat-activity.js?v=1.4.21";
 import {
   chatMayBecomeAvailable,
   chatReadBusy,
@@ -152,9 +152,12 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
   let status = null;
   // The agent the pane runs, for the working row's words.
   let agent = "claude";
-  // When the agent began working, as this page saw it, and how long a send
-  // alone keeps the working row up before any status answers it.
+  // When the agent began working, as this page saw it (the row counts from the
+  // prompt that began the turn when the transcript says), when the page last
+  // saw it stop, and how long a send alone keeps the working row up before
+  // any status answers it.
   let workingSince = null;
+  let idleAt = null;
   let optimisticUntil = 0;
   let pending = [];
   // the last texts this page sent to the pane (a Stop puts one back in the box)
@@ -441,7 +444,8 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     const working = showsWorking({ status, optimisticUntil, now });
     if (working && workingSince === null) workingSince = now;
     if (!working && status !== "working") workingSince = null;
-    const text = working ? workingText(workingSince, now, agent) : "";
+    const since = turnBegan({ turns: loader.history.turns, seen: workingSince, now, idleAt, sending: pending.length > 0 });
+    const text = working ? workingText(since, now, agent) : "";
     const key = `${pending.map((item) => `${item.at}:${item.text}`).join("\n")}|${text}`;
     if (key !== activityKey) {
       activityKey = key;
@@ -775,6 +779,7 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
       // a status that answers the send ends the guess
       if (next !== null) optimisticUntil = 0;
       if (next === "working" && status !== "working" && workingSince === null) workingSince = Date.now();
+      if (next !== null && next !== "working" && next !== "blocked") idleAt = Date.now();
       status = next;
       if (loader.history.loaded) render({});
       else { drawActivity(); keepAtEnd(); }

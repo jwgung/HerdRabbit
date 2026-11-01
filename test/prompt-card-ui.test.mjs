@@ -170,3 +170,49 @@ test("the page tells the prompt dock which agent the pane runs, so Claude and Co
   assert.match(app, /promptDock\?\.select\(paneId, \{ agent: chatAgent\(pane, agent\), status: agentStatus\(agent, pane\) \}\);/u);
   assert.match(app, /import \{ chatAgent \} from "\.\/lens-preference\.js/u);
 });
+
+// The working row counts from when the agent's turn began, as the agent's own
+// screen does (Kiro's "Kiro is working · 16m 9s"), not from when this page
+// first saw it working: a page opened mid-turn, or a status that flickered,
+// showed a few seconds where the terminal showed minutes (2026-11-01).
+import { workingSince } from "../public/chat/chat-activity.js";
+
+test("the working row counts from the prompt that began the turn, not a message sent while it worked", () => {
+  const now = Date.parse("2026-11-01T01:51:00.000Z");
+  const turns = [
+    { role: "user", ts: "2026-11-01T01:30:00.000Z", parts: [{ kind: "text", text: "earlier" }] },
+    { role: "assistant", ts: "2026-11-01T01:30:02.000Z", parts: [{ kind: "text", text: "done" }] },
+    { role: "user", ts: "2026-11-01T01:34:51.000Z", parts: [{ kind: "text", text: "fix it" }] },
+    { role: "assistant", ts: "2026-11-01T01:34:55.000Z", parts: [{ kind: "text", text: "on it" }] },
+    { role: "user", ts: "2026-11-01T01:45:00.000Z", queued: true, parts: [{ kind: "text", text: "also this" }] },
+    { role: "assistant", ts: "2026-11-01T01:45:03.000Z", parts: [{ kind: "text", text: "noted" }] },
+  ];
+  assert.equal(workingSince({ turns, seen: now - 26_000, now }), Date.parse("2026-11-01T01:34:51.000Z"));
+});
+
+test("the working row keeps what the page saw when the transcript cannot say", () => {
+  const now = Date.parse("2026-11-01T01:51:00.000Z");
+  const seen = now - 5_000;
+  const prompt = (ts) => [{ role: "user", ts, parts: [{ kind: "text", text: "go" }] }];
+  // no turns, a prompt without a time, or with a time not read
+  assert.equal(workingSince({ turns: [], seen, now }), seen);
+  assert.equal(workingSince({ turns: prompt(null), seen, now }), seen);
+  assert.equal(workingSince({ turns: prompt("yesterday"), seen, now }), seen);
+  // a prompt the page saw the agent go idle after belongs to a turn that ended
+  assert.equal(workingSince({ turns: prompt("2026-11-01T01:40:00.000Z"), seen, now, idleAt: now - 60_000 }), seen);
+  // a message just sent from here, not yet in the transcript: its own send time
+  assert.equal(workingSince({ turns: prompt("2026-11-01T01:40:00.000Z"), seen, now, sending: true }), seen);
+  // a prompt timed ahead of this device's clock counts from now, never ahead
+  assert.equal(workingSince({ turns: prompt("2026-11-01T01:51:03.000Z"), seen, now }), now);
+  // a notice or a compaction is no prompt
+  const notice = [{ role: "user", ts: "2026-11-01T01:20:00.000Z", parts: [{ kind: "text", text: "go" }] },
+    { role: "user", ts: "2026-11-01T01:50:00.000Z", parts: [{ kind: "notice", text: "ran /status" }] }];
+  assert.equal(workingSince({ turns: notice, seen, now }), Date.parse("2026-11-01T01:20:00.000Z"));
+  assert.equal(workingSince({ turns: prompt("2026-11-01T01:40:00.000Z"), seen: null, now }), Date.parse("2026-11-01T01:40:00.000Z"));
+});
+
+test("the working row leaves out the time the turn waited on the agent's question", () => {
+  const now = Date.parse("2026-11-01T02:00:00.000Z");
+  const turns = [{ role: "user", ts: "2026-11-01T00:00:00.000Z", pausedMs: 90 * 60_000, parts: [{ kind: "text", text: "go" }] }];
+  assert.equal(formatElapsed(now - workingSince({ turns, seen: null, now })), "30m 0s");
+});

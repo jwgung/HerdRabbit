@@ -426,6 +426,9 @@ test("a message sent while Kiro works shows once, as the user's words, not Kiro'
   ]));
   assert.deepEqual(texts(turns), ["read every mail", "Running both evals.", "한글로 말해...", "[tool] 알겠습니다."]);
   assert.ok(!JSON.stringify(turns).includes("LIVE STEERING"));
+  // sent while Kiro worked: no turn of its own began there (the working row's time)
+  assert.equal(turns[2].queued, true);
+  assert.equal(turns[0].queued, undefined);
 });
 
 test("steering instructions whose message has no record of its own show the message inside them", () => {
@@ -718,4 +721,26 @@ test("a log reported deleted that is a file still in place when opened names not
   await rename(log, `${log} (deleted)`);
   await fakeProcess(procRoot, 100, { file: `${log} (deleted)` });
   assert.deepEqual(await localTranscriptStore({ kiroConfigDir: configDir, procRoot }).kiro.sessionsOfPids([100]), []);
+});
+
+// Kiro's "is working" time leaves out the time a tool approval waited
+// (lifelog, 2026-11-01: 3h since the prompt, 2h 14m of it waiting, and Kiro
+// showed 48m). The prompt says how long its turn waited.
+test("a prompt says how long its turn waited on Kiro's questions", () => {
+  const at = (time) => `2026-11-01T${time}.000Z`;
+  const turns = parseKiroTranscript(jsonl([
+    user("first", at("00:00:00")), turnStart(at("00:00:00")), say("done", at("00:00:05")),
+    user("go", at("01:00:00")), turnStart(at("01:00:00")),
+    rec({ type: "pending_interaction", interactionType: "tool_approval", toolCallId: "t1" }, at("01:01:00")),
+    rec({ type: "interaction_resolved", toolCallId: "t1", outcome: "selected" }, at("01:31:00")),
+    steer("steer-p", "also"),
+    rec({ type: "pending_interaction", interactionType: "tool_approval", toolCallId: "t2" }, at("01:40:00")),
+    rec({ type: "interaction_resolved", toolCallId: "t2", outcome: "selected" }, at("01:40:20")),
+    say("working", at("01:41:00")),
+    // a question still open counts once it is answered
+    rec({ type: "pending_interaction", interactionType: "tool_approval", toolCallId: "t3" }, at("01:42:00")),
+  ]));
+  const prompts = turns.filter((turn) => turn.role === "user" && !turn.queued);
+  assert.equal(prompts[0].pausedMs, undefined);
+  assert.equal(prompts[1].pausedMs, 30 * 60_000 + 20_000);
 });
