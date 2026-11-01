@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
@@ -47,3 +47,28 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
       - run: npm run check:browser
+
+  # A "release: x.y.z" commit on main becomes the v<x.y.z> tag, once CI has passed.
+  tag:
+    needs: [verify, browser]
+    if: github.ref == 'refs/heads/main' && contains(toJSON(github.event.commits), 'release:')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tag the newest release commit
+        run: |
+          version="$(git log origin/main --format='%s' -10 | grep -oP '^release: \Kv?[\d.]+' | head -n1)"
+          version="${version#v}"
+          if [ -z "$version" ]; then
+            echo "No release commit in the recent main history; nothing to tag."
+            exit 0
+          fi
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "Tag v$version already exists; skipping."
+          else
+            git tag -a "v$version" -m "HerdRabbit $version"
+            git push origin "v$version"
+          fi
