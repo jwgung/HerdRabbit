@@ -396,28 +396,32 @@ export function localKiroStore(configDir, { procRoot = "/proc" } = {}) {
     }
     return [...seen];
   }
-  // The Kiro logs a process holds open, as the paths to read them by. A log
-  // Kiro's cleanup deleted while the process runs is still open and still
-  // written: its descriptor (/proc/<pid>/fd/<n>) reads it.
-  async function heldLogs(pid) {
-    const held = new Set();
+  // The Kiro logs a process holds open: each log's path, and how to read it.
+  // A log Kiro's cleanup deleted while the process runs is still open and
+  // still written: its descriptor (/proc/<pid>/fd/<n>) reads it, checked to be
+  // a deleted file still when it is opened (a descriptor closed and its number
+  // reused meanwhile would be another file).
+  async function heldLogs(pid, held = new Map()) {
     for (const descriptor of (await names(join(procRoot, String(pid), "fd"))).slice(0, MAX_KIRO_DESCRIPTORS)) {
       try {
         const link = join(procRoot, String(pid), "fd", descriptor);
         const target = await readlink(link);
         const deleted = target.endsWith(DELETED_SUFFIX);
         const path = deleted ? target.slice(0, -DELETED_SUFFIX.length) : target;
-        if (path.startsWith(`${logs}${sep}`) && path.endsWith(`${sep}kiro.log`)) held.add(deleted ? link : path);
+        if (!path.startsWith(`${logs}${sep}`) || !path.endsWith(`${sep}kiro.log`) || held.has(path)) continue;
+        held.set(path, deleted ? { read: link, deleted: true } : { read: path, deleted: false });
       } catch { /* a descriptor may close while it is read */ }
     }
     return held;
   }
   // The session a log names last: the one its process is on now.
-  async function lastSessionIn(path) {
+  async function lastSessionIn({ read, deleted }) {
     let handle;
     try {
-      handle = await open(path, "r");
-      const { size } = await handle.stat();
+      handle = await open(read, "r");
+      const info = await handle.stat();
+      if (deleted && (!info.isFile() || info.nlink !== 0)) return null;
+      const { size } = info;
       const start = Math.max(0, size - LOG_TAIL_BYTES);
       const buffer = Buffer.alloc(size - start);
       await handle.read(buffer, 0, buffer.length, start);
@@ -433,12 +437,13 @@ export function localKiroStore(configDir, { procRoot = "/proc" } = {}) {
     // The sessions these pids' Kiro runs, by the log one of their processes
     // holds open. Distinct ids; none without /proc or before Kiro has logged.
     async sessionsOfPids(pids) {
+      // each log once, however many of the processes hold it
+      const held = new Map();
+      for (const pid of await tree(pids)) await heldLogs(pid, held);
       const found = new Set();
-      for (const pid of await tree(pids)) {
-        for (const log of await heldLogs(pid)) {
-          const session = await lastSessionIn(log);
-          if (session !== null) found.add(session);
-        }
+      for (const log of held.values()) {
+        const session = await lastSessionIn(log);
+        if (session !== null) found.add(session);
       }
       return [...found];
     },
