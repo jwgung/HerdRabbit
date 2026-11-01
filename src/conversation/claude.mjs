@@ -310,7 +310,7 @@ export function parseClaudeTurns(text) {
     const queued = entry.type === "attachment" ? record(entry.attachment) : null;
     if (queued?.type === "queued_command" && queued.commandMode === "prompt" && record(queued.origin).kind === "human") {
       if (typeof queued.prompt === "string" && queued.prompt.trim() && !isCommandEntry(queued.prompt.trim())) {
-        turns.push({ role: "user", ts, parts: [{ kind: "text", text: unwrapPastes(queued.prompt) }] });
+        turns.push({ role: "user", ts, queued: true, parts: [{ kind: "text", text: unwrapPastes(queued.prompt) }] });
       }
       continue;
     }

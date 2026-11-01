@@ -105,6 +105,9 @@ export function parseKiroTurns(text) {
   const shownSteers = new Set();
   // the turn each steering message shows as, by id
   const steerTurns = new Map();
+  // the prompt whose turn runs now, and the questions Kiro has open in it
+  let prompt = null;
+  const asked = new Map();
   // which cleared steering messages a prompt sends again
   const queue = steeringQueue();
   // Takes a turn out, joining the assistant work on its two sides.
@@ -158,12 +161,14 @@ export function parseKiroTurns(text) {
         for (const message of messages) {
           if (shownSteers.has(message.id)) continue;
           shownSteers.add(message.id);
-          turns.push({ role: "user", ts, parts: [{ kind: "text", text: message.text }] });
+          turns.push({ role: "user", ts, queued: true, parts: [{ kind: "text", text: message.text }] });
         }
         continue;
       }
       const turn = { role: "user", ts, parts: [{ kind: "text", text: content }] };
       if (user.kind === "steer") {
+        // sent while Kiro worked: it began no turn of its own
+        turn.queued = true;
         if (user.id !== null) {
           shownSteers.add(user.id);
           steerTurns.set(user.id, turn);
@@ -179,6 +184,8 @@ export function parseKiroTurns(text) {
         if (shown) removeTurn(shown);
       }
       turns.push(turn);
+      prompt = turn;
+      asked.clear();
       continue;
     }
 
@@ -227,9 +234,23 @@ export function parseKiroTurns(text) {
       continue;
     }
 
-    // turn_start/turn_end, session_metadata, pending_interaction,
-    // interaction_resolved, sub_agent_*, usage_summary and the rest carry no
-    // turn text of their own.
+    // A question Kiro asked (a tool approval) holds its turn's clock: Kiro's
+    // "is working" time leaves out the wait, and the prompt says how long
+    // its turn waited so the chat's time matches (`pausedMs`).
+    if (type === "pending_interaction" && typeof payload.toolCallId === "string") {
+      const at = Date.parse(ts ?? "");
+      if (Number.isFinite(at)) asked.set(payload.toolCallId, at);
+      continue;
+    }
+    if (type === "interaction_resolved" && asked.has(payload.toolCallId)) {
+      const waited = Date.parse(ts ?? "") - asked.get(payload.toolCallId);
+      asked.delete(payload.toolCallId);
+      if (prompt && Number.isFinite(waited) && waited > 0) prompt.pausedMs = (prompt.pausedMs ?? 0) + waited;
+      continue;
+    }
+
+    // turn_start/turn_end, session_metadata, sub_agent_*, usage_summary and
+    // the rest carry no turn text of their own.
   }
 
   return { turns: turns.filter((turn) => turn.parts.length > 0) };
