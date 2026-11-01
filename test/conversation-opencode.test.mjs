@@ -234,8 +234,13 @@ test("the identity changes with each write to the session, and only then", async
   assert.equal(await open(context, { path: join(path, "..", "none.db") }).stat(SESSION), null);
 });
 
-test("a database without the expected columns is an unsupported OpenCode version", async (context) => {
-  const schema = OPENCODE_SCHEMA.replace(" revert text,", "");
+test("a database without the V1 columns and without the V2 tables is an unsupported OpenCode version", async (context) => {
+  const schema = OPENCODE_SCHEMA.replace(" revert text,", "").split(";\n").filter((statement) => {
+    const trimmed = statement.trim();
+    // drop the V2 tables and the indexes on them
+    if (/^CREATE TABLE session_v2 /u.test(trimmed) || /^CREATE TABLE session_message /u.test(trimmed) || /^CREATE INDEX session_message_/u.test(trimmed) || /^CREATE INDEX session_v2_/u.test(trimmed)) return false;
+    return true;
+  }).join(";\n");
   assert.notEqual(schema, OPENCODE_SCHEMA);
   const directory = await temp(context);
   const path = join(directory, "opencode.db");
@@ -715,6 +720,8 @@ test("a database migrated in place is checked again, though its inode is the sam
   const store = open(context, { path });
   assert.deepEqual(await store.locate({ session: SESSION }), { session: SESSION, found: true });
   db.exec("ALTER TABLE session DROP COLUMN revert");
+  db.exec("DROP TABLE session_v2");
+  db.exec("DROP TABLE session_message");
   const later = new Date(Date.now() + 5000);
   await utimes(path, later, later);
   await assert.rejects(store.locate({ session: SESSION }), (error) => error.reason === "unsupported_opencode_version");
@@ -1277,4 +1284,37 @@ test("V2: a session in the old tables reads as V1, one in the V2 tables alone re
   const store = open(context, { path });
   assert.deepEqual(await store.locate({ session: SESSION }), { session: SESSION, found: true });
   assert.deepEqual(texts((await store.page(SESSION)).turns), ["prompt 1", "answer 1"]);
+});
+
+test("V2: a database migrated past V1 (the V2 tables alone) still reads its sessions", async (context) => {
+  // OpenCode 2.2.5's opencode.db holds no V1 tables: a pane's session is read
+  // from session_v2 and session_message alone, and every read works.
+  const directory = await temp(context);
+  const path = join(directory, "opencode.db");
+  const db = new DatabaseSync(path);
+  context.after(() => { try { db.close(); } catch { /* closed */ } });
+  db.exec("PRAGMA journal_mode = WAL;");
+  db.exec(`
+    CREATE TABLE session_v2 (id text PRIMARY KEY, project_id text NOT NULL, workspace_id text, parent_id text,
+      fork_session_id text, slug text, directory text NOT NULL, version text NOT NULL, revert text,
+      time_created integer NOT NULL, time_updated integer NOT NULL, time_archived integer);
+    CREATE TABLE session_message (id text PRIMARY KEY, session_id text NOT NULL, type text NOT NULL,
+      seq integer NOT NULL, time_created integer NOT NULL, time_updated integer NOT NULL, data text NOT NULL);
+  `);
+  const time = Date.UTC(2026, 10, 1, 9, 0, 0);
+  db.prepare("INSERT INTO session_v2 (id, project_id, slug, directory, version, time_created, time_updated) VALUES (?, 'prj_1', 'slug', '/work/app', '2.2.5', ?, ?)").run(SESSION, time, time);
+  db.prepare("INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)").run("msg_00000001AAAAAAAAAAAAAAAAAA", SESSION, "user", 1, time, time,
+    JSON.stringify({ time: { created: time }, text: "hello", files: [] }));
+  db.prepare("INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)").run("msg_00000002AAAAAAAAAAAAAAAAAA", SESSION, "assistant", 2, time + 1000, time + 1000,
+    JSON.stringify({ time: { created: time + 1000, completed: time + 1500 }, agent: "build", model: { id: "m", providerID: "p", variant: null },
+      content: [{ type: "text", text: "hi there" }], finish: "stop", tokens: { input: 1, output: 1, cache: { read: 0, write: 0 } }, cost: 0 }));
+  const store = open(context, { path });
+  assert.deepEqual(await store.locate({ cwd: "/work/app" }), { session: SESSION, found: true });
+  assert.deepEqual(await store.locate({ session: SESSION }), { session: SESSION, found: true });
+  const page = await store.page(SESSION);
+  assert.equal(page.source, "opencode-session");
+  assert.deepEqual(texts(page.turns), ["hello", "hi there"]);
+  assert.equal(typeof (await store.stat(SESSION)).identity, "string");
+  assert.equal(await store.sessionVersion(SESSION), "2.2.5");
+  assert.equal(await store.pendingQuestion(SESSION), null);
 });

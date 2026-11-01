@@ -625,19 +625,22 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
 
   function shapeOf(handle) {
     const columns = (table) => new Set(handle.statement("columns").all(table).map((row) => row.name));
-    for (const [table, wanted] of Object.entries(TABLES)) {
-      const have = columns(table);
-      if (!wanted.every((column) => have.has(column))) return null;
-    }
-    const events = columns("event_sequence");
-    const sessions = columns("session");
+    // A database is readable when it holds the V1 tables whole or the V2 tables
+    // whole: OpenCode 2 carries a V1 session into session_v2 and a new V2
+    // session only there, and a database migrated past V1 holds V2 alone.
+    const v1 = wholeTables(handle, TABLES, columns);
     const v2 = wholeTables(handle, TABLES_V2, columns);
+    if (!v1 && !v2) return null;
+    const events = columns("event_sequence");
+    const sessions = v1 ? columns("session") : new Set();
+    const sessionsV2 = v2 ? columns("session_v2") : new Set();
     return {
-      events: OPTIONAL.event_sequence.every((column) => events.has(column)),
-      archive: OPTIONAL.session.every((column) => sessions.has(column)),
-      version: sessions.has(SESSION_VERSION),
+      v1,
       v2,
-      v2Archive: v2 && columns("session_v2").has("time_archived"),
+      events: v1 && OPTIONAL.event_sequence.every((column) => events.has(column)),
+      archive: (v1 && OPTIONAL.session.every((column) => sessions.has(column))) || (v2 && sessionsV2.has("time_archived")),
+      version: (v1 && sessions.has(SESSION_VERSION)) || (v2 && sessionsV2.has(SESSION_VERSION)),
+      v2Archive: v2 && sessionsV2.has("time_archived"),
     };
   }
 
@@ -651,6 +654,7 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
   }
 
   function identityIn(db, session) {
+    if (!db.shape.v1) return null;
     const row = db.statement("session").get(session);
     if (!row) return null;
     const seq = db.shape.events ? db.statement("sequence").get(session)?.seq ?? "" : "";
@@ -840,7 +844,7 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
     // see the store's locate
     locate(db, { session = null, cwd = null, taken = [] } = {}) {
       if (typeof session === "string" && OPENCODE_SESSION_ID.test(session)) {
-        let row = db.statement("session").get(session);
+        let row = db.shape.v1 ? db.statement("session").get(session) : undefined;
         if (!row && db.shape.v2) row = db.statement("sessionV2").get(session);
         if (!row) return { session, found: false };
         // A V2 fork (fork_session_id set) is an independent conversation, not a
@@ -850,7 +854,7 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
         for (let depth = 0; row && row.parent_id != null && depth < MAX_SESSION_DEPTH; depth++) {
           const parent = String(row.parent_id);
           if (!OPENCODE_SESSION_ID.test(parent)) { row = null; break; }
-          row = db.statement("session").get(parent) ?? (db.shape.v2 ? db.statement("sessionV2").get(parent) : null);
+          row = (db.shape.v1 ? db.statement("session").get(parent) : undefined) ?? (db.shape.v2 ? db.statement("sessionV2").get(parent) : null);
         }
         if (row && row.parent_id == null) return { session: String(row.id), found: true };
         return { session, child: true };
@@ -863,7 +867,7 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
       // session the old table holds more recently (the old table's
       // time_updated can lag when OpenCode 2 carries a V1 session on).
       const name = db.shape.archive ? "newestInDirectory" : "newestInDirectoryAny";
-      let row = db.statement(name).get(cwd);
+      let row = db.shape.v1 ? db.statement(name).get(cwd) : undefined;
       if (db.shape.v2) {
         const v2name = db.shape.v2Archive ? "newestInDirectoryV2" : "newestInDirectoryAnyV2";
         const v2row = db.statement(v2name).get(cwd);
@@ -872,11 +876,11 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
           else {
             // a V2 session the old table does not hold is OpenCode 2's own:
             // prefer it over a V1 session the old table holds more recently
-            const inOld = db.statement("session").get(String(v2row.id));
+            const inOld = db.shape.v1 ? db.statement("session").get(String(v2row.id)) : undefined;
             if (!inOld) row = v2row;
             else {
               // both tables hold it: pick the one OpenCode touched more recently
-              const t1 = Number(db.statement("session").get(String(row.id))?.time_updated ?? 0);
+              const t1 = Number((db.shape.v1 ? db.statement("session").get(String(row.id)) : undefined)?.time_updated ?? 0);
               const t2 = Number(db.statement("sessionV2").get(String(v2row.id))?.time_updated ?? 0);
               if (t2 > t1) row = v2row;
             }
@@ -889,8 +893,7 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
     },
 
     identity(db, session) {
-      const row = db.statement("session").get(session);
-      if (row) return identityIn(db, session);
+      if (db.shape.v1 && db.statement("session").get(session)) return identityIn(db, session);
       if (db.shape.v2 && db.statement("sessionV2").get(session)) return identityInV2(db, session);
       return null;
     },
@@ -899,7 +902,7 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
       // a session the old tables hold reads from them: OpenCode 2 carries a
       // V1 session on by writing its new messages to the V2 tables alone, and
       // the old tables keep every message the V1 reader read
-      const row = db.statement("session").get(session);
+      const row = db.shape.v1 ? db.statement("session").get(session) : undefined;
       const v2 = row === undefined && db.shape.v2 && db.statement("sessionV2").get(session) !== undefined;
       const sessionRow = v2 ? db.statement("sessionV2").get(session) : row;
       if (!sessionRow) throw new ConversationUnavailable("transcript_missing");
@@ -979,13 +982,15 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
           return null;
         }
       }
+      if (!db.shape.v1) return null;
       const row = db.statement("toolPart").get({ id: words, session, max: TOOL_OUTPUT_MAX_CHARS });
       if (row && row.kind === "tool") return { output: string(row.output), size: Number(row.size ?? 0) };
       return null;
     },
 
     pendingQuestion(db, session) {
-      if (db.shape.v2 && db.statement("session").get(session) === undefined) {
+      const inV1 = db.shape.v1 && db.statement("session").get(session) !== undefined;
+      if (!inV1 && db.shape.v2) {
         // a V2 session's question: its newest assistant rows
         return pendingQuestionV2(db, session);
       }
@@ -1014,11 +1019,13 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
     },
 
     sessionVersion(db, session) {
-      const row = db.statement("session").get(session);
-      if (row) {
-        if (!db.shape.version) return null;
-        const value = db.statement("sessionVersion").get(session)?.version;
-        return typeof value === "string" && value.length <= 64 ? value : null;
+      if (db.shape.v1) {
+        const row = db.statement("session").get(session);
+        if (row) {
+          if (!db.shape.version) return null;
+          const value = db.statement("sessionVersion").get(session)?.version;
+          return typeof value === "string" && value.length <= 64 ? value : null;
+        }
       }
       if (db.shape.v2 && db.statement("sessionV2").get(session)) {
         const value = db.statement("sessionV2Version").get(session)?.version;
