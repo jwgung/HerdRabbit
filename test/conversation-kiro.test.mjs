@@ -675,3 +675,25 @@ test("a page filling an open chat's gap never reaches back past the cursor it ho
     before = start;
   }
 });
+
+// Kiro deletes old log folders while an older Kiro process still writes its
+// log there (puppy-land, 2026-11-01): Linux shows the open file as
+// "<path> (deleted)", and it is read through the process's descriptor.
+test("the session a Kiro process runs is read from its log even after the log was deleted", async (context) => {
+  const configDir = await mkdtemp(join(tmpdir(), "herdrabbit-kiro-"));
+  const procRoot = await mkdtemp(join(tmpdir(), "herdrabbit-proc-"));
+  context.after(() => Promise.all([rm(configDir, { recursive: true, force: true }), rm(procRoot, { recursive: true, force: true })]));
+  const log = await kiroLog(configDir, "20261030T083220680", [UUID_A, UUID_B]);
+  // what the descriptor points at now: the old path, marked deleted (a file
+  // of that very name stands in for the open, deleted one)
+  const { rename } = await import("node:fs/promises");
+  await rename(log, `${log} (deleted)`);
+  await fakeProcess(procRoot, 100, { children: [101] });
+  await fakeProcess(procRoot, 101, { file: `${log} (deleted)` });
+  const store = localTranscriptStore({ kiroConfigDir: configDir, procRoot }).kiro;
+  assert.deepEqual(await store.sessionsOfPids([100]), [UUID_B]);
+  // a deleted file that is no Kiro log names nothing
+  await fakeProcess(procRoot, 200, { file: join(configDir, "other.txt (deleted)") });
+  await writeFile(join(configDir, "other.txt (deleted)"), `sessionId=sess_${UUID_A}\n`);
+  assert.deepEqual(await store.sessionsOfPids([200]), []);
+});
