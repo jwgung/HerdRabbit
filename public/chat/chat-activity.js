@@ -2,7 +2,7 @@
 // working" (or "Codex is working", "OpenCode is working") row with the time it has taken, and the message just sent shown as
 // a pending bubble until the transcript has it.
 
-import { agentLabelFor, agentNamesWith } from "../agents.js?v=1.4.21";
+import { agentLabelFor, agentNamesWith } from "../agents.js?v=1.4.22";
 
 // How long a sent message waits for the transcript before its bubble goes.
 export const PENDING_MS = 30_000;
