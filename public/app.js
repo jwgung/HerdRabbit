@@ -1760,380 +1760,82 @@ async function moveSidebarItem(request, pathFor, optimistic) {
   if (failed || unread) void refreshSnapshot();
 }
 
-function renderPaneHeading(pane, tab, workspace) {
-  syncAttachAvailability();
-  if (modifierPaneId !== state.selectedPaneId) clearKeyModifiers();
-  if (!pane) {
-    elements.paneContext.textContent = "Select a pane";
-    elements.paneTitle.textContent = "Terminal";
-    elements.paneTitle.removeAttribute("title");
-    stopTarget = { paneId: null, agent: null, status: null };
-    chatLens.select(null);
-    promptDock?.select(null);
-    syncSendButton();
-    return;
-  }
-
-  const paneId = idOf(pane, "pane_id", "id");
-  const agent = agentForPane(paneId);
-  stopTarget = { paneId, agent: chatAgent(pane, agent), status: agentStatus(agent, pane) };
-  chatLens.select(paneId, { agent: chatAgent(pane, agent), status: agentStatus(agent, pane) });
-  promptDock?.select(paneId, { agent: chatAgent(pane, agent), status: agentStatus(agent, pane) });
-  syncSendButton();
-  const workspaceLabel = displayRecordLabel(workspace, "Project");
-  const tabLabel = displayTabLabel(tab);
-
-  const sessionName = typeof pane.herdr_session_name === "string"
-    ? pane.herdr_session_name
-    : "";
-  const herdrSessions = snapshotRecords().herdrSessions;
-  const showSessionName = herdrSessions.length > 1 ||
-    (herdrSessions.length === 1 && herdrSessions[0].available !== true);
-  elements.paneContext.textContent = [
-    snapshotRecords().servers.length > 1 ? pane.server_name : "",
-    showSessionName ? sessionName : "",
-    workspaceLabel,
-    tabLabel,
-  ].filter(Boolean).join(" / ");
-  // the program's mark says which agent it is; the title says which pane
-  const title = paneDisplayTitle("", pane, tabLabel || "Terminal", agent);
-  elements.paneTitle.replaceChildren(agentMark(paneAgentKind(pane, agent)), createElement("span", { className: "pane-title-text", text: title }));
-  elements.paneTitle.title = displayRecordLabel(agent, displayRecordLabel(pane, "Terminal"));
-}
-
-// An agent names files as it works -- "wrote src/api.mjs", "see ./docs/plan.md"
-// -- and on a phone the only way to look at one was to go find it in the tree.
-// A named file that this app can show becomes a link that opens it; any other
-// name that ends in an extension becomes a link that shows it in the Files tab.
-// So does a folder written out in full (`/home/me/proj`, `./build`): it opens
-// in the Files tab.
-//
-// Relative names are resolved against the pane's own directory, because that is
-// what the agent writing them meant. `~` is not resolved: that home belongs to
-// the machine the pane runs on, and guessing it would open the wrong file or
-// none. A path that cannot be resolved is left as plain text rather than
-// offered as a link that fails when pressed.
-function resolveTerminalPath(raw) {
-  if (raw.startsWith("/")) return raw;
-  if (raw.startsWith("~")) return null;
-  const pane = selectedRecords().pane;
-  const base = pane?.foreground_cwd || pane?.cwd;
-  if (typeof base !== "string" || !base.startsWith("/")) return null;
-  // `..` and `.` survive as they are: the machine that opens this resolves it.
-  return `${trimTrailingSlashes(base)}/${raw.replace(/^\.\//u, "")}`;
-}
-
-// Whether the viewer can show a file of this name.
-const hasPreview = (name) => previewFor(name) !== null;
-
-function isLinkableTerminalPath(raw) {
-  const name = raw.split("/").pop();
-  return (hasPreview(name) || isFileName(name) || isFolderPath(raw)) && resolveTerminalPath(raw) !== null;
-}
-
-// Whether `path` on `server` lists as a folder. A file, or nothing there,
-// does not.
-async function listsAsFolder(server, path) {
-  try {
-    await transferRequest(`/api/browse?server=${encodeURIComponent(server)}&path=${encodeURIComponent(path)}`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function openTerminalPath(raw) {
-  const resolved = resolveTerminalPath(raw);
-  if (!resolved) return;
-  // a closing slash says "folder"; the name is the last one before it
-  const trimmed = trimTrailingSlashes(resolved) || "/";
-  const name = trimmed.split("/").pop();
-  const server = paneServerId(state.selectedPaneId) || "local";
-  // A folder may well be called `docs.md`: one written out in full is asked
-  // about before the viewer is opened on it. Anything picked meanwhile -- a
-  // folder, a machine, another link, another pane -- wins over this one.
-  const generation = ++revealGeneration;
-  const paneId = state.selectedPaneId;
-  const viewable = trimmed === resolved && hasPreview(name)
-    && !(isFolderPath(raw) && await listsAsFolder(server, trimmed));
-  if (generation !== revealGeneration || paneId !== state.selectedPaneId) return;
-  if (viewable) void viewFile(resolved, name, server);
-  else void revealInFiles(trimmed, name, server);
-}
-
-function showTerminalMessage(message) {
-  elements.terminalMessage.textContent = message;
-  showTerminalView(false);
-  state.renderedPaneId = null;
-  if (terminalFind) syncTerminalFind();
-}
-
-function selectedRecords() {
-  return selectedRecordsFor(state.selectedPaneId);
-}
-
-// The pane `paneId`, its tab and its project.
-function selectedRecordsFor(paneId) {
-  const { workspaces, tabs, panes } = snapshotRecords();
-  const pane = panes.find((item) => idOf(item, "pane_id", "id") === paneId);
-  const tabId = idOf(pane, "tab_id", "tabId");
-  const tab = tabs.find((item) => idOf(item, "tab_id", "id") === tabId);
-  const workspaceId = idOf(tab, "workspace_id", "workspaceId") || idOf(pane, "workspace_id");
-  const workspace = workspaces.find(
-    (item) => idOf(item, "workspace_id", "id") === workspaceId,
-  );
-  return { pane, tab, workspace };
-}
-
-function selectedAgentStatus() {
-  const { pane } = selectedRecords();
-  return agentStatus(agentForPane(state.selectedPaneId), pane);
-}
-
-// ?pane= names the pane a link or notification opened; once it is used up (or
-// given up on), a reload must not open it again. `onlyIf` drops it only when
-// it still names that pane.
-function dropPaneFromAddress(onlyIf = null) {
-  const currentUrl = new URL(window.location.href);
-  if (onlyIf !== null && currentUrl.searchParams.get("pane") !== onlyIf) return;
-  currentUrl.searchParams.delete("pane");
-  window.history.replaceState(null, "", currentUrl);
-}
-
-// What to select is decided by paneSelectionAfterSnapshot (ui-model.js); this
-// carries it out.
-function choosePane() {
-  const { herdrSessions, panes, servers } = snapshotRecords();
-  const before = state.selectedPaneId;
-  const plan = paneSelectionAfterSnapshot({
-    panes,
-    servers,
-    herdrSessions,
-    selectedPaneId: state.selectedPaneId,
-    preferredPaneId: state.preferredPaneId,
-    pendingPaneId: notificationNavigation.pendingPaneId,
-    pendingSince: notificationNavigation.pendingSince,
-    openedAt: pageOpenedAt,
-    now: Date.now(),
-    waitLimitMs: PENDING_REMOTE_PANE_MS,
-  });
-  if (plan.selectedPaneId !== before) resetInputHistoryNavigation();
-  state.selectedPaneId = plan.selectedPaneId;
-  state.preferredPaneId = plan.preferredPaneId;
-  notificationNavigation.pendingPaneId = plan.pendingPaneId;
-  if (plan.remember) writePanePreference(panePreferenceStorage, plan.remember);
-  if (plan.adopted) {
-    dropPaneFromAddress();
-    closeMobileSidebar();
-  }
-  if (plan.giveUp) dropPaneFromAddress(plan.giveUp);
-  // A pane being waited for, or kept while its server returns, leaves the
-  // composer as it is unless a notification's pane has just taken its place.
-  if (plan.adopted || !plan.stop) syncComposerDraft();
-}
-
-const liveStatusUpdates = new Map();
-let liveStatusSequence = 0;
-
-function applyLiveStatus(event) {
-  const records = snapshotRecords();
-  for (const record of [...records.panes, ...records.agents]) {
-    if (idOf(record, "pane_id", "id") === event.pane_id) record.agent_status = event.agent_status;
-  }
-}
-
-function receiveLiveStatus(event) {
-  if (!["idle", "working", "blocked", "done", "unknown"].includes(event.agent_status)) return;
-  if (!snapshotRecords().panes.some(pane => idOf(pane, "pane_id", "id") === event.pane_id)) return;
-  liveStatusUpdates.set(event.pane_id, { ...event, sequence: ++liveStatusSequence });
-  applyLiveStatus(event);
-  pruneAcknowledgedCompletions();
-  if (state.selectedPaneId) acknowledgePaneCompletion(state.selectedPaneId);
-  if (!renameIsOpen()) renderNavigation();
-  const selected = selectedRecords();
-  renderPaneHeading(selected.pane, selected.tab, selected.workspace);
-}
-
 // Settles when the snapshot on its way (if any) has arrived or failed.
 let snapshotSettled = Promise.resolve();
 
-async function refreshSnapshot() {
-  if (!state.authenticated) return;
-  if (state.snapshotBusy || state.mutationBusy || document.hidden) return;
-  state.snapshotBusy = true;
-  let settle;
-  snapshotSettled = new Promise((resolve) => { settle = resolve; });
-  const previousPaneId = state.selectedPaneId;
-  const previousStatus = selectedAgentStatus();
-  try {
-    await restoreNotificationTarget();
-    const statusAtRequest = liveStatusSequence;
-    // when this snapshot was asked for: it shows the panes as they were then, or later
-    const requestedAt = Date.now();
-    const payload = await api("/api/snapshot");
-    const held = snapshotRecords();
-    const seen = seenCompletions({ panes: held.panes, agents: held.agents, acknowledged: state.acknowledgedCompletions });
-    state.snapshot = payload.snapshot || {};
-    // when the snapshot last arrived was asked for (one that failed or was skipped leaves it)
-    state.snapshotAt = requestedAt;
-    const records = snapshotRecords();
-    const paneIds = records.panes.map(pane => idOf(pane, "pane_id", "id"));
-    // What each status event received meanwhile does is reconcileLiveStatus's (ui-model.js):
-    // a slow HTTP response must not undo a newer event.
-    const reconciled = reconcileLiveStatus({
-      pending: liveStatusUpdates, requestedAfter: statusAtRequest, panes: records.panes, agents: records.agents, seen,
-    });
-    for (const paneId of reconciled.drop) liveStatusUpdates.delete(paneId);
-    for (const event of reconciled.apply) applyLiveStatus(event);
-    for (const [paneId, identity] of reconciled.acknowledge) state.acknowledgedCompletions.set(paneId, identity);
-    terminalStream.watchStatuses(paneIds);
-    pruneViewSplit(paneIds);
-    choosePane();
-    pruneAcknowledgedCompletions();
-    if (state.selectedPaneId) acknowledgePaneCompletion(state.selectedPaneId);
-    syncCreateProjectAvailability();
-    if (!renameIsOpen()) renderNavigation();
-    const selected = selectedRecords();
-    renderPaneHeading(selected.pane, selected.tab, selected.workspace);
-    const gridBefore = shownPaneView;
-    if (renderPaneViews() !== gridBefore) void refreshTerminal();
-    setConnection("online", "Connected");
-    const polling = outputPollingDecision({
-      baseIntervalMs: state.pollIntervalMs,
-      previousStatus,
-      currentStatus: selectedAgentStatus(),
-    });
-    if (previousPaneId !== state.selectedPaneId || polling.refreshNow || notificationNavigation.relayTarget) {
-      void refreshTerminal();
-    }
-  } catch (error) {
-    setConnection("error", error.message);
-  } finally {
-    state.snapshotBusy = false;
-    settle();
-  }
-}
-
-// Every pane is drawn by xterm. One that attaches gets herdr's own stream; one
-// that cannot (no node-pty on this server, or herdr refused the attach)
-// mirrors the screen the terminal socket polls instead: redrawn whole on each
-// update and read-only to keystrokes, while the composer and quick keys still
-// send to it.
-function refreshTerminal({ streamPayload = null } = {}) {
-  const paneId = state.selectedPaneId;
-  if (!state.authenticated || document.hidden) return;
-  // A split tab shown as a grid: each cell attaches its own pane, and the
-  // single terminal lets its pane go, so a hidden screen never sizes it.
-  if (renderPaneViews()) {
-    state.lastOutputRequestAt = Date.now();
-    attachedTerminal.show(null);
-    terminalStream.unwatch();
-    // The page may open on a view split (a reload): the composer, the keys and
-    // the statuses still go through the page's own socket.
-    terminalStream.hold();
-    // The selected pane is in its cell: a notification for it is done once
-    // that cell is on screen (another pane's zoom hides it until undone).
-    state.renderedPaneId = paneId;
-    state.renderedGrid = true;
-    state.mirrored = null;
-    // The strip describes the single terminal, which is not on screen, and
-    // the terminal find works on it alone.
-    renderTerminalStatus();
-    if (terminalFind) syncTerminalFind();
-    void completeNotificationRelay();
-    return;
-  }
-  // Back from the grid, the single terminal has yet to show the pane (or, the
-  // pane gone, says so below).
-  if (state.renderedGrid) {
-    state.renderedGrid = false;
-    if (paneId) state.renderedPaneId = null;
-  }
-  // Another pane may have its own reason, or none.
-  if (paneId !== state.renderedPaneId) renderTerminalStatus();
-  if (!paneId) {
-    // The pane on screen went away and nothing took its place.
-    if (state.renderedPaneId) {
-      attachedTerminal.show(null);
-      showTerminalMessage("No open sessions.");
-    }
-    return;
-  }
-  // Long in the Chat lens, the terminal was let go: it attaches again on return.
-  if (state.terminalParked !== null && state.terminalParked !== paneId) state.terminalParked = null;
-  if (state.terminalParked === paneId) return;
-  state.lastOutputRequestAt = Date.now();
-  if (attachedTerminal.show(paneId)) {
-    terminalStream.unwatch();
-    state.mirrored = null;
-    showTerminal(paneId);
-    return;
-  }
-  terminalStream.select(paneId, HISTORY_PAGE_LINES);
-  const payload = streamPayload ?? terminalStream.latest(paneId, HISTORY_PAGE_LINES);
-  if (!payload || (!payload.update && payload.output === undefined)) return;
-  const previous = state.mirrored?.paneId === paneId ? state.mirrored.output : null;
-  const output = outputTextForUpdate(previous, payload.update ? payload : { ...payload, update: "replace" });
-  if (output === null) return;
-  state.mirrored = { paneId, output };
-  attachedTerminal.mirror(paneId, output);
-  showTerminal(paneId);
-}
-
-function showTerminal(paneId) {
-  showTerminalView(true);
-  state.renderedPaneId = paneId;
-  if (terminalFind) syncTerminalFind();
-  void completeNotificationRelay();
-}
-
-function refreshOutputOnSchedule() {
-  const polling = outputPollingDecision({
-    baseIntervalMs: state.pollIntervalMs,
-    currentStatus: selectedAgentStatus(),
-    recentSubmission: Date.now() < state.outputBurstUntil,
-    connection: navigator.connection || navigator.mozConnection || navigator.webkitConnection,
-  });
-  if (Date.now() - state.lastOutputRequestAt < polling.intervalMs) return;
-  void refreshTerminal();
-}
-
-async function sendText(text, paneId = state.selectedPaneId) {
-  if (!paneId) throw new Error("Select a pane first.");
-  return terminalStream.send({ paneId, text, submit: true });
-}
-
-async function sendKeys(keys, paneId = state.selectedPaneId, { stop = false } = {}) {
-  if (!paneId) throw new Error("Select a pane first.");
-  await terminalStream.send(stop ? { paneId, keys, stop: true } : { paneId, keys });
-}
-
-function refreshAfterSubmission() {
-  state.outputBurstUntil = Date.now() + OUTPUT_SUBMISSION_BURST_MS;
-  void refreshTerminal();
-  window.setTimeout(() => void refreshTerminal(), OUTPUT_SUBMISSION_RETRY_MS);
-  if (elements.filePanel && !elements.filePanel.hidden && browseState.root && !browseState.busy) {
-    window.setTimeout(() => void refreshBrowseFolder({ silent: true }), OUTPUT_SUBMISSION_RETRY_MS);
-  }
-}
-
-function streamPayloadIsCurrent(payload) {
-  return payload.paneId === state.selectedPaneId && payload.requestedLines === HISTORY_PAGE_LINES;
-}
-
-// Stream updates can arrive faster than a large terminal renders. Draw only the
-// newest one per frame so keystrokes do not queue behind stale renders.
-let pendingStreamPayload = null;
-function scheduleStreamRender(payload) {
-  const scheduled = pendingStreamPayload !== null;
-  pendingStreamPayload = payload;
-  if (scheduled) return;
-  window.requestAnimationFrame(() => {
-    const next = pendingStreamPayload;
-    pendingStreamPayload = null;
-    if (streamPayloadIsCurrent(next)) void refreshTerminal({ streamPayload: next });
-  });
-}
+import { createSelection } from "./app/selection.js?v=1.4.23";
+// Made before the terminal socket, the attached terminal, the Chat lens and
+// the Files tab, which are read through getters (only later, never while this
+// is made). Nothing here runs at the top level.
+const {
+  renderPaneHeading,
+  isLinkableTerminalPath,
+  openTerminalPath,
+  showTerminalMessage,
+  selectedRecords,
+  selectedRecordsFor,
+  choosePane,
+  liveStatusUpdates,
+  receiveLiveStatus,
+  refreshSnapshot,
+  refreshTerminal,
+  refreshOutputOnSchedule,
+  sendText,
+  sendKeys,
+  refreshAfterSubmission,
+  streamPayloadIsCurrent,
+  scheduleStreamRender,
+} = createSelection({
+  state,
+  elements,
+  notificationNavigation,
+  panePreferenceStorage,
+  pageOpenedAt,
+  PENDING_REMOTE_PANE_MS,
+  OUTPUT_SUBMISSION_BURST_MS,
+  OUTPUT_SUBMISSION_RETRY_MS,
+  snapshotRecords: (...args) => snapshotRecords(...args),
+  agentForPane: (...args) => agentForPane(...args),
+  acknowledgePaneCompletion: (...args) => acknowledgePaneCompletion(...args),
+  pruneAcknowledgedCompletions: (...args) => pruneAcknowledgedCompletions(...args),
+  syncCreateProjectAvailability: (...args) => syncCreateProjectAvailability(...args),
+  api: (...args) => api(...args),
+  transferRequest: (...args) => transferRequest(...args),
+  completeNotificationRelay: (...args) => completeNotificationRelay(...args),
+  restoreNotificationTarget: (...args) => restoreNotificationTarget(...args),
+  resetInputHistoryNavigation: (...args) => resetInputHistoryNavigation(...args),
+  syncComposerDraft: (...args) => syncComposerDraft(...args),
+  syncAttachAvailability: (...args) => syncAttachAvailability(...args),
+  clearKeyModifiers: (...args) => clearKeyModifiers(...args),
+  syncSendButton: (...args) => syncSendButton(...args),
+  agentMark: (...args) => agentMark(...args),
+  viewFile: (...args) => viewFile(...args),
+  revealInFiles: (...args) => revealInFiles(...args),
+  refreshBrowseFolder: (...args) => refreshBrowseFolder(...args),
+  showTerminalView: (...args) => showTerminalView(...args),
+  syncTerminalFind: (...args) => syncTerminalFind(...args),
+  closeMobileSidebar: (...args) => closeMobileSidebar(...args),
+  renameIsOpen: (...args) => renameIsOpen(...args),
+  renderNavigation: (...args) => renderNavigation(...args),
+  setConnection: (...args) => setConnection(...args),
+  pruneViewSplit: (...args) => pruneViewSplit(...args),
+  renderPaneViews: (...args) => renderPaneViews(...args),
+  renderTerminalStatus: (...args) => renderTerminalStatus(...args),
+  get snapshotSettled() { return snapshotSettled; },
+  set snapshotSettled(value) { snapshotSettled = value; },
+  get stopTarget() { return stopTarget; },
+  set stopTarget(value) { stopTarget = value; },
+  get modifierPaneId() { return modifierPaneId; },
+  get revealGeneration() { return revealGeneration; },
+  set revealGeneration(value) { revealGeneration = value; },
+  get shownPaneView() { return shownPaneView; },
+  get terminalStream() { return terminalStream; },
+  get attachedTerminal() { return attachedTerminal; },
+  get chatLens() { return chatLens; },
+  get promptDock() { return promptDock; },
+  get terminalFind() { return terminalFind; },
+  get browseState() { return browseState; },
+});
 
 const terminalStream = terminalConnection({
   credentials: () => ({ csrf: state.csrfToken, launchToken: state.launchToken }),
