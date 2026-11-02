@@ -59,12 +59,13 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | 토큰 | 값 | 쓰는 곳 |
 |---|---|---|
 | `--radius-xs` | 4px | 표식, 찾기 강조, 인라인 코드 |
-| `--radius-sm` | 6px | 키 바 키, 목록 행(세션·파일·업로드), 메뉴 항목, 행 안의 작은 아이콘 단추 |
+| `--radius-sm` | 6px | 키 바 키, 목록 행(세션·파일·업로드), 메뉴 항목, 행 안의 작은 아이콘 단추, 묶음 안의 단추(찾기·복사·상태 바, 렌즈 전환, 사이드바 탭, 채팅의 복사·링크 단추) |
 | `--radius-control` | 8px | 버튼(주·보조·고스트·아이콘), 입력칸, 선택칸, 떠 있는 바 |
 | `--radius-panel` | 12px | 메뉴, 팝오버, 제안 목록, 바텀시트, 패널 |
 | `--radius-card` | 14px | 카드, 대화상자, 채팅 말풍선 |
 | `--radius-pill` | 999px | 배지, 알약 모양 단추 |
 
+- 테두리 있는 묶음(`--radius-control`) 안에 든 단추는 한 단계 작은 `--radius-sm`을 써서 안쪽 모서리가 겹쳐 보이지 않게 한다.
 - 원은 `50%`로 쓴다. 모서리를 없앨 때는 `0`을 쓴다.
 - `--radius-input`(9px)은 `--radius-control`로 합쳤고, `--radius-sm`은 7px에서 6px로 바꿨다(UI-2).
 - `var(--radius-control, 8px)`처럼 대체값을 쓰지 않는다. `tokens.css`는 항상 먼저 로드된다.
@@ -139,7 +140,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | 강조 | `ui-badge is-accent` | 새로 생긴 파일(`new`), 업데이트 |
 | 위험 | `ui-badge is-danger` | 사라진 파일(`removed`) |
 
-앱의 `split-badge`, `transfer-tag`, `update-badge`, 파일 행의 `new`·`removed`는 같은 규칙(`public/ui/components.css`)을 쓴다.
+앱의 `split-badge`, `transfer-tag`, `update-badge`, 파일 행의 `new`·`removed`는 같은 규칙(`public/ui/components.css`)을 쓴다. 예외는 둘이다: 질문 카드의 태그(`.prompt-card-tag`)는 카드 글자 크기를 따라 `em`으로 커지고, 컴포저 `/` 목록의 출처 표시(`.composer-command-source`)는 배경 없이 테두리만 있는 표시다.
 
 ## 상태 표기
 
@@ -160,7 +161,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 ## 터치와 입력
 
-- 터치 기기(`(hover: none)`)에서 누를 수 있는 것은 44×44px를 누를 수 있다. 보이는 크기가 작은 단추(아이콘 단추 34px, 렌즈 전환, 터미널 찾기 바, 복사 단추 등)는 모양은 그대로 두고 `::before`로 가운데에 44×44px 이상 누르는 영역을 둔다(`public/ui/components.css`). 목록 행 안의 작은 단추(프로젝트 줄의 단추, 파일 행의 단추, 접기 화살표)는 위아래 행의 탭을 가로채지 않게 너비만 44px로 넓히고 높이는 행 높이다. 메뉴 항목은 터치에서 44px 높이다.
+- 터치 기기(`(hover: none)`)에서 누를 수 있는 것은 44×44px를 누를 수 있다. 보이는 크기가 작은 단추(아이콘 단추 34px, 렌즈 전환, 터미널 찾기 바, 복사 단추 등)는 모양은 그대로 두고 `::before`로 가운데에 44×44px 이상 누르는 영역을 둔다(`public/ui/components.css`). 목록 행 안의 작은 단추(프로젝트 줄의 단추, 파일 행의 단추, 접기 화살표)는 위아래 행의 탭을 가로채지 않게 너비만 44px로 넓히고 높이는 행 높이다. 메뉴 항목과 사이드바의 세션 행은 터치에서 44px 높이다.
 - 터치 기기의 텍스트 입력칸은 글자 16px 이상, 높이 44px 이상이다. 16px보다 작으면 iOS Safari가 포커스 때 화면을 확대한다. 컴포저는 터미널(채팅에서는 채팅) 글자 크기를 따르되 `(hover: none)`에서는 `max(var(--font-input-touch), …)`로 16px 아래로 내려가지 않는다. 대화상자 입력칸, 파일 경로, 이름 바꾸기, 로그인 비밀번호, 질문 카드의 직접 입력도 터치에서 16px다.
 - 마우스 전용 동작(hover로만 보이는 버튼)은 터치 기기에서 항상 보이게 하거나 다른 길을 둔다.
 - 아이콘만 있는 버튼에는 `aria-label`을 둔다. 포커스는 `:focus-visible`에 `2px solid var(--accent)` 고리다(`public/ui/base.css`).
@@ -218,5 +219,6 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | shadow | 번지고(blur) 비켜난(offset) 그림자 리터럴, `--shadow-*` 아닌 토큰 하나만 쓴 값, 토큰의 리터럴 대체값 | `var(--shadow-…)`, 고리·빛(offset 0), 막대(blur 0), `none` |
 | motion | `transition`·`transition-duration`의 0 아닌 시간 리터럴, 다른 종류의 토큰 | `--motion-*`, `--sidebar-motion`, `--sidebar-ease`, `0s`, 모션 줄이기 설정의 `!important`가 붙은 0.01ms 이하 |
 | animation | 한 블록에 `steps()`와 `infinite`가 함께 있음 | 끝이 있는 `steps()` |
+| selector | `:is()`·`:where()` 안의 가상 요소(`::after` 등). 브라우저가 목록에서 조용히 빼 버려 스타일이 사라진다 | `:is(…)::after`처럼 밖에 둔 가상 요소 |
 
 검사하지 않는 파일: `public/ui/tokens.css`(값이 사는 곳), `public/ui/examples.css`(카탈로그 페이지 자체의 배치), `public/vendor/xterm.css`(가져온 파일). 터치 크기, 문구, 이름 있는 색(`white`), `font` 줄임 속성, `transition-delay`·`animation-*`의 시간은 검사하지 않고 리뷰로 본다. 문자열 안의 `/*`는 주석으로 보지 않는다. 대소문자는 가리지 않는다. 대체값은 16단계까지 따라가고, 더 깊으면 위반으로 본다. `url()` 안의 `#`도 색으로 본다.

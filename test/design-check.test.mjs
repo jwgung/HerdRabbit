@@ -114,6 +114,11 @@ test("spacing comes from the steps; 0, a 1px nudge and calc() geometry are not s
   ].join("\n")), []);
 });
 
+test("a pseudo-element inside :is() or :where() is a break; one beside it is not", () => {
+  assert.deepEqual(rules(":is(.a, .b::after) { color: var(--text); }\n:where(.c::before) { color: var(--text); }"), ["1 selector", "2 selector"]);
+  assert.deepEqual(rules(":is(.a, .b)::after { color: var(--text); }\n.c::before, .d { color: var(--text); }"), []);
+});
+
 test("line numbers count past comments that span lines", () => {
   assert.deepEqual(rules("/* one\n two\n three */\n.a { color: #000; }"), ["4 color"]);
 });

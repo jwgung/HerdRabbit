@@ -236,6 +236,19 @@ export function designViolations(css, file) {
     }
   }
 
+  // A pseudo-element inside :is() or :where() is not allowed there: the
+  // browser drops it from the list without a word, and its styles with it.
+  for (const rule of text.matchAll(/(?:^|[{};])([^{};]*):(?:is|where)\(/gu)) {
+    const start = rule.index + rule[0].length - 1;
+    let open = 0;
+    let end = start;
+    for (; end < text.length; end += 1) {
+      if (text[end] === "(") open += 1;
+      else if (text[end] === ")" && --open === 0) break;
+    }
+    if (text.slice(start, end).includes("::")) report(start, "selector", "a pseudo-element inside :is()/:where() is dropped; list it on its own");
+  }
+
   // An endless animation that steps looks like a stuck screen.
   for (const block of text.matchAll(/\{[^{}]*\}/gu)) {
     if (/\bsteps\(/iu.test(block[0]) && /\binfinite\b/iu.test(block[0])) {
