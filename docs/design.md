@@ -200,8 +200,8 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | color | 값 안의 `#…`, `rgb()`·`hsl()` 등 색 함수(대체값 포함) | 선택자의 id(`#add-menu`), `transparent`, `currentColor` |
 | font-size | `px`·`rem`·`pt`·`%`·`vw` 등 리터럴(대체값 포함), 다른 종류의 토큰, 혼자 쓴 `--chat-scale` | `--font-*`, 터미널·컴포저·채팅 글자 크기 변수, `calc(var(--font-…) * var(--chat-scale, 1))`, `inherit`, 채팅 마크다운·질문 카드 파일의 `em` |
 | radius | `px`·`rem`·`em`·`pt` 리터럴(대체값 포함), 다른 종류의 토큰 | `--radius-*`, `0`, `50%` |
-| z-index | 토큰 밖 숫자, 다른 종류의 토큰 | `var(--layer-…)`, `calc(var(--layer-…) ± N)`, `0`, `auto` |
-| shadow | 번지고(blur) 비켜난(offset) 그림자 리터럴, `--shadow-*` 아닌 토큰 하나만 쓴 값 | `var(--shadow-…)`, 고리·빛(offset 0), 막대(blur 0), `none` |
+| z-index | 토큰 밖 숫자(대체값 포함), 다른 종류의 토큰 | `var(--layer-…)`, `calc(var(--layer-…) ± N)`, `0`, `auto` |
+| shadow | 번지고(blur) 비켜난(offset) 그림자 리터럴, `--shadow-*` 아닌 토큰 하나만 쓴 값, 토큰의 리터럴 대체값 | `var(--shadow-…)`, 고리·빛(offset 0), 막대(blur 0), `none` |
 | motion | `transition`·`transition-duration`의 0 아닌 시간 리터럴, 다른 종류의 토큰 | `--motion-*`, `--sidebar-motion`, `--sidebar-ease`, `0s`, 모션 줄이기 설정의 `!important`가 붙은 0.01ms 이하 |
 | animation | 한 블록에 `steps()`와 `infinite`가 함께 있음 | 끝이 있는 `steps()` |
 

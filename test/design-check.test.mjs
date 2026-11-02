@@ -26,6 +26,7 @@ test("radii come from the scale; 0 and a circle need none", () => {
 });
 
 test("layers are tokens, with an order inside one; a reset to 0 is not a layer", () => {
+  assert.deepEqual(rules(".a { z-index: var(--layer-toast) !important; }"), []);
   assert.deepEqual(rules(".a { z-index: 25; }\n.b { z-index: calc(25 + 1); }"), ["1 z-index", "2 z-index"]);
   assert.deepEqual(rules(".a { z-index: var(--layer-popover); }\n.b { z-index: calc(var(--layer-pane-chrome) + 2); }\n.c { z-index: calc(var(--layer-drag) - 1); }\n.d { z-index: 0; }"), []);
 });
@@ -49,7 +50,7 @@ test("transition times are tokens; a zero delay and the reduced-motion override 
 });
 
 test("an endless animation does not step", () => {
-  assert.deepEqual(rules(".a { animation: blink 1s steps(2) infinite; }"), ["1 animation"]);
+  assert.deepEqual(rules(".a { animation: blink 1s steps(2) infinite; }\n.b { animation: blink 1s STEPS(2) INFINITE; }"), ["1 animation", "2 animation"]);
   assert.deepEqual(rules(".a { animation: spin 0.9s linear infinite; }\n.b { animation: once 1s steps(4) 1; }"), []);
 });
 
@@ -71,11 +72,14 @@ test("only the reduced-motion override escapes the motion rule with !important",
 test("a literal fallback is a break; the chat's scale is not a size on its own", () => {
   assert.deepEqual(rules(".a { font-size: var(--font-sm, 12px); }\n.b { border-radius: var(--radius-sm, 7px); }\n.c { font-size: var(--chat-scale); }"),
     ["1 font-size", "2 radius", "3 font-size"]);
-  assert.deepEqual(rules(".a { z-index: var(--layer-toast) !important; }"), []);
+  assert.deepEqual(rules(".a { z-index: var(--layer-raised, 5); }\n.b { box-shadow: var(--shadow-popover, 0 6px 18px var(--scrim)); }\n.c { font-size: var(--font-sm, var(--font-xs, 12px)); }"),
+    ["1 z-index", "2 shadow", "3 font-size"]);
 });
 
 test("a \"/*\" inside a string does not hide what follows", () => {
   assert.deepEqual(rules('.a { content: "/*"; }\n.b { color: #fff; }'), ["2 color"]);
+  // a stray quote ends at its line; a later comment is still a comment
+  assert.deepEqual(rules(".a { content: it's; }\n/* .b { color: #fff; } */\n.c { color: #000; }"), ["3 color"]);
 });
 
 test("long runs of digits and unclosed comments do not stall the check", () => {
@@ -85,6 +89,7 @@ test("long runs of digits and unclosed comments do not stall the check", () => {
     `.a { box-shadow: 0 ${"9".repeat(20000)}. 1px var(--scrim); }`,
     "/*x".repeat(20000),
     ".a { color: #fff; }\n".repeat(20000),
+    `.a { font-size: ${"var(--a, ".repeat(10000)}12px${")".repeat(10000)}; }`,
   ]) {
     const started = performance.now();
     designViolations(css, "public/styles.css");

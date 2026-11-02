@@ -44,7 +44,8 @@ function stripComments(css) {
     const char = css[i];
     if (quote) {
       if (char === "\\") { out += css.slice(i, i + 2); i += 1; continue; }
-      if (char === quote) quote = null;
+      // a string ends at its quote, or (unclosed) at the end of the line
+      if (char === quote || char === "\n") quote = null;
       out += char;
     } else if (char === '"' || char === "'") {
       quote = char;
@@ -64,24 +65,25 @@ function stripComments(css) {
 // Each var(...) in a value replaced by the word "var", nested parentheses and
 // all, so what is left is the value's own literals. The names come back too,
 // and the literal part of any fallback (var(--x, 12px) falls back to 12px).
-function splitVars(value) {
+// Fallbacks are followed 16 levels deep; past that a value is not CSS anyone wrote.
+function splitVars(value, depth = 0) {
   let bare = "";
   let fallbacks = "";
   const names = [];
   for (let i = 0; i < value.length; i += 1) {
     if (value.startsWith("var(", i)) {
       const start = i;
-      let depth = 0;
+      let open = 0;
       for (; i < value.length; i += 1) {
-        if (value[i] === "(") depth += 1;
-        else if (value[i] === ")" && --depth === 0) break;
+        if (value[i] === "(") open += 1;
+        else if (value[i] === ")" && --open === 0) break;
       }
       const inner = value.slice(start + 4, i);
       const name = inner.match(/^\s*(--[\w-]+)/u)?.[1] ?? "";
       names.push(name);
       const comma = inner.indexOf(",");
-      if (comma !== -1) {
-        const fallback = splitVars(inner.slice(comma + 1));
+      if (comma !== -1 && depth < 16) {
+        const fallback = splitVars(inner.slice(comma + 1), depth + 1);
         names.push(...fallback.names);
         fallbacks += ` ${fallback.bare} ${fallback.fallbacks}`;
       }
@@ -176,12 +178,16 @@ export function designViolations(css, file) {
       wrongTokens(names, "radius", index, "radius");
     } else if (property === "z-index") {
       // a layer, an order inside one ("var + 2" once the var is out), or a reset
-      if (!/^(?:0|auto|var|calc\(var[+-]\d+\))$/u.test(own.replace(/\s+/gu, "").replace(/!important$/iu, ""))) report(index, "z-index", `${value} is not a --layer-* token`);
+      const layer = own.replace(/\s+/gu, "").replace(/!important$/iu, "");
+      if (!/^(?:0|auto|var|calc\(var[+-]\d+\))$/u.test(layer) || /\d/u.test(fallbacks)) report(index, "z-index", `${value} is not a --layer-* token`);
       wrongTokens(names, "z-index", index, "z-index");
     } else if (property === "box-shadow") {
       for (const part of splitTopLevel(value)) {
-        const lone = part.match(/^var\(\s*(--[\w-]+)\s*\)$/u)?.[1];
-        if (lone) wrongTokens([lone], "shadow", index, "shadow");
+        const lone = part.match(/^var\(\s*(--[\w-]+)\s*(?:,([\s\S]*))?\)$/u);
+        if (lone) {
+          wrongTokens([lone[1]], "shadow", index, "shadow");
+          if (/\d/u.test(lone[2] ?? "")) report(index, "shadow", `${part}: a token takes no literal fallback`);
+        }
         else if (!isLineShadow(part)) report(index, "shadow", `${part} is not a --shadow-* token`);
       }
     } else if (property === "transition" || property === "transition-duration") {
@@ -197,8 +203,8 @@ export function designViolations(css, file) {
 
   // An endless animation that steps looks like a stuck screen.
   for (const block of text.matchAll(/\{[^{}]*\}/gu)) {
-    if (/\bsteps\(/u.test(block[0]) && /\binfinite\b/u.test(block[0])) {
-      report(block.index + block[0].indexOf("steps("), "animation", "an endless animation does not use steps()");
+    if (/\bsteps\(/iu.test(block[0]) && /\binfinite\b/iu.test(block[0])) {
+      report(block.index + block[0].search(/steps\(/iu), "animation", "an endless animation does not use steps()");
     }
   }
   return violations;
