@@ -4,7 +4,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 이 문서는 2026-11-02에 앱 CSS를 측정해서 만들었다(글자 크기 35종, 모서리 22종, z-index 16종, 그림자 22종, 토큰 밖 hex 색 11곳). 대상 파일: `public/styles.css`, `public/ui/*.css`, `public/chat/chat-view.css`, `public/chat/prompt-card.css`, `public/key-bar.css`.
 
-토큰 정리(UI-2)에서 글자 크기, 모서리, 층, 그림자, 색, 움직임을 모두 토큰으로 옮겼다. 간격은 토큰을 다 만들었지만 일부 컴포넌트(대화상자 버튼 줄, 사이드바 머리·바닥 등)만 토큰을 쓰고 나머지는 리터럴이다. 남은 작업: 간격 정리와 컴포넌트 통일(UI-4), 규칙 검사 스크립트(UI-3), 상태 글자 표시(N1/Q2).
+토큰 정리(UI-2)에서 글자 크기, 모서리, 층, 그림자, 색, 움직임을 모두 토큰으로 옮겼다. 간격은 토큰을 다 만들었지만 일부 컴포넌트(대화상자 버튼 줄, 사이드바 머리·바닥 등)만 토큰을 쓰고 나머지는 리터럴이다. 규칙 검사는 UI-3에서 `npm run check`에 붙였다(아래 "검사"). 남은 작업: 간격 정리와 컴포넌트 통일(UI-4), 상태 글자 표시(N1/Q2).
 
 ## 원칙
 
@@ -17,19 +17,19 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 | 토큰 | 값 | 쓰는 곳 |
 |---|---|---|
-| `--font-2xs` | 10px | 고정폭 eyebrow, 아주 작은 배지 |
+| `--font-2xs` | 10px | 고정폭 eyebrow, 아주 작은 배지, 사이드바 행의 보조 줄 |
 | `--font-xs` | 11px | 보조 정보(시간, 경로, 개수) |
-| `--font-sm` | 12px | 기본 UI 글자(사이드바 행, 메뉴, 버튼) |
-| `--font-md` | 13px | 본문(채팅 기본, 대화상자 본문) |
-| `--font-lg` | 14px | 강조 본문, 대화상자 제목 줄 |
+| `--font-sm` | 12px | 기본 UI 글자(메뉴, 버튼, 상태 문구, 대화상자의 라벨·도움말) |
+| `--font-md` | 13px | 사이드바 행 이름, 파일 이름, 알림 본문 |
+| `--font-lg` | 14px | 채팅 본문(배율 1일 때), 질문 카드, 강조 이름 |
 | `--font-input-touch` | 16px | 터치 기기의 입력칸, 패인 제목, 키 바 편집 단추의 기호 |
 | `--font-xl` | 18px | 화면 제목(`h1`, 로그인 제목), 대화상자 제목(`h2`) |
-| `--font-2xl` | 22px | 아이콘 버튼의 기호, 단독 화면의 큰 제목 |
+| `--font-2xl` | 22px | 아이콘 버튼의 기호 |
 | `--font-glyph` | 15px | 사이드바 행의 상태 기호 |
 | `--font-glyph-lg` | 17px | 상태 기호(`.ui-status`) |
 
 - `rem`은 쓰지 않는다. 사용자 글꼴 설정은 채팅 배율(`--chat-scale`)과 채팅 글자 크기(`--chat-font-size`, 컴포저가 채팅 렌즈에서 따른다), 터미널 글자 크기(`--terminal-font-size`)로만 받는다. 셋 다 앱이 실행 중에 정한다.
-- 채팅 안의 크기는 `calc(<토큰 값> * var(--chat-scale, 1))`로 쓴다. `--chat-scale`은 토큰이 아니라 앱이 채팅 글꼴 설정에 따라 실행 중에 정하는 값이다(`public/chat-font-preference.js`). 자기 글자 크기에서 비례하는 블록 안의 상대 크기만 `em`을 허용한다: 마크다운 본문(코드, 인용)과 질문 카드(`public/chat/prompt-card.css`).
+- 채팅 안의 크기는 `calc(<토큰 값> * var(--chat-scale, 1))`로 쓴다. `--chat-scale`은 토큰이 아니라 앱이 채팅 글꼴 설정에 따라 실행 중에 정하는 값이다(계산은 `public/chat-font-preference.js`의 `chatScale`, 적용은 `public/app/chat-lens.js`). 자기 글자 크기에서 비례하는 블록 안의 상대 크기만 `em`을 허용한다: 마크다운 본문(코드, 인용)과 질문 카드(`public/chat/prompt-card.css`).
 - 기호(상태 표식)는 상자에 맞춰 그려서 글자 단계와 따로 `--font-glyph*`를 쓴다.
 - 줄 높이는 UI 1.3, 본문 1.5를 기본으로 한다.
 
@@ -59,7 +59,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | `--radius-xs` | 4px | 표식, 찾기 강조, 작은 배지 |
 | `--radius-sm` | 6px | 키 바 키, 작은 칩, 목록 행 |
 | `--radius-control` | 8px | 버튼, 입력칸, 선택칸 |
-| `--radius-panel` | 12px | 메뉴, 팝오버, 패널, 바텀시트 윗모서리 |
+| `--radius-panel` | 12px | 메뉴, 팝오버, 패널, 바텀시트 윗모서리(바텀시트는 UI-4 목표) |
 | `--radius-card` | 14px | 카드, 대화상자 |
 | `--radius-pill` | 999px | 알약 모양 버튼·배지 |
 
@@ -93,9 +93,9 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 | 토큰 | 값 | 쓰는 곳 |
 |---|---|---|
-| `--shadow-popover` | `0 6px 18px rgb(0 0 0 / 30%)` | 메뉴, 팝오버, 제안 목록, 터미널 위 떠 있는 바(복사·찾기·상태), 질문 배너 |
+| `--shadow-popover` | `0 6px 18px rgb(0 0 0 / 30%)` | 메뉴, 팝오버, 컴포저의 `@`·`/` 목록(`.composer-files`), 터미널 위 떠 있는 바(복사·찾기·상태), 질문 배너 |
 | `--shadow-float` | `0 10px 28px var(--mobile-shadow)` | 떠 있는 카드(질문 카드 overlay), 토스트, 끌기 고스트 |
-| `--shadow-sheet` | `0 24px 80px var(--mobile-shadow)` | 바텀시트, 대화상자, 로그인 카드 |
+| `--shadow-sheet` | `0 24px 80px var(--mobile-shadow)` | 대화상자, 로그인 카드, 바텀시트(UI-4 목표) |
 | `--shadow-drawer` | `18px 0 50px var(--mobile-shadow)` | 폰 사이드바 서랍(옆으로 드리우는 그림자) |
 
 - 폰 서랍의 옆 그림자는 방향이 달라서 `--shadow-drawer`로 따로 둔다.
@@ -141,13 +141,13 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | `unknown` | Unknown | `--agent-unknown` (상태를 아직 모르는 패인) |
 
 - 색은 `public/ui/components.css`의 `.ui-status.state-*`와 같다. `unknown`은 따로 규칙이 없고 기본 `.ui-status` 색을 쓴다.
-- 글자는 `public/ui-model.js`의 상태 문구 함수 하나에서 나온다. 화면마다 따로 쓰지 않는다. 측정 당시 이 함수는 `idle`과 `unknown`을 소문자 그대로 돌려줬다. "Idle", "Unknown"으로 맞추는 일은 상태 글자 작업(N1/Q2)에서 한다.
+- 글자는 `public/ui-model.js`의 상태 문구 함수 하나에서 나온다. 화면마다 따로 쓰지 않는다. 이 함수(`agentStatusLabel`)는 아직 `idle`과 `unknown`을 소문자 그대로 돌려준다. "Idle", "Unknown"으로 맞추는 일은 상태 글자 작업(N1/Q2)에서 한다.
 - 공간이 없는 곳(사이드바 행 끝)에서는 기호만 두되, 같은 뜻의 글자를 `aria-label`과 `title`로 붙인다. 폰 헤더처럼 한 패인을 보여 주는 곳에는 글자를 보인다.
 - 연결 상태(`connecting`, `offline`)는 에이전트 상태와 섞지 않는다.
 
 ## 터치와 입력
 
-- 터치 기기(`@media (pointer: coarse)` 또는 `(hover: none)`)에서 누를 수 있는 것은 44×44px 이상이다. 보이는 크기가 작아야 하면 padding이나 `::before`로 누르는 영역만 넓힌다.
+- 터치 기기(`@media (pointer: coarse)` 또는 `(hover: none)`)에서 누를 수 있는 것은 44×44px 이상이다. 보이는 크기가 작아야 하면 padding이나 `::before`로 누르는 영역만 넓힌다. 아직 이 기준보다 작은 것(UI-4에서 맞춘다): 사이드바 프로젝트 줄의 단추(26px), 파일 행의 단추(26px), `.icon-button`(34px), 서버 새로고침(30px), 빠른 키(36px), 터미널 찾기 바 단추(36px).
 - 터치 기기의 텍스트 입력칸은 글자 16px 이상이다. 16px보다 작으면 iOS Safari가 포커스 때 화면을 확대한다. 컴포저는 터미널(채팅에서는 채팅) 글자 크기를 따르되, `(hover: none)`에서는 `max(var(--font-input-touch), …)`로 16px 아래로 내려가지 않는다(UI-2). 다른 입력칸은 UI-4에서 맞춘다.
 - 마우스 전용 동작(hover로만 보이는 버튼)은 터치 기기에서 항상 보이게 하거나 다른 길을 둔다.
 - 아이콘만 있는 버튼에는 `aria-label`을 둔다. 포커스는 `:focus-visible`에 `2px solid var(--accent)` 고리다(`public/ui/base.css`).
@@ -179,7 +179,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | `--motion-base` | 180ms | 펼치기, 팝오버 열기 |
 | `--motion-slow` | 280ms | 사이드바 서랍(`--sidebar-motion`이 이 값을 쓴다) |
 
-- 무한 반복 애니메이션의 한 바퀴 길이(0.7s~1.6s)는 토큰 밖으로 허용한다.
+- 무한 반복 애니메이션의 한 바퀴 길이(0.7s~1.6s), 0초 지연(`visibility 0s linear …`), 모션 줄이기 설정의 `0.01ms !important`(`public/ui/base.css`)는 토큰 밖으로 허용한다.
 - 무한 반복 애니메이션은 진행 중 표시(스피너, 받아쓰기·작업 중 맥박)에만 쓰고, `prefers-reduced-motion: reduce`에서 멈춘다.
 - 무한 반복 애니메이션에 `steps()`를 쓰지 않는다. 끊기는 움직임은 멈춘 화면처럼 보인다.
 - 레이아웃 속성(`width`, `height`, `top`)보다 `transform`과 `opacity`를 움직인다.
@@ -193,4 +193,16 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 ## 검사
 
-`scripts/check-design.mjs`(UI-3)가 이 문서의 기계로 확인할 수 있는 규칙을 검사한다: 토큰 밖 색 리터럴, 토큰 밖 font-size·radius·z-index·shadow, 무한 애니메이션의 `steps()`. 그 전까지는 리뷰에서 이 문서를 기준으로 본다.
+`npm run check`가 `scripts/check-design.mjs`로 이 문서의 기계로 확인할 수 있는 규칙을 검사한다. 위반은 `파일:줄 규칙: 내용`으로 나오고 명령이 실패한다.
+
+| 규칙 | 걸리는 것 | 걸리지 않는 것 |
+|---|---|---|
+| color | 값 안의 `#…`, `rgb()`·`hsl()` 등 색 함수(대체값 포함) | 선택자의 id(`#add-menu`), `transparent`, `currentColor` |
+| font-size | `px`·`rem` 리터럴 | 토큰, `calc(var(--font-…) * var(--chat-scale, 1))`, `inherit`, 채팅 마크다운·질문 카드 파일의 `em` |
+| radius | `px`·`rem` 리터럴 | 토큰, `0`, `50%` |
+| z-index | 토큰 밖 숫자 | `var(--layer-…)`, `calc(var(--layer-…) ± N)`, `0`, `auto` |
+| shadow | 번지고(blur) 비켜난(offset) 그림자 리터럴 | `var(--shadow-…)`, 고리·빛(offset 0), 막대(blur 0), `none` |
+| motion | `transition`·`transition-duration`의 0 아닌 시간 리터럴 | 토큰, `0s`, `!important`가 붙은 모션 줄이기 설정 |
+| animation | 한 블록에 `steps()`와 `infinite`가 함께 있음 | 끝이 있는 `steps()` |
+
+검사하지 않는 파일: `public/ui/tokens.css`(값이 사는 곳), `public/ui/examples.css`(카탈로그 페이지 자체의 배치), `public/vendor/xterm.css`(가져온 파일). 간격, 터치 크기, 문구는 아직 리뷰로 본다.
