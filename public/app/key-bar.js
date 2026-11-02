@@ -89,9 +89,13 @@ export function createKeyBar({
     const text = elements.terminalInput.value;
     const paneId = state.selectedPaneId;
     const choice = composerChoice(text);
-    if (choice !== null && getPromptDock().choose(choice)) {
-      clearComposer();
-      setFeedback("");
+    if (choice !== null) {
+      // the number answers the card; while an answer is still on its way it
+      // stays in the box rather than going to the pane as a message
+      if (getPromptDock().choose(choice)) {
+        clearComposer();
+        setFeedback("");
+      }
       return;
     }
     composerSending = true;

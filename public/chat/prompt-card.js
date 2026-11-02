@@ -230,7 +230,8 @@ function renderCard(document, card, view) {
 // `conversation(paneId)` answers the text of the chat's last agent turns for
 // that pane ("" when none is loaded), for contextVisible.
 // `onAnswered(paneId, summary)` hears each answer that went out, in words.
-// `onCardChange(card)` hears whenever the pane's card comes, changes or goes.
+// `onCardChange(card)` hears whenever the card the composer can answer comes,
+// changes or goes (null while the dock is hidden).
 export function createPromptDock({ document = globalThis.document, dock, connection, getJson, postJson,
   showChat = () => false, onAnswered = () => {}, onCardChange = () => {}, conversation = () => "" }) {
   let paneId = null;
@@ -245,6 +246,8 @@ export function createPromptDock({ document = globalThis.document, dock, connect
   // What the shown card's controls hold.
   let view = { pending: false, error: null, selected: new Set(), custom: "", preview: null };
   let drawn = null;
+  // The card last told to onCardChange.
+  let announced = null;
   // The answer on its way, if any.
   let answering = null;
   // Whether the card's context is open, kept across redraws of the same card.
@@ -273,7 +276,6 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     }
     if (moved) keepOpen = false;
     render();
-    if (changed || moved) onCardChange(card);
   }
 
   function watch(id) {
@@ -287,6 +289,13 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     const mode = dockMode({ card, lens, dismissed: card ? dismissed.has(card.id) : false, expanded });
     dock.dataset.mode = mode;
     dock.hidden = mode === "hidden";
+    // the card the composer can answer: none while the dock is hidden
+    // (dismissed, or no card), whatever the reason
+    const answerable = mode === "hidden" ? null : card;
+    if (answerable !== announced) {
+      announced = answerable;
+      onCardChange(answerable);
+    }
     let context = false;
     try { context = mode !== "hidden" && mode !== "banner" && contextVisible(card, paneId === null ? "" : conversation(paneId)); } catch { context = Boolean(card?.context); }
     const key = mode === "hidden" ? null : `${mode}|${card.id}|${view.pending}|${view.error}|${[...view.selected].join(",")}|${mode === "banner" ? "" : view.custom}|${context ? card.context : ""}|${view.preview}`;
@@ -486,7 +495,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
       render();
     },
     choose(index) {
-      if (!card || numberedChoice(card, String(index + 1)) !== index) return false;
+      if (!card || view.pending || numberedChoice(card, String(index + 1)) !== index) return false;
       void answer({ option: index });
       return true;
     },

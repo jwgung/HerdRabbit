@@ -187,6 +187,7 @@ try {
     // Dismissed, the banner stays away for this card.
     await page.locator(".prompt-banner-close").click();
     assert.equal(await dockMode(), "hidden");
+    assert.equal(await page.locator("#terminal-input").getAttribute("placeholder"), "", "a dismissed card is not answered by a number");
     await page.locator("#lens-chat").click();
     await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "card");
 

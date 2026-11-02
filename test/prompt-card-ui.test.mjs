@@ -247,4 +247,3 @@ test("an answer is summed up as the words chosen", () => {
   assert.equal(answerSummary(menu, { action: "chat" }), "Chat about this");
   assert.equal(answerSummary(menu, { option: 9 }), "");
 });
-
