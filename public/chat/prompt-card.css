@@ -10,7 +10,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  font-size: calc(14px * var(--chat-scale, 1));
+  font-size: calc(var(--font-lg) * var(--chat-scale, 1));
 }
 
 .prompt-dock[hidden] {
@@ -24,7 +24,7 @@
 
 .prompt-dock[data-mode="banner"] {
   position: absolute;
-  z-index: 4;
+  z-index: var(--layer-pane-overlay);
   /* Below the phone pane map, which it would otherwise cover. */
   top: calc(8px + var(--pane-map-clearance, 0px));
   left: 8px;
@@ -35,7 +35,7 @@
 
 .prompt-dock[data-mode="overlay"] {
   position: absolute;
-  z-index: 4;
+  z-index: var(--layer-pane-overlay);
   left: 8px;
   right: 8px;
   bottom: 8px;
@@ -50,9 +50,9 @@
   align-items: stretch;
   gap: 2px;
   border: 1px solid var(--warning);
-  border-radius: var(--radius-control, 8px);
+  border-radius: var(--radius-control);
   background: var(--surface-raised, var(--surface));
-  box-shadow: 0 6px 22px rgb(0 0 0 / 22%);
+  box-shadow: var(--shadow-popover);
   pointer-events: auto;
 }
 
@@ -71,8 +71,8 @@
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border-radius: var(--radius-control, 8px) 0 0 var(--radius-control, 8px);
-  font-size: 13px;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  font-size: var(--font-md);
   text-align: left;
 }
 
@@ -105,9 +105,9 @@
 .prompt-banner-close {
   flex: 0 0 auto;
   width: 36px;
-  border-radius: 0 var(--radius-control, 8px) var(--radius-control, 8px) 0;
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
   color: var(--muted) !important;
-  font-size: 18px;
+  font-size: var(--font-xl);
 }
 
 /* --- the card ----------------------------------------------------------- */
@@ -124,14 +124,14 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   border: 1px solid var(--warning);
-  border-radius: 10px;
+  border-radius: var(--radius-panel);
   background: var(--surface-raised, var(--surface));
   color: var(--text);
   line-height: 1.45;
 }
 
 .prompt-dock[data-mode="overlay"] .prompt-card {
-  box-shadow: 0 8px 28px rgb(0 0 0 / 30%);
+  box-shadow: var(--shadow-float);
 }
 
 .prompt-card > * {
@@ -159,10 +159,10 @@
   min-height: 30px;
   padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-control, 8px);
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-md);
   cursor: pointer;
 }
 
@@ -184,7 +184,7 @@
   padding: 8px 10px;
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm, 6px);
+  border-radius: var(--radius-sm);
   background: var(--terminal-bg);
   color: var(--terminal-text);
   font-family: var(--mono);
@@ -203,7 +203,7 @@
 .prompt-card-context {
   flex: 0 0 auto;
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm, 6px);
+  border-radius: var(--radius-sm);
 }
 
 .prompt-card-context > summary {
@@ -251,7 +251,7 @@
   gap: 10px;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-control, 8px);
+  border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--text);
   font: inherit;
@@ -284,7 +284,7 @@
   min-width: 1.6em;
   padding: 0 4px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   color: var(--muted);
   font-family: var(--mono);
   font-size: 0.86em;
@@ -310,7 +310,7 @@
 
 .prompt-card-tag {
   padding: 0 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent);
   color: var(--accent-ink);
   font-size: 0.78em;
@@ -331,7 +331,7 @@
   min-height: 38px;
   padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-input, 8px);
+  border-radius: var(--radius-control);
   background: var(--page);
   color: var(--input-text, var(--text));
   font: inherit;

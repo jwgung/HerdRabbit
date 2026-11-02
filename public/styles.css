@@ -62,7 +62,7 @@ body {
 
 .sidebar-toggle-mark path,
 .mobile-sidebar-mark path {
-  transition: fill 150ms ease;
+  transition: fill var(--motion-fast) ease;
 }
 
 .sidebar-toggle:hover .sidebar-toggle-mark path,
@@ -98,7 +98,7 @@ body {
 .navigator-content::-webkit-scrollbar-track,
 .input-form textarea::-webkit-scrollbar-track {
   margin: 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--scrollbar-track);
 }
 
@@ -106,7 +106,7 @@ body {
 .input-form textarea::-webkit-scrollbar-thumb {
   min-height: 36px;
   border: 2px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--scrollbar-thumb);
   background-clip: padding-box;
   box-shadow: inset 0 0 0 1px var(--scrollbar-thumb-outline);
@@ -210,7 +210,7 @@ body.sidebar-collapsed .sidebar-toggle:hover {
 .login-screen {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: var(--layer-screen);
   display: grid;
   place-items: center;
   padding: 20px;
@@ -239,14 +239,14 @@ body.sidebar-collapsed .sidebar-toggle:hover {
 .login-heading p,
 .login-feedback {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 
 #login-password {
   width: 100%;
   height: 44px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   padding: 9px 11px;
   background: var(--surface-raised);
   color: var(--input-text);
@@ -268,7 +268,7 @@ body.sidebar-collapsed .sidebar-toggle:hover {
 
 .login-password-method label {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 
 .login-password-method button,
@@ -315,9 +315,9 @@ body.sidebar-collapsed .pane-status {
   width: 13px;
   min-width: 13px;
   height: 13px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 /* The row: the program's mark, a name with the folder under it, then the
@@ -331,14 +331,14 @@ body.sidebar-collapsed .pane-status {
 
 .pane-copy small.pane-cwd {
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.2;
 }
 
 .agent-icon { width: 18px; height: 18px; display: block; color: var(--text); }
 
 /* Herdr's own symbol for the status; its colour comes from .ui-status.state-*. */
-.pane-button .pane-status { width: 14px; min-width: 14px; height: 14px; justify-self: center; font-size: 15px; }
+.pane-button .pane-status { width: 14px; min-width: 14px; height: 14px; justify-self: center; font-size: var(--font-glyph); }
 
 body.sidebar-collapsed .pane-copy {
   display: none;
@@ -406,7 +406,7 @@ body.sidebar-collapsed .terminal-panel {
   overflow: hidden;
   color: var(--workspace-heading);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -415,13 +415,13 @@ body.sidebar-collapsed .terminal-panel {
 .herdr-session-heading small,
 .herdr-session-empty {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-2xs);
 }
 
 .herdr-session-dot {
   width: 7px;
   height: 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--offline);
 }
 
@@ -464,7 +464,7 @@ body.sidebar-collapsed .terminal-panel {
   overflow: hidden;
   padding: 4px 2px;
   color: var(--workspace-heading);
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -479,7 +479,7 @@ body.sidebar-collapsed .terminal-panel {
   place-items: center;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
 }
@@ -582,7 +582,7 @@ body.sidebar-collapsed .terminal-panel {
 }
 
 .workspace-collapse svg {
-  transition: transform 180ms ease;
+  transition: transform var(--motion-base) ease;
 }
 
 .workspace-collapse[aria-expanded="true"] svg {
@@ -631,11 +631,11 @@ body.sidebar-collapsed .terminal-panel {
   min-width: 0;
   height: 30px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   padding: 4px 7px;
   background: var(--surface);
   color: var(--input-text);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 
 .workspace-rename-save {
@@ -686,11 +686,11 @@ body.sidebar-collapsed .split-session-button > .agent-icon {
   bottom: 0;
   left: 6px;
   margin-block: auto;
-  z-index: 1;
+  z-index: var(--layer-raised);
 }
 
 .split-disclosure svg {
-  transition: transform 180ms ease;
+  transition: transform var(--motion-base) ease;
 }
 
 .split-disclosure[aria-expanded="true"] svg {
@@ -704,10 +704,10 @@ body.sidebar-collapsed .split-session-button > .agent-icon {
   align-items: center;
   gap: 3px;
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--hover-surface);
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: var(--font-xs);
   line-height: 1.4;
 }
 
@@ -777,7 +777,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 }
 
 .workspace-group.is-collapsed[data-has-completion="true"] > .workspace-heading {
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--completion-surface);
   box-shadow: inset 0 0 0 1px var(--done);
 }
@@ -787,7 +787,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 }
 
 .workspace-group.is-collapsed[data-has-request="true"] > .workspace-heading {
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--danger) 13%, transparent);
   box-shadow: inset 0 0 0 1px var(--danger);
 }
@@ -799,7 +799,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 .empty-state {
   padding: 18px 8px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 
 .terminal-panel {
@@ -834,7 +834,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   overflow: hidden;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-sm);
   text-overflow: ellipsis;
 }
 
@@ -849,7 +849,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 16px;
+  font-size: var(--font-input-touch);
   text-overflow: ellipsis;
 }
 
@@ -883,7 +883,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   margin: 0;
   padding: 18px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-panel);
   background: var(--terminal-bg);
   color: var(--terminal-text);
   font-family: var(--mono);
@@ -905,7 +905,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   flex: 1 1 auto;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-panel);
   background: var(--terminal-bg);
   touch-action: none;
 }
@@ -937,7 +937,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 .terminal-link-marks {
   position: absolute;
   inset: 0;
-  z-index: 5;
+  z-index: calc(var(--layer-pane-overlay) + 1);
   pointer-events: none;
 }
 
@@ -952,16 +952,15 @@ body.sidebar-collapsed .split-session-button .pane-status {
    and outlined. Under the link underlines, never in the way of a tap. The
    terminal is black in both themes, so the tint is the same in both. */
 .terminal-find-marks {
-  --find-mark: #ffc799;
   position: absolute;
   inset: 0;
-  z-index: 4;
+  z-index: var(--layer-pane-overlay);
   pointer-events: none;
 }
 
 .terminal-find-marks span {
   position: absolute;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   background: color-mix(in srgb, var(--find-mark) 30%, transparent);
 }
 
@@ -975,17 +974,17 @@ body.sidebar-collapsed .split-session-button .pane-status {
   position: absolute;
   top: calc(8px + var(--pane-map-clearance, 0px));
   right: 8px;
-  z-index: 12;
+  z-index: calc(var(--layer-pane-chrome) + 2);
   width: min(420px, calc(100% - 16px));
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 4px 4px 4px 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface-raised);
   color: var(--text);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 0.3);
+  box-shadow: var(--shadow-popover);
 }
 
 .terminal-find[hidden],
@@ -1015,7 +1014,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   padding: 4px 0 0;
   border-top: 1px solid var(--line);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 
 .chat-find-more[hidden] {
@@ -1029,7 +1028,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   border: 1px solid var(--line);
   white-space: nowrap;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 
 .terminal-find-icon,
@@ -1059,7 +1058,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   background: transparent;
   color: var(--input-text, var(--text));
   font: inherit;
-  font-size: 14px;
+  font-size: var(--font-lg);
 }
 
 /* The bar has its own close button; the search field's clear button would be a second. */
@@ -1072,7 +1071,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   flex: 0 0 auto;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-sm);
   white-space: nowrap;
 }
 
@@ -1088,7 +1087,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
   cursor: pointer;
@@ -1131,7 +1130,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 
 @media (hover: none) {
   .terminal-find input {
-    font-size: 16px;
+    font-size: var(--font-input-touch);
   }
 
   .terminal-find button {
@@ -1145,14 +1144,14 @@ body.sidebar-collapsed .split-session-button .pane-status {
   position: absolute;
   top: 8px;
   right: 8px;
-  z-index: 10;
+  z-index: var(--layer-pane-chrome);
   display: flex;
   gap: 6px;
   padding: 4px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface-raised);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 0.3);
+  box-shadow: var(--shadow-popover);
 }
 
 .terminal-copy-bar[hidden] {
@@ -1163,7 +1162,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   min-height: 36px;
   padding: 0 14px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font: inherit;
   cursor: pointer;
   color: var(--text);
@@ -1202,7 +1201,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   margin-top: 8px;
   padding: 8px 12px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-panel);
 }
 
 .terminal-held[hidden] {
@@ -1216,7 +1215,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   top: 8px;
   left: 8px;
   right: 8px;
-  z-index: 11;
+  z-index: calc(var(--layer-pane-chrome) + 1);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1224,11 +1223,11 @@ body.sidebar-collapsed .split-session-button .pane-status {
   padding: 6px 6px 6px 12px;
   border: 1px solid var(--line);
   border-left: 3px solid var(--warning);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface-raised);
   color: var(--text);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 0.3);
-  font-size: 14px;
+  box-shadow: var(--shadow-popover);
+  font-size: var(--font-lg);
 }
 
 .terminal-status[hidden] {
@@ -1245,7 +1244,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   border-left-width: 1px;
   color: var(--muted);
   box-shadow: none;
-  font-size: 12px;
+  font-size: var(--font-sm);
   opacity: 0.92;
   pointer-events: none;
 }
@@ -1271,7 +1270,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   min-height: 36px;
   padding: 0 14px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font: inherit;
   cursor: pointer;
   color: var(--accent-ink);
@@ -1316,7 +1315,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   align-items: flex-end;
 }
 
-/* A long text (app.js, syncComposerExpanded): the text takes the whole width
+/* A long text (public/app/composer.js, syncComposerExpanded): the text takes the whole width
    on top and the buttons drop to a row below -- Files at the left, the mic and
    Send at the right. The text box keeps its own frame and focus ring and each
    button its own, as in the one row; the text may grow to about eight lines or
@@ -1363,7 +1362,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   overflow-wrap: anywhere;
   overflow-y: auto;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   padding: 11px 12px;
   background: var(--surface);
   color: var(--input-text);
@@ -1381,7 +1380,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   min-width: 0;
   overflow: hidden;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1416,7 +1415,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   flex: 0 0 44px;
   place-items: center;
   padding: 0;
-  border-radius: 9px;
+  border-radius: var(--radius-control);
 }
 
 .send-button svg,
@@ -1433,12 +1432,12 @@ body.sidebar-collapsed .split-session-button .pane-status {
 
 /* the mic: teal at rest, red and pulsing while it listens */
 .dictate-button {
-  color: var(--accent, #99ffe4);
+  color: var(--accent);
 }
 
 .dictate-button.listening {
-  color: var(--danger, #e5484d);
-  background: color-mix(in srgb, var(--danger, #e5484d) 15%, transparent);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
   animation: dictate-pulse 1.6s ease-in-out infinite;
 }
 
@@ -1482,7 +1481,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
    the menus of the projects under it instead of sitting 6px inside them. */
 .server-heading { display: flex; align-items: center; gap: 8px; padding: 10px 0; }
 
-.server-heading { font-size: 12px; }
+.server-heading { font-size: var(--font-sm); }
 
 /* Connect PC: the tailnet's PCs, picked rather than typed. */
 .server-discovery { display: grid; gap: 6px; }
@@ -1492,7 +1491,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--muted);
 }
 
@@ -1504,7 +1503,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   max-height: 232px;
   overflow-y: auto;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
 }
 
 .server-candidate {
@@ -1528,7 +1527,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 .server-candidate-dot {
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--muted);
 }
 
@@ -1541,7 +1540,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 .server-candidate-identity small,
 .server-candidate-state {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .server-candidate-identity small { font-family: var(--mono); overflow-wrap: anywhere; }
@@ -1577,7 +1576,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   stroke-width: 1.8;
 }
 
-.server-manual summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.server-manual summary { cursor: pointer; font-size: var(--font-md); color: var(--muted); }
 
 .server-manual > .server-field { margin-top: 8px; }
 
@@ -1607,7 +1606,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 
 /* The dot says whether the machine is reached; the icon only turns red when
    this page cannot reach HerdRabbit at all. */
-.server-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 999px; background: var(--offline); }
+.server-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: var(--radius-pill); background: var(--offline); }
 
 .server-heading.is-online .server-dot { background: var(--status-ok); }
 
@@ -1631,7 +1630,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   padding-top: 12px;
 }
 
-.server-empty { color: var(--muted); font-size: 12px; padding: 8px; overflow-wrap: anywhere; }
+.server-empty { color: var(--muted); font-size: var(--font-sm); padding: 8px; overflow-wrap: anywhere; }
 
 /* The rail is for jumping between sessions, so it leaves machines out: a
    machine's icon there was one more marker that led nowhere. */
@@ -1662,7 +1661,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   grid-template-columns: auto 1fr;
   gap: 6px 14px;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 
 .server-details dt { color: var(--muted); }
@@ -1676,7 +1675,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .ai-cli { display: grid; gap: 6px; }
 
-.ai-cli h3 { margin: 0; font-size: 14px; }
+.ai-cli h3 { margin: 0; font-size: var(--font-lg); }
 
 .ai-account-rows {
   display: grid;
@@ -1684,7 +1683,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   padding: 0;
   list-style: none;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   overflow: hidden;
 }
 
@@ -1704,19 +1703,19 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 /* The account a sign-in just saved, so the list that reopens says which one it was. */
 .ai-account-row.is-new { background: var(--selected-surface); }
 
-.ai-account-identity small.is-new { color: var(--accent); font-size: 11px; }
+.ai-account-identity small.is-new { color: var(--accent); font-size: var(--font-xs); }
 
 .ai-account-identity { min-width: 0; display: grid; gap: 1px; }
 
 .ai-account-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.ai-account-identity small.is-expiring { color: var(--danger); font-size: 11px; }
+.ai-account-identity small.is-expiring { color: var(--danger); font-size: var(--font-xs); }
 
 /* As tall as the menu button, so a row showing "In use" is no shorter than
    the rows holding a menu. */
 .ai-account-actions { display: flex; align-items: center; gap: 4px; min-height: 28px; }
 
-.ai-account-state { color: var(--accent); font-size: 12px; white-space: nowrap; }
+.ai-account-state { color: var(--accent); font-size: var(--font-sm); white-space: nowrap; }
 
 /* Adding is the last row of the list rather than a button beside the heading,
    so each CLI reads as one block. */
@@ -1731,7 +1730,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--font-md);
   text-align: left;
   cursor: pointer;
 }
@@ -1743,7 +1742,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   gap: 8px;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   background: var(--hover-surface);
 }
 
@@ -1759,10 +1758,10 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .ai-accounts-dialog :is(.primary-button, .secondary-button) {
   min-height: 30px;
   padding: 4px 10px;
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 
-.ai-account-identity strong { font-size: 14px; }
+.ai-account-identity strong { font-size: var(--font-lg); }
 
 /* Update: one block per PC, with what changed and, during a run, its log. */
 /* The heading and the buttons stay put: only the list of PCs scrolls. */
@@ -1784,7 +1783,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   align-content: start;
   min-height: 0;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   overflow-y: auto;
 }
 
@@ -1805,15 +1804,15 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   min-width: 0;
 }
 
-.update-server-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.update-server-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-lg); }
 
 .update-badge {
   flex: none;
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--accent-ink);
   background: var(--accent);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
 }
 
@@ -1822,7 +1821,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .update-run-state {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-md);
   overflow-wrap: anywhere;
 }
 
@@ -1834,7 +1833,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   padding-left: 18px;
   max-height: 160px;
   overflow-y: auto;
-  font-size: 13px;
+  font-size: var(--font-md);
   overflow-wrap: anywhere;
 }
 
@@ -1850,7 +1849,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .update-part-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
 
-.update-part-heading strong { font-size: 13px; }
+.update-part-heading strong { font-size: var(--font-md); }
 
 .update-herdr {
   display: grid;
@@ -1863,9 +1862,9 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .update-herdr-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
 
-.update-herdr-heading strong { font-size: 13px; }
+.update-herdr-heading strong { font-size: var(--font-md); }
 
-.update-herdr-notes { font-size: 13px; min-width: 0; }
+.update-herdr-notes { font-size: var(--font-md); min-width: 0; }
 
 .update-herdr-notes summary { cursor: pointer; color: var(--muted); }
 
@@ -1879,7 +1878,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .update-herdr-detail {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-family: var(--mono);
   overflow-wrap: anywhere;
 }
@@ -1887,18 +1886,18 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .update-progress { display: grid; gap: 6px; min-width: 0; }
 
 .update-log-fold { display: grid; gap: 6px; min-width: 0; }
-.update-log-fold > summary { cursor: pointer; color: var(--muted, inherit); font-size: 12px; }
-.update-herdr-integrations { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.update-log-fold > summary { cursor: pointer; color: var(--muted, inherit); font-size: var(--font-sm); }
+.update-herdr-integrations { margin: 0; font-size: var(--font-sm); overflow-wrap: anywhere; }
 
 .update-log {
   margin: 0;
   max-height: 220px;
   overflow: auto;
   padding: 8px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   color: var(--terminal-text);
   background: var(--terminal-bg);
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.35;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1921,7 +1920,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   flex: none;
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1941,7 +1940,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   column-gap: 8px;
   min-height: 24px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 
 .update-step[data-state="done"] { color: var(--text); }
@@ -1958,7 +1957,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   height: 16px;
   border: 1.5px solid var(--hover-line);
   border-radius: 50%;
-  font-size: 10px;
+  font-size: var(--font-2xs);
   font-weight: 700;
   line-height: 1;
 }
@@ -1988,7 +1987,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .update-elapsed {
   flex: none;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
@@ -1997,14 +1996,14 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .update-step-note {
   grid-column: 2 / -1;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 400;
   overflow-wrap: anywhere;
 }
 
 .update-detail {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-family: var(--mono);
   overflow-wrap: anywhere;
 }
@@ -2013,7 +2012,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .update-run-note {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
   overflow-wrap: anywhere;
 }
 
@@ -2031,7 +2030,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   padding: 0;
   list-style: none;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   overflow: hidden;
 }
 
@@ -2046,20 +2045,20 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   border-top: 1px solid var(--line);
 }
 
-.passkey-empty { display: block; color: var(--muted); font-size: 13px; }
+.passkey-empty { display: block; color: var(--muted); font-size: var(--font-md); }
 
 .passkey-rows > :first-child { border-top: 0; }
 
 .passkey-identity { min-width: 0; display: grid; gap: 1px; }
 
-.passkey-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.passkey-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-lg); }
 
-.passkey-identity small { color: var(--muted); font-size: 11px; }
+.passkey-identity small { color: var(--muted); font-size: var(--font-xs); }
 
 .passkeys-dialog .passkey-remove {
   min-height: 30px;
   padding: 4px 10px;
-  font-size: 13px;
+  font-size: var(--font-md);
   color: var(--danger);
 }
 
@@ -2073,10 +2072,10 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   .navigator {
     position: fixed;
     inset: 0 auto 0 0;
-    z-index: 30;
+    z-index: var(--layer-drawer);
     width: min(86vw, 310px);
     border-right: 1px solid var(--line);
-    box-shadow: 18px 0 50px var(--mobile-shadow);
+    box-shadow: var(--shadow-drawer);
     transform: translateX(-102%);
     will-change: transform;
     transition: transform var(--sidebar-motion) var(--sidebar-ease);
@@ -2094,7 +2093,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   .sidebar-scrim {
     position: fixed;
     inset: 0;
-    z-index: 20;
+    z-index: var(--layer-scrim);
     border: 0;
     background: var(--scrim);
     display: block;
@@ -2170,7 +2169,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   min-width: 0;
   min-height: 36px;
   padding: 4px 2px;
-  font-size: 12px;
+  font-size: var(--font-sm);
   text-size-adjust: 100%;
   -webkit-text-size-adjust: 100%;
 }
@@ -2195,11 +2194,11 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   gap: 8px;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
 }
 
 /* Actions sit beside the name only when there is room for both. */
-@media (min-width: 520px) {
+@media (min-width: 521px) {
   .transfer-row {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
@@ -2208,12 +2207,12 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .transfer-name {
   overflow-wrap: anywhere;
-  font-size: 0.92rem;
+  font-size: var(--font-lg);
 }
 
 .transfer-meta {
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: var(--font-md);
 }
 
 .transfer-row-actions {
@@ -2268,7 +2267,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .transfer-empty {
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--font-lg);
   padding: 8px 0;
 }
 
@@ -2276,7 +2275,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
    names. */
 .browse-tree .transfer-empty {
   padding-left: 3px;
-  font-size: 0.8rem;
+  font-size: var(--font-md);
 }
 
 .transfer-toolbar {
@@ -2287,7 +2286,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .transfer-toolbar button {
   padding: 4px 10px;
-  font-size: 0.85rem;
+  font-size: var(--font-md);
 }
 
 .transfer-toolbar #browse-up {
@@ -2310,7 +2309,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .transfer-upload-note {
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: var(--font-md);
   margin: 0;
 }
 
@@ -2329,16 +2328,16 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .transfer-tag {
   margin-left: 6px;
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--hover-surface);
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: var(--font-xs);
 }
 
 .browse-root {
   overflow-wrap: anywhere;
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: var(--font-md);
   margin: 0;
 }
 
@@ -2369,14 +2368,14 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 }
 
 .browse-row .transfer-name {
-  font-size: 13px;
+  font-size: var(--font-md);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .browse-row .transfer-meta {
-  font-size: 0.72rem;
+  font-size: var(--font-xs);
   white-space: nowrap;
   flex: 0 0 auto;
   margin-left: 6px;
@@ -2417,7 +2416,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   height: 26px;
   min-height: 26px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
 }
@@ -2456,11 +2455,11 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .browse-row.is-added .transfer-name::after {
   content: "new";
-  font-size: 0.65rem;
+  font-size: var(--font-2xs);
   font-weight: 700;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 20%, transparent);
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   padding: 1px 5px;
   margin-left: 6px;
   vertical-align: middle;
@@ -2485,11 +2484,11 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .browse-row.is-removed .transfer-name::after {
   content: "removed";
-  font-size: 0.65rem;
+  font-size: var(--font-2xs);
   font-weight: 600;
-  color: #ffffff;
+  color: var(--danger-ink);
   background: var(--danger);
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   padding: 1px 5px;
   margin-left: 6px;
   vertical-align: middle;
@@ -2540,7 +2539,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
    it, then an outline and a raised surface. */
 .browse-twisty {
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
   padding: 0;
@@ -2561,7 +2560,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.8;
-  transition: transform 180ms ease;
+  transition: transform var(--motion-base) ease;
 }
 
 .browse-twisty:hover {
@@ -2626,7 +2625,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   width: 100%;
   padding: 22px 16px;
   border: 1px dashed var(--line);
-  border-radius: 11px;
+  border-radius: var(--radius-panel);
   background: none;
   color: var(--muted);
   font: inherit;
@@ -2688,7 +2687,7 @@ body.sidebar-collapsed .navigator-resizer {
   bottom: 0;
   width: 7px;
   cursor: col-resize;
-  z-index: 4;
+  z-index: var(--layer-pane-overlay);
 }
 
 .navigator-resizer::after {
@@ -2696,7 +2695,7 @@ body.sidebar-collapsed .navigator-resizer {
   position: absolute;
   inset: 0 3px;
   background: transparent;
-  transition: background 120ms ease;
+  transition: background var(--motion-fast) ease;
 }
 
 .navigator-resizer:hover::after,
@@ -2738,9 +2737,9 @@ body.is-resizing-sidebar {
   background: none;
   color: var(--muted);
   padding: 6px 8px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   font: inherit;
-  font-size: 0.85rem;
+  font-size: var(--font-md);
   cursor: pointer;
 }
 
@@ -2834,7 +2833,7 @@ body.is-resizing-sidebar {
   display: flex;
   gap: 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface-raised);
   /* Anchors the suggestion list, so the row can move without the list needing
      to know how far down the panel it now sits. Nothing here clips, or the list
@@ -2851,7 +2850,7 @@ body.is-resizing-sidebar {
   border-radius: 0;
   background: transparent;
   color: var(--input-text);
-  font-size: 0.82rem;
+  font-size: var(--font-md);
   font-family: var(--mono);
 }
 
@@ -2895,7 +2894,7 @@ body.is-resizing-sidebar {
    path sits at the panel's foot, so the list opens upward, over the tree. */
 .file-suggestions {
   position: absolute;
-  z-index: 5;
+  z-index: calc(var(--layer-pane-overlay) + 1);
   bottom: calc(100% + 4px);
   left: 0;
   right: 0;
@@ -2906,13 +2905,13 @@ body.is-resizing-sidebar {
   list-style: none;
   background: var(--surface-raised);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
 }
 
 .file-suggestion {
   padding: 5px 8px;
-  border-radius: 6px;
-  font-size: 0.82rem;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-md);
   cursor: pointer;
   overflow-wrap: anywhere;
 }
@@ -2929,16 +2928,16 @@ body.is-resizing-sidebar {
 }
 
 .composer-files {
-  z-index: 6;
+  z-index: calc(var(--layer-pane-overlay) + 2);
   bottom: calc(100% + 6px);
   max-height: min(260px, 40vh);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
+  box-shadow: var(--shadow-popover);
 }
 
 .composer-file {
   padding: 8px 10px;
   font-family: var(--mono);
-  font-size: 0.85rem;
+  font-size: var(--font-md);
 }
 
 .composer-file[data-kind="directory"] {
@@ -2952,7 +2951,7 @@ body.is-resizing-sidebar {
   align-items: baseline;
   gap: 10px;
   padding: 8px 10px;
-  font-size: 0.85rem;
+  font-size: var(--font-md);
   overflow-wrap: normal;
 }
 
@@ -2975,9 +2974,9 @@ body.is-resizing-sidebar {
   flex: none;
   padding: 1px 6px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: var(--font-xs);
 }
 
 @media (pointer: coarse) {
@@ -3002,7 +3001,7 @@ body.is-resizing-sidebar {
 
 .file-panel-actions button {
   padding: 4px 10px;
-  font-size: 0.82rem;
+  font-size: var(--font-md);
 }
 
 /* Out through the panel's side padding to the session list's edges. */
@@ -3014,7 +3013,7 @@ body.is-resizing-sidebar {
 }
 
 .file-panel .dialog-feedback {
-  font-size: 0.8rem;
+  font-size: var(--font-md);
   margin: 0;
 }
 
@@ -3037,16 +3036,16 @@ body.is-resizing-sidebar {
   gap: 8px;
   padding: 6px 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
 }
 
 .uploads-row .transfer-name {
   overflow-wrap: anywhere;
-  font-size: 0.88rem;
+  font-size: var(--font-lg);
 }
 
 .uploads-row .transfer-meta {
-  font-size: 0.72rem;
+  font-size: var(--font-xs);
 }
 
 .uploads-row .transfer-row-actions button {
@@ -3087,7 +3086,7 @@ body.is-resizing-sidebar {
   max-height: var(--viewer-content-height);
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: var(--radius-input);
+  border-radius: var(--radius-control);
   background: var(--surface-raised);
   /* a phone's pinch anywhere in the viewer (text, image, video) can zoom the
      page and leave the zoom behind when the dialog closes */
@@ -3113,7 +3112,7 @@ body.is-resizing-sidebar {
   width: 100%;
   height: var(--viewer-content-height);
   border: 0;
-  background: #ffffff;
+  background: var(--viewer-page);
 }
 
 .viewer-audio {
@@ -3130,7 +3129,7 @@ body.is-resizing-sidebar {
   padding: 12px;
   overflow: auto;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-sm);
   line-height: 1.5;
   white-space: pre;
   text-align: left;
@@ -3149,10 +3148,10 @@ body.is-resizing-sidebar {
   height: 32px;
   padding: 0 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface-raised);
   color: var(--input-text);
-  font-size: 0.82rem;
+  font-size: var(--font-md);
   min-height: 30px;
   padding: 2px 6px;
 }
@@ -3166,7 +3165,7 @@ body.is-resizing-sidebar {
 }
 
 .group-collapse svg {
-  transition: transform 140ms ease;
+  transition: transform var(--motion-fast) ease;
   transform: rotate(90deg);
 }
 
@@ -3184,7 +3183,7 @@ body.is-resizing-sidebar {
    notification would be suppressed. One tap opens that pane. */
 .app-alert {
   position: fixed;
-  z-index: 40;
+  z-index: var(--layer-toast);
   top: max(12px, env(safe-area-inset-top));
   left: 50%;
   transform: translate(calc(-50% + var(--swipe-x, 0px)), var(--swipe-y, 0px));
@@ -3199,8 +3198,8 @@ body.is-resizing-sidebar {
   color: var(--accent-ink);
   background: var(--accent);
   border: 1px solid var(--accent);
-  border-radius: 10px;
-  box-shadow: 0 10px 28px rgb(0 0 0 / 0.35);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-float);
   cursor: pointer;
 }
 
@@ -3209,11 +3208,11 @@ body.is-resizing-sidebar {
 }
 
 .app-alert.leaving {
-  transition: transform 0.22s ease-out, opacity 0.22s ease-out;
+  transition: transform var(--motion-base) ease-out, opacity var(--motion-base) ease-out;
 }
 
 .app-alert:not(.swiping):not(.leaving) {
-  transition: transform 0.18s ease-out;
+  transition: transform var(--motion-base) ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3225,7 +3224,7 @@ body.is-resizing-sidebar {
 
 .app-alert span {
   color: var(--accent-ink);
-  font-size: 13px;
+  font-size: var(--font-md);
 }
 
 /* The key bar drives the terminal: the Chat lens hides it, and the chat takes
@@ -3240,6 +3239,17 @@ body.is-resizing-sidebar {
 
 .terminal-panel[data-lens="chat"] .input-composer {
   --composer-font-size: var(--chat-font-size, var(--terminal-font-size));
+}
+
+/* A touch browser zooms the page in on a text box set under 16px. */
+@media (hover: none) {
+  .input-composer {
+    --composer-font-size: max(var(--font-input-touch), var(--terminal-font-size));
+  }
+
+  .terminal-panel[data-lens="chat"] .input-composer {
+    --composer-font-size: max(var(--font-input-touch), var(--chat-font-size, var(--terminal-font-size)));
+  }
 }
 
 /* Dragging in the sidebar. A held row is not text: a long press picks it up
@@ -3271,12 +3281,12 @@ body.is-sidebar-dragging * {
 /* The row under the pointer, following it above everything else. */
 .sidebar-drag-ghost {
   position: fixed;
-  z-index: 1000;
+  z-index: var(--layer-drag);
   margin: 0;
   border: 1px solid var(--accent);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface-raised);
-  box-shadow: 0 10px 28px var(--mobile-shadow);
+  box-shadow: var(--shadow-float);
   opacity: 0.82;
   pointer-events: none;
 }
@@ -3289,9 +3299,9 @@ body.is-sidebar-dragging * {
 /* Where the row will land. */
 .sidebar-drop-line {
   position: fixed;
-  z-index: 1001;
+  z-index: calc(var(--layer-drag) + 1);
   height: 2px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   background: var(--accent);
   box-shadow: 0 0 6px var(--accent);
   pointer-events: none;
@@ -3304,10 +3314,10 @@ body.is-sidebar-dragging * {
 /* The half of a pane a session dropped there would take. */
 .pane-drop-preview {
   position: fixed;
-  z-index: 999;
+  z-index: calc(var(--layer-drag) - 1);
   box-sizing: border-box;
   border: 2px dashed var(--accent);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   pointer-events: none;
 }
@@ -3318,7 +3328,7 @@ body.is-sidebar-dragging * {
 
 /* Another project a session would move to. */
 .workspace-group.is-drop-target {
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--accent) 9%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
 }
@@ -3367,7 +3377,7 @@ body.is-sidebar-dragging * {
   justify-content: space-between;
   gap: 12px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 
 .pane-grid-zoom[hidden] {
@@ -3385,7 +3395,7 @@ body.is-sidebar-dragging * {
   flex: 1 1 auto;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-panel);
   background: var(--terminal-bg);
 }
 
@@ -3425,7 +3435,7 @@ body.is-sidebar-dragging * {
 
 /* The focused cell is the selected pane: typing, the composer and the key bar go there. */
 .pane-grid-cell.is-focused {
-  z-index: 1;
+  z-index: var(--layer-raised);
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
 }
@@ -3441,7 +3451,7 @@ body.is-sidebar-dragging * {
   background: var(--surface);
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-xs);
   cursor: default;
   user-select: none;
 }
@@ -3473,7 +3483,7 @@ body.is-pane-rearranging * {
 
 /* The dashed preview eases between the places it shows rather than jumping. */
 .pane-grid-drop-preview {
-  transition: left 120ms ease-out, top 120ms ease-out, width 120ms ease-out, height 120ms ease-out;
+  transition: left var(--motion-fast) ease-out, top var(--motion-fast) ease-out, width var(--motion-fast) ease-out, height var(--motion-fast) ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3495,11 +3505,11 @@ body.is-pane-rearranging * {
 
 .pane-grid-drop-label {
   padding: 3px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent);
   color: var(--accent-ink);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 600;
 }
 
@@ -3512,19 +3522,19 @@ body.is-pane-rearranging * {
   position: fixed;
   top: 0;
   left: 0;
-  z-index: 1000;
+  z-index: var(--layer-drag);
   max-width: 280px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
   border: 1px solid var(--accent);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface-raised);
-  box-shadow: 0 10px 28px var(--mobile-shadow);
+  box-shadow: var(--shadow-float);
   color: var(--text);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-sm);
   opacity: 0.9;
   pointer-events: none;
 }
@@ -3542,7 +3552,7 @@ body.is-pane-rearranging * {
 .pane-grid-status {
   width: 14px;
   min-width: 14px;
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 
 .pane-grid-label {
@@ -3559,10 +3569,10 @@ body.is-pane-rearranging * {
   flex: 0 1 auto;
   overflow: hidden;
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: var(--surface-raised);
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3582,7 +3592,7 @@ body.is-pane-rearranging * {
   place-items: center;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
 }
@@ -3638,7 +3648,7 @@ body.is-pane-rearranging * {
   margin: auto;
   padding: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
   text-align: center;
 }
 
@@ -3665,7 +3675,7 @@ body.is-pane-rearranging * {
   align-items: center;
   gap: 6px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 
 .grid-back[hidden] {
@@ -3707,7 +3717,7 @@ body.is-pane-rearranging * {
   padding: 0;
   min-width: 6px;
   border: 2px solid transparent;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   background: var(--line);
   background-clip: padding-box;
   cursor: pointer;
@@ -3718,7 +3728,7 @@ body.is-pane-rearranging * {
 .pane-map-cell[data-status="done"] { background-color: color-mix(in srgb, var(--done) 55%, var(--line)); }
 
 .pane-map-cell[aria-pressed="true"] {
-  z-index: 1;
+  z-index: var(--layer-raised);
   box-shadow: 0 0 0 2px var(--accent);
 }
 
@@ -3742,7 +3752,7 @@ body.is-pane-rearranging * {
   min-width: 0;
   display: grid;
   gap: 2px;
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 
 .pane-map-count {

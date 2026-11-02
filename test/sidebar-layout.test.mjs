@@ -112,10 +112,9 @@ test("the file tree shares the session list's skeleton", () => {
   );
   assert.doesNotMatch(styles, /\.browse-lead \{\s*gap:/u, "no second gap that the later rule silently overrides");
   // Names and colours are a session button's.
-  assert.equal(
-    cssPixels(/\.browse-row \.transfer-name \{\s*font-size: (\d+)px;/u, "file name size"),
-    cssPixels(/:is\(\.pane-copy, \.ui-nav-copy\) strong \{[^}]*font-size: (\d+)px;/u, "session name size"),
-  );
+  const fileNameSize = styles.match(/\.browse-row \.transfer-name \{\s*font-size: ([^;]+);/u)?.[1];
+  assert.ok(fileNameSize, "file name size CSS value must exist");
+  assert.equal(fileNameSize, styles.match(/:is\(\.pane-copy, \.ui-nav-copy\) strong \{[^}]*font-size: ([^;]+);/u)?.[1]);
   assert.doesNotMatch(styles, /\.browse-row \.transfer-name \{\s*font-size: [\d.]+rem;/u);
   assert.match(styles, /\.browse-row:hover \{\s*background: var\(--surface-raised\);/u);
   assert.match(styles, /:is\(\.pane-button, \.ui-nav-item\):hover \{\s*background: var\(--surface-raised\);/u);
@@ -128,7 +127,7 @@ test("the file tree shares the session list's skeleton", () => {
   assert.ok(sessionArrow && fileArrow, "both arrows must be sized");
   assert.deepEqual([fileArrow[1], fileArrow[2]], [sessionArrow[1], sessionArrow[2]]);
   assert.match(styles, /\.workspace-action \{[^}]*border: 1px solid transparent;[^}]*background: transparent;\s*color: var\(--muted\);/u);
-  assert.match(styles, /\.browse-row \.transfer-row-actions button \{[^}]*border: 1px solid transparent;\s*border-radius: 7px;\s*background: transparent;\s*color: var\(--muted\);/u);
+  assert.match(styles, /\.browse-row \.transfer-row-actions button \{[^}]*border: 1px solid transparent;\s*border-radius: var\(--radius-sm\);\s*background: transparent;\s*color: var\(--muted\);/u);
   assert.match(styles, /\.workspace-action:hover \{\s*border-color: var\(--line\);\s*background: var\(--surface-raised\);\s*color: var\(--control-text\);/u);
   assert.match(styles, /\.browse-row \.transfer-row-actions button:hover \{\s*border-color: var\(--line\);\s*background: var\(--surface-raised\);\s*color: var\(--control-text\);/u);
   assert.equal(
@@ -139,7 +138,7 @@ test("the file tree shares the session list's skeleton", () => {
 
 test("a folder opens with a project's arrow button and animation", () => {
   // The same button: drawn only under the pointer.
-  assert.match(styles, /\.browse-twisty \{\s*border: 1px solid transparent;\s*border-radius: 7px;\s*background: transparent;\s*color: var\(--muted\);/u);
+  assert.match(styles, /\.browse-twisty \{\s*border: 1px solid transparent;\s*border-radius: var\(--radius-sm\);\s*background: transparent;\s*color: var\(--muted\);/u);
   assert.match(styles, /\.browse-twisty:hover \{\s*border-color: var\(--line\);\s*background: var\(--surface-raised\);\s*color: var\(--control-text\);/u);
   // The same turn of the arrow and the same slide of the rows.
   const turn = (selector) => styles.match(new RegExp(`${selector} svg \\{[^}]*transition: ([^;]+);`, "u"))?.[1];
