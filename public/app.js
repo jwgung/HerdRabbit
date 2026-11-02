@@ -31,7 +31,6 @@ import {
   readNavigatorTab,
 } from "./browse-preference.js?v=1.4.23";
 import { terminalConnection } from "./terminal-connection.js?v=1.4.23";
-import { terminalStatus } from "./terminal-status.js?v=1.4.23";
 import { createAttachedTerminal } from "./xterm-terminal.js?v=1.4.23";
 import {
   adjustedChatFontSize,
@@ -286,7 +285,7 @@ const state = {
 };
 
 const {
-  snapshotRecords, newProjectHerdrSession, syncCreateProjectAvailability, herdrSessionForServer,
+  snapshotRecords, newProjectHerdrSession, syncCreateProjectAvailability,
   agentForPane, visibleStatusForPane, acknowledgePaneCompletion, pruneAcknowledgedCompletions,
 } = createSnapshotModel({ state, elements, storage: panePreferenceStorage });
 
@@ -781,12 +780,8 @@ const { showAiAccounts, resumeAiLogins } = createAiAccounts({
 // Made before the sidebar rows and split panes it draws with; it calls them
 // only when the sidebar is drawn.
 const {
-  serverActionMenu,
-  linkActionMenu,
-  tabRenameForm,
   renameIsOpen,
   renderNavigation,
-  paneScopedStores,
   followMovedPaneState,
   moveSidebarItem,
 } = createNavigation({
@@ -969,7 +964,7 @@ let shownPaneView = null;
 
 const {
   SEPARATE_ICON, EVEN_ICON,
-  paneTabId, isLocalRecord, paneLayout, paneGrid, viewGrid, shownGrid, setViewSplit, pruneViewSplit,
+  paneTabId, isLocalRecord, paneGrid, viewGrid, shownGrid, setViewSplit, pruneViewSplit,
   dropOnPane, paneDropTargets, renderPaneViews, selectPane,
   splitSessionName, splitSessionButton, splitDisclosureButton, splitPaneRow,
   evenOutLayout, separateSplitSession,
