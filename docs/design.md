@@ -61,7 +61,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | `--radius-xs` | 4px | 표식, 찾기 강조, 인라인 코드 |
 | `--radius-sm` | 6px | 키 바 키, 목록 행(세션·파일·업로드), 메뉴 항목, 행 안의 작은 아이콘 단추, 묶음 안의 단추(찾기·복사·상태 바, 렌즈 전환, 사이드바 탭, 채팅의 복사·링크 단추) |
 | `--radius-control` | 8px | 버튼(주·보조·고스트·아이콘), 입력칸, 선택칸, 떠 있는 바 |
-| `--radius-panel` | 12px | 메뉴, 팝오버, 제안 목록, 바텀시트, 패널 |
+| `--radius-panel` | 12px | 메뉴, 팝오버, 제안 목록, 패널 |
 | `--radius-card` | 14px | 카드, 대화상자, 채팅 말풍선 |
 | `--radius-pill` | 999px | 배지, 알약 모양 단추 |
 
@@ -97,7 +97,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 |---|---|---|
 | `--shadow-popover` | `0 6px 18px rgb(0 0 0 / 30%)` | 메뉴, 팝오버, 컴포저의 `@`·`/` 목록(`.composer-files`), 터미널 위 떠 있는 바(복사·찾기·상태), 질문 배너 |
 | `--shadow-float` | `0 10px 28px var(--mobile-shadow)` | 떠 있는 카드(질문 카드 overlay), 토스트, 끌기 고스트 |
-| `--shadow-sheet` | `0 24px 80px var(--mobile-shadow)` | 대화상자, 로그인 카드, 바텀시트 |
+| `--shadow-sheet` | `0 24px 80px var(--mobile-shadow)` | 대화상자, 로그인 카드 |
 | `--shadow-drawer` | `18px 0 50px var(--mobile-shadow)` | 폰 사이드바 서랍(옆으로 드리우는 그림자) |
 
 - 폰 서랍의 옆 그림자는 방향이 달라서 `--shadow-drawer`로 따로 둔다.
@@ -172,7 +172,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | 조건 | 뜻 |
 |---|---|
 | `max-width: 760px` | 폰 배치: 사이드바가 서랍이 되고, Chat/Terminal 전환이 아이콘만 보인다 |
-| `max-width: 520px` | 좁은 폰: 메뉴가 바텀시트로 열림, 키 바 편집 대화상자 폭, 터미널 패널 간격 |
+| `max-width: 520px` | 좁은 폰: 키 바 편집 대화상자 폭, 터미널 패널 간격 |
 | `min-width: 521px` | 전송 목록 행을 두 열로(`max-width: 520px`와 겹치지 않게 521px) |
 | `(pointer: coarse)` / `(hover: none)` | 터치 크기와 입력 규칙 |
 | `(hover: hover) and (pointer: fine)` | 마우스에서 파일 목록 행을 더 촘촘하게 |
@@ -183,7 +183,7 @@ JS에서만 쓰는 기준도 같은 값을 따른다(`public/app.js`): `(min-wid
 
 ## 메뉴와 대화상자
 
-- 메뉴: 데스크톱은 단추 옆 팝오버(`--radius-panel`, `--shadow-popover`, `--layer-popover`)다. 폭 520px 이하에서는 화면 아래 시트(좌우·아래 `--space-2` 여백, `--radius-panel`, `--shadow-sheet`)로 열린다. 항목 마크업은 같다. 사이드바 서랍 안의 메뉴는 서랍이 `transform`을 쓰므로 서랍 폭의 시트로, 위 레이어(`popover`)로 띄우는 메뉴는 화면 폭의 시트로 열린다.
+- 메뉴: 폰과 데스크톱 모두 단추 옆 팝오버(`--radius-panel`, `--shadow-popover`, `--layer-popover`)로 연다. 메뉴는 항목이 몇 개뿐이라, 화면 아래 시트로 열면 단추와 너무 떨어진다(UI-4에서 시도했다가 되돌림). 터치에서는 항목이 44px 높이다.
 - 위험한 항목은 `is-danger`로 표시하고 맨 아래에 둔다.
 - 대화상자는 `dialog.app-dialog`와 `.dialog-form`을 쓴다. 앱의 대화상자는 제출을 JS로 처리하고, `form method="dialog"`는 `public/ui` 예제의 방식이다. 주 동작 버튼은 오른쪽 끝, 취소·닫기는 맨 왼쪽, 그 밖의 보조 동작은 사이다(Connect PC: Close · Test connection · Save).
 - 클래스와 마크업은 `public/ui/README.md`의 HTML 인터페이스를 따른다.
