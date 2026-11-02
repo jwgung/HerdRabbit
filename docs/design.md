@@ -147,7 +147,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 ## 터치와 입력
 
-- 터치 기기(`@media (pointer: coarse)` 또는 `(hover: none)`)에서 누를 수 있는 것은 44×44px 이상이다. 보이는 크기가 작아야 하면 padding이나 `::before`로 누르는 영역만 넓힌다. 아직 이 기준보다 작은 것이 많다. 터치에서 일부러 줄인 사이드바 프로젝트 줄의 단추(26px)·파일 행의 단추(26px)·터미널 찾기 바 단추(36px)가 있고, 모든 입력 방식에서 22~42px인 단추(`.icon-button` 34px, 메뉴 항목 34px, 렌즈 전환 30px, 접기 화살표 22px 등)도 있다. UI-4에서 전체를 다시 재서 맞춘다.
+- 터치 기기(`@media (pointer: coarse)` 또는 `(hover: none)`)에서 누를 수 있는 것은 44×44px 이상이다. 보이는 크기가 작아야 하면 padding이나 `::before`로 누르는 영역만 넓힌다. 아직 이 기준보다 작은 것이 많다. 터치에서 일부러 줄인 사이드바 프로젝트 줄의 단추(26px)·파일 행의 단추(26px)·터미널 찾기 바 단추(36px)가 있고, 모든 입력 방식에서 22~42px인 단추(`.icon-button` 34px, 메뉴 항목 34px, 렌즈 전환 30px(터치에서 34px), 접기 화살표 22px 등)도 있다. UI-4에서 전체를 다시 재서 맞춘다.
 - 터치 기기의 텍스트 입력칸은 글자 16px 이상이다. 16px보다 작으면 iOS Safari가 포커스 때 화면을 확대한다. 컴포저는 터미널(채팅에서는 채팅) 글자 크기를 따르되, `(hover: none)`에서는 `max(var(--font-input-touch), …)`로 16px 아래로 내려가지 않는다(UI-2). 다른 입력칸은 UI-4에서 맞춘다.
 - 마우스 전용 동작(hover로만 보이는 버튼)은 터치 기기에서 항상 보이게 하거나 다른 길을 둔다.
 - 아이콘만 있는 버튼에는 `aria-label`을 둔다. 포커스는 `:focus-visible`에 `2px solid var(--accent)` 고리다(`public/ui/base.css`).
@@ -198,11 +198,11 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | 규칙 | 걸리는 것 | 걸리지 않는 것 |
 |---|---|---|
 | color | 값 안의 `#…`, `rgb()`·`hsl()` 등 색 함수(대체값 포함) | 선택자의 id(`#add-menu`), `transparent`, `currentColor` |
-| font-size | `px`·`rem`·`pt`·`%`·`vw` 등 리터럴, 다른 종류의 토큰 | `--font-*`, 터미널·컴포저·채팅 글자 크기 변수, `calc(var(--font-…) * var(--chat-scale, 1))`, `inherit`, 채팅 마크다운·질문 카드 파일의 `em` |
-| radius | `px`·`rem`·`em` 리터럴, 다른 종류의 토큰 | `--radius-*`, `0`, `50%` |
+| font-size | `px`·`rem`·`pt`·`%`·`vw` 등 리터럴(대체값 포함), 다른 종류의 토큰, 혼자 쓴 `--chat-scale` | `--font-*`, 터미널·컴포저·채팅 글자 크기 변수, `calc(var(--font-…) * var(--chat-scale, 1))`, `inherit`, 채팅 마크다운·질문 카드 파일의 `em` |
+| radius | `px`·`rem`·`em`·`pt` 리터럴(대체값 포함), 다른 종류의 토큰 | `--radius-*`, `0`, `50%` |
 | z-index | 토큰 밖 숫자, 다른 종류의 토큰 | `var(--layer-…)`, `calc(var(--layer-…) ± N)`, `0`, `auto` |
 | shadow | 번지고(blur) 비켜난(offset) 그림자 리터럴, `--shadow-*` 아닌 토큰 하나만 쓴 값 | `var(--shadow-…)`, 고리·빛(offset 0), 막대(blur 0), `none` |
-| motion | `transition`·`transition-duration`의 0 아닌 시간 리터럴, 다른 종류의 토큰 | `--motion-*`, `--sidebar-motion`, `--sidebar-ease`, `0s`, 모션 줄이기 설정의 `0.01ms !important` |
+| motion | `transition`·`transition-duration`의 0 아닌 시간 리터럴, 다른 종류의 토큰 | `--motion-*`, `--sidebar-motion`, `--sidebar-ease`, `0s`, 모션 줄이기 설정의 `!important`가 붙은 0.01ms 이하 |
 | animation | 한 블록에 `steps()`와 `infinite`가 함께 있음 | 끝이 있는 `steps()` |
 
-검사하지 않는 파일: `public/ui/tokens.css`(값이 사는 곳), `public/ui/examples.css`(카탈로그 페이지 자체의 배치), `public/vendor/xterm.css`(가져온 파일). 간격, 터치 크기, 문구, 이름 있는 색(`white`), `font` 줄임 속성, data URL 안의 색은 검사하지 않고 리뷰로 본다. 대소문자는 가리지 않는다.
+검사하지 않는 파일: `public/ui/tokens.css`(값이 사는 곳), `public/ui/examples.css`(카탈로그 페이지 자체의 배치), `public/vendor/xterm.css`(가져온 파일). 간격, 터치 크기, 문구, 이름 있는 색(`white`), `font` 줄임 속성, `transition-delay`·`animation-*`의 시간은 검사하지 않고 리뷰로 본다. 문자열 안의 `/*`는 주석으로 보지 않는다. 대소문자는 가리지 않는다.

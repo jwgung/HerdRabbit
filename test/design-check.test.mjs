@@ -68,10 +68,28 @@ test("only the reduced-motion override escapes the motion rule with !important",
   assert.deepEqual(rules(".a { transition: opacity 300ms !important; }"), ["1 motion"]);
 });
 
-test("a long run of digits does not stall the check", () => {
-  const started = performance.now();
-  designViolations(`.a { box-shadow: 0 ${"9".repeat(5000)} 1px var(--scrim); font-size: ${"1".repeat(5000)}; }`, "public/styles.css");
-  assert.ok(performance.now() - started < 1000, "linear in the value's length");
+test("a literal fallback is a break; the chat's scale is not a size on its own", () => {
+  assert.deepEqual(rules(".a { font-size: var(--font-sm, 12px); }\n.b { border-radius: var(--radius-sm, 7px); }\n.c { font-size: var(--chat-scale); }"),
+    ["1 font-size", "2 radius", "3 font-size"]);
+  assert.deepEqual(rules(".a { z-index: var(--layer-toast) !important; }"), []);
+});
+
+test("a \"/*\" inside a string does not hide what follows", () => {
+  assert.deepEqual(rules('.a { content: "/*"; }\n.b { color: #fff; }'), ["2 color"]);
+});
+
+test("long runs of digits and unclosed comments do not stall the check", () => {
+  for (const css of [
+    `.a { box-shadow: 0 ${"9".repeat(20000)} 1px var(--scrim); font-size: ${"1".repeat(20000)}; }`,
+    `.a { box-shadow: 0 ${"9".repeat(20000)}x 1px var(--scrim); }`,
+    `.a { box-shadow: 0 ${"9".repeat(20000)}. 1px var(--scrim); }`,
+    "/*x".repeat(20000),
+    ".a { color: #fff; }\n".repeat(20000),
+  ]) {
+    const started = performance.now();
+    designViolations(css, "public/styles.css");
+    assert.ok(performance.now() - started < 1000, `linear in the input's length (${css.slice(0, 20)}…)`);
+  }
 });
 
 test("line numbers count past comments that span lines", () => {
