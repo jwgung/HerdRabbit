@@ -2,9 +2,11 @@
 
 HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `public/ui/tokens.css`의 토큰으로 쓰고, 이 문서에 없는 값이 필요하면 먼저 이 문서와 토큰을 고친다.
 
-이 문서는 2026-11-02에 앱 CSS를 측정해서 만들었다. 대상 파일: `public/styles.css`, `public/ui/*.css`, `public/chat/chat-view.css`, `public/chat/prompt-card.css`, `public/key-bar.css`. 측정 당시에는 글자 크기 35종, 모서리 22종, 간격 20여 종, z-index 16종, 그림자 22종, 토큰 밖 색 리터럴 14곳이 있었다. 각 절의 **목표 값**이 규칙이고, **지금 값 → 목표** 표는 토큰 정리(UI-2) 때 옮길 대응표다. 정리 전까지는 지금 값이 남아 있을 수 있다.
+이 문서는 2026-11-02에 앱 CSS를 측정해서 만들었다. 대상 파일: `public/styles.css`, `public/ui/*.css`, `public/chat/chat-view.css`, `public/chat/prompt-card.css`, `public/key-bar.css`. 측정 당시에는 글자 크기 35종, 모서리 22종, 간격 20여 종, z-index 16종, 그림자 22종, 토큰 밖 색 리터럴은 hex 11곳과 그림자 안의 `rgb()` 여러 곳이 있었다. 각 절의 **목표 값**이 규칙이고, **지금 값 → 목표** 표는 토큰 정리(UI-2) 때 옮길 대응표다. 정리 전까지는 지금 값이 남아 있을 수 있다.
 
 표에 있는 토큰 중 지금 `tokens.css`에 있는 것은 `--space-2`, `--space-3`, `--space-5`, `--radius-sm`, `--radius-control`, `--radius-input`, `--radius-panel`, `--radius-card`, `--sidebar-motion`, `--mobile-shadow`, `--terminal-font-size`와 색 토큰뿐이다. 나머지(`--font-*`, `--layer-*`, `--shadow-*`, `--motion-*` 등)는 UI-2에서 추가한다.
+
+작업 번호: UI-2 토큰 정리(CSS만), UI-3 규칙 검사 스크립트, UI-4 컴포넌트 통일, N1/Q2 상태 글자 표시. 토큰 정리가 끝나면 각 절의 "지금 값 → 목표" 표는 지운다.
 
 ## 원칙
 
@@ -82,7 +84,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | 토큰 | 값 | 무엇 (측정 당시 요소) |
 |---|---|---|
 | `--layer-raised` | 1 | 흐름 안에서 살짝 위: 포커스된 격자 칸(1), 선택된 칸(1), 접기 단추(1), 채팅 맨 아래로 단추(2) |
-| `--layer-pane-overlay` | 4 | 패인 위 표시: 터미널 찾기 표식(4)·링크 표식(5), 질문 카드(4), 파일 제안(5)·첨부 목록(6), 사이드바 크기 조절 손잡이(4) |
+| `--layer-pane-overlay` | 4 | 패인 위 표시: 터미널 찾기 표식(4)·링크 표식(5), 질문 카드(4), 파일 제안(5)·`@` 파일 참조 목록(6), 사이드바 크기 조절 손잡이(4) |
 | `--layer-pane-chrome` | 10 | 패인 도구: 복사 바(10), 터미널 상태(11), 터미널 찾기 바(12), 사이드바 머리(11) |
 | `--layer-popover` | 15 | 메뉴·팝오버(지금 10). 패인 도구보다 위, 가림막보다 아래 |
 | `--layer-scrim` | 20 | 폰 사이드바 뒤 가림막 |
@@ -92,6 +94,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | `--layer-drag` | 1000 | 패인 놓을 자리 미리보기(999), 끌기 고스트(1000), 사이드바 놓을 자리 선(1001) |
 
 - 괄호 안은 측정 당시 값이다. 같은 층 안의 순서는 유지한다.
+- 층 이름은 패인 기준이지만 사이드바 요소도 같은 높이의 층을 쓴다(사이드바 머리는 `--layer-pane-chrome`, 크기 조절 손잡이는 `--layer-pane-overlay`).
 - 측정 당시 메뉴 팝오버(10)가 터미널 상태(11)·터미널 찾기(12)보다 낮았다. 목표는 메뉴가 패인 도구보다 위다. 이 순서를 바꿀 때는 겹치는 화면을 브라우저 체크로 확인한다.
 - 대화상자는 네이티브 `<dialog>`의 top layer를 쓰고 z-index를 주지 않는다.
 
@@ -101,9 +104,11 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 |---|---|---|
 | `--shadow-popover` | `0 6px 18px rgb(0 0 0 / 30%)` | 메뉴, 팝오버, 제안 목록 |
 | `--shadow-float` | `0 10px 28px var(--mobile-shadow)` | 떠 있는 바(복사 바, 찾기 바), 토스트 |
-| `--shadow-sheet` | `0 24px 80px var(--mobile-shadow)` | 바텀시트, 폰 서랍, 대화상자 |
+| `--shadow-sheet` | `0 24px 80px var(--mobile-shadow)` | 바텀시트, 대화상자 |
+| `--shadow-drawer` | `18px 0 50px var(--mobile-shadow)` | 폰 사이드바 서랍(옆으로 드리우는 그림자) |
 
-- 지금 쓰는 `rgb(0 0 0 / 18%~35%)` 변형과 `0 12px 36px`, `18px 0 50px`은 위 세 개 중 가까운 것으로 옮긴다.
+- 지금 쓰는 `rgb(0 0 0 / 18%~35%)` 변형과 `0 12px 36px`은 위 세 개 중 가까운 것으로 옮긴다. 폰 서랍의 옆 그림자 `18px 0 50px`은 방향이 달라서 `--shadow-drawer`로 따로 둔다.
+- `--shadow-popover`의 `rgb()`는 일부러 테마와 상관없는 검정이다. 팝오버는 두 테마 모두 바탕보다 어둡게 떨어져 보여야 한다. 리터럴은 `tokens.css` 안에만 둔다.
 - 테두리처럼 쓰는 `inset 0 0 0 1px <색 토큰>`(선택·포커스 고리)와 `0 0 8px var(--online-glow)`, `0 0 12px var(--online-glow)`(연결 점의 빛)은 그림자 토큰 밖으로 허용한다. 색은 토큰만 쓴다.
 
 ## 색
@@ -121,6 +126,10 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | 터미널 | `--terminal-bg`, `--terminal-text` (테마와 상관없이 어둡다) |
 | 가림막·그림자 | `--scrim`, `--mobile-shadow` |
 | 스크롤바 | `--scrollbar-*` |
+| 찾기 강조 (UI-2에서 추가) | `--find-mark`, `--find-mark-current` |
+| diff (UI-2에서 추가) | `--diff-add`, `--diff-del` |
+| 위험 바탕 위 글자 (UI-2에서 추가) | `--danger-ink` |
+| 문서 보기 바탕 (UI-2에서 추가) | `--viewer-page` |
 
 - 새 색이 필요하면 다크·라이트 두 테마 값을 함께 `tokens.css`에 넣는다.
 - 측정 당시 토큰 밖 리터럴과 옮길 토큰:
@@ -149,15 +158,15 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | `done` | Done | `--done` |
 | `unknown` | Unknown | `--agent-unknown` (상태를 아직 모르는 패인) |
 
-- 색은 `public/ui/components.css`의 `.ui-status.state-*`와 같다.
-- 글자는 `public/ui-model.js`의 상태 문구 함수 하나에서 나온다. 화면마다 따로 쓰지 않는다. 측정 당시 이 함수는 `idle`을 소문자 그대로 돌려줬다. "Idle"로 맞추는 일은 상태 글자 작업(N1/Q2)에서 한다.
+- 색은 `public/ui/components.css`의 `.ui-status.state-*`와 같다. `unknown`은 따로 규칙이 없고 기본 `.ui-status` 색을 쓴다.
+- 글자는 `public/ui-model.js`의 상태 문구 함수 하나에서 나온다. 화면마다 따로 쓰지 않는다. 측정 당시 이 함수는 `idle`과 `unknown`을 소문자 그대로 돌려줬다. "Idle", "Unknown"으로 맞추는 일은 상태 글자 작업(N1/Q2)에서 한다.
 - 공간이 없는 곳(사이드바 행 끝)에서는 기호만 두되, 같은 뜻의 글자를 `aria-label`과 `title`로 붙인다. 폰 헤더처럼 한 패인을 보여 주는 곳에는 글자를 보인다.
 - 연결 상태(`connecting`, `offline`)는 에이전트 상태와 섞지 않는다.
 
 ## 터치와 입력
 
 - 터치 기기(`@media (pointer: coarse)` 또는 `(hover: none)`)에서 누를 수 있는 것은 44×44px 이상이다. 보이는 크기가 작아야 하면 padding이나 `::before`로 누르는 영역만 넓힌다.
-- 터치 기기의 텍스트 입력칸은 글자 16px 이상이다. 16px보다 작으면 iOS Safari가 포커스 때 화면을 확대한다. 컴포저는 터미널 글자 크기를 따르므로, 터치 기기에서는 `max(16px, var(--terminal-font-size))`로 둔다.
+- 터치 기기의 텍스트 입력칸은 글자 16px 이상이다. 16px보다 작으면 iOS Safari가 포커스 때 화면을 확대한다. 컴포저는 터미널 글자 크기를 따르므로, 터치 기기에서는 `max(var(--font-input-touch), var(--terminal-font-size))`로 둔다.
 - 마우스 전용 동작(hover로만 보이는 버튼)은 터치 기기에서 항상 보이게 하거나 다른 길을 둔다.
 - 아이콘만 있는 버튼에는 `aria-label`을 둔다. 포커스는 `:focus-visible`에 `2px solid var(--accent)` 고리다(`public/ui/base.css`).
 
@@ -167,9 +176,9 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 |---|---|
 | `max-width: 760px` | 폰 배치: 사이드바가 서랍이 되고 헤더가 한 줄 |
 | `max-width: 520px` | 좁은 폰: 대화상자 폭, 터미널 패널 간격. 목표로 메뉴를 바텀시트로 바꾸는 기준(UI-4) |
-| `min-width: 520px` | 전송 목록 행을 두 열로 |
-| `pointer: coarse` / `hover: none` | 터치 크기와 입력 규칙 |
-| `hover: hover and pointer: fine` | 마우스 전용 표시(hover 버튼) |
+| `min-width: 520px` | 전송 목록 행을 두 열로. 정확히 520px에서는 `max-width: 520px`와 함께 맞는다(UI-2에서 `min-width: 521px`로 정리) |
+| `(pointer: coarse)` / `(hover: none)` | 터치 크기와 입력 규칙 |
+| `(hover: hover) and (pointer: fine)` | 마우스 전용 표시(hover 버튼) |
 
 새 너비 기준을 만들지 않는다. 다른 값이 필요하면 이 표를 고친다.
 
@@ -177,7 +186,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 - 메뉴: 데스크톱은 단추 옆 팝오버(`--radius-panel`, `--shadow-popover`, `--layer-popover`)다. 목표는 폰(520px 이하)에서 바텀시트(`--shadow-sheet`, 윗모서리 `--radius-panel`)로 그리는 것이다. 측정 당시에는 폰에서도 팝오버였다. 한 메뉴를 두 모양으로 그리고, 항목 마크업은 같다(UI-4).
 - 위험한 항목은 `is-danger`로 표시하고 맨 아래에 둔다.
-- 대화상자는 `dialog.app-dialog`와 `.dialog-form`을 쓴다. 앱의 대화상자는 제출을 JS로 처리하고, `form method="dialog"`는 `public/ui` 예제의 방식이다. 주 동작 버튼은 오른쪽 끝, 취소는 그 왼쪽이다.
+- 대화상자는 `dialog.app-dialog`와 `.dialog-form`을 쓴다. 앱의 대화상자는 제출을 JS로 처리하고, `form method="dialog"`는 `public/ui` 예제의 방식이다. 주 동작 버튼은 오른쪽 끝, 취소는 그 왼쪽이다. 측정 당시 Connect PC 대화상자(`#servers-dialog`)만 Close가 Save 오른쪽에 있었다(UI-4에서 맞춤).
 - 클래스와 마크업은 `public/ui/README.md`의 HTML 인터페이스를 따른다.
 
 ## 움직임
