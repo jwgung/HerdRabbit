@@ -1,8 +1,9 @@
 // `/` commands in the composer. Typed at the very start of the text, a `/`
-// offers the commands the selected pane's agent takes -- Claude Code's, Codex's
-// or OpenCode's own, and the skills, commands and prompts the user, the project
-// and installed plugins add (GET /api/panes/:id/commands). Picking one puts
-// `/name ` in; nothing is sent.
+// offers the commands the selected pane's agent takes -- Claude Code's,
+// Codex's, OpenCode's, Kiro's or Antigravity's own, and the skills, commands
+// and prompts the user, the project and installed plugins add
+// (GET /api/panes/:id/commands). Picking one puts `/name ` in; nothing is
+// sent.
 //
 // The parts that decide what is typed, what matches and what goes in are
 // plain functions; slashCommandsSource hands them to the list above the

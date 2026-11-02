@@ -13,8 +13,8 @@ const MATRIX = {
   claude:   { label: "Claude",      chat: true, card: true, slash: true,  stop: true },
   codex:    { label: "Codex",       chat: true, card: true, slash: true,  stop: true },
   opencode: { label: "OpenCode",    chat: true, card: true, slash: true,  stop: true },
-  kiro:     { label: "Kiro",        chat: true, card: true, slash: false, stop: true },
-  agy:      { label: "Antigravity", chat: true, card: true, slash: false, stop: true },
+  kiro:     { label: "Kiro",        chat: true, card: true, slash: true, stop: true },
+  agy:      { label: "Antigravity", chat: true, card: true, slash: true, stop: true },
 };
 
 test("each agent is offered exactly the features it has", () => {
@@ -77,7 +77,7 @@ test("when names disagree the mark follows a fixed order, not the field they cam
 
 test("the lists keep their order, and the tooltip names the agents Chat reads", () => {
   assert.deepEqual([...CHAT_AGENTS], ["claude", "codex", "opencode", "kiro", "agy"]);
-  assert.deepEqual([...SLASH_AGENTS], ["claude", "codex", "opencode"]);
+  assert.deepEqual([...SLASH_AGENTS], ["claude", "codex", "opencode", "kiro", "agy"]);
   assert.equal(
     chatUnavailableText("not_supported_agent"),
     "Chat is only for Claude Code, Codex, OpenCode, Kiro and Antigravity panes.",

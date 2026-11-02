@@ -15,6 +15,8 @@ import {
   MAX_OPENCODE_LEVELS,
   MAX_REMOTE_COMMANDS,
   MAX_SKILL_DEPTH,
+  AGY_BUILT_IN_COMMANDS,
+  KIRO_BUILT_IN_COMMANDS,
   OPENCODE_BUILT_IN_COMMANDS,
   MAX_SCANNED_ENTRIES,
   SlashCommandCatalog,
@@ -568,4 +570,73 @@ test("a huge project folder takes nothing from the user's own commands", async (
   const answer = await catalog.list({ agent: "claude", cwd: project });
   assert.deepEqual(names(answer, "user"), ["alpha", "beta", "a:b:c:deep", "frontend:component", "huge"]);
   assert.deepEqual(names(answer, "plugin"), ["tools:lint", "tools:fmt"]);
+});
+
+// Kiro CLI and Antigravity CLI (2026-11-01): their own commands as their
+// menus list them, and the skills and prompts they read from disk, found
+// where each reads them (checked in a live kiro-cli 2.35.1 and agy 1.4.12).
+async function kiroAgyTree() {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "slash-ka-")));
+  const home = join(root, "home");
+  const repo = join(root, "repo");
+  const sub = join(repo, "sub");
+  await mkdir(join(repo, ".git"), { recursive: true });
+  const skill = (folder, name, description) => writeTo(join(folder, name, "SKILL.md"), `---\nname: ${name}\ndescription: ${description}\n---\nbody\n`);
+  // Kiro: ~/.kiro/{skills,prompts}, and the pane's own folder's .kiro
+  await skill(join(home, ".kiro", "skills"), "tdd", "Test first");
+  await writeTo(join(home, ".kiro", "prompts", "review.md"), "---\ndescription: Review the diff\n---\nReview it.\n");
+  await writeTo(join(home, ".kiro", "prompts", "nested", "deep.md"), "deep\n");
+  await skill(join(sub, ".kiro", "skills"), "sub-skill", "From the pane's folder");
+  await writeTo(join(sub, ".kiro", "prompts", "ship.md"), "Ship it now.\n");
+  await skill(join(repo, ".kiro", "skills"), "repo-skill", "Kiro does not read a folder above");
+  // Antigravity: ~/.gemini/config/skills, and .agents/skills up to the checkout's root
+  await skill(join(home, ".gemini", "config", "skills"), "g-skill", "Global skill");
+  await skill(join(repo, ".agents", "skills"), "repo-agent-skill", "At the checkout's root");
+  await skill(join(sub, ".agents", "skills"), "sub-agent-skill", "In the pane's folder");
+  await writeTo(join(repo, ".agents", "workflows", "old-flow.md"), "deprecated\n");
+  return { root, home, repo, sub };
+}
+
+test("lists Kiro's own commands, its skills and its file prompts, from the pane's own folder and ~/.kiro", async (context) => {
+  const { root, home, sub } = await kiroAgyTree();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { HOME: home };
+  const catalog = new SlashCommandCatalog({ env, guard: localProtectedPaths({ env, home }) });
+  const answer = await catalog.list({ agent: "kiro", cwd: sub });
+  assert.equal(answer.agent, "kiro");
+  assert.deepEqual(names(answer, "project"), ["sub-skill", "ship"]);
+  assert.deepEqual(names(answer, "user"), ["tdd", "review"]);
+  const built = names(answer, "built-in");
+  for (const name of ["clear", "compact", "model", "agent", "context", "tools", "usage"]) assert.ok(built.includes(name), name);
+  assert.equal(built.length, KIRO_BUILT_IN_COMMANDS.length);
+  assert.equal(answer.commands.find((command) => command.name === "review").description, "Review the diff");
+  assert.ok(!names(answer).includes("repo-skill"), "Kiro reads no folder above the pane's");
+  assert.ok(!names(answer).includes("nested:deep") && !names(answer).includes("deep"), "only prompts directly in the folder");
+});
+
+test("lists Antigravity's own commands and its skills, up to the checkout's root and in ~/.gemini/config", async (context) => {
+  const { root, home, sub } = await kiroAgyTree();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { HOME: home };
+  const catalog = new SlashCommandCatalog({ env, guard: localProtectedPaths({ env, home }) });
+  const answer = await catalog.list({ agent: "agy", cwd: sub });
+  assert.equal(answer.agent, "agy");
+  assert.deepEqual(names(answer, "project"), ["sub-agent-skill", "repo-agent-skill"]);
+  assert.deepEqual(names(answer, "user"), ["g-skill"]);
+  const built = names(answer, "built-in");
+  for (const name of ["clear", "compact", "model", "resume", "skills", "goal", "plan"]) assert.ok(built.includes(name), name);
+  assert.equal(built.length, AGY_BUILT_IN_COMMANDS.length);
+  assert.ok(!names(answer).includes("old-flow"), "workflows are no longer listed by Antigravity");
+});
+
+test("Kiro's and Antigravity's own lists match their recorded menus", () => {
+  assert.equal(KIRO_BUILT_IN_COMMANDS.length, 39);
+  assert.equal(AGY_BUILT_IN_COMMANDS.length, 44);
+  for (const list of [KIRO_BUILT_IN_COMMANDS, AGY_BUILT_IN_COMMANDS]) {
+    assert.equal(new Set(list.map((command) => command.name)).size, list.length);
+    for (const command of list) {
+      assert.match(command.name, /^[a-z][a-z0-9-]*$/u);
+      assert.ok(command.description.length > 0 && !command.description.includes("tab for sub-commands"), command.name);
+    }
+  }
 });
