@@ -157,8 +157,8 @@
   color: inherit;
   text-align: left;
   transition:
-    background-color 140ms ease,
-    border-color 140ms ease;
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }
 
 :is(.pane-button, .ui-nav-item):hover {

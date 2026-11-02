@@ -26,8 +26,8 @@
 
 | 파일 | 책임 |
 | --- | --- |
-| tokens.css | 밝은/어두운 색상, 글꼴, 간격, 모서리 값 |
-| base.css | 페이지 배경과 기본 글꼴, box-sizing, 포커스, 모션 줄이기 |
+| tokens.css | 밝은/어두운 색상, 글꼴, 글자 크기·간격·모서리·층·그림자·움직임 토큰 (규칙: `docs/design.md`) |
+| base.css | 페이지 배경, 제목 크기, box-sizing, 포커스, 모션 줄이기 |
 | components.css | 버튼·입력·메뉴·탐색 항목·사이드바·카드·대화상자 |
 | examples.css / examples.js | 예제 페이지 배치와 시연 동작만 담당 |
 
