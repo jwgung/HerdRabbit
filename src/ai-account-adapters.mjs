@@ -205,19 +205,22 @@ export function secretServiceFound(output) {
   return /['"]\/org\/freedesktop\/secrets\/collection\//u.test(String(output ?? ""));
 }
 
-// Whether the keyring holds agy's sign-in. Only the items' paths are asked
-// for, never a secret; a machine without a keyring, gdbus, or a session bus
-// answers no, as agy then falls back to the file too.
+// Whether the keyring holds agy's sign-in: true, false, or null when it could
+// not be told. Only the items' paths are asked for, never a secret. No session
+// bus, or no keyring service on it, is a no: agy then writes the file too. No
+// gdbus to ask with, or no answer in time, cannot be told.
 async function agyKeyringHoldsToken(env) {
   const address = sessionBusAddress(env);
   if (!address) return false;
-  const output = await new Promise((resolve) => {
+  return new Promise((resolve) => {
     execFile("gdbus", ["call", "--address", address, "--dest", "org.freedesktop.secrets",
       "--object-path", "/org/freedesktop/secrets", "--method", "org.freedesktop.Secret.Service.SearchItems",
       "{'service': 'gemini', 'username': 'antigravity'}"],
-    { timeout: 2_000, maxBuffer: 64 * 1024, windowsHide: true }, (error, stdout) => resolve(error ? "" : stdout));
+    { timeout: 2_000, maxBuffer: 64 * 1024, windowsHide: true }, (error, stdout) => {
+      if (error?.code === "ENOENT" || error?.killed) resolve(null);
+      else resolve(error ? false : secretServiceFound(stdout));
+    });
   });
-  return secretServiceFound(output);
 }
 
 // Antigravity (agy) keeps its sign-in in the system keyring when it can reach
@@ -225,15 +228,17 @@ async function agyKeyringHoldsToken(env) {
 // agy 1.4.12). Only the file can be switched. (The project id it caches
 // beside it is the same default before any sign-in, so it stays.)
 // agy has no sign-in command: it signs in on its first run, here with HOME
-// pointed at the sign-in directory and no session bus, so the new account
+// pointed at the sign-in directory and no way to a session bus (DISPLAY
+// too: D-Bus can be autolaunched from an X display), so the new account
 // lands in a file there and never in the keyring the live one may use.
+// Made by a factory only so tests can answer the keyring question themselves.
 export function createAgyAdapter({ keyringHoldsToken = agyKeyringHoldsToken } = {}) {
   return Object.freeze({
     id: "agy",
     label: "Antigravity CLI",
     homeEnv: "HOME",
-    loginUnsetEnv: Object.freeze(["DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"]),
-    loginCommand: Object.freeze(["agy"]),
+    loginUnsetEnv: ["DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "DISPLAY"],
+    loginCommand: ["agy"],
 
     locate(env) {
       return { token: join(homeOf(env), ".gemini", "antigravity-cli", "antigravity-oauth-token") };
@@ -244,8 +249,12 @@ export function createAgyAdapter({ keyringHoldsToken = agyKeyringHoldsToken } = 
     },
 
     async support(env) {
-      if (await keyringHoldsToken(env)) {
+      const inKeyring = await keyringHoldsToken(env);
+      if (inKeyring) {
         return { supported: false, reason: "Antigravity keeps this sign-in in the system keyring; only its file can be switched" };
+      }
+      if (inKeyring === null) {
+        return { supported: true, reason: "The system keyring could not be checked; if Antigravity keeps its sign-in there, a switch will not take" };
       }
       return { supported: true, reason: null };
     },

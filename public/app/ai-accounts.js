@@ -8,6 +8,12 @@ import {
 } from "../ui-model.js?v=1.4.23";
 import { array, createElement } from "./dom.js?v=1.4.23";
 
+// What the sign-in wait says beyond "waiting", for a CLI that needs more.
+const AI_LOGIN_HINTS = Object.freeze({
+  codex: " Device code sign-in must be on in ChatGPT settings.",
+  agy: " Antigravity signs in on its first run: follow its steps there.",
+});
+
 // The AI accounts dialog and the sign-ins it waits on. Calling createAiAccounts
 // looks up the dialog and adds its listeners; nothing happens when this file is
 // only imported.
@@ -198,8 +204,7 @@ export function createAiAccounts({
     const login = aiAccounts.server ? pendingAiLogins.get(aiAccounts.server.id) : null;
     aiAccountsLogin.hidden = !login;
     if (!login) return;
-    const hint = { codex: " Device code sign-in must be on in ChatGPT settings.",
-      agy: " Antigravity signs in on its first run: follow its steps there." }[login.cli] ?? "";
+    const hint = AI_LOGIN_HINTS[login.cli] ?? "";
     document.querySelector("#ai-accounts-login-text").textContent =
       `Waiting for ${login.label} to be signed in in the “AI login” terminal. It is saved as soon as you are.${hint}`;
   }
