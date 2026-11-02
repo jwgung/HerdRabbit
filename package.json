@@ -11,7 +11,7 @@
     "password": "node scripts/password.mjs",
     "update": "sh update.sh",
     "migrate-to-plugin": "sh migrate-to-plugin.sh",
-    "check": "node scripts/check-syntax.mjs",
+    "check": "node scripts/check-syntax.mjs && node scripts/check-design.mjs",
     "test": "node --test test/*.test.mjs",
     "verify": "npm run check && npm test",
     "check:ui": "node scripts/check-ui-library.mjs",
