@@ -595,8 +595,8 @@ body.sidebar-collapsed .terminal-panel {
   grid-template-rows: 1fr;
   opacity: 1;
   transition:
-    grid-template-rows 180ms ease,
-    opacity 140ms ease;
+    grid-template-rows var(--motion-base) ease,
+    opacity var(--motion-fast) ease;
 }
 
 .workspace-children-inner {
@@ -2101,7 +2101,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
     opacity: 0;
     pointer-events: none;
     transition:
-      opacity 220ms ease,
+      opacity var(--motion-base) ease,
       visibility 0s linear var(--sidebar-motion);
   }
 
@@ -2586,8 +2586,8 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   grid-template-rows: 1fr;
   opacity: 1;
   transition:
-    grid-template-rows 180ms ease,
-    opacity 140ms ease;
+    grid-template-rows var(--motion-base) ease,
+    opacity var(--motion-fast) ease;
 }
 
 .browse-children-inner {

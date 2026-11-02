@@ -4,7 +4,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 이 문서는 2026-11-02에 앱 CSS를 측정해서 만들었다(글자 크기 35종, 모서리 22종, z-index 16종, 그림자 22종, 토큰 밖 hex 색 11곳). 대상 파일: `public/styles.css`, `public/ui/*.css`, `public/chat/chat-view.css`, `public/chat/prompt-card.css`, `public/key-bar.css`.
 
-토큰 정리(UI-2)에서 글자 크기, 모서리, 층, 그림자, 색, 움직임을 모두 토큰으로 옮겼다. 간격은 토큰만 만들고 값은 아직 옮기지 않았다. 남은 작업: 간격 정리와 컴포넌트 통일(UI-4), 규칙 검사 스크립트(UI-3), 상태 글자 표시(N1/Q2).
+토큰 정리(UI-2)에서 글자 크기, 모서리, 층, 그림자, 색, 움직임을 모두 토큰으로 옮겼다. 간격은 토큰을 다 만들었지만 일부 컴포넌트(대화상자 버튼 줄, 사이드바 머리·바닥 등)만 토큰을 쓰고 나머지는 리터럴이다. 남은 작업: 간격 정리와 컴포넌트 통일(UI-4), 규칙 검사 스크립트(UI-3), 상태 글자 표시(N1/Q2).
 
 ## 원칙
 
@@ -22,13 +22,13 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | `--font-sm` | 12px | 기본 UI 글자(사이드바 행, 메뉴, 버튼) |
 | `--font-md` | 13px | 본문(채팅 기본, 대화상자 본문) |
 | `--font-lg` | 14px | 강조 본문, 대화상자 제목 줄 |
-| `--font-input-touch` | 16px | 터치 기기의 입력칸, 폰 패인 제목 |
-| `--font-xl` | 18px | 화면 제목(`h1`) |
-| `--font-2xl` | 22px | 로그인 화면 같은 단독 화면 제목, 아이콘 버튼의 기호 |
+| `--font-input-touch` | 16px | 터치 기기의 입력칸, 패인 제목, 키 바 편집 단추의 기호 |
+| `--font-xl` | 18px | 화면 제목(`h1`, 로그인 제목), 대화상자 제목(`h2`) |
+| `--font-2xl` | 22px | 아이콘 버튼의 기호, 단독 화면의 큰 제목 |
 | `--font-glyph` | 15px | 사이드바 행의 상태 기호 |
 | `--font-glyph-lg` | 17px | 상태 기호(`.ui-status`) |
 
-- `rem`은 쓰지 않는다. 사용자 글꼴 설정은 채팅 배율(`--chat-scale`)과 터미널 글자 크기(`--terminal-font-size`)로만 받는다.
+- `rem`은 쓰지 않는다. 사용자 글꼴 설정은 채팅 배율(`--chat-scale`)과 채팅 글자 크기(`--chat-font-size`, 컴포저가 채팅 렌즈에서 따른다), 터미널 글자 크기(`--terminal-font-size`)로만 받는다. 셋 다 앱이 실행 중에 정한다.
 - 채팅 안의 크기는 `calc(<토큰 값> * var(--chat-scale, 1))`로 쓴다. `--chat-scale`은 토큰이 아니라 앱이 채팅 글꼴 설정에 따라 실행 중에 정하는 값이다(`public/chat-font-preference.js`). 자기 글자 크기에서 비례하는 블록 안의 상대 크기만 `em`을 허용한다: 마크다운 본문(코드, 인용)과 질문 카드(`public/chat/prompt-card.css`).
 - 기호(상태 표식)는 상자에 맞춰 그려서 글자 단계와 따로 `--font-glyph*`를 쓴다.
 - 줄 높이는 UI 1.3, 본문 1.5를 기본으로 한다.
@@ -64,6 +64,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | `--radius-pill` | 999px | 알약 모양 버튼·배지 |
 
 - 원은 `50%`로 쓴다. 모서리를 없앨 때는 `0`을 쓴다.
+- 지금 CSS는 버튼에 `--radius-sm`, 메뉴 팝오버와 목록 행에 `--radius-control`, 대화상자에 `--radius-panel`을 쓴다. 표의 "쓰는 곳"으로 맞추는 일은 컴포넌트 통일(UI-4)에서 한다.
 - `--radius-input`(9px)은 `--radius-control`로 합쳤고, `--radius-sm`은 7px에서 6px로 바꿨다(UI-2).
 - `var(--radius-control, 8px)`처럼 대체값을 쓰지 않는다. `tokens.css`는 항상 먼저 로드된다.
 
@@ -74,7 +75,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | 토큰 | 값 | 무엇 (괄호는 층 안의 순서) |
 |---|---|---|
 | `--layer-raised` | 1 | 흐름 안에서 살짝 위: 포커스된 격자 칸, 선택된 칸, 접기 단추, 채팅 맨 아래로 단추(+1) |
-| `--layer-pane-overlay` | 4 | 패인 위 표시: 터미널 찾기 표식·링크 표식(+1), 질문 카드, 파일 제안(+1)·`@` 파일 참조 목록(+2), 사이드바 크기 조절 손잡이 |
+| `--layer-pane-overlay` | 4 | 패인 위 표시: 터미널 찾기 표식, 링크 표식(+1), 질문 카드, 파일 제안(+1)·`@` 파일 참조 목록(+2), 사이드바 크기 조절 손잡이 |
 | `--layer-pane-chrome` | 10 | 패인 도구: 복사 바, 터미널 상태(+1), 터미널 찾기 바(+2), 사이드바 머리(+1) |
 | `--layer-popover` | 15 | 메뉴·팝오버. 패인 도구보다 위, 가림막보다 아래 |
 | `--layer-scrim` | 20 | 폰 사이드바 뒤 가림막 |
@@ -83,7 +84,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | `--layer-screen` | 100 | 로그인 같은 전체 화면 |
 | `--layer-drag` | 1000 | 패인 놓을 자리 미리보기(-1), 끌기 고스트, 사이드바 놓을 자리 선(+1) |
 
-- 같은 층 안의 순서는 `calc(var(--layer-…) + N)`으로 쓴다.
+- 같은 층 안의 순서는 `calc(var(--layer-…) + N)`으로 쓴다. 쌓임을 되돌리는 `z-index: 0`은 층 토큰 없이 쓴다.
 - 층 이름은 패인 기준이지만 사이드바 요소도 같은 높이의 층을 쓴다(사이드바 머리는 `--layer-pane-chrome`, 크기 조절 손잡이는 `--layer-pane-overlay`).
 - UI-2 전에는 메뉴 팝오버(10)가 터미널 상태(11)·터미널 찾기 바(12)보다 낮았다. 층 순서를 바꿀 때는 겹치는 화면을 브라우저 체크로 확인한다.
 - 대화상자는 네이티브 `<dialog>`의 top layer를 쓰고 z-index를 주지 않는다.
@@ -94,12 +95,15 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 |---|---|---|
 | `--shadow-popover` | `0 6px 18px rgb(0 0 0 / 30%)` | 메뉴, 팝오버, 제안 목록, 터미널 위 떠 있는 바(복사·찾기·상태), 질문 배너 |
 | `--shadow-float` | `0 10px 28px var(--mobile-shadow)` | 떠 있는 카드(질문 카드 overlay), 토스트, 끌기 고스트 |
-| `--shadow-sheet` | `0 24px 80px var(--mobile-shadow)` | 바텀시트, 대화상자 |
+| `--shadow-sheet` | `0 24px 80px var(--mobile-shadow)` | 바텀시트, 대화상자, 로그인 카드 |
 | `--shadow-drawer` | `18px 0 50px var(--mobile-shadow)` | 폰 사이드바 서랍(옆으로 드리우는 그림자) |
 
 - 폰 서랍의 옆 그림자는 방향이 달라서 `--shadow-drawer`로 따로 둔다.
 - `--shadow-popover`의 `rgb()`는 일부러 테마와 상관없는 검정이다. 팝오버는 두 테마 모두 바탕보다 어둡게 떨어져 보여야 한다. 리터럴은 `tokens.css` 안에만 둔다.
-- 테두리처럼 쓰는 `inset 0 0 0 1px <색 토큰>`(선택·포커스 고리)와 `0 0 8px var(--online-glow)`, `0 0 12px var(--online-glow)`(연결 점의 빛)은 그림자 토큰 밖으로 허용한다. 색은 토큰만 쓴다.
+- 그림자가 아니라 선으로 쓰는 `box-shadow`는 그림자 토큰 밖으로 허용한다. 색은 토큰만 쓴다:
+  - 고리: `inset 0 0 0 1px <색>`(선택·포커스), `0 0 0 2px <색>`(선택된 칸, 배지 테두리)
+  - 막대: `inset 3px 0 0 <색>`(고른 행의 왼쪽 표시), `inset 0 ±2px 0 <색>`(키 바의 놓을 자리)
+  - 빛: `0 0 8px`·`0 0 12px var(--online-glow)`(연결 점), `0 0 6px var(--accent)`(사이드바 놓을 자리 선)
 
 ## 색
 
@@ -107,7 +111,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 | 역할 | 토큰 |
 |---|---|
-| 바탕 | `--page`, `--surface`, `--surface-raised`, `--navigator-surface`, `--hover-surface`, `--selected-surface` |
+| 바탕 | `--page`, `--surface`, `--surface-raised`, `--navigator-surface`, `--hover-surface`, `--selected-surface`, `--completion-surface`(완료된 접힌 프로젝트) |
 | 글자 | `--text`, `--muted`, `--control-text`, `--workspace-heading`, `--input-text` |
 | 선 | `--line`, `--hover-line`, `--selected-border` |
 | 강조·주 동작 | `--accent`, `--accent-hover`, `--accent-ink`(강조 바탕 위 글자) |
