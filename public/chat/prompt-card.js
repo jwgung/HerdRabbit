@@ -41,6 +41,37 @@ export function answerBody(card, choice) {
   return { cardId: card.id, option: choice.option };
 }
 
+// The option a number typed in the composer picks ("2" is the second
+// button), or null: only a card answered with one button, and only a number
+// that names one of its buttons.
+export function numberedChoice(card, text) {
+  if (!card || card.multiSelect) return null;
+  const match = /^\s*(\d{1,2})\s*$/u.exec(String(text ?? ""));
+  if (!match) return null;
+  const index = Number(match[1]) - 1;
+  if (index < 0 || index >= card.options.length || index === card.customOptionIndex) return null;
+  return index;
+}
+
+// What the composer says while such a card waits: the numbers that answer it.
+export function composerPlaceholder(card) {
+  if (!card || card.multiSelect) return "";
+  const numbers = card.options.map((_, index) => index).filter((index) => index !== card.customOptionIndex);
+  if (numbers.length === 0) return "";
+  const first = numbers[0] + 1;
+  const last = numbers.at(-1) + 1;
+  return `Type ${first === last ? first : `${first}–${last}`} to answer, or a message`;
+}
+
+// The answer in words, for the line the chat shows until the agent goes on.
+export function answerSummary(card, choice) {
+  if (choice.action === "chat") return "Chat about this";
+  if (choice.text !== undefined) return String(choice.text).trim();
+  const label = (index) => (card.options[index] ? optionLabel(card.options[index].label).text : "");
+  if (choice.options !== undefined) return [...choice.options].sort((a, b) => a - b).map(label).filter(Boolean).join(", ");
+  return label(choice.option);
+}
+
 // A multiple choice starts from what is ticked in the terminal already: the
 // answer is the whole set wanted, so an untouched card keeps those ticks.
 export function initialSelection(card) {
@@ -117,7 +148,9 @@ function renderCard(document, card, view) {
   const section = element(document, "section", { className: `prompt-card${card.fallback ? " is-fallback" : ""}`,
     attrs: { role: "region", "aria-label": card.fallback ? "Waiting for input" : `${agentLabel(card.agent)} is asking`, "aria-busy": String(view.pending), "data-card-id": card.id } });
   const header = element(document, "header", { className: "prompt-card-header" });
-  header.append(element(document, "h2", { text: card.title }));
+  // said in words, not only by the card being there
+  header.append(element(document, "p", { className: "prompt-card-status", text: "Needs your answer" }),
+    element(document, "h2", { text: card.title }));
   if (view.overlay) {
     header.append(element(document, "button", { className: "prompt-card-close", text: "Close",
       attrs: { type: "button", "data-prompt-action": "collapse", title: "Back to the banner" } }));
@@ -153,7 +186,7 @@ function renderCard(document, card, view) {
         row.append(box, number, content);
         options.append(row);
       } else {
-        const button = element(document, "button", { className: "prompt-card-option", attrs: { type: "button", "data-prompt-option": String(index) } });
+        const button = element(document, "button", { className: `prompt-card-option${view.preview === index ? " is-previewed" : ""}`, attrs: { type: "button", "data-prompt-option": String(index) } });
         button.disabled = view.pending;
         button.append(number, content);
         options.append(button);
@@ -196,8 +229,10 @@ function renderCard(document, card, view) {
 // lens and answers whether it could.
 // `conversation(paneId)` answers the text of the chat's last agent turns for
 // that pane ("" when none is loaded), for contextVisible.
+// `onAnswered(paneId, summary)` hears each answer that went out, in words.
+// `onCardChange(card)` hears whenever the pane's card comes, changes or goes.
 export function createPromptDock({ document = globalThis.document, dock, connection, getJson, postJson,
-  showChat = () => false, onAnswered = () => {}, conversation = () => "" }) {
+  showChat = () => false, onAnswered = () => {}, onCardChange = () => {}, conversation = () => "" }) {
   let paneId = null;
   let status = null;
   let agentName = null;
@@ -208,7 +243,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
   // Banners closed on this page, by card id: the same prompt asked again has another id only if it changed.
   const dismissed = new Set();
   // What the shown card's controls hold.
-  let view = { pending: false, error: null, selected: new Set(), custom: "" };
+  let view = { pending: false, error: null, selected: new Set(), custom: "", preview: null };
   let drawn = null;
   // The answer on its way, if any.
   let answering = null;
@@ -219,7 +254,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
   let keepOpen = false;
 
   function resetView() {
-    view = { pending: false, error: null, selected: initialSelection(card), custom: "" };
+    view = { pending: false, error: null, selected: initialSelection(card), custom: "", preview: null };
   }
 
   function setCard(next, { keepError = false } = {}) {
@@ -238,6 +273,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     }
     if (moved) keepOpen = false;
     render();
+    if (changed || moved) onCardChange(card);
   }
 
   function watch(id) {
@@ -253,7 +289,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     dock.hidden = mode === "hidden";
     let context = false;
     try { context = mode !== "hidden" && mode !== "banner" && contextVisible(card, paneId === null ? "" : conversation(paneId)); } catch { context = Boolean(card?.context); }
-    const key = mode === "hidden" ? null : `${mode}|${card.id}|${view.pending}|${view.error}|${[...view.selected].join(",")}|${mode === "banner" ? "" : view.custom}|${context ? card.context : ""}`;
+    const key = mode === "hidden" ? null : `${mode}|${card.id}|${view.pending}|${view.error}|${[...view.selected].join(",")}|${mode === "banner" ? "" : view.custom}|${context ? card.context : ""}|${view.preview}`;
     if (key === drawn) return;
     // the typed answer keeps its focus and caret across a redraw
     const focused = dock.contains(document.activeElement) ? document.activeElement : null;
@@ -316,7 +352,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
           view.pending = false;
           view.selected = initialSelection(card);
           render();
-          onAnswered(id);
+          onAnswered(id, answerSummary(answered, choice));
           if (result?.stays && card?.id === answered.id) {
             keepOpen = true;
             void refresh();
@@ -326,7 +362,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
         // gone from the screen: the push confirms it a moment later, and a
         // look shortly after brings it back if the answer did not take
         setCard(null);
-        onAnswered(id);
+        onAnswered(id, answerSummary(answered, choice));
         setTimeout(() => { if (id === paneId && card === null) void refresh(); }, RECHECK_AFTER_ANSWER_MS);
       }
     } catch (error) {
@@ -441,6 +477,19 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     focus: focusCard,
     // The chat redrew: the card's context may now be in it (contextVisible).
     conversationChanged() { render(); },
+    // A number typed in the composer: the option it names shows as the one
+    // Enter would pick (null clears it), and choose() answers with it.
+    preview(index) {
+      const next = Number.isInteger(index) ? index : null;
+      if (next === view.preview) return;
+      view.preview = next;
+      render();
+    },
+    choose(index) {
+      if (!card || numberedChoice(card, String(index + 1)) !== index) return false;
+      void answer({ option: index });
+      return true;
+    },
     get card() { return card; },
     get mode() { return dock.dataset.mode ?? "hidden"; },
   };

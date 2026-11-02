@@ -1081,6 +1081,7 @@ const { clearComposer, syncSendButton, clearKeyModifiers, renderKeyBar } = creat
   getTerminalInputResizeTimer: () => terminalInputResizeTimer,
   setTerminalInputResizeTimer: (value) => { terminalInputResizeTimer = value; },
   getChatFind: () => chatFind,
+  getPromptDock: () => promptDock,
   getEnterKeyMode: () => enterKeyMode,
   getPhysicalKeyboardSeen: () => physicalKeyboardSeen,
   getKeyBarItems: () => keyBarItems,

@@ -6,6 +6,7 @@ import {
   agentStatusIcon,
   agentStatusLabel,
   mostUrgentStatus,
+  paneRowLine,
   paneSubtitle,
   detectTouchInput,
   displayRecordLabel,
@@ -835,7 +836,9 @@ test("chooses the status indicator at a row's far right", () => {
   assert.equal(agentStatusIcon("unknown"), "·");
   assert.equal(agentStatusIcon(undefined), "·");
   assert.equal(agentStatusLabel("blocked"), "Needs your answer");
-  assert.equal(agentStatusLabel("idle"), "idle");
+  assert.equal(agentStatusLabel("idle"), "Idle");
+  assert.equal(agentStatusLabel("unknown"), "Unknown");
+  assert.equal(agentStatusLabel(undefined), "Unknown");
 });
 
 test("a split session's row shows the most urgent of its panes' statuses", () => {
@@ -854,6 +857,13 @@ test("a session's second line is its folder, unless unknown or the same as the n
   assert.equal(paneSubtitle("tests", {}), "");
   assert.equal(paneSubtitle("tests", { cwd: "/" }), "");
   assert.equal(paneSubtitle("tests", null), "");
+});
+
+test("a row waiting on you says so in place of its folder", () => {
+  assert.deepEqual(paneRowLine("blocked", "checkout-api"), { text: "Needs your answer", state: true });
+  assert.deepEqual(paneRowLine("blocked", ""), { text: "Needs your answer", state: true });
+  assert.deepEqual(paneRowLine("working", "checkout-api"), { text: "checkout-api", state: false });
+  assert.equal(paneRowLine("idle", ""), null);
 });
 
 test("a pane is titled by its session's name, else its folder, never by the agent its mark already shows", async () => {

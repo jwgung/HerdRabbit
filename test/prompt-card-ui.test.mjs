@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answerBody, bannerText, cardVersion, contextKey, contextVisible, dockMode, initialSelection, optionLabel, shouldWatchPrompt } from "../public/chat/prompt-card.js";
+import { answerBody, answerSummary, bannerText, cardVersion, composerPlaceholder, contextKey, contextVisible, dockMode, initialSelection, numberedChoice, optionLabel, shouldWatchPrompt } from "../public/chat/prompt-card.js";
 import { comparableText, formatElapsed, pendingMessage, settlePending, showsWorking, workingText } from "../public/chat/chat-activity.js";
 import {
   CHAT_FONT_SIZE_STORAGE_KEY, DEFAULT_CHAT_FONT_SIZE, MAX_CHAT_FONT_SIZE, MIN_CHAT_FONT_SIZE,
@@ -217,3 +217,34 @@ test("the working row leaves out the time the turn waited on the agent's questio
   const turns = [{ role: "user", ts: "2026-11-01T00:00:00.000Z", pausedMs: 90 * 60_000, parts: [{ kind: "text", text: "go" }] }];
   assert.equal(formatElapsed(now - workingSince({ turns, seen: null, now })), "30m 0s");
 });
+
+test("a number typed in the composer picks that option of a one-answer card", () => {
+  const menu = { ...card, options: [{ label: "Yes" }, { label: "Yes, and don't ask again" }, { label: "No" }] };
+  assert.equal(numberedChoice(menu, "2"), 1);
+  assert.equal(numberedChoice(menu, " 3 \n"), 2);
+  assert.equal(numberedChoice(menu, "4"), null, "no such option");
+  assert.equal(numberedChoice(menu, "0"), null);
+  assert.equal(numberedChoice(menu, "2 please"), null, "a message, not a number");
+  assert.equal(numberedChoice(null, "1"), null, "no card");
+  assert.equal(numberedChoice({ ...menu, multiSelect: true }, "1"), null, "a multiple choice is ticked on the card");
+  assert.equal(numberedChoice({ ...menu, customOptionIndex: 2 }, "3"), null, "the type-your-own row is not a button");
+  assert.equal(numberedChoice({ ...menu, fallback: true }, "1"), 0, "a fallback card numbers its keys too");
+});
+
+test("the composer says which numbers answer the card", () => {
+  const menu = { ...card, options: [{ label: "Yes" }, { label: "Maybe" }, { label: "No" }] };
+  assert.equal(composerPlaceholder(menu), "Type 1–3 to answer, or a message");
+  assert.equal(composerPlaceholder({ ...menu, options: [{ label: "OK" }] }), "Type 1 to answer, or a message");
+  assert.equal(composerPlaceholder({ ...menu, multiSelect: true }), "");
+  assert.equal(composerPlaceholder(null), "");
+});
+
+test("an answer is summed up as the words chosen", () => {
+  const menu = { ...card, options: [{ label: "Postgres (Recommended)" }, { label: "Redis" }, { label: "Type something" }], customOptionIndex: 2 };
+  assert.equal(answerSummary(menu, { option: 0 }), "Postgres");
+  assert.equal(answerSummary(menu, { options: [1, 0] }), "Postgres, Redis");
+  assert.equal(answerSummary(menu, { text: "  SQLite  " }), "SQLite");
+  assert.equal(answerSummary(menu, { action: "chat" }), "Chat about this");
+  assert.equal(answerSummary(menu, { option: 9 }), "");
+});
+

@@ -26,7 +26,7 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright")
 
 const ROWS = [
   { id: "w1:p1", tab: "Release", agent: "claude", status: "working", cwd: "/work/release-api", kind: "claude", glyph: "◐", sub: "release-api" },
-  { id: "w1:p2", tab: "Infra", agent: "claude", status: "blocked", cwd: "/work/infra", kind: "claude", glyph: "×", sub: null },
+  { id: "w1:p2", tab: "Infra", agent: "claude", status: "blocked", cwd: "/work/infra", kind: "claude", glyph: "×", sub: "Needs your answer" },
   { id: "w1:p3", tab: "Web dashboard", agent: "codex", status: "done", cwd: "/work/web", kind: "codex", glyph: "✓", sub: "web" },
   { id: "w1:p4", tab: "tests", agent: null, status: "idle", cwd: "/work/checkout-api", kind: "shell", glyph: "○", sub: "checkout-api" },
   { id: "w1:p5", tab: "Research", agent: "gemini", status: "unknown", cwd: null, kind: "other", glyph: "·", sub: null },
@@ -147,6 +147,7 @@ try {
           glyph: button.querySelector(".pane-status").textContent,
           glyphColour: getComputedStyle(button.querySelector(".pane-status")).color,
           sub: button.querySelector(".pane-cwd")?.textContent ?? null,
+          subIsState: button.querySelector(".pane-cwd")?.classList.contains("pane-state") ?? false,
           label: button.getAttribute("aria-label"),
           pressed: button.getAttribute("aria-pressed"),
           border: style.borderTopColor,
@@ -176,6 +177,8 @@ try {
       assert.equal(got.iconHidden, "true");
       assert.equal(got.glyph, row.glyph, `${row.id} status glyph`);
       assert.equal(got.sub, row.sub, `${row.id} folder line`);
+      // a pane waiting on you says so in words, in place of its folder
+      assert.equal(got.subIsState, row.status === "blocked", `${row.id} second line is its status only when blocked`);
       if (row.status === "blocked") assert.match(got.label, /Needs your answer/u);
       if (row.status === "working") assert.match(got.label, /Working/u);
       if (row.agent) assert.match(got.label, new RegExp(row.agent, "u"));
@@ -292,8 +295,8 @@ try {
         firstChildGap: shown ? rect(list.querySelector(".pane-button")).top - rect(row).bottom : null,
       }];
     })));
-    // A plain session row with a folder line (Release) and one without (Infra).
-    const plainRows = await page.evaluate(() => Object.fromEntries(["w1:p1", "w1:p2"].map((id) => {
+    // A plain session row with a second line (Release) and one without (Research).
+    const plainRows = await page.evaluate(() => Object.fromEntries(["w1:p1", "w1:p5"].map((id) => {
       const button = document.querySelector(`.pane-button[data-pane-id="${id}"]`);
       const iconBox = button.querySelector(".agent-icon").getBoundingClientRect();
       return [id, {
@@ -312,6 +315,7 @@ try {
       ["lint", "2", "working", "◐"], // working beats done; named by its first pane's folder
       ["Split session", "2", "done", "✓"], // done beats idle; nothing else to name it
     ]);
+    assert.equal(split["w1:t8"].sub, "Needs your answer", "a split session with a blocked pane says so on its row");
     for (const [id, tab] of Object.entries(split)) {
       assert.equal(tab.rows, 1, `${id} is one row`);
       assert.deepEqual([tab.expanded, tab.shown, tab.controls], ["false", false, true], `${id} folded, its arrow a button that controls the list`);
@@ -340,12 +344,12 @@ try {
     assert.deepEqual([split["w1:t8"].expanded, split["w1:t8"].shown, split["w1:t8"].indented], ["true", true, true]);
     assert.deepEqual(Object.keys(split["w1:t8"].children), ["w1:p8", "w1:p9", "w1:p10"]);
     // Its panes are session rows one tree step (10px) in, with no guide line:
-    // as tall as a session row with (Release) or without (Infra) a folder line,
+    // as tall as a session row with (Release) or without (Research) a second line,
     // as far apart as sessions are, statuses in the same column.
     assert.equal(split["w1:t8"].guideLine, "0px", "no guide line beside the panes");
     assert.equal(split["w1:t8"].firstChildGap, plainRows["w1:p1"].gap, "the first pane is as far below the row as the next session");
     for (const child of split["w1:t8"].childRows) {
-      const like = child.sub ? plainRows["w1:p1"] : plainRows["w1:p2"];
+      const like = child.sub ? plainRows["w1:p1"] : plainRows["w1:p5"];
       assert.equal(child.height, like.height, `${child.id} is as tall as a session row`);
       assert.equal(child.iconX, split["w1:t8"].iconX + 10, `${child.id} mark one tree step in`);
       assert.equal(child.statusX, plainRow.statusX, `${child.id} status in the sessions' column`);

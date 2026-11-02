@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PENDING_MS, STALE_PENDING_MS, pendingMessage, saysSent, settlePending } from "../public/chat/chat-activity.js";
+import { ANSWER_MS, PENDING_MS, STALE_PENDING_MS, answerRecord, pendingMessage, saysSent, settleAnswers, settlePending } from "../public/chat/chat-activity.js";
 
 let clock = 0;
 const user = (text, ts = `2026-10-19T01:00:${String(clock++ % 60).padStart(2, "0")}Z`) => ({ role: "user", ts, parts: [{ kind: "text", text }] });
@@ -97,3 +97,16 @@ test("a message run together with one sent from this page earlier resolves; one 
   assert.deepEqual(settlePending([without], after, now + 100), [without]);
   assert.deepEqual(settlePending([without], after, now + STALE_PENDING_MS), [], "the stale rule still clears it");
 });
+
+test("an answer to a card shows until the transcript moves on, or for ANSWER_MS at most", () => {
+  const turns = [user("run the tests"), reply("I'll run them.")];
+  const record = answerRecord("Yes", turns, 1_000);
+  assert.deepEqual(settleAnswers([record], turns, 2_000), [record], "nothing new yet");
+  const grown = [...turns, { role: "assistant", ts: null, parts: [{ kind: "text", text: "14 passing" }] }];
+  assert.deepEqual(settleAnswers([record], grown, 2_000), [], "a new turn came");
+  const longer = [turns[0], { ...turns[1], parts: [...turns[1].parts, { kind: "tool", name: "Bash" }] }];
+  assert.deepEqual(settleAnswers([record], longer, 2_000), [], "the last turn grew");
+  assert.deepEqual(settleAnswers([record], turns, 1_000 + ANSWER_MS + 1), [], "timed out");
+  assert.equal(answerRecord("", turns), null);
+});
+

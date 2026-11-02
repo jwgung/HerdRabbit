@@ -71,12 +71,19 @@ export function createSelection(deps) {
     const herdrSessions = snapshotRecords().herdrSessions;
     const showSessionName = herdrSessions.length > 1 ||
       (herdrSessions.length === 1 && herdrSessions[0].available !== true);
-    elements.paneContext.textContent = [
+    // Each part is its own span, so a phone can keep only the last one: the
+    // session's tab name, which tells sessions of one project apart.
+    const parts = [
       snapshotRecords().servers.length > 1 ? pane.server_name : "",
       showSessionName ? sessionName : "",
       workspaceLabel,
       tabLabel,
-    ].filter(Boolean).join(" / ");
+    ].filter(Boolean);
+    elements.paneContext.replaceChildren(...parts.flatMap((text, index) => {
+      const node = createElement("span", { className: index === parts.length - 1 ? "pane-context-part is-kept" : "pane-context-part", text });
+      if (index === 0) return [node];
+      return [createElement("span", { className: "pane-context-sep", text: " / " }), node];
+    }));
     // the program's mark says which agent it is; the title says which pane
     const title = paneDisplayTitle("", pane, tabLabel || "Terminal", agent);
     elements.paneTitle.replaceChildren(agentMark(paneAgentKind(pane, agent)), createElement("span", { className: "pane-title-text", text: title }));

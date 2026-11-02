@@ -1,7 +1,7 @@
 import { createTerminalFind, isFindShortcut } from "../terminal-find.js?v=1.4.23";
 import { createChatLens } from "../chat/chat-view.js?v=1.4.23";
 import { createChatFind } from "../chat/chat-find.js?v=1.4.23";
-import { createPromptDock } from "../chat/prompt-card.js?v=1.4.23";
+import { composerPlaceholder, createPromptDock } from "../chat/prompt-card.js?v=1.4.23";
 import {
   chatScale,
   pinchedChatFontSize,
@@ -81,7 +81,16 @@ export function createChatPanel(deps) {
     getJson: (path) => api(path),
     postJson: (path, body) => api(path, { method: "POST", body }),
     showChat: () => chatLens.showChat(),
-    onAnswered: () => refreshAfterSubmission(),
+    onAnswered: (paneId, summary) => {
+      chatLens.answered(paneId, summary);
+      refreshAfterSubmission();
+    },
+    // the composer says which numbers answer the card
+    onCardChange: (card) => {
+      elements.terminalInput.placeholder = composerPlaceholder(card);
+      // the key bar's composer side looks again at a number already typed
+      elements.terminalInput.dispatchEvent(new Event("promptcardchange"));
+    },
     conversation: (paneId) => chatLens.chatFor(paneId)?.agentText ?? "",
   });
   promptDock.setLens(chatLens.lens);

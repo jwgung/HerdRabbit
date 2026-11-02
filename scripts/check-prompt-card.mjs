@@ -148,6 +148,7 @@ try {
     assert.equal(await page.locator(".send-button").isVisible(), true);
     const card = page.locator(".prompt-card");
     assert.equal(await card.locator("h2").textContent(), "Bash command");
+    assert.equal(await card.locator(".prompt-card-status").textContent(), "Needs your answer", "the card says in words that it waits on you");
     assert.equal(await card.locator(".prompt-card-question").textContent(), "Do you want to proceed?");
     assert.match(await card.locator(".prompt-card-body").textContent(), /npm test/u);
     assert.deepEqual(await card.locator(".prompt-card-option-label").allTextContents(),
@@ -189,6 +190,17 @@ try {
     await page.locator("#lens-chat").click();
     await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "card");
 
+    // A number typed in the composer names an option: the card marks it, and
+    // the composer says the numbers answer. Nothing is sent until Enter.
+    const composer = page.locator("#terminal-input");
+    assert.equal(await composer.getAttribute("placeholder"), "Type 1–3 to answer, or a message");
+    await composer.fill("3");
+    await page.waitForFunction(() => document.querySelector(".prompt-card-option.is-previewed")?.dataset.promptOption === "2");
+    await composer.fill("3 please");
+    await page.waitForFunction(() => !document.querySelector(".prompt-card-option.is-previewed"));
+    await composer.fill("");
+    assert.deepEqual(keysSent(), [], "a preview sends nothing");
+
     // A card that changed on screen meanwhile: refused (409), and the new one is read.
     herdr.menus["w1:p1"].command = "npm run build";
     await card.locator('[data-prompt-option="2"]').click();
@@ -204,6 +216,9 @@ try {
     await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "hidden");
     assert.deepEqual(keysSent(), ["down", "down", "enter"]);
     assert.deepEqual(herdr.answered, [{ paneId: "w1:p1", answer: "No" }]);
+    // the chat keeps a word of the answer until the agent's next step shows
+    assert.equal(await chat.locator(".chat-answered").textContent(), "You answeredNo");
+    assert.equal(await composer.getAttribute("placeholder"), "", "no card, no numbers to type");
 
     // Claude works on: the working row shows at the end of the chat, and goes when it is idle.
     await page.waitForFunction(() => document.querySelector('.chat-pane[data-pane-id="w1:p1"] .chat-working')?.textContent.startsWith("Claude is working"), null, { timeout: 5_000 });
@@ -318,9 +333,16 @@ try {
     await page.locator(".prompt-banner-open").click();
     await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "card" || document.querySelector("#prompt-dock")?.dataset.mode === "overlay");
     assert.equal((await herdr.snapshot()).panes.find((pane) => pane.pane_id === "w1:p4").agent_status, "working");
-    await page.locator('.prompt-card [data-prompt-option="0"]').click();
+    // answered from the composer: the option's number, then Enter
+    await page.locator("#terminal-input").fill("1");
+    await page.waitForFunction(() => document.querySelector(".prompt-card-option.is-previewed")?.dataset.promptOption === "0");
+    // a phone's Enter makes a new line: Send is what sends there
+    if (mobile) await page.locator(".send-button").click();
+    else await page.locator("#terminal-input").press("Enter");
     await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "hidden" || document.querySelector(".prompt-card-error"));
     assert.deepEqual(herdr.answered.filter((item) => item.paneId === "w1:p4"), [{ paneId: "w1:p4", answer: "Yes" }]);
+    assert.equal(await page.locator("#terminal-input").inputValue(), "", "the number went as the answer, not as a message");
+    assert.ok(!sentTexts.some((item) => item.paneId === "w1:p4"), "and was not typed into the pane");
 
     // A Claude question with its message above it on the terminal only: the
     // card shows it folded over the question, as text, until the chat has it.

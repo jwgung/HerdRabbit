@@ -133,6 +133,28 @@ export function settlePending(pending, turns, now = Date.now(), maxAge = PENDING
   });
 }
 
+// How long the chat shows an answer given on a prompt card while the
+// transcript has nothing newer to show for it.
+export const ANSWER_MS = 60_000;
+
+// What the transcript looked like: its turns and its last turn's parts.
+function transcriptMark(turns) {
+  return `${turns.length}:${turns.at(-1)?.parts?.length ?? 0}`;
+}
+
+// An answer given on a prompt card: its words, when, and the transcript then.
+export function answerRecord(text, turns, now = Date.now()) {
+  const said = String(text ?? "").trim();
+  return said ? { text: said, at: now, mark: transcriptMark(turns) } : null;
+}
+
+// The answers still worth showing: until the transcript moves on (the agent's
+// next step stands for it then), or ANSWER_MS at most.
+export function settleAnswers(answers, turns, now = Date.now()) {
+  const mark = transcriptMark(turns);
+  return answers.filter((item) => now - item.at <= ANSWER_MS && item.mark === mark);
+}
+
 // The agents whose chat offers Stop: Esc interrupts them (OpenCode's takes
 // two, see stopPresses).
 const STOP_AGENTS = Object.freeze(agentNamesWith("stop"));

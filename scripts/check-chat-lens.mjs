@@ -142,8 +142,9 @@ try {
       const probe = document.createElement("canvas").getContext("2d");
       const measure = (selector) => {
         const element = document.querySelector(selector);
+        // the first text shown: a phone hides all but the context's last part
         const node = [...element.childNodes].flatMap((child) => child.nodeType === 3 ? [child] : [...child.childNodes])
-          .find((child) => child.nodeType === 3 && child.textContent.trim());
+          .find((child) => child.nodeType === 3 && child.textContent.trim() && child.parentElement.getClientRects().length > 0);
         const range = document.createRange();
         range.selectNodeContents(node);
         const rect = range.getBoundingClientRect();
