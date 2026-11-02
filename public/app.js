@@ -1,36 +1,16 @@
-import { array, browserSessionStorage, browserStorage, createElement, createIcon, placeFloatingMenu, workspaceActionButton } from "./app/dom.js?v=1.4.23";
-import { createSnapshotModel, idOf } from "./app/snapshot.js?v=1.4.23";
-import { previewFor } from "./file-preview.js?v=1.4.23";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.4.23";
+import { browserSessionStorage, browserStorage } from "./app/dom.js?v=1.4.23";
+import { createSnapshotModel } from "./app/snapshot.js?v=1.4.23";
 import { createApiClient, paneApi } from "./api-client.js?v=1.4.23";
 let modifierPaneId = null;
 // The selected pane's agent and status, for the Chat lens's Stop button.
 let stopTarget = { paneId: null, agent: null, status: null };
 import {
-  HISTORY_PAGE_LINES,
-  agentStatus,
   detectTouchInput,
-  displayRecordLabel,
-  displayTabLabel,
   paneServerId,
   loginMethodPresentation,
   preferredLoginMethod,
-  outputPollingDecision,
-  outputTextForUpdate,
   paneShortcutTarget,
-  paneSelectionAfterSnapshot,
   sidebarPresentation,
-  paneAgentKind,
-  agentStatusIcon,
-  agentStatusLabel,
-  mostUrgentStatus,
-  paneDisplayTitle,
-  paneSubtitle,
-  openRenames,
-  clearedTabLabel,
-  reconcileLiveStatus,
-  seenCompletions,
-  navigationModel,
   serverConnectionState,
 } from "./ui-model.js?v=1.4.23";
 import {
@@ -40,7 +20,6 @@ import {
 import { terminalConnection } from "./terminal-connection.js?v=1.4.23";
 import { terminalStatus } from "./terminal-status.js?v=1.4.23";
 import { createAttachedTerminal } from "./xterm-terminal.js?v=1.4.23";
-import { createPaneGrid, renderPaneMap } from "./pane-grid.js?v=1.4.23";
 import {
   adjustedChatFontSize,
 } from "./chat-font-preference.js?v=1.4.23";
@@ -48,27 +27,19 @@ import { chatAgent } from "./lens-preference.js?v=1.4.23";
 import * as xterm from "./vendor/xterm.mjs?v=1.4.23";
 import {
   readPanePreference,
-  writePanePreference,
 } from "./pane-preference.js?v=1.4.23";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   readExpandedSplitTabIds,
-  writeCollapsedGroupIds,
-  writeCollapsedWorkspaceIds,
-  writeExpandedSplitTabIds,
 } from "./workspace-preference.js?v=1.4.23";
 import {
   adjustedTerminalFontSize,
-  readGridFit,
-  readGridFont,
   readTerminalFontSize,
-  writeGridFont,
   writeTerminalFontSize,
 } from "./terminal-preference.js?v=1.4.23";
 import {
   readAcknowledgedCompletions,
-  writeAcknowledgedCompletions,
 } from "./completion-preference.js?v=1.4.23";
 import {
   looksLikePhysicalKey,
@@ -76,32 +47,17 @@ import {
 } from "./enter-key-preference.js?v=1.4.23";
 import {
   attachSidebarDrag,
-  dropScope,
-  followMovedPane,
   movedTabSnapshot,
   movedWorkspaceSnapshot,
-  paneMoveRequest,
   tabMoveRequest,
   workspaceMoveRequest,
 } from "./sidebar-drag.js?v=1.4.23";
 import {
-  addTile,
-  layoutRects,
-  moveTile,
-  paneDropKind,
-  prune as pruneViewTiles,
   readViewSplit,
-  removeTile,
-  renameTiles,
-  swapTiles,
   tiles as viewTiles,
-  writeViewSplit,
 } from "./view-split.js?v=1.4.23";
-import { renamePaneKeys } from "./pane-rename.js?v=1.4.23";
-import { renamePaneLenses } from "./lens-preference.js?v=1.4.23";
 import {
   readInputHistories,
-  writeInputHistories,
 } from "./input-history-preference.js?v=1.4.23";
 import { atFilesSource } from "./composer-at-files.js?v=1.4.23";
 import { createComposerPopup } from "./composer-popup.js?v=1.4.23";
