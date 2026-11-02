@@ -901,8 +901,8 @@ export function paneSubtitle(title, pane) {
 // The line under a sidebar row's name: a pane waiting on you says so in words
 // there, in place of its folder; any other shows the folder (or nothing).
 export function paneRowLine(status, folder) {
-  if (status === "blocked") return { text: agentStatusLabel(status), state: true };
-  return folder ? { text: folder, state: false } : null;
+  if (status === "blocked") return { className: "pane-cwd pane-state", text: agentStatusLabel(status) };
+  return folder ? { className: "pane-cwd", text: folder } : null;
 }
 
 // The server names sign-in projects with this prefix (src/http-server.mjs).

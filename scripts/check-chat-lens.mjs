@@ -137,6 +137,14 @@ try {
     assert.equal(await page.locator("#terminal-xterm").isVisible(), false, "the terminal is hidden under the chat");
 
     // The muted context and the bold title read as one line: their text baselines match.
+    // A phone shows only the context's last part, the session's name; a desktop all of it.
+    const heading = await page.evaluate(() => {
+      const element = document.querySelector("#pane-context");
+      const parts = [...element.querySelectorAll(".pane-context-part")].map((part) => part.textContent);
+      return { shown: element.innerText.trim(), parts };
+    });
+    assert.ok(heading.parts.length > 1, `the context has several parts: ${heading.parts}`);
+    assert.equal(heading.shown, mobile ? heading.parts.at(-1) : heading.parts.join(" / "), "the header context");
     const baselines = () => page.evaluate(async () => {
       await document.fonts.ready;
       const probe = document.createElement("canvas").getContext("2d");

@@ -478,7 +478,7 @@ export function createSidebarRows(deps) {
     const copy = createElement("span", { className: "pane-copy" });
     copy.append(createElement("strong", { className: "pane-title", text: title }));
     const line = paneRowLine(currentAgentStatus, paneSubtitle(title, pane));
-    if (line) copy.append(createElement("small", { className: line.state ? "pane-cwd pane-state" : "pane-cwd", text: line.text }));
+    if (line) copy.append(createElement("small", line));
     button.append(copy);
 
     // Always present, so the row's text and menu stay put whatever the status.

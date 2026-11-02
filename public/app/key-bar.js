@@ -69,11 +69,13 @@ export function createKeyBar({
     speechStop();
   }
 
-  // A number typed while the selected pane's card waits names one of its
-  // buttons: the card shows which, and Enter answers with it (Q4).
+  // A number alone in the composer answers the shown card: the option it
+  // names is marked on the card as it is typed, and Enter or Send answers
+  // the card with it rather than sending it as a message.
   function composerChoice(text = elements.terminalInput.value) {
     const dock = getPromptDock?.();
-    if (!dock || dock.mode === "hidden" || !state.selectedPaneId) return null;
+    // only the card of the pane the composer sends to
+    if (!dock || dock.mode === "hidden" || !state.selectedPaneId || dock.paneId !== state.selectedPaneId) return null;
     return numberedChoice(dock.card, text);
   }
 
@@ -92,7 +94,7 @@ export function createKeyBar({
     if (choice !== null) {
       // the number answers the card; while an answer is still on its way it
       // stays in the box rather than going to the pane as a message
-      if (getPromptDock().choose(choice)) {
+      if (getPromptDock?.()?.choose(choice)) {
         clearComposer();
         setFeedback("");
       }
