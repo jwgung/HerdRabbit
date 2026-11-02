@@ -1,13 +1,43 @@
 /* Shared theme. Override custom properties after loading ui.css. */
 :root {
-  --radius-sm: 7px;
+  /* Scales: docs/design.md. Use these, not literal values. */
+  --font-2xs: 10px;
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-md: 13px;
+  --font-lg: 14px;
+  --font-input-touch: 16px;
+  --font-xl: 18px;
+  --font-2xl: 22px;
+  --font-glyph: 15px;
+  --font-glyph-lg: 17px;
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
   --radius-control: 8px;
-  --radius-input: 9px;
   --radius-panel: 12px;
   --radius-card: 14px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-5: 20px;
+  --radius-pill: 999px;
+  --layer-raised: 1;
+  --layer-pane-overlay: 4;
+  --layer-pane-chrome: 10;
+  --layer-popover: 15;
+  --layer-scrim: 20;
+  --layer-drawer: 30;
+  --layer-toast: 40;
+  --layer-screen: 100;
+  --layer-drag: 1000;
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 280ms;
   color-scheme: dark;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -50,10 +80,23 @@
   --scrollbar-thumb-active: #99ffe4;
   --scrollbar-track: rgb(153 255 228 / 8%);
   --scrollbar-thumb-outline: rgb(153 255 228 / 24%);
+  --danger-ink: #ffffff;
+  /* Drawn on the terminal's black or a document's white, so the same in both themes. */
+  --diff-add: #7ee2a8;
+  --diff-del: #ff9a9a;
+  --find-mark: #ffc799;
+  --find-mark-chat: #ffb340;
+  --find-mark-current: #ff9500;
+  --viewer-page: #ffffff;
+  /* Popovers stay black-shadowed in both themes: they drop below the page. */
+  --shadow-popover: 0 6px 18px rgb(0 0 0 / 30%);
+  --shadow-float: 0 10px 28px var(--mobile-shadow);
+  --shadow-sheet: 0 24px 80px var(--mobile-shadow);
+  --shadow-drawer: 18px 0 50px var(--mobile-shadow);
   --terminal-font-size: 12px;
   --mono: "Noto Sans Mono CJK KR", "Noto Sans Mono CJK", "SFMono-Regular",
     "Cascadia Mono", Menlo, Consolas, "DejaVu Sans Mono", ui-monospace, monospace;
-  --sidebar-motion: 280ms;
+  --sidebar-motion: var(--motion-slow);
   --sidebar-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 

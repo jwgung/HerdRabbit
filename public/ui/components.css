@@ -9,7 +9,7 @@
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--control-text);
-  font-size: 22px;
+  font-size: var(--font-2xl);
   line-height: 1;
 }
 
@@ -22,7 +22,7 @@
   width: 8px;
   height: 8px;
   flex: 0 0 auto;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--offline);
 }
 
@@ -42,7 +42,7 @@
   place-items: center;
   color: var(--agent-unknown);
   font-family: var(--mono);
-  font-size: 17px;
+  font-size: var(--font-glyph-lg);
   font-weight: 750;
   line-height: 1;
 }
@@ -98,15 +98,15 @@
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
-  z-index: 10;
+  z-index: var(--layer-popover);
   width: 150px;
   display: grid;
   gap: 2px;
   padding: 5px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-input);
+  border-radius: var(--radius-control);
   background: var(--surface);
-  box-shadow: 0 12px 36px var(--mobile-shadow);
+  box-shadow: var(--shadow-popover);
 }
 
 :is(.sidebar-action-item, .ui-menu-item) {
@@ -117,11 +117,11 @@
   align-items: center;
   gap: var(--space-2);
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 6px 8px;
   background: transparent;
   color: var(--control-text);
-  font-size: 12px;
+  font-size: var(--font-sm);
   text-align: left;
 }
 
@@ -174,7 +174,7 @@
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  transition: opacity 120ms ease;
+  transition: opacity var(--motion-fast) ease;
 }
 
 :is(.pane-copy, .ui-nav-copy) strong,
@@ -186,7 +186,7 @@
 
 :is(.pane-copy, .ui-nav-copy) strong {
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--font-md);
   font-weight: 600;
 }
 
@@ -194,7 +194,7 @@
   flex: 0 0 auto;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--font-2xs);
 }
 
 .quick-keys button,
@@ -214,7 +214,7 @@
   min-height: 30px;
   padding: 5px 9px;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--font-sm);
   white-space: nowrap;
 }
 
@@ -236,7 +236,7 @@
   border-radius: var(--radius-panel);
   background: var(--surface);
   color: var(--text);
-  box-shadow: 0 24px 80px var(--mobile-shadow);
+  box-shadow: var(--shadow-sheet);
 }
 
 .app-dialog::backdrop {
@@ -259,7 +259,7 @@
 .dialog-form label,
 .dialog-feedback {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 
 .ui-input,
@@ -305,7 +305,7 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
   background: var(--surface);
-  box-shadow: 0 24px 80px var(--mobile-shadow);
+  box-shadow: var(--shadow-sheet);
 }
 
 :is(.navigator, .ui-sidebar) {
@@ -323,7 +323,7 @@
 
 :is(.navigator-heading, .ui-sidebar-heading) {
   position: relative;
-  z-index: 11;
+  z-index: calc(var(--layer-pane-chrome) + 1);
   grid-row: 1;
   min-width: 0;
   min-height: 54px;

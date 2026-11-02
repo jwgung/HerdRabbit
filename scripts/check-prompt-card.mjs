@@ -262,15 +262,17 @@ try {
     const transcriptSize = await chat.locator(".chat-transcript").evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
     assert.equal(transcriptSize, after);
     assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--terminal-font-size")), terminalSize, "the terminal's size is untouched");
-    // the composer takes the size of the lens in view
+    // the composer takes the size of the lens in view, never under 16px on
+    // touch, where a smaller text box makes the browser zoom in on it
     const composerSize = () => page.locator("#terminal-input").evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
-    assert.equal(await composerSize(), after, "the composer did not take the chat's size in the Chat lens");
+    const onTouch = (size) => (mobile ? Math.max(16, size) : size);
+    assert.equal(await composerSize(), onTouch(after), "the composer did not take the chat's size in the Chat lens");
     await page.locator("#lens-terminal").click();
     await page.waitForFunction(() => document.querySelector(".terminal-panel").dataset.lens === "terminal");
-    assert.equal(await composerSize(), parseFloat(terminalSize), "the composer did not take the terminal's size in the Terminal lens");
+    assert.equal(await composerSize(), onTouch(parseFloat(terminalSize)), "the composer did not take the terminal's size in the Terminal lens");
     await page.locator("#lens-chat").click();
     await page.waitForFunction(() => document.querySelector(".terminal-panel").dataset.lens === "chat");
-    assert.equal(await composerSize(), after);
+    assert.equal(await composerSize(), onTouch(after));
     await page.reload();
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
     assert.equal(Number(await page.locator(".terminal-stage").getAttribute("data-chat-font-size")), after, "the size is kept");
