@@ -1,8 +1,8 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.4.22";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.4.22";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.4.22";
-import { createUpdatePanel } from "./app-update.js?v=1.4.22";
-import { createApiClient, paneApi } from "./api-client.js?v=1.4.22";
+import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.4.23";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.4.23";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.4.23";
+import { createUpdatePanel } from "./app-update.js?v=1.4.23";
+import { createApiClient, paneApi } from "./api-client.js?v=1.4.23";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
 let keySendBusy = false;
@@ -58,7 +58,7 @@ import {
   navigationModel,
   serverConnectionState,
   legacyMachinesNotice,
-} from "./ui-model.js?v=1.4.22";
+} from "./ui-model.js?v=1.4.23";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -69,29 +69,29 @@ import {
   writeBrowsePath,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "./browse-preference.js?v=1.4.22";
-import { terminalConnection } from "./terminal-connection.js?v=1.4.22";
-import { createAttachTracker, terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.4.22";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.4.22";
-import { createPaneGrid, renderPaneMap } from "./pane-grid.js?v=1.4.22";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.4.22";
-import { createChatLens } from "./chat/chat-view.js?v=1.4.22";
-import { createChatFind } from "./chat/chat-find.js?v=1.4.22";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.4.22";
+} from "./browse-preference.js?v=1.4.23";
+import { terminalConnection } from "./terminal-connection.js?v=1.4.23";
+import { createAttachTracker, terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.4.23";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.4.23";
+import { createPaneGrid, renderPaneMap } from "./pane-grid.js?v=1.4.23";
+import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.4.23";
+import { createChatLens } from "./chat/chat-view.js?v=1.4.23";
+import { createChatFind } from "./chat/chat-find.js?v=1.4.23";
+import { createPromptDock } from "./chat/prompt-card.js?v=1.4.23";
 import {
   adjustedChatFontSize,
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "./chat-font-preference.js?v=1.4.22";
-import { chatAgent } from "./lens-preference.js?v=1.4.22";
-import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop, stopFollowUp, stopPresses } from "./chat/chat-activity.js?v=1.4.22";
-import * as xterm from "./vendor/xterm.mjs?v=1.4.22";
+} from "./chat-font-preference.js?v=1.4.23";
+import { chatAgent } from "./lens-preference.js?v=1.4.23";
+import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop, stopFollowUp, stopPresses } from "./chat/chat-activity.js?v=1.4.23";
+import * as xterm from "./vendor/xterm.mjs?v=1.4.23";
 import {
   readPanePreference,
   writePanePreference,
-} from "./pane-preference.js?v=1.4.22";
+} from "./pane-preference.js?v=1.4.23";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
@@ -99,7 +99,7 @@ import {
   writeCollapsedGroupIds,
   writeCollapsedWorkspaceIds,
   writeExpandedSplitTabIds,
-} from "./workspace-preference.js?v=1.4.22";
+} from "./workspace-preference.js?v=1.4.23";
 import {
   adjustedTerminalFontSize,
   readGridFit,
@@ -108,19 +108,19 @@ import {
   writeGridFit,
   writeGridFont,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.4.22";
+} from "./terminal-preference.js?v=1.4.23";
 import {
   readAcknowledgedCompletions,
   writeAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.4.22";
+} from "./completion-preference.js?v=1.4.23";
 import {
   ENTER_KEY_MODES,
   enterKeyModeHint,
   looksLikePhysicalKey,
   readEnterKeyMode,
   writeEnterKeyMode,
-} from "./enter-key-preference.js?v=1.4.22";
-import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.4.22";
+} from "./enter-key-preference.js?v=1.4.23";
+import { attachSwipeDismiss } from "./swipe-dismiss.js?v=1.4.23";
 import {
   attachSidebarDrag,
   dropScope,
@@ -130,7 +130,7 @@ import {
   paneMoveRequest,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.4.22";
+} from "./sidebar-drag.js?v=1.4.23";
 import {
   addTile,
   layoutRects,
@@ -143,18 +143,18 @@ import {
   swapTiles,
   tiles as viewTiles,
   writeViewSplit,
-} from "./view-split.js?v=1.4.22";
-import { renamePaneKeys } from "./pane-rename.js?v=1.4.22";
-import { renamePaneLenses } from "./lens-preference.js?v=1.4.22";
+} from "./view-split.js?v=1.4.23";
+import { renamePaneKeys } from "./pane-rename.js?v=1.4.23";
+import { renamePaneLenses } from "./lens-preference.js?v=1.4.23";
 import {
   readInputHistories,
   writeInputHistories,
-} from "./input-history-preference.js?v=1.4.22";
-import { atFilesSource } from "./composer-at-files.js?v=1.4.22";
-import { createComposerPopup } from "./composer-popup.js?v=1.4.22";
-import { slashCommandsSource } from "./composer-slash.js?v=1.4.22";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.4.22";
-import { createSpeechButton, speechSupported } from "./speech-recognition.js?v=1.4.22";
+} from "./input-history-preference.js?v=1.4.23";
+import { atFilesSource } from "./composer-at-files.js?v=1.4.23";
+import { createComposerPopup } from "./composer-popup.js?v=1.4.23";
+import { slashCommandsSource } from "./composer-slash.js?v=1.4.23";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.4.23";
+import { createSpeechButton, speechSupported } from "./speech-recognition.js?v=1.4.23";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -170,16 +170,16 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "./key-bar-preference.js?v=1.4.22";
+} from "./key-bar-preference.js?v=1.4.23";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.4.22";
+} from "./launch-session.js?v=1.4.23";
 import {
   applicationServerKeyBytes,
   pushButtonPresentation,
-} from "./push-notifications.js?v=1.4.22";
+} from "./push-notifications.js?v=1.4.23";
 
 function browserStorage() {
   try {
