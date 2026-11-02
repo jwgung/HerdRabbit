@@ -51,7 +51,10 @@ jobs:
   # A "release: x.y.z" commit on main becomes the v<x.y.z> tag, once CI has passed.
   tag:
     needs: [verify, browser]
-    if: github.ref == 'refs/heads/main' && contains(toJSON(github.event.commits), 'release:')
+    # every push to main: the newest release commit gets its tag and release
+    # once, even when the push that brought it did not (a failed run, or a
+    # later commit pushed with it)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -59,17 +62,25 @@ jobs:
         with:
           fetch-depth: 0
       - name: Tag the newest release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          version="$(git log origin/main --format='%s' -10 | grep -oP '^release: \Kv?[\d.]+' | head -n1)"
-          version="${version#v}"
-          if [ -z "$version" ]; then
+          # an annotated tag is made by someone: the Actions bot
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          commit="$(git log origin/main --format='%H %s' -20 | grep -P '^[0-9a-f]{40} release: v?[\d.]+$' | head -n1)"
+          if [ -z "$commit" ]; then
             echo "No release commit in the recent main history; nothing to tag."
             exit 0
           fi
+          sha="${commit%% *}"
+          version="${commit##*release: }"
+          version="${version#v}"
           if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
             echo "Tag v$version already exists; skipping."
           else
-            git tag -a "v$version" -m "HerdRabbit $version"
+            # the tag names the release commit itself, not what came after it
+            git tag -a "v$version" "$sha" -m "HerdRabbit $version"
             git push origin "v$version"
-            gh release create "v$version" --title "HerdRabbit $version" --latest
+            gh release create "v$version" --verify-tag --title "HerdRabbit $version" --latest
           fi
