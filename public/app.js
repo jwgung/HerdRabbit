@@ -1,9 +1,8 @@
 import { array, browserSessionStorage, browserStorage, createElement, createIcon, placeFloatingMenu, workspaceActionButton } from "./app/dom.js?v=1.4.23";
 import { createSnapshotModel, idOf } from "./app/snapshot.js?v=1.4.23";
 import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.4.23";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.4.23";
+import { previewFor } from "./file-preview.js?v=1.4.23";
 import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.4.23";
-import { createUpdatePanel } from "./app-update.js?v=1.4.23";
 import { createApiClient, paneApi } from "./api-client.js?v=1.4.23";
 const selectedKeyModifiers = new Set();
 let modifierPaneId = null;
@@ -16,18 +15,9 @@ import {
   detectTouchInput,
   displayRecordLabel,
   displayTabLabel,
-  browseDiffSummary,
-  diffBrowseListing,
-  flattenTree,
-  formatTransferSize,
   inputKeyAction,
   insertNewlineAtSelection,
-  insertPathAtSelection,
-  uploadSummary,
-  sortUploads,
-  paneStartDirectory,
   paneServerId,
-  parentDirectory,
   loginMethodPresentation,
   nextInputHistory,
   shouldBrowseInputHistory,
@@ -45,30 +35,15 @@ import {
   paneSubtitle,
   openRenames,
   clearedTabLabel,
-  aiAccountNotice,
-  passkeyDetails,
-  sortAiAccounts,
-  aiAccountsToSave,
-  aiLoginSessionId,
-  aiRestartHint,
-  isAiLoginWorkspace,
   paneKeepsInputHistory,
   reconcileLiveStatus,
   seenCompletions,
   navigationModel,
   serverConnectionState,
-  legacyMachinesNotice,
 } from "./ui-model.js?v=1.4.23";
 import {
-  clampNavigatorWidth,
-  readBrowsePath,
   readFileServer,
-  writeFileServer,
   readNavigatorTab,
-  readNavigatorWidth,
-  writeBrowsePath,
-  writeNavigatorTab,
-  writeNavigatorWidth,
 } from "./browse-preference.js?v=1.4.23";
 import { terminalConnection } from "./terminal-connection.js?v=1.4.23";
 import { createAttachTracker, terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.4.23";
@@ -105,7 +80,6 @@ import {
   readGridFit,
   readGridFont,
   readTerminalFontSize,
-  writeGridFit,
   writeGridFont,
   writeTerminalFontSize,
 } from "./terminal-preference.js?v=1.4.23";
@@ -114,11 +88,8 @@ import {
   writeAcknowledgedCompletions,
 } from "./completion-preference.js?v=1.4.23";
 import {
-  ENTER_KEY_MODES,
-  enterKeyModeHint,
   looksLikePhysicalKey,
   readEnterKeyMode,
-  writeEnterKeyMode,
 } from "./enter-key-preference.js?v=1.4.23";
 import {
   attachSidebarDrag,
@@ -153,32 +124,17 @@ import { atFilesSource } from "./composer-at-files.js?v=1.4.23";
 import { createComposerPopup } from "./composer-popup.js?v=1.4.23";
 import { slashCommandsSource } from "./composer-slash.js?v=1.4.23";
 import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.4.23";
-import { createSpeechButton, speechSupported } from "./speech-recognition.js?v=1.4.23";
 import {
-  DEFAULT_KEY_BAR_ITEMS,
-  KEY_BAR_ITEMS_MAX,
-  KEY_BAR_KEYS,
-  KEY_BAR_MODIFIERS,
-  addKeyBarItem,
-  customKeyBarItem,
-  keyBarItemId,
   keyBarItemKey,
   keyBarItemLabel,
-  moveKeyBarItem,
   readKeyBarItems,
-  removeKeyBarItem,
-  resetKeyBarItems,
-  writeKeyBarItems,
 } from "./key-bar-preference.js?v=1.4.23";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
 } from "./launch-session.js?v=1.4.23";
-import {
-  applicationServerKeyBytes,
-  pushButtonPresentation,
-} from "./push-notifications.js?v=1.4.23";
+
 
 const panePreferenceStorage = browserStorage();
 let lastLoginMethod;
@@ -393,7 +349,7 @@ const {
 } = notificationNavigation;
 
 // Made right after `state`, which it reads, and before anything at the top
-// level hands `api` on (createUpdatePanel below does).
+// level hands `api` on (createSettingsMenu below does, for the Update panel).
 const { api, transferRequest, conversationRequest } = createApiClient({
   launchToken: () => state.launchToken,
   csrfToken: () => state.csrfToken,
@@ -737,7 +693,6 @@ function setFeedback(text, isError = false) {
   elements.actionFeedback.textContent = text;
   elements.actionFeedback.dataset.error = String(isError);
 }
-
 import { createSettingsMenu } from "./app/settings-menu.js?v=1.4.23";
 const {
   settingsMenu, buildSettingsMenu, syncSettingsMenu, updatePanel, syncThemeItem,
@@ -1468,7 +1423,6 @@ function serverRenameForm(server) {
     },
   });
 }
-
 import { createAccountDialogs } from "./app/account-dialogs.js?v=1.4.23";
 import { createAiAccounts } from "./app/ai-accounts.js?v=1.4.23";
 
@@ -4106,7 +4060,6 @@ elements.terminalInput.addEventListener("blur", () => {
   modifierComposition = null;
   modifierInputBefore = null;
 });
-
 import { createKeyBarEditor } from "./app/key-bar-editor.js?v=1.4.23";
 const { openKeyBarDialog } = createKeyBarEditor({
   panePreferenceStorage,
@@ -4121,7 +4074,6 @@ const { openKeyBarDialog } = createKeyBarEditor({
 renderKeyBar();
 
 window.addEventListener("blur", clearKeyModifiers);
-
 import { createProjectDialog } from "./app/project-dialog.js?v=1.4.23";
 createProjectDialog({
   state,
@@ -4137,7 +4089,6 @@ createProjectDialog({
 // Only the last file link pressed is taken to. One still waiting gives way to
 // a later link, and to any folder or machine picked by hand meanwhile.
 let revealGeneration = 0;
-
 import { createFiles } from "./app/files.js?v=1.4.23";
 const {
   applyNavigatorPanels,
@@ -4484,7 +4435,6 @@ async function initializeApplication() {
     window.setInterval(refreshOutputOnSchedule, Math.min(state.pollIntervalMs, OUTPUT_POLL_TICK_MS));
   }
 }
-
 import { createConnectPc } from "./app/connect-pc.js?v=1.4.23";
 
 const { showLegacyMachinesNotice } = createConnectPc({
