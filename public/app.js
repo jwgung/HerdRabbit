@@ -1,3 +1,5 @@
+import { array, browserSessionStorage, browserStorage, createElement, createIcon, placeFloatingMenu, workspaceActionButton } from "./app/dom.js?v=1.4.23";
+import { createSnapshotModel, idOf } from "./app/snapshot.js?v=1.4.23";
 import { combinedTerminalKey, keyboardTerminalKey } from "./key-combinations.js?v=1.4.23";
 import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "./file-preview.js?v=1.4.23";
 import { isFileName, isFolderPath, trimTrailingSlashes } from "./path-links.js?v=1.4.23";
@@ -10,7 +12,6 @@ let keySendBusy = false;
 let stopTarget = { paneId: null, agent: null, status: null };
 import {
   HISTORY_PAGE_LINES,
-  agentCompletionIdentity,
   agentStatus,
   detectTouchInput,
   displayRecordLabel,
@@ -36,7 +37,6 @@ import {
   paneShortcutTarget,
   paneSelectionAfterSnapshot,
   sidebarPresentation,
-  visibleAgentStatus,
   paneAgentKind,
   agentStatusIcon,
   agentStatusLabel,
@@ -180,22 +180,6 @@ import {
   applicationServerKeyBytes,
   pushButtonPresentation,
 } from "./push-notifications.js?v=1.4.23";
-
-function browserStorage() {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
-function browserSessionStorage() {
-  try {
-    return window.sessionStorage;
-  } catch {
-    return null;
-  }
-}
 
 const panePreferenceStorage = browserStorage();
 let lastLoginMethod;
@@ -536,6 +520,11 @@ const state = {
   // session's row on a phone opens where the user was.
   lastPaneOfTab: new Map(),
 };
+
+const {
+  snapshotRecords, newProjectHerdrSession, syncCreateProjectAvailability, herdrSessionForServer,
+  agentForPane, visibleStatusForPane, acknowledgePaneCompletion, pruneAcknowledgedCompletions,
+} = createSnapshotModel({ state, elements, storage: panePreferenceStorage });
 
 // Made right after `state`, which it reads, and before anything at the top
 // level hands `api` on (createUpdatePanel below does).
@@ -1338,177 +1327,6 @@ function rememberSentInput(paneId, text) {
   state.inputHistoryByPane.set(paneId, history);
   writeInputHistories(panePreferenceStorage, state.inputHistoryByPane);
   resetInputHistoryNavigation();
-}
-
-function array(value) {
-  return Array.isArray(value) ? value : [];
-}
-
-function idOf(record, ...keys) {
-  for (const key of keys) {
-    if (typeof record?.[key] === "string") {
-      return record[key];
-    }
-  }
-  return "";
-}
-
-function snapshotRecords() {
-  const snapshot = state.snapshot || {};
-  return {
-    servers: array(snapshot.servers),
-    herdrSessions: array(snapshot.herdr_sessions),
-    workspaces: array(snapshot.workspaces),
-    tabs: array(snapshot.tabs),
-    panes: array(snapshot.panes),
-    agents: array(snapshot.agents),
-  };
-}
-
-// The Herdr session a new project opens in: the selected pane's, else its
-// machine's default, else this machine's, else any running one.
-function newProjectHerdrSession() {
-  const { herdrSessions, panes } = snapshotRecords();
-  const selectedPane = panes.find((pane) => idOf(pane, "pane_id", "id") === state.selectedPaneId);
-  const servers = [selectedPane?.server_id || "local", "local"];
-  for (const serverId of servers) {
-    const session = herdrSessionForServer(serverId);
-    if (session) return session;
-  }
-  return herdrSessions.find((session) => session.running === true && session.available === true) || null;
-}
-
-function syncCreateProjectAvailability() {
-  elements.createProject.disabled = newProjectHerdrSession() === null;
-}
-
-// The running Herdr session to use on `serverId`: the selected pane's, when it
-// is on that machine, else the machine's default.
-function herdrSessionForServer(serverId) {
-  const { herdrSessions: all, panes } = snapshotRecords();
-  if (all.length === 0) {
-    return serverId === "local"
-      ? { session_id: null, name: "default", running: true, available: true }
-      : null;
-  }
-  const herdrSessions = all.filter((session) => (session.server_id || "local") === serverId);
-  const selectedPane = panes.find(
-    (pane) => idOf(pane, "pane_id", "id") === state.selectedPaneId,
-  );
-  const selectedSessionId = idOf(
-    selectedPane,
-    "herdr_session_id",
-    "herdrSessionId",
-  );
-  return herdrSessions.find(
-    (session) => idOf(session, "session_id", "id") === selectedSessionId &&
-      session.running === true && session.available === true,
-  ) || herdrSessions.find(
-    (session) => session.machine_default === true && session.running === true &&
-      session.available === true,
-  ) || herdrSessions.find(
-    (session) => session.running === true && session.available === true,
-  ) || null;
-}
-
-function agentForPane(paneId) {
-  return snapshotRecords().agents.find(
-    (agent) => idOf(agent, "pane_id", "paneId") === paneId,
-  );
-}
-
-function visibleStatusForPane(paneId, agent, pane) {
-  return visibleAgentStatus(
-    agent,
-    pane,
-    state.acknowledgedCompletions.get(paneId) || null,
-  );
-}
-
-function acknowledgePaneCompletion(paneId) {
-  const pane = snapshotRecords().panes.find(
-    (item) => idOf(item, "pane_id", "id") === paneId,
-  );
-  const agent = agentForPane(paneId);
-  if (agentStatus(agent, pane) !== "done") return;
-  const identity = agentCompletionIdentity(agent, pane);
-  if (!identity || state.acknowledgedCompletions.get(paneId) === identity) return;
-  state.acknowledgedCompletions.set(paneId, identity);
-  writeAcknowledgedCompletions(
-    panePreferenceStorage,
-    state.acknowledgedCompletions,
-  );
-}
-
-function pruneAcknowledgedCompletions() {
-  const { panes } = snapshotRecords();
-  const liveDonePanes = new Set();
-  for (const pane of panes) {
-    const paneId = idOf(pane, "pane_id", "id");
-    if (agentStatus(agentForPane(paneId), pane) === "done") {
-      liveDonePanes.add(paneId);
-    }
-  }
-  let changed = false;
-  for (const paneId of state.acknowledgedCompletions.keys()) {
-    if (!liveDonePanes.has(paneId)) {
-      state.acknowledgedCompletions.delete(paneId);
-      changed = true;
-    }
-  }
-  if (changed) {
-    writeAcknowledgedCompletions(
-      panePreferenceStorage,
-      state.acknowledgedCompletions,
-    );
-  }
-}
-
-function createElement(tag, { className, text } = {}) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function createIcon(paths, className = "") {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("aria-hidden", "true");
-  svg.setAttribute("focusable", "false");
-  if (className) svg.setAttribute("class", className);
-  for (const pathData of array(paths)) {
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", pathData);
-    svg.append(path);
-  }
-  return svg;
-}
-
-function workspaceActionButton({ className = "", label, paths, type = "button" }) {
-  const button = createElement("button", {
-    className: `workspace-action ${className}`.trim(),
-  });
-  button.type = type;
-  button.setAttribute("aria-label", label);
-  button.title = label;
-  button.append(createIcon(paths));
-  return button;
-}
-
-// The top layer has no anchor of its own, so the menu is measured against the
-// button that opened it and nudged back inside the viewport.
-function placeFloatingMenu(popover, summary) {
-  popover.showPopover();
-  const anchor = summary.getBoundingClientRect();
-  const menu = popover.getBoundingClientRect();
-  const left = Math.min(Math.max(8, anchor.right - menu.width), window.innerWidth - menu.width - 8);
-  const below = anchor.bottom + 4;
-  const top = below + menu.height > window.innerHeight - 8
-    ? Math.max(8, anchor.top - menu.height - 4)
-    : below;
-  popover.style.left = `${left}px`;
-  popover.style.top = `${top}px`;
 }
 
 function sidebarActionMenu({
