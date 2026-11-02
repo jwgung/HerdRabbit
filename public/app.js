@@ -38,19 +38,11 @@ import {
   readNavigatorTab,
 } from "./browse-preference.js?v=1.4.23";
 import { terminalConnection } from "./terminal-connection.js?v=1.4.23";
-import { createAttachTracker, terminalStatus, terminalStatusParts } from "./terminal-status.js?v=1.4.23";
+import { terminalStatus } from "./terminal-status.js?v=1.4.23";
 import { createAttachedTerminal } from "./xterm-terminal.js?v=1.4.23";
 import { createPaneGrid, renderPaneMap } from "./pane-grid.js?v=1.4.23";
-import { createTerminalFind, isFindShortcut } from "./terminal-find.js?v=1.4.23";
-import { createChatLens } from "./chat/chat-view.js?v=1.4.23";
-import { createChatFind } from "./chat/chat-find.js?v=1.4.23";
-import { createPromptDock } from "./chat/prompt-card.js?v=1.4.23";
 import {
   adjustedChatFontSize,
-  chatScale,
-  pinchedChatFontSize,
-  readChatFontSize,
-  writeChatFontSize,
 } from "./chat-font-preference.js?v=1.4.23";
 import { chatAgent } from "./lens-preference.js?v=1.4.23";
 import * as xterm from "./vendor/xterm.mjs?v=1.4.23";
