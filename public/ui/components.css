@@ -365,7 +365,12 @@
 
 /* One badge: a small pill beside a name. Neutral counts and tags, the accent
    for something new or to act on, danger for something gone. */
-:is(.ui-badge, .split-badge, .transfer-tag, .update-badge, .browse-row.is-added .transfer-name::after, .browse-row.is-removed .transfer-name::after) {
+.ui-badge,
+.split-badge,
+.transfer-tag,
+.update-badge,
+.browse-row.is-added .transfer-name::after,
+.browse-row.is-removed .transfer-name::after {
   padding: 1px var(--space-1-5);
   border-radius: var(--radius-pill);
   background: var(--hover-surface);
@@ -375,12 +380,15 @@
   line-height: 1.4;
 }
 
-:is(.ui-badge.is-accent, .update-badge, .browse-row.is-added .transfer-name::after) {
+.ui-badge.is-accent,
+.update-badge,
+.browse-row.is-added .transfer-name::after {
   background: var(--accent);
   color: var(--accent-ink);
 }
 
-:is(.ui-badge.is-danger, .browse-row.is-removed .transfer-name::after) {
+.ui-badge.is-danger,
+.browse-row.is-removed .transfer-name::after {
   background: var(--danger);
   color: var(--danger-ink);
 }
@@ -392,13 +400,13 @@
 @media (hover: none) {
   :where(.icon-button, .ghost-button, .secondary-button, .primary-button, .quick-keys button,
     .lens-switch button, .terminal-find button, .chat-copy, .navigator-tab, .workspace-action,
-    .browse-twisty, .transfer-row-actions button, .md-code-copy, .prompt-card-close) {
+    .browse-twisty, .transfer-row-actions button, .md-code-copy, .prompt-card-close, .sidebar-toggle) {
     position: relative;
   }
 
   :is(.icon-button, .ghost-button, .secondary-button, .primary-button, .quick-keys button,
     .lens-switch button, .terminal-find button, .chat-copy, .navigator-tab, .md-code-copy,
-    .prompt-card-close)::before {
+    .prompt-card-close, .sidebar-toggle, .settings-button)::before {
     content: "";
     position: absolute;
     top: 50%;
@@ -408,7 +416,7 @@
     transform: translate(-50%, -50%);
   }
 
-  :is(.workspace-action, .browse-twisty, .transfer-row-actions button)::before {
+  :is(.workspace-action:not(.settings-button), .browse-twisty, .transfer-row-actions button)::before {
     content: "";
     position: absolute;
     top: 0;
@@ -418,12 +426,13 @@
     transform: translateX(-50%);
   }
 
-  :is(.sidebar-action-item, .ui-menu-item) {
+  :is(.sidebar-action-item, .ui-menu-item, .ui-nav-item) {
     min-height: 44px;
   }
 
-  /* A text box under 16px makes a touch browser zoom in on it. */
-  :is(.ui-input, .dialog-form input, .dialog-form select, .workspace-rename-input, #file-path, .prompt-card-custom-input, #login-password) {
+  /* A text box under 16px makes a touch browser zoom in on it. The app's own
+     boxes repeat this at the end of styles.css, after their own sizes. */
+  :is(.ui-input, .dialog-form input, .dialog-form select) {
     min-height: 44px;
     font-size: var(--font-input-touch);
   }
