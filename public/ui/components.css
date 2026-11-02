@@ -101,10 +101,10 @@
   z-index: var(--layer-popover);
   width: 150px;
   display: grid;
-  gap: 2px;
-  padding: 5px;
+  gap: var(--space-0-5);
+  padding: var(--space-1);
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-panel);
   background: var(--surface);
   box-shadow: var(--shadow-popover);
 }
@@ -118,7 +118,7 @@
   gap: var(--space-2);
   border: 0;
   border-radius: var(--radius-sm);
-  padding: 6px 8px;
+  padding: var(--space-1-5) var(--space-2);
   background: transparent;
   color: var(--control-text);
   font-size: var(--font-sm);
@@ -146,13 +146,13 @@
 
 :is(.pane-button, .ui-nav-item) {
   width: 100%;
-  padding: 9px 10px;
+  padding: var(--space-2) var(--space-2-5);
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2-5);
   border: 1px solid transparent;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   text-align: left;
@@ -203,8 +203,8 @@
 .primary-button {
   min-height: 34px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 7px 11px;
+  border-radius: var(--radius-control);
+  padding: var(--space-1-5) var(--space-3);
   background: var(--surface-raised);
   color: var(--control-text);
 }
@@ -212,10 +212,14 @@
 .ghost-button {
   flex: 0 0 auto;
   min-height: 30px;
-  padding: 5px 9px;
+  padding: var(--space-1) var(--space-2);
   background: transparent;
   font-size: var(--font-sm);
   white-space: nowrap;
+}
+
+.quick-keys button {
+  border-radius: var(--radius-sm);
 }
 
 .primary-button {
@@ -233,7 +237,7 @@
   width: min(420px, calc(100vw - 32px));
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
+  border-radius: var(--radius-card);
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow-sheet);
@@ -246,13 +250,13 @@
 
 .dialog-form {
   display: grid;
-  gap: 14px;
-  padding: 20px;
+  gap: var(--space-3);
+  padding: var(--space-5);
 }
 
 .dialog-heading {
   display: grid;
-  gap: 5px;
+  gap: var(--space-1);
 }
 
 .dialog-heading p,
@@ -270,7 +274,7 @@
   height: 40px;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   background: var(--surface-raised);
   color: var(--input-text);
   font: inherit;
@@ -300,8 +304,8 @@
 :is(.login-card, .ui-card) {
   width: min(360px, 100%);
   display: grid;
-  gap: 14px;
-  padding: 24px;
+  gap: var(--space-3);
+  padding: var(--space-6);
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
   background: var(--surface);
@@ -331,13 +335,13 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: 10px 14px;
+  padding: var(--space-2-5) var(--space-3);
 }
 
 :is(.navigator-content, .ui-sidebar-content) {
   grid-row: 2;
   min-height: 0;
-  padding: 4px 14px 18px;
+  padding: var(--space-1) var(--space-3) var(--space-4);
   overflow-y: auto;
 }
 
@@ -348,7 +352,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: 14px;
+  padding: var(--space-3);
   border-top: 1px solid var(--line);
 }
 
@@ -358,3 +362,93 @@
   border-color: var(--hover-line);
   background: var(--hover-surface);
 }
+
+/* One badge: a small pill beside a name. Neutral counts and tags, the accent
+   for something new or to act on, danger for something gone. */
+:is(.ui-badge, .split-badge, .transfer-tag, .update-badge, .browse-row.is-added .transfer-name::after, .browse-row.is-removed .transfer-name::after) {
+  padding: 1px var(--space-1-5);
+  border-radius: var(--radius-pill);
+  background: var(--hover-surface);
+  color: var(--muted);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+:is(.ui-badge.is-accent, .update-badge, .browse-row.is-added .transfer-name::after) {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+:is(.ui-badge.is-danger, .browse-row.is-removed .transfer-name::after) {
+  background: var(--danger);
+  color: var(--danger-ink);
+}
+
+/* Touch: everything pressable answers a 44px square. A control drawn smaller
+   keeps its look and gets an invisible hit area centred on it; one inside a
+   list row stays within the row's height, so it does not take taps meant for
+   the rows above and below. */
+@media (hover: none) {
+  :where(.icon-button, .ghost-button, .secondary-button, .primary-button, .quick-keys button,
+    .lens-switch button, .terminal-find button, .chat-copy, .navigator-tab, .workspace-action,
+    .browse-twisty, .transfer-row-actions button, .md-code-copy, .prompt-card-close) {
+    position: relative;
+  }
+
+  :is(.icon-button, .ghost-button, .secondary-button, .primary-button, .quick-keys button,
+    .lens-switch button, .terminal-find button, .chat-copy, .navigator-tab, .md-code-copy,
+    .prompt-card-close)::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+
+  :is(.workspace-action, .browse-twisty, .transfer-row-actions button)::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: max(100%, 44px);
+    height: 100%;
+    transform: translateX(-50%);
+  }
+
+  :is(.sidebar-action-item, .ui-menu-item) {
+    min-height: 44px;
+  }
+
+  /* A text box under 16px makes a touch browser zoom in on it. */
+  :is(.ui-input, .dialog-form input, .dialog-form select, .workspace-rename-input, #file-path, .prompt-card-custom-input, #login-password) {
+    min-height: 44px;
+    font-size: var(--font-input-touch);
+  }
+}
+
+/* A narrow phone opens a menu as a sheet along the bottom, within thumb reach,
+   instead of a popover beside a button near the top. */
+@media (max-width: 520px) {
+  /* [open] lifts this over the app's own popover widths (the settings menu's
+     210px, a row menu's max-content). */
+  :is(.sidebar-action-menu, .ui-menu)[open] > :is(.sidebar-action-popover, .ui-menu-panel) {
+    position: fixed;
+    top: auto;
+    right: var(--space-2);
+    bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
+    left: var(--space-2);
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: var(--space-2);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--shadow-sheet);
+  }
+
+}
+

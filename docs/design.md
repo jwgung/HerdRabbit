@@ -4,14 +4,14 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 이 문서는 2026-11-02에 앱 CSS를 측정해서 만들었다(글자 크기 35종, 모서리 22종, z-index 16종, 그림자 22종, 토큰 밖 hex 색 11곳). 대상 파일: `public/styles.css`, `public/ui/*.css`, `public/chat/chat-view.css`, `public/chat/prompt-card.css`, `public/key-bar.css`.
 
-토큰 정리(UI-2)에서 글자 크기, 모서리, 층, 그림자, 색, 움직임을 모두 토큰으로 옮겼다. 간격은 토큰을 다 만들었지만 일부 컴포넌트(대화상자 버튼 줄, 사이드바 머리·바닥 등)만 토큰을 쓰고 나머지는 리터럴이다. 규칙 검사는 UI-3에서 `npm run check`에 붙였다(아래 "검사"). 남은 작업: 간격 정리와 컴포넌트 통일(UI-4), 상태 글자 표시(N1/Q2).
+토큰 정리(UI-2)에서 글자 크기, 모서리, 층, 그림자, 색, 움직임을, 컴포넌트 통일(UI-4)에서 간격을 토큰으로 옮겼다. 규칙 검사는 `npm run check`가 한다(아래 "검사"). 남은 작업: 상태 글자 표시(N1/Q2).
 
 ## 원칙
 
 - 폰과 데스크톱을 둘 다 1급으로 본다. 레이아웃은 너비로, 입력 방식(터치·마우스)은 `pointer`/`hover`로 나눈다.
 - 터미널이 주인공이다. 장식(그림자, 큰 모서리, 움직임)은 터미널과 채팅을 가리지 않는 만큼만 쓴다.
 - 상태는 색만으로 전하지 않는다. 기호와 글자를 함께 둔다.
-- 같은 역할의 요소는 한 가지 모양만 쓴다(버튼, 메뉴, 대화상자, 목록 행, 상태 표시). 통일은 UI-4에서 한다.
+- 같은 역할의 요소는 한 가지 모양만 쓴다(버튼, 메뉴, 대화상자, 목록 행, 배지, 상태 표시).
 
 ## 글자 크기
 
@@ -49,22 +49,23 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | `--space-5` | 20px |
 | `--space-6` | 24px |
 
+- `padding`·`margin`·`gap`은 이 단계만 쓴다. 음수는 `calc(-1 * var(--space-…))`다.
 - 1px는 테두리 두께를 보정할 때만 쓴다.
-- 간격 값은 아직 리터럴로 남아 있다. 컴포넌트를 통일할 때(UI-4) 옮기며, 그때의 대응: 3px → 2px 또는 4px, 5px → 4px 또는 6px, 7px → 6px 또는 8px, 9px·11px → 8px·10px·12px 중 가까운 쪽, 14px → 12px 또는 16px, 18px·22px → 16px·20px·24px 중 가까운 쪽. 어느 쪽이든 터치 타깃 규칙(아래)을 깨지 않는 쪽을 고른다.
+- 정렬을 맞추려고 단계 사이 값이 필요하면 `calc()`로 이유가 보이게 쓴다(예: 파일 행 왼쪽 3px = `calc(var(--space-0-5) + 1px)`, 접은 사이드바의 레일 가운데 맞춤). `calc()` 안의 길이는 검사하지 않는다.
+- UI-4에서 옮길 때 단계 사이 값은 가까운 쪽으로 붙였다: 3→2, 5→4, 7→6, 9→8, 11·13·14→12, 15·17·18→16, 19·22→20.
 
 ## 모서리
 
 | 토큰 | 값 | 쓰는 곳 |
 |---|---|---|
-| `--radius-xs` | 4px | 표식, 찾기 강조, 작은 배지 |
-| `--radius-sm` | 6px | 키 바 키, 작은 칩, 목록 행 |
-| `--radius-control` | 8px | 버튼, 입력칸, 선택칸 |
-| `--radius-panel` | 12px | 메뉴, 팝오버, 패널, 바텀시트 윗모서리(바텀시트는 UI-4 목표) |
-| `--radius-card` | 14px | 카드, 대화상자 |
-| `--radius-pill` | 999px | 알약 모양 버튼·배지 |
+| `--radius-xs` | 4px | 표식, 찾기 강조, 인라인 코드 |
+| `--radius-sm` | 6px | 키 바 키, 목록 행(세션·파일·업로드), 메뉴 항목, 행 안의 작은 아이콘 단추 |
+| `--radius-control` | 8px | 버튼(주·보조·고스트·아이콘), 입력칸, 선택칸, 떠 있는 바 |
+| `--radius-panel` | 12px | 메뉴, 팝오버, 제안 목록, 바텀시트, 패널 |
+| `--radius-card` | 14px | 카드, 대화상자, 채팅 말풍선 |
+| `--radius-pill` | 999px | 배지, 알약 모양 단추 |
 
 - 원은 `50%`로 쓴다. 모서리를 없앨 때는 `0`을 쓴다.
-- 지금 CSS는 버튼에 `--radius-sm`, 메뉴 팝오버와 목록 행에 `--radius-control`, 대화상자에 `--radius-panel`을 쓴다. 표의 "쓰는 곳"으로 맞추는 일은 컴포넌트 통일(UI-4)에서 한다.
 - `--radius-input`(9px)은 `--radius-control`로 합쳤고, `--radius-sm`은 7px에서 6px로 바꿨다(UI-2).
 - `var(--radius-control, 8px)`처럼 대체값을 쓰지 않는다. `tokens.css`는 항상 먼저 로드된다.
 
@@ -95,7 +96,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 |---|---|---|
 | `--shadow-popover` | `0 6px 18px rgb(0 0 0 / 30%)` | 메뉴, 팝오버, 컴포저의 `@`·`/` 목록(`.composer-files`), 터미널 위 떠 있는 바(복사·찾기·상태), 질문 배너 |
 | `--shadow-float` | `0 10px 28px var(--mobile-shadow)` | 떠 있는 카드(질문 카드 overlay), 토스트, 끌기 고스트 |
-| `--shadow-sheet` | `0 24px 80px var(--mobile-shadow)` | 대화상자, 로그인 카드, 바텀시트(UI-4 목표) |
+| `--shadow-sheet` | `0 24px 80px var(--mobile-shadow)` | 대화상자, 로그인 카드, 바텀시트 |
 | `--shadow-drawer` | `18px 0 50px var(--mobile-shadow)` | 폰 사이드바 서랍(옆으로 드리우는 그림자) |
 
 - 폰 서랍의 옆 그림자는 방향이 달라서 `--shadow-drawer`로 따로 둔다.
@@ -126,7 +127,19 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | 문서 보기 바탕 | `--viewer-page` (문서가 스스로 흰 바탕을 가정하므로 두 테마 모두 흰색) |
 
 - 새 색이 필요하면 다크·라이트 두 테마 값을 함께 `tokens.css`에 넣는다. 터미널·문서 위에 그리는 색처럼 테마와 상관없는 값은 `:root`에만 둔다.
-에이전트 표식(`AGENT_MARKS` SVG, `public/app.js`)의 브랜드 색은 이 규칙에서 뺀다.
+에이전트 표식(`AGENT_MARKS` SVG, `public/app/sidebar-rows.js`)의 브랜드 색은 이 규칙에서 뺀다.
+
+## 배지
+
+이름 옆의 작은 알약 하나로 통일한다: `--radius-pill`, `1px var(--space-1-5)` 여백, `--font-xs`, 굵기 600. 색은 세 가지다.
+
+| 종류 | 클래스 | 쓰는 곳 |
+|---|---|---|
+| 중립 | `ui-badge` | 패인 수, 파일 종류(`link`) |
+| 강조 | `ui-badge is-accent` | 새로 생긴 파일(`new`), 업데이트 |
+| 위험 | `ui-badge is-danger` | 사라진 파일(`removed`) |
+
+앱의 `split-badge`, `transfer-tag`, `update-badge`, 파일 행의 `new`·`removed`는 같은 규칙(`public/ui/components.css`)을 쓴다.
 
 ## 상태 표기
 
@@ -147,8 +160,8 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 ## 터치와 입력
 
-- 터치 기기(`@media (pointer: coarse)` 또는 `(hover: none)`)에서 누를 수 있는 것은 44×44px 이상이다. 보이는 크기가 작아야 하면 padding이나 `::before`로 누르는 영역만 넓힌다. 아직 이 기준보다 작은 것이 많다. 터치에서 일부러 줄인 사이드바 프로젝트 줄의 단추(26px)·파일 행의 단추(26px)·터미널 찾기 바 단추(36px)가 있고, 모든 입력 방식에서 22~42px인 단추(`.icon-button` 34px, 메뉴 항목 34px, 렌즈 전환 30px(터치에서 34px), 접기 화살표 22px 등)도 있다. UI-4에서 전체를 다시 재서 맞춘다.
-- 터치 기기의 텍스트 입력칸은 글자 16px 이상이다. 16px보다 작으면 iOS Safari가 포커스 때 화면을 확대한다. 컴포저는 터미널(채팅에서는 채팅) 글자 크기를 따르되, `(hover: none)`에서는 `max(var(--font-input-touch), …)`로 16px 아래로 내려가지 않는다(UI-2). 다른 입력칸은 UI-4에서 맞춘다.
+- 터치 기기(`(hover: none)`)에서 누를 수 있는 것은 44×44px를 누를 수 있다. 보이는 크기가 작은 단추(아이콘 단추 34px, 렌즈 전환, 터미널 찾기 바, 복사 단추 등)는 모양은 그대로 두고 `::before`로 가운데에 44×44px 이상 누르는 영역을 둔다(`public/ui/components.css`). 목록 행 안의 작은 단추(프로젝트 줄의 단추, 파일 행의 단추, 접기 화살표)는 위아래 행의 탭을 가로채지 않게 너비만 44px로 넓히고 높이는 행 높이다. 메뉴 항목은 터치에서 44px 높이다.
+- 터치 기기의 텍스트 입력칸은 글자 16px 이상, 높이 44px 이상이다. 16px보다 작으면 iOS Safari가 포커스 때 화면을 확대한다. 컴포저는 터미널(채팅에서는 채팅) 글자 크기를 따르되 `(hover: none)`에서는 `max(var(--font-input-touch), …)`로 16px 아래로 내려가지 않는다. 대화상자 입력칸, 파일 경로, 이름 바꾸기, 로그인 비밀번호, 질문 카드의 직접 입력도 터치에서 16px다.
 - 마우스 전용 동작(hover로만 보이는 버튼)은 터치 기기에서 항상 보이게 하거나 다른 길을 둔다.
 - 아이콘만 있는 버튼에는 `aria-label`을 둔다. 포커스는 `:focus-visible`에 `2px solid var(--accent)` 고리다(`public/ui/base.css`).
 
@@ -157,7 +170,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | 조건 | 뜻 |
 |---|---|
 | `max-width: 760px` | 폰 배치: 사이드바가 서랍이 되고 헤더가 한 줄 |
-| `max-width: 520px` | 좁은 폰: 대화상자 폭, 터미널 패널 간격. 목표로 메뉴를 바텀시트로 바꾸는 기준(UI-4) |
+| `max-width: 520px` | 좁은 폰: 메뉴가 바텀시트로 열림, 대화상자 폭, 터미널 패널 간격 |
 | `min-width: 521px` | 전송 목록 행을 두 열로(`max-width: 520px`와 겹치지 않게 521px) |
 | `(pointer: coarse)` / `(hover: none)` | 터치 크기와 입력 규칙 |
 | `(hover: hover) and (pointer: fine)` | 마우스 전용 표시(hover 버튼) |
@@ -166,9 +179,9 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 ## 메뉴와 대화상자
 
-- 메뉴: 데스크톱은 단추 옆 팝오버(`--radius-panel`, `--shadow-popover`, `--layer-popover`)다. 목표는 폰(520px 이하)에서 바텀시트(`--shadow-sheet`, 윗모서리 `--radius-panel`)로 그리는 것이다. 측정 당시에는 폰에서도 팝오버였다. 한 메뉴를 두 모양으로 그리고, 항목 마크업은 같다(UI-4).
+- 메뉴: 데스크톱은 단추 옆 팝오버(`--radius-panel`, `--shadow-popover`, `--layer-popover`)다. 폭 520px 이하에서는 화면 아래 시트(좌우·아래 `--space-2` 여백, `--radius-panel`, `--shadow-sheet`)로 열린다. 항목 마크업은 같다. 사이드바 서랍 안의 메뉴는 서랍이 `transform`을 쓰므로 서랍 폭의 시트로, 위 레이어(`popover`)로 띄우는 메뉴는 화면 폭의 시트로 열린다.
 - 위험한 항목은 `is-danger`로 표시하고 맨 아래에 둔다.
-- 대화상자는 `dialog.app-dialog`와 `.dialog-form`을 쓴다. 앱의 대화상자는 제출을 JS로 처리하고, `form method="dialog"`는 `public/ui` 예제의 방식이다. 주 동작 버튼은 오른쪽 끝, 취소는 그 왼쪽이다. 측정 당시 Connect PC 대화상자(`#servers-dialog`)만 Close가 Save 오른쪽에 있었다(UI-4에서 맞춤).
+- 대화상자는 `dialog.app-dialog`와 `.dialog-form`을 쓴다. 앱의 대화상자는 제출을 JS로 처리하고, `form method="dialog"`는 `public/ui` 예제의 방식이다. 주 동작 버튼은 오른쪽 끝, 취소·닫기는 맨 왼쪽, 그 밖의 보조 동작은 사이다(Connect PC: Close · Test connection · Save).
 - 클래스와 마크업은 `public/ui/README.md`의 HTML 인터페이스를 따른다.
 
 ## 움직임
@@ -198,6 +211,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | 규칙 | 걸리는 것 | 걸리지 않는 것 |
 |---|---|---|
 | color | 값 안의 `#…`, `rgb()`·`hsl()` 등 색 함수(대체값 포함) | 선택자의 id(`#add-menu`), `transparent`, `currentColor` |
+| spacing | `padding`·`margin`·`gap`의 `px`·`rem`·`em` 리터럴(0, 1px 제외), 다른 종류의 토큰 | `--space-*`, `calc(-1 * var(--space-…))`, `calc()`·`min()`·`max()`·`clamp()` 안의 기하, `auto`, `%` |
 | font-size | `px`·`rem`·`pt`·`%`·`vw` 등 리터럴(대체값 포함), 다른 종류의 토큰, 혼자 쓴 `--chat-scale` | `--font-*`, 터미널·컴포저·채팅 글자 크기 변수, `calc(var(--font-…) * var(--chat-scale, 1))`, `inherit`, 채팅 마크다운·질문 카드 파일의 `em` |
 | radius | `px`·`rem`·`em`·`pt` 리터럴(대체값 포함), 다른 종류의 토큰 | `--radius-*`, `0`, `%`(원·타원) |
 | z-index | 토큰 밖 숫자(대체값 포함), 다른 종류의 토큰 | `var(--layer-…)`, `calc(var(--layer-…) ± N)`, `0`, `auto` |
@@ -205,4 +219,4 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | motion | `transition`·`transition-duration`의 0 아닌 시간 리터럴, 다른 종류의 토큰 | `--motion-*`, `--sidebar-motion`, `--sidebar-ease`, `0s`, 모션 줄이기 설정의 `!important`가 붙은 0.01ms 이하 |
 | animation | 한 블록에 `steps()`와 `infinite`가 함께 있음 | 끝이 있는 `steps()` |
 
-검사하지 않는 파일: `public/ui/tokens.css`(값이 사는 곳), `public/ui/examples.css`(카탈로그 페이지 자체의 배치), `public/vendor/xterm.css`(가져온 파일). 간격, 터치 크기, 문구, 이름 있는 색(`white`), `font` 줄임 속성, `transition-delay`·`animation-*`의 시간은 검사하지 않고 리뷰로 본다. 문자열 안의 `/*`는 주석으로 보지 않는다. 대소문자는 가리지 않는다. 대체값은 16단계까지 따라가고, 더 깊으면 위반으로 본다. `url()` 안의 `#`도 색으로 본다.
+검사하지 않는 파일: `public/ui/tokens.css`(값이 사는 곳), `public/ui/examples.css`(카탈로그 페이지 자체의 배치), `public/vendor/xterm.css`(가져온 파일). 터치 크기, 문구, 이름 있는 색(`white`), `font` 줄임 속성, `transition-delay`·`animation-*`의 시간은 검사하지 않고 리뷰로 본다. 문자열 안의 `/*`는 주석으로 보지 않는다. 대소문자는 가리지 않는다. 대체값은 16단계까지 따라가고, 더 깊으면 위반으로 본다. `url()` 안의 `#`도 색으로 본다.

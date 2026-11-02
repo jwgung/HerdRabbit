@@ -13,7 +13,7 @@ try {
       if (theme === 'light') await page.locator('#theme-switch').click();
       assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal overflow');
-      assert.equal(await page.locator('.primary-button').first().evaluate(el => getComputedStyle(el).borderRadius), '6px');
+      assert.equal(await page.locator('.primary-button').first().evaluate(el => getComputedStyle(el).borderRadius), '8px');
       await page.screenshot({ path: `tmp/ui-library/${width}-${theme}.png`, fullPage: true, animations: 'disabled' });
     }
     await page.locator('#open-dialog').click();

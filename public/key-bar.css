@@ -29,9 +29,9 @@
 .key-bar-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   min-height: 44px;
-  padding: 2px 4px 2px 12px;
+  padding: var(--space-0-5) var(--space-1) var(--space-0-5) var(--space-3);
   background: var(--surface);
 }
 
@@ -108,7 +108,7 @@
 
 .key-bar-add {
   display: grid;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .key-bar-add[hidden] {
@@ -145,7 +145,7 @@
 .key-bar-mod {
   min-width: 64px;
   min-height: 40px;
-  padding: 0 12px;
+  padding: 0 var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: var(--surface-raised);

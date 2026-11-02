@@ -100,6 +100,20 @@ test("long runs of digits and unclosed comments do not stall the check", () => {
   }
 });
 
+test("spacing comes from the steps; 0, a 1px nudge and calc() geometry are not steps", () => {
+  assert.deepEqual(rules(".a { padding: 7px 11px; }\n.b { margin-left: -18px; }\n.c { gap: var(--radius-sm); }\n.d { padding: var(--space-2, 8px); }"),
+    ["1 spacing", "1 spacing", "2 spacing", "3 spacing", "4 spacing"]);
+  assert.deepEqual(rules([
+    ".a { padding: var(--space-1-5) var(--space-2-5); }",
+    ".b { margin: 0 auto; }",
+    ".c { padding: 1px var(--space-1-5); margin-top: -1px; }",
+    ".d { margin-left: calc(-1 * var(--space-4)); }",
+    ".e { padding-left: calc(var(--navigator-width, 310px) - var(--sidebar-rail)); }",
+    ".f { padding: 0 max(var(--space-2), env(safe-area-inset-right)); }",
+    ".g { width: 12px; top: 3px; }",
+  ].join("\n")), []);
+});
+
 test("line numbers count past comments that span lines", () => {
   assert.deepEqual(rules("/* one\n two\n three */\n.a { color: #000; }"), ["4 color"]);
 });

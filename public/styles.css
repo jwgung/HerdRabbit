@@ -37,7 +37,7 @@ body {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .navigator-create-project svg {
@@ -97,7 +97,7 @@ body {
 
 .navigator-content::-webkit-scrollbar-track,
 .input-form textarea::-webkit-scrollbar-track {
-  margin: 4px;
+  margin: var(--space-1);
   border-radius: var(--radius-pill);
   background: var(--scrollbar-track);
 }
@@ -170,8 +170,8 @@ body.sidebar-collapsed .navigator-footer {
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 8px 0 12px calc(var(--navigator-width, 310px) - var(--sidebar-rail));
+  gap: var(--space-2);
+  padding: var(--space-2) 0 var(--space-3) calc(var(--navigator-width, 310px) - var(--sidebar-rail));
 }
 
 body.sidebar-collapsed .navigator-tabs {
@@ -213,7 +213,7 @@ body.sidebar-collapsed .sidebar-toggle:hover {
   z-index: var(--layer-screen);
   display: grid;
   place-items: center;
-  padding: 20px;
+  padding: var(--space-5);
   background: var(--page);
 }
 
@@ -233,7 +233,7 @@ body.sidebar-collapsed .sidebar-toggle:hover {
 
 .login-heading {
   display: grid;
-  gap: 5px;
+  gap: var(--space-1);
 }
 
 .login-heading p,
@@ -247,7 +247,7 @@ body.sidebar-collapsed .sidebar-toggle:hover {
   height: 44px;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
-  padding: 9px 11px;
+  padding: var(--space-2) var(--space-3);
   background: var(--surface-raised);
   color: var(--input-text);
   font: inherit;
@@ -263,7 +263,7 @@ body.sidebar-collapsed .sidebar-toggle:hover {
 
 .login-password-method {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .login-password-method label {
@@ -283,11 +283,14 @@ body.sidebar-collapsed .sidebar-toggle:hover {
 
 .login-submit {
   min-height: 42px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
 }
 
+/* The rail's column is the sidebar's last --sidebar-rail; its rows sit a
+   half pixel right of centre in it (10.5px and 11.5px at 64px). */
 body.sidebar-collapsed .navigator-content {
-  padding: 4px 10.5px 12px 257.5px;
+  padding: var(--space-1) calc((var(--sidebar-rail) - 43px) / 2) var(--space-3)
+    calc(var(--navigator-width, 310px) - var(--sidebar-rail) / 2 - 20.5px);
 }
 
 body.sidebar-collapsed .workspace-group,
@@ -299,8 +302,8 @@ body.sidebar-collapsed .tab-group {
 body.sidebar-collapsed .pane-button {
   width: 100%;
   height: 42px;
-  margin: 0 auto 4px;
-  padding: 0 11px;
+  margin: 0 auto var(--space-1);
+  padding: 0 var(--space-3);
   position: relative;
   grid-template-columns: 18px;
   gap: 0;
@@ -323,7 +326,7 @@ body.sidebar-collapsed .pane-status {
 /* The row: the program's mark, a name with the folder under it, then the
    status. The menu is a sibling laid over the row's right padding, at the far
    right after the status. */
-.pane-button { min-height: 40px; padding-block: 5px; padding-right: 36px; grid-template-columns: 18px minmax(0, 1fr) 14px; }
+.pane-button { min-height: 40px; padding-block: var(--space-1); padding-right: calc(var(--space-6) + var(--space-3)); grid-template-columns: 18px minmax(0, 1fr) 14px; }
 
 .pane-copy { display: grid; gap: 1px; }
 
@@ -376,15 +379,15 @@ body.sidebar-collapsed .terminal-panel {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .workspace-group {
-  margin-bottom: 6px;
+  margin-bottom: var(--space-1-5);
 }
 
 .herdr-session-group {
-  margin-bottom: 14px;
+  margin-bottom: var(--space-3);
 }
 
 .herdr-session-heading {
@@ -396,9 +399,9 @@ body.sidebar-collapsed .terminal-panel {
      status off the row. */
   grid-template-columns: auto 8px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 7px;
-  margin-bottom: 4px;
-  padding: 0 5px 0 0;
+  gap: var(--space-1-5);
+  margin-bottom: var(--space-1);
+  padding: 0 var(--space-1) 0 0;
   color: var(--muted);
 }
 
@@ -438,15 +441,15 @@ body.sidebar-collapsed .terminal-panel {
    sessions step in under a server. Without this a project heading starts to
    the left of the session that owns it and reads as the outer level. */
 .herdr-session-body {
-  padding-left: 10px;
+  padding-left: var(--space-2-5);
 }
 
 .herdr-session-group .workspace-group {
-  margin-bottom: 10px;
+  margin-bottom: var(--space-2-5);
 }
 
 .herdr-session-empty {
-  padding: 7px 20px 12px;
+  padding: var(--space-1-5) var(--space-5) var(--space-3);
 }
 
 .workspace-heading {
@@ -454,15 +457,15 @@ body.sidebar-collapsed .terminal-panel {
   min-height: 30px;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 0;
+  gap: var(--space-1);
+  padding: var(--space-0-5) 0;
 }
 
 .workspace-heading h3 {
   min-width: 0;
   flex: 1 1 auto;
   overflow: hidden;
-  padding: 4px 2px;
+  padding: var(--space-1) var(--space-0-5);
   color: var(--workspace-heading);
   font-size: var(--font-sm);
   font-weight: 650;
@@ -516,7 +519,7 @@ body.sidebar-collapsed .terminal-panel {
 
 .sidebar-action-separator {
   height: 1px;
-  margin: 3px 4px;
+  margin: var(--space-0-5) var(--space-1);
   background: var(--line);
 }
 
@@ -602,7 +605,7 @@ body.sidebar-collapsed .terminal-panel {
 .workspace-children-inner {
   min-height: 0;
   overflow: hidden;
-  padding-left: 4px;
+  padding-left: var(--space-1);
 }
 
 .workspace-group:not(.is-collapsed) .workspace-children-inner {
@@ -632,7 +635,7 @@ body.sidebar-collapsed .terminal-panel {
   height: 30px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  padding: 4px 7px;
+  padding: var(--space-1) var(--space-1-5);
   background: var(--surface);
   color: var(--input-text);
   font-size: var(--font-sm);
@@ -643,7 +646,7 @@ body.sidebar-collapsed .terminal-panel {
 }
 
 .tab-group {
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .session-row {
@@ -674,7 +677,7 @@ body.sidebar-collapsed .split-session-button > .agent-icon {
 }
 
 .split-session-row.is-editing {
-  padding: 5px 8px;
+  padding: var(--space-1) var(--space-2);
 }
 
 /* Centred on the mark column: the row's 1px border and 10px padding, then
@@ -702,13 +705,7 @@ body.sidebar-collapsed .split-session-button > .agent-icon {
   grid-column: 3;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 1px 6px;
-  border-radius: var(--radius-pill);
-  background: var(--hover-surface);
-  color: var(--muted);
-  font-size: var(--font-xs);
-  line-height: 1.4;
+  gap: var(--space-0-5);
 }
 
 .split-badge svg {
@@ -727,10 +724,10 @@ body.sidebar-collapsed .split-session-button > .agent-icon {
    server's and a Herdr session's rows sit in by) under the row, as far apart
    as sibling sessions are. */
 .split-panes {
-  margin-top: 8px;
-  padding-left: 10px;
+  margin-top: var(--space-2);
+  padding-left: var(--space-2-5);
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .split-panes[hidden] {
@@ -769,11 +766,11 @@ body.sidebar-collapsed .split-session-button .pane-status {
 }
 
 .tab-heading {
-  padding: 5px 8px;
+  padding: var(--space-1) var(--space-2);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .workspace-group.is-collapsed[data-has-completion="true"] > .workspace-heading {
@@ -797,7 +794,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 }
 
 .empty-state {
-  padding: 18px 8px;
+  padding: var(--space-4) var(--space-2);
   color: var(--muted);
   font-size: var(--font-md);
 }
@@ -805,11 +802,11 @@ body.sidebar-collapsed .split-session-button .pane-status {
 .terminal-panel {
   min-width: 0;
   min-height: 0;
-  padding: 10px 18px 18px;
+  padding: var(--space-2-5) var(--space-4) var(--space-4);
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto auto;
-  gap: 12px;
+  gap: var(--space-3);
   will-change: transform;
   transition: transform var(--sidebar-motion) var(--sidebar-ease);
 }
@@ -824,7 +821,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   display: flex;
   flex: 1 1 auto;
   align-items: baseline;
-  gap: 7px;
+  gap: var(--space-1-5);
   overflow: hidden;
   white-space: nowrap;
 }
@@ -848,7 +845,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   overflow: hidden;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   font-size: var(--font-input-touch);
   text-overflow: ellipsis;
 }
@@ -881,7 +878,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   min-height: 0;
   flex: 1 1 auto;
   margin: 0;
-  padding: 18px;
+  padding: var(--space-4);
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
   background: var(--terminal-bg);
@@ -978,8 +975,8 @@ body.sidebar-collapsed .split-session-button .pane-status {
   width: min(420px, calc(100% - 16px));
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 4px 4px 10px;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2-5);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: var(--surface-raised);
@@ -1009,9 +1006,9 @@ body.sidebar-collapsed .split-session-button .pane-status {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin: 2px 0 2px;
-  padding: 4px 0 0;
+  gap: var(--space-2);
+  margin: var(--space-0-5) 0 var(--space-0-5);
+  padding: var(--space-1) 0 0;
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: var(--font-sm);
@@ -1024,7 +1021,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 .terminal-find .chat-find-load {
   width: auto;
   height: 28px;
-  padding: 0 10px;
+  padding: 0 var(--space-2-5);
   border: 1px solid var(--line);
   white-space: nowrap;
   font: inherit;
@@ -1052,7 +1049,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   min-width: 0;
   flex: 1 1 auto;
   height: 32px;
-  padding: 0 6px;
+  padding: 0 var(--space-1-5);
   border: 0;
   outline: 0;
   background: transparent;
@@ -1146,8 +1143,8 @@ body.sidebar-collapsed .split-session-button .pane-status {
   right: 8px;
   z-index: var(--layer-pane-chrome);
   display: flex;
-  gap: 6px;
-  padding: 4px;
+  gap: var(--space-1-5);
+  padding: var(--space-1);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: var(--surface-raised);
@@ -1160,7 +1157,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 
 .terminal-copy-bar button {
   min-height: 36px;
-  padding: 0 14px;
+  padding: 0 var(--space-3);
   border: 0;
   border-radius: var(--radius-sm);
   font: inherit;
@@ -1178,7 +1175,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   -webkit-touch-callout: none;
   box-sizing: border-box;
   height: 100%;
-  padding: 8px;
+  padding: var(--space-2);
 }
 
 /* Herdr keeps the history; xterm's own scrollbar has nothing to scroll and
@@ -1197,9 +1194,9 @@ body.sidebar-collapsed .split-session-button .pane-status {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: 8px;
-  padding: 8px 12px;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
 }
@@ -1219,8 +1216,8 @@ body.sidebar-collapsed .split-session-button .pane-status {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 6px 6px 6px 12px;
+  gap: var(--space-3);
+  padding: var(--space-1-5) var(--space-1-5) var(--space-1-5) var(--space-3);
   border: 1px solid var(--line);
   border-left: 3px solid var(--warning);
   border-radius: var(--radius-control);
@@ -1240,7 +1237,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 .terminal-status.is-quiet {
   left: auto;
   max-width: calc(100% - 16px);
-  padding: 2px 10px;
+  padding: var(--space-0-5) var(--space-2-5);
   border-left-width: 1px;
   color: var(--muted);
   box-shadow: none;
@@ -1250,13 +1247,13 @@ body.sidebar-collapsed .split-session-button .pane-status {
 }
 
 .terminal-status.is-quiet .terminal-status-reason {
-  padding: 2px 0;
+  padding: var(--space-0-5) 0;
 }
 
 .terminal-status-reason {
   min-width: 0;
   margin: 0;
-  padding: 6px 0;
+  padding: var(--space-1-5) 0;
   overflow-wrap: anywhere;
 }
 
@@ -1268,7 +1265,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 .terminal-status button {
   flex: 0 0 auto;
   min-height: 36px;
-  padding: 0 14px;
+  padding: 0 var(--space-3);
   border: 0;
   border-radius: var(--radius-sm);
   font: inherit;
@@ -1289,7 +1286,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 .quick-keys {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: var(--space-1-5);
   scrollbar-width: none;
 }
 
@@ -1299,7 +1296,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 
 .input-form {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .input-composer {
@@ -1308,7 +1305,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   --composer-row-height: max(44px, calc(var(--composer-font-size) * 1.5 + 24px));
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .input-composer {
@@ -1363,7 +1360,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
-  padding: 11px 12px;
+  padding: var(--space-3) var(--space-3);
   background: var(--surface);
   color: var(--input-text);
   font-size: var(--composer-font-size);
@@ -1474,23 +1471,23 @@ body.sidebar-collapsed .split-session-button .pane-status {
 
 .server-field {
   display: grid;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 /* No right padding, like a project heading, so the server's menu lines up with
    the menus of the projects under it instead of sitting 6px inside them. */
-.server-heading { display: flex; align-items: center; gap: 8px; padding: 10px 0; }
+.server-heading { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2-5) 0; }
 
 .server-heading { font-size: var(--font-sm); }
 
 /* Connect PC: the tailnet's PCs, picked rather than typed. */
-.server-discovery { display: grid; gap: 6px; }
+.server-discovery { display: grid; gap: var(--space-1-5); }
 
 .server-discovery-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   font-size: var(--font-sm);
   color: var(--muted);
 }
@@ -1510,9 +1507,9 @@ body.sidebar-collapsed .split-session-button .pane-status {
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   width: 100%;
-  padding: 9px 11px;
+  padding: var(--space-2) var(--space-3);
   border: 0;
   border-top: 1px solid var(--line);
   background: transparent;
@@ -1522,7 +1519,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 
 .server-candidate:first-child { border-top: 0; }
 
-.server-candidates > .dialog-feedback { margin: 0; padding: 9px 11px; }
+.server-candidates > .dialog-feedback { margin: 0; padding: var(--space-2) var(--space-3); }
 
 .server-candidate-dot {
   width: 8px;
@@ -1578,12 +1575,12 @@ body.sidebar-collapsed .split-session-button .pane-status {
 
 .server-manual summary { cursor: pointer; font-size: var(--font-md); color: var(--muted); }
 
-.server-manual > .server-field { margin-top: 8px; }
+.server-manual > .server-field { margin-top: var(--space-2); }
 
 /* The dialog is two .dialog-form blocks; their padding would meet as 40px. */
 #servers-dialog > .dialog-form:first-child { padding-bottom: 0; }
 
-#servers-dialog > #server-form { padding-top: 12px; }
+#servers-dialog > #server-form { padding-top: var(--space-3); }
 
 #servers-dialog { max-height: 90dvh; overflow-y: auto; }
 
@@ -1591,7 +1588,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 
 .server-chosen[hidden] { display: none; }
 
-.server-chosen { display: grid; gap: 6px; }
+.server-chosen { display: grid; gap: var(--space-1-5); }
 
 .server-heading strong { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
 
@@ -1619,7 +1616,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
    right of its parent's, the step a folder level takes in Files. A session
    button's marker already sits 6px further in than a heading's arrow, so a
    project's rows step in only the remaining 4px. */
-.server-body { padding-left: 10px; }
+.server-body { padding-left: var(--space-2-5); }
 
 /* Sessions are what a server is a list of, so the rule goes between them --
    where it separates siblings -- instead of under the server name, where it
@@ -1627,10 +1624,10 @@ body.sidebar-collapsed .split-session-button .pane-status {
 .server-body > .herdr-session-group + .herdr-session-group,
 #workspace-list > .herdr-session-group + .herdr-session-group {
   border-top: 1px solid var(--line);
-  padding-top: 12px;
+  padding-top: var(--space-3);
 }
 
-.server-empty { color: var(--muted); font-size: var(--font-sm); padding: 8px; overflow-wrap: anywhere; }
+.server-empty { color: var(--muted); font-size: var(--font-sm); padding: var(--space-2); overflow-wrap: anywhere; }
 
 /* The rail is for jumping between sessions, so it leaves machines out: a
    machine's icon there was one more marker that led nowhere. */
@@ -1659,7 +1656,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .server-details {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 6px 14px;
+  gap: var(--space-1-5) var(--space-3);
   margin: 0;
   font-size: var(--font-md);
 }
@@ -1671,9 +1668,9 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 /* AI accounts: one short list per CLI, bordered like the tailnet list. */
 .ai-accounts-dialog { max-height: 90dvh; overflow-y: auto; }
 
-.ai-accounts-list { display: grid; gap: 14px; }
+.ai-accounts-list { display: grid; gap: var(--space-3); }
 
-.ai-cli { display: grid; gap: 6px; }
+.ai-cli { display: grid; gap: var(--space-1-5); }
 
 .ai-cli h3 { margin: 0; font-size: var(--font-lg); }
 
@@ -1691,8 +1688,8 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
-  padding: 8px 11px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--line);
 }
 
@@ -1713,7 +1710,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 /* As tall as the menu button, so a row showing "In use" is no shorter than
    the rows holding a menu. */
-.ai-account-actions { display: flex; align-items: center; gap: 4px; min-height: 28px; }
+.ai-account-actions { display: flex; align-items: center; gap: var(--space-1); min-height: 28px; }
 
 .ai-account-state { color: var(--accent); font-size: var(--font-sm); white-space: nowrap; }
 
@@ -1725,7 +1722,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .ai-account-add {
   width: 100%;
-  padding: 8px 11px;
+  padding: var(--space-2) var(--space-3);
   border: 0;
   background: transparent;
   color: var(--muted);
@@ -1739,8 +1736,8 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .ai-accounts-panel {
   display: grid;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: var(--space-2);
+  padding: var(--space-2-5) var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: var(--hover-surface);
@@ -1757,7 +1754,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
    controls so an email address stays the widest thing in a row. */
 .ai-accounts-dialog :is(.primary-button, .secondary-button) {
   min-height: 30px;
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-2-5);
   font-size: var(--font-md);
 }
 
@@ -1789,8 +1786,8 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .update-server {
   display: grid;
-  gap: 6px;
-  padding: 10px 12px;
+  gap: var(--space-1-5);
+  padding: var(--space-2-5) var(--space-3);
   border-top: 1px solid var(--line);
   min-width: 0;
 }
@@ -1800,7 +1797,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .update-server-heading {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
 }
 
@@ -1808,12 +1805,6 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .update-badge {
   flex: none;
-  padding: 1px 7px;
-  border-radius: var(--radius-pill);
-  color: var(--accent-ink);
-  background: var(--accent);
-  font-size: var(--font-xs);
-  font-weight: 600;
 }
 
 .update-versions,
@@ -1830,7 +1821,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .update-notes {
   margin: 0;
-  padding-left: 18px;
+  padding-left: var(--space-4);
   max-height: 160px;
   overflow-y: auto;
   font-size: var(--font-md);
@@ -1843,24 +1834,24 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
    its button and its run) and below it Herdr (the same, folded notes). */
 .update-part {
   display: grid;
-  gap: 6px;
+  gap: var(--space-1-5);
   min-width: 0;
 }
 
-.update-part-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.update-part-heading { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 
 .update-part-heading strong { font-size: var(--font-md); }
 
 .update-herdr {
   display: grid;
-  gap: 6px;
-  margin-top: 8px;
-  padding-top: 10px;
+  gap: var(--space-1-5);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2-5);
   border-top: 1px solid var(--line);
   min-width: 0;
 }
 
-.update-herdr-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.update-herdr-heading { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 
 .update-herdr-heading strong { font-size: var(--font-md); }
 
@@ -1869,7 +1860,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .update-herdr-notes summary { cursor: pointer; color: var(--muted); }
 
 .update-herdr-notes-text {
-  margin: 6px 0 0;
+  margin: var(--space-1-5) 0 0;
   max-height: 160px;
   overflow-y: auto;
   white-space: pre-wrap;
@@ -1883,9 +1874,9 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   overflow-wrap: anywhere;
 }
 
-.update-progress { display: grid; gap: 6px; min-width: 0; }
+.update-progress { display: grid; gap: var(--space-1-5); min-width: 0; }
 
-.update-log-fold { display: grid; gap: 6px; min-width: 0; }
+.update-log-fold { display: grid; gap: var(--space-1-5); min-width: 0; }
 .update-log-fold > summary { cursor: pointer; color: var(--muted, inherit); font-size: var(--font-sm); }
 .update-herdr-integrations { margin: 0; font-size: var(--font-sm); overflow-wrap: anywhere; }
 
@@ -1893,7 +1884,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   margin: 0;
   max-height: 220px;
   overflow: auto;
-  padding: 8px;
+  padding: var(--space-2);
   border-radius: var(--radius-sm);
   color: var(--terminal-text);
   background: var(--terminal-bg);
@@ -1908,7 +1899,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .update-run-head {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
 }
 
@@ -1926,7 +1917,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .update-steps {
   display: grid;
-  gap: 2px;
+  gap: var(--space-0-5);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1937,7 +1928,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  column-gap: 8px;
+  column-gap: var(--space-2);
   min-height: 24px;
   color: var(--muted);
   font-size: var(--font-md);
@@ -2039,9 +2030,9 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   min-height: 46px;
-  padding: 8px 11px;
+  padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--line);
 }
 
@@ -2057,7 +2048,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .passkeys-dialog .passkey-remove {
   min-height: 30px;
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-2-5);
   font-size: var(--font-md);
   color: var(--danger);
 }
@@ -2120,7 +2111,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
     height: 100vh;
     height: var(--app-height, 100dvh);
     min-height: 0;
-    padding: 8px 12px 12px;
+    padding: var(--space-2) var(--space-3) var(--space-3);
     grid-template-rows: auto minmax(0, 1fr) auto auto;
   }
 
@@ -2138,15 +2129,15 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 @media (max-width: 520px) {
   .terminal-panel {
-    gap: 9px;
+    gap: var(--space-2);
   }
 
   .terminal-heading {
-    gap: 9px;
+    gap: var(--space-2);
   }
 
   .ghost-button {
-    padding-inline: 8px;
+    padding-inline: var(--space-2);
   }
 
 }
@@ -2161,14 +2152,14 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .quick-keys {
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));
-  gap: 4px;
+  gap: var(--space-1);
   overflow: visible;
 }
 
 .quick-keys button {
   min-width: 0;
   min-height: 36px;
-  padding: 4px 2px;
+  padding: var(--space-1) var(--space-0-5);
   font-size: var(--font-sm);
   text-size-adjust: 100%;
   -webkit-text-size-adjust: 100%;
@@ -2184,17 +2175,17 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .transfer-list {
   display: grid;
-  gap: 6px;
+  gap: var(--space-1-5);
   max-height: 240px;
   overflow-y: auto;
 }
 
 .transfer-row {
   display: grid;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2-5);
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-sm);
 }
 
 /* Actions sit beside the name only when there is room for both. */
@@ -2217,7 +2208,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .transfer-row-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .transfer-row-actions button {
@@ -2268,24 +2259,24 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .transfer-empty {
   color: var(--muted);
   font-size: var(--font-lg);
-  padding: 8px 0;
+  padding: var(--space-2) 0;
 }
 
 /* Sits at the same left edge as a top-level row, not indented in with the
    names. */
 .browse-tree .transfer-empty {
-  padding-left: 3px;
+  padding-left: var(--space-0-5);
   font-size: var(--font-md);
 }
 
 .transfer-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .transfer-toolbar button {
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-2-5);
   font-size: var(--font-md);
 }
 
@@ -2326,12 +2317,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 }
 
 .transfer-tag {
-  margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: var(--radius-pill);
-  background: var(--hover-surface);
-  color: var(--muted);
-  font-size: var(--font-xs);
+  margin-left: var(--space-1-5);
 }
 
 .browse-root {
@@ -2357,10 +2343,11 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .browse-row {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   border: 0;
-  border-radius: var(--radius-control);
-  padding: 0 0 0 3px;
+  border-radius: var(--radius-sm);
+  /* 3px: centres the 22px arrow under a 28px heading button's */
+  padding: 0 0 0 calc(var(--space-0-5) + 1px);
 }
 
 .browse-row:hover {
@@ -2378,7 +2365,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   font-size: var(--font-xs);
   white-space: nowrap;
   flex: 0 0 auto;
-  margin-left: 6px;
+  margin-left: var(--space-1-5);
 }
 
 .browse-row .browse-lead {
@@ -2455,16 +2442,9 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .browse-row.is-added .transfer-name::after {
   content: "new";
-  font-size: var(--font-2xs);
-  font-weight: 700;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
-  border-radius: var(--radius-xs);
-  padding: 1px 5px;
-  margin-left: 6px;
+  margin-left: var(--space-1-5);
   vertical-align: middle;
   display: inline-block;
-  line-height: 1.2;
 }
 
 .browse-row.is-locked .transfer-name {
@@ -2484,17 +2464,10 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .browse-row.is-removed .transfer-name::after {
   content: "removed";
-  font-size: var(--font-2xs);
-  font-weight: 600;
-  color: var(--danger-ink);
-  background: var(--danger);
-  border-radius: var(--radius-xs);
-  padding: 1px 5px;
-  margin-left: 6px;
+  margin-left: var(--space-1-5);
   vertical-align: middle;
   text-decoration: none;
   display: inline-block;
-  line-height: 1.2;
 }
 
 /* With a mouse the tree can be as tight as an editor sidebar. Touch keeps
@@ -2525,13 +2498,13 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 /* No box of its own: the session list has none, and the tree runs to the same
    edges. */
 .browse-tree {
-  padding: 4px 0;
+  padding: var(--space-1) 0;
 }
 
 .browse-lead {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
   min-width: 0;
 }
 
@@ -2621,9 +2594,9 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .transfer-drop {
   display: grid;
   justify-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
-  padding: 22px 16px;
+  padding: var(--space-5) var(--space-4);
   border: 1px dashed var(--line);
   border-radius: var(--radius-panel);
   background: none;
@@ -2727,8 +2700,8 @@ body.is-resizing-sidebar {
 
 .navigator-tabs {
   display: flex;
-  gap: 2px;
-  padding: 0 8px 6px;
+  gap: var(--space-0-5);
+  padding: 0 var(--space-2) var(--space-1-5);
 }
 
 .navigator-tab {
@@ -2736,7 +2709,7 @@ body.is-resizing-sidebar {
   border: 0;
   background: none;
   color: var(--muted);
-  padding: 6px 8px;
+  padding: var(--space-1-5) var(--space-2);
   border-radius: var(--radius-sm);
   font: inherit;
   font-size: var(--font-md);
@@ -2762,8 +2735,8 @@ body.is-resizing-sidebar {
 
 .file-panel {
   display: grid;
-  gap: 6px;
-  padding: 0 8px 4px;
+  gap: var(--space-1-5);
+  padding: 0 var(--space-2) var(--space-1);
   position: relative;
   min-height: 0;
   /* Fills the sidebar so the tree takes the slack and the footer button stays
@@ -2798,7 +2771,7 @@ body.is-resizing-sidebar {
 
 .settings-button {
   border-color: var(--line);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   background: transparent;
 }
 
@@ -2845,7 +2818,7 @@ body.is-resizing-sidebar {
   flex: 1;
   min-width: 0;
   height: 32px;
-  padding: 0 9px;
+  padding: 0 var(--space-2);
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -2901,15 +2874,15 @@ body.is-resizing-sidebar {
   max-height: 220px;
   overflow-y: auto;
   margin: 0;
-  padding: 4px;
+  padding: var(--space-1);
   list-style: none;
   background: var(--surface-raised);
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-panel);
 }
 
 .file-suggestion {
-  padding: 5px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
   font-size: var(--font-md);
   cursor: pointer;
@@ -2935,7 +2908,7 @@ body.is-resizing-sidebar {
 }
 
 .composer-file {
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   font-family: var(--mono);
   font-size: var(--font-md);
 }
@@ -2949,8 +2922,8 @@ body.is-resizing-sidebar {
 .composer-command {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: var(--space-2-5);
+  padding: var(--space-2) var(--space-2-5);
   font-size: var(--font-md);
   overflow-wrap: normal;
 }
@@ -2972,7 +2945,7 @@ body.is-resizing-sidebar {
 
 .composer-command-source {
   flex: none;
-  padding: 1px 6px;
+  padding: 1px var(--space-1-5);
   border: 1px solid var(--line);
   border-radius: var(--radius-pill);
   color: var(--muted);
@@ -2982,14 +2955,14 @@ body.is-resizing-sidebar {
 @media (pointer: coarse) {
   .composer-file,
   .composer-command {
-    padding: 11px 12px;
+    padding: var(--space-3) var(--space-3);
   }
 }
 
 .file-panel-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 /* The server picker names the machine everything below it belongs to, so it
@@ -3000,13 +2973,13 @@ body.is-resizing-sidebar {
 }
 
 .file-panel-actions button {
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-2-5);
   font-size: var(--font-md);
 }
 
 /* Out through the panel's side padding to the session list's edges. */
 .file-panel .browse-tree {
-  margin: 0 -8px;
+  margin: 0 calc(-1 * var(--space-2));
   max-height: none;
   overflow-y: auto;
   min-height: 0;
@@ -3024,7 +2997,7 @@ body.is-resizing-sidebar {
 
 .uploads-list {
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
   max-height: min(280px, 40vh);
   overflow-y: auto;
 }
@@ -3033,10 +3006,10 @@ body.is-resizing-sidebar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-2);
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-sm);
 }
 
 .uploads-row .transfer-name {
@@ -3117,7 +3090,7 @@ body.is-resizing-sidebar {
 
 .viewer-audio {
   width: min(100%, 420px);
-  margin: 20px;
+  margin: var(--space-5);
 }
 
 /* Long lines scroll with the box rather than wrapping: a log that was written
@@ -3126,7 +3099,7 @@ body.is-resizing-sidebar {
   width: 100%;
   max-height: var(--viewer-content-height);
   margin: 0;
-  padding: 12px;
+  padding: var(--space-3);
   overflow: auto;
   font-family: var(--mono);
   font-size: var(--font-sm);
@@ -3146,14 +3119,14 @@ body.is-resizing-sidebar {
   min-width: 0;
   flex: 1;
   height: 32px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: var(--surface-raised);
   color: var(--input-text);
   font-size: var(--font-md);
   min-height: 30px;
-  padding: 2px 6px;
+  padding: var(--space-0-5) var(--space-1-5);
 }
 
 #file-server[hidden] {
@@ -3190,9 +3163,9 @@ body.is-resizing-sidebar {
   /* The alert follows a finger, so the browser must not scroll under it. */
   touch-action: none;
   width: min(420px, calc(100vw - 32px));
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   display: grid;
-  gap: 2px;
+  gap: var(--space-0-5);
   text-align: left;
   /* Filled with the accent so it stands out from whatever is underneath. */
   color: var(--accent-ink);
@@ -3364,7 +3337,7 @@ body.is-sidebar-dragging * {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .pane-grid[hidden] {
@@ -3375,7 +3348,7 @@ body.is-sidebar-dragging * {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   color: var(--muted);
   font-size: var(--font-sm);
 }
@@ -3386,7 +3359,7 @@ body.is-sidebar-dragging * {
 
 .pane-grid-unzoom {
   min-height: 28px;
-  padding: 0 12px;
+  padding: 0 var(--space-3);
 }
 
 .pane-grid-board {
@@ -3445,8 +3418,8 @@ body.is-sidebar-dragging * {
   flex: 0 0 24px;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 2px 0 6px;
+  gap: var(--space-1);
+  padding: 0 var(--space-0-5) 0 var(--space-1-5);
   border-bottom: 1px solid var(--line);
   background: var(--surface);
   color: var(--muted);
@@ -3504,7 +3477,7 @@ body.is-pane-rearranging * {
 }
 
 .pane-grid-drop-label {
-  padding: 3px 10px;
+  padding: var(--space-0-5) var(--space-2-5);
   border-radius: var(--radius-pill);
   background: var(--accent);
   color: var(--accent-ink);
@@ -3526,8 +3499,8 @@ body.is-pane-rearranging * {
   max-width: 280px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  gap: var(--space-1-5);
+  padding: var(--space-1) var(--space-2-5);
   border: 1px solid var(--accent);
   border-radius: var(--radius-control);
   background: var(--surface-raised);
@@ -3568,7 +3541,7 @@ body.is-pane-rearranging * {
   max-width: 40%;
   flex: 0 1 auto;
   overflow: hidden;
-  padding: 1px 5px;
+  padding: 1px var(--space-1);
   border-radius: var(--radius-xs);
   background: var(--surface-raised);
   color: var(--muted);
@@ -3637,7 +3610,7 @@ body.is-pane-rearranging * {
 .pane-grid-terminal .xterm {
   box-sizing: border-box;
   height: 100%;
-  padding: 3px 4px;
+  padding: var(--space-0-5) var(--space-1);
 }
 
 .pane-grid-terminal .xterm-viewport {
@@ -3646,7 +3619,7 @@ body.is-pane-rearranging * {
 
 .pane-grid-note {
   margin: auto;
-  padding: 8px;
+  padding: var(--space-2);
   color: var(--muted);
   font-size: var(--font-sm);
   text-align: center;
@@ -3673,8 +3646,8 @@ body.is-pane-rearranging * {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
-  padding: 0 10px;
+  gap: var(--space-1-5);
+  padding: 0 var(--space-2-5);
   font-size: var(--font-sm);
 }
 
@@ -3695,8 +3668,8 @@ body.is-pane-rearranging * {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
 }
 
 .pane-map[hidden] {
@@ -3738,7 +3711,7 @@ body.is-pane-rearranging * {
   display: flex;
   flex-direction: column;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-1);
   max-height: 56px;
 }
 
@@ -3751,7 +3724,7 @@ body.is-pane-rearranging * {
 .pane-map-caption {
   min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: var(--space-0-5);
   font-size: var(--font-sm);
 }
 
