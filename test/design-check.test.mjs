@@ -74,6 +74,9 @@ test("a literal fallback is a break; the chat's scale is not a size on its own",
     ["1 font-size", "2 radius", "3 font-size"]);
   assert.deepEqual(rules(".a { z-index: var(--layer-raised, 5); }\n.b { box-shadow: var(--shadow-popover, 0 6px 18px var(--scrim)); }\n.c { font-size: var(--font-sm, var(--font-xs, 12px)); }"),
     ["1 z-index", "2 shadow", "3 font-size"]);
+  assert.deepEqual(rules(".a { box-shadow: var(--mobile-shadow) !important; }"), ["1 shadow"]);
+  const deep = `${"var(--font-sm, ".repeat(17)}12px${")".repeat(17)}`;
+  assert.deepEqual(rules(`.a { font-size: ${deep}; }`), ["1 font-size"], "nested past the depth it follows");
 });
 
 test("a \"/*\" inside a string does not hide what follows", () => {
