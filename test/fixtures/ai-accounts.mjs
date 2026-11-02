@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AiAccounts } from "../../src/ai-accounts.mjs";
-import { claudeAdapter, codexAdapter } from "../../src/ai-account-adapters.mjs";
+import { agyAdapter, claudeAdapter, codexAdapter } from "../../src/ai-account-adapters.mjs";
 
 // Every fake token carries this marker, so a test can prove no credential
 // leaves the files it lives in.
@@ -47,6 +47,24 @@ export async function writeCodex(location, { accountId, email, token }) {
   }), { mode: 0o600 });
 }
 
+// Antigravity's token file, as agy 1.4.12 writes it when there is no keyring:
+// whose account it is in id_token_email.
+export async function writeAgy(location, { email, token, idToken } = {}) {
+  await mkdir(join(location.token, ".."), { recursive: true });
+  await writeFile(location.token, JSON.stringify({
+    token: {
+      access_token: `${SECRET}-access-${token}`,
+      token_type: "Bearer",
+      refresh_token: `${SECRET}-refresh-${token}`,
+      expiry: "2026-11-02T09:58:54Z",
+      expires_in: 3599,
+      ...(idToken ? { id_token: jwt(idToken) } : {}),
+    },
+    auth_method: "consumer",
+    ...(email ? { id_token_email: email } : {}),
+  }), { mode: 0o600 });
+}
+
 // The empty directory a sign-in command points its CLI at.
 export function stagingDirectoryOf(command) {
   return /=\s*'([^']+)'/u.exec(command)[1];
@@ -54,11 +72,12 @@ export function stagingDirectoryOf(command) {
 
 // Where a CLI signed in inside a sign-in directory would have written.
 export function stagedLocation(cli, directory) {
-  const adapter = cli === "claude" ? claudeAdapter : codexAdapter;
+  const adapter = { claude: claudeAdapter, codex: codexAdapter, agy: agyAdapter }[cli];
   return adapter.locate({ [adapter.homeEnv]: directory });
 }
 
-// A machine with Claude and Codex both signed in to account A.
+// A machine with Claude, Codex and Antigravity all signed in to account A.
+// No keyring is reachable from its environment, so Antigravity is in file mode.
 export async function machine(t, { running = [], adapters, now, email = "a@example.com" } = {}) {
   const home = await mkdtemp(join(tmpdir(), "herdr-ai-accounts-"));
   t.after(() => rm(home, { recursive: true, force: true }));
@@ -71,7 +90,9 @@ export async function machine(t, { running = [], adapters, now, email = "a@examp
     mcpServers: { keep: { command: "x" } },
   }));
   await writeCodex(codex, { accountId: "codex-a", email, token: "a1" });
+  const agy = agyAdapter.locate(env);
+  await writeAgy(agy, { email, token: "a1" });
   const directory = join(home, ".config", "herdr-bridge", "ai-accounts");
   const accounts = new AiAccounts({ directory, env, runningAgents: async () => running, adapters, now });
-  return { home, env, claude, codex, directory, accounts };
+  return { home, env, claude, codex, agy, directory, accounts };
 }

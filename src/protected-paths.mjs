@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { posix } from "node:path";
-import { claudeAdapter, codexAdapter } from "./ai-account-adapters.mjs";
+import { agyAdapter, claudeAdapter, codexAdapter } from "./ai-account-adapters.mjs";
 import { dataPaths } from "./config.mjs";
 
 // What the file browser never lists the inside of, opens, or hands out --
@@ -61,7 +61,7 @@ export function credentialRules({ home, env = {}, data = defaultDataPaths(home) 
   }
   const claude = claudeAdapter.locate(environment);
   const codex = codexAdapter.locate(environment);
-  files.push(claude.credentials, claude.global, codex.auth);
+  files.push(claude.credentials, claude.global, codex.auth, agyAdapter.locate(environment).token);
   return {
     trees: trees.map((path) => posix.resolve(path)),
     files: files.map((path) => posix.resolve(path)),

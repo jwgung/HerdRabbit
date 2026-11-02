@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmod, copyFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -192,4 +193,85 @@ export const codexAdapter = Object.freeze({
   },
 });
 
-export const DEFAULT_ADAPTERS = Object.freeze([claudeAdapter, codexAdapter]);
+// The session bus a program started from `env` would use for the keyring, or
+// null when it has none (then agy can only write its file).
+export function sessionBusAddress(env) {
+  if (env.DBUS_SESSION_BUS_ADDRESS) return env.DBUS_SESSION_BUS_ADDRESS;
+  return env.XDG_RUNTIME_DIR ? `unix:path=${env.XDG_RUNTIME_DIR}/bus` : null;
+}
+
+// gdbus prints SearchItems' answer as (unlocked, locked) lists of item paths.
+export function secretServiceFound(output) {
+  return /['"]\/org\/freedesktop\/secrets\/collection\//u.test(String(output ?? ""));
+}
+
+// Whether the keyring holds agy's sign-in. Only the items' paths are asked
+// for, never a secret; a machine without a keyring, gdbus, or a session bus
+// answers no, as agy then falls back to the file too.
+async function agyKeyringHoldsToken(env) {
+  const address = sessionBusAddress(env);
+  if (!address) return false;
+  const output = await new Promise((resolve) => {
+    execFile("gdbus", ["call", "--address", address, "--dest", "org.freedesktop.secrets",
+      "--object-path", "/org/freedesktop/secrets", "--method", "org.freedesktop.Secret.Service.SearchItems",
+      "{'service': 'gemini', 'username': 'antigravity'}"],
+    { timeout: 2_000, maxBuffer: 64 * 1024, windowsHide: true }, (error, stdout) => resolve(error ? "" : stdout));
+  });
+  return secretServiceFound(output);
+}
+
+// Antigravity (agy) keeps its sign-in in the system keyring when it can reach
+// one, else in ~/.gemini/antigravity-cli/antigravity-oauth-token (checked on
+// agy 1.4.12). Only the file can be switched. (The project id it caches
+// beside it is the same default before any sign-in, so it stays.)
+// agy has no sign-in command: it signs in on its first run, here with HOME
+// pointed at the sign-in directory and no session bus, so the new account
+// lands in a file there and never in the keyring the live one may use.
+export function createAgyAdapter({ keyringHoldsToken = agyKeyringHoldsToken } = {}) {
+  return Object.freeze({
+    id: "agy",
+    label: "Antigravity CLI",
+    homeEnv: "HOME",
+    loginUnsetEnv: Object.freeze(["DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"]),
+    loginCommand: Object.freeze(["agy"]),
+
+    locate(env) {
+      return { token: join(homeOf(env), ".gemini", "antigravity-cli", "antigravity-oauth-token") };
+    },
+
+    slot(directory) {
+      return { token: join(directory, "antigravity-oauth-token") };
+    },
+
+    async support(env) {
+      if (await keyringHoldsToken(env)) {
+        return { supported: false, reason: "Antigravity keeps this sign-in in the system keyring; only its file can be switched" };
+      }
+      return { supported: true, reason: null };
+    },
+
+    async identify(location) {
+      const file = await readJson(location.token);
+      if (!text(file?.token?.refresh_token)) return null;
+      const claims = jwtClaims(file.token.id_token ?? file.id_token);
+      const email = text(file.id_token_email) ?? text(claims.email);
+      // the email first: one version writes only it, another an ID token too,
+      // and the same account must keep one slot across both
+      const accountId = email?.toLowerCase() ?? text(claims.sub);
+      if (!accountId) return null;
+      return { accountId, email, organization: null, plan: null, refreshExpiresAt: null };
+    },
+
+    async capture(location, slot) {
+      await copyPrivateFile(location.token, slot.token);
+    },
+
+    async install(slot, location) {
+      await copyPrivateFile(slot.token, location.token);
+    },
+  });
+}
+
+export const agyAdapter = createAgyAdapter();
+
+export const DEFAULT_ADAPTERS = Object.freeze([claudeAdapter, codexAdapter, agyAdapter]);

@@ -216,7 +216,10 @@ export class AiAccounts {
       for (const path of [this.directory, join(this.directory, "staging"), join(this.directory, "staging", adapter.id), directory]) {
         await this.#ensureDirectory(path);
       }
-      const command = ["env", `${adapter.homeEnv}=${shellQuote(directory)}`, ...adapter.loginCommand].join(" ");
+      // A CLI that would reach past its sign-in directory (agy, to the keyring)
+      // starts without the variables that lead there.
+      const unset = (adapter.loginUnsetEnv ?? []).flatMap((name) => ["-u", name]);
+      const command = ["env", ...unset, `${adapter.homeEnv}=${shellQuote(directory)}`, ...adapter.loginCommand].join(" ");
       return { cli: adapter.id, label: adapter.label, loginId, command };
     });
   }

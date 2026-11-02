@@ -28,6 +28,7 @@ async function fakeHome(context) {
     claudeGlobal: join(home, ".claude.json"),
     claudeBackup: join(home, ".claude.json.backup"),
     codexAuth: join(home, ".codex", "auth.json"),
+    agyToken: join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"),
     netrc: join(home, ".netrc"),
     gitCredentials: join(home, ".git-credentials"),
     awsCredentials: join(home, ".aws", "credentials"),
@@ -49,6 +50,7 @@ async function fakeHome(context) {
     notes: join(home, "notes", "plain.txt"),
     transcript: join(home, ".claude", "projects", "p", "session.jsonl"),
     codexConfig: join(home, ".codex", "config.toml"),
+    agySettings: join(home, ".gemini", "antigravity-cli", "settings.json"),
     dockerOther: join(home, ".docker", "daemon.json"),
     otherConfig: join(home, ".config", "other", "ok.txt"),
   };
