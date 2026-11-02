@@ -53,6 +53,27 @@ test("an endless animation does not step", () => {
   assert.deepEqual(rules(".a { animation: spin 0.9s linear infinite; }\n.b { animation: once 1s steps(4) 1; }"), []);
 });
 
+test("a token of another kind is a break, and so is a literal in another case or unit", () => {
+  assert.deepEqual(rules(".a { font-size: var(--space-2); }\n.b { z-index: var(--font-sm); }\n.c { box-shadow: var(--mobile-shadow); }\n.d { border-radius: var(--layer-raised); }\n.e { transition: opacity var(--radius-sm); }"),
+    ["1 font-size", "2 z-index", "3 shadow", "4 radius", "5 motion"]);
+  assert.deepEqual(rules(".a { font-size: 12PX; }\n.b { font-size: 120%; }\n.c { border-radius: 1em; }\n.d { transition: opacity .2S; }"),
+    ["1 font-size", "2 font-size", "3 radius", "4 motion"]);
+});
+
+test("declarations inside @media and custom properties are read too", () => {
+  assert.deepEqual(rules("@media (hover: none) {\n  .a { font-size: 16px; }\n}\n:root { --accent-2: #abc; }"), ["2 font-size", "4 color"]);
+});
+
+test("only the reduced-motion override escapes the motion rule with !important", () => {
+  assert.deepEqual(rules(".a { transition: opacity 300ms !important; }"), ["1 motion"]);
+});
+
+test("a long run of digits does not stall the check", () => {
+  const started = performance.now();
+  designViolations(`.a { box-shadow: 0 ${"9".repeat(5000)} 1px var(--scrim); font-size: ${"1".repeat(5000)}; }`, "public/styles.css");
+  assert.ok(performance.now() - started < 1000, "linear in the value's length");
+});
+
 test("line numbers count past comments that span lines", () => {
   assert.deepEqual(rules("/* one\n two\n three */\n.a { color: #000; }"), ["4 color"]);
 });

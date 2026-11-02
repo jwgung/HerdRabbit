@@ -17,15 +17,15 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 | 토큰 | 값 | 쓰는 곳 |
 |---|---|---|
-| `--font-2xs` | 10px | 고정폭 eyebrow, 아주 작은 배지, 사이드바 행의 보조 줄 |
+| `--font-2xs` | 10px | 고정폭 eyebrow, 아주 작은 배지, 격자 칸의 문맥 줄 |
 | `--font-xs` | 11px | 보조 정보(시간, 경로, 개수) |
 | `--font-sm` | 12px | 기본 UI 글자(메뉴, 버튼, 상태 문구, 대화상자의 라벨·도움말) |
-| `--font-md` | 13px | 사이드바 행 이름, 파일 이름, 알림 본문 |
-| `--font-lg` | 14px | 채팅 본문(배율 1일 때), 질문 카드, 강조 이름 |
-| `--font-input-touch` | 16px | 터치 기기의 입력칸, 패인 제목, 키 바 편집 단추의 기호 |
-| `--font-xl` | 18px | 화면 제목(`h1`, 로그인 제목), 대화상자 제목(`h2`) |
+| `--font-md` | 13px | 사이드바 행 이름, 파일 트리의 이름, 알림 본문 |
+| `--font-lg` | 14px | 채팅 본문(배율 1일 때), 질문 카드, 업로드 목록의 이름, 강조 이름 |
+| `--font-input-touch` | 16px | 터치 기기의 입력칸, 패인 제목, 채팅 마크다운의 `##` 제목, 키 바 편집 단추의 기호 |
+| `--font-xl` | 18px | 화면 제목(`h1`, 로그인 제목), 대화상자 제목(`h2`), 채팅 마크다운의 `#` 제목 |
 | `--font-2xl` | 22px | 아이콘 버튼의 기호 |
-| `--font-glyph` | 15px | 사이드바 행의 상태 기호 |
+| `--font-glyph` | 15px | 사이드바 행의 상태 기호(접은 사이드바에서는 `--font-xs`) |
 | `--font-glyph-lg` | 17px | 상태 기호(`.ui-status`) |
 
 - `rem`은 쓰지 않는다. 사용자 글꼴 설정은 채팅 배율(`--chat-scale`)과 채팅 글자 크기(`--chat-font-size`, 컴포저가 채팅 렌즈에서 따른다), 터미널 글자 크기(`--terminal-font-size`)로만 받는다. 셋 다 앱이 실행 중에 정한다.
@@ -147,7 +147,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 ## 터치와 입력
 
-- 터치 기기(`@media (pointer: coarse)` 또는 `(hover: none)`)에서 누를 수 있는 것은 44×44px 이상이다. 보이는 크기가 작아야 하면 padding이나 `::before`로 누르는 영역만 넓힌다. 아직 이 기준보다 작은 것(UI-4에서 맞춘다): 사이드바 프로젝트 줄의 단추(26px), 파일 행의 단추(26px), `.icon-button`(34px), 서버 새로고침(30px), 빠른 키(36px), 터미널 찾기 바 단추(36px).
+- 터치 기기(`@media (pointer: coarse)` 또는 `(hover: none)`)에서 누를 수 있는 것은 44×44px 이상이다. 보이는 크기가 작아야 하면 padding이나 `::before`로 누르는 영역만 넓힌다. 아직 이 기준보다 작은 것이 많다. 터치에서 일부러 줄인 사이드바 프로젝트 줄의 단추(26px)·파일 행의 단추(26px)·터미널 찾기 바 단추(36px)가 있고, 모든 입력 방식에서 22~42px인 단추(`.icon-button` 34px, 메뉴 항목 34px, 렌즈 전환 30px, 접기 화살표 22px 등)도 있다. UI-4에서 전체를 다시 재서 맞춘다.
 - 터치 기기의 텍스트 입력칸은 글자 16px 이상이다. 16px보다 작으면 iOS Safari가 포커스 때 화면을 확대한다. 컴포저는 터미널(채팅에서는 채팅) 글자 크기를 따르되, `(hover: none)`에서는 `max(var(--font-input-touch), …)`로 16px 아래로 내려가지 않는다(UI-2). 다른 입력칸은 UI-4에서 맞춘다.
 - 마우스 전용 동작(hover로만 보이는 버튼)은 터치 기기에서 항상 보이게 하거나 다른 길을 둔다.
 - 아이콘만 있는 버튼에는 `aria-label`을 둔다. 포커스는 `:focus-visible`에 `2px solid var(--accent)` 고리다(`public/ui/base.css`).
@@ -198,11 +198,11 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | 규칙 | 걸리는 것 | 걸리지 않는 것 |
 |---|---|---|
 | color | 값 안의 `#…`, `rgb()`·`hsl()` 등 색 함수(대체값 포함) | 선택자의 id(`#add-menu`), `transparent`, `currentColor` |
-| font-size | `px`·`rem` 리터럴 | 토큰, `calc(var(--font-…) * var(--chat-scale, 1))`, `inherit`, 채팅 마크다운·질문 카드 파일의 `em` |
-| radius | `px`·`rem` 리터럴 | 토큰, `0`, `50%` |
-| z-index | 토큰 밖 숫자 | `var(--layer-…)`, `calc(var(--layer-…) ± N)`, `0`, `auto` |
-| shadow | 번지고(blur) 비켜난(offset) 그림자 리터럴 | `var(--shadow-…)`, 고리·빛(offset 0), 막대(blur 0), `none` |
-| motion | `transition`·`transition-duration`의 0 아닌 시간 리터럴 | 토큰, `0s`, `!important`가 붙은 모션 줄이기 설정 |
+| font-size | `px`·`rem`·`pt`·`%`·`vw` 등 리터럴, 다른 종류의 토큰 | `--font-*`, 터미널·컴포저·채팅 글자 크기 변수, `calc(var(--font-…) * var(--chat-scale, 1))`, `inherit`, 채팅 마크다운·질문 카드 파일의 `em` |
+| radius | `px`·`rem`·`em` 리터럴, 다른 종류의 토큰 | `--radius-*`, `0`, `50%` |
+| z-index | 토큰 밖 숫자, 다른 종류의 토큰 | `var(--layer-…)`, `calc(var(--layer-…) ± N)`, `0`, `auto` |
+| shadow | 번지고(blur) 비켜난(offset) 그림자 리터럴, `--shadow-*` 아닌 토큰 하나만 쓴 값 | `var(--shadow-…)`, 고리·빛(offset 0), 막대(blur 0), `none` |
+| motion | `transition`·`transition-duration`의 0 아닌 시간 리터럴, 다른 종류의 토큰 | `--motion-*`, `--sidebar-motion`, `--sidebar-ease`, `0s`, 모션 줄이기 설정의 `0.01ms !important` |
 | animation | 한 블록에 `steps()`와 `infinite`가 함께 있음 | 끝이 있는 `steps()` |
 
-검사하지 않는 파일: `public/ui/tokens.css`(값이 사는 곳), `public/ui/examples.css`(카탈로그 페이지 자체의 배치), `public/vendor/xterm.css`(가져온 파일). 간격, 터치 크기, 문구는 아직 리뷰로 본다.
+검사하지 않는 파일: `public/ui/tokens.css`(값이 사는 곳), `public/ui/examples.css`(카탈로그 페이지 자체의 배치), `public/vendor/xterm.css`(가져온 파일). 간격, 터치 크기, 문구, 이름 있는 색(`white`), `font` 줄임 속성, data URL 안의 색은 검사하지 않고 리뷰로 본다. 대소문자는 가리지 않는다.
