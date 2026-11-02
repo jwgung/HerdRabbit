@@ -439,26 +439,3 @@
     font-size: var(--font-input-touch);
   }
 }
-
-/* A narrow phone opens a menu as a sheet along the bottom, within thumb reach,
-   instead of a popover beside a button near the top. The same 520px is in
-   placeFloatingMenu (public/app/dom.js), which then leaves the sheet alone. */
-@media (max-width: 520px) {
-  /* [open] lifts this over the app's own popover widths (the settings menu's
-     210px, a row menu's max-content). */
-  :is(.sidebar-action-menu, .ui-menu)[open] > :is(.sidebar-action-popover, .ui-menu-panel) {
-    position: fixed;
-    top: auto;
-    right: var(--space-2);
-    bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
-    left: var(--space-2);
-    width: auto;
-    min-width: 0;
-    max-width: none;
-    max-height: 70vh;
-    overflow-y: auto;
-    padding: var(--space-2);
-    border-radius: var(--radius-panel);
-    box-shadow: var(--shadow-sheet);
-  }
-}

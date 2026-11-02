@@ -43,7 +43,7 @@
 | 탐색 항목 | `ui-nav-item` 안에 `ui-status`와 `ui-nav-copy`; 제목 strong, 보조 상태 small |
 | 배지 | `ui-badge`(중립), `ui-badge is-accent`(새것·할 일), `ui-badge is-danger`(사라짐) |
 | 선택·강조 | `aria-pressed="true"` (배경만 강조) |
-| 메뉴 | `details.ui-menu` → summary → `.ui-menu-panel` → button.ui-menu-item. 폭 520px 이하에서는 화면 아래 시트로 열림 |
+| 메뉴 | `details.ui-menu` → summary → `.ui-menu-panel` → button.ui-menu-item |
 | 위험 작업 | 메뉴 항목에 `is-danger` |
 | 사이드바 | `ui-sidebar` 안에 `ui-sidebar-heading`, `ui-sidebar-content`, `ui-sidebar-footer` |
 | 카드 | `ui-card` |
