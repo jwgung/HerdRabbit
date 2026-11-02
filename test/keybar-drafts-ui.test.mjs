@@ -42,7 +42,7 @@ test("drafts: saved on pane switch, cleared before a send, never kept for a pass
   assert.match(app, /releaseComposerDraft\(paneId, \{ sent: delivered, text, secret \}\)/u, "a password answer is released as secret");
   assert.match(app, /if \(secret && draftPaneId === paneId && elements\.terminalInput\.value !== ""\) draftBlocked\.add\(paneId\)/u);
   assert.match(app, /state\.inputHistoryCursor !== null \? state\.inputHistoryDraft : elements\.terminalInput\.value/u, "a recalled history entry is not the draft");
-  assert.match(app, /scheduleComposerDraftSave\(\);\n\}\);/u);
+  assert.match(app, /^( *)  scheduleComposerDraftSave\(\);\n\1\}\);/mu);
 });
 
 test("sign-out drops the drafts, and an unverifiable screen keeps a draft out of storage", () => {
