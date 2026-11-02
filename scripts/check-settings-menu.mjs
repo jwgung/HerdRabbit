@@ -116,10 +116,15 @@ try {
       );
       assert.equal(await menu.locator('[data-action="new-window"], [data-action="enter-key"]').count(), 0, "New window and Enter are not menu items");
       assert.match(labels[full ? 1 : 0], /^Switch to (light|dark) mode$/);
-      // It opens upward and stays inside the viewport.
+      // It opens upward and stays inside the viewport; on a phone it is a sheet
+      // along the bottom of the screen, the width of the screen less its margins.
       const box = await menu.boundingBox();
       const anchor = await button.boundingBox();
-      assert.ok(box.y + box.height <= anchor.y, `the menu opens above the button ${JSON.stringify({ box, anchor })}`);
+      if (mobile) {
+        assert.ok(Math.abs(box.y + box.height - (844 - 8)) <= 1 && box.x === 8 && box.width === 390 - 16, `the menu is a sheet at the bottom ${JSON.stringify(box)}`);
+      } else {
+        assert.ok(box.y + box.height <= anchor.y, `the menu opens above the button ${JSON.stringify({ box, anchor })}`);
+      }
       assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= (mobile ? 390 : 1280), "the menu is not cut off");
       await shoot("menu");
 

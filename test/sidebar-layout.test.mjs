@@ -3,9 +3,16 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { readAppSource } from "./app-source.mjs";
 
+// Spacing is written as --space-* steps; the layout sums below are in pixels,
+// so each step is read as its value from the tokens.
+const tokens = await readFile(new URL("../public/ui/tokens.css", import.meta.url), "utf8");
+const SPACE = Object.fromEntries([...tokens.matchAll(/(--space-[\w-]+):\s*(\d+)px;/gu)].map(([, name, px]) => [name, px]));
 const styles = (await Promise.all(["../public/ui/components.css", "../public/styles.css"].map(
   path => readFile(new URL(path, import.meta.url), "utf8"),
-))).join("\n");
+))).join("\n")
+  .replace(/var\((--space-[\w-]+)\)/gu, (whole, name) => (name in SPACE ? `${SPACE[name]}px` : whole))
+  .replace(/calc\(-1 \* (\d+)px\)/gu, "-$1px")
+  .replace(/calc\((\d+)px \+ (\d+)px\)/gu, (whole, a, b) => `${Number(a) + Number(b)}px`);
 const page = await readFile(
   new URL("../public/index.html", import.meta.url),
   "utf8",
@@ -119,7 +126,7 @@ test("the file tree shares the session list's skeleton", () => {
   assert.match(styles, /\.browse-row:hover \{\s*background: var\(--surface-raised\);/u);
   assert.match(styles, /:is\(\.pane-button, \.ui-nav-item\):hover \{\s*background: var\(--surface-raised\);/u);
   assert.match(styles, /\.browse-row\[data-selected="true"\] \{\s*background: var\(--selected-surface\);\s*box-shadow: inset 0 0 0 1px var\(--selected-border\);/u);
-  assert.match(styles, /\.browse-row \{[^}]*border-radius: var\(--radius-control\);/u);
+  assert.match(styles, /\.browse-row \{[^}]*border-radius: var\(--radius-sm\);/u);
   // Arrows and row buttons are a session heading's: the same arrow, and a
   // button drawn only under the pointer.
   const sessionArrow = styles.match(/\.workspace-action svg \{\s*width: (\d+)px;\s*height: \d+px;[^}]*stroke-width: ([\d.]+);/u);
