@@ -150,7 +150,8 @@ test("a folder opens with a project's arrow button and animation", () => {
   assert.match(styles, /\.browse-children\.is-collapsed \{\s*grid-template-rows: 0fr;\s*opacity: 0;/u);
   assert.match(app, /const BROWSE_FOLD_MS = 180;/u);
   // Opening and closing change only that folder's rows, or nothing could animate.
-  const toggle = app.match(/async function toggleBrowseFolder\(path\) \{[\s\S]*?\n\}/u)?.[0];
+  // Its closing brace may be indented by the module it lives in.
+  const toggle = app.match(/async function toggleBrowseFolder\(path\) \{[\s\S]*?\n {0,2}\}/u)?.[0];
   assert.ok(toggle, "toggleBrowseFolder must exist");
   assert.match(toggle, /children\.classList\.add\("is-collapsed"\);[\s\S]*?window\.setTimeout\([\s\S]*?BROWSE_FOLD_MS\);\s*return;/u);
   assert.match(toggle, /row\.after\(children\);\s*\/\/[^\n]*\n\s*children\.getBoundingClientRect\(\);/u);
