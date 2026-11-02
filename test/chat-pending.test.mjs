@@ -109,4 +109,3 @@ test("an answer to a card shows until the transcript moves on, or for ANSWER_MS 
   assert.deepEqual(settleAnswers([record], turns, 1_000 + ANSWER_MS + 1), [], "timed out");
   assert.equal(answerRecord("", turns), null);
 });
-
