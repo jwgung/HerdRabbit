@@ -55,6 +55,7 @@ const APP_SHELL = [
   "/app.js?v=1.4.23",
   "/app/dom.js?v=1.4.23",
   "/app/snapshot.js?v=1.4.23",
+  "/app/connect-pc.js?v=1.4.23",
   "/app-update.js?v=1.4.23",
   "/api-client.js?v=1.4.23",
   "/agents.js?v=1.4.23",
