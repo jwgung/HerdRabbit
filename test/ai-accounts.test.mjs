@@ -229,6 +229,16 @@ test("a keyring that could not be checked is said, and the switch is still offer
   assert.match(clis[0].reason, /could not be checked/u);
 });
 
+test("a switch goes ahead when the keyring could not be checked", async (t) => {
+  const unknown = createAgyAdapter({ keyringHoldsToken: async () => null });
+  const { accounts, agy } = await machine(t, { adapters: [unknown] });
+  const { finished } = await signInElsewhere(accounts, "agy", (location) =>
+    writeAgy(location, { email: "b@example.com", token: "b1" }));
+  const switched = await accounts.switch("agy", finished.account.id);
+  assert.equal(switched.changed, true);
+  assert.match(await readFile(agy.token, "utf8"), /refresh-b1/u);
+});
+
 test("an Antigravity file without an email is named by its ID token's subject", async (t) => {
   const { home } = await machine(t);
   const location = agyAdapter.locate({ HOME: join(home, "other") });
