@@ -41,7 +41,8 @@ export function workspaceActionButton({ className = "", label, paths, type = "bu
 // button that opened it and nudged back inside the viewport.
 export function placeFloatingMenu(popover, summary) {
   popover.showPopover();
-  // A narrow phone draws every menu as a sheet along the bottom (components.css).
+  // A narrow phone draws every menu as a sheet along the bottom; the 520px
+  // matches the sheet's media query in public/ui/components.css.
   if (window.matchMedia("(max-width: 520px)").matches) {
     popover.style.left = "";
     popover.style.top = "";

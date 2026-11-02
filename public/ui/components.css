@@ -396,17 +396,19 @@
 /* Touch: everything pressable answers a 44px square. A control drawn smaller
    keeps its look and gets an invisible hit area centred on it; one inside a
    list row stays within the row's height, so it does not take taps meant for
-   the rows above and below. */
+   the rows above and below. A file or upload row's action buttons sit side by
+   side (Download next to Delete) and are not widened, so neither takes the
+   other's taps. A control that clips its content grows instead (styles.css). */
 @media (hover: none) {
   :where(.icon-button, .ghost-button, .secondary-button, .primary-button, .quick-keys button,
     .lens-switch button, .terminal-find button, .chat-copy, .navigator-tab, .workspace-action,
-    .browse-twisty, .transfer-row-actions button, .md-code-copy, .prompt-card-close, .sidebar-toggle) {
+    .browse-twisty, .md-code-copy, .prompt-card-close) {
     position: relative;
   }
 
   :is(.icon-button, .ghost-button, .secondary-button, .primary-button, .quick-keys button,
     .lens-switch button, .terminal-find button, .chat-copy, .navigator-tab, .md-code-copy,
-    .prompt-card-close, .sidebar-toggle, .settings-button)::before {
+    .prompt-card-close, .settings-button)::before {
     content: "";
     position: absolute;
     top: 50%;
@@ -416,7 +418,7 @@
     transform: translate(-50%, -50%);
   }
 
-  :is(.workspace-action:not(.settings-button), .browse-twisty, .transfer-row-actions button)::before {
+  :is(.workspace-action:not(.settings-button), .browse-twisty)::before {
     content: "";
     position: absolute;
     top: 0;
@@ -439,7 +441,8 @@
 }
 
 /* A narrow phone opens a menu as a sheet along the bottom, within thumb reach,
-   instead of a popover beside a button near the top. */
+   instead of a popover beside a button near the top. The same 520px is in
+   placeFloatingMenu (public/app/dom.js), which then leaves the sheet alone. */
 @media (max-width: 520px) {
   /* [open] lifts this over the app's own popover widths (the settings menu's
      210px, a row menu's max-content). */

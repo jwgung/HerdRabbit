@@ -103,6 +103,7 @@ test("long runs of digits and unclosed comments do not stall the check", () => {
 test("spacing comes from the steps; 0, a 1px nudge and calc() geometry are not steps", () => {
   assert.deepEqual(rules(".a { padding: 7px 11px; }\n.b { margin-left: -18px; }\n.c { gap: var(--radius-sm); }\n.d { padding: var(--space-2, 8px); }"),
     ["1 spacing", "1 spacing", "2 spacing", "3 spacing", "4 spacing"]);
+  assert.deepEqual(rules(".a { grid-gap: 7px; }"), ["1 spacing"]);
   assert.deepEqual(rules([
     ".a { padding: var(--space-1-5) var(--space-2-5); }",
     ".b { margin: 0 auto; }",
@@ -115,7 +116,7 @@ test("spacing comes from the steps; 0, a 1px nudge and calc() geometry are not s
 });
 
 test("a pseudo-element inside :is() or :where() is a break; one beside it is not", () => {
-  assert.deepEqual(rules(":is(.a, .b::after) { color: var(--text); }\n:where(.c::before) { color: var(--text); }"), ["1 selector", "2 selector"]);
+  assert.deepEqual(rules(":is(.a, .b::after) { color: var(--text); }\n:where(.c::before) { color: var(--text); }\n.a:is(.b::after) .c:is(.d) { color: var(--text); }"), ["1 selector", "2 selector", "3 selector"]);
   assert.deepEqual(rules(":is(.a, .b)::after { color: var(--text); }\n.c::before, .d { color: var(--text); }"), []);
 });
 

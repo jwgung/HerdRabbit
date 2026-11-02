@@ -38,7 +38,7 @@ const TOKENS = {
   motion: /^--(?:motion-[\w-]+|sidebar-motion|sidebar-ease)$/u,
   spacing: /^--space-[\w-]+$/u,
 };
-const SPACING = /^(?:padding|margin|gap|row-gap|column-gap)(?:-[a-z]+)*$/u;
+const SPACING = /^(?:padding|margin|gap|row-gap|column-gap|grid-gap|grid-row-gap|grid-column-gap)(?:-[a-z]+)*$/u;
 
 // A value with its calc() / min() / max() / clamp() groups taken out.
 function withoutMath(value) {
@@ -238,8 +238,8 @@ export function designViolations(css, file) {
 
   // A pseudo-element inside :is() or :where() is not allowed there: the
   // browser drops it from the list without a word, and its styles with it.
-  for (const rule of text.matchAll(/(?:^|[{};])([^{};]*):(?:is|where)\(/gu)) {
-    const start = rule.index + rule[0].length - 1;
+  for (const group of text.matchAll(/:(?:is|where)\(/giu)) {
+    const start = group.index + group[0].length - 1;
     let open = 0;
     let end = start;
     for (; end < text.length; end += 1) {

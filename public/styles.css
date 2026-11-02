@@ -326,7 +326,7 @@ body.sidebar-collapsed .pane-status {
 /* The row: the program's mark, a name with the folder under it, then the
    status. The menu is a sibling laid over the row's right padding, at the far
    right after the status. */
-.pane-button { min-height: 40px; padding-block: var(--space-1); padding-right: calc(var(--space-6) + var(--space-3)); grid-template-columns: 18px minmax(0, 1fr) 14px; }
+.pane-button { min-height: 40px; padding-block: var(--space-1); padding-right: calc(var(--space-6) + var(--space-3)); /* 36px: room for the row's menu button */ grid-template-columns: 18px minmax(0, 1fr) 14px; }
 
 .pane-copy { display: grid; gap: 1px; }
 
@@ -3755,6 +3755,7 @@ body.is-pane-rearranging * {
     min-width: 44px;
     height: 44px;
     flex-basis: 44px;
+    /* -5px all round: the 34px box grown to 44px about its own centre */
     margin: calc((34px - 44px) / 2);
   }
 
