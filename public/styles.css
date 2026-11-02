@@ -3759,8 +3759,16 @@ body.is-pane-rearranging * {
     margin: calc((34px - 44px) / 2);
   }
 
-  :is(#file-path, #file-server, #terminal-find-input, .workspace-rename-input, #login-password, .prompt-card-custom-input) {
+  :is(#file-path, #file-server, #terminal-find-input, #chat-find-input, .workspace-rename-input, #login-password, .prompt-card-custom-input) {
     min-height: 44px;
     font-size: var(--font-input-touch);
+  }
+}
+
+/* Endless motion stops for anyone who asked for less of it. */
+@media (prefers-reduced-motion: reduce) {
+  .file-path-row button.is-busy svg,
+  .dictate-button.listening {
+    animation: none;
   }
 }
