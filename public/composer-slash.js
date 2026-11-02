@@ -9,7 +9,7 @@
 // plain functions; slashCommandsSource hands them to the list above the
 // composer (composer-popup.js).
 
-import { agentNamesWith } from "./agents.js?v=1.4.22";
+import { agentNamesWith } from "./agents.js?v=1.4.23";
 
 export const MAX_SLASH_MATCHES = 50;
 export const SLASH_DEBOUNCE_MS = 60;
