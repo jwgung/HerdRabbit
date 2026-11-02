@@ -65,7 +65,7 @@ function stripComments(css) {
 // Each var(...) in a value replaced by the word "var", nested parentheses and
 // all, so what is left is the value's own literals. The names come back too,
 // and the literal part of any fallback (var(--x, 12px) falls back to 12px).
-// Fallbacks are followed 16 levels deep; past that a value is not CSS anyone wrote.
+// Fallbacks are followed 16 levels deep; one nested deeper is reported as such.
 function splitVars(value, depth = 0) {
   let bare = "";
   let fallbacks = "";
@@ -82,10 +82,13 @@ function splitVars(value, depth = 0) {
       const name = inner.match(/^\s*(--[\w-]+)/u)?.[1] ?? "";
       names.push(name);
       const comma = inner.indexOf(",");
-      if (comma !== -1 && depth < 16) {
-        const fallback = splitVars(inner.slice(comma + 1), depth + 1);
-        names.push(...fallback.names);
-        fallbacks += ` ${fallback.bare} ${fallback.fallbacks}`;
+      if (comma !== -1) {
+        if (depth >= 16) names.push("--too-deep");
+        else {
+          const fallback = splitVars(inner.slice(comma + 1), depth + 1);
+          names.push(...fallback.names);
+          fallbacks += ` ${fallback.bare} ${fallback.fallbacks}`;
+        }
       }
       bare += "var";
       continue;
@@ -182,13 +185,14 @@ export function designViolations(css, file) {
       if (!/^(?:0|auto|var|calc\(var[+-]\d+\))$/u.test(layer) || /\d/u.test(fallbacks)) report(index, "z-index", `${value} is not a --layer-* token`);
       wrongTokens(names, "z-index", index, "z-index");
     } else if (property === "box-shadow") {
-      for (const part of splitTopLevel(value)) {
+      for (const part of splitTopLevel(value.replace(/!important\s*$/iu, ""))) {
         const lone = part.match(/^var\(\s*(--[\w-]+)\s*(?:,([\s\S]*))?\)$/u);
         if (lone) {
           wrongTokens([lone[1]], "shadow", index, "shadow");
           if (/\d/u.test(lone[2] ?? "")) report(index, "shadow", `${part}: a token takes no literal fallback`);
+        } else if (!isLineShadow(part)) {
+          report(index, "shadow", `${part} is not a --shadow-* token`);
         }
-        else if (!isLineShadow(part)) report(index, "shadow", `${part} is not a --shadow-* token`);
       }
     } else if (property === "transition" || property === "transition-duration") {
       // a zero delay is not motion; nor is the reduced-motion override, 0.01ms !important
