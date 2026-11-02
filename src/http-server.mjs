@@ -127,8 +127,10 @@ const STATIC_FILES = new Map([
 ]);
 // The modules public/app.js is split into, found rather than listed: every
 // script there is part of the page, and one left out of this map would 404.
-for (const name of readdirSync(`${PUBLIC_DIR}/app`).filter((file) => /^[a-z0-9-]+\.js$/u.test(file))) {
-  STATIC_FILES.set(`/app/${name}`, { path: `${PUBLIC_DIR}/app/${name}`, type: "text/javascript; charset=utf-8" });
+// Regular files only, so a link placed there cannot serve a file from elsewhere.
+for (const entry of readdirSync(`${PUBLIC_DIR}/app`, { withFileTypes: true })) {
+  if (!entry.isFile() || !/^[a-z0-9-]+\.js$/u.test(entry.name)) continue;
+  STATIC_FILES.set(`/app/${entry.name}`, { path: `${PUBLIC_DIR}/app/${entry.name}`, type: "text/javascript; charset=utf-8" });
 }
 // Which run of this process answered: a page that started an update reloads
 // once a different one answers after the restart.

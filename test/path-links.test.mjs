@@ -4,7 +4,7 @@ import { findPaths, isFolderPath, isQuotablePath, namesPath } from "../public/pa
 import { findScreenLinks } from "../public/terminal-links.js";
 import { renderMarkdown } from "../public/chat/markdown.js";
 
-// What the page links (app.js isLinkableTerminalPath, less the viewer's own
+// What the page links (app/selection.js isLinkableTerminalPath, less the viewer's own
 // list): a path's shape, and not `~`, whose home is another machine's.
 const linkable = (raw) => namesPath(raw) && !raw.startsWith("~");
 

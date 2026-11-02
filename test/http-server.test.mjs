@@ -86,6 +86,22 @@ test("the page says whether other PCs can be connected, and where this PC's Conn
   assert.deepEqual([bootstrap.servers, bootstrap.connectPc], [true, connectPc]);
 });
 
+test("serves every module the page's script is split into, as JavaScript", async (context) => {
+  const { appModuleFiles } = await import("./app-source.mjs");
+  const herdr = { async snapshot() { return { workspaces: [], tabs: [], panes: [], agents: [] }; } };
+  const app = await startServer(herdr);
+  context.after(() => closeServer(app.server));
+  const modules = await appModuleFiles();
+  assert.ok(modules.length > 0, "public/app/ has modules");
+  for (const name of modules) {
+    // A name the server's pattern leaves out would 404 here and break the page.
+    const response = await fetch(`${app.baseUrl}/${name}?v=test`);
+    assert.equal(response.status, 200, `/${name} is served`);
+    assert.match(response.headers.get("content-type"), /^text\/javascript/u, `/${name} is JavaScript`);
+    await response.arrayBuffer();
+  }
+});
+
 test("serves the UI and read-only API with hardened headers", async (context) => {
   const readCalls = [];
   const herdr = {

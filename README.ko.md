@@ -723,7 +723,9 @@ PC마다 **Herdr** 줄도 있습니다. 페이지가 HerdRabbit을 확인하는 
 
 ## 검증과 개발
 
-전체 정적 검사와 테스트를 실행합니다. `npm run check`는 `src`, `public`, `scripts` 아래 스크립트와 `install.sh`, `update.sh`, `migrate-to-plugin.sh`를 찾아 문법을 검사하므로 새 파일을 따로 등록할 필요가 없습니다. GitHub Actions가 모든 PR과 `main` push에서 `npm run verify`를 실행합니다.
+전체 정적 검사와 테스트를 실행합니다. `npm run check`는 `src`, `public`, `scripts` 아래 스크립트와 `install.sh`, `update.sh`, `migrate-to-plugin.sh`를 찾아 문법을 검사하므로 문법 검사에는 새 파일을 따로 등록할 필요가 없습니다. GitHub Actions가 모든 PR과 `main` push에서 `npm run verify`를 실행합니다.
+
+페이지 스크립트는 `public/app.js`이고, 앱을 시작하면서 `public/app/` 아래 모듈들을 엮습니다. 새 페이지 코드는 그 아래 모듈로 만듭니다. 파일 이름은 소문자, 숫자, 하이픈만 쓰고(`public/app/<name>.js`, 서버가 `/app/<name>.js`로 알아서 제공), 다른 파일처럼 릴리스의 `?v=`를 붙여 import하고, `public/sw.js`의 `APP_SHELL`에 추가합니다. 목록에서 빠졌거나 제공되지 않는 모듈이 있으면 `npm run verify`가 실패합니다.
 
 ```bash
 npm run verify

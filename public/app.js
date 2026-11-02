@@ -1,9 +1,22 @@
 import { browserSessionStorage, browserStorage } from "./app/dom.js?v=1.4.23";
 import { createSnapshotModel } from "./app/snapshot.js?v=1.4.23";
+import { createNotifications } from "./app/notifications.js?v=1.4.23";
+import { createSettingsMenu } from "./app/settings-menu.js?v=1.4.23";
+import { createComposer } from "./app/composer.js?v=1.4.23";
+import { createSidebarRows } from "./app/sidebar-rows.js?v=1.4.23";
+import { createAccountDialogs } from "./app/account-dialogs.js?v=1.4.23";
+import { createAiAccounts } from "./app/ai-accounts.js?v=1.4.23";
+import { createNavigation } from "./app/navigation.js?v=1.4.23";
+import { createSelection } from "./app/selection.js?v=1.4.23";
+import { createPaneViews } from "./app/pane-views.js?v=1.4.23";
+import { createTerminalStatus } from "./app/terminal-status.js?v=1.4.23";
+import { createChatPanel } from "./app/chat-lens.js?v=1.4.23";
+import { createKeyBar } from "./app/key-bar.js?v=1.4.23";
+import { createKeyBarEditor } from "./app/key-bar-editor.js?v=1.4.23";
+import { createProjectDialog } from "./app/project-dialog.js?v=1.4.23";
+import { createFiles } from "./app/files.js?v=1.4.23";
+import { createConnectPc } from "./app/connect-pc.js?v=1.4.23";
 import { createApiClient, paneApi } from "./api-client.js?v=1.4.23";
-let modifierPaneId = null;
-// The selected pane's agent and status, for the Chat lens's Stop button.
-let stopTarget = { paneId: null, agent: null, status: null };
 import {
   detectTouchInput,
   paneServerId,
@@ -72,6 +85,9 @@ import {
   writeLaunchToken,
 } from "./launch-session.js?v=1.4.23";
 
+let modifierPaneId = null;
+// The selected pane's agent and status, for the Chat lens's Stop button.
+let stopTarget = { paneId: null, agent: null, status: null };
 
 const panePreferenceStorage = browserStorage();
 let lastLoginMethod;
@@ -90,7 +106,6 @@ function currentLoginMethod() {
 }
 const launchSessionStorage = browserSessionStorage();
 const notificationPanePreference = new URL(window.location.href).searchParams.get("pane");
-import { createNotifications } from "./app/notifications.js?v=1.4.23";
 // How long a link to another server's pane waits for that server's panes to load.
 const PENDING_REMOTE_PANE_MS = 20_000;
 const pageOpenedAt = Date.now();
@@ -630,7 +645,6 @@ function setFeedback(text, isError = false) {
   elements.actionFeedback.textContent = text;
   elements.actionFeedback.dataset.error = String(isError);
 }
-import { createSettingsMenu } from "./app/settings-menu.js?v=1.4.23";
 const {
   settingsMenu, buildSettingsMenu, syncSettingsMenu, updatePanel, syncThemeItem,
   renderNotificationItem, syncPushSubscription,
@@ -672,7 +686,6 @@ function applyTerminalFontSize(nextSize) {
   viewGrid.setFontSize(nextSize);
 }
 
-
 // Each pane keeps the message typed but not sent. The textarea shows the
 // selected pane's; switching panes saves it and brings the other pane's back.
 // A draft is dropped before it is sent, and a text the server calls
@@ -681,7 +694,6 @@ let draftPaneId = null;
 let draftSaveTimer = null;
 const draftBlocked = new Set(); // panes whose composer text must not be stored
 const draftHeld = new Set(); // panes with a message on its way
-import { createComposer } from "./app/composer.js?v=1.4.23";
 const {
   resizeTerminalInput,
   syncComposerExpanded,
@@ -710,8 +722,6 @@ const {
   COMPOSER_RESIZE_DELAY_MS,
 });
 
-import { createSidebarRows } from "./app/sidebar-rows.js?v=1.4.23";
-
 const {
   sidebarActionMenu, adoptMutationSnapshot, closeSession, renameForm, workspaceHeading,
   agentMark, paneButton, attachGroupCollapse, serverRenameForm,
@@ -738,9 +748,6 @@ const {
   selectPane: (...args) => selectPane(...args),
   focusComposer: (...args) => focusComposer(...args),
 });
-
-import { createAccountDialogs } from "./app/account-dialogs.js?v=1.4.23";
-import { createAiAccounts } from "./app/ai-accounts.js?v=1.4.23";
 
 const { showServerDetails, showSessions, showPasskeys, forgetComposerDrafts } = createAccountDialogs({
   state,
@@ -770,8 +777,6 @@ const { showAiAccounts, resumeAiLogins } = createAiAccounts({
   adoptMutationSnapshot: (...args) => adoptMutationSnapshot(...args),
   closeMobileSidebar: (...args) => closeMobileSidebar(...args),
 });
-
-import { createNavigation } from "./app/navigation.js?v=1.4.23";
 
 // Made before the sidebar rows and split panes it draws with; it calls them
 // only when the sidebar is drawn.
@@ -832,7 +837,6 @@ const {
 // Settles when the snapshot on its way (if any) has arrived or failed.
 let snapshotSettled = Promise.resolve();
 
-import { createSelection } from "./app/selection.js?v=1.4.23";
 // Made before the terminal socket, the attached terminal, the Chat lens and
 // the Files tab, which are read through getters (only later, never while this
 // is made). Nothing here runs at the top level.
@@ -963,7 +967,6 @@ const attachedTerminal = createAttachedTerminal({
 let shownGridTabId = null;
 let shownPaneView = null;
 
-import { createPaneViews } from "./app/pane-views.js?v=1.4.23";
 const {
   SEPARATE_ICON, EVEN_ICON,
   paneTabId, isLocalRecord, paneLayout, paneGrid, viewGrid, shownGrid, setViewSplit, pruneViewSplit,
@@ -1012,8 +1015,6 @@ const {
   agentMark: (...args) => agentMark(...args),
 });
 
-import { createTerminalStatus } from "./app/terminal-status.js?v=1.4.23";
-
 let phoneKeyboardOpen = false;
 // A phone keyboard put away leaves the composer focused: Send reads that as
 // out of the composer (and may turn into Stop) until the composer is tapped
@@ -1044,7 +1045,6 @@ const {
 
 // Made right after the lens switch, which tells it the lens (below).
 let promptDock = null;
-import { createChatPanel } from "./app/chat-lens.js?v=1.4.23";
 const chatPanel = createChatPanel({
   state,
   elements,
@@ -1074,7 +1074,6 @@ chatFind = chatPanel.chatFind;
 // Ctrl/Cmd + wheel over the chat sizes its text (the wheel handler below).
 let chatFontWheelDelta = 0;
 
-import { createKeyBar } from "./app/key-bar.js?v=1.4.23";
 let keyBarItems = readKeyBarItems(panePreferenceStorage);
 const { clearComposer, syncSendButton, clearKeyModifiers, renderKeyBar } = createKeyBar({
   state,
@@ -1117,7 +1116,6 @@ const { clearComposer, syncSendButton, clearKeyModifiers, renderKeyBar } = creat
   hintIfStillWorking: (...args) => hintIfStillWorking(...args),
 });
 
-
 // A moment after an OpenCode Stop: the pane, still selected and still
 // working by a fresh snapshot, gets the hint that its Escs may have gone to a
 // list or the shell mode instead. Fresh is asked for after this moment: one
@@ -1134,7 +1132,6 @@ async function hintIfStillWorking(paneId, { afterMs, message }) {
   if (!(state.snapshotAt >= asked)) return;
   if (state.selectedPaneId === paneId && stopTarget.paneId === paneId && stopTarget.status === "working") setFeedback(message);
 }
-import { createKeyBarEditor } from "./app/key-bar-editor.js?v=1.4.23";
 const { openKeyBarDialog } = createKeyBarEditor({
   panePreferenceStorage,
   getKeyBarItems: () => keyBarItems,
@@ -1148,7 +1145,6 @@ const { openKeyBarDialog } = createKeyBarEditor({
 renderKeyBar();
 
 window.addEventListener("blur", clearKeyModifiers);
-import { createProjectDialog } from "./app/project-dialog.js?v=1.4.23";
 createProjectDialog({
   state,
   elements,
@@ -1159,11 +1155,9 @@ createProjectDialog({
   closeMobileSidebar: (...args) => closeMobileSidebar(...args),
 });
 
-
 // Only the last file link pressed is taken to. One still waiting gives way to
 // a later link, and to any folder or machine picked by hand meanwhile.
 let revealGeneration = 0;
-import { createFiles } from "./app/files.js?v=1.4.23";
 const {
   applyNavigatorPanels,
   browsePathStorage,
@@ -1509,7 +1503,6 @@ async function initializeApplication() {
     window.setInterval(refreshOutputOnSchedule, Math.min(state.pollIntervalMs, OUTPUT_POLL_TICK_MS));
   }
 }
-import { createConnectPc } from "./app/connect-pc.js?v=1.4.23";
 
 const { showLegacyMachinesNotice } = createConnectPc({
   api: (...args) => api(...args),

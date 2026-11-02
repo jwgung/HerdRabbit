@@ -9,10 +9,10 @@ const app = await readAppSource();
 test("several files go up at once, from the picker, a drop or a paste", () => {
   assert.match(page, /<input id="transfer-file" type="file" multiple class="visually-hidden" \/>/u);
   assert.doesNotMatch(app, /Drop one file at a time|files\?\.\[0\]/u, "no file is dropped on the floor");
-  const accept = app.match(/function acceptDroppedFiles\(list, report, onUploaded\) \{[\s\S]*?\n {0,2}\}/u)?.[0];
+  const accept = app.match(/^( *)function acceptDroppedFiles\(list, report, onUploaded\) \{[\s\S]*?\n\1\}/mu)?.[0];
   assert.ok(accept, "acceptDroppedFiles must exist");
   assert.match(accept, /uploadFiles\(files, \{ report \}\)/u);
-  const upload = app.match(/async function uploadFiles\(files, \{ report = setFeedback \} = \{\}\) \{[\s\S]*?\n {0,2}\}/u)?.[0];
+  const upload = app.match(/^( *)async function uploadFiles\(files, \{ report = setFeedback \} = \{\}\) \{[\s\S]*?\n\1\}/mu)?.[0];
   assert.ok(upload, "uploadFiles must exist");
   // One at a time and in order, so the paths land in the order the files were given.
   assert.match(upload, /for \(const \[index, file\] of list\.entries\(\)\) \{[\s\S]*?await transferRequest\(/u);
