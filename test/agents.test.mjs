@@ -11,7 +11,7 @@ test("every agent has its own name", () => {
 test("a feature's list is the agents that have it, in the table's order", () => {
   assert.deepEqual(agentNamesWith("chat"), ["claude", "codex", "opencode", "kiro", "agy"]);
   assert.deepEqual(agentNamesWith("card"), ["claude", "codex", "opencode", "kiro", "agy"]);
-  assert.deepEqual(agentNamesWith("slash"), ["claude", "codex", "opencode"]);
+  assert.deepEqual(agentNamesWith("slash"), ["claude", "codex", "opencode", "kiro", "agy"]);
   assert.deepEqual(agentNamesWith("stop"), ["claude", "codex", "opencode", "kiro", "agy"]);
   assert.deepEqual(agentNamesWith("nothing"), []);
 });

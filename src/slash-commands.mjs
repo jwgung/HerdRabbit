@@ -1,6 +1,7 @@
 // The `/` commands a pane's agent takes, for the composer's command list:
-// Claude Code's, Codex's and OpenCode's own, and the skills, commands and prompts the
-// user, the pane's project and the installed Claude plugins add.
+// Claude Code's, Codex's, OpenCode's, Kiro's and Antigravity's own, and the
+// skills, commands and prompts the user, the pane's project and the installed
+// Claude plugins add.
 //
 // Only names and one-line descriptions ever leave here. What is opened is
 // limited to the Markdown files those commands live in (their frontmatter,
@@ -16,7 +17,7 @@ import { posix } from "node:path";
 import { paneAgentName } from "./pane-agent.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 
-export const COMMAND_AGENTS = Object.freeze(["claude", "codex", "opencode"]);
+export const COMMAND_AGENTS = Object.freeze(["claude", "codex", "opencode", "kiro", "agy"]);
 // A command file larger than this is listed by its name alone, unread.
 export const MAX_COMMAND_FILE_BYTES = 64 * 1024;
 // Of a command file, only this much is read: the frontmatter and the first lines.
@@ -162,12 +163,108 @@ export const OPENCODE_BUILT_IN_COMMANDS = builtIn([
   ["workspaces", "Manage workspaces"],
 ]);
 // The OpenCode server's own commands: a skill of the same name is not one.
+// Kiro CLI's own `/` commands, as its menu lists them (kiro-cli 2.35.1,
+// recorded 2026-11-01). Its skills and file prompts are found on disk.
+export const KIRO_BUILT_IN_COMMANDS = builtIn([
+  ["agent", "List or switch agents"],
+  ["autonomous", "Turn autonomous mode on or off"],
+  ["changelog", "Show recent release notes"],
+  ["chat", "Load a previous session, save, or start a new one"],
+  ["clear", "Clear the conversation and start a fresh session"],
+  ["code", "Code intelligence status, initialization, codebase overview, and documentation"],
+  ["compact", "Compact conversation history to reduce context usage"],
+  ["config", "View configured agents, MCP servers, powers, steering, skills, and hooks"],
+  ["context", "Show or manage context files"],
+  ["copy", "Copy last response to clipboard (use /transcript for full conversation)"],
+  ["editor", "Open $EDITOR to compose a prompt"],
+  ["effort", "List or set the reasoning effort level"],
+  ["exit", "Quit the application"],
+  ["feedback", "Submit feedback, request features, or report issues"],
+  ["fullscreen", "Take over the whole terminal, with mouse scrolling (run again to leave)"],
+  ["help", "Show available commands"],
+  ["hooks", "View configured hooks"],
+  ["knowledge", "Manage knowledge bases"],
+  ["mcp", "Show MCP server status"],
+  ["memories", "Manage repo-scoped memories from previous sessions"],
+  ["model", "List or switch models"],
+  ["paste", "Paste image from clipboard"],
+  ["plan", "Switch to plan mode to break ideas into an implementation plan"],
+  ["powers", "View, install, and uninstall powers"],
+  ["prompts", "Select or list available prompts"],
+  ["quit", "Quit the application"],
+  ["reply", "Reply to the last assistant message in $EDITOR"],
+  ["rewind", "Fork the session at an earlier turn"],
+  ["sandbox", "View local sandbox settings"],
+  ["session-id", "Print the current session ID"],
+  ["sessions", "Browse sessions (dashboard); \"/sessions clean\" removes empty ones"],
+  ["settings", "Configure theme, terminal, keybindings, and other preferences"],
+  ["spec", "List specs, switch to spec mode, or run spec tasks"],
+  ["tangent", "Go back, switch to, create, or merge a conversation tangent"],
+  ["title", "Set, clear, or show the terminal window title"],
+  ["tools", "List available tools"],
+  ["transcript", "Open conversation transcript in $PAGER (quit with q)"],
+  ["upgrade-agent", "Upgrade V2 agent configs to universal (V2 + V3) format"],
+  ["usage", "Show plan usage and billing information"],
+]);
+
+// Antigravity CLI's own `/` commands and the skills it ships, as its menu
+// lists them (agy 1.4.12, recorded 2026-11-01). An alias shown beside a
+// name ("/clear (new)") is left out.
+export const AGY_BUILT_IN_COMMANDS = builtIn([
+  ["add-dir", "Add a directory to the workspace"],
+  ["agents", "List available custom agents"],
+  ["artifact", "View and review artifacts"],
+  ["btw", "Ask a side question without interrupting the current task"],
+  ["changelog", "Show release notes and changes"],
+  ["clear", "Clear conversation and start a new one"],
+  ["codesearch", "Search code in the workspace (usage: /codesearch <query>)"],
+  ["config", "Open settings panel"],
+  ["context", "Visualize current context usage"],
+  ["copy", "Copy the last planner response to the clipboard, the n-th with '/copy n', or the /btw answer with '/copy btw'"],
+  ["credits", "Show remaining G1 credits and purchase link"],
+  ["diff", "View uncommitted changes and per-turn diffs"],
+  ["effort", "Set the reasoning effort"],
+  ["exit", "Exit the CLI"],
+  ["feedback", "Submit qualitative feedback to improve the agent"],
+  ["fork", "Create a branch of the current conversation at this point, optionally specifying a project ID to fork into"],
+  ["help", "Show available commands and keybindings"],
+  ["hooks", "Manage hook configurations for tool events"],
+  ["keybindings", "Set custom keybindings"],
+  ["logout", "Log out"],
+  ["mcp", "Manage MCP servers"],
+  ["model", "Set a model, or run a single prompt on another model"],
+  ["open", "Open a file or view opened/edited files"],
+  ["permissions", "Manage tool permissions"],
+  ["plugin", "Manage, discover, install, uninstall, enable, and disable plugins"],
+  ["remote-control", "Turn on remote control for this session (off to disable)"],
+  ["rename", "Rename the current conversation"],
+  ["resume", "Browse and resume past conversations"],
+  ["rewind", "Rewind conversation to a previous message"],
+  ["skills", "List available skills"],
+  ["statusline", "Toggle the statusline"],
+  ["tasks", "View background tasks"],
+  ["title", "Toggle custom terminal window title"],
+  ["usage", "View model quota usage"],
+  ["voice", "Dictate a prompt using your microphone"],
+  ["goal", "Run until the specified goal is completely finished."],
+  ["compact", "Compact the conversation now (summarize history to free up the context window)."],
+  ["schedule", "Run an instruction on a recurring schedule or as a one-time timer."],
+  ["browser", "Invoke a browser agent for web tasks."],
+  ["plan", "Plan carefully before executing a task."],
+  ["grill-me", "Interview me to align on a plan."],
+  ["learn", "Reflect on recent successes or corrections to capture reusable skills or rules."],
+  ["agy-customizations", "Comprehensive guide and reference for the Antigravity Customization System. Use to explain how customizations work, their loading priority, discovery mechanisms, and to guid..."],
+  ["antigravity-guide", "Provides a comprehensive guide, quick reference, and sitemap for Google Antigravity (AGY), including the Antigravity CLI (agy), Antigravity 2.0, Antigravity IDE, Python SDK,..."],
+]);
+
 const OPENCODE_SERVER_COMMANDS = new Set(["init", "review"]);
 
 export function builtInCommands(agent) {
   if (agent === "opencode") return OPENCODE_BUILT_IN_COMMANDS;
   if (agent === "claude") return CLAUDE_BUILT_IN_COMMANDS;
   if (agent === "codex") return CODEX_BUILT_IN_COMMANDS;
+  if (agent === "kiro") return KIRO_BUILT_IN_COMMANDS;
+  if (agent === "agy") return AGY_BUILT_IN_COMMANDS;
   return [];
 }
 
@@ -301,6 +398,8 @@ export class SlashCommandCatalog {
     this.home = posix.resolve(home);
     this.opencodeDir = posix.resolve(env.XDG_CONFIG_HOME && env.XDG_CONFIG_HOME.startsWith("/") ? posix.join(env.XDG_CONFIG_HOME, "opencode") : posix.join(home, ".config", "opencode"));
     this.codexDir = posix.resolve(env.CODEX_HOME || posix.join(home, ".codex"));
+    this.kiroDir = posix.resolve(env.KIRO_CONFIG_DIR && env.KIRO_CONFIG_DIR.startsWith("/") ? env.KIRO_CONFIG_DIR : posix.join(home, ".kiro"));
+    this.agyDir = posix.resolve(home, ".gemini", "config");
     this.env = env;
     this.guard = guard;
     this.ttlMs = ttlMs;
@@ -310,8 +409,8 @@ export class SlashCommandCatalog {
   }
 
   // { agent, commands: [{ name, description, source }] } for a pane on this
-  // PC (one on a connected PC asks there: listRemote). An agent other than
-  // Claude Code, Codex or OpenCode has none.
+  // PC (one on a connected PC asks there: listRemote). An agent not in
+  // COMMAND_AGENTS has none.
   async list({ agent, cwd = null } = {}) {
     const name = agentName(agent);
     if (!COMMAND_AGENTS.includes(name)) return { agent: null, commands: [] };
@@ -370,6 +469,8 @@ export class SlashCommandCatalog {
     const isProtected = await this.guard.matcher();
     const scan = { out: [], isProtected, scanned: 0 };
     if (agent === "opencode") return this.#opencode(scan, cwd);
+    if (agent === "kiro") return this.#kiro(scan, cwd);
+    if (agent === "agy") return this.#agy(scan, cwd);
     if (agent === "codex") {
       const base = await this.#real(this.codexDir);
       if (base) await this.#commands(scan, posix.join(this.codexDir, "prompts"), base, { prefix: "prompts:", source: "user", depth: 0 });
@@ -387,6 +488,42 @@ export class SlashCommandCatalog {
       await this.#commands(scan, posix.join(userDir, "commands"), userDir, { prefix: "", source: "user" });
       await this.#plugins(scan, userDir, projects);
     }
+    return scan.out;
+  }
+
+  // Kiro CLI's skills and file prompts: `.kiro/skills/<name>/SKILL.md` and
+  // `.kiro/prompts/<name>.md` in the pane's own folder (Kiro reads no folder
+  // above it, checked with kiro-cli 2.35.1), then the same in `~/.kiro`.
+  // Prompts an MCP server offers are not on disk and are not listed.
+  async #kiro(scan, cwd) {
+    const userDir = await this.#real(this.kiroDir);
+    const folder = cwd ? await this.#real(cwd) : null;
+    if (folder) {
+      const project = await this.#real(posix.join(folder, ".kiro"));
+      if (project && project !== userDir) {
+        await this.#skills(scan, posix.join(folder, ".kiro", "skills"), folder, { prefix: "", source: "project" });
+        await this.#commands(scan, posix.join(folder, ".kiro", "prompts"), folder, { prefix: "", source: "project", depth: 0 });
+      }
+    }
+    if (userDir) {
+      await this.#skills(scan, posix.join(userDir, "skills"), userDir, { prefix: "", source: "user" });
+      await this.#commands(scan, posix.join(userDir, "prompts"), userDir, { prefix: "", source: "user", depth: 0 });
+    }
+    return scan.out;
+  }
+
+  // Antigravity CLI's skills: `.agents/skills/<name>/SKILL.md` in the pane's
+  // folder and, inside a git checkout, each folder above it up to its root
+  // (outside one, the pane's folder only), then `~/.gemini/config/skills`.
+  // Its workflows are deprecated and no longer listed by it (agy 1.4.12).
+  async #agy(scan, cwd) {
+    const userDir = await this.#real(this.agyDir);
+    const homeReal = await this.#real(this.home);
+    const projects = cwd ? await this.#projectFolders(cwd, async (folder) => folder === homeReal) : [];
+    for (const base of projects) {
+      await this.#skills(scan, posix.join(base, ".agents", "skills"), base, { prefix: "", source: "project" });
+    }
+    if (userDir) await this.#skills(scan, posix.join(userDir, "skills"), userDir, { prefix: "", source: "user" });
     return scan.out;
   }
 

@@ -23,8 +23,8 @@ export const AGENTS = Object.freeze([
   { name: "claude", label: "Claude", product: "Claude Code", marks: ["claude"], chat: true, card: true, slash: true, stop: true },
   { name: "codex", label: "Codex", marks: ["codex"], chat: true, card: true, slash: true, stop: true },
   { name: "opencode", label: "OpenCode", marks: ["opencode"], chat: true, card: true, slash: true, stop: true },
-  { name: "kiro", label: "Kiro", marks: ["kiro"], chat: true, card: true, stop: true },
-  { name: "agy", label: "Antigravity", marks: ["agy", "antigravity"], chat: true, card: true, stop: true },
+  { name: "kiro", label: "Kiro", marks: ["kiro"], chat: true, card: true, slash: true, stop: true },
+  { name: "agy", label: "Antigravity", marks: ["agy", "antigravity"], chat: true, card: true, slash: true, stop: true },
   { name: "cursor", marks: ["cursor"] },
 ].map((agent) => Object.freeze(agent)));
 
