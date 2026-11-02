@@ -338,6 +338,12 @@ body.sidebar-collapsed .pane-status {
   line-height: 1.2;
 }
 
+/* "Needs your answer", said in place of the folder */
+.pane-copy small.pane-state {
+  color: var(--danger);
+  font-weight: 600;
+}
+
 .agent-icon { width: 18px; height: 18px; display: block; color: var(--text); }
 
 /* Herdr's own symbol for the status; its colour comes from .ui-status.state-*. */
@@ -2105,6 +2111,18 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
   .mobile-sidebar-open {
     display: inline-grid;
+  }
+
+  /* Only the session's own name: the project is one tap away in the sidebar.
+     That name keeps its width; the title beside it gives way first. */
+  #pane-context {
+    max-width: 65%;
+    flex-shrink: 0;
+  }
+
+  .pane-context-part:not(.is-kept),
+  .pane-context-sep {
+    display: none;
   }
 
   .terminal-panel {

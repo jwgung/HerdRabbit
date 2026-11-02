@@ -9,6 +9,7 @@ import {
   mostUrgentStatus,
   paneAgentKind,
   paneDisplayTitle,
+  paneRowLine,
   paneSubtitle,
 } from "../ui-model.js?v=1.4.23";
 import { createPaneGrid, renderPaneMap } from "../pane-grid.js?v=1.4.23";
@@ -521,8 +522,8 @@ export function createPaneViews(deps) {
     button.append(agentMark(paneAgentKind(focusPane, agentForPane(focusPaneId))));
     const copy = createElement("span", { className: "pane-copy" });
     copy.append(createElement("strong", { className: "pane-title", text: name }));
-    const subtitle = paneSubtitle(name, focusPane);
-    if (subtitle) copy.append(createElement("small", { className: "pane-cwd", text: subtitle }));
+    const line = paneRowLine(status, paneSubtitle(name, focusPane));
+    if (line) copy.append(createElement("small", { className: line.state ? "pane-cwd pane-state" : "pane-cwd", text: line.text }));
     const badge = createElement("span", { className: "split-badge" });
     badge.setAttribute("aria-hidden", "true");
     badge.append(createIcon(GRID_ICON), createElement("span", { text: String(paneIds.length) }));

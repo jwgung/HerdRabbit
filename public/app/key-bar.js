@@ -3,6 +3,7 @@ import { inputKeyAction, insertNewlineAtSelection, nextInputHistory, paneKeepsIn
 import { chatAgent } from "../lens-preference.js?v=1.4.23";
 import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop, stopFollowUp, stopPresses } from "../chat/chat-activity.js?v=1.4.23";
 import { keyBarItemKey, keyBarItemLabel } from "../key-bar-preference.js?v=1.4.23";
+import { numberedChoice } from "../chat/prompt-card.js?v=1.4.23";
 
 // The composer's sending side and the key bar: the form's submit, the
 // composer's keys (history, Enter, Esc to stop), Send doubling as Stop, the key
@@ -22,6 +23,7 @@ export function createKeyBar({
   getTerminalInputResizeTimer,
   setTerminalInputResizeTimer,
   getChatFind,
+  getPromptDock,
   getEnterKeyMode,
   getPhysicalKeyboardSeen,
   getKeyBarItems,
@@ -59,6 +61,7 @@ export function createKeyBar({
     if (draftPaneId) draftBlocked.delete(draftPaneId);
     composerPopup.close();
     elements.terminalInput.value = "";
+    getPromptDock?.()?.preview(null);
     window.clearTimeout(getTerminalInputResizeTimer());
     setTerminalInputResizeTimer(null);
     syncComposerExpanded();
@@ -66,10 +69,31 @@ export function createKeyBar({
     speechStop();
   }
 
+  // A number typed while the selected pane's card waits names one of its
+  // buttons: the card shows which, and Enter answers with it (Q4).
+  function composerChoice(text = elements.terminalInput.value) {
+    const dock = getPromptDock?.();
+    if (!dock || dock.mode === "hidden" || !state.selectedPaneId) return null;
+    return numberedChoice(dock.card, text);
+  }
+
+  function syncComposerChoice() {
+    getPromptDock?.()?.preview(composerChoice());
+  }
+
+  elements.terminalInput.addEventListener("input", syncComposerChoice);
+  elements.terminalInput.addEventListener("promptcardchange", syncComposerChoice);
+
   elements.inputForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const text = elements.terminalInput.value;
     const paneId = state.selectedPaneId;
+    const choice = composerChoice(text);
+    if (choice !== null && getPromptDock().choose(choice)) {
+      clearComposer();
+      setFeedback("");
+      return;
+    }
     composerSending = true;
     syncSendButton();
     setFeedback("Sending…");

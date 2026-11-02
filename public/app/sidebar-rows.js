@@ -7,6 +7,7 @@ import {
   displayTabLabel,
   paneAgentKind,
   paneDisplayTitle,
+  paneRowLine,
   paneSubtitle,
 } from "../ui-model.js?v=1.4.23";
 import { writeCollapsedGroupIds, writeCollapsedWorkspaceIds } from "../workspace-preference.js?v=1.4.23";
@@ -476,8 +477,8 @@ export function createSidebarRows(deps) {
     const title = paneDisplayTitle(sessionName, pane, tabLabel || "Terminal", agent);
     const copy = createElement("span", { className: "pane-copy" });
     copy.append(createElement("strong", { className: "pane-title", text: title }));
-    const subtitle = paneSubtitle(title, pane);
-    if (subtitle) copy.append(createElement("small", { className: "pane-cwd", text: subtitle }));
+    const line = paneRowLine(currentAgentStatus, paneSubtitle(title, pane));
+    if (line) copy.append(createElement("small", { className: line.state ? "pane-cwd pane-state" : "pane-cwd", text: line.text }));
     button.append(copy);
 
     // Always present, so the row's text and menu stay put whatever the status.

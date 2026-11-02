@@ -140,8 +140,18 @@
 
 .prompt-card-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1) var(--space-2);
+}
+
+/* "Needs your answer", on a line of its own above the title */
+.prompt-card-status {
+  flex: 1 0 100%;
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.82em;
+  font-weight: 600;
 }
 
 .prompt-card-header h2 {
@@ -263,6 +273,13 @@
 .prompt-card-option.is-checked {
   border-color: var(--accent);
   background: var(--hover-surface);
+}
+
+/* the option a number typed in the composer names, until Enter sends it */
+.prompt-card-option.is-previewed {
+  border-color: var(--accent);
+  background: var(--hover-surface);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .prompt-card-option:focus-visible {

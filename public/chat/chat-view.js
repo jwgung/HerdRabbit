@@ -28,7 +28,7 @@ import {
 } from "./work-blocks.js?v=1.4.23";
 import { paneRenames } from "../pane-rename.js?v=1.4.23";
 import { ConversationLoader } from "./conversation-refresh.js?v=1.4.23";
-import { OPTIMISTIC_MS, pendingMessage, settlePending, showsWorking, workingSince as turnBegan, workingText } from "./chat-activity.js?v=1.4.23";
+import { OPTIMISTIC_MS, answerRecord, pendingMessage, settleAnswers, settlePending, showsWorking, workingSince as turnBegan, workingText } from "./chat-activity.js?v=1.4.23";
 import {
   chatMayBecomeAvailable,
   chatReadBusy,
@@ -160,6 +160,8 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
   let idleAt = null;
   let optimisticUntil = 0;
   let pending = [];
+  // answers given on the prompt card, shown until the transcript moves on
+  let cardAnswers = [];
   // the last texts this page sent to the pane (a Stop puts one back in the box)
   let recentSent = [];
   const noteSent = (message) => { recentSent = [...recentSent, message.text].slice(-5); };
@@ -441,12 +443,13 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
   function drawActivity() {
     const now = Date.now();
     pending = settlePending(pending, loader.history.turns, now);
+    cardAnswers = settleAnswers(cardAnswers, loader.history.turns, now);
     const working = showsWorking({ status, optimisticUntil, now });
     if (working && workingSince === null) workingSince = now;
     if (!working && status !== "working") workingSince = null;
     const since = turnBegan({ turns: loader.history.turns, seen: workingSince, now, idleAt, sending: pending.length > 0 });
     const text = working ? workingText(since, now, agent) : "";
-    const key = `${pending.map((item) => `${item.at}:${item.text}`).join("\n")}|${text}`;
+    const key = `${pending.map((item) => `${item.at}:${item.text}`).join("\n")}|${cardAnswers.map((item) => `${item.at}:${item.text}`).join("\n")}|${text}`;
     if (key !== activityKey) {
       activityKey = key;
       const nodes = pending.map((item) => {
@@ -456,6 +459,13 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
         article.append(bubble, element(document, "div", { className: "chat-turn-meta", text: "Sending…" }));
         return article;
       });
+      // an answer given on the prompt card, until the agent's next step shows
+      for (const item of cardAnswers) {
+        const line = element(document, "p", { className: "chat-answered", attrs: { role: "status" } });
+        line.append(element(document, "span", { className: "chat-answered-label", text: "You answered" }),
+          element(document, "span", { className: "chat-answered-text", text: item.text }));
+        nodes.push(line);
+      }
       if (working) {
         const row = element(document, "p", { className: "chat-working", attrs: { role: "status" } });
         row.append(element(document, "span", { className: "chat-working-dots", attrs: { "aria-hidden": "true" } }),
@@ -465,7 +475,7 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
       activity.replaceChildren(...nodes);
     }
     // the time ticks while the row shows; a pending bubble is dropped on time
-    const ticking = visible && (working || pending.length > 0);
+    const ticking = visible && (working || pending.length > 0 || cardAnswers.length > 0);
     if (ticking && ticker === null) ticker = setInterval(() => { drawActivity(); keepAtEnd(); }, 1_000);
     if (!ticking && ticker !== null) { clearInterval(ticker); ticker = null; }
   }
@@ -762,6 +772,15 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
       if (stick) keepAtEnd();
       return message;
     },
+    // An answer went out from the prompt card: said in the chat until the
+    // transcript moves on.
+    answered(text) {
+      const record = answerRecord(text, loader.history.turns);
+      if (!record) return;
+      cardAnswers = [...cardAnswers, record];
+      drawActivity();
+      if (stick) keepAtEnd();
+    },
     // The send failed: nothing is on its way.
     unsent(message) {
       pending = pending.filter((item) => item !== message);
@@ -1001,6 +1020,7 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
     },
     unsent(id, message) { chats.get(id)?.unsent(message); },
     pend(id, text) { const chat = chats.get(id); return chat?.visible ? chat.pend(text) : null; },
+    answered(id, text) { chats.get(id)?.answered(text); },
     get lens() { return lens; },
     get paneId() { return paneId; },
     chatFor: (id) => chats.get(id) ?? null,

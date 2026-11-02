@@ -926,6 +926,28 @@ pre.md-math {
   font-size: calc(var(--font-md) * var(--chat-scale, 1));
 }
 
+/* An answer given on the prompt card, until the agent's next step shows. */
+.chat-answered {
+  max-width: 100%;
+  margin: 0;
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  color: var(--muted);
+  font-size: calc(var(--font-md) * var(--chat-scale, 1));
+}
+
+.chat-answered-text {
+  min-width: 0;
+  color: var(--text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
 .chat-working-dots {
   width: 22px;
   height: 6px;

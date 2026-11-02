@@ -821,8 +821,10 @@ export function agentStatusIcon(status) {
   return AGENT_STATUS_ICONS[status] || AGENT_STATUS_ICONS.unknown;
 }
 
+const AGENT_STATUS_LABELS = Object.freeze({ blocked: "Needs your answer", working: "Working", done: "Done", idle: "Idle" });
+
 export function agentStatusLabel(status) {
-  return status === "blocked" ? "Needs your answer" : status === "done" ? "Done" : status === "working" ? "Working" : status;
+  return AGENT_STATUS_LABELS[status] ?? "Unknown";
 }
 
 // Most urgent first: an answer waited for, then work going on, then work
@@ -894,6 +896,13 @@ export function paneSubtitle(title, pane) {
   const name = paneFolder(pane);
   if (name === "") return "";
   return name.toLowerCase() === String(title ?? "").trim().toLowerCase() ? "" : name;
+}
+
+// The line under a sidebar row's name: a pane waiting on you says so in words
+// there, in place of its folder; any other shows the folder (or nothing).
+export function paneRowLine(status, folder) {
+  if (status === "blocked") return { text: agentStatusLabel(status), state: true };
+  return folder ? { text: folder, state: false } : null;
 }
 
 // The server names sign-in projects with this prefix (src/http-server.mjs).
