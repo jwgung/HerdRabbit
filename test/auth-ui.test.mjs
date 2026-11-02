@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { passkeyDetails } from "../public/ui-model.js";
+import { readAppSource } from "./app-source.mjs";
 
 const styles = await readFile(
   new URL("../public/styles.css", import.meta.url),
@@ -11,10 +12,7 @@ const page = await readFile(
   new URL("../public/index.html", import.meta.url),
   "utf8",
 );
-const app = await readFile(
-  new URL("../public/app.js", import.meta.url),
-  "utf8",
-);
+const app = await readAppSource();
 
 test("keeps the password screen hidden when authentication is disabled", () => {
   assert.match(

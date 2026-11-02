@@ -16,7 +16,7 @@
 //
 // The order is the order these are listed in. The mark a pane wears when the
 // names it carries disagree is MARK_PRIORITY's, not this order's. The drawing
-// of a mark is in app.js (AGENT_MARKS); an agent with none is drawn as "other".
+// of a mark is in app/sidebar-rows.js (AGENT_MARKS); an agent with none is drawn as "other".
 // The server has its own table of what it can read (src/conversation/service.mjs,
 // src/prompt/service.mjs).
 export const AGENTS = Object.freeze([

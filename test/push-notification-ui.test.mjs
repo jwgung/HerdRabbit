@@ -5,10 +5,11 @@ import {
   applicationServerKeyBytes,
   pushButtonPresentation,
 } from "../public/push-notifications.js";
+import { readAppSource } from "./app-source.mjs";
 
 const page = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
 const worker = await readFile(new URL("../public/sw.js", import.meta.url), "utf8");
-const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+const app = await readAppSource();
 
 test("offers the notification toggle as an item of the settings menu, hidden when push is unsupported", () => {
   assert.doesNotMatch(page, /id="notification-toggle"/);

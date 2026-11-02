@@ -627,7 +627,9 @@ npm run check:browser   # Playwright checks against a fake Herdr (needs `npx pla
 npm run dev
 ```
 
-`npm run check` finds every script under `src`, `public` and `scripts` and checks its syntax, along with `install.sh`, `update.sh` and `migrate-to-plugin.sh`, so a new file needs no registration. GitHub Actions runs `npm run verify` on every pull request and on pushes to `main`.
+`npm run check` finds every script under `src`, `public` and `scripts` and checks its syntax, along with `install.sh`, `update.sh` and `migrate-to-plugin.sh`, so a new file needs no registration there. GitHub Actions runs `npm run verify` on every pull request and on pushes to `main`.
+
+The page's script is `public/app.js`, which boots the app and wires together the modules under `public/app/`. New page code goes in a module there: name it in lowercase letters, digits and hyphens (`public/app/<name>.js`, which the server serves as `/app/<name>.js` on its own), import it with the release's `?v=` like the other files, and add it to `APP_SHELL` in `public/sw.js`. `npm run verify` fails when a module is missing from that list or would not be served.
 
 Tests use a fake Herdr executable and temporary state. They do not write to real terminal panes or create and close real workspaces or sessions.
 

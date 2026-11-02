@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { OPENCODE_STOP_CHECK_MS, OPENCODE_STOP_GAP_MS, composerEscapeStops, sendButtonMode, showsStop, stopFollowUp, stopPresses } from "../public/chat/chat-activity.js";
+import { readAppSource } from "./app-source.mjs";
 
 const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
@@ -35,7 +36,7 @@ test("an OpenCode Stop looks again a moment later and hints, if it still works, 
   assert.match(followUp.message, /OpenCode is still working.*Stop again/u);
   for (const agent of ["claude", "codex", null]) assert.equal(stopFollowUp(agent), null, String(agent));
   // the page asks for a fresh snapshot and hints only for the pane still selected and still working
-  const app = await read("../public/app.js");
+  const app = await readAppSource();
   assert.match(app, /const followUp = stopFollowUp\(agent\);\s*if \(followUp\) void hintIfStillWorking\(paneId, followUp\);/u);
   assert.match(app, /async function hintIfStillWorking\(paneId, \{ afterMs, message \}\) \{[\s\S]{0,200}const asked = Date\.now\(\);\s*for \(let tries = 0; tries < 3 && !\(state\.snapshotAt >= asked\); tries \+= 1\) \{\s*if \(state\.snapshotBusy\) await snapshotSettled;\s*else await refreshSnapshot\(\);\s*\}\s*if \(!\(state\.snapshotAt >= asked\)\) return;\s*if \(state\.selectedPaneId === paneId && stopTarget\.paneId === paneId && stopTarget\.status === "working"\) setFeedback\(message\);/u);
   // a fresh snapshot is what the hint stands on: refreshSnapshot marks when the
@@ -72,7 +73,7 @@ test("Send turns into Stop only out of the composer, in the Chat lens of a worki
 
 test("the Send button doubles as Stop and the press decides which", async () => {
   const page = await read("../public/index.html");
-  const app = await read("../public/app.js");
+  const app = await readAppSource();
   const composer = page.match(/<div class="input-composer">[\s\S]*?<\/form>/u)?.[0] ?? "";
   // one button, no separate Stop
   assert.doesNotMatch(page, /id="stop-button"/u);

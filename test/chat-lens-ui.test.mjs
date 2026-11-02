@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { readAppSource } from "./app-source.mjs";
 
 const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 const page = await read("../public/index.html");
-const app = await read("../public/app.js");
+const app = await readAppSource();
 const worker = await read("../public/sw.js");
 const server = await read("../src/http-server.mjs");
 const styles = await read("../public/chat/chat-view.css");
@@ -121,8 +122,7 @@ test("the lens buttons are icons, with their words beside them on wide windows a
 });
 
 test("the composer sends at once whatever the agent is doing: no queue, no send menu", () => {
-  const submit = app.slice(app.indexOf('elements.inputForm.addEventListener("submit"'));
-  const handler = submit.slice(0, submit.indexOf("\n});") + 4);
+  const handler = app.match(/^( *)elements\.inputForm\.addEventListener\("submit"[\s\S]*?\n\1\}\);/mu)?.[0] ?? "";
   assert.match(handler, /await sendText\(text, paneId\)/u);
   assert.match(handler, /await sendKeys\(\["enter"\], paneId\)/u);
   assert.doesNotMatch(handler, /agentStatus|selectedAgentStatus|queue/iu, "the agent's state does not change what Send does");

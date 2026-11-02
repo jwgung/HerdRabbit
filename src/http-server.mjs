@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
+import { readdirSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -124,6 +125,13 @@ const STATIC_FILES = new Map([
   ["/icons/notification-icon-192.png", { path: `${PUBLIC_DIR}/icons/notification-icon-192.png`, type: "image/png" }],
   ["/icons/notification-badge-96.png", { path: `${PUBLIC_DIR}/icons/notification-badge-96.png`, type: "image/png" }],
 ]);
+// The modules public/app.js is split into, found rather than listed: every
+// script there is part of the page, and one left out of this map would 404.
+// Regular files only, so a link placed there cannot serve a file from elsewhere.
+for (const entry of readdirSync(`${PUBLIC_DIR}/app`, { withFileTypes: true })) {
+  if (!entry.isFile() || !/^[a-z0-9-]+\.js$/u.test(entry.name)) continue;
+  STATIC_FILES.set(`/app/${entry.name}`, { path: `${PUBLIC_DIR}/app/${entry.name}`, type: "text/javascript; charset=utf-8" });
+}
 // Which run of this process answered: a page that started an update reloads
 // once a different one answers after the restart.
 const BOOT_ID = randomBytes(9).toString("base64url");

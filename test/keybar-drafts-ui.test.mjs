@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import { readAppSource } from "./app-source.mjs";
 
 const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 const [app, page, worker, server, notices, css] = await Promise.all([
-  read("../public/app.js"), read("../public/index.html"), read("../public/sw.js"),
+  readAppSource(), read("../public/index.html"), read("../public/sw.js"),
   read("../src/http-server.mjs"), read("../THIRD_PARTY_NOTICES.md"), read("../public/key-bar.css"),
 ]);
 
@@ -22,7 +23,7 @@ test("the key bar is drawn from the saved layout; its Edit keys control sits at 
   assert.match(app, /readKeyBarItems\(panePreferenceStorage\)/u);
   assert.doesNotMatch(page, /id="key-bar-settings"/u, "the sidebar foot has the settings menu, not a button per setting");
   assert.match(app, /key: "keys",\s+label: "Edit keys",[\s\S]*?closeMobileSidebar\(\);\s*openKeyBarDialog\(\);/u);
-  assert.doesNotMatch(app, /key-bar-edit|EDIT_KEYS_ICON/u, "nothing of the editor is left in the bar itself");
+  assert.doesNotMatch(app, /key-bar-edit(?!or\.js)|EDIT_KEYS_ICON/u, "nothing of the editor is left in the bar itself");
   assert.match(app, /draggable = true/u, "rows drag on a desktop");
   assert.match(app, /"Move up"/u);
   assert.match(app, /"Move down"/u);
@@ -41,7 +42,7 @@ test("drafts: saved on pane switch, cleared before a send, never kept for a pass
   assert.match(app, /releaseComposerDraft\(paneId, \{ sent: delivered, text, secret \}\)/u, "a password answer is released as secret");
   assert.match(app, /if \(secret && draftPaneId === paneId && elements\.terminalInput\.value !== ""\) draftBlocked\.add\(paneId\)/u);
   assert.match(app, /state\.inputHistoryCursor !== null \? state\.inputHistoryDraft : elements\.terminalInput\.value/u, "a recalled history entry is not the draft");
-  assert.match(app, /scheduleComposerDraftSave\(\);\n\}\);/u);
+  assert.match(app, /^( *)  scheduleComposerDraftSave\(\);\n\1\}\);/mu);
 });
 
 test("sign-out drops the drafts, and an unverifiable screen keeps a draft out of storage", () => {

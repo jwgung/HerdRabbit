@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import { readAppSource } from "./app-source.mjs";
 
 const userFacingSources = [
   "../public/index.html",
-  "../public/app.js",
   "../public/app-update.js",
   "../public/ui-model.js",
   "../public/api-client.js",
@@ -26,6 +26,7 @@ const userFacingSources = [
 ];
 
 test("uses English only for application UI and user-facing messages", async () => {
+  assert.doesNotMatch(await readAppSource(), /[가-힣]/u, "public/app.js or public/app/ contains Korean UI copy");
   for (const relativePath of userFacingSources) {
     const source = await readFile(new URL(relativePath, import.meta.url), "utf8");
     assert.doesNotMatch(source, /[가-힣]/u, `${relativePath} contains Korean UI copy`);
@@ -33,7 +34,7 @@ test("uses English only for application UI and user-facing messages", async () =
 });
 
 test("uses concise, natural status copy", async () => {
-  const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  const app = await readAppSource();
   const notifications = await readFile(
     new URL("../src/agent-notifications.mjs", import.meta.url),
     "utf8",
