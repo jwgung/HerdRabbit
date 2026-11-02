@@ -180,7 +180,7 @@ test("Antigravity is listed by its email and switches", async (t) => {
   // which would put the new account where the live one is read from.
   const { login, finished } = await signInElsewhere(accounts, "agy", (location) =>
     writeAgy(location, { email: "b@example.com", token: "b1" }));
-  assert.match(login.command, /^env -u DBUS_SESSION_BUS_ADDRESS -u XDG_RUNTIME_DIR HOME='.+' agy$/u);
+  assert.match(login.command, /^env -u DBUS_SESSION_BUS_ADDRESS -u XDG_RUNTIME_DIR -u DISPLAY HOME='.+' agy$/u);
   assert.equal(finished.account.email, "b@example.com");
   assert.equal(finished.account.active, false);
 
@@ -219,6 +219,21 @@ test("Antigravity in keyring mode is reported and left alone", async (t) => {
   await assert.rejects(accounts.saveCurrent("agy"), { code: "unsupported" });
   await assert.rejects(accounts.startLogin("agy"), { code: "unsupported" });
   assert.equal(await readFile(agy.token, "utf8"), before);
+});
+
+test("a keyring that could not be checked is said, and the switch is still offered", async (t) => {
+  const unknown = createAgyAdapter({ keyringHoldsToken: async () => null });
+  const { accounts } = await machine(t, { adapters: [unknown] });
+  const { clis } = await accounts.list();
+  assert.equal(clis[0].supported, true);
+  assert.match(clis[0].reason, /could not be checked/u);
+});
+
+test("an Antigravity file without an email is named by its ID token's subject", async (t) => {
+  const { home } = await machine(t);
+  const location = agyAdapter.locate({ HOME: join(home, "other") });
+  await writeAgy(location, { token: "d1", idToken: { sub: "google-d" } });
+  assert.equal((await agyAdapter.identify(location)).accountId, "google-d");
 });
 
 test("the keyring is looked for on the session bus agy itself would use", () => {
@@ -262,6 +277,10 @@ test("no credential appears in anything returned or thrown", async (t) => {
   await capture(accounts.saveCurrent("claude"));
   await capture(accounts.saveCurrent("codex"));
   await capture(accounts.saveCurrent("agy"));
+  const agyLogin = await signInElsewhere(accounts, "agy", (location) => writeAgy(location, { email: "b@example.com", token: "b1" }));
+  outputs.push(agyLogin.finished);
+  await capture(accounts.switch("agy", agyLogin.finished.account.id));
+  await capture(accounts.remove("agy", agyLogin.finished.account.id));
   const { finished } = await signInElsewhere(accounts, "claude", (location) =>
     writeClaude(location, { uuid: "uuid-b", email: "b@example.com", token: "b1" }));
   outputs.push(finished);
