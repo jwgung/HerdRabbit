@@ -198,9 +198,10 @@ export function createAiAccounts({
     const login = aiAccounts.server ? pendingAiLogins.get(aiAccounts.server.id) : null;
     aiAccountsLogin.hidden = !login;
     if (!login) return;
-    const codexHint = login.cli === "codex" ? " Device code sign-in must be on in ChatGPT settings." : "";
+    const hint = { codex: " Device code sign-in must be on in ChatGPT settings.",
+      agy: " Antigravity signs in on its first run: follow its steps there." }[login.cli] ?? "";
     document.querySelector("#ai-accounts-login-text").textContent =
-      `Waiting for ${login.label} to be signed in in the “AI login” terminal. It is saved as soon as you are.${codexHint}`;
+      `Waiting for ${login.label} to be signed in in the “AI login” terminal. It is saved as soon as you are.${hint}`;
   }
 
   // Asks the server to finish the sign-in until it can. "Not yet" is the answer

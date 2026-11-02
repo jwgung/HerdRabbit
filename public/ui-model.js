@@ -964,8 +964,10 @@ export function aiLoginSessionId(serverId, herdrSessions = []) {
   return session?.session_id ?? null;
 }
 
+const AI_RESTART_HINTS = Object.freeze({ codex: "codex resume", agy: "agy --continue" });
+
 export function aiRestartHint(cli) {
-  return cli === "codex" ? "codex resume" : "claude --continue";
+  return AI_RESTART_HINTS[cli] ?? "claude --continue";
 }
 
 export function loginMethodPresentation({

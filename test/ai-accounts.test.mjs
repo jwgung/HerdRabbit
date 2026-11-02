@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { claudeAdapter } from "../src/ai-account-adapters.mjs";
-import { SECRET, machine, stagedLocation, stagingDirectoryOf, writeClaude, writeCodex } from "./fixtures/ai-accounts.mjs";
+import { agyAdapter, claudeAdapter, createAgyAdapter, secretServiceFound, sessionBusAddress } from "../src/ai-account-adapters.mjs";
+import { SECRET, machine, stagedLocation, stagingDirectoryOf, writeAgy, writeClaude, writeCodex } from "./fixtures/ai-accounts.mjs";
 
 async function filesUnder(path) {
   const found = [];
@@ -82,7 +82,7 @@ test("open sign-ins are listed by id until they finish or are cancelled", async 
   await accounts.finishLogin("claude", claudeLogin.loginId);
   await accounts.cancelLogin("codex", codexLogin.loginId);
   ({ clis } = await accounts.list());
-  assert.deepEqual(clis.map((cli) => cli.logins), [[], []]);
+  assert.deepEqual(clis.map((cli) => cli.logins), clis.map(() => []));
 });
 
 test("switching installs the account and keeps rotated tokens of the one it replaces", async (t) => {
@@ -167,6 +167,78 @@ test("codex in keyring mode is reported and left alone", async (t) => {
   await assert.rejects(accounts.startLogin("codex"), { code: "unsupported" });
 });
 
+test("Antigravity is listed by its email and switches", async (t) => {
+  const { accounts, agy, directory } = await machine(t);
+  let { clis } = await accounts.list();
+  const entry = clis.find((cli) => cli.id === "agy");
+  assert.equal(entry.label, "Antigravity CLI");
+  assert.equal(entry.supported, true);
+  assert.equal(entry.current.email, "a@example.com");
+
+  // agy has no sign-in command: it signs in on first run. Its HOME is the
+  // sign-in directory, and without a session bus it cannot reach the keyring,
+  // which would put the new account where the live one is read from.
+  const { login, finished } = await signInElsewhere(accounts, "agy", (location) =>
+    writeAgy(location, { email: "b@example.com", token: "b1" }));
+  assert.match(login.command, /^env -u DBUS_SESSION_BUS_ADDRESS -u XDG_RUNTIME_DIR HOME='.+' agy$/u);
+  assert.equal(finished.account.email, "b@example.com");
+  assert.equal(finished.account.active, false);
+
+  await accounts.switch("agy", finished.account.id);
+  assert.match(await readFile(agy.token, "utf8"), /refresh-b1/u);
+  assert.equal((await stat(agy.token)).mode & 0o777, 0o600);
+
+  // agy refreshes while B is live; going back to A keeps B's new tokens.
+  await writeAgy(agy, { email: "b@example.com", token: "b2" });
+  ({ clis } = await accounts.list());
+  const accountA = clis.find((cli) => cli.id === "agy").accounts.find((item) => item.email === "a@example.com");
+  assert.ok(accountA, "the replaced account was saved on the way out");
+  await accounts.switch("agy", accountA.id);
+  assert.match(await readFile(agy.token, "utf8"), /refresh-a1/u);
+  assert.match(await readFile(join(directory, "agy", finished.account.id, "antigravity-oauth-token"), "utf8"), /refresh-b2/u);
+});
+
+test("an Antigravity file names its account by email, else by its ID token", async (t) => {
+  const { home } = await machine(t);
+  const location = agyAdapter.locate({ HOME: join(home, "other") });
+  assert.equal(await agyAdapter.identify(location), null, "no file, no account");
+  await writeAgy(location, { token: "c1", idToken: { sub: "google-c", email: "C@Example.com" } });
+  assert.deepEqual(await agyAdapter.identify(location),
+    { accountId: "c@example.com", email: "C@Example.com", organization: null, plan: null, refreshExpiresAt: null });
+  await writeFile(location.token, JSON.stringify({ token: { access_token: "x" }, id_token_email: "c@example.com" }));
+  assert.equal(await agyAdapter.identify(location), null, "a file without a refresh token is no sign-in");
+});
+
+test("Antigravity in keyring mode is reported and left alone", async (t) => {
+  const keyring = createAgyAdapter({ keyringHoldsToken: async () => true });
+  const { accounts, agy } = await machine(t, { adapters: [keyring] });
+  const before = await readFile(agy.token, "utf8");
+  const { clis } = await accounts.list();
+  assert.equal(clis[0].supported, false);
+  assert.match(clis[0].reason, /keyring/u);
+  await assert.rejects(accounts.saveCurrent("agy"), { code: "unsupported" });
+  await assert.rejects(accounts.startLogin("agy"), { code: "unsupported" });
+  assert.equal(await readFile(agy.token, "utf8"), before);
+});
+
+test("the keyring is looked for on the session bus agy itself would use", () => {
+  assert.equal(sessionBusAddress({ DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/7/bus,guid=x" }), "unix:path=/run/user/7/bus,guid=x");
+  assert.equal(sessionBusAddress({ XDG_RUNTIME_DIR: "/run/user/7" }), "unix:path=/run/user/7/bus");
+  assert.equal(sessionBusAddress({ HOME: "/home/x" }), null, "no bus: agy writes the file");
+  assert.equal(secretServiceFound("(@ao [], @ao [])"), false);
+  assert.equal(secretServiceFound("([objectpath '/org/freedesktop/secrets/collection/login/3'], @ao [])"), true);
+  assert.equal(secretServiceFound("(@ao [], [objectpath '/org/freedesktop/secrets/collection/login/3'])"), true, "a locked item counts");
+});
+
+test("a running agy holds a switch until confirmed", async (t) => {
+  const { accounts, agy } = await machine(t, { running: [{ paneId: "w1:p3", agent: "agy", label: "docs" }] });
+  const { finished } = await signInElsewhere(accounts, "agy", (location) =>
+    writeAgy(location, { email: "b@example.com", token: "b1" }));
+  await assert.rejects(accounts.switch("agy", finished.account.id), { code: "agents_running" });
+  await accounts.switch("agy", finished.account.id, { confirmRunning: true });
+  assert.match(await readFile(agy.token, "utf8"), /refresh-b1/u);
+});
+
 test("abandoned sign-in directories are cleaned up", async (t) => {
   let clock = Date.now();
   const { accounts } = await machine(t, { now: () => clock });
@@ -189,6 +261,7 @@ test("no credential appears in anything returned or thrown", async (t) => {
   await capture(accounts.list());
   await capture(accounts.saveCurrent("claude"));
   await capture(accounts.saveCurrent("codex"));
+  await capture(accounts.saveCurrent("agy"));
   const { finished } = await signInElsewhere(accounts, "claude", (location) =>
     writeClaude(location, { uuid: "uuid-b", email: "b@example.com", token: "b1" }));
   outputs.push(finished);
