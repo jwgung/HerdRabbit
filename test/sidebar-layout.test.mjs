@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { readAppSource } from "./app-source.mjs";
 
 const styles = (await Promise.all(["../public/ui/components.css", "../public/styles.css"].map(
   path => readFile(new URL(path, import.meta.url), "utf8"),
@@ -9,10 +10,7 @@ const page = await readFile(
   new URL("../public/index.html", import.meta.url),
   "utf8",
 );
-const app = await readFile(
-  new URL("../public/app.js", import.meta.url),
-  "utf8",
-);
+const app = await readAppSource();
 
 function cssPixels(pattern, label) {
   const match = styles.match(pattern);

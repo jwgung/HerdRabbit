@@ -7,6 +7,7 @@ import {
   adjustedChatFontSize, chatScale, pinchedChatFontSize, readChatFontSize, writeChatFontSize,
 } from "../public/chat-font-preference.js";
 import { TERMINAL_FONT_SIZE_STORAGE_KEY } from "../public/terminal-preference.js";
+import { readAppSource } from "./app-source.mjs";
 
 const card = { id: "abc123def456", agent: "claude", title: "Bash command", options: [{ label: "Yes" }, { label: "No" }], customOptionIndex: null };
 
@@ -166,7 +167,7 @@ test("a dismissed banner comes back when the same prompt is asked again, and a r
 
 test("the page tells the prompt dock which agent the pane runs, so Claude and Codex panes are watched at any status", async () => {
   const { readFile } = await import("node:fs/promises");
-  const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  const app = await readAppSource();
   assert.match(app, /promptDock\?\.select\(paneId, \{ agent: chatAgent\(pane, agent\), status: agentStatus\(agent, pane\) \}\);/u);
   assert.match(app, /import \{ chatAgent \} from "\.\/lens-preference\.js/u);
 });

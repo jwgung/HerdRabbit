@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import { readAppSource } from "./app-source.mjs";
 
 const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 const [app, page, worker, server, notices, css] = await Promise.all([
-  read("../public/app.js"), read("../public/index.html"), read("../public/sw.js"),
+  readAppSource(), read("../public/index.html"), read("../public/sw.js"),
   read("../src/http-server.mjs"), read("../THIRD_PARTY_NOTICES.md"), read("../public/key-bar.css"),
 ]);
 

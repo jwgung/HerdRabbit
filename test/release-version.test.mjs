@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import { readAppSource } from "./app-source.mjs";
 
 const packageJson = JSON.parse(await readFile(
   new URL("../package.json", import.meta.url),
   "utf8",
 ));
 const page = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
-const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+const app = await readAppSource();
 const worker = await readFile(new URL("../public/sw.js", import.meta.url), "utf8");
 const chatView = await readFile(new URL("../public/chat/chat-view.js", import.meta.url), "utf8");
 const manifest = await readFile(
@@ -39,6 +40,13 @@ test("every page, script and stylesheet under public asks for its assets at the 
     }
   }
   assert.deepEqual(stale, [], "no asset is asked for at another version");
+});
+
+test("the service worker caches every module the page's script is split into", async () => {
+  const { appModuleFiles } = await import("./app-source.mjs");
+  const missing = (await appModuleFiles())
+    .filter((name) => !worker.includes(`"/${name}?v=${packageJson.version}"`));
+  assert.deepEqual(missing, [], "every public/app/ module is in the app shell");
 });
 
 test("the Herdr plugin manifest carries the package version", async () => {

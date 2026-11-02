@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { attachSwipeDismiss, decideSwipe, DRAG_CLICK_WINDOW } from "../public/swipe-dismiss.js";
+import { readAppSource } from "./app-source.mjs";
 
 const box = { width: 360, height: 60 };
 
@@ -26,7 +27,7 @@ test("up dismisses the alert at the top; down never does", () => {
 });
 
 test("the in-app alert is wired for swiping", async () => {
-  const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  const app = await readAppSource();
   const css = await readFile(new URL("../public/styles.css", import.meta.url), "utf8");
   assert.match(app, /attachSwipeDismiss\(appAlert/);
   assert.match(app, /appAlertSwipe\.consumedClick\(\)/);

@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { readAppSource } from "./app-source.mjs";
 
 const terminalSource = await readFile(new URL("../public/xterm-terminal.js", import.meta.url), "utf8");
-const appSource = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+const appSource = await readAppSource();
 
 test("a two-finger pinch sizes the font on the xterm terminal, the only terminal view", () => {
   // The screen-text view and its own pinch handler are gone; every pane,
