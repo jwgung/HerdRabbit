@@ -3,7 +3,7 @@
 // from the tokens in public/ui/tokens.css, and an endless animation does not
 // step. Run directly, it prints each break as file:line and exits 1.
 // Not checked: spacing, touch sizes, named colors (`white`), the `font`
-// shorthand, and colors inside a data URL.
+// shorthand, and `transition-delay` / `animation-*` times.
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -23,12 +23,12 @@ const FONT_LENGTH = new RegExp(String.raw`(?<![\w-])-?${NUMBER}(?:px|rem|pt|vw|v
 const RADIUS_LENGTH = new RegExp(String.raw`(?<![\w-])-?${NUMBER}(?:px|rem|em|pt)(?![\w-])`, "iu");
 const EM = new RegExp(String.raw`(?<![\w-])${NUMBER}em(?![\w-])`, "iu");
 const TIME = new RegExp(String.raw`(?<![\w-])${NUMBER}m?s(?![\w-])`, "giu");
-const SHADOW_LENGTH = new RegExp(String.raw`-?${NUMBER}(?:px|rem|em)?(?![\w%.])`, "giu");
+const SHADOW_LENGTH = new RegExp(String.raw`(?<![\w.-])-?${NUMBER}(?:px|rem|em)?(?![\w%.])`, "giu");
 
 // The custom properties each kind of value may come from. A font size may
-// also be multiplied by the chat's scale.
+// also be multiplied by the chat's scale, which is not a size on its own.
 const TOKENS = {
-  "font-size": /^--(?:font-[\w-]+|terminal-font-size|composer-font-size|chat-font-size|chat-scale)$/u,
+  "font-size": /^--(?:font-[\w-]+|terminal-font-size|composer-font-size|chat-font-size)$/u,
   radius: /^--radius-[\w-]+$/u,
   "z-index": /^--layer-[\w-]+$/u,
   shadow: /^--shadow-[\w-]+$/u,
@@ -36,29 +36,61 @@ const TOKENS = {
 };
 
 // Comments out, line breaks kept, so a match's offset still gives its line.
+// One pass, and a "/*" inside a quoted string is text, not a comment.
 function stripComments(css) {
-  return css.replace(/\/\*[\s\S]*?\*\//gu, (comment) => comment.replace(/[^\n]/gu, " "));
+  let out = "";
+  let quote = null;
+  for (let i = 0; i < css.length; i += 1) {
+    const char = css[i];
+    if (quote) {
+      if (char === "\\") { out += css.slice(i, i + 2); i += 1; continue; }
+      if (char === quote) quote = null;
+      out += char;
+    } else if (char === '"' || char === "'") {
+      quote = char;
+      out += char;
+    } else if (char === "/" && css[i + 1] === "*") {
+      const end = css.indexOf("*/", i + 2);
+      const stop = end === -1 ? css.length : end + 2;
+      out += css.slice(i, stop).replace(/[^\n]/gu, " ");
+      i = stop - 1;
+    } else {
+      out += char;
+    }
+  }
+  return out;
 }
 
 // Each var(...) in a value replaced by the word "var", nested parentheses and
-// all, so what is left is the value's own literals. The names come back too.
+// all, so what is left is the value's own literals. The names come back too,
+// and the literal part of any fallback (var(--x, 12px) falls back to 12px).
 function splitVars(value) {
   let bare = "";
+  let fallbacks = "";
   const names = [];
   for (let i = 0; i < value.length; i += 1) {
     if (value.startsWith("var(", i)) {
-      names.push(value.slice(i + 4).match(/^\s*(--[\w-]+)/u)?.[1] ?? "");
+      const start = i;
       let depth = 0;
       for (; i < value.length; i += 1) {
         if (value[i] === "(") depth += 1;
         else if (value[i] === ")" && --depth === 0) break;
+      }
+      const inner = value.slice(start + 4, i);
+      const name = inner.match(/^\s*(--[\w-]+)/u)?.[1] ?? "";
+      names.push(name);
+      const comma = inner.indexOf(",");
+      if (comma !== -1) {
+        const fallback = splitVars(inner.slice(comma + 1));
+        names.push(...fallback.names);
+        fallbacks += ` ${fallback.bare} ${fallback.fallbacks}`;
       }
       bare += "var";
       continue;
     }
     bare += value[i];
   }
-  return { bare, names };
+  return { bare, names, fallbacks };
 }
 
 // Top-level commas only: a shadow list, not the commas inside color-mix().
@@ -110,7 +142,18 @@ function declarations(css) {
 
 export function designViolations(css, file) {
   const text = stripComments(css);
-  const lineOf = (index) => text.slice(0, index).split("\n").length;
+  const lineStarts = [0];
+  for (let i = text.indexOf("\n"); i !== -1; i = text.indexOf("\n", i + 1)) lineStarts.push(i + 1);
+  const lineOf = (index) => {
+    let low = 0;
+    let high = lineStarts.length - 1;
+    while (low < high) {
+      const mid = (low + high + 1) >> 1;
+      if (lineStarts[mid] <= index) low = mid;
+      else high = mid - 1;
+    }
+    return low + 1;
+  };
   const violations = [];
   const report = (index, rule, detail) => violations.push({ file, line: lineOf(index), rule, detail });
   // a var() of the wrong kind is as much a break as a literal
@@ -120,17 +163,20 @@ export function designViolations(css, file) {
 
   for (const { property, value, index } of declarations(text)) {
     for (const color of value.match(COLOR) ?? []) report(index, "color", `${color} is not a color token`);
-    const { bare, names } = splitVars(value);
+    const { bare: own, names, fallbacks } = splitVars(value);
+    const bare = `${own} ${fallbacks}`;
     if (property === "font-size") {
+      const sizes = names.filter((name) => name !== "--chat-scale");
       if (FONT_LENGTH.test(bare)) report(index, "font-size", `${value} is not a --font-* token`);
-      else if (EM.test(bare) && !EM_ALLOWED.has(file)) report(index, "font-size", `${value}: em only inside the chat's markdown and the prompt card`);
-      wrongTokens(names, "font-size", index, "font-size");
+      else if (EM.test(bare)) { if (!EM_ALLOWED.has(file)) report(index, "font-size", `${value}: em only inside the chat's markdown and the prompt card`); }
+      else if (names.length > 0 && sizes.length === 0) report(index, "font-size", "var(--chat-scale) scales a size; it is not one");
+      wrongTokens(sizes, "font-size", index, "font-size");
     } else if (/^border(?:-[a-z]+)*-radius$/u.test(property)) {
       if (RADIUS_LENGTH.test(bare)) report(index, "radius", `${value} is not a --radius-* token`);
       wrongTokens(names, "radius", index, "radius");
     } else if (property === "z-index") {
       // a layer, an order inside one ("var + 2" once the var is out), or a reset
-      if (!/^(?:0|auto|var|calc\(var[+-]\d+\))$/u.test(bare.replace(/\s+/gu, ""))) report(index, "z-index", `${value} is not a --layer-* token`);
+      if (!/^(?:0|auto|var|calc\(var[+-]\d+\))$/u.test(own.replace(/\s+/gu, "").replace(/!important$/iu, ""))) report(index, "z-index", `${value} is not a --layer-* token`);
       wrongTokens(names, "z-index", index, "z-index");
     } else if (property === "box-shadow") {
       for (const part of splitTopLevel(value)) {
