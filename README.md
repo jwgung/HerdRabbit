@@ -13,6 +13,8 @@ HerdRabbit runs once per OS user and may be protected with one instance password
 
 [`public/ui`](public/ui/README.md) contains the shared styles used by the app and a standalone catalog. Open `/ui/index.html` while the app is running, or copy the folder and open its `index.html` directly. Load `ui/ui.css` to reuse themes, buttons, inputs, navigation/status, menus, sidebars, and dialogs without a framework or build step.
 
+[`docs/design.md`](docs/design.md) holds the design rules (type, spacing, radii, layers, shadows, color roles, status, touch targets, motion, copy). Changes to the app's look follow it.
+
 Run `npm run check:ui` with Playwright installed, or set `PLAYWRIGHT_MODULE` to its module path.
 
 ## Recommended access: Tailscale first

@@ -15,6 +15,8 @@ HerdRabbit은 OS 사용자별로 실행하며, 선택적으로 인스턴스 비�
 
 공통 UI는 [`public/ui`](public/ui/README.md)에 있습니다. 앱 실행 중 `/ui/index.html`에서 예제를 보거나, 폴더를 복사해 `index.html`을 직접 열 수 있습니다. 현재 앱과 같은 CSS를 사용하며 테마·버튼·입력·탐색/상태·메뉴·사이드바·대화상자를 제공합니다. 다른 프로젝트에서는 `ui/ui.css`만 연결하면 됩니다.
 
+디자인 규칙(글자 크기, 간격, 모서리, 층, 그림자, 색 역할, 상태 표기, 터치 크기, 움직임, 문구)은 [`docs/design.md`](docs/design.md)에 있습니다. 앱의 모양을 바꿀 때는 이 문서를 따릅니다.
+
 브라우저 검증: Playwright가 설치된 환경에서 `npm run check:ui` (필요하면 `PLAYWRIGHT_MODULE`에 모듈 경로 지정).
 
 ## 권장 접속 방식: Tailscale부터
