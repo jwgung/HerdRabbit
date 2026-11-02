@@ -523,7 +523,7 @@ export function createPaneViews(deps) {
     const copy = createElement("span", { className: "pane-copy" });
     copy.append(createElement("strong", { className: "pane-title", text: name }));
     const line = paneRowLine(status, paneSubtitle(name, focusPane));
-    if (line) copy.append(createElement("small", { className: line.state ? "pane-cwd pane-state" : "pane-cwd", text: line.text }));
+    if (line) copy.append(createElement("small", line));
     const badge = createElement("span", { className: "split-badge" });
     badge.setAttribute("aria-hidden", "true");
     badge.append(createIcon(GRID_ICON), createElement("span", { text: String(paneIds.length) }));

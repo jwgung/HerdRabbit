@@ -860,9 +860,9 @@ test("a session's second line is its folder, unless unknown or the same as the n
 });
 
 test("a row waiting on you says so in place of its folder", () => {
-  assert.deepEqual(paneRowLine("blocked", "checkout-api"), { text: "Needs your answer", state: true });
-  assert.deepEqual(paneRowLine("blocked", ""), { text: "Needs your answer", state: true });
-  assert.deepEqual(paneRowLine("working", "checkout-api"), { text: "checkout-api", state: false });
+  assert.deepEqual(paneRowLine("blocked", "checkout-api"), { className: "pane-cwd pane-state", text: "Needs your answer" });
+  assert.deepEqual(paneRowLine("blocked", ""), { className: "pane-cwd pane-state", text: "Needs your answer" });
+  assert.deepEqual(paneRowLine("working", "checkout-api"), { className: "pane-cwd", text: "checkout-api" });
   assert.equal(paneRowLine("idle", ""), null);
 });
 

@@ -500,6 +500,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
       return true;
     },
     get card() { return card; },
+    get paneId() { return paneId; },
     get mode() { return dock.dataset.mode ?? "hidden"; },
   };
 }
