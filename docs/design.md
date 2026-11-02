@@ -84,7 +84,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | `--layer-raised` | 1 | 흐름 안에서 살짝 위: 포커스된 격자 칸(1), 선택된 칸(1), 접기 단추(1), 채팅 맨 아래로 단추(2) |
 | `--layer-pane-overlay` | 4 | 패인 위 표시: 터미널 찾기 표식(4)·링크 표식(5), 질문 카드(4), 파일 제안(5)·첨부 목록(6), 사이드바 크기 조절 손잡이(4) |
 | `--layer-pane-chrome` | 10 | 패인 도구: 복사 바(10), 터미널 상태(11), 터미널 찾기 바(12), 사이드바 머리(11) |
-| `--layer-popover` | 20 미만, 패인 도구보다 위 | 메뉴·팝오버(지금 10) |
+| `--layer-popover` | 15 | 메뉴·팝오버(지금 10). 패인 도구보다 위, 가림막보다 아래 |
 | `--layer-scrim` | 20 | 폰 사이드바 뒤 가림막 |
 | `--layer-drawer` | 30 | 폰 사이드바(서랍) |
 | `--layer-toast` | 40 | 앱 알림(`.app-alert`) |
@@ -139,7 +139,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 ## 상태 표기
 
-에이전트 상태는 네 가지이고, 어디서나 같은 이름·기호·색을 쓴다.
+에이전트 상태는 네 가지(와 아직 모르는 `unknown`)이고, 어디서나 같은 이름·기호·색을 쓴다.
 
 | 상태 | 글자 | 색 토큰 |
 |---|---|---|
@@ -147,6 +147,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | `working` | Working | `--working` |
 | `blocked` | Needs your answer | `--danger` |
 | `done` | Done | `--done` |
+| `unknown` | Unknown | `--agent-unknown` (상태를 아직 모르는 패인) |
 
 - 색은 `public/ui/components.css`의 `.ui-status.state-*`와 같다.
 - 글자는 `public/ui-model.js`의 상태 문구 함수 하나에서 나온다. 화면마다 따로 쓰지 않는다. 측정 당시 이 함수는 `idle`을 소문자 그대로 돌려줬다. "Idle"로 맞추는 일은 상태 글자 작업(N1/Q2)에서 한다.
