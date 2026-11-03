@@ -440,7 +440,9 @@ export function createKiroAdapter({ whoami = runKiroWhoami, loadSqlite = loadNod
         }
       } catch (error) {
         // no database yet: nothing is signed in, and a sign-in makes one
-        if (!/unable to open|ENOENT/u.test(String(error?.message))) throw error;
+        if (!/unable to open|ENOENT/u.test(String(error?.message))) {
+          return { supported: false, reason: "Kiro CLI's database could not be read" };
+        }
       }
       return { supported: true, reason: null };
     },
