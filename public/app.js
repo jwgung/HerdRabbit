@@ -278,6 +278,8 @@ const state = {
   // Whether other PCs can be connected from here: this machine's row offers
   // Connect PC… and Settings lists its PCs page only then.
   connectPcAvailable: false,
+  // Whether Settings → Plugins can manage Herdr's plugins (with sign-in on).
+  pluginsAvailable: false,
   // Split tabs shown as a grid of their panes (tab id -> "grid"); any other
   // tab shows its selected pane alone.
   paneViews: new Map(),
@@ -664,6 +666,7 @@ const {
   showSessions: (...args) => showSessions(...args),
   showServerDetails: (...args) => showServerDetails(...args),
   openConnectPc: (...args) => openConnectPc(...args),
+  sidebarActionMenu: (...args) => sidebarActionMenu(...args),
 });
 
 // On a Herdr grid whose cells keep their panes' sizes the text size steps the
@@ -1489,6 +1492,7 @@ async function initializeApplication() {
     ? bootstrap.pushPublicKey
     : null;
   state.connectPcAvailable = bootstrap.servers === true;
+  state.pluginsAvailable = bootstrap.plugins === true;
   syncSettings();
   state.connectPc = bootstrap.connectPc && typeof bootstrap.connectPc.address === "string" ? bootstrap.connectPc : null;
   showApplication();

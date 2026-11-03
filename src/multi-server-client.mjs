@@ -228,6 +228,13 @@ export class MultiServerClient {
     return entry?.client.aiAccounts?.() ?? null;
   }
 
+  // Herdr's plugins on a connected PC, over its link. Local is the caller's.
+  pluginsClient(serverId) {
+    this.syncEntries();
+    const entry = serverId === "local" ? null : this.entries.get(serverId);
+    return entry?.client.plugins?.() ?? null;
+  }
+
   target(id) {
     this.syncEntries();
     if (typeof id !== "string") throw new InputValidationError("Invalid target id");

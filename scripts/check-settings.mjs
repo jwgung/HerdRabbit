@@ -6,7 +6,8 @@
 // Terminal & keys (Edit keys, whose dialog holds the Enter choice on touch
 // devices; Fit panes to this window on wide screens), Notifications (only a
 // switch where push works), Security (with sign-in on: Passkeys and
-// Signed-in devices), PCs (where Connect PC is: the list and Connect PC) and
+// Signed-in devices), PCs (where Connect PC is: the list and Connect PC),
+// Plugins (with sign-in on, where this HerdRabbit manages them) and
 // About (versions). Each control does what its old menu item did. Runs on a
 // desktop and a phone against an in-process fake herdr.
 //
@@ -36,7 +37,7 @@ await once(server, "listening");
 const url = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ args: ["--no-sandbox"] });
 const PUSH_KEY = "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U";
-const ALL_PAGES = ["Appearance", "Chat", "Terminal & keys", "Notifications", "Security", "PCs", "About"];
+const ALL_PAGES = ["Appearance", "Chat", "Terminal & keys", "Notifications", "Security", "PCs", "Plugins", "About"];
 
 try {
   for (const mobile of [false, true]) {
@@ -53,7 +54,7 @@ try {
         await page.route("**/api/auth/status", (route) => route.fulfill({ json: { required: true, authenticated: true, passkeyAvailable: false } }));
         await page.route("**/api/bootstrap", async (route) => {
           const response = await route.fetch();
-          await route.fulfill({ response, json: { ...(await response.json()), pushPublicKey: PUSH_KEY, servers: true } });
+          await route.fulfill({ response, json: { ...(await response.json()), pushPublicKey: PUSH_KEY, servers: true, plugins: true } });
         });
         await page.route("**/api/servers/discover", (route) => route.fulfill({ json: { available: false, candidates: [] } }));
         // This PC's versions, as a hub started by the service reports them.
@@ -98,7 +99,7 @@ try {
       await button.click();
       await dialog.waitFor({ state: "visible" });
       const listed = await dialog.locator(".settings-page-link").allTextContents();
-      assert.deepEqual(listed, full ? ALL_PAGES : ALL_PAGES.filter((name) => name !== "Security" && name !== "PCs"));
+      assert.deepEqual(listed, full ? ALL_PAGES : ALL_PAGES.filter((name) => name !== "Security" && name !== "PCs" && name !== "Plugins"));
       const box = await dialog.boundingBox();
       if (mobile) {
         // A phone: the list fills the screen; no page beside it.
@@ -265,6 +266,11 @@ try {
         await page.locator("#servers-dialog").waitFor({ state: "hidden" });
         assert.equal(await dialog.isVisible(), true);
         await shoot("pcs");
+
+        // Plugins: its list and Install plugin… (scripts/check-plugins.mjs drives them).
+        await open("Plugins", "plugins");
+        assert.equal(await page.locator("#plugins-install").isVisible(), true);
+        await shoot("plugins");
       }
 
       // About: this machine's versions.

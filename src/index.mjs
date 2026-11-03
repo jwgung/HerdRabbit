@@ -31,6 +31,7 @@ import { ConversationService } from "./conversation/service.mjs";
 import { SlashCommandCatalog } from "./slash-commands.mjs";
 import { AppUpdater } from "./app-update.mjs";
 import { HerdrUpdater } from "./herdr-update.mjs";
+import { PluginManager } from "./herdr-plugins.mjs";
 
 const config = readConfig();
 const leafWarning = legacyLeafWarning(config);
@@ -150,6 +151,15 @@ const updater = new AppUpdater({
     ? { id: config.pluginId, binary: config.herdrBin, configDir: config.pluginConfigDir, stateDir: config.pluginStateDir }
     : null,
 });
+// Herdr's plugins on this PC (Settings → Plugins, and a hub's over the link).
+// HerdRabbit's own plugin is left to the updater, and no change starts while
+// it or Herdr's own update runs.
+const plugins = new PluginManager({
+  binary: config.herdrBin,
+  selfId: config.pluginId || null,
+  busy: async () => updater.starting || (await updater.runStatus()).state === "running" ||
+    (await herdrUpdater.runStatus()).state === "running",
+});
 // Without node-pty's native module this PC's panes are read-only mirrors of
 // their screens. A connected PC's panes still attach: that PC runs the pty.
 const nodePty = await loadNodePty();
@@ -202,6 +212,7 @@ const { server } = createHerdrHttpServer({
     extraHosts: config.extraAllowedHosts,
   }),
   aiAccounts,
+  plugins,
   installedAgents,
   agentSessions,
   maxBodyBytes: config.maxBodyBytes,
@@ -224,7 +235,7 @@ const peerServer = config.peerHost ? createPeerServer({
     loginOf: (address) => tailnetLoginOf(address),
   }),
   link: linkRoutes({
-    client: local, files, aiAccounts, installedAgents, agentSessions, attach: linkAttach, conversations, slashCommands, updater, herdrUpdater, version: hubVersion, herdrVersion: () => herdrVersion,
+    client: local, files, aiAccounts, plugins, installedAgents, agentSessions, attach: linkAttach, conversations, slashCommands, updater, herdrUpdater, version: hubVersion, herdrVersion: () => herdrVersion,
     serverName: hostname(), maxTransferBytes: config.maxTransferBytes, protectedPaths,
   }),
   attach: linkAttach,
