@@ -1,18 +1,22 @@
 import { createElement } from "./dom.js?v=1.4.23";
 import { sessionAgentChoices, sessionChoiceLabel } from "../agents.js?v=1.4.23";
+import { sessionProjectChoices } from "../ui-model.js?v=1.4.23";
 
-// The "New session" dialog: a project's ⋯ menu opens it, the form makes a
-// session in that project with a shell or an installed agent, and a name if
-// one is given. Which agents are installed is asked of the project's machine
+// The "New session" dialog: a project's ⋯ menu opens it for that project,
+// and the + menu opens it with a Project select (the selected pane's project
+// first). The form makes a session in the project with a shell or an
+// installed agent, and a name if one is given. Which agents are installed is asked of the project's machine
 // each time it opens (the server keeps its answer briefly). Once an agent is
 // chosen, that machine's earlier sessions of it in the project's folder are
 // offered too: picking one resumes it instead of starting new. Titles are
-// shown as text only. Listeners are registered when this is called, not on
-// import.
+// shown as text only. Choosing another project asks again, of its machine.
+// Listeners are registered when this is called, not on import.
 export function createSessionDialog({ state, api, snapshotRecords, createSession }) {
   const dialog = document.querySelector("#session-dialog");
   const form = document.querySelector("#session-create-form");
   const context = document.querySelector("#session-dialog-context");
+  const projectLabel = document.querySelector("#session-project-label");
+  const projectSelect = document.querySelector("#session-project");
   const agentSelect = document.querySelector("#session-agent");
   const resumeLabel = document.querySelector("#session-resume-label");
   const resumeSelect = document.querySelector("#session-resume");
@@ -99,6 +103,22 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     return server?.name || (serverId === "local" ? "this machine" : "");
   }
 
+  // The machine's agents for the project now chosen, and with them its
+  // earlier sessions. A late answer for a project chosen before is dropped.
+  function askForAgents() {
+    generation += 1;
+    fillSessions([]);
+    agentsLoading = true;
+    agentSelect.disabled = true;
+    say("Looking for installed agents…");
+    void loadAgents(target.serverId, generation);
+  }
+
+  function showDialog() {
+    dialog.showModal();
+    askForAgents();
+  }
+
   async function loadAgents(serverId, opened) {
     try {
       const answer = await api(`/api/agents?server=${encodeURIComponent(serverId)}`);
@@ -122,25 +142,57 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     }
   }
 
+  function showProjectSelect(shown) {
+    projectLabel.hidden = !shown;
+    projectSelect.hidden = !shown;
+  }
+
+  // From a project's ⋯ menu: that project, fixed.
   function open({ workspaceId, workspaceLabel, serverId = "local" }) {
     if (state.mutationBusy) return;
-    generation += 1;
     target = { workspaceId, serverId };
     form.reset();
     fillAgents([]);
-    fillSessions([]);
-    agentsLoading = true;
-    agentSelect.disabled = true;
+    showProjectSelect(false);
+    projectSelect.replaceChildren();
     const machine = machineName(serverId);
     context.textContent = machine
       ? `In project “${workspaceLabel}” on ${machine}.`
       : `In project “${workspaceLabel}”.`;
-    say("Looking for installed agents…");
-    dialog.showModal();
+    showDialog();
     window.requestAnimationFrame(() => agentSelect.focus());
-    void loadAgents(serverId, generation);
   }
 
+  // From the + menu: any project on any machine, the selected pane's first.
+  function openChoosing() {
+    if (state.mutationBusy) return;
+    const { servers, workspaces, panes } = snapshotRecords();
+    const { choices, selected } = sessionProjectChoices({ servers, workspaces, panes, selectedPaneId: state.selectedPaneId });
+    if (choices.length === 0) return;
+    form.reset();
+    fillAgents([]);
+    projectSelect.replaceChildren(...choices.map((item) => {
+      const option = choice(item.value, item.label);
+      option.dataset.serverId = item.serverId;
+      return option;
+    }));
+    projectSelect.value = selected;
+    showProjectSelect(true);
+    target = chosenTarget();
+    context.textContent = "Choose the project it opens in.";
+    showDialog();
+    window.requestAnimationFrame(() => projectSelect.focus());
+  }
+
+  function chosenTarget() {
+    const option = projectSelect.selectedOptions[0];
+    return option ? { workspaceId: option.value, serverId: option.dataset.serverId || "local" } : null;
+  }
+
+  projectSelect.addEventListener("change", () => {
+    target = chosenTarget();
+    if (target) askForAgents();
+  });
   agentSelect.addEventListener("change", () => { void loadSessions(generation); });
   resumeSelect.addEventListener("change", showChoice);
 
@@ -162,7 +214,7 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     const agent = agentSelect.value;
     const resume = agent && resuming() ? resumeSelect.value : "";
     const label = nameInput.value.trim();
-    const controls = [agentSelect, resumeSelect, nameInput, cancel, submit];
+    const controls = [projectSelect, agentSelect, resumeSelect, nameInput, cancel, submit];
     state.mutationBusy = true;
     for (const control of controls) control.disabled = true;
     say(resume ? "Resuming session…" : agent ? "Starting session…" : "Opening session…");
@@ -180,5 +232,5 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     }
   });
 
-  return { open };
+  return { open, openChoosing };
 }

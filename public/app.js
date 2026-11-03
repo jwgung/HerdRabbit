@@ -147,6 +147,7 @@ const elements = {
   navigator: document.querySelector("#navigator"),
   navigatorContent: document.querySelector("#navigator-content"),
   createProject: document.querySelector("#create-project"),
+  createSession: document.querySelector("#create-session"),
   sidebarToggle: document.querySelector("#sidebar-toggle"),
   sidebarScrim: document.querySelector("#sidebar-scrim"),
   mobileSidebarOpen: document.querySelector("#mobile-sidebar-open"),
@@ -278,6 +279,8 @@ const state = {
   terminalParked: null,
   // This PC's own Connect PC port, { address, allowed }, or null when closed.
   connectPc: null,
+  // Whether other PCs can be connected from here (this machine's row offers Connect PC…).
+  connectPcAvailable: false,
   // Split tabs shown as a grid of their panes (tab id -> "grid"); any other
   // tab shows its selected pane alone.
   paneViews: new Map(),
@@ -811,6 +814,7 @@ const {
   setViewSplit: (...args) => setViewSplit(...args),
   showServerDetails: (...args) => showServerDetails(...args),
   showAiAccounts: (...args) => showAiAccounts(...args),
+  openConnectPc: (...args) => openConnectPc(...args),
   sidebarActionMenu: (...args) => sidebarActionMenu(...args),
   renameForm: (...args) => renameForm(...args),
   serverRenameForm: (...args) => serverRenameForm(...args),
@@ -1156,12 +1160,19 @@ createProjectDialog({
   newProjectHerdrSession: (...args) => newProjectHerdrSession(...args),
   adoptMutationSnapshot: (...args) => adoptMutationSnapshot(...args),
   closeMobileSidebar: (...args) => closeMobileSidebar(...args),
+  refreshSnapshot: (...args) => refreshSnapshot(...args),
+  setFeedback: (...args) => setFeedback(...args),
 });
-const { open: openNewSession } = createSessionDialog({
+const { open: openNewSession, openChoosing: openNewSessionChoosing } = createSessionDialog({
   state,
   api: (...args) => api(...args),
   snapshotRecords: (...args) => snapshotRecords(...args),
   createSession,
+});
+// + → New session…: any project, the selected pane's first.
+elements.createSession.addEventListener("click", () => {
+  document.querySelector("#add-menu").open = false;
+  openNewSessionChoosing();
 });
 
 // Only the last file link pressed is taken to. One still waiting gives way to
@@ -1485,8 +1496,8 @@ async function initializeApplication() {
   state.pushPublicKey = typeof bootstrap.pushPublicKey === "string"
     ? bootstrap.pushPublicKey
     : null;
-  document.querySelector("#manage-servers").hidden = bootstrap.servers !== true;
   state.connectPcEnabled = bootstrap.servers === true;
+  state.connectPcAvailable = bootstrap.servers === true;
   syncSettings();
   state.connectPc = bootstrap.connectPc && typeof bootstrap.connectPc.address === "string" ? bootstrap.connectPc : null;
   showApplication();

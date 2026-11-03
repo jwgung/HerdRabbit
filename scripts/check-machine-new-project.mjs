@@ -1,9 +1,12 @@
-// Browser check of where a project is made and of the sidebar footer. New
-// project sits in the top + menu, opened on the selected pane's Herdr session
-// (a remote pane's own, or its machine's default while that one is stopped),
-// and its picker lists every machine's running sessions, so a project can be
-// made on another machine too; a machine's ⋯ menu does not offer it, and with
-// no session running it is off. The + menu offers no Add SSH machine. The
+// Browser check of where a project is made and of the sidebar footer. The top
+// + menu ("New session or project") holds New session… and New project…, as a
+// popover beside its button, and no longer Connect PC or Add SSH machine. New
+// project opens on the selected pane's Herdr session (a remote pane's own, or
+// its machine's default while that one is stopped), and its picker lists every
+// machine's running sessions, so a project can be made on another machine too;
+// its Agent select offers the chosen session's machine's installed agents, and
+// one chosen is started in the new project's first pane. A machine's ⋯ menu
+// does not offer New project, and with no session running it is off. The
 // footer's uploads and settings buttons look alike, their icons centred. Runs
 // on a desktop and a phone against an in-process fake herdr.
 //
@@ -27,6 +30,7 @@ const panes = [
   { pane_id: "lab:w1:p1", tab_id: "lab:w1:t1", workspace_id: "lab:w1", label: "Bench", cwd: "/work/bench", herdr_session_id: "lab!hs_work", server_id: "lab" },
 ];
 const created = [];
+const typed = [];
 let sessionsDown = false;
 let labWorkDown = false;
 const herdr = {
@@ -54,12 +58,21 @@ const herdr = {
     workspaces.push({ workspace_id: `w${n}`, label, herdr_session_id: herdrSessionId, server_id });
     tabs.push({ tab_id: `w${n}:t1`, workspace_id: `w${n}`, label: "shell", herdr_session_id: herdrSessionId });
     panes.push({ pane_id: `w${n}:p1`, tab_id: `w${n}:t1`, workspace_id: `w${n}`, label: "shell", cwd: "/work", herdr_session_id: herdrSessionId, server_id });
+    // As Herdr's answer does, the create call names what it made.
+    return { workspace_id: `w${n}`, tab_id: `w${n}:t1`, pane_id: `w${n}:p1` };
   },
   async readPane() { return "$ "; },
-  async sendText() {},
+  async sendText(paneId, text) { typed.push([paneId, text]); },
+  agentsClient(serverId) {
+    return serverId === "lab"
+      ? { async installedAgents() { return ["opencode"]; }, async namesNewProjects() { return true; } }
+      : null;
+  },
   async sendKeys() {},
 };
-const { server } = createHerdrHttpServer({ herdr, logger: { info() {}, error() {} } });
+const { server } = createHerdrHttpServer({
+  herdr, installedAgents: { async list() { return ["codex", "claude"]; } }, logger: { info() {}, error() {} },
+});
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
 const url = `http://127.0.0.1:${server.address().port}`;
@@ -116,11 +129,25 @@ try {
     }
     if (shots) await page.locator(".navigator-footer").screenshot({ path: join(shots, `footer-${mobile ? "phone" : "desktop"}.png`) });
 
-    // The + menu offers New project, and no longer Add SSH machine.
+    // The + menu makes things: New session and New project, as a popover
+    // beside its button; no Connect PC and no Add SSH machine.
     assert.equal(await page.locator("#add-menu").isVisible(), true, "+ menu is hidden");
-    await page.locator("#add-menu > summary").click();
+    const plus = page.locator("#add-menu > summary");
+    assert.equal(await plus.getAttribute("aria-label"), "New session or project");
+    assert.equal(await plus.getAttribute("title"), "New session or project");
+    await plus.click();
     await page.locator("#create-project").waitFor({ state: "visible" });
-    assert.equal(await page.locator("#add-menu .sidebar-action-item", { hasText: "SSH" }).count(), 0, "Add SSH machine is still offered");
+    assert.deepEqual(await page.locator("#add-menu .sidebar-action-item:visible").allTextContents(), ["New session…", "New project…"],
+      "the + menu holds something besides New session and New project");
+    const button = await plus.boundingBox();
+    const menu = await page.locator("#add-menu .sidebar-action-popover").boundingBox();
+    assert.ok(Math.abs(menu.y - (button.y + button.height)) < 40, `the + menu is not beside its button: ${JSON.stringify({ button, menu })}`);
+    assert.ok(menu.width < (mobile ? 390 : 1280) * 0.9, "the + menu spans the screen like a sheet");
+    if (mobile) {
+      for (const height of await page.locator("#add-menu .sidebar-action-item").evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height))) {
+        assert.ok(height >= 44, `a + menu item is under 44px (${height})`);
+      }
+    }
     if (shots) await page.screenshot({ path: join(shots, `plus-menu-${mobile ? "phone" : "desktop"}.png`) });
     await page.keyboard.press("Escape");
     if (mobile) await page.waitForTimeout(400);
@@ -139,7 +166,7 @@ try {
 
     // New project from the + menu: the selected pane's session first, every
     // machine's running sessions to pick from.
-    const makeFromPlus = async (label, pick) => {
+    const makeFromPlus = async (label, pick, agent = "", agents = [["", "Shell"], ["claude", "Claude Code"], ["codex", "Codex"]]) => {
       if (mobile) {
         await page.waitForTimeout(400);
         if (await page.locator("#mobile-sidebar-open").getAttribute("aria-expanded") !== "true") {
@@ -156,14 +183,32 @@ try {
         ["hs_local", "lab!hs_work", "lab!hs_main"], "the session picker misses a machine's sessions");
       assert.equal(await picker.inputValue(), "hs_local", "the selected pane's session is not picked first");
       if (pick) await picker.selectOption(pick);
+      // The Agent select offers the chosen session's machine's agents.
+      await page.waitForFunction((wanted) => {
+        const select = document.querySelector("#project-agent");
+        return !select.disabled && JSON.stringify([...select.options].map((option) => [option.value, option.textContent])) === wanted;
+      }, JSON.stringify(agents));
+      if (mobile) {
+        const look = await page.locator("#project-agent").evaluate((element) => ({
+          height: element.getBoundingClientRect().height, font: parseFloat(getComputedStyle(element).fontSize),
+        }));
+        assert.ok(look.height >= 44 && look.font >= 16, `the Agent select is too small on a phone: ${JSON.stringify(look)}`);
+      }
+      if (agent) await page.locator("#project-agent").selectOption(agent);
       await page.locator("#project-name").fill(label);
+      const before = typed.length;
       await dialog.locator('button[type="submit"]').click();
       await dialog.waitFor({ state: "hidden" });
       assert.deepEqual(created.at(-1), { label, herdrSessionId: pick ?? "hs_local" }, `${label}: the project was not made there`);
+      const pane = panes.at(-1).pane_id;
+      assert.deepEqual(typed.slice(before), agent ? [[pane, agent]] : [],
+        `${label}: the agent was not started in the new project's pane`);
+      await page.waitForFunction((id) => document.querySelector(`.pane-button[data-pane-id="${id}"]`)?.getAttribute("aria-pressed") === "true", pane);
     };
     const where = mobile ? "phone" : "desktop";
     await makeFromPlus(`Local ${where}`, null);
-    await makeFromPlus(`Lab ${where}`, "lab!hs_main");
+    await makeFromPlus(`Codex ${where}`, null, "codex");
+    await makeFromPlus(`Lab ${where}`, "lab!hs_main", "opencode", [["", "Shell"], ["opencode", "OpenCode"]]);
 
     assert.deepEqual(errors, [], `page errors: ${errors.join("; ")}`);
     await context.close();
@@ -194,6 +239,8 @@ try {
   await page.locator("#add-menu > summary").click();
   await page.locator("#create-project").waitFor({ state: "visible" });
   assert.equal(await page.locator("#create-project").isDisabled(), true, "New project is offered with no running session");
+  // Projects are still there, so a session can still be opened in one.
+  assert.equal(await page.locator("#create-session").isDisabled(), false, "New session is off while projects are there");
   await context.close();
   console.log("new project from the + menu and the footer look: ok");
 } finally {

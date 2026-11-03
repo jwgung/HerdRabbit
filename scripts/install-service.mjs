@@ -252,7 +252,7 @@ async function main() {
     console.log(connectPc.addresses.length > 0
       ? `이 PC에 붙을 수 있는 PC: ${connectPc.addresses.join(", ")}`
       : "허용한 PC가 없어 아직 아무 PC도 붙을 수 없습니다. 다시 실행해 고르세요.");
-    console.log("붙일 PC의 화면에서 사이드바 + → Connect PC로 이 PC를 고르세요.");
+    console.log("붙일 PC의 화면에서 사이드바의 그 PC 줄 메뉴(⋯) → Connect PC…로 이 PC를 고르세요.");
   }
 
   if (!tailscale.available) {

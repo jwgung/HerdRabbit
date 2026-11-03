@@ -3,8 +3,12 @@
 // agents installed on the project's machine (this one's, or a connected PC's
 // own answer), and a name. Starting one makes the tab, names it, types the
 // agent's command into its pane and selects it. An agent gone by the time
-// Start is pressed is refused and said so in the dialog. Runs on a desktop and
-// a phone against an in-process fake herdr.
+// Start is pressed is refused and said so in the dialog. The top + menu's
+// "New session…" opens the same dialog with a Project select: the selected
+// pane's project first, every machine's projects named with their machine;
+// choosing another project asks its machine for its agents and the earlier
+// sessions there again. Runs on a desktop and a phone against an in-process
+// fake herdr.
 //
 // NEW_SESSION_SHOTS=<folder> keeps pictures of the menu and the dialog.
 import assert from "node:assert/strict";
@@ -27,6 +31,13 @@ const panes = [
 ];
 let calls = [];
 let localAgents = ["codex", "claude"];
+// Claude's one earlier session in Platform's folder, offered to resume.
+const EARLIER = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
+const agentSessions = {
+  async list(agent, folder) {
+    return agent === "claude" && folder === "/work/alpha" ? [{ id: EARLIER, title: "Fix login", updatedAt: Date.now() - 60_000 }] : [];
+  },
+};
 const herdr = {
   async snapshot() {
     return {
@@ -64,7 +75,7 @@ const herdr = {
   },
 };
 const { server } = createHerdrHttpServer({
-  herdr, installedAgents: { async list() { return localAgents; } }, logger: { info() {}, error() {} },
+  herdr, installedAgents: { async list() { return localAgents; } }, agentSessions, logger: { info() {}, error() {} },
 });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
@@ -179,6 +190,49 @@ try {
     await dialog.locator("#session-dialog-cancel").click();
     await dialog.waitFor({ state: "hidden" });
     localAgents = ["codex", "claude"];
+
+    // + → New session…: a Project select, the selected pane's project first.
+    await openSidebar();
+    await page.locator('.pane-button[data-pane-id="w1:p1"]').click();
+    await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w1:p1"]')?.getAttribute("aria-pressed") === "true");
+    await openSidebar();
+    await page.locator("#add-menu > summary").click();
+    await page.locator("#create-session").click();
+    await dialog.waitFor({ state: "visible" });
+    const project = dialog.locator("#session-project");
+    assert.equal(await project.isVisible(), true, `${where}: + → New session has no Project select`);
+    assert.deepEqual(await project.locator("option").evaluateAll((options) => options.map((option) => [option.value, option.textContent])),
+      [["w1", "workstation / Platform"], ["lab:w1", "lab / Bench"]], `${where}: every machine's projects are not offered by machine`);
+    assert.equal(await project.inputValue(), "w1", `${where}: the selected pane's project is not chosen first`);
+    if (mobile) {
+      const look = await project.evaluate((element) => ({ height: element.getBoundingClientRect().height, font: parseFloat(getComputedStyle(element).fontSize) }));
+      assert.ok(look.height >= 44 && look.font >= 16, `${where}: the Project select is too small: ${JSON.stringify(look)}`);
+    }
+    await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
+    assert.deepEqual(await choices(dialog), [["", "Shell"], ["claude", "Claude Code"], ["codex", "Codex"]]);
+    // Claude in Platform's folder has an earlier session to resume.
+    await dialog.locator("#session-agent").selectOption("claude");
+    await dialog.locator("#session-resume").waitFor({ state: "visible" });
+    assert.match(await dialog.locator("#session-resume").textContent(), /Fix login/u);
+    if (shots) await page.screenshot({ path: join(shots, `plus-dialog-${where}.png`) });
+    // Another machine's project: its own agents, and no Platform session left to resume.
+    await project.selectOption("lab:w1");
+    await page.waitForFunction(() => !document.querySelector("#session-agent").disabled &&
+      [...document.querySelector("#session-agent").options].map((option) => option.value).join() === ",opencode");
+    assert.equal(await dialog.locator("#session-resume").isVisible(), false, `${where}: the earlier sessions were not asked again`);
+    await dialog.locator("#session-agent").selectOption("opencode");
+    calls = [];
+    await dialog.locator('button[type="submit"]').click();
+    await dialog.waitFor({ state: "hidden" });
+    const benchPane = panes.at(-1).pane_id;
+    assert.deepEqual(calls, [["createTab", "lab:w1"], ["sendText", benchPane, "opencode", { submit: true }]],
+      `${where}: the session was not made in the project chosen`);
+    // A project's ⋯ menu still opens it for that project, without the select.
+    await (await openDialog("Platform")).item.click();
+    await dialog.waitFor({ state: "visible" });
+    assert.equal(await project.isVisible(), false, `${where}: a project's own New session shows the Project select`);
+    await dialog.locator("#session-dialog-cancel").click();
+    await dialog.waitFor({ state: "hidden" });
 
     assert.deepEqual(errors, [], `${where}: page errors: ${errors.join("; ")}`);
     await context.close();
