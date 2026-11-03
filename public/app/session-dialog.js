@@ -2,13 +2,13 @@ import { createElement } from "./dom.js?v=1.4.27";
 import { sessionChoiceLabel } from "../agents.js?v=1.4.27";
 import { createAgentPicker } from "./agent-picker.js?v=1.4.27";
 
-// The "New session" dialog: a project's ⋯ menu opens it for that project.
-// The form makes a session in the project with a shell or an installed agent,
+// The "New tab" dialog: a workspace's ⋯ menu opens it for that workspace.
+// The form makes a tab in the workspace with a shell or an installed agent,
 // each shown with its mark, and a name if one is given. Which agents are
-// installed is asked of the project's machine each time it opens (the server
+// installed is asked of the workspace's machine each time it opens (the server
 // keeps its answer briefly). Once an agent is chosen, that machine's earlier
-// sessions of it in the project's folder are offered too: picking one resumes
-// it instead of starting new. Titles are shown as text only.
+// conversations of it in the workspace's folder are offered too: picking one
+// resumes it instead of starting new. Titles are shown as text only.
 // Listeners are registered when this is called, not on import.
 export function createSessionDialog({ state, api, snapshotRecords, createSession, agentMark }) {
   const dialog = document.querySelector("#session-dialog");
