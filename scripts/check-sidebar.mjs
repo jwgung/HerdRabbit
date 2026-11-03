@@ -159,7 +159,11 @@ try {
       const machine = (id) => {
         const heading = document.querySelector(`.server-heading[data-server-id="${id}"]`);
         const dot = heading.querySelector(".server-dot");
+        const text = heading.querySelector("strong").getBoundingClientRect();
+        const box = heading.getBoundingClientRect();
         return {
+          // room between the machine's name and the rows above and below it
+          room: Math.min(text.top - box.top, box.bottom - text.bottom),
           icons: heading.querySelectorAll(".server-icon").length,
           role: heading.querySelector(".server-role")?.textContent ?? null,
           dot: getComputedStyle(dot).backgroundColor,
@@ -203,6 +207,8 @@ try {
     // This PC: a monitor, "Host" and a green dot. Another machine: the monitor
     // and a grey dot while it is not reached, without the "Host" label.
     assert.deepEqual([seen.local.icons, seen.local.role, seen.local.dot], [1, "Host", seen.local.ok]);
+    // A machine's row does not touch the project heading under it.
+    assert.ok(seen.local.room >= 6, `${mobile ? "phone" : "desktop"}: the machine row has ${seen.local.room}px around its name`);
     assert.deepEqual([seen.remote.icons, seen.remote.role, seen.remote.dot], [1, null, seen.remote.offline]);
 
     // The menu still opens from a row and the row still selects.

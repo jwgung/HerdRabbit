@@ -178,8 +178,8 @@ test("the path to type sits at the foot of Files, with its suggestions opening u
   assert.doesNotMatch(styles.match(/\.file-path-row \{[^}]*\}/u)[0], /overflow: hidden/u, "the row cannot clip the list it anchors");
 });
 
-test("on touch, heading rows are as short as rows in Files and session rows stay easy to press", () => {
-  const touch = styles.match(/@media \(hover: none\) \{\s*\.workspace-action \{ height: (\d+)px; \}\s*\.workspace-heading \{ min-height: (\d+)px; padding-block: 0; \}\s*\.herdr-session-heading \{ height: (\d+)px; \}\s*\.server-heading \{ padding-block: 0; \}\s*\.session-action-menu \{ top: 8px; \}\s*\}/u);
+test("on touch, heading rows are as short as rows in Files, a machine keeps room around it, and session rows stay easy to press", () => {
+  const touch = styles.match(/@media \(hover: none\) \{\s*\.workspace-action \{ height: (\d+)px; \}\s*\.workspace-heading \{ min-height: (\d+)px; padding-block: 0; \}\s*\.herdr-session-heading \{ height: (\d+)px; \}\s*\.server-heading \{ padding-block: 6px; \}\s*\.session-action-menu \{ top: 8px; \}\s*\}/u);
   assert.ok(touch, "touch heading rows must be shortened");
   const row = cssPixels(/\.browse-row \.transfer-row-actions button \{\s*width: \d+px;\s*height: (\d+)px;/u, "file row");
   assert.deepEqual([touch[1], touch[2], touch[3]].map(Number), [row, row, row]);
