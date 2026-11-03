@@ -9,6 +9,8 @@ export const SETTINGS_PAGES = Object.freeze([
   { id: "security", title: "Security" },
   // Only where this HerdRabbit can connect to other PCs.
   { id: "pcs", title: "PCs" },
+  // Herdr's plugins, per machine: only with sign-in on, as a plugin runs code.
+  { id: "plugins", title: "Plugins" },
   { id: "about", title: "About" },
 ].map((page) => Object.freeze(page)));
 
@@ -16,9 +18,11 @@ export function settingsPageTitle(id) {
   return SETTINGS_PAGES.find((page) => page.id === id)?.title ?? null;
 }
 
-// The pages shown: Security with sign-in on, PCs where Connect PC is.
-export function settingsPageList({ security = false, pcs = false } = {}) {
-  return SETTINGS_PAGES.filter((page) => (page.id !== "security" || security) && (page.id !== "pcs" || pcs));
+// The pages shown: Security with sign-in on, PCs where Connect PC is, and
+// Plugins with sign-in on where this HerdRabbit can manage them.
+export function settingsPageList({ security = false, pcs = false, plugins = false } = {}) {
+  return SETTINGS_PAGES.filter((page) => (page.id !== "security" || security) && (page.id !== "pcs" || pcs) &&
+    (page.id !== "plugins" || (plugins && security)));
 }
 
 // The line under the notifications switch, from pushButtonPresentation.

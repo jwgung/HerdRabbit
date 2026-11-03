@@ -773,6 +773,241 @@ body.sidebar-collapsed .terminal-panel {
   }
 }
 
+/* Settings → Plugins (public/app/plugins.js): one row per plugin, its name,
+   version and source, then its switch and ⋯ menu, like an AI account row. */
+.plugins-machine {
+  flex: 1 1 200px;
+  min-width: 0;
+  max-width: 320px;
+}
+
+.plugin-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.plugin-rows:empty {
+  display: none;
+}
+
+.plugin-rows > .plugin-empty {
+  padding: var(--space-3);
+}
+
+.plugin-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2-5) var(--space-3);
+  border-top: 1px solid var(--line);
+}
+
+.plugin-row:first-child {
+  border-top: 0;
+}
+
+.plugin-identity {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-0-5);
+}
+
+.plugin-title {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.plugin-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-lg);
+}
+
+.plugin-row.is-off .plugin-title strong {
+  color: var(--muted);
+}
+
+.plugin-version {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--font-sm);
+  white-space: nowrap;
+}
+
+.plugin-source {
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--font-sm);
+}
+
+a.plugin-source:hover {
+  color: var(--text);
+}
+
+.plugin-description {
+  color: var(--muted);
+  font-size: var(--font-sm);
+  overflow-wrap: anywhere;
+}
+
+.plugin-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 28px;
+}
+
+.plugin-state {
+  color: var(--muted);
+  font-size: var(--font-sm);
+  white-space: nowrap;
+}
+
+.plugin-actions .sidebar-action-menu.is-disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* The enabled switch: a track and its knob, and On or Off beside it, so the
+   state is said in words too. */
+.plugin-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-height: 28px;
+  padding: 0 var(--space-1-5);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--control-text);
+  font: inherit;
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.plugin-switch:not(:disabled):hover {
+  border-color: var(--line);
+}
+
+.plugin-switch:disabled {
+  cursor: progress;
+  opacity: 0.55;
+}
+
+.plugin-switch-track {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--hover-surface);
+  transition: background-color var(--motion-fast) ease;
+}
+
+.plugin-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform var(--motion-fast) ease;
+}
+
+.plugin-switch[aria-checked="true"] .plugin-switch-track {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.plugin-switch[aria-checked="true"] .plugin-switch-track::after {
+  background: var(--accent-ink);
+  transform: translateX(12px);
+}
+
+.plugin-switch-text {
+  min-width: 3ch;
+  text-align: left;
+}
+
+.plugin-install-dialog {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.plugin-install-step {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.plugin-install-step[hidden] {
+  display: none;
+}
+
+.plugin-install-repo {
+  margin-top: calc(-1 * var(--space-1-5));
+  overflow-wrap: anywhere;
+}
+
+.plugin-install-repo:empty {
+  display: none;
+}
+
+.plugin-warning,
+.plugin-confirm-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.plugin-warning {
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-sm);
+  background: var(--hover-surface);
+  font-size: var(--font-md);
+}
+
+.plugin-confirm-text {
+  font-size: var(--font-lg);
+  font-weight: 600;
+}
+
+/* Touch: the switch, the ⋯ menu and the machine picker are 44px targets. */
+@media (hover: none), (pointer: coarse) {
+  .plugin-switch,
+  .plugin-actions .workspace-action,
+  .plugins-machine,
+  #plugins-install,
+  .plugin-install-dialog :is(.ui-input, .dialog-actions button) {
+    min-height: 44px;
+  }
+
+  .plugin-actions .workspace-action {
+    width: 44px;
+    min-width: 44px;
+    flex-basis: 44px;
+  }
+
+  .plugin-source {
+    padding-block: var(--space-1);
+  }
+}
+
 .workspace-collapse svg {
   transition: transform var(--motion-base) ease;
 }

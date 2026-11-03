@@ -477,6 +477,21 @@
             </div>
           </section>
 
+          <section class="settings-page" data-page="plugins" aria-labelledby="settings-page-title" hidden>
+            <p class="settings-row-hint">Herdr plugins add actions and panes to Herdr. A plugin runs its own code on its machine. HerdRabbit itself is listed but is updated from About.</p>
+            <div id="plugins-machine-row" class="settings-row" hidden>
+              <div class="settings-row-copy">
+                <label for="plugins-machine" class="settings-row-label">Machine</label>
+              </div>
+              <select id="plugins-machine" class="ui-input plugins-machine"></select>
+            </div>
+            <ul id="plugins-list" class="plugin-rows" role="list" aria-label="Plugins"></ul>
+            <p id="plugins-feedback" class="settings-row-hint" role="status" aria-live="polite"></p>
+            <div class="settings-page-actions">
+              <button id="plugins-install" class="primary-button" type="button">Install plugin…</button>
+            </div>
+          </section>
+
           <section class="settings-page" data-page="about" aria-labelledby="settings-page-title" hidden>
             <dl class="settings-versions">
               <dt>HerdRabbit</dt><dd id="settings-version-app">Unknown</dd>
@@ -655,6 +670,38 @@
           <button id="ai-accounts-close" class="secondary-button" type="button">Close</button>
         </div>
       </div>
+    </dialog>
+
+    <dialog id="plugin-install-dialog" class="app-dialog plugin-install-dialog" aria-labelledby="plugin-install-title" data-step="source">
+      <form id="plugin-install-form" class="dialog-form" novalidate>
+        <div class="dialog-heading">
+          <h2 id="plugin-install-title">Install plugin</h2>
+          <p id="plugin-install-machine">On This PC</p>
+        </div>
+        <div id="plugin-install-source-step" class="plugin-install-step">
+          <div class="server-field">
+            <label for="plugin-install-source">Source</label>
+            <input id="plugin-install-source" class="ui-input" maxlength="300" autocomplete="off" autocapitalize="off"
+              spellcheck="false" placeholder="owner/repo or owner/repo/folder" aria-describedby="plugin-install-repo" />
+          </div>
+          <p id="plugin-install-repo" class="settings-row-hint plugin-install-repo" aria-live="polite"></p>
+          <div class="server-field">
+            <label for="plugin-install-ref">Ref (optional)</label>
+            <input id="plugin-install-ref" class="ui-input" maxlength="200" autocomplete="off" autocapitalize="off"
+              spellcheck="false" placeholder="Branch, tag or commit" />
+          </div>
+          <p id="plugin-install-warning" class="plugin-warning"></p>
+        </div>
+        <div id="plugin-install-confirm-step" class="plugin-install-step" hidden>
+          <p id="plugin-install-confirm-text" class="plugin-confirm-text"></p>
+          <p id="plugin-install-confirm-repo" class="plugin-warning"></p>
+        </div>
+        <p id="plugin-install-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="plugin-install-cancel" class="secondary-button" type="button">Cancel</button>
+          <button id="plugin-install-submit" class="primary-button" type="submit">Continue</button>
+        </div>
+      </form>
     </dialog>
 
     <dialog id="passkey-dialog" class="app-dialog" aria-labelledby="passkey-dialog-title">
