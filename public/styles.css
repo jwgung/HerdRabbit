@@ -33,22 +33,6 @@ body {
   cursor: pointer;
 }
 
-.navigator-heading-actions {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: var(--space-1-5);
-}
-
-.navigator-create-project svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-width: 1.8;
-}
-
 .sidebar-toggle-mark,
 .mobile-sidebar-mark {
   width: 34px;
@@ -178,11 +162,6 @@ body.sidebar-collapsed .navigator-tabs {
   display: none;
 }
 
-body.sidebar-collapsed .navigator-heading-actions {
-  display: none;
-}
-
-body.sidebar-collapsed .navigator-create-project,
 body.sidebar-collapsed .herdr-session-heading,
 body.sidebar-collapsed .herdr-session-empty,
 body.sidebar-collapsed .workspace-heading,
@@ -797,14 +776,6 @@ body.sidebar-collapsed .terminal-panel {
   .settings-body {
     padding: var(--space-4) var(--space-3) var(--space-5);
   }
-}
-
-#add-menu .sidebar-action-item {
-  display: block;
-}
-
-#add-menu .sidebar-action-item[hidden] {
-  display: none;
 }
 
 .workspace-collapse svg {
@@ -1892,20 +1863,17 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
    tailnet list. */
 .ai-accounts-dialog { max-height: 90dvh; overflow-y: auto; }
 
-/* minmax(0, …) so tabs too wide for a phone scroll inside their row instead of
-   widening the dialog. */
+/* minmax(0, …) so a row of tabs never widens the dialog. */
 .ai-accounts-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 
+/* Tabs that do not fit wrap onto another line: a row that scrolled sideways
+   hid the last ones with nothing saying they were there. */
 .ai-accounts-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-0-5);
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
   border-bottom: 1px solid var(--line);
 }
-
-.ai-accounts-tabs::-webkit-scrollbar { display: none; }
 
 .ai-accounts-tab {
   flex: 0 0 auto;
@@ -1926,7 +1894,7 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   cursor: pointer;
 }
 
-/* Inside the scrolling row the outer ring would be clipped. */
+/* Drawn inside the tab so it does not run over the tab beside or below. */
 .ai-accounts-tab:focus-visible { outline-offset: -2px; }
 
 @media (hover: hover) {
@@ -2045,9 +2013,72 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 .ai-account-identity strong { font-size: var(--font-lg); }
 
 /* Touch: the tabs and + Add account are 44px tall boxes; a hit area drawn
-   outside them would be clipped by the scrolling row and the list's border. */
+   outside them would be clipped by the list's border. */
 @media (hover: none) {
   .ai-accounts-tab, .ai-account-add { min-height: 44px; }
+}
+
+/* New session and New project: the Agent is a set of choices, each with its
+   program's mark. The radio button itself is invisible and covers its choice,
+   so a click or a tap anywhere on it chooses, and the keys move as in any
+   radio group. */
+.agent-picker { display: grid; min-width: 0; margin: 0; padding: 0; border: 0; }
+
+.agent-picker legend {
+  margin-bottom: var(--space-1-5);
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--font-sm);
+}
+
+.agent-choices { display: flex; flex-wrap: wrap; gap: var(--space-1-5); }
+
+.dialog-form .agent-choice {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-height: 36px;
+  padding: var(--space-1-5) var(--space-2-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: var(--font-md);
+  cursor: pointer;
+}
+
+.dialog-form .agent-choice input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.agent-choice .agent-icon { flex: none; }
+
+.agent-choice:has(input:checked) {
+  border-color: var(--selected-border);
+  background: var(--selected-surface);
+  font-weight: 600;
+}
+
+.agent-choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.agent-choice:has(input:disabled) { opacity: 0.6; cursor: default; }
+
+@media (hover: hover) {
+  .agent-choice:not(:has(input:checked, input:disabled)):hover { background: var(--hover-surface); }
+}
+
+@media (hover: none) {
+  .dialog-form .agent-choice { min-height: 44px; }
 }
 
 /* Update: one block per PC, with what changed and, during a run, its log. */

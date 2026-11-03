@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { sessionAgentChoices, sessionChoiceLabel } from "../public/agents.js";
-import { sessionProjectChoices } from "../public/ui-model.js";
 
 test("a new session offers a shell first, then the installed agents in the table's order", () => {
   assert.deepEqual(sessionAgentChoices(["cursor", "codex", "claude", "kiro", "agy", "opencode"]), [
@@ -25,7 +24,7 @@ test("nothing installed, or names the page does not know, leave only the shell",
 test("the project menu opens the New session dialog, and the dialog has an agent and a name", async () => {
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
   assert.match(html, /<dialog id="session-dialog" class="app-dialog"/u);
-  assert.match(html, /<label for="session-agent">Agent<\/label>\s*<select id="session-agent"/u);
+  assert.match(html, /<fieldset id="session-agent" class="agent-picker">\s*<legend>Agent<\/legend>\s*<div class="agent-choices"><\/div>/u);
   assert.match(html, /<label for="session-name">Session name<\/label>\s*<input id="session-name"[^>]*maxlength="120"/u);
   const rows = await readFile(new URL("../public/app/sidebar-rows.js", import.meta.url), "utf8");
   assert.match(rows, /label: "New session…"/u);
@@ -50,48 +49,13 @@ test("the New session dialog can resume an earlier session", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// The "+" menu: New session… picks its project; New project… may start an agent.
+// No + at the top: New session… is a project's, New project… a machine's.
 
-test("New session from + offers every project, the selected pane's first", () => {
-  const servers = [{ id: "local", name: "This PC" }, { id: "lab", name: "Lab" }];
-  const workspaces = [
-    { workspace_id: "w1", label: "Platform", server_id: "local" },
-    { workspace_id: "lab!w1", label: "Bench", server_id: "lab" },
-    { workspace_id: "w2", server_id: "local" },
-  ];
-  const panes = [{ pane_id: "lab!w1:p1", workspace_id: "lab!w1" }];
-  assert.deepEqual(sessionProjectChoices({ servers, workspaces, panes, selectedPaneId: "lab!w1:p1" }), {
-    selected: "lab!w1",
-    choices: [
-      { value: "w1", label: "This PC / Platform", workspaceLabel: "Platform", serverId: "local" },
-      { value: "w2", label: "This PC / Project", workspaceLabel: "Project", serverId: "local" },
-      { value: "lab!w1", label: "Lab / Bench", workspaceLabel: "Bench", serverId: "lab" },
-    ],
-  });
-  // no pane chosen, or one that is gone: the first project
-  assert.equal(sessionProjectChoices({ servers, workspaces, panes, selectedPaneId: null }).selected, "w1");
-  assert.equal(sessionProjectChoices({ servers, workspaces, panes, selectedPaneId: "gone" }).selected, "w1");
-});
-
-test("with one machine, a project is offered by its own name; with none, nothing is offered", () => {
-  const { choices } = sessionProjectChoices({
-    servers: [{ id: "local", name: "This PC" }],
-    workspaces: [{ workspace_id: "w1", label: "Platform" }],
-    panes: [],
-    selectedPaneId: null,
-  });
-  assert.deepEqual(choices, [{ value: "w1", label: "Platform", workspaceLabel: "Platform", serverId: "local" }]);
-  assert.deepEqual(sessionProjectChoices({ servers: [], workspaces: [], panes: [] }), { selected: "", choices: [] });
-});
-
-test("+ holds New session and New project, and Connect PC moved to this machine's row", async () => {
+test("there is no + menu; New project is on a machine's menu and Connect PC on this machine's", async () => {
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
-  const menu = html.match(/<details id="add-menu"[\s\S]*?<\/details>/u)[0];
-  assert.match(menu, /aria-label="New session or project"\s*title="New session or project"/u);
-  assert.deepEqual([...menu.matchAll(/role="menuitem">([^<]+)</gu)].map((match) => match[1]), ["New session…", "New project…"]);
-  assert.doesNotMatch(menu, /Connect PC|manage-servers/u);
-  assert.match(html, /<label id="session-project-label" for="session-project" hidden>Project<\/label>\s*<select id="session-project" hidden>/u);
-  assert.match(html, /<label for="project-agent">Agent<\/label>\s*<select id="project-agent">/u);
+  assert.doesNotMatch(html, /id="add-menu"|id="create-session"|id="create-project"|id="session-project"/u);
+  assert.match(html, /<fieldset id="project-agent" class="agent-picker">\s*<legend>Agent<\/legend>/u);
   const navigation = await readFile(new URL("../public/app/navigation.js", import.meta.url), "utf8");
+  assert.match(navigation, /label: "New project…",[\s\S]*?onSelect: \(\) => openNewProject\(server\.id\)/u);
   assert.match(navigation, /label: "Connect PC…"/u);
 });

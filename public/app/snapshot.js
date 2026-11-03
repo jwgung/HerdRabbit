@@ -14,7 +14,7 @@ export function idOf(record, ...keys) {
 // What the page knows of Herdr: the records of the last snapshot, and the
 // completions this browser has seen. `state` is the page's own object; these
 // read it as it is when they are called.
-export function createSnapshotModel({ state, elements, storage }) {
+export function createSnapshotModel({ state, storage }) {
   function snapshotRecords() {
     const snapshot = state.snapshot || {};
     return {
@@ -25,25 +25,6 @@ export function createSnapshotModel({ state, elements, storage }) {
       panes: array(snapshot.panes),
       agents: array(snapshot.agents),
     };
-  }
-
-  // The Herdr session a new project opens in: the selected pane's, else its
-  // machine's default, else this machine's, else any running one.
-  function newProjectHerdrSession() {
-    const { herdrSessions, panes } = snapshotRecords();
-    const selectedPane = panes.find((pane) => idOf(pane, "pane_id", "id") === state.selectedPaneId);
-    const servers = [selectedPane?.server_id || "local", "local"];
-    for (const serverId of servers) {
-      const session = herdrSessionForServer(serverId);
-      if (session) return session;
-    }
-    return herdrSessions.find((session) => session.running === true && session.available === true) || null;
-  }
-
-  function syncCreateProjectAvailability() {
-    elements.createProject.disabled = newProjectHerdrSession() === null;
-    // A session opens in a project: with none anywhere there is nowhere to make one.
-    elements.createSession.disabled = snapshotRecords().workspaces.length === 0;
   }
 
   // The running Herdr session to use on `serverId`: the selected pane's, when it
@@ -129,7 +110,7 @@ export function createSnapshotModel({ state, elements, storage }) {
   }
 
   return {
-    snapshotRecords, newProjectHerdrSession, syncCreateProjectAvailability, herdrSessionForServer,
+    snapshotRecords, herdrSessionForServer,
     agentForPane, visibleStatusForPane, acknowledgePaneCompletion, pruneAcknowledgedCompletions,
   };
 }

@@ -1,14 +1,12 @@
 // Browser check of New session with an agent. A project's ⋯ menu opens, as a
 // popover beside its button, "New session…"; the dialog offers a shell and the
 // agents installed on the project's machine (this one's, or a connected PC's
-// own answer), and a name. Starting one makes the tab, names it, types the
-// agent's command into its pane and selects it. An agent gone by the time
-// Start is pressed is refused and said so in the dialog. The top + menu's
-// "New session…" opens the same dialog with a Project select: the selected
-// pane's project first, every machine's projects named with their machine;
-// choosing another project asks its machine for its agents and the earlier
-// sessions there again. Runs on a desktop and a phone against an in-process
-// fake herdr.
+// own answer), each a choice with its program's mark, and a name. Starting
+// one makes the tab, names it, types the agent's command into its pane and
+// selects it. An agent gone by the time Start is pressed is refused and said
+// so in the dialog. Choosing an agent with earlier sessions in the project's
+// folder offers them. There is no + at the top of the sidebar. Runs on a
+// desktop and a phone against an in-process fake herdr.
 //
 // NEW_SESSION_SHOTS=<folder> keeps pictures of the menu and the dialog.
 import assert from "node:assert/strict";
@@ -110,8 +108,13 @@ try {
       await item.waitFor({ state: "visible" });
       return { summary, item };
     };
-    const choices = (dialog) => dialog.locator("#session-agent option").evaluateAll((options) =>
-      options.map((option) => [option.value, option.textContent]));
+    // The Agent choices, [value, name], each with a mark drawn beside its name.
+    const choices = (dialog) => dialog.locator("#session-agent .agent-choice").evaluateAll((labels) =>
+      labels.map((label) => [label.querySelector("input").value, label.querySelector("span").textContent,
+        label.querySelector("svg.agent-icon") ? "mark" : "no mark"]));
+    const choose = (dialog, agent) => dialog.locator(`#session-agent .agent-choice[data-agent="${agent || "shell"}"]`).click();
+    const chosen = (dialog) => dialog.locator("#session-agent").evaluate((field) => field.querySelector("input:checked")?.value ?? null);
+    assert.equal(await page.locator("#add-menu, #create-session, #create-project").count(), 0, `${where}: the + menu is still there`);
 
     // The menu item is a popover beside the ⋯ button, not a sheet at the foot.
     const { summary, item } = await openDialog("Platform");
@@ -127,25 +130,27 @@ try {
     const dialog = page.locator("#session-dialog");
     await dialog.waitFor({ state: "visible" });
     await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
-    assert.deepEqual(await choices(dialog), [["", "Shell"], ["claude", "Claude Code"], ["codex", "Codex"]],
-      `${where}: this machine's installed agents are not offered`);
+    assert.deepEqual(await choices(dialog), [["", "Shell", "mark"], ["claude", "Claude Code", "mark"], ["codex", "Codex", "mark"]],
+      `${where}: this machine's installed agents are not offered, each with its mark`);
+    assert.equal(await chosen(dialog), "", `${where}: Shell is not chosen first`);
     assert.match(await dialog.locator("#session-dialog-context").textContent(), /Platform.*workstation/u);
     if (mobile) {
-      for (const selector of ["#session-agent", "#session-name", 'button[type="submit"]']) {
+      for (const selector of ['#session-agent .agent-choice[data-agent="codex"]', "#session-name", 'button[type="submit"]']) {
         const look = await dialog.locator(selector).evaluate((element) => ({
           // A button drawn smaller takes taps on a 44px ::before (docs/design.md).
           height: Math.max(element.getBoundingClientRect().height, parseFloat(getComputedStyle(element, "::before").height) || 0),
           font: parseFloat(getComputedStyle(element).fontSize),
         }));
         assert.ok(look.height >= 44, `${where}: ${selector} is under 44px tall (${look.height})`);
-        if (selector !== 'button[type="submit"]') assert.ok(look.font >= 16, `${where}: ${selector} text is under 16px`);
+        if (selector === "#session-name") assert.ok(look.font >= 16, `${where}: ${selector} text is under 16px`);
       }
     }
     if (shots) await page.screenshot({ path: join(shots, `dialog-${where}.png`) });
 
     // Codex, named: made, named, started, selected.
     calls = [];
-    await dialog.locator("#session-agent").selectOption("codex");
+    await choose(dialog, "codex");
+    assert.equal(await chosen(dialog), "codex", `${where}: a click on Codex does not choose it`);
     await dialog.locator("#session-name").fill(`Review ${where}`);
     await dialog.locator('button[type="submit"]').click();
     await dialog.waitFor({ state: "hidden" });
@@ -166,11 +171,11 @@ try {
     await (await openDialog("Bench")).item.click();
     await dialog.waitFor({ state: "visible" });
     await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
-    assert.deepEqual(await choices(dialog), [["", "Shell"], ["opencode", "OpenCode"]], `${where}: the PC's agents are not its own`);
+    assert.deepEqual(await choices(dialog), [["", "Shell", "mark"], ["opencode", "OpenCode", "mark"]], `${where}: the PC's agents are not its own`);
     assert.match(await dialog.locator("#session-dialog-context").textContent(), /Bench.* on lab\./u);
     // A shell with no name is made just as before.
     calls = [];
-    await dialog.locator("#session-agent").selectOption("");
+    await choose(dialog, "");
     await dialog.locator('button[type="submit"]').click();
     await dialog.waitFor({ state: "hidden" });
     assert.deepEqual(calls, [["createTab", "lab:w1"]], `${where}: a plain shell session did more than make a tab`);
@@ -179,8 +184,8 @@ try {
     await (await openDialog("Platform")).item.click();
     await dialog.waitFor({ state: "visible" });
     await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
-    assert.equal(await dialog.locator("#session-agent").inputValue(), "", `${where}: the last choice (a shell) is not chosen first`);
-    await dialog.locator("#session-agent").selectOption("codex");
+    assert.equal(await chosen(dialog), "", `${where}: the last choice (a shell) is not chosen first`);
+    await choose(dialog, "codex");
     localAgents = ["claude"];
     calls = [];
     await dialog.locator('button[type="submit"]').click();
@@ -191,46 +196,17 @@ try {
     await dialog.waitFor({ state: "hidden" });
     localAgents = ["codex", "claude"];
 
-    // + → New session…: a Project select, the selected pane's project first.
-    await openSidebar();
-    await page.locator('.pane-button[data-pane-id="w1:p1"]').click();
-    await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w1:p1"]')?.getAttribute("aria-pressed") === "true");
-    await openSidebar();
-    await page.locator("#add-menu > summary").click();
-    await page.locator("#create-session").click();
-    await dialog.waitFor({ state: "visible" });
-    const project = dialog.locator("#session-project");
-    assert.equal(await project.isVisible(), true, `${where}: + → New session has no Project select`);
-    assert.deepEqual(await project.locator("option").evaluateAll((options) => options.map((option) => [option.value, option.textContent])),
-      [["w1", "workstation / Platform"], ["lab:w1", "lab / Bench"]], `${where}: every machine's projects are not offered by machine`);
-    assert.equal(await project.inputValue(), "w1", `${where}: the selected pane's project is not chosen first`);
-    if (mobile) {
-      const look = await project.evaluate((element) => ({ height: element.getBoundingClientRect().height, font: parseFloat(getComputedStyle(element).fontSize) }));
-      assert.ok(look.height >= 44 && look.font >= 16, `${where}: the Project select is too small: ${JSON.stringify(look)}`);
-    }
-    await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
-    assert.deepEqual(await choices(dialog), [["", "Shell"], ["claude", "Claude Code"], ["codex", "Codex"]]);
-    // Claude in Platform's folder has an earlier session to resume.
-    await dialog.locator("#session-agent").selectOption("claude");
-    await dialog.locator("#session-resume").waitFor({ state: "visible" });
-    assert.match(await dialog.locator("#session-resume").textContent(), /Fix login/u);
-    if (shots) await page.screenshot({ path: join(shots, `plus-dialog-${where}.png`) });
-    // Another machine's project: its own agents, and no Platform session left to resume.
-    await project.selectOption("lab:w1");
-    await page.waitForFunction(() => !document.querySelector("#session-agent").disabled &&
-      [...document.querySelector("#session-agent").options].map((option) => option.value).join() === ",opencode");
-    assert.equal(await dialog.locator("#session-resume").isVisible(), false, `${where}: the earlier sessions were not asked again`);
-    await dialog.locator("#session-agent").selectOption("opencode");
-    calls = [];
-    await dialog.locator('button[type="submit"]').click();
-    await dialog.waitFor({ state: "hidden" });
-    const benchPane = panes.at(-1).pane_id;
-    assert.deepEqual(calls, [["createTab", "lab:w1"], ["sendText", benchPane, "opencode", { submit: true }]],
-      `${where}: the session was not made in the project chosen`);
-    // A project's ⋯ menu still opens it for that project, without the select.
+    // Claude in Platform's folder has an earlier session to resume; back to a
+    // shell, there is none to offer.
     await (await openDialog("Platform")).item.click();
     await dialog.waitFor({ state: "visible" });
-    assert.equal(await project.isVisible(), false, `${where}: a project's own New session shows the Project select`);
+    await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
+    await choose(dialog, "claude");
+    await dialog.locator("#session-resume").waitFor({ state: "visible" });
+    assert.match(await dialog.locator("#session-resume").textContent(), /Fix login/u);
+    if (shots) await page.screenshot({ path: join(shots, `resume-dialog-${where}.png`) });
+    await choose(dialog, "");
+    await dialog.locator("#session-resume").waitFor({ state: "hidden" });
     await dialog.locator("#session-dialog-cancel").click();
     await dialog.waitFor({ state: "hidden" });
 

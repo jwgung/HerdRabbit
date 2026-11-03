@@ -26,7 +26,7 @@ import { tiles as viewTiles } from "../view-split.js?v=1.4.24";
 export function createSidebarRows(deps) {
   const {
     state, panePreferenceStorage, desktopMedia, viewSplit, api,
-    snapshotRecords, syncCreateProjectAvailability, agentForPane, visibleStatusForPane,
+    snapshotRecords, agentForPane, visibleStatusForPane,
     choosePane, renderNavigation, selectedRecords, renderPaneHeading, showTerminalMessage,
     refreshTerminal, refreshSnapshot, setFeedback, closeMobileSidebar, selectPane, focusComposer,
     openNewSession,
@@ -124,7 +124,6 @@ export function createSidebarRows(deps) {
       state.preferredPaneId = preferredPaneId;
     }
     choosePane();
-    syncCreateProjectAvailability();
     renderNavigation();
     const selected = selectedRecords();
     renderPaneHeading(selected.pane, selected.tab, selected.workspace);

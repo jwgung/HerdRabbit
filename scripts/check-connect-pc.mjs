@@ -1,5 +1,5 @@
 // Browser check of Connect PC: this machine's row menu in the sidebar opens
-// the dialog (the + menu no longer does), the tailnet's PCs
+// the dialog (there is no + menu), the tailnet's PCs
 // are listed with why each can or cannot be connected, Test connection then
 // Save puts the PC in the sidebar with its sessions, and its row menu renames,
 // shows Details (app version and connection protocol beside this PC's) and
@@ -196,10 +196,8 @@ try {
   assert.equal(here["Connection protocol"], "1");
   assert.equal(here["Connect PC port"], "http://100.64.0.1:38788 (1 allowed)");
 
-  // + makes sessions and projects only; Connect PC is on this machine's row.
-  await page.locator("#add-menu summary").click();
-  assert.equal(await page.locator("#add-menu .sidebar-action-item", { hasText: "Connect PC" }).count(), 0, "+ still offers Connect PC");
-  await page.keyboard.press("Escape");
+  // There is no + menu; Connect PC is on this machine's row.
+  assert.equal(await page.locator("#add-menu").count(), 0, "the + menu is still there");
   // This machine's ⋯ → Connect PC… lists the tailnet, with a reason for what cannot be added.
   await page.locator(`${heading("Local")} .server-action-menu summary`).click();
   await page.getByRole("menuitem", { name: "Connect PC…" }).click();
