@@ -1,7 +1,7 @@
 // Browser check of the settings screen that ⚙ at the foot of the sidebar
 // opens. The footer holds the uploads button and the settings button only.
 // On a desktop the screen is a dialog with its pages listed on the left; on a
-// phone a full-screen list where a page opens with Back. Its pages:
+// phone a full-screen list where a page opens with a Back arrow. Its pages:
 // Appearance (theme, a grid's text size), Chat (Open panes in, Chat width),
 // Terminal & keys (Edit keys, whose dialog holds the Enter choice on touch
 // devices; Fit panes to this window on wide screens), Notifications (only a
@@ -273,10 +273,26 @@ try {
       assert.equal(await page.locator("#settings-version-herdr").textContent(), full ? "0.9.5" : "Unknown");
       await shoot("about");
 
+      // A header button is an icon alone, its drawing in the middle of the box.
+      const centred = (button) => button.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const icon = element.querySelector("svg").getBoundingClientRect();
+        return { text: element.textContent.trim(), x: Math.abs(box.left + box.width / 2 - (icon.left + icon.width / 2)),
+          y: Math.abs(box.top + box.height / 2 - (icon.top + icon.height / 2)) };
+      });
+      // A page's heading: × on a desktop, the Back arrow on a phone (whose × is on the list).
+      for (const button of [dialog.locator(mobile ? "#settings-back" : ".settings-page-heading .settings-close")]) {
+        const look = await centred(button);
+        assert.equal(look.text, "", `a settings header button has words: ${look.text}`);
+        assert.ok(look.x <= 0.5 && look.y <= 0.5, `a settings header icon is off centre: ${JSON.stringify(look)}`);
+      }
+
       if (mobile) {
         // Back returns to the list, on the page it came from.
         await dialog.locator("#settings-back").click();
         await nav.waitFor({ state: "visible" });
+        const close = await centred(dialog.locator(".settings-nav .settings-close"));
+        assert.ok(close.x <= 0.5 && close.y <= 0.5, `the list's close icon is off centre: ${JSON.stringify(close)}`);
         assert.equal(await body.isVisible(), false);
         assert.equal(await link("About").evaluate((node) => node === document.activeElement), true, "focus is back on the page's row");
       }

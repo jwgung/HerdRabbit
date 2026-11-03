@@ -633,12 +633,6 @@ body.sidebar-collapsed .terminal-panel {
   display: none;
 }
 
-.settings-back {
-  align-items: center;
-  gap: var(--space-1);
-  padding-left: var(--space-2);
-}
-
 .settings-back svg,
 .settings-close svg {
   width: 16px;
@@ -759,9 +753,10 @@ body.sidebar-collapsed .terminal-panel {
     background: var(--surface);
   }
 
+  /* Grid as .icon-button is, so the drawing stays in the middle. */
   .settings-nav .settings-close,
   .settings-back {
-    display: inline-flex;
+    display: inline-grid;
   }
 
   .settings-page-heading .settings-close {
