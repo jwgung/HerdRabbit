@@ -28,10 +28,10 @@ const OLD = "link_22222222-2222-2222-2222-222222222222";
 const world = { phase: "available", outcome: "succeeded", polls: 0, starts: 0 };
 // update.sh's lines, one more each answer, and the step they put the run at.
 const SCRIPT_LOG = [
-  "  > Fetching main in /home/me/HerdRabbit", "  > Updating Herdr", "  > Installing runtime dependencies",
+  "  > Fetching the latest release in /home/me/HerdRabbit", "  > Updating Herdr", "  > Installing runtime dependencies",
   "  > Verifying the updated code", "  > Restarting herdrabbit.service",
 ];
-const PLUGIN_LOG = ["  > Updating the herdrabbit plugin with Herdr", "Updated herdrabbit.", "  > Restarting HerdRabbit"];
+const PLUGIN_LOG = ["  > Installing release v2.0.1 of the herdrabbit plugin with Herdr", "Installed herdrabbit from jwgung/HerdRabbit.", "  > Restarting HerdRabbit"];
 const RESTART_ERROR = "No such file or directory (os error 2); the direct restart exited with 1";
 
 const check = (fields) => ({
@@ -193,6 +193,7 @@ try {
     assert.equal(dialogs.length, 1);
     assert.match(dialogs[0], /^Update This PC \(testbox\) to 2\.0\.1 \(def5678\)\?/u);
     assert.match(dialogs[0], /restarts HerdRabbit/u);
+    assert.match(dialogs[0], /this release/u, "an update is to the release named, not to main");
     if (outcome === "restart_failed") {
       assert.doesNotMatch(dialogs[0], /update\.sh/u, "a plugin update is not update.sh's");
       assert.match(dialogs[0], /installed version keeps running/u);

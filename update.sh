@@ -5,7 +5,7 @@ log() { printf '  > %s\n' "$1"; }
 fail() { printf '  x %s\n' "$1" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "requires '$1'"; }
 
-# Once main has moved forward, a failure puts the previous commit and its
+# Once main has moved forward to the release, a failure puts the previous commit and its
 # dependencies back, so the service is never left on code that did not pass.
 # Herdr is not rolled back: an older HerdRabbit runs on a newer Herdr.
 roll_back() {
@@ -72,16 +72,32 @@ main() {
     # The page's Update window shows which step a run is at from the lines
     # marked "step:" (SCRIPT_MARKERS in src/app-update.mjs). Keep their wording
     # in step with it; test/app-update.test.mjs fails when one is no longer printed.
-    log "Fetching main in $UPDATE_DIRECTORY" # step: fetch
-    git fetch origin main
-    git merge-base --is-ancestor HEAD FETCH_HEAD || fail "local main has unpublished or divergent commits; reconcile it manually"
+    log "Fetching the latest release in $UPDATE_DIRECTORY" # step: fetch
+    # Updates follow releases, not main: the latest is the highest vX.Y.Z tag
+    # on origin (CI tags each `release: x.y.z` commit on main), and it is an
+    # update only when it is newer than the version this checkout runs.
+    RELEASES="$(git ls-remote --tags origin 'refs/tags/v*')" || fail "could not list the releases on origin"
+    RELEASE_STATUS=0
+    RELEASE_TAG="$(printf '%s\n' "$RELEASES" | node scripts/latest-release.mjs)" || RELEASE_STATUS=$?
+    case "$RELEASE_STATUS" in
+        0) ;;
+        3)
+            log "Already up to date: the latest release, $RELEASE_TAG, is not newer than this checkout"
+            exit 0
+            ;;
+        *) fail "origin has no release to update to" ;;
+    esac
+    # Only that tag is fetched; main moves to the commit it names.
+    git fetch --no-tags origin "refs/tags/$RELEASE_TAG"
+    RELEASE_COMMIT="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
+    git merge-base --is-ancestor HEAD "$RELEASE_COMMIT" || fail "local main has commits that are not in $RELEASE_TAG; reconcile it manually"
     # Herdr comes first, checked against the minimum the incoming code names,
     # so a Herdr too old for it stops the update before any file changes.
     # The incoming src is read before Herdr is touched: if it cannot be, nothing
     # changes at all. It is the whole src, so its version module may import its
     # neighbours.
     INCOMING_DIRECTORY="$(mktemp -d)"
-    git archive FETCH_HEAD src | tar -x -C "$INCOMING_DIRECTORY" || { rm -rf "$INCOMING_DIRECTORY"; fail "could not read the new code's src to check Herdr against"; }
+    git archive "$RELEASE_COMMIT" src | tar -x -C "$INCOMING_DIRECTORY" || { rm -rf "$INCOMING_DIRECTORY"; fail "could not read the new code's src to check Herdr against"; }
     # --handoff moves running panes onto the new Herdr instead of stopping them.
     # A failed download leaves the installed Herdr in place; the version check
     # decides whether that one is still new enough.
@@ -91,7 +107,7 @@ main() {
     HERDR_VERSION_MODULE="$INCOMING_DIRECTORY/src/herdr-version.mjs" node scripts/check-herdr-version.mjs || { rm -rf "$INCOMING_DIRECTORY"; fail "Herdr is missing or too old for the new HerdRabbit; update it and run this script again"; }
     rm -rf "$INCOMING_DIRECTORY"
     PREVIOUS_HEAD="$(git rev-parse HEAD)"
-    git merge --ff-only FETCH_HEAD
+    git merge --ff-only "$RELEASE_COMMIT"
     log "Installing runtime dependencies" # step: install
     npm ci --omit=dev || roll_back "dependency installation failed"
     log "Verifying the updated code" # step: verify
@@ -104,7 +120,7 @@ main() {
     RESTARTED=1
     systemctl --user restart "$UPDATE_SERVICE" || roll_back "the service did not restart; check journalctl --user -u $UPDATE_SERVICE"
     systemctl --user is-active --quiet "$UPDATE_SERVICE" || roll_back "service is not active; check journalctl --user -u $UPDATE_SERVICE"
-    log "Updated to $(git rev-parse --short HEAD). Refresh the web app or PWA." # step: done
+    log "Updated to $RELEASE_TAG ($(git rev-parse --short HEAD)). Refresh the web app or PWA." # step: done
     log "Existing service settings and saved SSH connections are preserved."
 
     # A unit that drifted to 0.0.0.0 -- hand-edited, or written by an older

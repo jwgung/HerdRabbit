@@ -1,6 +1,6 @@
 // In-app update: the ⚙ menu's Update window. Each PC -- this one and every PC
 // connected with Connect PC -- is checked when the app opens and when Check is
-// pressed, never on a timer. Update runs update.sh on that PC (the server
+// pressed, never on a timer, for a release newer than the version it runs. Update runs update.sh on that PC (the server
 // starts it outside its own service), and this page follows the run: through
 // the restart for this PC, after which it reloads into the new version.
 // The run shows as steps (the server names them and the one it is at), with
@@ -15,7 +15,7 @@ export const BLOCKED_TEXT = {
   wrong_origin: "This checkout's origin is not ultivis-iot/HerdRabbit or jwgung/HerdRabbit. Update it by hand.",
   not_main: "This checkout is not on the main branch.",
   local_changes: "This checkout has local changes. Commit or move them first.",
-  diverged: "Local main has commits that are not on origin. Reconcile it by hand.",
+  diverged: "Local main has commits that are not in the latest release. Reconcile it by hand.",
 };
 
 export const ERROR_TEXT = {
@@ -69,14 +69,14 @@ export function confirmText(name, check) {
   if (check?.mode === "plugin") {
     return [
       ...head,
-      "Herdr downloads and builds the new version of the HerdRabbit plugin, then restarts HerdRabbit there. " +
+      "Herdr downloads and builds this release of the HerdRabbit plugin, then restarts HerdRabbit there. " +
         "Running sessions keep running; the page loses its connection for a moment while HerdRabbit restarts.",
       "If the download or build fails, the installed version keeps running.",
     ].join("\n");
   }
   return [
     ...head,
-    "update.sh fetches main, updates Herdr, installs dependencies, runs the checks and restarts HerdRabbit there. " +
+    "update.sh fetches this release, updates Herdr, installs dependencies, runs the checks and restarts HerdRabbit there. " +
       "Running sessions keep running; the page loses its connection for a moment while the service restarts.",
     "If a step fails, update.sh puts the previous version back.",
   ].join("\n");

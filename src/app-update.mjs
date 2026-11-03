@@ -8,16 +8,20 @@ import { fileURLToPath } from "node:url";
 import { PLUGIN_ID, absoluteFolder } from "./config.mjs";
 import { HttpError } from "./http-basics.mjs";
 
-// In-app update: whether main on origin has moved past this checkout, and
-// running update.sh for it from the page. update.sh stays the one updater;
-// this only asks the questions it would ask first, so the page can say why an
+// In-app update: whether origin has a release newer than the version this
+// checkout runs, and running update.sh for it from the page. A release is a
+// `release: x.y.z` commit on main that CI tags v<x.y.z>; commits on main past
+// the latest release are not an update, and a version ahead of it (a dev
+// build) is never offered a downgrade. update.sh stays the one updater; this
+// only asks the questions it would ask first, so the page can say why an
 // update would stop before anyone presses the button, and starts it outside
 // this service so the restart it ends with does not take it down too.
 //
 // Started by Herdr as a plugin, Herdr is the updater instead: `herdr plugin
-// update` fetches main into a new checkout and the plugin's restart action
-// moves this server onto it. The checkout Herdr made is detached from any
-// branch, so only its origin is asked about.
+// install <owner>/<repo> --ref v<x.y.z>` builds that release in a new
+// checkout (and pins the plugin to it), and the plugin's restart action moves
+// this server onto it. The checkout Herdr made is detached from any branch,
+// so only its origin is asked about.
 
 export const MAX_NOTES = 30;
 export const MAX_NOTE_LENGTH = 200;
@@ -89,7 +93,7 @@ export const RUN_STEPS = Object.freeze({
     { id: "reload", label: "Reload this page" },
   ]),
   script: Object.freeze([
-    { id: "fetch", label: "Fetch main" },
+    { id: "fetch", label: "Fetch the latest release" },
     { id: "herdr", label: "Update Herdr" },
     { id: "install", label: "Install dependencies" },
     { id: "verify", label: "Verify the updated code" },
@@ -103,7 +107,7 @@ const STEP_IDS = new Set(Object.values(RUN_STEPS).flat().map((step) => step.id))
 // step. update.sh names these next to the lines; test/app-update.test.mjs
 // fails when one of them is no longer printed there.
 export const SCRIPT_MARKERS = Object.freeze([
-  ["Fetching main", "fetch"],
+  ["Fetching the latest release", "fetch"],
   ["Updating Herdr", "herdr"],
   ["Installing runtime dependencies", "install"],
   ["Verifying the updated code", "verify"],
@@ -126,6 +130,54 @@ export function scriptPhase(text, previous = null) {
     }
   }
   return phase;
+}
+
+// A release tag: v and a plain x.y.z, as CI names the tag of a `release:
+// x.y.z` commit. Anything else on origin (v1.2, v2.0.0-rc.1, latest) is not one.
+export const RELEASE_TAG = /^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$/u;
+const VERSION_PARTS = /^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/u;
+
+// Two versions by semver precedence, as far as a release needs it: x.y.z by
+// number, and a pre-release (1.4.23-dev) before its release. Negative, zero or
+// positive; null when either is not a version.
+export function compareVersions(a, b) {
+  const [left, right] = [VERSION_PARTS.exec(String(a ?? "")), VERSION_PARTS.exec(String(b ?? ""))];
+  if (!left || !right) return null;
+  for (let index = 1; index <= 3; index += 1) {
+    const difference = Number(left[index]) - Number(right[index]);
+    if (difference !== 0) return Math.sign(difference);
+  }
+  if (Boolean(left[4]) === Boolean(right[4])) return 0;
+  return left[4] ? -1 : 1;
+}
+
+// The latest release in `git ls-remote --tags origin 'refs/tags/v*'`: the
+// highest release tag by version, with the commit it names (an annotated
+// tag's peeled `^{}` line, or a lightweight tag's own). Null without one.
+export function latestRelease(listed) {
+  const commits = new Map();
+  for (const entry of String(listed ?? "").split("\n")) {
+    const match = /^([0-9a-f]{40})\trefs\/tags\/([^\s^]+)(\^\{\})?$/u.exec(entry.trim());
+    if (!match || !RELEASE_TAG.test(match[2])) continue;
+    if (match[3] || !commits.has(match[2])) commits.set(match[2], match[1]);
+  }
+  let latest = null;
+  for (const [tag, sha] of commits) {
+    const version = tag.slice(1);
+    if (!latest || compareVersions(version, latest.version) > 0) latest = { tag, version, sha };
+  }
+  return latest;
+}
+
+// Where Herdr says it installed the plugin from (`source` in `herdr plugin
+// list --json`), as `<owner>/<repo>` for `herdr plugin install`: only a whole
+// GitHub repository that is one of the official origins, otherwise null.
+export function officialSource(source) {
+  if (!source || typeof source !== "object" || source.kind !== "github" || source.subdir) return null;
+  const { owner, repo } = source;
+  if (typeof owner !== "string" || typeof repo !== "string") return null;
+  if (!/^[A-Za-z0-9-]{1,39}$/u.test(owner) || !/^[A-Za-z0-9._-]{1,100}$/u.test(repo)) return null;
+  return OFFICIAL_ORIGINS.has(`https://github.com/${owner}/${repo}.git`) ? `${owner}/${repo}` : null;
 }
 
 const REPOSITORY = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/u, "");
@@ -324,6 +376,9 @@ export class AppUpdater {
   // The step update.sh was last seen at, for a log whose window no longer
   // holds the line that began it.
   #lastPhase = null;
+  // The release tag the last check found newer than this version: what a
+  // plugin run asks Herdr to install.
+  #releaseTag = null;
 
   // `exec(file, args, options)` answers { code, stdout } (execCommand): git,
   // systemctl and systemd-run all go through it, so a test can stand in for
@@ -404,6 +459,7 @@ export class AppUpdater {
       checkedAt: new Date(this.now()).toISOString(), current, latest: null, available: false, notes: [],
       blocked: null, error: null, ...fields,
     });
+    this.#releaseTag = null;
     const head = await this.#git("rev-parse", "--short", "HEAD");
     if (head.code !== 0) return answer({ error: "not_git" });
     current.sha = head.stdout.trim();
@@ -418,32 +474,29 @@ export class AppUpdater {
     // An address that is not the official one is never even reached: no
     // connection, no credential helper, nothing fetched from it.
     if (!officialOrigin) return answer({ blocked: "wrong_origin" });
-    const fetched = await this.#git("fetch", "--quiet", "--no-tags", "origin", "main");
+    // Only the tags are asked for: nothing is fetched unless a release is newer.
+    const listed = await this.#git("ls-remote", "--tags", "origin", "refs/tags/v*");
     // Herdr installs the plugin into a fresh checkout of its own, so the branch
     // and anything changed in this one do not matter to it.
     const precondition = !service ? "not_service"
       : this.plugin ? null
         : branch.stdout.trim() !== "main" ? "not_main"
           : status.code !== 0 || status.stdout.trim() !== "" ? "local_changes" : null;
-    if (fetched.code !== 0) return answer({ blocked: precondition, error: "fetch_failed" });
-    const latestSha = (await this.#git("rev-parse", "--short", "FETCH_HEAD")).stdout.trim();
-    // Something on origin this checkout does not have.
-    const available = (await this.#git("merge-base", "--is-ancestor", "FETCH_HEAD", "HEAD")).code !== 0;
-    const diverged = available && (await this.#git("merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD")).code !== 0;
-    const notes = available
-      ? (await this.#git("log", "--no-merges", "--format=%s", `--max-count=${MAX_NOTES}`, "HEAD..FETCH_HEAD")).stdout
-        .split("\n").map((note) => line(note)).filter(Boolean)
-      : [];
-    let latestVersion = null;
-    try {
-      latestVersion = JSON.parse((await this.#git("show", "FETCH_HEAD:package.json")).stdout).version;
-    } catch { /* shown without a version */ }
-    return answer({
-      latest: revision(latestSha, latestVersion),
-      available,
-      notes,
-      blocked: precondition ?? (diverged ? "diverged" : null),
-    });
+    if (listed.code !== 0) return answer({ blocked: precondition, error: "fetch_failed" });
+    const release = latestRelease(listed.stdout);
+    if (!release) return answer({ blocked: precondition });
+    const latest = revision(release.sha.slice(0, 7), release.version);
+    // Newer than what runs, by version: main past the release, or a version
+    // ahead of it, is not an update.
+    if (!(compareVersions(release.version, current.version) > 0)) return answer({ latest, blocked: precondition });
+    const fetched = await this.#git("fetch", "--quiet", "--no-tags", "origin", `refs/tags/${release.tag}`);
+    if (fetched.code !== 0) return answer({ latest, blocked: precondition, error: "fetch_failed" });
+    // This checkout has commits the release does not (update.sh would stop).
+    const diverged = (await this.#git("merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD")).code !== 0;
+    const notes = (await this.#git("log", "--no-merges", "--format=%s", `--max-count=${MAX_NOTES}`, "HEAD..FETCH_HEAD")).stdout
+      .split("\n").map((note) => line(note)).filter(Boolean);
+    this.#releaseTag = release.tag;
+    return answer({ latest, available: true, notes, blocked: precondition ?? (diverged ? "diverged" : null) });
   }
 
   // A run being started right now, before its record says so.
@@ -616,7 +669,7 @@ export class AppUpdater {
       // npm and node next to the Node this runs on, wherever the user's
       // manager would otherwise look for them.
       const path = [dirname(this.nodeBin), this.environment.PATH].filter(Boolean).join(":");
-      if (this.plugin) return await this.#startPlugin(record, path);
+      if (this.plugin) return await this.#startPlugin(record, path, this.#releaseTag);
       const started = await this.exec("systemd-run", [
         "--user", `--unit=${unit}`, "--collect", "--quiet",
         `--property=WorkingDirectory=${this.repository}`,
@@ -644,14 +697,14 @@ export class AppUpdater {
   // stops this server does not stop it too. It is told only which Herdr and
   // which plugin; its folder is the home folder, as Herdr may remove this
   // checkout once nothing runs from it.
-  async #startPlugin(record, path) {
+  async #startPlugin(record, path, tag) {
     let pid = null;
     try {
       // The plugin's folders, when Herdr named them, let the run restart the
       // plugin itself should Herdr's restart action not run.
       const folders = this.plugin.configDir && this.plugin.stateDir ? [this.plugin.configDir, this.plugin.stateDir] : [];
       const child = this.spawnImpl(this.nodeBin, [
-        join(this.repository, "scripts", "run-update.mjs"), this.stateDir, "--plugin", this.plugin.id, this.plugin.binary, ...folders,
+        join(this.repository, "scripts", "run-update.mjs"), this.stateDir, "--plugin", this.plugin.id, this.plugin.binary, tag, ...folders,
       ], {
         cwd: this.environment.HOME || homedir(),
         env: pluginRunEnvironment(this.environment, path),
@@ -820,13 +873,24 @@ export function actionOutcome(entry) {
   return { outcome: "failed", detail: cleanDetail(detail) };
 }
 
-// The checkout Herdr installed the plugin into, from `herdr plugin list
-// --json`: only an absolute folder that holds scripts/plugin.mjs.
-async function installedRoot(spawnImpl, binary, id, cwd) {
+// The plugin as `herdr plugin list --json` describes it, or null.
+async function listedPlugin(spawnImpl, binary, id, cwd) {
   const answer = await runCaptured(spawnImpl, binary, ["plugin", "list", "--plugin", id, "--json"], { cwd });
   if (answer.code !== 0) return null;
   const plugins = parseJson(answer.stdout.trim())?.result?.plugins;
-  const plugin = Array.isArray(plugins) ? plugins.find((item) => item?.plugin_id === id) : null;
+  return Array.isArray(plugins) ? plugins.find((item) => item?.plugin_id === id) ?? null : null;
+}
+
+// Where Herdr installed the plugin from, as `<owner>/<repo>`, when that is an
+// official repository (officialSource); otherwise null.
+async function installedSource(spawnImpl, binary, id, cwd) {
+  return officialSource((await listedPlugin(spawnImpl, binary, id, cwd))?.source);
+}
+
+// The checkout Herdr installed the plugin into, from `herdr plugin list
+// --json`: only an absolute folder that holds scripts/plugin.mjs.
+async function installedRoot(spawnImpl, binary, id, cwd) {
+  const plugin = await listedPlugin(spawnImpl, binary, id, cwd);
   const root = pluginFolder(plugin?.plugin_root);
   if (!root) return null;
   try {
@@ -837,9 +901,14 @@ async function installedRoot(spawnImpl, binary, id, cwd) {
   }
 }
 
-// The plugin run (scripts/run-update.mjs --plugin): Herdr fetches and builds
-// the new checkout, then the plugin's restart action moves the server onto
-// it. Herdr only queues that action, so the run follows it in Herdr's log of
+// The plugin run (scripts/run-update.mjs --plugin): Herdr installs release
+// `tag` -- `herdr plugin install <owner>/<repo> --ref <tag>`, from the
+// official repository Herdr says it installed the plugin from -- into a new
+// checkout and builds it, then the plugin's restart action moves the server
+// onto it. `herdr plugin update` would not do: it follows the default branch,
+// or stays on the ref the plugin was installed at. The install replaces the
+// plugin in place (same id, same config and state folders) and pins it to the
+// tag. Herdr only queues that action, so the run follows it in Herdr's log of
 // plugin actions until it has ended. An action Herdr could not run (the
 // node on its PATH is gone) is done here instead: scripts/plugin.mjs restart
 // from the new checkout, with this Node and the folders Herdr gives actions.
@@ -849,12 +918,13 @@ async function installedRoot(spawnImpl, binary, id, cwd) {
 // the server as it is. `invokeBounds` ({ timeout, killGraceMs, closeWaitMs })
 // shortens how long the restart's invoke is waited for, for tests.
 export async function runPluginUpdate({
-  stateDir, id, binary, cwd = homedir(), spawnImpl = spawn, now = () => Date.now(),
+  stateDir, id, binary, tag, cwd = homedir(), spawnImpl = spawn, now = () => Date.now(),
   pluginDirs = null, nodeBin = process.execPath, environment = process.env,
   sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
   actionWaitMs = ACTION_WAIT_MS, actionPollMs = ACTION_POLL_MS, invokeBounds = {},
 }) {
   if (!PLUGIN_ID.test(id ?? "")) throw new TypeError("a plugin id is required");
+  if (!RELEASE_TAG.test(tag ?? "")) throw new TypeError("a release tag (vX.Y.Z) is required");
   const logFile = join(stateDir, "update.log");
   await checkStateDir(stateDir);
   const log = await open(logFile, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | NOFOLLOW, 0o600);
@@ -869,11 +939,18 @@ export async function runPluginUpdate({
   let detail = null;
   let phase = "fetch";
   try {
-    await say(`Updating the ${id} plugin with Herdr`);
-    exitCode = await runLogged(spawnImpl, binary, ["plugin", "update", id, "--yes"], { cwd, fd: log.fd });
-    if (exitCode !== 0) {
+    const source = await installedSource(spawnImpl, binary, id, cwd);
+    if (!source) {
+      exitCode = 1;
       reason = "update_failed";
+      detail = "Herdr says the plugin was not installed from ultivis-iot/HerdRabbit or jwgung/HerdRabbit on GitHub, so it is not updated from here";
+      await say(detail);
     } else {
+      await say(`Installing release ${tag} of the ${id} plugin with Herdr`);
+      exitCode = await runLogged(spawnImpl, binary, ["plugin", "install", source, "--ref", tag, "--yes"], { cwd, fd: log.fd });
+      if (exitCode !== 0) reason = "update_failed";
+    }
+    if (exitCode === 0) {
       phase = "restart";
       await enter(phase);
       await say("Restarting HerdRabbit");

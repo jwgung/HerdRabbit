@@ -128,9 +128,10 @@ const installedAgents = new InstalledAgents();
 // OpenCode reader for both).
 const agentSessions = new AgentSessions({ store: conversations.localStore });
 const notificationMonitor = new AgentNotificationMonitor({ herdr, push });
-// In-app update: this checkout against origin's main, and update.sh run from
-// the page (or from a PC this one is connected to) in a unit of its own --
-// or, for a plugin, Herdr's plugin update and restart.
+// In-app update: this checkout's version against origin's latest release, and
+// update.sh run from the page (or from a PC this one is connected to) in a
+// unit of its own -- or, for a plugin, Herdr's install of that release and the
+// restart.
 // Herdr's own update sits beside it: checked at the same moments, run with
 // `herdr update --handoff` in a unit of its own, never while update.sh runs.
 const herdrUpdater = new HerdrUpdater({
