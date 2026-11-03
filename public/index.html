@@ -45,16 +45,16 @@
             <details id="add-menu" class="sidebar-action-menu">
             <summary
               class="icon-button navigator-create-project"
-              aria-label="Add"
-              title="Add"
+              aria-label="New session or project"
+              title="New session or project"
             >
               <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
                 <path d="M12 5v14M5 12h14" />
               </svg>
             </summary>
             <div class="sidebar-action-popover" role="menu">
-              <button id="create-project" class="sidebar-action-item" type="button" role="menuitem">New project</button>
-              <button id="manage-servers" class="sidebar-action-item" type="button" role="menuitem" hidden>Connect PC</button>
+              <button id="create-session" class="sidebar-action-item" type="button" role="menuitem">New session…</button>
+              <button id="create-project" class="sidebar-action-item" type="button" role="menuitem">New project…</button>
             </div>
             </details>
           </div>
@@ -563,12 +563,14 @@
       <form id="project-create-form" class="dialog-form">
         <div class="dialog-heading">
           <h2 id="project-dialog-title">New project</h2>
-          <p id="project-session-context">A default shell will open.</p>
+          <p id="project-session-context">A shell opens in it, or the agent chosen.</p>
         </div>
         <label for="project-server-session">Server / Herdr session</label>
         <select id="project-server-session"></select>
         <label for="project-name">Project name</label>
         <input id="project-name" name="label" type="text" maxlength="120" required />
+        <label for="project-agent">Agent</label>
+        <select id="project-agent"></select>
         <p id="project-dialog-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
         <div class="dialog-actions">
           <button id="project-dialog-cancel" class="secondary-button" type="button">Cancel</button>
@@ -583,6 +585,8 @@
           <h2 id="session-dialog-title">New session</h2>
           <p id="session-dialog-context"></p>
         </div>
+        <label id="session-project-label" for="session-project" hidden>Project</label>
+        <select id="session-project" hidden></select>
         <label for="session-agent">Agent</label>
         <select id="session-agent"></select>
         <label id="session-resume-label" for="session-resume" hidden>Session</label>

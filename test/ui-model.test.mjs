@@ -805,7 +805,7 @@ test("says once that Herdr SSH machines are gone and how to bring those PCs back
   assert.equal(legacyMachinesNotice({ count: 2, seen: true }), null, "shown once per browser");
   assert.equal(legacyMachinesNotice({ count: "2" }), null);
   assert.equal(legacyMachinesNotice({ count: 1 }),
-    "Herdr SSH machines are no longer shown here. Install HerdRabbit on that PC and add it with + → Connect PC.");
+    "Herdr SSH machines are no longer shown here. Install HerdRabbit on that PC and add it with Connect PC… in this PC's row menu.");
 });
 
 test("picks a program mark from the agent a pane names", () => {

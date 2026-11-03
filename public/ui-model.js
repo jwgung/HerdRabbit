@@ -920,6 +920,37 @@ export function isAiLoginWorkspace(workspace) {
   return typeof workspace?.label === "string" && workspace.label.startsWith(AI_LOGIN_LABEL_PREFIX);
 }
 
+// The projects New session from the + menu may open in: every machine's, in
+// the sidebar's order of machines, named with their machine when there is
+// more than one. The selected pane's project is chosen first, else the first.
+export function sessionProjectChoices({ servers = [], workspaces = [], panes = [], selectedPaneId = null } = {}) {
+  const machines = array(servers);
+  const serverOf = (workspace) => workspace.server_id || "local";
+  const order = (workspace) => {
+    const index = machines.findIndex((server) => server.id === serverOf(workspace));
+    return index < 0 ? machines.length : index;
+  };
+  const choices = array(workspaces)
+    .map((workspace, index) => ({ workspace, index }))
+    .sort((a, b) => order(a.workspace) - order(b.workspace) || a.index - b.index)
+    .map(({ workspace }) => {
+      const serverId = serverOf(workspace);
+      const workspaceLabel = displayRecordLabel(workspace, "Project");
+      const machine = machines.length > 1 ? machines.find((server) => server.id === serverId)?.name : null;
+      return {
+        value: idOf(workspace, "workspace_id", "id"),
+        label: machine ? `${machine} / ${workspaceLabel}` : workspaceLabel,
+        workspaceLabel,
+        serverId,
+      };
+    })
+    .filter((choice) => choice.value);
+  const pane = array(panes).find((item) => idOf(item, "pane_id", "id") === selectedPaneId);
+  const paneProject = pane ? idOf(pane, "workspace_id", "workspaceId") : "";
+  const selected = choices.some((choice) => choice.value === paneProject) ? paneProject : choices[0]?.value ?? "";
+  return { selected, choices };
+}
+
 // What is typed into a sign-in terminal can be a one-time code, so it is not
 // kept in the prompt history the browser stores.
 export function paneKeepsInputHistory(paneId, { panes = [], workspaces = [] } = {}) {
@@ -1071,5 +1102,5 @@ export function loginMethodPresentation({
 export function legacyMachinesNotice({ count = 0, seen = false } = {}) {
   if (seen || !Number.isInteger(count) || count < 1) return null;
   return "Herdr SSH machines are no longer shown here. " +
-    "Install HerdRabbit on that PC and add it with + → Connect PC.";
+    "Install HerdRabbit on that PC and add it with Connect PC… in this PC's row menu.";
 }

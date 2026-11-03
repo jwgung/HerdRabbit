@@ -83,7 +83,7 @@ export function createConnectPc({ api, refreshSnapshot, panePreferenceStorage })
     }
   }
 
-  // Opened from Settings → PCs (and the sidebar's "+" menu while it has the item).
+  // Opened from Settings → PCs and from this machine's row menu in the sidebar.
   function openConnectPc() {
     resetServerForm();
     serversDialog.showModal();
@@ -92,11 +92,6 @@ export function createConnectPc({ api, refreshSnapshot, panePreferenceStorage })
     serverFeedback.textContent = "";
     void lookForServers();
   }
-
-  document.querySelector("#manage-servers")?.addEventListener("click", () => {
-    document.querySelector("#add-menu").open = false;
-    openConnectPc();
-  });
 
   const candidateList = document.querySelector("#server-candidates");
   const setupHint = document.querySelector("#server-setup-hint");

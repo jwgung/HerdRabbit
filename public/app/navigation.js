@@ -22,7 +22,7 @@ export function createNavigation(deps) {
     state, elements, sidebarDrag, panePreferenceStorage, composerDrafts, draftBlocked, draftHeld, viewSplit,
     api, refreshSnapshot, setFeedback, snapshotRecords, selectedRecords, renderPaneHeading,
     agentForPane, visibleStatusForPane, adoptMutationSnapshot, saveComposerDraft, setViewSplit,
-    showServerDetails, showAiAccounts, sidebarActionMenu, renameForm, serverRenameForm, attachGroupCollapse,
+    showServerDetails, showAiAccounts, openConnectPc, sidebarActionMenu, renameForm, serverRenameForm, attachGroupCollapse,
     workspaceHeading, paneButton, closeSession, isLocalRecord, splitSessionName, splitPaneRow,
     splitDisclosureButton, splitSessionButton, evenOutLayout, separateSplitSession,
   } = deps;
@@ -42,7 +42,15 @@ export function createNavigation(deps) {
       },
     ];
     // This machine is not a connection: there is nothing to rename or drop.
+    // It is where other PCs are connected from, when this page may connect them.
     if (server.id === "local") {
+      if (state.connectPcAvailable) {
+        actions.push({
+          label: "Connect PC…",
+          paths: ["M4 5h16v11H4z", "M9 20h6", "M12 16v4", "M12 8v5M9.5 10.5h5"],
+          onSelect: () => openConnectPc(),
+        });
+      }
       return sidebarActionMenu({
         id: `server-${server.id}`,
         label: `More actions for ${server.name}`,

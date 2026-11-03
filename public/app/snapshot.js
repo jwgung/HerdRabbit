@@ -42,6 +42,8 @@ export function createSnapshotModel({ state, elements, storage }) {
 
   function syncCreateProjectAvailability() {
     elements.createProject.disabled = newProjectHerdrSession() === null;
+    // A session opens in a project: with none anywhere there is nowhere to make one.
+    elements.createSession.disabled = snapshotRecords().workspaces.length === 0;
   }
 
   // The running Herdr session to use on `serverId`: the selected pane's, when it
