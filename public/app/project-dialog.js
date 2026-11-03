@@ -2,8 +2,8 @@ import { createElement } from "./dom.js?v=1.4.27";
 import { idOf } from "./snapshot.js?v=1.4.27";
 import { createAgentPicker } from "./agent-picker.js?v=1.4.27";
 
-// The "New project" dialog: a machine's ⋯ menu opens it for that machine. The
-// form creates the workspace in one of the machine's running Herdr sessions
+// The "New workspace" dialog: a machine's ⋯ menu opens it for that machine. The
+// form creates the workspace in one of the machine's running sessions
 // (a choice only when it has more than one), with a shell or with an agent
 // installed there started in its first pane, each agent shown with its mark.
 // Which agents are installed is asked of the machine when the dialog opens.

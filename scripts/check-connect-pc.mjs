@@ -1,13 +1,13 @@
 // Browser check of Connect PC: this machine's row menu in the sidebar opens
 // the dialog (there is no + menu), the tailnet's PCs
 // are listed with why each can or cannot be connected, Test connection then
-// Save puts the PC in the sidebar with its sessions, and its row menu renames,
+// Save puts the PC in the sidebar with its workspaces, and its row menu renames,
 // shows Details (app version and connection protocol beside this PC's) and
 // disconnects. A PC on another protocol stays offline with both versions and
 // offers Find new address. A connected PC's pane attaches for real (the PC
 // runs the attach, a fake pty here, and this page types into it), its Claude
 // pane's Chat shows the conversation that PC read from its own transcript (a
-// temporary one here), and its sessions still drag. Everything runs in this
+// temporary one here), and its tabs still drag. Everything runs in this
 // process: a page, and a second HerdRabbit's Connect PC port on loopback, each
 // with a fake herdr. CONNECT_PC_SCREENSHOTS=<folder> keeps pictures.
 import assert from "node:assert/strict";

@@ -113,7 +113,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 | 역할 | 토큰 |
 |---|---|
-| 바탕 | `--page`, `--surface`, `--surface-raised`, `--navigator-surface`, `--hover-surface`, `--selected-surface`, `--completion-surface`(완료된 접힌 프로젝트) |
+| 바탕 | `--page`, `--surface`, `--surface-raised`, `--navigator-surface`, `--hover-surface`, `--selected-surface`, `--completion-surface`(완료된 접힌 워크스페이스) |
 | 글자 | `--text`, `--muted`, `--control-text`, `--workspace-heading`, `--input-text` |
 | 선 | `--line`, `--hover-line`, `--selected-border` |
 | 강조·주 동작 | `--accent`, `--accent-hover`, `--accent-ink`(강조 바탕 위 글자) |
@@ -163,7 +163,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 ## 터치와 입력
 
-- 터치 기기(`(hover: none)`)에서 누를 수 있는 것은 44×44px 이상의 영역이 탭을 받는다. 보이는 크기가 작은 단추(아이콘 단추 34px, 렌즈 전환, 터미널 찾기 바, 복사 단추 등)는 모양은 그대로 두고 `::before`로 가운데에 44×44px 이상 누르는 영역을 둔다(`public/ui/components.css`). 목록 행 안의 작은 단추(프로젝트 줄의 단추, 접기 화살표)는 위아래 행의 탭을 가로채지 않게 너비만 44px로 넓히고 높이는 행 높이다. 파일·업로드 행의 동작 단추는 서로 붙어 있어(내려받기 옆에 지우기) 넓히지 않는다. 내용을 잘라 그리는 단추(사이드바 토글, 폰의 사이드바 열기)는 상자 자체를 44px로 키운다. 메뉴 항목과 사이드바의 세션 행은 터치에서 44px 높이다.
+- 터치 기기(`(hover: none)`)에서 누를 수 있는 것은 44×44px 이상의 영역이 탭을 받는다. 보이는 크기가 작은 단추(아이콘 단추 34px, 렌즈 전환, 터미널 찾기 바, 복사 단추 등)는 모양은 그대로 두고 `::before`로 가운데에 44×44px 이상 누르는 영역을 둔다(`public/ui/components.css`). 목록 행 안의 작은 단추(워크스페이스 줄의 단추, 접기 화살표)는 위아래 행의 탭을 가로채지 않게 너비만 44px로 넓히고 높이는 행 높이다. 파일·업로드 행의 동작 단추는 서로 붙어 있어(내려받기 옆에 지우기) 넓히지 않는다. 내용을 잘라 그리는 단추(사이드바 토글, 폰의 사이드바 열기)는 상자 자체를 44px로 키운다. 메뉴 항목과 사이드바의 탭 행은 터치에서 44px 높이다.
 - 터치 기기의 텍스트 입력칸은 글자 16px 이상, 높이 44px 이상이다. 16px보다 작으면 iOS Safari가 포커스 때 화면을 확대한다. 컴포저는 터미널(채팅에서는 채팅) 글자 크기를 따르되 `(hover: none)`에서는 `max(var(--font-input-touch), …)`로 16px 아래로 내려가지 않는다. 대화상자 입력칸, 파일 경로, 서버 선택, 터미널·채팅 찾기, 이름 바꾸기, 로그인 비밀번호, 질문 카드의 직접 입력도 터치에서는 글자 16px다. 공용 클래스는 `public/ui/components.css`, 앱의 id 입력칸은 `public/styles.css` 끝에서 정한다(뒤에 오는 앱 규칙이 앞의 공용 규칙을 덮기 때문).
 - 마우스 전용 동작(hover로만 보이는 버튼)은 터치 기기에서 항상 보이게 하거나 다른 길을 둔다.
 - 아이콘만 있는 버튼에는 `aria-label`을 둔다. 포커스는 `:focus-visible`에 `2px solid var(--accent)` 고리다(`public/ui/base.css`).

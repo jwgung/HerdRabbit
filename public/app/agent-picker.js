@@ -1,7 +1,7 @@
 import { createElement } from "./dom.js?v=1.4.27";
 import { sessionAgentChoices } from "../agents.js?v=1.4.27";
 
-// The Agent choice of the New session and New project dialogs: a fieldset of
+// The Agent choice of the New tab and New workspace dialogs: a fieldset of
 // radio buttons, Shell first and then each installed agent, each with its
 // program's mark, which a select cannot show. The choices go in the
 // fieldset's .agent-choices box, under its legend. The fieldset is the control:
