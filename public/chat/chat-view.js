@@ -1,6 +1,6 @@
-// The Chat lens: an agent pane's conversation (Claude Code's, Codex's or OpenCode's)
-// drawn as turns, beside the
-// pane's terminal in the same place. Switching lenses only shows one and hides
+// The Chat lens: an agent pane's conversation (Claude Code's, Codex's,
+// OpenCode's, Kiro CLI's or Antigravity's) drawn as turns, beside the pane's
+// terminal in the same place. Switching lenses only shows one and hides
 // the other: the terminal stays attached, and the chat keeps what it read.
 //
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),

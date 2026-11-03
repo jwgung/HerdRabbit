@@ -1,7 +1,7 @@
-// What the end of the Chat lens says while the agent works: a "Claude is
-// working" (or "Codex is working", "OpenCode is working") row with the time it has taken, and the message just sent shown as
-// a pending bubble until the transcript has it. Also when a long user
-// message folds.
+// What the end of the Chat lens says while the agent works: a "<agent> is
+// working" row with the time it has taken, and the message just sent shown
+// as a pending bubble until the transcript has it. Also the rule for when a
+// long user message folds.
 
 import { agentLabelFor, agentNamesWith } from "../agents.js?v=1.4.23";
 

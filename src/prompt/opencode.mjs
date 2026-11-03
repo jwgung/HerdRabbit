@@ -43,7 +43,7 @@ import {
 
 // The OpenCode versions whose TUI this reader was checked against: 1.18.x
 // and 1.19.x (built from 1.18.34; 1.19.3 draws the same panels, colours and
-// keys). The version is the running OpenCode program's, else the one that
+// keys), and 2.x, which draws them the same way. The version is the running OpenCode program's, else the one that
 // created the pane's session (its database's session.version;
 // conversation/opencode-process.mjs). Any other version, or none
 // known, gets no card at all, not even the fallback: its panel and keys may
