@@ -987,12 +987,70 @@ a.plugin-source:hover {
   font-weight: 600;
 }
 
+/* Installed or Browse, and Browse's search, order and listings: a listing
+   is a plugin row with its stars, last push, platforms and Herdr version. */
+.plugins-view {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.plugins-view[hidden] {
+  display: none;
+}
+
+.plugins-browse-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.plugins-search {
+  flex: 1 1 220px;
+}
+
+.plugins-sort {
+  flex: 0 1 180px;
+}
+
+#plugins-browse-status {
+  margin: 0;
+}
+
+#plugins-browse-status[data-error="true"] {
+  color: var(--danger);
+}
+
+#plugins-browse-status:empty {
+  display: none;
+}
+
+.market-details {
+  color: var(--muted);
+  font-size: var(--font-sm);
+  overflow-wrap: anywhere;
+}
+
+.plugin-badge {
+  padding: var(--space-0-5) var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-size: var(--font-sm);
+  white-space: nowrap;
+}
+
+.market-install {
+  white-space: nowrap;
+}
+
 /* Touch: the switch, the ⋯ menu and the machine picker are 44px targets. */
 @media (hover: none), (pointer: coarse) {
   .plugin-switch,
   .plugin-actions .workspace-action,
   .plugins-machine,
   #plugins-install,
+  .market-install,
+  .plugins-more,
   .plugin-install-dialog :is(.ui-input, .dialog-actions button) {
     min-height: 44px;
   }

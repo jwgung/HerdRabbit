@@ -32,6 +32,7 @@ import { SlashCommandCatalog } from "./slash-commands.mjs";
 import { AppUpdater } from "./app-update.mjs";
 import { HerdrUpdater } from "./herdr-update.mjs";
 import { PluginManager } from "./herdr-plugins.mjs";
+import { PluginMarketplace } from "./plugin-marketplace.mjs";
 
 const config = readConfig();
 const leafWarning = legacyLeafWarning(config);
@@ -160,6 +161,9 @@ const plugins = new PluginManager({
   busy: async () => updater.starting || (await updater.runStatus()).state === "running" ||
     (await herdrUpdater.runStatus()).state === "running",
 });
+// Herdr's plugin marketplace, for Settings → Plugins → Browse: read when
+// first asked for, then kept for a few minutes.
+const marketplace = new PluginMarketplace();
 // Without node-pty's native module this PC's panes are read-only mirrors of
 // their screens. A connected PC's panes still attach: that PC runs the pty.
 const nodePty = await loadNodePty();
@@ -213,6 +217,7 @@ const { server } = createHerdrHttpServer({
   }),
   aiAccounts,
   plugins,
+  marketplace,
   installedAgents,
   agentSessions,
   maxBodyBytes: config.maxBodyBytes,

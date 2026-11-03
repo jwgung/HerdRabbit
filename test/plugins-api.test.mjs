@@ -5,11 +5,13 @@ import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { PluginManager } from "../src/herdr-plugins.mjs";
 import { HttpError } from "../src/http-basics.mjs";
 import { fakeHerdr } from "./fixtures/fake-herdr-plugins.mjs";
+import { PluginMarketplace } from "../src/plugin-marketplace.mjs";
+import { fakeFetch } from "./fixtures/fake-plugin-marketplace.mjs";
 
 const LINK = "link_11111111-1111-1111-1111-111111111111";
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-async function fixture(context, { required = true, plugins = undefined, remote = null } = {}) {
+async function fixture(context, { required = true, plugins = undefined, remote = null, marketplace = undefined } = {}) {
   const local = fakeHerdr();
   const remoteCalls = [];
   const remoteSource = remote ?? {
@@ -31,6 +33,7 @@ async function fixture(context, { required = true, plugins = undefined, remote =
       onSessionsEnded: () => () => {},
     },
     plugins: plugins === undefined ? new PluginManager({ run: local.run }) : plugins,
+    marketplace: marketplace === undefined ? new PluginMarketplace({ fetch: fakeFetch().fetch }) : marketplace,
   });
   app.server.listen(0, "127.0.0.1");
   await once(app.server, "listening");
@@ -187,4 +190,54 @@ test("without a plugin manager this PC says it cannot", async (context) => {
   assert.equal(response.status, 404);
   assert.equal((await response.json()).error.code, "plugins_unavailable");
   assert.equal((await (await get("/api/bootstrap")).json()).plugins, false);
+});
+
+test("the marketplace answers only with sign-in on, signed in, and from the page itself", async (context) => {
+  const fake = fakeFetch();
+  const { origin, get } = await fixture(context, { marketplace: new PluginMarketplace({ fetch: fake.fetch }) });
+  assert.equal((await fetch(`${origin}/api/plugins/marketplace`)).status, 401);
+  assert.equal((await get("/api/plugins/marketplace", { "Sec-Fetch-Site": "cross-site", Origin: "https://evil.example" })).status, 403);
+  const refused = await fixture(context, { required: false, marketplace: new PluginMarketplace({ fetch: fake.fetch }) });
+  const response = await fetch(`${refused.origin}/api/plugins/marketplace`);
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error.code, "password_auth_required");
+  assert.equal(fake.calls.length, 0, "the index was read for a refused request");
+});
+
+test("the marketplace is searched, sorted and paged; bad queries are refused", async (context) => {
+  const { get, ran } = await fixture(context);
+  let response = await get("/api/plugins/marketplace");
+  assert.equal(response.status, 200);
+  let body = await response.json();
+  assert.equal(body.total, 6);
+  assert.equal(body.sort, "popular");
+  assert.equal(body.generatedAt, "2026-11-03T21:00:33.655Z");
+  assert.match(body.fetchedAt, /^\d{4}-\d\d-\d\dT/u);
+  assert.deepEqual(Object.keys(body.items[0]).sort(), [
+    "description", "id", "listedAt", "minHerdrVersion", "name", "owner", "platforms", "protected", "pushedAt", "repo",
+    "spec", "stars", "starsThisWeek", "subdir", "url", "version",
+  ]);
+  assert.equal(body.items.find((item) => item.id === "herdrabbit").protected, true);
+  body = await (await get("/api/plugins/marketplace?q=annotate&sort=name&offset=1&limit=1")).json();
+  assert.deepEqual([body.total, body.offset, body.limit, body.items.map((item) => item.id)], [2, 1, 1, ["annotate-links"]]);
+  body = await (await get("/api/plugins/marketplace?sort=updated")).json();
+  assert.equal(body.sort, "recent");
+  for (const query of ["sort=random", "limit=500", "offset=x", `q=${"a".repeat(101)}`]) {
+    response = await get(`/api/plugins/marketplace?${query}`);
+    assert.equal(response.status, 400, query);
+    assert.equal((await response.json()).error.code, "invalid_input", query);
+  }
+  assert.equal((await get("/api/plugins/marketplace/extra")).status, 404);
+  assert.deepEqual(ran(), [], "browsing ran a plugin command");
+});
+
+test("an unreadable marketplace is a 502 that says how to install anyway", async (context) => {
+  const { get } = await fixture(context, { marketplace: new PluginMarketplace({ fetch: fakeFetch({}, { status: 503 }).fetch }) });
+  const response = await get("/api/plugins/marketplace");
+  assert.equal(response.status, 502);
+  const { error } = await response.json();
+  assert.equal(error.code, "marketplace_unavailable");
+  assert.match(error.message, /could not be read \(it answered HTTP 503\)\. You can still install a plugin by its GitHub owner\/repo with Install plugin…/u);
+  const none = await fixture(context, { marketplace: null });
+  assert.equal((await none.get("/api/plugins/marketplace")).status, 404);
 });

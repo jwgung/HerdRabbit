@@ -485,7 +485,32 @@
               </div>
               <select id="plugins-machine" class="ui-input plugins-machine"></select>
             </div>
-            <ul id="plugins-list" class="plugin-rows" role="list" aria-label="Plugins"></ul>
+            <div class="settings-choices plugins-views" role="group" aria-label="Show">
+              <button type="button" class="settings-choice" data-plugins-view="installed" aria-pressed="true">Installed</button>
+              <button type="button" class="settings-choice" data-plugins-view="browse" aria-pressed="false">Browse</button>
+            </div>
+            <div id="plugins-installed-view" class="plugins-view">
+              <ul id="plugins-list" class="plugin-rows" role="list" aria-label="Plugins"></ul>
+            </div>
+            <div id="plugins-browse-view" class="plugins-view" hidden>
+              <p class="plugin-warning">These are the plugins listed in Herdr's plugin marketplace (herdr.dev/plugins): public GitHub repositories tagged herdr-plugin. Nobody reviews them. Install only plugins you trust.</p>
+              <div class="plugins-browse-tools">
+                <input id="plugins-search" class="ui-input plugins-search" type="search" maxlength="100" autocomplete="off"
+                  autocapitalize="off" spellcheck="false" enterkeyhint="search" placeholder="Search plugins" aria-label="Search plugins" />
+                <select id="plugins-sort" class="ui-input plugins-sort" aria-label="Sort plugins">
+                  <option value="popular">Popular</option>
+                  <option value="trending">Trending</option>
+                  <option value="recent">Recently updated</option>
+                  <option value="newest">Newest</option>
+                  <option value="name">Name</option>
+                </select>
+              </div>
+              <p id="plugins-browse-status" class="settings-row-hint" role="status" aria-live="polite"></p>
+              <ul id="plugins-browse-list" class="plugin-rows" role="list" aria-label="Plugins in Herdr's marketplace"></ul>
+              <div class="settings-page-actions">
+                <button id="plugins-more" class="secondary-button plugins-more" type="button" hidden>Load more</button>
+              </div>
+            </div>
             <p id="plugins-feedback" class="settings-row-hint" role="status" aria-live="polite"></p>
             <div class="settings-page-actions">
               <button id="plugins-install" class="primary-button" type="button">Install plugin…</button>

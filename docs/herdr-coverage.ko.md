@@ -75,6 +75,7 @@ Herdr 0.9.5(`herdr --help`와 명령 묶음마다의 `--help`)를 기준으로 �
 |---|---|---|
 | `list` | 표시 | Settings → Plugins, 머신마다 |
 | `install` | 됨 | GitHub `owner/repo`에서, 확인 뒤. 로그인이 켜져 있어야 합니다 |
+| 마켓플레이스([herdr.dev/plugins](https://herdr.dev/plugins/)) | 표시 | Settings → Plugins → Browse: 검색, Herdr와 같은 정렬, Installed 표시, Install…은 같은 확인 단계로 |
 | `enable`, `disable`, `update`, `uninstall` | 됨 | HerdRabbit 자신은 제외(Settings → About에서 업데이트) |
 | `link`, `unlink` | 없음 | 로컬 플러그인 폴더 |
 | `action`, `pane` | 없음 | 페이지에서 플러그인 동작 실행, 플러그인 패인 열기 |
