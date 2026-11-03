@@ -111,7 +111,8 @@ try {
     // The Agent choices, [value, name], each with a mark drawn beside its name.
     const choices = (dialog) => dialog.locator("#session-agent .agent-choice").evaluateAll((labels) =>
       labels.map((label) => [label.querySelector("input").value, label.querySelector("span").textContent,
-        label.querySelector("svg.agent-icon") ? "mark" : "no mark"]));
+        // its own mark: agent-icon-claude for Claude Code, the shell's for Shell
+        label.querySelector(`svg.agent-icon-${label.querySelector("input").value || "shell"}`) ? "mark" : "no mark"]));
     const choose = (dialog, agent) => dialog.locator(`#session-agent .agent-choice[data-agent="${agent || "shell"}"]`).click();
     const chosen = (dialog) => dialog.locator("#session-agent").evaluate((field) => field.querySelector("input:checked")?.value ?? null);
     assert.equal(await page.locator("#add-menu, #create-session, #create-project").count(), 0, `${where}: the + menu is still there`);

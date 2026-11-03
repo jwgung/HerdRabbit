@@ -407,12 +407,14 @@ export function createSidebarRows(deps) {
   });
 
   function agentMark(kind) {
-    const mark = AGENT_MARKS[kind] || AGENT_MARKS.shell;
+    // Own keys only: "constructor" and the like are not marks.
+    const known = Object.hasOwn(AGENT_MARKS, kind);
+    const mark = known ? AGENT_MARKS[kind] : AGENT_MARKS.shell;
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24");
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("focusable", "false");
-    svg.setAttribute("class", `agent-icon agent-icon-${kind in AGENT_MARKS ? kind : "shell"}`);
+    svg.setAttribute("class", `agent-icon agent-icon-${known ? kind : "shell"}`);
     if (mark.box) {
       const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
       rect.setAttribute("x", "1");
