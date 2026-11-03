@@ -289,7 +289,7 @@ export function createPluginsPage({ api, snapshotRecords, sidebarActionMenu }) {
         refInput.focus();
         return;
       }
-      page.pending = { server: page.server, source: parsed.spec, ref: ref || null, url: parsed.url };
+      page.pending = { server: page.server, source: parsed.spec, ref: ref || null };
       confirmText.textContent = `Install ${parsed.spec}${ref ? ` at ${ref}` : ""} on ${machineName()}?`;
       confirmRepo.replaceChildren();
       const link = createElement("a", { text: parsed.url });

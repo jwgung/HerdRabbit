@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { HttpError } from "./http-basics.mjs";
 import { cleanDetail, officialSource, runCaptured } from "./app-update.mjs";
+import { PLUGIN_ID } from "./config.mjs";
 
 // Herdr's plugins on this PC (Settings → Plugins): `herdr plugin list --json`,
 // and enable, disable, update, uninstall or install one. A plugin runs code on
@@ -9,9 +10,8 @@ import { cleanDetail, officialSource, runCaptured } from "./app-update.mjs";
 // and the command runs from argv, never a shell. HerdRabbit itself is listed
 // but left alone: its update is Settings → About (src/app-update.mjs).
 
-// The plugin ids this page acts on: Herdr's are short words; nothing that
-// could read as an option or a path.
-export const PLUGIN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
+// The plugin ids this page acts on are Herdr's (PLUGIN_ID, src/config.mjs):
+// short words, nothing that could read as an option or a path.
 // GitHub's own rules: an owner is 1-39 letters, digits and single inner
 // hyphens; a repository 1-100 letters, digits, `.`, `_` and `-`.
 const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/u;
@@ -24,8 +24,7 @@ const COMMIT = /^[0-9a-f]{7,40}$/u;
 // HerdRabbit's own plugin id, and its repository's name (a fork included).
 export const HERDRABBIT_ID = "herdrabbit";
 const HERDRABBIT_REPO = /^herdrabbit$/iu;
-export const PLUGIN_ACTIONS = Object.freeze(["install", "enable", "disable", "update", "uninstall"]);
-const ACTIONS = new Set(PLUGIN_ACTIONS);
+const ACTIONS = new Set(["install", "enable", "disable", "update", "uninstall"]);
 const STATES = new Set(["running", "succeeded", "failed"]);
 // Enabling, disabling and uninstalling are quick; an install or an update
 // clones and builds, which on a slow PC takes minutes.
@@ -107,7 +106,7 @@ function cleanSource(source) {
 
 // One plugin as the page shows it. `protected` is HerdRabbit: listed, never
 // acted on here. An answer that already says protected stays protected.
-export function cleanPlugin(raw, selfId = null) {
+function cleanPlugin(raw, selfId = null) {
   const id = raw?.plugin_id ?? raw?.id;
   if (typeof id !== "string" || !PLUGIN_ID.test(id)) return null;
   const source = cleanSource(raw.source);
@@ -129,7 +128,7 @@ function cleanTime(value) {
 }
 
 // The change last started on this PC: what, on which plugin, and how it went.
-export function cleanOperation(raw) {
+function cleanOperation(raw) {
   if (!raw || typeof raw !== "object" || !ACTIONS.has(raw.action) || !STATES.has(raw.state)) return null;
   const target = typeof raw.plugin === "string" && raw.plugin.length <= MAX_SOURCE && /^[A-Za-z0-9._/-]+$/u.test(raw.plugin)
     ? raw.plugin : null;
@@ -151,17 +150,21 @@ export function cleanPluginState(raw, selfId = null) {
 }
 
 // What Herdr said last, for a change that failed: its last line of stderr,
-// else of stdout.
+// else of stdout. Folders in it are this PC's business, not the page's: an
+// absolute path is shown as its last part.
 function failureDetail(answer, fallback) {
   const last = (value) => String(value ?? "").split(/\r?\n/u).map((line) => line.trim()).filter(Boolean).at(-1);
   if (answer.timedOut) return "Herdr took too long and was stopped.";
   if (answer.code === -1 && !answer.stderr && !answer.stdout) return "Herdr could not be run on this PC.";
-  return cleanDetail(last(answer.stderr) ?? last(answer.stdout) ?? fallback);
+  const line = last(answer.stderr) ?? last(answer.stdout) ?? fallback;
+  return cleanDetail(line.replace(/(?:~|\/)(?:[^\s/'"`]+\/)+([^\s/'"`]+)/gu, "…/$1"));
 }
 
 export class PluginManager {
   #operation = null;
   #starting = false;
+  // One `herdr plugin list` at a time: every reader waiting meanwhile gets its answer.
+  #listing = null;
 
   // `run(args, { timeout })` answers { code, stdout, stderr, timedOut } as
   // runCaptured does; tests stand in for Herdr with it. `busy()` is true
@@ -178,7 +181,12 @@ export class PluginManager {
     this.busy = busy;
   }
 
-  async #plugins() {
+  #plugins() {
+    this.#listing ??= this.#readPlugins().finally(() => { this.#listing = null; });
+    return this.#listing;
+  }
+
+  async #readPlugins() {
     const answer = await this.run(["plugin", "list", "--json"], { timeout: LIST_TIMEOUT_MS });
     if (answer.code !== 0) {
       throw new HttpError(502, "plugin_list_failed", `Could not list Herdr's plugins: ${failureDetail(answer, "herdr plugin list failed")}`);

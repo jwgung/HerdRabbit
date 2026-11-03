@@ -138,3 +138,21 @@ test("a Herdr that fails to list says so", async () => {
   const garbled = new PluginManager({ run: async () => ({ code: 0, stdout: "not json", stderr: "", timedOut: false }) });
   await assert.rejects(garbled.list(), { status: 502, code: "plugin_list_failed" });
 });
+
+test("a failed change names a folder by its last part, never this PC's whole path", async () => {
+  const herdr = fakeHerdr(undefined, { fail: "error: build failed in /home/me/.config/herdr/plugins/notes-1/checkout: npm ci exited 1" });
+  const manager = new PluginManager({ run: herdr.run });
+  await manager.start("update", { plugin: "notes" });
+  await new Promise((resolve) => setImmediate(resolve));
+  const { operation } = await manager.list();
+  assert.equal(operation.state, "failed");
+  assert.equal(operation.detail, "error: build failed in …/checkout: npm ci exited 1");
+  assert.doesNotMatch(operation.detail, /\/home|\.config/u);
+});
+
+test("readers who ask at once share one herdr plugin list", async () => {
+  const herdr = fakeHerdr();
+  const manager = new PluginManager({ run: herdr.run });
+  await Promise.all([manager.list(), manager.list(), manager.list()]);
+  assert.equal(herdr.calls.filter((call) => call.args[1] === "list").length, 1);
+});

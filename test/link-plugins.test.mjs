@@ -13,10 +13,11 @@ const LINK_ID = "link_11111111-1111-1111-1111-111111111111";
 const herdr = { async snapshot() { return { herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }; } };
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-async function startPeer(context, { plugins = null, allowed = ["127.0.0.1"] } = {}) {
+// `signIn` is the connected PC's own sign-in: on unless a test turns it off.
+async function startPeer(context, { plugins = null, allowed = ["127.0.0.1"], signIn = true } = {}) {
   const server = createPeerServer({
     peer: new PeerIdentity({ addresses: allowed }),
-    link: linkRoutes({ client: herdr, plugins, version: "2.0.0", serverName: "dev-box" }),
+    link: linkRoutes({ client: herdr, plugins, pluginsAllowed: () => signIn, version: "2.0.0", serverName: "dev-box" }),
     logger: { error() {} },
   });
   server.listen(0, "127.0.0.1");
@@ -139,4 +140,19 @@ test("the plugin routes are let in exactly like every other link route", async (
   const address = await startPeer(context, { plugins: new PluginManager({ run: fake.run }), allowed: ["100.64.0.9"] });
   assert.equal((await fetch(`${address}/api/link/plugins`)).status, 403);
   assert.deepEqual(fake.calls, []);
+});
+
+test("a connected PC with its own sign-in off refuses every plugin request, and the hub says so", async (context) => {
+  const fake = fakeHerdr();
+  const address = await startPeer(context, { plugins: new PluginManager({ run: fake.run }), signIn: false });
+  const hub = await startHub(context, client(address));
+  const list = await hub.get(`/api/plugins?server=${LINK_ID}`);
+  assert.equal(list.status, 409);
+  const listed = await list.json();
+  assert.equal(listed.error?.code ?? listed.code, "password_auth_required");
+  assert.match(JSON.stringify(listed), /sign-in password on this PC/u);
+  const install = await hub.post("/api/plugins/install", { server: LINK_ID, source: "someone/tool" });
+  assert.equal(install.status, 409);
+  await settle();
+  assert.deepEqual(fake.calls ?? [], [], "Herdr ran on a PC whose sign-in is off");
 });
