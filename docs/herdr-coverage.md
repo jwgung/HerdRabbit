@@ -4,7 +4,7 @@
 
 Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). HerdRabbit uses Herdr's names throughout: a **Session** holds **Workspaces**, a workspace holds **Tabs**, a tab holds **Panes**.
 
-**Shown** means the page shows it, **Done** means you can do it from the page, **Partly** means part of it is there, and **Missing** means there is no way to do it from HerdRabbit yet. Herdr commands that only Herdr's own terminal interface or an agent integration needs are marked **Not needed**.
+**Shown** means the page shows it, **Done** means you can do it from the page, **Partly** means part of it is there, **Used** means HerdRabbit runs it for its own work without a control of its own, and **Missing** means there is no way to do it from HerdRabbit yet. Herdr commands that only Herdr's own terminal interface or an agent integration needs are marked **Not needed**.
 
 ## Session (`herdr session`)
 
@@ -41,15 +41,16 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 
 | Command | HerdRabbit | Notes |
 |---|---|---|
-| `list`, `get`, `layout`, `process-info` | Shown | Panes, their folder, the agent in them and the tab's layout |
+| `list`, `get`, `layout` | Shown | Panes, their folder, the agent in them and the tab's layout |
+| `process-info` | Used | Read to find which Codex conversation a pane runs; not shown |
 | `read` | Done | Mirrored panes and Find in terminal |
 | `send-text`, `send-keys`, `run` | Done | Composer, key bar, starting agents |
 | `split` | Done | Split right or down, in the pane's folder |
 | `close` | Done | |
 | `zoom` | Done | |
-| `resize` | Done | Dragging a split's divider |
+| `resize` | Partly | **Even out layout** only. Missing: dragging a split's divider |
 | `swap`, `move` | Done | Dragging rows and panes, Move out to its own tab |
-| `rename` | Done | |
+| `rename` | Missing | Naming a pane (tabs and workspaces can be renamed) |
 | `focus`, `neighbor`, `edges` | Not needed | The page moves between panes itself |
 | `input` | Missing | Sending one input to several panes at once |
 | `wait-output` | Not needed | For scripts |
@@ -84,20 +85,22 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 | Command | HerdRabbit | Notes |
 |---|---|---|
 | `herdr update` | Done | Settings → About, for Herdr on every machine |
-| `herdr channel` | Missing | Choosing Herdr's stable or preview channel |
+| `herdr channel` | Partly | Read to pick the update for Herdr's channel. Missing: choosing stable or preview |
 | `herdr config`, `herdr server reload-config` | Missing | Editing Herdr's `config.toml` (keys, theme, `new_cwd`) |
 | `herdr notification` | Not needed | HerdRabbit sends its own Web Push notifications |
 | `herdr agent`, `herdr integration` | Missing | Installing Herdr's built-in agent integrations |
 | `herdr machine` | Not needed | Replaced by Connect PC |
-| `herdr status`, `herdr server stop`, `herdr api` | Missing | Herdr's own status and stopping its server |
+| `herdr api` | Used | The page's lists come from `herdr api snapshot` and Herdr's socket API |
+| `herdr status`, `herdr server stop` | Missing | Herdr's own status and stopping its server |
 
 ## Missing, in a suggested order
 
-1. Choosing the folder of a new workspace and a new tab (`--cwd`), as Ovis's New workspace does.
-2. Git worktrees: a workspace per branch.
-3. Sessions: start another, stop one, delete a stopped one.
-4. Plugins: run a plugin's actions and open its panes from the page.
-5. Herdr's update channel and `config.toml` settings such as `new_cwd`.
-6. Herdr's agent integrations.
-7. Sending one input to several panes (`pane input`).
-8. Local plugin folders (`plugin link`), plugin logs.
+1. Choosing the folder of a new workspace and a new tab (`--cwd`).
+2. Resizing panes by dragging a split's divider, and naming a pane.
+3. Git worktrees: a workspace per branch.
+4. Sessions: start another, stop one, delete a stopped one.
+5. Plugins: run a plugin's actions and open its panes from the page.
+6. Herdr's update channel and `config.toml` settings such as `new_cwd`.
+7. Herdr's agent integrations.
+8. Sending one input to several panes (`pane input`).
+9. Local plugin folders (`plugin link`), plugin logs.
