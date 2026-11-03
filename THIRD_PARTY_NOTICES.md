@@ -13,8 +13,7 @@ rollout fixtures in `test/conversation-codex.test.mjs`), the Chat lens (`public/
 `public/chat/prompt-card.css`, and the Claude and Codex screens in `test/prompt-claude.test.mjs`,
 `test/prompt-codex.test.mjs` and `test/fixtures/codex-prompt.mjs`), the editable extra-keys bar
 (`public/key-bar-preference.js`, `public/key-bar.css`), the per-pane composer drafts
-(`public/composer-draft-preference.js`), the Kiro program mark (the `kiro` entry of
-`AGENT_MARKS` in `public/app/sidebar-rows.js`) and the xterm composition patch
+(`public/composer-draft-preference.js`) and the xterm composition patch
 (`vendor/xterm/xterm-5.5.0-ime.patch`, applied by `scripts/build-xterm.mjs`) are adapted from herdr-web-ui,
 https://github.com/devswha/herdr-web-ui
 
@@ -29,7 +28,8 @@ included in all copies or substantial portions of the Software. THE SOFTWARE IS 
 
 ## Ovis
 
-The Antigravity conversation reader (`src/conversation/agy.mjs`, from `server/agy.ts`) and the
+The Kiro program mark (the `kiro` entry of `AGENT_MARKS` in `public/app/sidebar-rows.js`), the
+Antigravity conversation reader (`src/conversation/agy.mjs`, from `server/agy.ts`) and the
 record shapes of its test (`test/conversation-agy.test.mjs`) are adapted from Ovis,
 https://github.com/devswha/ovis
 
