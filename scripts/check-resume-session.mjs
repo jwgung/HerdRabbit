@@ -117,7 +117,7 @@ try {
       await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
     };
     const choose = async (agent) => {
-      await dialog.locator("#session-agent").selectOption(agent);
+      await dialog.locator(`#session-agent .agent-choice[data-agent="${agent || "shell"}"]`).click();
       await page.waitForFunction(() => !/Looking for/u.test(document.querySelector("#session-dialog-feedback").textContent));
     };
     const offered = () => resume.locator("option").evaluateAll((options) => options.map((option) => [option.value, option.textContent]));

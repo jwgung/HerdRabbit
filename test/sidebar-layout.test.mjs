@@ -219,13 +219,6 @@ test("the sidebar steps in one even level at a time, like the file tree", () => 
   assert.equal(project + 1 + 10 + 18 / 2, 28 / 2 + step);
 });
 
-test("removes the empty heading action slot when the sidebar is collapsed", () => {
-  assert.match(
-    styles,
-    /body\.sidebar-collapsed \.navigator-heading-actions \{[\s\S]*?display: none/,
-  );
-});
-
 test("keeps sidebar scrolling without visible scrollbars or horizontal overflow", () => {
   assert.match(
     styles,

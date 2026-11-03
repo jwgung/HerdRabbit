@@ -5,7 +5,8 @@
 // and End move between tabs with one tab in the Tab order, + Add account is
 // reached from the tab and opens a sign-in, and the tab of a sign-in still
 // open is chosen first, else the one last chosen. On a phone every tab is a
-// 44px target and a row of tabs too wide scrolls inside the dialog. Runs on a
+// 44px target and tabs too many for one line wrap onto the next, every one in
+// view. Runs on a
 // desktop and a phone against an in-process fake herdr and a fake account
 // source.
 //
@@ -165,15 +166,14 @@ try {
     assert.equal(await visiblePanel().locator(".ai-account-row.is-active .ai-account-state").textContent(), "In use");
     assert.equal(await visiblePanel().locator(".sidebar-action-menu").count(), 1, `${where}: the other account has no ⋯ menu`);
 
-    // On a phone: each tab is a 44px target, and the row of tabs scrolls inside the dialog.
+    // On a phone: each tab is a 44px target, and tabs that do not fit wrap, all in view.
     if (mobile) {
       for (const box of await tabList.locator('[role="tab"]').evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height))) {
         assert.ok(box >= 44, `${where}: a tab is under 44px tall (${box})`);
       }
       const fit = await dialog.evaluate((element) => ({ dialog: element.scrollWidth - element.clientWidth }));
       assert.ok(fit.dialog <= 1, `${where}: the tabs widen the dialog (${fit.dialog}px)`);
-      const overflow = await tabList.evaluate((element) => ({ style: getComputedStyle(element).overflowX }));
-      assert.equal(overflow.style, "auto", `${where}: the tab row does not scroll sideways`);
+      assert.equal(await tabList.evaluate((element) => getComputedStyle(element).flexWrap), "wrap", `${where}: the tabs do not wrap`);
     }
     if (shots) await page.screenshot({ path: join(shots, `claude-${where}.png`) });
 
@@ -205,7 +205,7 @@ try {
         const row = element.getBoundingClientRect();
         return tab.left >= row.left - 1 && tab.right <= row.right + 1;
       });
-      assert.ok(seen, `${where}: the chosen tab is scrolled out of view`);
+      assert.ok(seen, `${where}: the chosen tab is out of view`);
     }
 
     // Tab reaches Kiro's list; + Add account is there and opens a sign-in.
@@ -248,11 +248,14 @@ try {
     await tabList.locator('[data-cli="agy"]').click();
     assert.match(await visiblePanel().locator(".ai-cli-reason").textContent(), /keyring/u);
     if (mobile) {
-      const row = await tabList.evaluate((element) => ({ scroll: element.scrollWidth, client: element.clientWidth }));
-      if (row.scroll > row.client + 1) {
-        await page.keyboard.press("End");
-        assert.ok(await tabList.evaluate((element) => element.scrollLeft > 0), `${where}: the tab row does not scroll to the last tab`);
-      }
+      // Every tab is inside the dialog's width, none cut off at the side.
+      const outside = await tabList.evaluate((element) => {
+        const row = element.getBoundingClientRect();
+        return [...element.querySelectorAll('[role="tab"]')]
+          .filter((tab) => { const box = tab.getBoundingClientRect(); return box.left < row.left - 1 || box.right > row.right + 1; })
+          .map((tab) => tab.dataset.cli);
+      });
+      assert.deepEqual(outside, [], `${where}: tabs are cut off at the side`);
       if (shots) await page.screenshot({ path: join(shots, `four-tabs-${where}.png`) });
     }
     await closeDialog();

@@ -1,25 +1,31 @@
 import { createElement } from "./dom.js?v=1.4.24";
 import { idOf } from "./snapshot.js?v=1.4.24";
-import { sessionAgentChoices } from "../agents.js?v=1.4.24";
+import { createAgentPicker } from "./agent-picker.js?v=1.4.24";
 
-// The "New project" dialog: the add menu's button opens it, the form creates
-// the workspace, with a shell or with an agent installed on the chosen
-// session's machine started in its first pane. Which agents are installed is
-// asked of that machine when the dialog opens and when another session is
-// chosen. Listeners are registered when this is called, not on import.
+// The "New project" dialog: a machine's ⋯ menu opens it for that machine. The
+// form creates the workspace in one of the machine's running Herdr sessions
+// (a choice only when it has more than one), with a shell or with an agent
+// installed there started in its first pane, each agent shown with its mark.
+// Which agents are installed is asked of the machine when the dialog opens.
+// Listeners are registered when this is called, not on import.
 export function createProjectDialog({
   state,
   elements,
   api,
   snapshotRecords,
-  newProjectHerdrSession,
+  herdrSessionForServer,
   adoptMutationSnapshot,
   closeMobileSidebar,
   refreshSnapshot,
   setFeedback,
+  agentMark,
 }) {
+  const sessionLabel = document.querySelector('label[for="project-server-session"]');
   const sessionSelect = document.querySelector("#project-server-session");
-  const agentSelect = document.querySelector("#project-agent");
+  const agentField = document.querySelector("#project-agent");
+  const agents = createAgentPicker(agentField, { agentMark });
+  // The machine the dialog was opened for.
+  let serverId = "local";
   // A late agent list, for a session chosen before the one chosen now, is dropped.
   let asked = 0;
   let agentsLoading = false;
@@ -29,32 +35,15 @@ export function createProjectDialog({
     elements.projectDialogFeedback.dataset.error = String(error);
   }
 
-  function fillAgents(names) {
-    const wanted = agentSelect.value;
-    agentSelect.replaceChildren(...sessionAgentChoices(names).map(({ value, label }) => {
-      const option = createElement("option", { text: label });
-      option.value = value;
-      return option;
-    }));
-    agentSelect.value = [...agentSelect.options].some((option) => option.value === wanted) ? wanted : "";
-  }
-
-  // The machine of the Herdr session chosen: this one when none is named.
-  function chosenServerId() {
-    const sessionId = sessionSelect.value || state.createProjectSessionId;
-    const session = snapshotRecords().herdrSessions.find((item) => idOf(item, "session_id", "id") === sessionId);
-    return session?.server_id || "local";
-  }
-
   async function loadAgents() {
     const mine = ++asked;
     agentsLoading = true;
-    agentSelect.disabled = true;
+    agentField.disabled = true;
     say("Looking for installed agents…");
     try {
-      const answer = await api(`/api/agents?server=${encodeURIComponent(chosenServerId())}`);
+      const answer = await api(`/api/agents?server=${encodeURIComponent(serverId)}`);
       if (mine !== asked) return;
-      fillAgents(answer.agents);
+      agents.fill(answer.agents, agents.value());
       if (!answer.supported) say("This machine cannot list its agents. Update HerdRabbit there to start one from here.");
       else if (!answer.agents?.length) say("No agents were found on this machine's PATH. A shell will open.");
       else say("");
@@ -63,38 +52,44 @@ export function createProjectDialog({
     } finally {
       if (mine === asked) {
         agentsLoading = false;
-        agentSelect.disabled = state.mutationBusy;
+        agentField.disabled = state.mutationBusy;
       }
     }
   }
 
-  elements.createProject.addEventListener("click", () => {
-    document.querySelector("#add-menu").open = false;
+  // From a machine's ⋯ menu: a project on that machine, in its running Herdr
+  // session (the selected pane's when that is on it). Nothing opens when the
+  // machine has none running.
+  function open(forServerId = "local") {
     if (state.mutationBusy) return;
-    const herdrSession = newProjectHerdrSession();
+    const herdrSession = herdrSessionForServer(forServerId);
     if (!herdrSession) return;
+    serverId = forServerId;
     state.createProjectSessionId = idOf(herdrSession, "session_id", "id") || null;
-    sessionSelect.replaceChildren();
-    // Every machine's running sessions: the picker chooses where it is made.
-    for (const session of snapshotRecords().herdrSessions.filter((item) => item.running && item.available)) {
-      const option = createElement("option", { text: `${session.server_name || "Local"} / ${session.name}` });
+    const { servers, herdrSessions } = snapshotRecords();
+    const running = herdrSessions.filter((item) =>
+      item.running && item.available && (item.server_id || "local") === serverId);
+    sessionSelect.replaceChildren(...running.map((session) => {
+      const option = createElement("option", { text: session.name });
       option.value = idOf(session, "session_id", "id");
-      sessionSelect.append(option);
-    }
+      return option;
+    }));
     sessionSelect.value = state.createProjectSessionId || "";
-    sessionSelect.disabled = sessionSelect.options.length < 2;
-    elements.projectSessionContext.textContent = sessionSelect.options.length > 1
-      ? `It opens in Herdr session “${herdrSession.name}” unless another is chosen, with a shell or the agent chosen.`
-      : "It opens with a shell, or the agent chosen.";
-    agentSelect.value = "";
-    fillAgents([]);
+    // One session leaves nothing to choose.
+    sessionLabel.hidden = running.length < 2;
+    sessionSelect.hidden = running.length < 2;
+    const machine = servers.length > 1
+      ? servers.find((server) => server.id === serverId)?.name || (serverId === "local" ? "this machine" : "")
+      : "";
+    elements.projectSessionContext.textContent = machine
+      ? `On ${machine}, with a shell or the agent chosen.`
+      : "A shell opens in it, or the agent chosen.";
+    agents.fill([]);
     say("");
     elements.projectDialog.showModal();
     window.requestAnimationFrame(() => elements.projectName.focus());
     void loadAgents();
-  });
-
-  sessionSelect.addEventListener("change", () => { void loadAgents(); });
+  }
 
   elements.projectDialogCancel.addEventListener("click", () => {
     if (!state.mutationBusy) elements.projectDialog.close();
@@ -118,10 +113,10 @@ export function createProjectDialog({
       return;
     }
     elements.projectName.setCustomValidity("");
-    const agent = agentSelect.value;
+    const agent = agents.value();
     state.mutationBusy = true;
     const submitButton = elements.projectCreateForm.querySelector('button[type="submit"]');
-    const controls = [elements.projectName, agentSelect, elements.projectDialogCancel, submitButton];
+    const controls = [elements.projectName, sessionSelect, agentField, elements.projectDialogCancel, submitButton];
     for (const control of controls) control.disabled = true;
     say(agent ? "Creating project and starting the agent…" : "Creating project…");
     const previousPaneIds = new Set(
@@ -160,8 +155,8 @@ export function createProjectDialog({
     } finally {
       state.mutationBusy = false;
       for (const control of controls) control.disabled = false;
-      // the agent list may still be on its way: its select stays off until it lands
-      agentSelect.disabled = agentsLoading;
+      // the agent list may still be on its way: its choices stay off until it lands
+      agentField.disabled = agentsLoading;
     }
   });
 
@@ -169,5 +164,5 @@ export function createProjectDialog({
     elements.projectName.setCustomValidity("");
   });
 
-  return {};
+  return { open };
 }

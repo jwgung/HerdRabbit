@@ -146,8 +146,6 @@ const elements = {
   shell: document.querySelector(".shell"),
   navigator: document.querySelector("#navigator"),
   navigatorContent: document.querySelector("#navigator-content"),
-  createProject: document.querySelector("#create-project"),
-  createSession: document.querySelector("#create-session"),
   sidebarToggle: document.querySelector("#sidebar-toggle"),
   sidebarScrim: document.querySelector("#sidebar-scrim"),
   mobileSidebarOpen: document.querySelector("#mobile-sidebar-open"),
@@ -289,9 +287,9 @@ const state = {
 };
 
 const {
-  snapshotRecords, newProjectHerdrSession, syncCreateProjectAvailability,
+  snapshotRecords, herdrSessionForServer,
   agentForPane, visibleStatusForPane, acknowledgePaneCompletion, pruneAcknowledgedCompletions,
-} = createSnapshotModel({ state, elements, storage: panePreferenceStorage });
+} = createSnapshotModel({ state, storage: panePreferenceStorage });
 
 // Made after `state`, which its listeners read. Nothing above calls these.
 const notificationNavigation = createNotifications({
@@ -737,7 +735,6 @@ const {
   get viewGrid() { return viewGrid; },
   api: (...args) => api(...args),
   snapshotRecords: (...args) => snapshotRecords(...args),
-  syncCreateProjectAvailability: (...args) => syncCreateProjectAvailability(...args),
   agentForPane: (...args) => agentForPane(...args),
   visibleStatusForPane: (...args) => visibleStatusForPane(...args),
   choosePane: (...args) => choosePane(...args),
@@ -814,6 +811,8 @@ const {
   showServerDetails: (...args) => showServerDetails(...args),
   showAiAccounts: (...args) => showAiAccounts(...args),
   openConnectPc: (...args) => openConnectPc(...args),
+  openNewProject: (...args) => openNewProject(...args),
+  herdrSessionForServer: (...args) => herdrSessionForServer(...args),
   sidebarActionMenu: (...args) => sidebarActionMenu(...args),
   renameForm: (...args) => renameForm(...args),
   serverRenameForm: (...args) => serverRenameForm(...args),
@@ -874,7 +873,6 @@ const {
   agentForPane: (...args) => agentForPane(...args),
   acknowledgePaneCompletion: (...args) => acknowledgePaneCompletion(...args),
   pruneAcknowledgedCompletions: (...args) => pruneAcknowledgedCompletions(...args),
-  syncCreateProjectAvailability: (...args) => syncCreateProjectAvailability(...args),
   api: (...args) => api(...args),
   transferRequest: (...args) => transferRequest(...args),
   completeNotificationRelay: (...args) => completeNotificationRelay(...args),
@@ -1151,27 +1149,24 @@ const { openKeyBarDialog } = createKeyBarEditor({
 renderKeyBar();
 
 window.addEventListener("blur", clearKeyModifiers);
-createProjectDialog({
+const { open: openNewProject } = createProjectDialog({
   state,
   elements,
   api: (...args) => api(...args),
   snapshotRecords: (...args) => snapshotRecords(...args),
-  newProjectHerdrSession: (...args) => newProjectHerdrSession(...args),
+  herdrSessionForServer: (...args) => herdrSessionForServer(...args),
   adoptMutationSnapshot: (...args) => adoptMutationSnapshot(...args),
   closeMobileSidebar: (...args) => closeMobileSidebar(...args),
   refreshSnapshot: (...args) => refreshSnapshot(...args),
   setFeedback: (...args) => setFeedback(...args),
+  agentMark: (...args) => agentMark(...args),
 });
-const { open: openNewSession, openChoosing: openNewSessionChoosing } = createSessionDialog({
+const { open: openNewSession } = createSessionDialog({
   state,
   api: (...args) => api(...args),
   snapshotRecords: (...args) => snapshotRecords(...args),
   createSession,
-});
-// + → New session…: any project, the selected pane's first.
-elements.createSession.addEventListener("click", () => {
-  document.querySelector("#add-menu").open = false;
-  openNewSessionChoosing();
+  agentMark: (...args) => agentMark(...args),
 });
 
 // Only the last file link pressed is taken to. One still waiting gives way to
@@ -1328,7 +1323,6 @@ document.addEventListener("keydown", (event) => {
   // An open dialog (the settings screen, a window over it) answers Escape on
   // its own; the sidebar under it stays as it is.
   if (document.querySelector("dialog[open]")) return;
-  document.querySelector("#add-menu").open = false;
   state.openActionMenuId = null;
   for (const menu of elements.workspaceList.querySelectorAll(
     ".sidebar-action-menu[open]",
@@ -1337,7 +1331,6 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("click", (event) => {
-  if (!event.target.closest("#add-menu")) document.querySelector("#add-menu").open = false;
   if (event.target.closest(".sidebar-action-menu")) return;
   state.openActionMenuId = null;
   for (const menu of elements.workspaceList.querySelectorAll(

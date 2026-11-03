@@ -22,13 +22,22 @@ export function createNavigation(deps) {
     state, elements, sidebarDrag, panePreferenceStorage, composerDrafts, draftBlocked, draftHeld, viewSplit,
     api, refreshSnapshot, setFeedback, snapshotRecords, selectedRecords, renderPaneHeading,
     agentForPane, visibleStatusForPane, adoptMutationSnapshot, saveComposerDraft, setViewSplit,
-    showServerDetails, showAiAccounts, openConnectPc, sidebarActionMenu, renameForm, serverRenameForm, attachGroupCollapse,
+    showServerDetails, showAiAccounts, openConnectPc, openNewProject, herdrSessionForServer, sidebarActionMenu, renameForm, serverRenameForm, attachGroupCollapse,
     workspaceHeading, paneButton, closeSession, isLocalRecord, splitSessionName, splitPaneRow,
     splitDisclosureButton, splitSessionButton, evenOutLayout, separateSplitSession,
   } = deps;
 
   function serverActionMenu(server) {
-    const actions = [
+    const actions = [];
+    // A project is made on a machine, in a Herdr session running there.
+    if (herdrSessionForServer(server.id)) {
+      actions.push({
+        label: "New project…",
+        paths: ["M3 7h6l2 2h10v10H3z", "M12 12v5M9.5 14.5h5"],
+        onSelect: () => openNewProject(server.id),
+      });
+    }
+    actions.push(
       {
         label: "Details",
         paths: ["M12 8h.01", "M11 12h1v4h1", "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"],
@@ -40,7 +49,7 @@ export function createNavigation(deps) {
         paths: ["M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M4 20a8 8 0 0 1 16 0"],
         onSelect: () => showAiAccounts(server),
       },
-    ];
+    );
     // This machine is not a connection: there is nothing to rename or drop.
     // It is where other PCs are connected from, when this page may connect them.
     if (server.id === "local") {

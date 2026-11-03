@@ -35,7 +35,7 @@ export function createSelection(deps) {
     state, elements, notificationNavigation, panePreferenceStorage, pageOpenedAt,
     PENDING_REMOTE_PANE_MS, OUTPUT_SUBMISSION_BURST_MS, OUTPUT_SUBMISSION_RETRY_MS,
     snapshotRecords, agentForPane, acknowledgePaneCompletion, pruneAcknowledgedCompletions,
-    syncCreateProjectAvailability, api, transferRequest, completeNotificationRelay, restoreNotificationTarget,
+    api, transferRequest, completeNotificationRelay, restoreNotificationTarget,
     resetInputHistoryNavigation, syncComposerDraft, syncAttachAvailability, clearKeyModifiers, syncSendButton,
     agentMark, viewFile, revealInFiles, refreshBrowseFolder, showTerminalView, syncTerminalFind,
     closeMobileSidebar, renameIsOpen, renderNavigation, setConnection, pruneViewSplit, renderPaneViews,
@@ -277,7 +277,6 @@ export function createSelection(deps) {
       choosePane();
       pruneAcknowledgedCompletions();
       if (state.selectedPaneId) acknowledgePaneCompletion(state.selectedPaneId);
-      syncCreateProjectAvailability();
       if (!renameIsOpen()) renderNavigation();
       const selected = selectedRecords();
       renderPaneHeading(selected.pane, selected.tab, selected.workspace);
