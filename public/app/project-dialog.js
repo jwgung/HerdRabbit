@@ -1,6 +1,6 @@
-import { createElement } from "./dom.js?v=1.4.25";
-import { idOf } from "./snapshot.js?v=1.4.25";
-import { createAgentPicker } from "./agent-picker.js?v=1.4.25";
+import { createElement } from "./dom.js?v=1.4.26";
+import { idOf } from "./snapshot.js?v=1.4.26";
+import { createAgentPicker } from "./agent-picker.js?v=1.4.26";
 
 // The "New project" dialog: a machine's ⋯ menu opens it for that machine. The
 // form creates the workspace in one of the machine's running Herdr sessions
