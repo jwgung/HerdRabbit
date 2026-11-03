@@ -10,10 +10,10 @@ import { createPeerServer } from "../src/peer-server.mjs";
 const LINK_ID = "link_11111111-1111-1111-1111-111111111111";
 const herdr = { async snapshot() { return { herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }; } };
 
-async function startPeer(context, { agents = null, allowed = ["127.0.0.1"] } = {}) {
+async function startPeer(context, { installedAgents = null, allowed = ["127.0.0.1"] } = {}) {
   const server = createPeerServer({
     peer: new PeerIdentity({ addresses: allowed }),
-    link: linkRoutes({ client: herdr, agents, version: "2.0.0", serverName: "dev-box" }),
+    link: linkRoutes({ client: herdr, installedAgents, version: "2.0.0", serverName: "dev-box" }),
     logger: { error() {} },
   });
   server.listen(0, "127.0.0.1");
@@ -25,7 +25,7 @@ async function startPeer(context, { agents = null, allowed = ["127.0.0.1"] } = {
 const client = (address) => new LinkClient({ profile: { id: LINK_ID, name: "Dev box", address }, hubVersion: "2.0.0" });
 
 test("a PC that can tell its installed agents names it among its features", async (context) => {
-  const withAgents = await startPeer(context, { agents: { async list() { return ["claude"]; } } });
+  const withAgents = await startPeer(context, { installedAgents: { async list() { return ["claude"]; } } });
   assert.deepEqual((await (await fetch(`${withAgents}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "agents"]);
   const without = await startPeer(context);
   assert.deepEqual((await (await fetch(`${without}/api/link/hello`)).json()).features, ["scroll_bottom", "commands"]);
@@ -33,7 +33,7 @@ test("a PC that can tell its installed agents names it among its features", asyn
 
 test("the hub hears which agents a connected PC has, and keeps only agents it knows", async (context) => {
   const address = await startPeer(context, {
-    agents: { async list() { return ["codex", "claude", "codex", "rm -rf /", { evil: true }, "toString"]; } },
+    installedAgents: { async list() { return ["codex", "claude", "codex", "rm -rf /", { evil: true }, "toString"]; } },
   });
   assert.deepEqual(await client(address).installedAgents(), ["claude", "codex"]);
 });
@@ -46,7 +46,7 @@ test("an older PC is not asked, and says nothing about its agents", async (conte
 
 test("the agents route is let in exactly like every other link route", async (context) => {
   let asked = 0;
-  const address = await startPeer(context, { agents: { async list() { asked += 1; return ["claude"]; } }, allowed: ["100.64.0.9"] });
+  const address = await startPeer(context, { installedAgents: { async list() { asked += 1; return ["claude"]; } }, allowed: ["100.64.0.9"] });
   assert.equal((await fetch(`${address}/api/link/agents`)).status, 403);
   assert.equal(asked, 0);
 });

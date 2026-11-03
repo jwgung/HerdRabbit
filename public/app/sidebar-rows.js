@@ -18,10 +18,11 @@ import { tiles as viewTiles } from "../view-split.js?v=1.4.23";
 // and rename, a session's row with its agent mark, the fold on server and
 // session headings, the rename form shared by projects, sessions and machines,
 // and creating (through the New session dialog) or closing sessions and
-// projects. Nothing here runs until createSidebarRows is called. The functions it calls live in app.js (or in
-// modules made around it) and are handed in as wrappers, so they may be
-// defined after this is made; `viewGrid` is made further down app.js and is
-// read through a getter on `deps`.
+// projects. Nothing here runs until createSidebarRows is called. The
+// functions it calls live in app.js (or in modules made around it) and are
+// handed in as wrappers, so they may be defined after this is made;
+// `viewGrid` is made further down app.js and is read through a getter on
+// `deps`.
 export function createSidebarRows(deps) {
   const {
     state, panePreferenceStorage, desktopMedia, viewSplit, api,

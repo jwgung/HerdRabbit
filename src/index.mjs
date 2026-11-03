@@ -218,7 +218,7 @@ const peerServer = config.peerHost ? createPeerServer({
     loginOf: (address) => tailnetLoginOf(address),
   }),
   link: linkRoutes({
-    client: local, files, aiAccounts, agents: installedAgents, attach: linkAttach, conversations, slashCommands, updater, herdrUpdater, version: hubVersion, herdrVersion: () => herdrVersion,
+    client: local, files, aiAccounts, installedAgents, attach: linkAttach, conversations, slashCommands, updater, herdrUpdater, version: hubVersion, herdrVersion: () => herdrVersion,
     serverName: hostname(), maxTransferBytes: config.maxTransferBytes, protectedPaths,
   }),
   attach: linkAttach,
