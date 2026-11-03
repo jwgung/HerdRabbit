@@ -367,6 +367,10 @@ test("Kiro is offered only where its sign-in can be switched", async (t) => {
   const changed = await kiroAdapter.support(env, "linux");
   assert.equal(changed.supported, false);
   assert.match(changed.reason, /database/u);
+  await writeFile(kiro.db, "not a database");
+  const damaged = await kiroAdapter.support(env, "linux");
+  assert.equal(damaged.supported, false, "a file that is not SQLite is reported, not thrown");
+  assert.match(damaged.reason, /could not be read/u);
   assert.ok(accounts);
 });
 
