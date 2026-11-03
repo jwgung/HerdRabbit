@@ -30,6 +30,7 @@ import { renderMarkdown } from "./markdown.mjs";
 import { secretPrompt } from "./secret-prompt.mjs";
 import { agentCommand } from "./agent-launch.mjs";
 import { canResume, resumeCommand } from "./agent-sessions.mjs";
+import { projectFolder } from "./project-folder.mjs";
 import { validateServerProfile } from "./server-profiles.mjs";
 import { ConversationMonitor } from "./conversation/monitor.mjs";
 import { ConversationService } from "./conversation/service.mjs";
@@ -1422,18 +1423,6 @@ export function createHerdrHttpServer({
     return { serverId: value, agents: (await remote.installedAgents?.()) ?? null };
   }
 
-  // The folder a project works in, as the page shows a pane's: the first of
-  // its panes, in Herdr's order, that is in an absolute folder. Herdr gives a
-  // project no folder of its own.
-  function projectFolder(snapshot, workspaceId) {
-    for (const pane of snapshot.panes ?? []) {
-      if (pane?.workspace_id !== workspaceId) continue;
-      const folder = [pane.foreground_cwd, pane.cwd].find((value) => typeof value === "string" && value.startsWith("/") && value.length <= 4096);
-      if (folder) return folder;
-    }
-    return null;
-  }
-
   // The sessions of `agent` the project's machine lists in `folder`: this
   // PC's own lister, or a connected PC's answer over its link. Null when that
   // machine cannot tell (no lister, or a PC from before this).
@@ -1517,7 +1506,7 @@ export function createHerdrHttpServer({
     }
     const knownTabs = new Set((before.tabs ?? []).map((tab) => tab.tab_id));
     // a resumed session opens where the agent kept it: some agents find a session only from its own folder
-    const made = await (folder === null ? herdr.createTab(workspaceId) : herdr.createTab(workspaceId, { cwd: folder }));
+    const made = await herdr.createTab(workspaceId, { cwd: folder ?? undefined });
     const after = await herdr.snapshot();
     const { tabId, paneId } = madeTab(made, after, workspaceId, knownTabs);
     if (label !== null) await herdr.renameTab(tabId, label);

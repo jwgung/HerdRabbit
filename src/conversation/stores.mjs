@@ -1,6 +1,8 @@
 // Where a transcript's bytes come from: this machine's files. A store answers
 // these calls, so pages.mjs, claude.mjs and codex.mjs read through it:
 //   locate(session, projectDirs) -> a Claude transcript's path | null
+//   sessionsIn(projectDir)       -> a Claude project directory's sessions,
+//                                   newest first
 //   backgroundJobSession(short)  -> the session of Claude's background job
 //                                   with that short id | null (optional)
 //   stat(path)                   -> { identity, size, mtimeMs } | null
@@ -139,6 +141,24 @@ export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), cod
       let session;
       try { session = JSON.parse(text)?.sessionId; } catch { return null; }
       return typeof session === "string" && SESSION_ID.test(session) && session.startsWith(short) ? session : null;
+    },
+    // The sessions in one Claude project directory (claudeProjectDir), each
+    // `<uuid>.jsonl`, newest first: [{ session, path, size, mtimeMs }].
+    async sessionsIn(projectDir) {
+      if (typeof projectDir !== "string" || !/^[A-Za-z0-9-]+$/u.test(projectDir)) return [];
+      const dir = join(projects, projectDir);
+      let names;
+      try { names = await readdir(dir); } catch (error) { if (absent(error)) return []; throw error; }
+      const sessions = [];
+      for (const name of names) {
+        const session = name.endsWith(".jsonl") ? name.slice(0, -".jsonl".length) : "";
+        if (!SESSION_ID.test(session)) continue;
+        const path = join(dir, name);
+        let info;
+        try { info = await stat(path); } catch (error) { if (absent(error)) continue; throw error; }
+        if (info.isFile()) sessions.push({ session, path, size: info.size, mtimeMs: info.mtimeMs });
+      }
+      return sessions.sort((a, b) => b.mtimeMs - a.mtimeMs);
     },
     async stat(path) {
       try {

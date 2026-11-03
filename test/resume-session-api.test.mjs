@@ -4,7 +4,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
+import { AgentSessions } from "../src/agent-sessions.mjs";
+import { kiroWorkspaceHash } from "../src/conversation/kiro.mjs";
+import { localTranscriptStore } from "../src/conversation/stores.mjs";
 
 const LAB = "link_11111111-1111-1111-1111-111111111111";
 const OLD = "link_22222222-2222-2222-2222-222222222222";
@@ -212,7 +218,7 @@ test("nothing is made for an id that is malformed, not listed here, or for an ag
 test("a plain new session with an agent still opens where Herdr puts it", async (context) => {
   const app = await start(context);
   assert.equal((await app.post(tabsOf("w1"), { agent: "codex", resume: "" })).status, 201);
-  assert.deepEqual(app.herdr.calls, [["createTab", "w1"], ["sendText", "w1:p2", "codex", { submit: true }]]);
+  assert.deepEqual(app.herdr.calls, [["createTab", "w1", { cwd: undefined }], ["sendText", "w1:p2", "codex", { submit: true }]]);
 });
 
 test("a resume types only into the tab the create call named, even when another tab appeared meanwhile", async (context) => {
@@ -247,4 +253,61 @@ test("a resume types nothing when the named tab is not in that project", async (
   assert.equal(response.status, 502);
   assert.equal((await response.json()).error.code, "session_missing");
   assert.deepEqual(app.herdr.calls.filter(([name]) => name === "sendText"), []);
+});
+
+// ---------------------------------------------------------------------------
+// End to end: this machine's own lister over Codex's index and Kiro's session
+// folders (synthetic, under a temp root), then the exact command typed.
+
+const THREAD = "019da5c2-66fd-7021-b565-5e94406b028e";
+const KIRO = "3d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
+
+async function realLister(context, sqlite) {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "herdrabbit-resume-api-")));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const folder = "/work/alpha";
+  // Codex: a rollout and the index row naming it, begun in the folder
+  const day = join(root, "codex", "sessions", "2026", "10", "01");
+  await mkdir(day, { recursive: true });
+  const rollout = join(day, `rollout-2026-10-01T01-00-00-${THREAD}.jsonl`);
+  await writeFile(rollout, `${JSON.stringify({ type: "session_meta", payload: { id: THREAD, cwd: folder, source: "cli" } })}\n`);
+  const db = new sqlite.DatabaseSync(join(root, "codex", "state_5.sqlite"));
+  db.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, cwd TEXT, source TEXT, updated_at_ms INTEGER, title TEXT)");
+  db.prepare("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?)").run(THREAD, rollout, folder, "cli", 100_000, "Codex work");
+  db.close();
+  // Kiro: a session folder under the folder's workspace hash
+  const kiro = join(root, "kiro", "sessions", kiroWorkspaceHash(folder), `sess_${KIRO}`);
+  await mkdir(kiro, { recursive: true });
+  await writeFile(join(kiro, "messages.jsonl"), `${JSON.stringify({ id: "evt", timestamp: "2026-10-01T00:00:00.000Z", payload: { type: "user", content: "Kiro work" } })}\n`);
+  const store = localTranscriptStore({
+    configDir: join(root, "claude"), codexHome: join(root, "codex"), kiroConfigDir: join(root, "kiro"),
+    agyDataDir: join(root, "agy"), opencodeDb: join(root, "none.db"),
+  });
+  context.after(() => store.opencode.close());
+  return new AgentSessions({ store });
+}
+
+test("Codex and Kiro sessions listed from their own stores are resumed with their exact commands", async (context) => {
+  let sqlite;
+  try { sqlite = await import("node:sqlite"); } catch { context.skip("node:sqlite is not available"); return; }
+  const app = await start(context, {
+    agentSessions: await realLister(context, sqlite),
+    installedAgents: { async list() { return ["codex", "kiro"]; } },
+  });
+  const codex = await (await app.get(sessionsOf("w1", "codex"))).json();
+  assert.deepEqual(codex.sessions.map((session) => session.id), [THREAD]);
+  const kiro = await (await app.get(sessionsOf("w1", "kiro"))).json();
+  assert.deepEqual(kiro.sessions.map((session) => [session.id, session.title]), [[`sess_${KIRO}`, "Kiro work"]]);
+
+  assert.equal((await app.post(tabsOf("w1"), { agent: "codex", resume: THREAD })).status, 201);
+  assert.equal((await app.post(tabsOf("w1"), { agent: "kiro", resume: `sess_${KIRO}` })).status, 201);
+  assert.deepEqual(app.herdr.calls, [
+    ["createTab", "w1", { cwd: "/work/alpha" }],
+    ["sendText", "w1:p2", `codex resume ${THREAD}`, { submit: true }],
+    ["createTab", "w1", { cwd: "/work/alpha" }],
+    ["sendText", "w1:p3", `kiro-cli chat --resume-id sess_${KIRO}`, { submit: true }],
+  ]);
+  // the uuid alone, or an id the folder does not hold, is not resumed
+  assert.equal((await app.post(tabsOf("w1"), { agent: "kiro", resume: KIRO })).status, 400);
+  assert.equal((await app.post(tabsOf("w1"), { agent: "kiro", resume: `sess_${THREAD}` })).status, 409);
 });

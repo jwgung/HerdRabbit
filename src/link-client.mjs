@@ -744,7 +744,7 @@ export class LinkClient {
   // A folder reaches only a PC that lists its sessions (`agent_sessions`):
   // the hub asks for one only after that PC listed a session there.
   async createTab(workspaceId, { cwd } = {}) {
-    const answer = await this.#workspace(workspaceId, "tabs", cwd === undefined ? {} : { cwd });
+    const answer = await this.#workspace(workspaceId, "tabs", { cwd });
     return createdTab(answer?.tab_id, answer?.pane_id);
   }
 

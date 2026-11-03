@@ -6,6 +6,7 @@ import { subscribeHerdrStatuses } from "./herdr-status-stream.mjs";
 import { callHerdrSocket } from "./herdr-rpc.mjs";
 import { claudeInputBox, restoredDraftStep } from "./prompt/claude-input.mjs";
 import { canEvenLayout, evenLayoutStep, layoutRects, layoutSignature, layoutUnevenness } from "./even-layout.mjs";
+import { isFolder } from "./project-folder.mjs";
 
 const execFileAsync = promisify(execFile);
 // Herdr IDs may contain letters (for example wB:p1). Require the exact end
@@ -103,12 +104,9 @@ function validateTabLabel(label) {
   return validateLabel(label, "Session");
 }
 
-// A folder a new tab opens in: absolute, one line. It goes to Herdr as one
-// argument, never through a shell.
+// A folder a new tab opens in (src/project-folder.mjs).
 function validateCwd(cwd) {
-  if (typeof cwd !== "string" || !cwd.startsWith("/") || cwd.length > 4096 || /[\u0000-\u001f\u007f]/u.test(cwd)) {
-    throw new InputValidationError("Invalid folder");
-  }
+  if (!isFolder(cwd)) throw new InputValidationError("Invalid folder");
   return cwd;
 }
 

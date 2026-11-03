@@ -256,6 +256,21 @@ test("a list is at most the lister's limit, the newest kept", async (context) =>
   assert.deepEqual((await lister(context, root, { limit: 2 }).list("claude", FOLDER)).map((session) => session.id), [CLAUDE_C, CLAUDE_B]);
 });
 
+test("a list holds at most 20 sessions by default, the newest kept", async (context) => {
+  assert.equal(MAX_LISTED_SESSIONS, 20);
+  const root = await temp(context);
+  const workspace = join(root, "kiro", "sessions", kiroWorkspaceHash(FOLDER));
+  const uuids = Array.from({ length: MAX_LISTED_SESSIONS + 5 }, (_, n) => `${String(n).padStart(8, "0")}-8a3b-4c55-9d2e-6f7a8b9c0d1e`);
+  for (const [n, uuid] of uuids.entries()) {
+    const dir = join(workspace, `sess_${uuid}`);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "messages.jsonl"), jsonl([{ id: "evt", timestamp: "2026-10-01T00:00:00.000Z", payload: { type: "user", content: `prompt ${n}` } }]));
+    await utimes(join(dir, "messages.jsonl"), 1000 + n, 1000 + n);
+  }
+  const sessions = await lister(context, root).list("kiro", FOLDER);
+  assert.deepEqual(sessions.map((session) => session.id), uuids.slice(-MAX_LISTED_SESSIONS).reverse().map((uuid) => `sess_${uuid}`));
+});
+
 test("agents without a verified resume flag or a folder listing, and folders that are not absolute, list nothing", async (context) => {
   const root = await temp(context);
   const sessions = lister(context, root);

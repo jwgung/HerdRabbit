@@ -115,10 +115,27 @@ test("an older PC is not asked for its sessions, and the route is gated like the
   assert.equal(asked, 0);
 });
 
+// This PC's snapshot: project hs~w1 works in /work/My App (its first pane with
+// a folder); hs~w2 has no folder yet.
+const folderHerdr = {
+  async snapshot() {
+    return {
+      herdr_sessions: [], agents: [],
+      workspaces: [{ workspace_id: "hs~w1" }, { workspace_id: "hs~w2" }],
+      tabs: [{ tab_id: "hs~w1:t0", workspace_id: "hs~w1" }, { tab_id: "hs~w2:t0", workspace_id: "hs~w2" }],
+      panes: [
+        { pane_id: "hs~w1:p0", tab_id: "hs~w1:t0", workspace_id: "hs~w1", cwd: "" },
+        { pane_id: "hs~w1:p9", tab_id: "hs~w1:t0", workspace_id: "hs~w1", cwd: "/home/u", foreground_cwd: "/work/My App" },
+        { pane_id: "hs~w2:p0", tab_id: "hs~w2:t0", workspace_id: "hs~w2", cwd: "" },
+      ],
+    };
+  },
+};
+
 test("a session made over the link opens in the folder asked, and as before without one, and names its ids", async (context) => {
   const calls = [];
   const peerClient = {
-    ...herdr,
+    ...folderHerdr,
     async createTab(...args) {
       calls.push(args);
       return { tab_id: `hs~w1:t${calls.length}`, pane_id: `hs~w1:p${calls.length}` };
@@ -128,7 +145,36 @@ test("a session made over the link opens in the folder asked, and as before with
   const link = client(address);
   assert.deepEqual(await link.createTab("hs~w1", { cwd: "/work/My App" }), { tab_id: "hs~w1:t1", pane_id: "hs~w1:p1" });
   assert.deepEqual(await link.createTab("hs~w1"), { tab_id: "hs~w1:t2", pane_id: "hs~w1:p2" });
-  assert.deepEqual(calls, [["hs~w1", { cwd: "/work/My App" }], ["hs~w1"]]);
+  assert.deepEqual(calls, [["hs~w1", { cwd: "/work/My App" }], ["hs~w1", { cwd: undefined }]]);
+});
+
+test("a PC opens a tab in a folder only when it is that project's own folder", async (context) => {
+  const calls = [];
+  const peerClient = { ...folderHerdr, async createTab(...args) { calls.push(args); return { tab_id: "hs~w1:t1", pane_id: "hs~w1:p1" }; } };
+  const address = await startSessionsPeer(context, { agentSessions: { async list() { return []; } }, client: peerClient });
+  const post = (workspace, body) => fetch(`${address}/api/link/workspaces/${encodeURIComponent(workspace)}/tabs`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  for (const [workspace, cwd] of [
+    ["hs~w1", "/etc"],
+    // another pane's folder in the same project is not the project's folder
+    ["hs~w1", "/home/u"],
+    ["hs~w1", "/work/My App/"],
+    ["hs~w1", "relative"],
+    ["hs~w1", null],
+    ["hs~w1", 7],
+    // a project with no folder takes none
+    ["hs~w2", "/work/My App"],
+    ["hs~w2", null],
+    ["hs~w9", "/work/My App"],
+  ]) {
+    const response = await post(workspace, { cwd });
+    assert.equal(response.status, 400, `${workspace} ${JSON.stringify(cwd)}`);
+    assert.equal((await response.json()).error.code, "invalid_input");
+  }
+  assert.deepEqual(calls, []);
+  assert.equal((await post("hs~w1", { cwd: "/work/My App" })).status, 200);
+  assert.deepEqual(calls, [["hs~w1", { cwd: "/work/My App" }]]);
 });
 
 test("the hub's client hands the folder to whichever machine makes the tab, and gives back its ids", async () => {
@@ -145,5 +191,5 @@ test("the hub's client hands the folder to whichever machine makes the tab, and 
   assert.deepEqual(await multi.createTab("w1", { cwd: "/work/a" }), { tab_id: "w1:t2", pane_id: "w1:p2" });
   assert.deepEqual(await multi.createTab("w1"), { tab_id: "w1:t2", pane_id: "w1:p2" });
   assert.deepEqual(await multi.createTab(`${LINK_ID}!hs~w1`, { cwd: "/srv/b" }), { tab_id: `${LINK_ID}!hs~w1:t5`, pane_id: `${LINK_ID}!hs~w1:p5` });
-  assert.deepEqual(calls, [["local", "w1", { cwd: "/work/a" }], ["local", "w1"], ["remote", "hs~w1", { cwd: "/srv/b" }]]);
+  assert.deepEqual(calls, [["local", "w1", { cwd: "/work/a" }], ["local", "w1", { cwd: undefined }], ["remote", "hs~w1", { cwd: "/srv/b" }]]);
 });
