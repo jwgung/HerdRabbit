@@ -19,6 +19,7 @@ const CHAT_FILES = [
   "/chat/work-blocks.js",
   "/chat/conversation-refresh.js",
   "/chat/chat-view.js",
+  "/chat/copy-menu.js",
   "/chat/chat-view.css",
   "/chat/chat-activity.js",
   "/chat/prompt-card.js",

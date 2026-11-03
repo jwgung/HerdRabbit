@@ -100,6 +100,7 @@ const STATIC_FILES = new Map([
   ["/chat/conversation-refresh.js", { path: `${PUBLIC_DIR}/chat/conversation-refresh.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/chat-view.js", { path: `${PUBLIC_DIR}/chat/chat-view.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/chat-find.js", { path: `${PUBLIC_DIR}/chat/chat-find.js`, type: "text/javascript; charset=utf-8" }],
+  ["/chat/copy-menu.js", { path: `${PUBLIC_DIR}/chat/copy-menu.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/chat-view.css", { path: `${PUBLIC_DIR}/chat/chat-view.css`, type: "text/css; charset=utf-8" }],
   ["/chat/chat-activity.js", { path: `${PUBLIC_DIR}/chat/chat-activity.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/prompt-card.js", { path: `${PUBLIC_DIR}/chat/prompt-card.js`, type: "text/javascript; charset=utf-8" }],

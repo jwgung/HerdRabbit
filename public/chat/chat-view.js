@@ -8,6 +8,7 @@
 // ChatView.css, rewritten as plain DOM code without React.
 import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.4.23";
 import { highlightCodeBlocks } from "./code-highlight.js?v=1.4.23";
+import { copyMenu } from "./copy-menu.js?v=1.4.23";
 import { lineDiff } from "./diff.js?v=1.4.23";
 import {
   deliveredFiles,
@@ -554,7 +555,7 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     const answerText = answer.filter((part) => part.kind === "text").map((part) => part.text).join("\n\n");
     if (answerText) {
       const meta = element(document, "div", { className: "chat-turn-meta" });
-      meta.append(copyButton(answerText, "Copy answer"));
+      meta.append(copyMenu(document, answerText));
       const time = timeElement(turn.end_ts ?? turn.ts);
       if (time) meta.append(time);
       article.append(meta);
@@ -712,6 +713,12 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
       case "jump": scrollToBottom(); break;
       case "view-terminal": onViewInTerminal(); break;
       case "copy-text": void copyText(action.dataset.copy ?? "", document).then((ok) => copied(action, ok)); break;
+      case "copy-choice": {
+        const menu = action.closest(".chat-copy-menu");
+        if (menu) menu.open = false;
+        void copyText(action.dataset.copy ?? "", document).then((ok) => copied(menu?.querySelector(".chat-copy") ?? action, ok));
+        break;
+      }
       case "copy-code": {
         const code = action.closest(".md-code")?.querySelector("pre")?.textContent ?? "";
         void copyText(code, document).then((ok) => copied(action, ok));

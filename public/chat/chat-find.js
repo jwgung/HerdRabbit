@@ -26,7 +26,7 @@ const BLOCK_TAGS = new Set([
 const BLOCK_CLASSES = ["chat-file-name", "chat-file-folder"];
 // The page's own furniture, not the conversation: copy and fold buttons, a
 // code block's language, words only a screen reader hears.
-const SKIPPED_CLASSES = ["chat-copy", "md-code-copy", "md-code-more", "md-code-head", "chat-tool-more",
+const SKIPPED_CLASSES = ["chat-copy", "chat-copy-menu", "md-code-copy", "md-code-more", "md-code-head", "chat-tool-more",
   "chat-bubble-more", "chat-link-button", "sr-only", "work-caret"];
 
 const TEXT_NODE = 3;

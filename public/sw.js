@@ -116,6 +116,7 @@ const APP_SHELL = [
   "/chat/chat-view.js?v=1.4.23",
   "/chat/chat-view.css?v=1.4.23",
   "/chat/chat-find.js?v=1.4.23",
+  "/chat/copy-menu.js?v=1.4.23",
   "/chat/chat-activity.js?v=1.4.23",
   "/chat/prompt-card.js?v=1.4.23",
   "/chat/prompt-card.css?v=1.4.23",

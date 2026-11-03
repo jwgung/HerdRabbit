@@ -164,6 +164,10 @@ test("text is read by block, leaving out buttons' icons, a code block's language
   const file = h("li", {}, h("button", { class: "chat-file" }, h("span", { class: "chat-file-name" }, "app.apk"), h("span", { class: "chat-file-folder" }, "/home/me/out/")));
   assert.deepEqual(textRuns(file).map((run) => run.map((node) => node.data).join("")), ["app.apk", "/home/me/out/"]);
   assert.equal(markMatches(file, "apk/home", { document }).matches.length, 0);
+  // the answer's copy menu is furniture too
+  const menu = h("details", { class: "ui-menu chat-copy-menu" }, h("summary", { class: "chat-copy" }, h("svg", {}, "copy")),
+    h("div", { class: "ui-menu-panel chat-copy-panel" }, h("button", { class: "ui-menu-item" }, "Copy as Markdown"), h("button", { class: "ui-menu-item" }, "Copy as text")));
+  assert.deepEqual(textRuns(h("div", {}, h("p", {}, "answer"), menu)).map((run) => run.map((node) => node.data).join("")), ["answer"]);
 });
 
 test("matches are marked in place, across inline code and bold, and clearing puts the page back as it was", () => {

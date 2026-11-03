@@ -242,26 +242,52 @@ try {
     await page.waitForFunction(() => document.querySelector("#terminal-input").value === "");
     assert.deepEqual(sentTexts.at(-1), { paneId: "w1:p1", text: "run the release checks", options: { submit: true } });
     herdr.setStatus("w1:p1", "working");
+    // markdown with a link and a table, so its two copies differ
+    const releaseAnswer = `**Release** checks passed: see [the log](https://example.com/log).\n\n| check | result |\n| --- | --- |\n| tests | ok |\n\n${"More detail.\n\n".repeat(12)}`;
+    const releaseText = ["Release checks passed: see the log (https://example.com/log).", "check\tresult\ntests\tok", ...Array(12).fill("More detail.")].join("\n\n");
     await appendFile(transcript, jsonl([
       { type: "user", uuid: "u90", parentUuid: null, timestamp: at(90), message: { role: "user", content: "run the release checks" } },
-      { type: "assistant", timestamp: at(90, 4), message: { role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text: `Release checks passed.\n\n${"More detail.\n\n".repeat(12)}` }] } },
+      { type: "assistant", timestamp: at(90, 4), message: { role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text: releaseAnswer }] } },
     ]));
-    await page.waitForFunction(() => document.querySelector('.chat-pane[data-pane-id="w1:p1"]')?.textContent.includes("Release checks passed."), null, { timeout: 5_000 });
+    await page.waitForFunction(() => document.querySelector('.chat-pane[data-pane-id="w1:p1"]')?.textContent.includes("Release checks passed"), null, { timeout: 5_000 });
     await page.waitForFunction(() => !document.querySelector(".chat-turn-user.is-pending"));
     await page.waitForTimeout(200);
     assert.equal(await atBottom(), true, "still at the end once the turn lands");
     herdr.setStatus("w1:p1", "idle");
 
-    // Copy: an icon with a name, a check for a moment once it worked.
+    // Copy: an icon with a name opens a small menu beside it, Markdown or plain
+    // text; the icon shows a check for a moment once a copy worked.
     const copy = chat.locator(".chat-turn-agent .chat-copy").last();
     assert.equal(await copy.getAttribute("aria-label"), "Copy answer");
     assert.equal((await copy.textContent()).trim(), "", "an icon, not the word");
     assert.equal(await copy.locator("svg.copy-icon").count(), 1);
     assert.equal(await chat.locator(".md-code-copy svg.copy-icon").count() > 0, true);
+    const copyPanel = chat.locator(".chat-turn-agent .chat-copy-panel").last();
+    const clipboard = () => page.evaluate(() => navigator.clipboard.readText()).catch(() => null);
+    const copiedShown = () => page.waitForFunction(() => [...document.querySelectorAll('.chat-pane[data-pane-id="w1:p1"] .chat-turn-agent .chat-copy')].at(-1)?.classList.contains("is-copied"));
+    const copiedGone = () => page.waitForFunction(() => ![...document.querySelectorAll(".chat-copy")].some((button) => button.classList.contains("is-copied")), null, { timeout: 3_000 });
+    for (const [label, expected] of [["Copy as text", releaseText], ["Copy as Markdown", releaseAnswer]]) {
+      await copy.click();
+      await copyPanel.waitFor({ state: "visible" });
+      assert.deepEqual(await copyPanel.locator(".ui-menu-item").allTextContents(), ["Copy as Markdown", "Copy as text"]);
+      const [panelBox, copyBox] = [await copyPanel.boundingBox(), await copy.boundingBox()];
+      assert.ok(Math.abs(panelBox.y - (copyBox.y + copyBox.height)) <= 8 || Math.abs(panelBox.y + panelBox.height - copyBox.y) <= 8, "the menu opens beside its button");
+      const item = copyPanel.getByRole("button", { name: label });
+      if (mobile) assert.ok((await item.boundingBox()).height >= 44, `${label} is a 44px touch target`);
+      assert.equal(await item.getAttribute("data-copy"), expected);
+      await item.click();
+      await copiedShown();
+      assert.equal(await copyPanel.isVisible(), false, "the menu closes once a copy is chosen");
+      const pasted = await clipboard();
+      assert.equal(pasted, expected, `${label} puts the right text on the clipboard`);
+      await copiedGone();
+    }
+    // clicking away closes the menu without copying
     await copy.click();
-    await page.waitForFunction(() => document.querySelector('.chat-pane[data-pane-id="w1:p1"] .chat-turn-agent:last-of-type .chat-copy')?.classList.contains("is-copied")
-      || [...document.querySelectorAll(".chat-copy")].some((button) => button.classList.contains("is-copied")));
-    await page.waitForFunction(() => ![...document.querySelectorAll(".chat-copy")].some((button) => button.classList.contains("is-copied")), null, { timeout: 3_000 });
+    await copyPanel.waitFor({ state: "visible" });
+    await page.mouse.click(5, 5);
+    await copyPanel.waitFor({ state: "hidden" });
+    await page.waitForFunction(() => !document.querySelector(".chat-copy-menu[open]"), null, { timeout: 2_000 });
 
     // The chat's text size: Ctrl+wheel over the chat, kept across a reload; the terminal's stays.
     const terminalSize = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--terminal-font-size"));
