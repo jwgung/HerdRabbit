@@ -94,6 +94,7 @@ const STATIC_FILES = new Map([
   ["/push-notifications.js", { path: `${PUBLIC_DIR}/push-notifications.js`, type: "text/javascript; charset=utf-8" }],
   ["/lens-preference.js", { path: `${PUBLIC_DIR}/lens-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/markdown.js", { path: `${PUBLIC_DIR}/chat/markdown.js`, type: "text/javascript; charset=utf-8" }],
+  ["/chat/code-highlight.js", { path: `${PUBLIC_DIR}/chat/code-highlight.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/diff.js", { path: `${PUBLIC_DIR}/chat/diff.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/work-blocks.js", { path: `${PUBLIC_DIR}/chat/work-blocks.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/conversation-refresh.js", { path: `${PUBLIC_DIR}/chat/conversation-refresh.js`, type: "text/javascript; charset=utf-8" }],

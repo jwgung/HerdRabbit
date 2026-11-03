@@ -14,6 +14,7 @@ const view = await read("../public/chat/chat-view.js");
 const CHAT_FILES = [
   "/lens-preference.js",
   "/chat/markdown.js",
+  "/chat/code-highlight.js",
   "/chat/diff.js",
   "/chat/work-blocks.js",
   "/chat/conversation-refresh.js",

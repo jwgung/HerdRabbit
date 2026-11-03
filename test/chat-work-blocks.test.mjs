@@ -8,6 +8,7 @@ import {
   formatWorkDuration,
   MAX_DELIVERED_FILES,
   isLiveWorkTurn,
+  isToolNarration,
   splitDeliveredPath,
   splitTurn,
   todoCallSummary,
@@ -96,9 +97,28 @@ test("Codex's commands and patches read as verbs too", () => {
   assert.equal(toolVerb({ ...tool("shell", { command: ["bash", "-lc", "npm test"] }), summary: "npm test" }), "Ran");
   assert.equal(toolVerb({ kind: "tool", name: "apply_patch", summary: "src/a.ts", input: "*** Begin Patch\n*** Update File: src/a.ts\n*** End Patch" }), "Edited");
   assert.equal(toolVerb({ kind: "tool", name: "apply_patch", summary: "x", input: "not a patch" }), null);
+  // Codex's shell_command takes its command as one string
+  assert.equal(toolVerb(tool("shell_command", { command: "npm test", workdir: "/w" })), "Ran");
+  // Codex's code-mode exec: a script; one that applies a patch reads as the edit it makes
+  const script = (body, summary) => ({ kind: "tool", name: "exec", summary, input: body });
+  assert.equal(toolVerb(script('await tools.apply_patch("*** Begin Patch\\n*** Update File: src/a.ts\\n*** End Patch")', "src/a.ts")), "Edited");
+  assert.equal(toolVerb(script('await tools.exec_command({cmd: "ls"})', "exec")), null, "a script with no patch keeps its name");
+  assert.equal(toolVerb(script('// tools.apply_patch( is only quoted here', "exec")), null, "no files read from it: no edit");
   assert.equal(commandText(["bash", "-lc", "make"]), "make");
   assert.equal(commandText(["ls", "-la"]), "ls -la");
   assert.equal(commandText([1]), undefined);
+});
+
+test("a row whose summary is the agent's own sentence about the call reads as that sentence", () => {
+  const task = tool("Task", { description: "Explore the auth module", prompt: "Look at src/auth", subagent_type: "Explore" });
+  assert.equal(isToolNarration(task), true);
+  // the server folds the sentence's spaces and cuts it, as it does the summary
+  const long = `Check   the ${"x".repeat(200)}`;
+  assert.equal(isToolNarration({ ...tool("Agent", { description: long }), summary: `Check the ${"x".repeat(200)}`.slice(0, 120) }), true);
+  assert.equal(isToolNarration(tool("Bash", { command: "npm test", description: "Run the tests" })), false, "a command is the object, not a sentence");
+  assert.equal(isToolNarration({ ...tool("Task", { description: "x" }), summary: "Task" }), false, "a summary that is the name says nothing");
+  assert.equal(isToolNarration({ ...tool("Task", { description: "Explore" }), input: "{cut" }), false);
+  assert.equal(isToolNarration({ kind: "tool", name: "Task", summary: "Explore" }), false, "no input, no sentence");
 });
 
 test("a TodoWrite call reads as its list", () => {

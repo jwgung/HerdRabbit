@@ -843,9 +843,14 @@ pre.chat-tool-io,
   line-height: 1.5;
 }
 
-/* a long block opens folded to its first lines, with a row to show the rest */
+/* the block's own font: the browser's monospace would make each line taller */
+.md-code pre code {
+  font-family: inherit;
+}
+
+/* a long block opens folded to its first 20 lines, with a row to show the rest */
 .md-code.is-folded:not(.is-expanded) pre {
-  max-height: calc(20 * 1.5 * 12px + 20px);
+  max-height: calc(20 * 1.5em + 2 * var(--space-2-5));
   overflow: hidden;
 }
 
@@ -853,6 +858,44 @@ pre.chat-tool-io,
   width: 100%;
   border-top: 1px solid var(--line);
   border-radius: 0;
+}
+
+/* code-highlight.js: colours on the block's terminal black */
+.md-tok.is-keyword {
+  color: var(--code-keyword);
+}
+
+.md-tok.is-string {
+  color: var(--code-string);
+}
+
+.md-tok.is-comment {
+  color: var(--code-comment);
+}
+
+.md-tok.is-number {
+  color: var(--code-number);
+}
+
+.md-tok.is-meta {
+  color: var(--code-meta);
+}
+
+.md-tok.is-add {
+  color: var(--diff-add);
+}
+
+.md-tok.is-del {
+  color: var(--diff-del);
+}
+
+/* touch: the fold row and the work block's rows take a 44px tap */
+@media (hover: none) {
+  .md-code-more,
+  .work-block-head,
+  .work-row-head {
+    min-height: 44px;
+  }
 }
 
 .markdown .md-table-wrap {

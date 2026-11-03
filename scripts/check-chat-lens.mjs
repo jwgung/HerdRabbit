@@ -27,18 +27,23 @@ const jsonl = (entries) => `${entries.map((entry) => JSON.stringify(entry)).join
 const at = (n, seconds = 0) => new Date(Date.UTC(2026, 9, 1, 9, 0, 0) + n * 60_000 + seconds * 1000).toISOString();
 // A user message long enough to fold to its first 12 lines.
 const LONG_PROMPT = Array.from({ length: 20 }, (_, n) => `long prompt line ${n + 1}`).join("\n");
+// The last exchange's agent also sends a subagent off, and answers with a long block.
+const LONG_CODE = Array.from({ length: 35 }, (_, line) => `const line${line} = "<b>${line}</b>"; // note`).join("\n");
 // One exchange: a prompt, a command the agent ran, its output, and an answer.
 const exchange = (n) => [
   { type: "user", uuid: `u${n}`, parentUuid: null, timestamp: at(n), message: { role: "user", content: n === 68 ? LONG_PROMPT : `prompt ${n}` } },
   { type: "assistant", timestamp: at(n, 2), message: { role: "assistant", stop_reason: "tool_use", content: [
     { type: "text", text: `Looking at step ${n}.` },
     { type: "tool_use", id: `toolu_${n}`, name: "Bash", input: { command: `ls step-${n}`, description: "List the step" } },
+    ...(n === 69 ? [{ type: "tool_use", id: "toolu_task", name: "Task", input: { description: "Explore the step folder", prompt: "Look around", subagent_type: "Explore" } }] : []),
   ] } },
   { type: "user", timestamp: at(n, 3), message: { role: "user", content: [
     { type: "tool_result", tool_use_id: `toolu_${n}`, content: n === 69 ? `${"line\n".repeat(900)}end of output` : `step-${n}.txt` },
+    ...(n === 69 ? [{ type: "tool_result", tool_use_id: "toolu_task", content: "Found two files." }] : []),
   ] } },
   { type: "assistant", timestamp: at(n, 9), message: { role: "assistant", stop_reason: "end_turn", content: [
-    { type: "text", text: `Answer ${n} with **bold**, \`code\`, <script>alert(1)</script> and notes in /tmp/notes.md.\n\n- one\n- two\n\n\`\`\`js\nconsole.log(${n});\n\`\`\`` },
+    { type: "text", text: `Answer ${n} with **bold**, \`code\`, <script>alert(1)</script> and notes in /tmp/notes.md.\n\n- one\n- two\n\n\`\`\`js\nconsole.log(${n});\n\`\`\`` +
+      (n === 69 ? `\n\n\`\`\`js\n${LONG_CODE}\n\`\`\`` : "") },
   ] } },
 ];
 await writeFile(transcript, jsonl(Array.from({ length: 70 }, (_, n) => exchange(n)).flat()));
@@ -189,11 +194,35 @@ try {
     assert.equal(await chat.locator("script").count(), 0, "no markup from the transcript reaches the page");
     assert.match(await answer.textContent(), /<script>alert\(1\)<\/script>/u);
     assert.equal(await answer.locator(".md-code pre").first().textContent(), "console.log(69);");
+    // A js block is coloured: spans whose text is the code, the text unchanged.
+    assert.deepEqual(await answer.locator(".md-code pre").first().locator(".md-tok").evaluateAll((spans) => spans.map((span) => [span.className, span.textContent])),
+      [["md-tok is-number", "69"]]);
+    // A long block shows its first 20 lines, then all of them on request.
+    const long = answer.locator(".md-code.is-folded");
+    assert.equal(await long.locator("pre").textContent(), LONG_CODE, "the coloured block keeps its text");
+    assert.equal(await long.locator("pre b").count(), 0, "the code's tags stay text");
+    assert.ok(await long.locator(".md-tok.is-keyword").count() >= 35);
+    const lineBox = () => long.locator("pre").evaluate((pre) => {
+      const style = getComputedStyle(pre);
+      return { height: pre.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom), line: parseFloat(style.lineHeight) };
+    });
+    const folded = await lineBox();
+    assert.ok(Math.abs(folded.height / folded.line - 20) < 0.5, `folded to 20 lines: ${JSON.stringify(folded)}`);
+    const more = long.locator(".md-code-more");
+    assert.equal(await more.textContent(), "Show all 35 lines");
+    if (mobile) assert.ok((await more.boundingBox()).height >= 44, "the fold row takes a 44px tap");
+    await more.click();
+    assert.equal(await more.textContent(), "Show less");
+    assert.equal(await more.getAttribute("aria-expanded"), "true");
+    const open = await lineBox();
+    assert.ok(Math.abs(open.height / open.line - 35) < 0.5, `open to all 35 lines: ${JSON.stringify(open)}`);
+    await more.click();
+    assert.equal(await more.textContent(), "Show all 35 lines");
     assert.equal(await answer.locator('.md-file[data-path="/tmp/notes.md"]').count(), 1, "a path the viewer opens is a link");
     // A long user message folds to 12 lines behind "Show all", and opens and folds again.
-    const long = chat.locator(".chat-bubble.is-capped").filter({ hasText: "long prompt line 1" });
+    const longPrompt = chat.locator(".chat-bubble.is-capped").filter({ hasText: "long prompt line 1" });
     assert.equal(await chat.locator(".chat-bubble.is-capped").count(), 1, "only the long message folds");
-    const foldState = () => long.evaluate((bubble) => {
+    const foldState = () => longPrompt.evaluate((bubble) => {
       const body = bubble.querySelector(".markdown");
       const button = bubble.querySelector(".chat-bubble-more");
       const line = parseFloat(getComputedStyle(body).lineHeight);
@@ -204,18 +233,29 @@ try {
     assert.deepEqual({ clipped: shut.clipped, lines: shut.lines, label: shut.label, expanded: shut.expanded },
       { clipped: true, lines: 12, label: "Show all", expanded: "false" }, "folded to 12 lines");
     assert.ok(shut.height >= 44, `Show all is a 44px target: ${shut.height}`);
-    await long.locator(".chat-bubble-more").click();
+    await longPrompt.locator(".chat-bubble-more").click();
     const opened = await foldState();
     assert.deepEqual({ clipped: opened.clipped, label: opened.label, expanded: opened.expanded },
       { clipped: false, label: "Show less", expanded: "true" }, "Show all shows every line");
-    await long.locator(".chat-bubble-more").click();
+    await longPrompt.locator(".chat-bubble-more").click();
     assert.equal((await foldState()).clipped, true, "Show less folds it again");
 
     // Work is folded under one header, and a row opens to the call and its output.
     const block = answer.locator(".work-block");
     assert.match(await block.locator(".work-block-head").textContent(), /Worked for 7s.*1 command/u);
     await block.locator(".work-block-head").click();
-    await block.locator(".work-row-head").click();
+    // One row per call, each opening on its own. The subagent's row reads as
+    // its description; its tool's name is in the title and the opened detail.
+    const task = block.locator(".work-row", { hasText: "Explore the step folder" });
+    assert.equal(await task.locator(".work-row-name").count(), 0);
+    assert.equal(await task.locator(".work-row-head").getAttribute("title"), "Task · Explore the step folder");
+    assert.equal(await block.locator(".work-row-head", { hasText: "ls step-69" }).getAttribute("title"), "Bash · ls step-69");
+    await task.locator(".work-row-head").click();
+    assert.equal(await task.locator(".work-row-tool").textContent(), "Task");
+    assert.equal(await block.locator(".work-row-detail").count(), 1, "only the row opened shows its detail");
+    if (mobile) assert.ok((await task.locator(".work-row-head").boundingBox()).height >= 44, "a row takes a 44px tap");
+    await task.locator(".work-row-head").click();
+    await block.locator(".work-row-head", { hasText: "ls step-69" }).click();
     await block.locator(".chat-tool-more").click();
     await page.waitForFunction(() => [...document.querySelectorAll(".chat-tool-output pre")].some((pre) => pre.textContent.endsWith("end of output")));
 

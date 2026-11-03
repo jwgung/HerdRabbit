@@ -84,6 +84,12 @@
   /* Drawn on the terminal's black or a document's white, so the same in both themes. */
   --diff-add: #7ee2a8;
   --diff-del: #ff9a9a;
+  /* Code colours, drawn on the chat's code blocks (--terminal-bg) in both themes. */
+  --code-keyword: #c792ea;
+  --code-string: #c3e88d;
+  --code-comment: #8b949e;
+  --code-number: #f78c6c;
+  --code-meta: #82aaff;
   --find-mark: #ffc799;
   --find-mark-chat: #ffb340;
   --find-mark-current: #ff9500;

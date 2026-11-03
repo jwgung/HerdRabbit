@@ -10,6 +10,11 @@
 // src/lib/toolVerbs.ts and src/lib/todos.ts, reduced to Claude Code's,
 // Codex's and OpenCode's tools (the server gives OpenCode's inputs Claude's
 // field names).
+//
+// The Codex shell_command verb, the exec script that applies a patch, and
+// isToolNarration are adapted from
+// Ovis (MIT, Copyright (c) 2026 devswha), https://github.com/devswha/ovis --
+// src/lib/toolVerbs.ts.
 
 // { work: parts, answer: text parts and delivered files }. Files handed to
 // the user are what the turn made, not how: they stay out of the folded work
@@ -105,7 +110,7 @@ const VERB_OF = {
   write: "Wrote",
   bash: "Ran",
   // Codex
-  exec_command: "Ran", shell: "Ran", local_shell: "Ran",
+  exec_command: "Ran", shell: "Ran", shell_command: "Ran", local_shell: "Ran",
 };
 
 const OBJECT_KEYS = {
@@ -140,9 +145,13 @@ export function parseToolInput(input) {
 export function toolVerb(part) {
   const summary = String(part.summary ?? "");
   if (summary.trim().length === 0 || summary === part.name) return null;
+  const name = String(part.name).toLowerCase();
   // Codex's patch is its input whole; the server sums it up by the files it touches
-  if (String(part.name).toLowerCase() === "apply_patch") return String(part.input ?? "").trimStart().startsWith("*** Begin Patch") ? "Edited" : null;
-  const verb = VERB_OF[String(part.name).toLowerCase()];
+  if (name === "apply_patch") return String(part.input ?? "").trimStart().startsWith("*** Begin Patch") ? "Edited" : null;
+  // Codex's code-mode exec is a script: one that applies a patch is summed up the
+  // same way (a script it could not read a patch from keeps the tool's name)
+  if (name === "exec" && /tools\.apply_patch\(/u.test(String(part.input ?? ""))) return "Edited";
+  const verb = VERB_OF[name];
   if (verb === undefined) return null;
   const input = parseToolInput(part.input ?? "");
   if (input === null) return null;
@@ -150,6 +159,18 @@ export function toolVerb(part) {
   const matches = OBJECT_KEYS[verb].some((key) => said(key) !== undefined &&
     said(key).replace(/\s+/gu, " ").trim().slice(0, SUMMARY_LENGTH) === summary);
   return matches ? verb : null;
+}
+
+// Whether a row's summary is the agent's own sentence about the call ("Explore
+// the auth module", a subagent's description) rather than its command or
+// path. Such a row reads as the sentence alone: the tool's name in front of it
+// tells the reader nothing, and stays in the row's title and its detail.
+export function isToolNarration(part) {
+  const summary = String(part.summary ?? "");
+  if (summary.trim().length === 0 || summary === part.name) return false;
+  const input = parseToolInput(part.input ?? "");
+  return typeof input?.description === "string" &&
+    input.description.replace(/\s+/gu, " ").trim().slice(0, SUMMARY_LENGTH) === summary;
 }
 
 // Whether a row is a shell command, whose output also scrolled by in the terminal.

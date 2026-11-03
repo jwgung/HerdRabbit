@@ -1,7 +1,9 @@
 // The markdown an agent writes, as safe HTML for the chat: every character of
 // the source is escaped, links keep only http(s) and mailto addresses, and the
 // only markup is the fixed set of tags written below. No raw HTML from the
-// source ever reaches the page, and nothing is highlighted, typeset or drawn.
+// source ever reaches the page, and nothing is typeset or drawn. A code block
+// names its language (`data-language`) for code-highlight.js, which colours it
+// once it is in the page, as text nodes.
 //
 // Ported from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/lib/markdown.ts (the parser,
@@ -482,7 +484,8 @@ export const COPY_ICONS = '<svg class="copy-icon" aria-hidden="true" viewBox="0 
 function codeHtml(block) {
   const lines = block.value.split("\n").length;
   const folded = lines > FOLD_CODE_AFTER_LINES;
-  return `<div class="md-code${folded ? " is-folded" : ""}">` +
+  const language = block.language ? ` data-language="${escapeHtml(block.language)}"` : "";
+  return `<div class="md-code${folded ? " is-folded" : ""}"${language}>` +
     `<div class="md-code-head"><span>${escapeHtml(block.language || "text")}</span>` +
     `<button type="button" class="md-code-copy" data-action="copy-code" aria-label="Copy code" title="Copy code">${COPY_ICONS}</button></div>` +
     `<pre><code>${escapeHtml(block.value)}</code></pre>` +
