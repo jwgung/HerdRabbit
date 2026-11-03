@@ -1,16 +1,16 @@
-import { createTerminalFind, isFindShortcut } from "../terminal-find.js?v=1.4.26";
-import { createChatLens } from "../chat/chat-view.js?v=1.4.26";
-import { createChatImages } from "../chat/chat-images.js?v=1.4.26";
-import { createImageViewer } from "../chat/image-viewer.js?v=1.4.26";
-import { createChatFind } from "../chat/chat-find.js?v=1.4.26";
-import { composerPlaceholder, createPromptDock } from "../chat/prompt-card.js?v=1.4.26";
-import { paneServerId } from "../ui-model.js?v=1.4.26";
+import { createTerminalFind, isFindShortcut } from "../terminal-find.js?v=1.4.27";
+import { createChatLens } from "../chat/chat-view.js?v=1.4.27";
+import { createChatImages } from "../chat/chat-images.js?v=1.4.27";
+import { createImageViewer } from "../chat/image-viewer.js?v=1.4.27";
+import { createChatFind } from "../chat/chat-find.js?v=1.4.27";
+import { composerPlaceholder, createPromptDock } from "../chat/prompt-card.js?v=1.4.27";
+import { paneServerId } from "../ui-model.js?v=1.4.27";
 import {
   chatScale,
   pinchedChatFontSize,
   readChatFontSize,
   writeChatFontSize,
-} from "../chat-font-preference.js?v=1.4.26";
+} from "../chat-font-preference.js?v=1.4.27";
 
 // The Chat lens, the prompt dock, find in the terminal and in the conversation,
 // and the chat's text size. `deps` hands in what lives in app.js; its functions

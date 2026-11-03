@@ -1,6 +1,6 @@
-import { createElement } from "./dom.js?v=1.4.26";
-import { sessionChoiceLabel } from "../agents.js?v=1.4.26";
-import { createAgentPicker } from "./agent-picker.js?v=1.4.26";
+import { createElement } from "./dom.js?v=1.4.27";
+import { sessionChoiceLabel } from "../agents.js?v=1.4.27";
+import { createAgentPicker } from "./agent-picker.js?v=1.4.27";
 
 // The "New session" dialog: a project's ⋯ menu opens it for that project.
 // The form makes a session in the project with a shell or an installed agent,
