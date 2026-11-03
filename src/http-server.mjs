@@ -28,6 +28,7 @@ import { defaultProtectedPaths } from "./protected-paths.mjs";
 import { MAX_TEXT_PREVIEW_BYTES, inlineTypeFor, isMarkdown } from "../public/file-preview.js";
 import { renderMarkdown } from "./markdown.mjs";
 import { secretPrompt } from "./secret-prompt.mjs";
+import { agentCommand } from "./agent-launch.mjs";
 import { validateServerProfile } from "./server-profiles.mjs";
 import { ConversationMonitor } from "./conversation/monitor.mjs";
 import { ConversationService } from "./conversation/service.mjs";
@@ -519,6 +520,9 @@ export function createHerdrHttpServer({
   updater = null,
   // Herdr's own update on this PC (src/herdr-update.mjs), or null.
   herdrUpdater = null,
+  // Which agents this PC can start in a new session (src/agent-launch.mjs),
+  // or null when it cannot tell. A connected PC answers over its link.
+  installedAgents = null,
   csrfToken = randomBytes(32).toString("base64url"),
   maxBodyBytes = 16 * 1024,
   maxTransferBytes = Infinity,
@@ -1250,9 +1254,16 @@ export function createHerdrHttpServer({
       );
       if (method === "POST" && workspaceTabsMatch) {
         requireWriteAuthorization(request, csrfToken);
-        await readJsonBody(request, maxBodyBytes);
-        await herdr.createTab(decodePaneId(workspaceTabsMatch[1]));
-        sendJson(response, 201, { snapshot: await herdr.snapshot() });
+        const body = await readJsonBody(request, maxBodyBytes);
+        sendJson(response, 201, await createSession(decodePaneId(workspaceTabsMatch[1]), body));
+        return;
+      }
+
+      // The agents a machine has installed, for the New session dialog.
+      if (method === "GET" && url.pathname === "/api/agents") {
+        requireSameOrigin(request);
+        const { serverId, agents } = await agentsOn(url.searchParams.get("server"));
+        sendJson(response, 200, { server: serverId, supported: agents !== null, agents: agents ?? [] });
         return;
       }
 
@@ -1386,6 +1397,55 @@ export function createHerdrHttpServer({
     const remote = typeof value === "string" ? herdr.updateClient?.(value) : null;
     if (!remote) throw new HttpError(404, "unknown_server", "That server is no longer configured.");
     return { serverId: value, remote };
+  }
+
+  // The agents a machine can start: this PC's own finder, or a connected
+  // PC's answer over its link. Null when that machine cannot tell (no finder,
+  // or a PC from before this).
+  async function agentsOn(value) {
+    if (value === undefined || value === null || value === "" || value === LOCAL_SERVER) {
+      return { serverId: LOCAL_SERVER, agents: installedAgents ? await installedAgents.list() : null };
+    }
+    const remote = typeof value === "string" ? herdr.agentsClient?.(value) : null;
+    if (!remote) throw new HttpError(404, "unknown_server", "That server is no longer configured.");
+    return { serverId: value, agents: (await remote.installedAgents?.()) ?? null };
+  }
+
+  // A new session in a project: a shell, optionally named, optionally with an
+  // agent started in it. Everything that can be refused is refused before
+  // Herdr is asked to make anything; the command typed is the agent table's,
+  // never the request's.
+  async function createSession(workspaceId, body) {
+    const agent = body.agent === undefined || body.agent === null || body.agent === "" ? null : body.agent;
+    const command = agent === null ? null : agentCommand(agent);
+    if (agent !== null && command === null) throw new InputValidationError("Unknown agent");
+    const label = body.label === undefined || body.label === null || (typeof body.label === "string" && body.label.trim() === "")
+      ? null : validation.validateTabLabel(body.label);
+    if (agent === null && label === null) {
+      await herdr.createTab(workspaceId);
+      return { snapshot: await herdr.snapshot() };
+    }
+    const before = await herdr.snapshot();
+    const workspace = (before.workspaces ?? []).find((item) => item.workspace_id === workspaceId);
+    if (!workspace) throw new HttpError(404, "unknown_workspace", "That project is no longer there.");
+    if (agent !== null) {
+      const { agents } = await agentsOn(workspace.server_id ?? LOCAL_SERVER);
+      if (agents === null) {
+        throw new HttpError(501, "link_unsupported", "That PC is too old to start agents from here; update it there.");
+      }
+      if (!agents.includes(agent)) {
+        throw new HttpError(409, "agent_not_installed", "That agent is not installed on that machine. Choose another, or install it there first.");
+      }
+    }
+    const knownTabs = new Set((before.tabs ?? []).map((tab) => tab.tab_id));
+    await herdr.createTab(workspaceId);
+    const after = await herdr.snapshot();
+    const tab = (after.tabs ?? []).find((item) => item.workspace_id === workspaceId && !knownTabs.has(item.tab_id));
+    const pane = tab && (after.panes ?? []).find((item) => item.tab_id === tab.tab_id);
+    if (!pane) throw new HttpError(502, "session_missing", "The new session was made but could not be found. Refresh and try again.");
+    if (label !== null) await herdr.renameTab(tab.tab_id, label);
+    if (command !== null) await herdr.sendText(pane.pane_id, command, { submit: true });
+    return { snapshot: label === null ? after : await herdr.snapshot(), paneId: pane.pane_id };
   }
 
   function accountsSource(value) {

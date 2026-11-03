@@ -1193,6 +1193,7 @@ export const validation = Object.freeze({
   validatePaneId,
   validateWorkspaceId,
   validateTabId,
+  validateTabLabel,
   validateWorkspaceLabel,
   validateInsertIndex,
   validateText,

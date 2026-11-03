@@ -210,6 +210,14 @@ export class MultiServerClient {
     return entry?.client ?? null;
   }
 
+  // Which agents a connected PC has is asked of that PC, over its link; this
+  // PC's are the caller's. Null for this PC and for a PC no longer configured.
+  agentsClient(serverId) {
+    this.syncEntries();
+    const entry = serverId === "local" ? null : this.entries.get(serverId);
+    return entry?.client ?? null;
+  }
+
   // Account routes address a server the same way: a connected PC switches its
   // own accounts. Local is the caller's.
   aiAccountsClient(serverId) {

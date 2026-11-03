@@ -9,6 +9,7 @@ import { openRemotePty } from "./link-attach.mjs";
 import { ConversationError, ConversationUnavailable, HistoryChanged, TOOL_ID } from "./conversation/pages.mjs";
 import { cleanCheck, cleanRunStatus } from "./app-update.mjs";
 import { cleanHerdrCheck, cleanHerdrRunStatus } from "./herdr-update.mjs";
+import { knownAgentNames } from "./agent-launch.mjs";
 
 // fileIdle: how long a file being passed on may go quiet before it fails
 const TIMEOUTS = { hello: 5_000, snapshot: 8_000, read: 6_000, write: 6_000, fileIdle: 60_000 };
@@ -413,6 +414,15 @@ export class LinkClient {
     await this.#ready();
     if (!this.#features.has("commands")) return null;
     return this.#request(`/api/link/panes/${encodeURIComponent(paneId)}/commands`, { timeoutMs: this.timeouts.read });
+  }
+
+  // The agents installed on the PC, for a PC that names `agents`; null from
+  // an older one. Only names this hub's own table knows are kept.
+  async installedAgents() {
+    await this.#ready();
+    if (!this.#features.has("agents")) return null;
+    const answer = await this.#request("/api/link/agents", { timeoutMs: this.timeouts.read });
+    return knownAgentNames(answer?.agents);
   }
 
   // The PC's own update. A PC that does not name `update` has no such
