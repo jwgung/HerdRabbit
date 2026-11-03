@@ -391,7 +391,8 @@ export class AppUpdater {
     // at the same time as it.
     herdr = null,
     // { id, binary } when Herdr started this server as that plugin: the run
-    // is `herdr plugin update` and the plugin's restart, started detached.
+    // is `herdr plugin install … --ref <release>` and the plugin's restart,
+    // started detached.
     plugin = null, spawnImpl = spawn, alive = processAlive,
   }) {
     if (!stateDir) throw new TypeError("stateDir is required");

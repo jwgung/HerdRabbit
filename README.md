@@ -49,7 +49,7 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 - Create workspaces and tabs from the top `+` (**New session…**, **New project…**), start either with an agent installed on that machine, name a new session or resume an earlier one in the project's folder, rename workspaces and sessions, and close tabs or workspaces after confirmation
 - View images, video, audio, Markdown and text in the browser instead of downloading them first
 - Manage every machine from its row in the sidebar, this one included: read its name and versions, connect another PC from this one's row (**Connect PC…**), and rename or disconnect a PC added with Connect PC (or find it again after it moved port)
-- Switch the Claude Code or Codex account a machine uses without signing in again, from the same row
+- Switch the Claude Code, Codex, Antigravity CLI or Kiro CLI account a machine uses without signing in again, from the same row
 - Move files between the browsing device and the Herdr machine through a shared uploads folder: upload from the composer's attach button, paste the stored path into the composer, and download or delete stored files
 - Remember the selected pane and collapsed workspaces in the browser
 - Switch sidebar entries with `Ctrl+Tab`, `Ctrl+Shift+Tab`, or `Ctrl+1`–`Ctrl+9` when the browser forwards those shortcuts to the app

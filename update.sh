@@ -121,7 +121,7 @@ main() {
     systemctl --user restart "$UPDATE_SERVICE" || roll_back "the service did not restart; check journalctl --user -u $UPDATE_SERVICE"
     systemctl --user is-active --quiet "$UPDATE_SERVICE" || roll_back "service is not active; check journalctl --user -u $UPDATE_SERVICE"
     log "Updated to $RELEASE_TAG ($(git rev-parse --short HEAD)). Refresh the web app or PWA." # step: done
-    log "Existing service settings and saved SSH connections are preserved."
+    log "Existing service settings and connected PCs are preserved."
 
     # A unit that drifted to 0.0.0.0 -- hand-edited, or written by an older
     # installer -- puts the service on every network the machine is attached to,

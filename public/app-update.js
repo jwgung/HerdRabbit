@@ -1,4 +1,4 @@
-// In-app update: the ⚙ menu's Update window. Each PC -- this one and every PC
+// In-app update: the Update window (⚙ Settings → About). Each PC -- this one and every PC
 // connected with Connect PC -- is checked when the app opens and when Check is
 // pressed, never on a timer, for a release newer than the version it runs. Update runs update.sh on that PC (the server
 // starts it outside its own service), and this page follows the run: through
