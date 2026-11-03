@@ -11,10 +11,15 @@ import { cleanCheck, cleanRunStatus } from "./app-update.mjs";
 import { cleanHerdrCheck, cleanHerdrRunStatus } from "./herdr-update.mjs";
 import { knownAgentNames } from "./agent-launch.mjs";
 import { cleanSessionList } from "./agent-sessions.mjs";
+import { HttpError } from "./http-basics.mjs";
+import { cleanPluginState, validatePluginId, validatePluginRef, validatePluginSource } from "./herdr-plugins.mjs";
 
 // fileIdle: how long a file being passed on may go quiet before it fails
 const TIMEOUTS = { hello: 5_000, snapshot: 8_000, read: 6_000, write: 6_000, fileIdle: 60_000 };
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+// Listing runs `herdr plugin list` there, and starting a change lists too.
+const PLUGIN_READ_TIMEOUT_MS = 20_000;
+const PLUGIN_WRITE_TIMEOUT_MS = 40_000;
 // A refusal is a short JSON error; nothing a connected PC says about one needs more.
 const MAX_ERROR_BYTES = 64 * 1024;
 
@@ -35,6 +40,13 @@ const gridSize = (value) => validSize(value) ? value : undefined;
 // Why a connected PC would not start its update, passed on with its code.
 const UPDATE_CODES = new Set([
   "update_running", "too_many_requests", "update_check_failed", "up_to_date", "update_blocked", "update_start_failed",
+]);
+
+// Why a connected PC would not change a plugin, passed on with its status and
+// code: the person sees the PC's own reason.
+const PLUGIN_CODES = new Set([
+  "invalid_plugin_id", "invalid_plugin_source", "invalid_plugin_ref", "plugin_not_found", "plugin_protected",
+  "plugin_busy", "plugin_not_updatable", "plugin_list_failed", "plugins_unavailable",
 ]);
 
 // What a connected PC answers about one pane's conversation and this hub
@@ -260,7 +272,7 @@ export class LinkClient {
     this.#verify(await this.#request("/api/link/hello", { timeoutMs: this.timeouts.hello, checked: true }));
   }
 
-  async #request(path, { method = "GET", body, timeoutMs = this.timeouts.read, accountErrors = false, checked = false, codes = null } = {}) {
+  async #request(path, { method = "GET", body, timeoutMs = this.timeouts.read, accountErrors = false, pluginErrors = false, checked = false, codes = null } = {}) {
     if (!checked) await this.#ready();
     const call = await this.#open(path, {
       method,
@@ -277,6 +289,10 @@ export class LinkClient {
       // An account refusal keeps its own status and code, so "that account is
       // active" is not flattened into "the connected PC is broken".
       const refusal = payload?.error;
+      if (pluginErrors && PLUGIN_CODES.has(refusal?.code)) {
+        const status = response.status >= 400 && response.status < 600 ? response.status : 502;
+        throw new HttpError(status, refusal.code, readable(refusal.message) || "That PC refused the plugin change.");
+      }
       if (codes?.has(refusal?.code)) {
         throw linkError(refusal.code, readable(refusal.message) || `HerdRabbit at ${this.address} returned ${response.status}.`);
       }
@@ -804,6 +820,35 @@ export class LinkClient {
       cancelLogin: (cli, loginId) => post(`/logins/${encodeURIComponent(loginId)}/cancel`, { cli }),
       switch: (cli, account, { confirmRunning = false } = {}) => post("/switch", { cli, account, confirmRunning }),
       remove: (cli, account) => post("/remove", { cli, account }),
+    };
+  }
+
+  // Herdr's plugins on the connected PC, shaped like the local PluginManager.
+  // A change only starts there and is followed by listing again, so no call
+  // waits on a clone and build. What is sent is checked here first, and the
+  // PC checks it again; what comes back is cleaned like this PC's own list.
+  plugins() {
+    const supported = async () => {
+      await this.#ready();
+      if (!this.#features.has("plugins")) throw tooOld(this.address, "managing plugins from here");
+    };
+    const post = (path, body) => this.#request(`/api/link/plugins${path}`, {
+      method: "POST", body, timeoutMs: PLUGIN_WRITE_TIMEOUT_MS, pluginErrors: true,
+    });
+    return {
+      list: async () => {
+        await supported();
+        return cleanPluginState(await this.#request("/api/link/plugins", { timeoutMs: PLUGIN_READ_TIMEOUT_MS, pluginErrors: true }));
+      },
+      start: async (action, { plugin, source, ref } = {}) => {
+        await supported();
+        if (action === "install") {
+          const spec = validatePluginSource(source).spec;
+          return cleanPluginState(await post("/install", { source: spec, ref: validatePluginRef(ref) }));
+        }
+        if (!["enable", "disable", "update", "uninstall"].includes(action)) throw new HttpError(404, "not_found", "Not found");
+        return cleanPluginState(await post(`/${encodeURIComponent(validatePluginId(plugin))}/${action}`, {}));
+      },
     };
   }
 

@@ -507,6 +507,19 @@ Saved sign-ins are stored in `~/.config/herdr-bridge/ai-accounts`, or the direct
 
 The CLI's own files are what gets switched: `~/.claude/.credentials.json` plus the `oauthAccount` field of `~/.claude.json`, `~/.codex/auth.json`, and `~/.gemini/antigravity-cli/antigravity-oauth-token`, and the sign-in rows of Kiro CLI's `~/.local/share/kiro-cli/data.sqlite3` (or under `XDG_DATA_HOME`), or the directories in `CLAUDE_CONFIG_DIR` and `CODEX_HOME` as the HerdRabbit service sees them. Codex set to store sign-ins anywhere but a file (`cli_auth_credentials_store` other than `file`, such as `keyring` or `auto`) cannot be switched and says so; so does `agy` when the system keyring (Secret Service) holds its sign-in, which it uses whenever it can reach one, in place of the file. HerdRabbit asks the keyring only whether that entry exists, on the session bus in `DBUS_SESSION_BUS_ADDRESS` or `XDG_RUNTIME_DIR`; a service started with neither assumes the file, and one without `gdbus` says the keyring could not be checked. `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` in the environment still overrides whatever account is saved. Claude on macOS keeps sign-ins in the Keychain and is not supported. Kiro CLI keeps its sign-in in the same database as its conversations, history and telemetry, which running `kiro-cli` processes keep open, so only the sign-in rows (every `auth_kv` row named `kirocli:*` and the `auth.idc.start-url`, `auth.idc.region` and `api.codewhisperer.profile` state rows) are swapped, in one transaction that waits for a write in progress; each saved account keeps its own client registration. Nothing in that database says whose account it is, so HerdRabbit runs `kiro-cli whoami` to learn the email, over the network: once per sign-in while the service runs, plus once after each token refresh for a Google or GitHub sign-in, which has no client registration to tell it by. A saved account carries its email, so a restarted service knows the live one without asking; when it cannot tell whose the live sign-in is, a switch is refused rather than replacing it unsaved. Kiro CLI is switched on Linux only, with Node 22.13 or later (for `node:sqlite`).
 
+### Plugins
+
+**Settings → Plugins** manages Herdr's own plugins (`herdr plugin …`) on each machine. It is shown only when sign-in (a password) is on, and the server refuses every plugin request otherwise: a plugin runs its build and its own code on its machine, as the user HerdRabbit runs as.
+
+- With more than one machine, **Machine** chooses which one the page shows: this PC or a connected PC.
+- Each plugin shows its name, version and source (`owner/repo@ref`, linked to its GitHub repository), an **On/Off** switch (`herdr plugin enable|disable`), and a ⋯ menu with **Update** (`herdr plugin update <id> --yes`, for a plugin installed from GitHub) and **Uninstall…** (`herdr plugin uninstall <id>`, after a confirm).
+- **Install plugin…** asks for a **Source**, `owner/repo` or `owner/repo/folder` (a pasted `https://github.com/…` address is reduced to that), and an optional **Ref** (a branch, tag or commit). It shows the `https://github.com/<owner>/<repo>` address it names and a warning that the plugin runs code on that machine, then asks to confirm before running `herdr plugin install <source> [--ref <ref>] --yes`.
+- HerdRabbit's own plugin is listed but has no controls here, and the server refuses to disable, uninstall, update or reinstall it (any repository named HerdRabbit counts): it updates from **About → Update**.
+- One plugin change runs at a time on a machine, and none while HerdRabbit or Herdr is updating there. An install or update clones and builds, which can take minutes; the page shows it running and follows it until it ends.
+- On a connected PC the commands run on that PC, which checks the request again. A PC on an older HerdRabbit says to update it there.
+
+Source, ref and plugin id are checked on both machines: GitHub's owner and repository name rules, a git ref name without spaces, `..` or a leading `-`, and short plugin ids. Herdr is run with an argument list, never through a shell.
+
 ### Output and history
 
 Terminal output and history come only from Herdr's own screen and scrollback. Claude's JSONL transcript, Codex's rollout and OpenCode's database are never merged into the terminal; only the Chat lens reads them, as its own view (and a Claude plan or question card takes its words from them). In an attached terminal the wheel or a finger drag scrolls Herdr's own history; a mirrored pane shows its current screen only. History Herdr no longer holds cannot be shown. Claude must run in the plain terminal mode the installer configures for its scrollback to be readable.
@@ -525,6 +538,7 @@ The ⚙ button at the foot of the sidebar opens the settings screen. On a deskto
 - **Notifications:** the **Off** / **On** choice and its state.
 - **Security** (shown when a password is set): **Passkeys** and **Signed-in devices**.
 - **PCs** (shown where Connect PC is available): the connected PCs, each opening its Details, and **Connect PC**.
+- **Plugins** (shown when a password is set): Herdr's plugins on each machine, see [Plugins](#plugins).
 - **About:** this machine's HerdRabbit and Herdr versions, and **Update**.
 
 ### Display settings

@@ -20,6 +20,8 @@ const MAX_WATCHED_PANES = 512;
 // Status streams open at once. A hub keeps one per page watching this PC.
 const MAX_STATUS_STREAMS = 16;
 const AI_ACCOUNT_ROUTE = aiAccountRoute("/api/link/ai-accounts");
+// /api/link/plugins, /api/link/plugins/install, /api/link/plugins/<id>/<action>.
+const PLUGIN_ROUTE = /^\/api\/link\/plugins(?:\/([^/]{1,200})(?:\/(enable|disable|update|uninstall))?)?$/u;
 
 
 
@@ -79,7 +81,7 @@ async function sendFile(response, file) {
 // `updater` is this PC's own AppUpdater (src/app-update.mjs): a hub checks
 // for and starts an update of this PC through it, never naming anything.
 export function linkRoutes({
-  client, files = null, aiAccounts = null, installedAgents = null, agentSessions = null, attach = null, conversations = null, slashCommands = null, updater = null, herdrUpdater = null, version, herdrVersion = () => null, serverName = "",
+  client, files = null, aiAccounts = null, plugins = null, installedAgents = null, agentSessions = null, attach = null, conversations = null, slashCommands = null, updater = null, herdrUpdater = null, version, herdrVersion = () => null, serverName = "",
   maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024, protectedPaths = defaultProtectedPaths(),
   maxStatusStreams = MAX_STATUS_STREAMS,
 }) {
@@ -109,6 +111,8 @@ export function linkRoutes({
         // A folder's earlier sessions (src/agent-sessions.mjs); a PC that names
         // it also opens a tab in a folder asked.
         ...(agentSessions ? ["agent_sessions"] : []),
+        // Herdr's plugins here (src/herdr-plugins.mjs): listed and changed.
+        ...(plugins ? ["plugins"] : []),
       ],
     };
   }
@@ -499,6 +503,29 @@ export function linkRoutes({
       else if (step === "finish") result = await aiAccounts.finishLogin(body.cli, loginId);
       else result = await aiAccounts.cancelLogin(body.cli, loginId);
       sendJson(response, 200, result);
+      return true;
+    }
+
+    // Herdr's plugins on this PC. The hub names a plugin id or an
+    // owner/repo[/subdir] and a ref; this PC's own manager checks them again
+    // and runs Herdr, and leaves HerdRabbit itself alone, as for its own page.
+    const pluginMatch = url.pathname.match(PLUGIN_ROUTE);
+    if (pluginMatch) {
+      if (!plugins) throw new HttpError(501, "plugins_unavailable", "This PC cannot manage Herdr's plugins.");
+      const [, segment, action] = pluginMatch;
+      if (method === "GET" && segment === undefined) {
+        sendJson(response, 200, await plugins.list());
+        return true;
+      }
+      const install = segment === "install" && action === undefined;
+      if (method !== "POST" || segment === undefined || (!install && action === undefined)) {
+        throw new HttpError(405, "method_not_allowed", "Method not allowed");
+      }
+      const body = await readJsonBody(request, maxBodyBytes);
+      const answer = install
+        ? await plugins.start("install", { source: body.source, ref: body.ref })
+        : await plugins.start(action, { plugin: decodePaneId(segment) });
+      sendJson(response, 202, answer);
       return true;
     }
 

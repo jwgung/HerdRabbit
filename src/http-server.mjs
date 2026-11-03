@@ -38,6 +38,9 @@ import { errorResponse } from "./error-response.mjs";
 import { PromptService } from "./prompt/service.mjs";
 import { SlashCommandCatalog } from "./slash-commands.mjs";
 import { runLimiter } from "./app-update.mjs";
+import {
+  HERDRABBIT_ID, cleanPluginState, validatePluginId, validatePluginRef, validatePluginSource,
+} from "./herdr-plugins.mjs";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
 const SIMPLEWEBAUTHN_BROWSER_BUNDLE = fileURLToPath(new URL(
@@ -400,6 +403,8 @@ function directoryReadLimiter(maxConcurrent) {
 // of every URL, and so out of any proxy log sitting in front of the app.
 const LOCAL_SERVER = "local";
 const AI_ACCOUNT_ROUTE = aiAccountRoute("/api/ai-accounts");
+// /api/plugins, /api/plugins/install, /api/plugins/<id>, /api/plugins/<id>/<action>.
+const PLUGIN_ROUTE = /^\/api\/plugins(?:\/([^/]{1,200})(?:\/(enable|disable|update))?)?$/u;
 // The browser recognises sign-in projects by this prefix and keeps what is
 // typed into them out of its prompt history.
 const AI_LOGIN_LABEL_PREFIX = "AI login: ";
@@ -505,6 +510,9 @@ export function createHerdrHttpServer({
   notificationMonitor = null,
   allowedHosts = LOOPBACK_HOSTS,
   aiAccounts = null,
+  // Herdr's plugins on this PC (src/herdr-plugins.mjs), or null. A connected
+  // PC's go over its link.
+  plugins = null,
   attachments = null,
   // How many Herdr SSH machines `herdr machine list` still names; those are
   // not shown any more, and the page says once how to bring those PCs back.
@@ -1011,6 +1019,45 @@ export function createHerdrHttpServer({
         return;
       }
 
+      // Herdr's plugins, on this PC or a connected PC. A plugin runs code on
+      // its machine, so these answer only with sign-in on; what is installed
+      // is checked here and again on the machine that runs it.
+      if (url.pathname === "/api/plugins" || url.pathname.startsWith("/api/plugins/")) {
+        const match = url.pathname.match(PLUGIN_ROUTE);
+        if (!match) throw new HttpError(404, "not_found", "Not found");
+        if (!auth.required) {
+          throw new HttpError(409, "password_auth_required", "Plugins can be managed only with sign-in on. Set a password for this HerdRabbit first.");
+        }
+        const [, segment, action] = match;
+        if (method === "GET" && segment === undefined) {
+          requireSameOrigin(request);
+          const { serverId, source } = pluginsSource(url.searchParams.get("server"));
+          sendJson(response, 200, { ...cleanPluginState(await source.list()), server: serverId });
+          return;
+        }
+        requireWriteAuthorization(request, csrfToken);
+        let started;
+        if (method === "POST" && segment === "install" && action === undefined) {
+          const body = await readJsonBody(request, maxBodyBytes);
+          const pluginSource = validatePluginSource(body.source);
+          const ref = validatePluginRef(body.ref);
+          const { serverId, source } = pluginsSource(body.server);
+          started = { serverId, answer: await source.start("install", { source: pluginSource.spec, ref }) };
+        } else if ((method === "POST" && action !== undefined) || (method === "DELETE" && segment !== undefined && action === undefined)) {
+          const plugin = validatePluginId(decodePaneId(segment));
+          if (plugin === HERDRABBIT_ID) {
+            throw new HttpError(403, "plugin_protected", "HerdRabbit's own plugin is left alone here; update it from Settings → Updates.");
+          }
+          const server = method === "DELETE" ? url.searchParams.get("server") : (await readJsonBody(request, maxBodyBytes)).server;
+          const { serverId, source } = pluginsSource(server);
+          started = { serverId, answer: await source.start(action ?? "uninstall", { plugin }) };
+        } else {
+          throw new HttpError(405, "method_not_allowed", "Method not allowed");
+        }
+        sendJson(response, 202, { ...cleanPluginState(started.answer), server: started.serverId });
+        return;
+      }
+
       if (url.pathname.startsWith("/api/browse")) {
         if (method === "GET" && url.pathname === "/api/browse") {
           // Same-origin only. Another site cannot read the reply, but it could
@@ -1204,6 +1251,9 @@ export function createHerdrHttpServer({
           // PC's own Connect PC port for Details.
           servers: Boolean(profiles),
           connectPc,
+          // Whether Settings → Plugins can manage Herdr's plugins here (only
+          // with sign-in on, which authRequired says).
+          plugins: Boolean(plugins),
           // Bytes, or null when files may be any size.
           maxTransferBytes: Number.isFinite(maxTransferBytes) ? maxTransferBytes : null,
         });
@@ -1600,6 +1650,18 @@ export function createHerdrHttpServer({
       return { serverId: LOCAL_SERVER, source: aiAccounts };
     }
     const source = typeof value === "string" ? herdr.aiAccountsClient?.(value) : null;
+    if (!source) throw new HttpError(404, "unknown_server", "That server is no longer configured.");
+    return { serverId: value, source };
+  }
+
+  // Plugin routes address a machine like account routes: a connected PC runs
+  // Herdr's plugin commands itself, over its link.
+  function pluginsSource(value) {
+    if (value === undefined || value === null || value === "" || value === LOCAL_SERVER) {
+      if (!plugins) throw new HttpError(404, "plugins_unavailable", "This PC cannot manage Herdr's plugins from here.");
+      return { serverId: LOCAL_SERVER, source: plugins };
+    }
+    const source = typeof value === "string" ? herdr.pluginsClient?.(value) : null;
     if (!source) throw new HttpError(404, "unknown_server", "That server is no longer configured.");
     return { serverId: value, source };
   }

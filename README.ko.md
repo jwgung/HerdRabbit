@@ -542,6 +542,19 @@ iOS에서 PWA를 독립 실행 모드로 쓰면 내려받은 파일이 저장되
 
 전환되는 것은 CLI 자신의 파일입니다. `~/.claude/.credentials.json`과 `~/.claude.json`의 `oauthAccount` 필드, `~/.codex/auth.json`, 그리고 `~/.gemini/antigravity-cli/antigravity-oauth-token`, 그리고 Kiro CLI의 `~/.local/share/kiro-cli/data.sqlite3`(또는 `XDG_DATA_HOME` 아래) 안의 로그인 행입니다. HerdRabbit 서비스 환경에 `CLAUDE_CONFIG_DIR`이나 `CODEX_HOME`이 있으면 그 디렉터리를 씁니다. 로그인을 파일이 아닌 곳에 저장하도록(`cli_auth_credentials_store`가 `keyring`, `auto` 등 `file`이 아닌 값) 설정한 Codex는 전환할 수 없다고 표시합니다. `agy`도 시스템 키링(Secret Service)에 로그인이 있으면 같습니다. `agy`는 키링에 닿을 수 있으면 파일 대신 키링을 씁니다. HerdRabbit은 `DBUS_SESSION_BUS_ADDRESS`나 `XDG_RUNTIME_DIR`의 세션 버스에서 그 항목이 있는지만 묻고, 둘 다 없는 서비스는 파일로 보고, `gdbus`가 없으면 키링을 확인하지 못했다고 알립니다. 그리고 환경에 `ANTHROPIC_API_KEY`나 `CLAUDE_CODE_OAUTH_TOKEN`이 있으면 저장된 계정보다 그것이 우선합니다. macOS의 Claude는 로그인을 키체인에 두므로 지원하지 않습니다. Kiro CLI는 로그인을 대화·기록·텔레메트리와 같은 데이터베이스에 두고, 실행 중인 `kiro-cli`가 그 파일을 열어 두므로, 로그인 행만(`kirocli:*` 이름의 `auth_kv` 행 전부와 `auth.idc.start-url`, `auth.idc.region`, `api.codewhisperer.profile` state 행) 트랜잭션 하나로 바꿉니다. 다른 프로그램이 쓰는 중이면 기다립니다. 저장한 계정마다 자기 클라이언트 등록을 따로 가집니다. 그 데이터베이스에는 누구 계정인지 적혀 있지 않아서 `kiro-cli whoami`로 이메일을 알아내며, 이때 네트워크를 씁니다. 서비스가 도는 동안 로그인마다 한 번이고, 클라이언트 등록이 없는 Google·GitHub 로그인은 토큰이 갱신될 때마다 한 번 더 묻습니다. 저장한 계정에는 이메일이 함께 있어서, 다시 시작한 서비스도 묻지 않고 지금 계정을 알아봅니다. 지금 로그인이 누구 것인지 알 수 없으면 저장하지 않은 채 덮어쓰지 않도록 전환을 거절합니다. Kiro CLI는 Linux에서, Node 22.13 이상(`node:sqlite`)일 때만 전환합니다.
 
+### 플러그인
+
+**Settings → Plugins**에서 머신마다 Herdr 플러그인(`herdr plugin …`)을 관리합니다. 로그인(비밀번호)을 켰을 때만 보이고, 꺼져 있으면 서버가 모든 플러그인 요청을 거절합니다. 플러그인은 그 머신에서 HerdRabbit을 실행하는 사용자 권한으로 빌드와 자기 코드를 실행하기 때문입니다.
+
+- 머신이 둘 이상이면 **Machine**에서 이 PC나 붙인 PC 중 어느 머신을 볼지 고릅니다.
+- 플러그인마다 이름, 버전, 출처(`owner/repo@ref`, GitHub 저장소로 연결), **On/Off** 스위치(`herdr plugin enable|disable`), ⋯ 메뉴의 **Update**(`herdr plugin update <id> --yes`, GitHub에서 설치한 플러그인만)와 **Uninstall…**(확인 후 `herdr plugin uninstall <id>`)이 있습니다.
+- **Install plugin…**은 **Source**(`owner/repo` 또는 `owner/repo/folder`, 붙여 넣은 `https://github.com/…` 주소는 이 형태로 줄입니다)와 선택 사항인 **Ref**(브랜치, 태그, 커밋)를 받습니다. 가리키는 `https://github.com/<owner>/<repo>` 주소와 그 머신에서 코드가 실행된다는 경고를 보여 주고, 확인을 한 번 더 받은 뒤 `herdr plugin install <source> [--ref <ref>] --yes`를 실행합니다.
+- HerdRabbit 자신의 플러그인은 목록에는 나오지만 여기서는 조작할 수 없고, 서버도 끄기·제거·업데이트·재설치를 거절합니다(이름이 HerdRabbit인 저장소는 모두 해당). 업데이트는 **About → Update**에서 합니다.
+- 한 머신에서는 플러그인 변경을 한 번에 하나만 실행하고, HerdRabbit이나 Herdr를 업데이트하는 동안에는 시작하지 않습니다. 설치·업데이트는 clone과 빌드를 하므로 몇 분 걸릴 수 있으며, 화면이 진행 중임을 보여 주고 끝날 때까지 따라갑니다.
+- 붙인 PC에서는 명령이 그 PC에서 실행되고, 그 PC가 요청을 다시 검사합니다. 이전 버전 HerdRabbit PC는 그곳에서 업데이트하라고 알려 줍니다.
+
+Source, ref, 플러그인 id는 두 머신 모두에서 검사합니다. GitHub의 owner·저장소 이름 규칙, 공백·`..`·맨 앞 `-`가 없는 git ref 이름, 짧은 플러그인 id만 받습니다. Herdr는 셸 없이 인자 목록으로 실행합니다.
+
 ### 출력과 이전 기록
 
 터미널의 출력과 이전 기록은 Herdr의 화면 및 스크롤백에서만 가져오며 Claude JSONL 기록, Codex rollout, OpenCode 데이터베이스를 터미널에 섞지 않습니다. 그 기록은 Chat 화면이 따로 읽습니다(Claude 계획·질문 카드의 글도 거기서 가져옵니다). attach된 터미널에서는 휠이나 손가락으로 Herdr의 이전 기록을 스크롤하고, 비춰 보이는 패인은 현재 화면만 보여 줍니다. 설치·업데이트 시 Claude 전역 설정에 `tui: "default"`와 `env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1"`을 적용하고 기존 설정은 백업합니다. 실행 중인 Claude는 재시작 후 적용됩니다. HerdRabbit을 돌리는 머신마다 자기 설치·업데이트에서 적용됩니다.
@@ -558,6 +571,7 @@ iOS에서 PWA를 독립 실행 모드로 쓰면 내려받은 파일이 저장되
 - **Notifications:** **Off** / **On** 선택과 그 상태.
 - **Security**(비밀번호가 설정돼 있을 때 표시): **Passkeys**와 **Signed-in devices**.
 - **PCs**(Connect PC를 쓸 수 있을 때 표시): 붙은 PC 목록(누르면 그 PC의 Details)과 **Connect PC**.
+- **Plugins**(비밀번호가 설정돼 있을 때 표시): 머신별 Herdr 플러그인, [플러그인](#플러그인) 참고.
 - **About:** 이 머신의 HerdRabbit·Herdr 버전과 **Update**.
 
 ### 화면 설정

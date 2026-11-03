@@ -6,6 +6,7 @@ import { OPEN_PANES_IN, readOpenPanesIn, writeOpenPanesIn } from "../lens-prefer
 import { CHAT_WIDTHS, readChatWidth, writeChatWidth } from "../chat-width-preference.js?v=1.4.27";
 import { notificationStateText, settingsPageList, settingsPageTitle } from "../settings-pages.js?v=1.4.27";
 import { herdrVersionText } from "../ui-model.js?v=1.4.27";
+import { createPluginsPage } from "./plugins.js?v=1.4.27";
 
 // What each "Open panes in" choice does, under the choice.
 const OPEN_PANES_IN_HINTS = Object.freeze({
@@ -23,7 +24,7 @@ const OPEN_PANES_IN_HINTS = Object.freeze({
 export function createSettings(deps) {
   const {
     state, api, snapshotRecords, setFeedback, panePreferenceStorage, desktopMedia,
-    openKeyBarDialog, showPasskeys, showSessions, showServerDetails, openConnectPc,
+    openKeyBarDialog, showPasskeys, showSessions, showServerDetails, openConnectPc, sidebarActionMenu,
   } = deps;
 
   const dialog = document.querySelector("#settings-dialog");
@@ -45,7 +46,8 @@ export function createSettings(deps) {
   // The chat column's width is the root's, so it holds before any chat is drawn.
   document.documentElement.dataset.chatWidth = readChatWidth(panePreferenceStorage);
 
-  const visiblePages = () => settingsPageList({ security: state.authRequired === true, pcs: state.connectPcAvailable === true });
+  const visiblePages = () => settingsPageList({ security: state.authRequired === true,
+    pcs: state.connectPcAvailable === true, plugins: state.pluginsAvailable === true });
 
   function pressOnly(buttons, attribute, value) {
     for (const button of buttons) button.setAttribute("aria-pressed", String(button.getAttribute(attribute) === value));
@@ -215,6 +217,10 @@ export function createSettings(deps) {
     }));
   }
 
+  // Plugins: read when the page comes into view, per machine.
+  const pluginsPage = createPluginsPage({ api, snapshotRecords, sidebarActionMenu });
+  dialog.addEventListener("close", () => pluginsPage.sync({ visible: false }));
+
   // About
   const appVersion = document.querySelector("#settings-version-app");
   const herdrVersion = document.querySelector("#settings-version-herdr");
@@ -258,6 +264,10 @@ export function createSettings(deps) {
     notifyState.dataset.error = String(push?.state === "denied");
 
     renderPcs();
+    // On a phone the page is on screen only when it, not the list, is shown.
+    pluginsPage.sync({
+      visible: dialog.open && settings.page === "plugins" && (desktopMedia.matches || dialog.dataset.view === "page"),
+    });
 
     const local = snapshotRecords().servers.find((server) => server.id === "local");
     appVersion.textContent = local?.version || "Unknown";
