@@ -1,6 +1,6 @@
-import { createElement } from "./dom.js?v=1.4.23";
-import { idOf } from "./snapshot.js?v=1.4.23";
-import { sessionAgentChoices } from "../agents.js?v=1.4.23";
+import { createElement } from "./dom.js?v=1.4.24";
+import { idOf } from "./snapshot.js?v=1.4.24";
+import { sessionAgentChoices } from "../agents.js?v=1.4.24";
 
 // The "New project" dialog: the add menu's button opens it, the form creates
 // the workspace, with a shell or with an agent installed on the chosen

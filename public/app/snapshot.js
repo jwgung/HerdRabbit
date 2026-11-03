@@ -1,6 +1,6 @@
-import { agentCompletionIdentity, agentStatus, visibleAgentStatus } from "../ui-model.js?v=1.4.23";
-import { writeAcknowledgedCompletions } from "../completion-preference.js?v=1.4.23";
-import { array } from "./dom.js?v=1.4.23";
+import { agentCompletionIdentity, agentStatus, visibleAgentStatus } from "../ui-model.js?v=1.4.24";
+import { writeAcknowledgedCompletions } from "../completion-preference.js?v=1.4.24";
+import { array } from "./dom.js?v=1.4.24";
 
 export function idOf(record, ...keys) {
   for (const key of keys) {
