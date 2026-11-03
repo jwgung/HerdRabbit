@@ -24,6 +24,7 @@ case "$name:$*" in
   'node:scripts/check-herdr-version.mjs') [ "$UPDATE_TEST_MODE" != herdr-too-old ] ;;
   'node:scripts/service-environment.mjs HERDR_BIN') if [ "$UPDATE_TEST_MODE" = service-herdr ]; then printf '%s/custom-herdr\\n' "$UPDATE_TEST_BIN"; fi ;;
   'node:scripts/service-environment.mjs HERDR_WEB_ROLE') if [ "$UPDATE_TEST_MODE" = leaf ]; then printf 'leaf\\n'; fi ;;
+  'node:scripts/latest-release.mjs') cat > "$UPDATE_TEST_BIN/releases-read"; printf 'v2.0.0\\n'; case "$UPDATE_TEST_MODE" in up-to-date) exit 3 ;; no-release) exit 1 ;; esac ;;
   'node:'*) printf '22\\n' ;;
   'herdr:update --handoff'|'custom-herdr:update --handoff') [ "$UPDATE_TEST_MODE" != herdr-update-failed ] ;;
   'systemctl:'*'--property=Environment --value') if [ "$UPDATE_TEST_MODE" = service-herdr ]; then printf 'HERDR_WEB_PORT=38787 HERDR_BIN=%s/custom-herdr\\n' "$UPDATE_TEST_BIN"; fi ;;
@@ -37,10 +38,12 @@ case "$name:$*" in
   'git:rev-parse --git-path herdrabbit-update.lock') printf '%s/lock\\n' "$UPDATE_TEST_REPO" ;;
   'git:branch --show-current') if [ "$UPDATE_TEST_MODE" = branch ]; then printf 'dev\\n'; else printf 'main\\n'; fi ;;
   'git:status --porcelain') if [ "$UPDATE_TEST_MODE" = dirty ]; then printf ' M local-file\\n'; fi ;;
-  'git:fetch origin main') [ "$UPDATE_TEST_MODE" != fetch-failed ] ;;
-  'git:merge-base --is-ancestor HEAD FETCH_HEAD') [ "$UPDATE_TEST_MODE" != diverged ] ;;
+  'git:ls-remote --tags origin refs/tags/v*') [ "$UPDATE_TEST_MODE" != fetch-failed ] || exit 1; printf 'aaa\\trefs/tags/v2.0.0\\nbbb\\trefs/tags/v2.0.0^{}\\n' ;;
+  'git:fetch --no-tags origin refs/tags/v2.0.0') [ "$UPDATE_TEST_MODE" != tag-fetch-failed ] ;;
+  'git:rev-parse --verify FETCH_HEAD^{commit}') printf 'release000\\n' ;;
+  'git:merge-base --is-ancestor HEAD release000') [ "$UPDATE_TEST_MODE" != diverged ] ;;
   'git:rev-parse --short HEAD') printf '123abcd\\n' ;;
-  'git:archive FETCH_HEAD src') if [ "$UPDATE_TEST_MODE" = archive-failed ]; then exit 1; fi; tar -cf - -T /dev/null ;;
+  'git:archive release000 src') if [ "$UPDATE_TEST_MODE" = archive-failed ]; then exit 1; fi; tar -cf - -T /dev/null ;;
   'git:rev-parse HEAD') printf 'previous000\\n' ;;
   'git:rev-parse --short previous000') printf 'prev000\\n' ;;
   'systemctl:--user is-active --quiet'*) [ "$UPDATE_TEST_MODE" != inactive ] ;;
@@ -70,18 +73,18 @@ esac
 test("updater locates its installation and verifies before restarting without reconfiguring", async (t) => {
   const { result, commands } = await runFixture(t);
   assert.equal(result.code, undefined, result.stderr);
-  assert.match(result.stdout, /Updated to 123abcd/);
+  assert.match(result.stdout, /Updated to v2\.0\.0 \(123abcd\)/);
   assert.ok(commands.indexOf("npm run verify") < commands.indexOf("systemctl --user restart"));
   assert.ok(commands.indexOf("node scripts/configure-claude.mjs") > commands.indexOf("npm run verify"));
   assert.ok(commands.indexOf("node scripts/configure-claude.mjs") < commands.indexOf("systemctl --user restart"));
   assert.ok(commands.indexOf("herdr update --handoff") < commands.indexOf("git merge --ff-only"), "Herdr before any file changes");
   assert.ok(commands.indexOf("node scripts/check-herdr-version.mjs") > commands.indexOf("herdr update --handoff"));
   assert.ok(commands.indexOf("node scripts/check-herdr-version.mjs") < commands.indexOf("git merge --ff-only"));
-  assert.ok(commands.indexOf("git archive FETCH_HEAD src") < commands.indexOf("herdr update --handoff"),
+  assert.ok(commands.indexOf("git archive release000 src") < commands.indexOf("herdr update --handoff"),
     "the incoming code is read before Herdr is touched");
-  assert.ok(commands.indexOf("git archive FETCH_HEAD src") < commands.indexOf("node scripts/check-herdr-version.mjs"),
+  assert.ok(commands.indexOf("git archive release000 src") < commands.indexOf("node scripts/check-herdr-version.mjs"),
     "Herdr is checked against the incoming code's minimum");
-  assert.match(commands, /git merge --ff-only FETCH_HEAD/);
+  assert.match(commands, /git merge --ff-only release000/);
   assert.doesNotMatch(commands, /install-service|tailscale|reset --hard/);
 });
 
@@ -89,8 +92,8 @@ test("updater accepts HerdRabbit at its new address, whichever way it was cloned
   for (const mode of ["origin-moved", "origin-moved-ssh"]) {
     const { result, commands } = await runFixture(t, mode);
     assert.equal(result.code, undefined, `${mode}: ${result.stderr}`);
-    assert.match(result.stdout, /Updated to 123abcd/);
-    assert.match(commands, /git fetch origin main/);
+    assert.match(result.stdout, /Updated to v2\.0\.0 \(123abcd\)/);
+    assert.match(commands, /git fetch --no-tags origin refs\/tags\/v2\.0\.0/);
   }
 });
 
@@ -98,7 +101,7 @@ test("updater refuses an origin that is neither address and changes nothing", as
   const { result, commands } = await runFixture(t, "origin-foreign");
   assert.notEqual(result.code, undefined);
   assert.match(result.stderr, /origin is not ultivis-iot\/HerdRabbit or jwgung\/HerdRabbit/);
-  assert.doesNotMatch(commands, /git fetch origin main|npm ci|systemctl --user restart/);
+  assert.doesNotMatch(commands, /git ls-remote|git fetch|npm ci|systemctl --user restart/);
 });
 
 test("updater updates the Herdr the service runs, not the shell's", async (t) => {
@@ -120,7 +123,7 @@ test("updater updates a former leaf in place and says how to open its page", asy
   assert.equal(result.code, undefined, result.stderr);
   assert.match(result.stdout, /installed as a leaf/u);
   assert.match(result.stdout, /npm run install-service/u);
-  assert.match(commands, /git merge --ff-only FETCH_HEAD/);
+  assert.match(commands, /git merge --ff-only release000/);
   assert.match(commands, /systemctl --user restart/);
   assert.doesNotMatch(commands, /install-service/);
 });
@@ -149,7 +152,34 @@ test("updater rolls back and restarts the previous version when the new one will
   assert.ok(commands.indexOf("systemctl --user restart", reset) > reset, "the previous version is started again");
 });
 
-for (const mode of ["branch", "dirty", "wrong-service", "diverged", "fetch-failed", "install-failed", "verify-failed", "herdr-too-old"]) {
+test("updater moves main to the latest release, not to main's tip", async (t) => {
+  const { result, commands } = await runFixture(t);
+  assert.equal(result.code, undefined, result.stderr);
+  assert.match(commands, /git ls-remote --tags origin refs\/tags\/v\*/);
+  // only that release's tag is fetched, never main
+  assert.match(commands, /git fetch --no-tags origin refs\/tags\/v2\.0\.0\n/);
+  assert.doesNotMatch(commands, /git fetch origin main|git fetch [^\n]*--tags origin main/);
+  assert.match(commands, /git merge-base --is-ancestor HEAD release000/);
+  assert.ok(commands.indexOf("git merge --ff-only release000") > commands.indexOf("git fetch --no-tags origin refs/tags/v2.0.0"));
+  assert.ok(commands.indexOf("git merge --ff-only release000") < commands.indexOf("systemctl --user restart"), "the restart runs the release");
+});
+
+test("updater changes nothing when no release is newer than the running version", async (t) => {
+  const { result, commands } = await runFixture(t, "up-to-date");
+  assert.equal(result.code, undefined, result.stderr);
+  assert.match(result.stdout, /Already up to date/u);
+  assert.match(result.stdout, /v2\.0\.0/u);
+  assert.doesNotMatch(commands, /git fetch|herdr update|git merge|npm ci|systemctl --user restart/);
+});
+
+test("updater stops when origin has no release", async (t) => {
+  const { result, commands } = await runFixture(t, "no-release");
+  assert.notEqual(result.code, undefined);
+  assert.match(result.stderr, /no release/u);
+  assert.doesNotMatch(commands, /git fetch|herdr update|git merge|npm ci|systemctl --user restart/);
+});
+
+for (const mode of ["branch", "dirty", "wrong-service", "diverged", "fetch-failed", "tag-fetch-failed", "install-failed", "verify-failed", "herdr-too-old"]) {
   test(`updater aborts without restarting on ${mode}`, async (t) => {
     const { result, commands } = await runFixture(t, mode);
     assert.notEqual(result.code, undefined);

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   AppUpdater, MAX_LOG_BYTES, MAX_NOTES, MAX_RUN_MS, RESTART_WAIT_MS, OFFICIAL_ORIGINS, SERVICE_UNITS, cleanCheck, cleanLog, cleanRunStatus, execCommand, runLimiter,
   pluginRunEnvironment, runPluginUpdate, runUpdateScript, RUN_STEPS, SCRIPT_MARKERS, ACTION_LOOKUP_TRIES, actionOutcome, invokedLogId, scriptPhase, runLogged, runCaptured, cleanDetail,
+  compareVersions, latestRelease, officialSource,
 } from "../src/app-update.mjs";
 import { EventEmitter } from "node:events";
 
@@ -38,8 +39,13 @@ async function scratch(context) {
   git(work, "commit", "--quiet", "-m", "First release");
   git(work, "remote", "add", "origin", origin);
   git(work, "push", "--quiet", "-u", "origin", "main");
+  // The running version is a release too, as CI tags one.
+  git(work, "tag", "-a", "v1.0.0", "-m", "HerdRabbit 1.0.0");
+  git(work, "push", "--quiet", "origin", "v1.0.0");
   git(root, "clone", "--quiet", origin, publisher);
   let count = 0;
+  // A commit on main; one that names a version is a release, tagged
+  // v<version> as CI tags a `release: x.y.z` commit.
   async function publish(subject, version) {
     count += 1;
     if (version) await writeFile(join(publisher, "package.json"), `${JSON.stringify({ version })}\n`);
@@ -47,8 +53,14 @@ async function scratch(context) {
     git(publisher, "add", ".");
     git(publisher, "commit", "--quiet", "-m", subject);
     git(publisher, "push", "--quiet", "origin", "main");
+    if (version) tag(`v${version}`);
   }
-  return { root, origin, work, publish, stateDir: join(root, "state") };
+  // A tag on origin's main as it is now, whatever its name.
+  function tag(name) {
+    git(publisher, "tag", "-a", name, "-m", name);
+    git(publisher, "push", "--quiet", "origin", name);
+  }
+  return { root, origin, work, publish, tag, stateDir: join(root, "state") };
 }
 
 // systemctl and systemd-run as a test says they answer; git for real.
@@ -85,9 +97,11 @@ function updater(repo, fake, extra = {}) {
   });
 }
 
-const fetches = (fake) => fake.calls.filter((call) => call[0] === "git" && call[1] === "fetch").length;
+// Every time origin was asked: listing its tags, or fetching from it.
+const fetches = (fake) => fake.calls.filter((call) => call[0] === "git" && (call[1] === "fetch" || call[1] === "ls-remote")).length;
+const commit = (cwd, ref) => git(cwd, "rev-parse", "--short", `${ref}^{commit}`);
 
-test("a checkout level with origin is up to date", async (context) => {
+test("a checkout on the latest release is up to date", async (context) => {
   const repo = await scratch(context);
   const result = await updater(repo, services(repo.work)).check();
   const sha = git(repo.work, "rev-parse", "--short", "HEAD");
@@ -99,24 +113,131 @@ test("a checkout level with origin is up to date", async (context) => {
   });
 });
 
-test("new commits on origin are an update, with their subjects as notes", async (context) => {
+test("commits on main past the latest release are not an update", async (context) => {
   const repo = await scratch(context);
   await repo.publish("Fix the sidebar");
-  await repo.publish("Release 1.0.1", "1.0.1");
+  await repo.publish("Work toward the next release");
+  const fake = services(repo.work);
+  const result = await updater(repo, fake).check();
+  assert.equal(result.available, false);
+  assert.deepEqual(result.notes, []);
+  assert.deepEqual(result.latest, { sha: commit(repo.origin, "v1.0.0"), version: "1.0.0" });
+  assert.equal(fake.calls.some((call) => call[0] === "git" && call[1] === "fetch"), false, "nothing is fetched without a newer release");
+});
+
+test("a newer release is an update, with the subjects since the running version as notes", async (context) => {
+  const repo = await scratch(context);
+  await repo.publish("Fix the sidebar");
+  await repo.publish("release: 1.0.1", "1.0.1");
+  // main moves on past the release: those commits are not part of it
+  await repo.publish("After the release");
   const result = await updater(repo, services(repo.work)).check();
   assert.equal(result.available, true);
   assert.equal(result.blocked, null);
-  assert.deepEqual(result.notes, ["Release 1.0.1", "Fix the sidebar"]);
-  assert.deepEqual(result.latest, { sha: git(repo.origin, "rev-parse", "--short", "main"), version: "1.0.1" });
+  assert.deepEqual(result.notes, ["release: 1.0.1", "Fix the sidebar"]);
+  assert.deepEqual(result.latest, { sha: commit(repo.origin, "v1.0.1"), version: "1.0.1" });
   assert.equal(result.current.version, "1.0.0");
   // Nothing in the checkout moved: a check only fetches.
   assert.equal(git(repo.work, "rev-parse", "HEAD"), git(repo.work, "rev-parse", "main"));
   assert.equal(git(repo.work, "status", "--porcelain"), "");
 });
 
+test("the highest release is the latest, by version and not by name or date", async (context) => {
+  const repo = await scratch(context);
+  await repo.publish("release: 1.0.10", "1.0.10");
+  await repo.publish("release: 1.0.9", "1.0.9");
+  const result = await updater(repo, services(repo.work)).check();
+  assert.equal(result.latest.version, "1.0.10");
+  assert.deepEqual(result.latest, { sha: commit(repo.origin, "v1.0.10"), version: "1.0.10" });
+});
+
+test("a running version ahead of the latest release is not offered a downgrade", async (context) => {
+  const repo = await scratch(context);
+  await repo.publish("release: 1.0.1", "1.0.1");
+  for (const version of ["1.0.1", "1.1.0", "1.0.2-dev", "2.0.0"]) {
+    const result = await updater(repo, services(repo.work), { version }).check();
+    assert.equal(result.available, false, version);
+    assert.deepEqual(result.notes, [], version);
+    assert.equal(result.latest.version, "1.0.1", version);
+  }
+  // A pre-release of the latest is older than it.
+  assert.equal((await updater(repo, services(repo.work), { version: "1.0.1-dev" }).check()).available, true);
+});
+
+test("tags that are not a plain vX.Y.Z release are ignored", async (context) => {
+  const repo = await scratch(context);
+  await repo.publish("Experiment");
+  for (const name of ["v9.9", "v9.9.9-rc.1", "latest", "9.9.9", "v9.9.9.9", "vnext"]) repo.tag(name);
+  const result = await updater(repo, services(repo.work)).check();
+  assert.equal(result.available, false);
+  assert.equal(result.latest.version, "1.0.0");
+});
+
+test("an origin without any release offers nothing", async (context) => {
+  const repo = await scratch(context);
+  git(repo.origin, "tag", "-d", "v1.0.0");
+  await repo.publish("Upstream commit");
+  const result = await updater(repo, services(repo.work)).check();
+  assert.equal(result.available, false);
+  assert.equal(result.latest, null);
+  assert.equal(result.error, null);
+});
+
+test("the latest release is the highest plain vX.Y.Z tag origin lists", () => {
+  const sha = (digit) => digit.repeat(40);
+  const listed = [
+    `${sha("1")}\trefs/tags/v1.4.9`,
+    `${sha("2")}\trefs/tags/v1.4.10`,
+    `${sha("3")}\trefs/tags/v1.4.10^{}`,
+    `${sha("4")}\trefs/tags/v2.0.0-rc.1`,
+    `${sha("5")}\trefs/tags/latest`,
+    `${sha("6")}\trefs/tags/v10`,
+    `${sha("7")}\trefs/tags/v3.0.0/evil`,
+    "garbage",
+  ].join("\n");
+  // An annotated tag's commit is the peeled line's; a lightweight one's is its own.
+  assert.deepEqual(latestRelease(listed), { tag: "v1.4.10", version: "1.4.10", sha: sha("3") });
+  assert.deepEqual(latestRelease(`${sha("8")}\trefs/tags/v0.1.0\n`), { tag: "v0.1.0", version: "0.1.0", sha: sha("8") });
+  assert.equal(latestRelease(""), null);
+  assert.equal(latestRelease(`${sha("5")}\trefs/tags/latest`), null);
+  assert.ok(compareVersions("1.4.10", "1.4.9") > 0);
+  assert.ok(compareVersions("1.4.9", "1.4.10") < 0);
+  assert.equal(compareVersions("1.4.23", "1.4.23"), 0);
+  assert.ok(compareVersions("1.4.23", "1.4.23-dev") > 0, "a pre-release is older than its release");
+  assert.ok(compareVersions("1.4.24", "1.4.23-dev") > 0);
+  assert.equal(compareVersions("1.4.23", "not a version"), null);
+});
+
+test("Herdr's record of where it installed the plugin from names an official repository or nothing", () => {
+  assert.equal(officialSource({ kind: "github", owner: "ultivis-iot", repo: "HerdRabbit" }), "ultivis-iot/HerdRabbit");
+  assert.equal(officialSource({ kind: "github", owner: "jwgung", repo: "HerdRabbit", resolved_commit: "x" }), "jwgung/HerdRabbit");
+  for (const source of [
+    { kind: "github", owner: "someone", repo: "HerdRabbit" }, { kind: "github", owner: "jwgung", repo: "HerdRabbit", subdir: "x" },
+    { kind: "local", owner: "jwgung", repo: "HerdRabbit" }, { kind: "github", owner: "jwgung/HerdRabbit --ref", repo: "x" }, null, "jwgung/HerdRabbit",
+  ]) assert.equal(officialSource(source), null, JSON.stringify(source));
+});
+
+test("scripts/latest-release.mjs answers update.sh with the release and whether it is newer than this checkout", async () => {
+  const script = new URL("../scripts/latest-release.mjs", import.meta.url).pathname;
+  const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  const [major] = version.split(".");
+  const run = (input) => {
+    try {
+      return { code: 0, stdout: execFileSync(process.execPath, [script], { input, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }) };
+    } catch (error) {
+      return { code: error.status, stdout: error.stdout };
+    }
+  };
+  const sha = "a".repeat(40);
+  assert.deepEqual(run(`${sha}\trefs/tags/v${Number(major) + 1}.0.0\n${sha}\trefs/tags/v0.0.1\n`), { code: 0, stdout: `v${Number(major) + 1}.0.0\n` });
+  assert.deepEqual(run(`${sha}\trefs/tags/v${version}\n`), { code: 3, stdout: `v${version}\n` });
+  assert.deepEqual(run(`${sha}\trefs/tags/v0.0.1\n`), { code: 3, stdout: "v0.0.1\n" });
+  assert.deepEqual(run(`${sha}\trefs/tags/nightly\n`), { code: 1, stdout: "" });
+});
+
 test("local changes block an update, as update.sh would", async (context) => {
   const repo = await scratch(context);
-  await repo.publish("Next");
+  await repo.publish("Next", "1.0.1");
   await writeFile(join(repo.work, "notes.txt"), "mine");
   const result = await updater(repo, services(repo.work)).check();
   assert.equal(result.available, true);
@@ -125,7 +246,7 @@ test("local changes block an update, as update.sh would", async (context) => {
 
 test("a local main with its own commits has diverged", async (context) => {
   const repo = await scratch(context);
-  await repo.publish("Upstream");
+  await repo.publish("Upstream", "1.0.1");
   await writeFile(join(repo.work, "local.txt"), "local");
   git(repo.work, "add", "local.txt");
   git(repo.work, "commit", "--quiet", "-m", "Local only");
@@ -137,14 +258,14 @@ test("a local main with its own commits has diverged", async (context) => {
 
 test("a checkout on another branch is not updated", async (context) => {
   const repo = await scratch(context);
-  await repo.publish("Upstream");
+  await repo.publish("Upstream", "1.0.1");
   git(repo.work, "checkout", "--quiet", "-b", "feature");
   assert.equal((await updater(repo, services(repo.work)).check()).blocked, "not_main");
 });
 
 test("only the service's own process, in this checkout, may update", async (context) => {
   const repo = await scratch(context);
-  await repo.publish("Upstream");
+  await repo.publish("Upstream", "1.0.1");
   for (const overrides of [
     { loaded: "nothing.service" },
     { mainPid: 1 },
@@ -159,7 +280,7 @@ test("only the service's own process, in this checkout, may update", async (cont
 
 test("an origin update.sh does not update from blocks it, and is never repeated", async (context) => {
   const repo = await scratch(context);
-  await repo.publish("Upstream");
+  await repo.publish("Upstream", "1.0.1");
   const fake = services(repo.work);
   const result = await updater(repo, fake, { originAllowed: () => false }).check();
   assert.equal(result.blocked, "wrong_origin");
@@ -261,7 +382,7 @@ test("a run being started is not interrupted before its unit exists", async (con
 
 test("a symlinked update.log is refused and its target left alone", async (context) => {
   const repo = await scratch(context);
-  await repo.publish("Upstream");
+  await repo.publish("Upstream", "1.0.1");
   const fake = services(repo.work);
   await mkdir(repo.stateDir, { mode: 0o700 });
   const target = join(repo.root, "victim.txt");
@@ -274,7 +395,7 @@ test("a symlinked update.log is refused and its target left alone", async (conte
 
 test("a symlinked state folder is refused", async (context) => {
   const repo = await scratch(context);
-  await repo.publish("Upstream");
+  await repo.publish("Upstream", "1.0.1");
   const fake = services(repo.work);
   const real = join(repo.root, "elsewhere");
   await mkdir(real);
@@ -287,7 +408,7 @@ test("a symlinked state folder is refused", async (context) => {
 
 test("the state folder is made private", async (context) => {
   const repo = await scratch(context);
-  await repo.publish("Upstream");
+  await repo.publish("Upstream", "1.0.1");
   await mkdir(repo.stateDir, { mode: 0o755 });
   await chmod(repo.stateDir, 0o755);
   await updater(repo, services(repo.work)).start();
@@ -298,7 +419,7 @@ test("an update that would stop is refused before anything starts", async (conte
   const repo = await scratch(context);
   const fake = services(repo.work);
   await assert.rejects(updater(repo, fake).start(), { status: 409, code: "up_to_date" });
-  await repo.publish("Upstream");
+  await repo.publish("Upstream", "1.0.1");
   await writeFile(join(repo.work, "notes.txt"), "mine");
   await assert.rejects(updater(repo, fake).start(), { status: 409, code: "update_blocked" });
   assert.equal(fake.calls.filter((call) => call[0] === "systemd-run").length, 0);
@@ -307,7 +428,7 @@ test("an update that would stop is refused before anything starts", async (conte
 
 test("a unit that does not start is a failed run", async (context) => {
   const repo = await scratch(context);
-  await repo.publish("Upstream");
+  await repo.publish("Upstream", "1.0.1");
   const subject = updater(repo, services(repo.work, { runCode: 1 }));
   await assert.rejects(subject.start(), { status: 502, code: "update_start_failed" });
   const status = await subject.runStatus();
@@ -320,7 +441,7 @@ test("a unit that does not start is a failed run", async (context) => {
 test("a run whose shell cannot even be started is recorded as failed, not left running", async (context) => {
   const repo = await scratch(context);
   const subject = updater(repo, services(repo.work));
-  await repo.publish("Upstream");
+  await repo.publish("Upstream", "1.0.1");
   await subject.start();
   const exit = await runUpdateScript({
     repository: repo.work, stateDir: repo.stateDir, script: join(repo.root, "never.sh"),
@@ -348,7 +469,7 @@ test("the service units and official addresses here are the ones update.sh uses"
 test("the run records how update.sh ended and keeps its output as the log", async (context) => {
   const repo = await scratch(context);
   const subject = updater(repo, services(repo.work));
-  await repo.publish("Upstream");
+  await repo.publish("Upstream", "1.0.1");
   await subject.start();
   // A stand-in for update.sh: never the real one.
   const script = join(repo.root, "fake-update.sh");
@@ -416,7 +537,7 @@ test("run starts forwarded from this page are limited per PC", () => {
 
 test("a PC with only the older service unit is still its service, even when systemctl fails on the newer name", async (context) => {
   const repo = await scratch(context);
-  await repo.publish("Upstream");
+  await repo.publish("Upstream", "1.0.1");
   const fake = services(repo.work, { loaded: "herdr-web-local.service", unknownUnits: ["herdrabbit.service"] });
   const result = await updater(repo, fake).check();
   assert.notEqual(result.blocked, "not_service", "the older unit was never looked at");
@@ -424,7 +545,7 @@ test("a PC with only the older service unit is still its service, even when syst
 
 test("a run systemctl cannot tell about is not left running past any update's length", async (context) => {
   const repo = await scratch(context);
-  await repo.publish("Upstream");
+  await repo.publish("Upstream", "1.0.1");
   const fake = services(repo.work);
   let now = 1_700_000_000_000;
   const subject = updater(repo, fake, { now: () => now });
@@ -440,7 +561,7 @@ test("a run systemctl cannot tell about is not left running past any update's le
 
 test("a unit systemctl says is active stays running, however long it takes", async (context) => {
   const repo = await scratch(context);
-  await repo.publish("Upstream");
+  await repo.publish("Upstream", "1.0.1");
   const fake = services(repo.work);
   let now = 1_700_000_000_000;
   const subject = updater(repo, fake, { now: () => now });
@@ -507,7 +628,8 @@ test("a plugin run starts detached with a fixed command line and is followed by 
   assert.equal(spawner.calls.length, 1);
   const [call] = spawner.calls;
   assert.equal(call.file, "/opt/node/bin/node");
-  assert.deepEqual(call.args, [join(checkout, "scripts", "run-update.mjs"), repo.stateDir, "--plugin", "herdrabbit", "/opt/herdr"]);
+  // The release the check found is the one Herdr is asked to install.
+  assert.deepEqual(call.args, [join(checkout, "scripts", "run-update.mjs"), repo.stateDir, "--plugin", "herdrabbit", "/opt/herdr", "v1.0.1"]);
   assert.equal(call.options.detached, true);
   assert.equal(call.options.cwd, repo.root);
   assert.equal(call.child.unrefed, true);
@@ -535,8 +657,8 @@ test("a plugin run is told the plugin's folders when Herdr named them, and only 
     await rm(join(repo.stateDir, "update-state.json"));
     return spawner.calls[0].args.slice(1);
   };
-  assert.deepEqual(await runArgs({ configDir: "/cfg", stateDir: "/st" }), [repo.stateDir, "--plugin", "herdrabbit", "/opt/herdr", "/cfg", "/st"]);
-  assert.deepEqual(await runArgs({ configDir: "cfg", stateDir: "/st" }), [repo.stateDir, "--plugin", "herdrabbit", "/opt/herdr"]);
+  assert.deepEqual(await runArgs({ configDir: "/cfg", stateDir: "/st" }), [repo.stateDir, "--plugin", "herdrabbit", "/opt/herdr", "v1.0.1", "/cfg", "/st"]);
+  assert.deepEqual(await runArgs({ configDir: "cfg", stateDir: "/st" }), [repo.stateDir, "--plugin", "herdrabbit", "/opt/herdr", "v1.0.1"]);
 });
 
 test("a plugin run whose process cannot start is a failed run", async (context) => {
@@ -556,9 +678,11 @@ test("a plugin run whose process cannot start is a failed run", async (context) 
 // A stand-in for herdr that writes down what it was asked and fails where told.
 // `invoke` is what `plugin action invoke` prints; `logs` the JSON lines
 // `plugin log list` prints, one per call (the last one repeats); `root` the
-// checkout `plugin list --json` names; `logExit` how `plugin log list` exits.
+// checkout `plugin list --json` names, and `source` where Herdr says it
+// installed the plugin from; `logExit` how `plugin log list` exits.
 async function fakeHerdr(root, {
   failUpdate = false, failRestart = false, invoke = "HerdRabbit restarted", logs = [], pluginRoot = null, logExit = 0,
+  source = { kind: "github", owner: "ultivis-iot", repo: "HerdRabbit", resolved_commit: "07af1d5" },
 } = {}) {
   const binary = join(root, "fake-herdr");
   const asked = join(root, "asked.txt");
@@ -566,7 +690,7 @@ async function fakeHerdr(root, {
   const lines = [
     "#!/bin/sh",
     `echo "$*" >> '${asked}'`,
-    `[ "$2" = update ] && { echo 'Updated herdrabbit.'; ${failUpdate ? "exit 4" : "exit 0"}; }`,
+    `[ "$2" = install ] && { echo 'Installed herdrabbit from ultivis-iot/HerdRabbit.'; ${failUpdate ? "exit 4" : "exit 0"}; }`,
     `[ "$2" = action ] && { printf '%s\\n' '${invoke}'; ${failRestart ? "echo 'herdr: server not reachable' >&2; exit 5" : "exit 0"}; }`,
   ];
   for (const [index, answer] of logs.entries()) {
@@ -574,7 +698,7 @@ async function fakeHerdr(root, {
   }
   lines.push(
     `[ "$2" = log ] && { echo x >> '${calls}'; n=$(wc -l < '${calls}'); i=$((n - 1)); [ "$i" -ge ${Math.max(logs.length, 1)} ] && i=${Math.max(logs.length - 1, 0)}; cat '${root}'/log-$i.json; exit ${logExit}; }`,
-    `[ "$2" = list ] && { printf '%s\\n' '${JSON.stringify({ id: "cli:plugin", result: { type: "plugin_list", plugins: pluginRoot ? [{ plugin_id: "herdrabbit", plugin_root: pluginRoot }] : [] } })}'; exit 0; }`,
+    `[ "$2" = list ] && { printf '%s\\n' '${JSON.stringify({ id: "cli:plugin", result: { type: "plugin_list", plugins: [{ plugin_id: "herdrabbit", ...(pluginRoot ? { plugin_root: pluginRoot } : {}), source }] } })}'; exit 0; }`,
     "exit 9",
   );
   await writeFile(binary, lines.join("\n"));
@@ -615,7 +739,7 @@ async function newCheckout(root, { exit = 0 } = {}) {
 }
 
 const pluginRun = (repo, herdr, extra = {}) => runPluginUpdate({
-  stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, cwd: repo.root,
+  stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, tag: "v1.0.1", cwd: repo.root,
   sleep: async () => {}, environment: { PATH: "/usr/bin", HOME: repo.root, SECRET: "s" }, ...extra,
 });
 
@@ -623,24 +747,50 @@ test("the plugin run updates the plugin, then restarts it, and records how it en
   const repo = await scratch(context);
   await mkdir(repo.stateDir, { mode: 0o700 });
   const herdr = await fakeHerdr(repo.root);
-  assert.equal(await runPluginUpdate({ stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, cwd: repo.root }), 0);
-  assert.deepEqual(await herdr.asked(), ["plugin update herdrabbit --yes", "plugin action invoke herdrabbit.restart"]);
+  assert.equal(await runPluginUpdate({ stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, tag: "v1.0.1", cwd: repo.root }), 0);
+  assert.deepEqual(await herdr.asked(), ["plugin list --plugin herdrabbit --json", "plugin install ultivis-iot/HerdRabbit --ref v1.0.1 --yes", "plugin action invoke herdrabbit.restart"]);
   const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
   assert.equal(record.state, "succeeded");
   assert.equal(record.phase, "restart");
   // Herdr named no log of the action: nothing tells whether it ran, and the run says so.
   assert.equal(record.detail, "Could not confirm the restart (Herdr did not name the log of its restart action)");
   const log = await readFile(join(repo.stateDir, "update.log"), "utf8");
-  assert.match(log, /Updated herdrabbit\.\n {2}> Restarting HerdRabbit\nHerdRabbit restarted/u);
+  assert.match(log, / {2}> Installing release v1\.0\.1 of the herdrabbit plugin with Herdr\nInstalled herdrabbit from ultivis-iot\/HerdRabbit\.\n {2}> Restarting HerdRabbit\nHerdRabbit restarted/u);
   assert.match(log, / {2}> Could not confirm the restart \(.*\); whether it ran is told by the server that answers next/u);
+});
+
+test("the plugin run installs the release from where Herdr installed the plugin, and only an official one", async (context) => {
+  const repo = await scratch(context);
+  await mkdir(repo.stateDir, { mode: 0o700 });
+  const moved = await fakeHerdr(repo.root, { source: { kind: "github", owner: "jwgung", repo: "HerdRabbit" } });
+  assert.equal(await pluginRun(repo, moved, { tag: "v1.4.24" }), 0);
+  assert.ok((await moved.asked()).includes("plugin install jwgung/HerdRabbit --ref v1.4.24 --yes"));
+  for (const source of [
+    { kind: "github", owner: "someone", repo: "HerdRabbit" },
+    { kind: "github", owner: "jwgung", repo: "HerdRabbit", subdir: "plugin" },
+    { kind: "local", path: "/home/me/HerdRabbit" },
+    null,
+  ]) {
+    const other = await scratch(context);
+    await mkdir(other.stateDir, { mode: 0o700 });
+    const herdr = await fakeHerdr(other.root, { source });
+    assert.equal(await pluginRun(other, herdr), 1, JSON.stringify(source));
+    assert.deepEqual(await herdr.asked(), ["plugin list --plugin herdrabbit --json"], "nothing is installed or restarted");
+    const record = JSON.parse(await readFile(join(other.stateDir, "update-state.json"), "utf8"));
+    assert.equal(record.state, "failed");
+    assert.equal(record.reason, "update_failed");
+    assert.equal(record.phase, "fetch");
+    assert.match(record.detail, /not installed from ultivis-iot\/HerdRabbit or jwgung\/HerdRabbit/u);
+    assert.doesNotMatch(JSON.stringify(record), /someone|\/home\/me/u, "where it came from is never repeated");
+  }
 });
 
 test("a failed plugin update restarts nothing", async (context) => {
   const repo = await scratch(context);
   await mkdir(repo.stateDir, { mode: 0o700 });
   const herdr = await fakeHerdr(repo.root, { failUpdate: true });
-  assert.equal(await runPluginUpdate({ stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, cwd: repo.root }), 4);
-  assert.deepEqual(await herdr.asked(), ["plugin update herdrabbit --yes"]);
+  assert.equal(await runPluginUpdate({ stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, tag: "v1.0.1", cwd: repo.root }), 4);
+  assert.deepEqual(await herdr.asked(), ["plugin list --plugin herdrabbit --json", "plugin install ultivis-iot/HerdRabbit --ref v1.0.1 --yes"]);
   const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
   assert.equal(record.state, "failed");
   assert.equal(record.reason, "update_failed");
@@ -652,12 +802,15 @@ test("a plugin that updated but did not restart says so", async (context) => {
   await mkdir(repo.stateDir, { mode: 0o700 });
   const herdr = await fakeHerdr(repo.root, { failRestart: true });
   // No plugin folders were named: the restart is not tried directly.
-  assert.equal(await runPluginUpdate({ stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, cwd: repo.root }), 1);
+  assert.equal(await runPluginUpdate({ stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, tag: "v1.0.1", cwd: repo.root }), 1);
   const record = JSON.parse(await readFile(join(repo.stateDir, "update-state.json"), "utf8"));
   assert.equal(record.reason, "restart_failed");
   assert.equal(record.phase, "restart");
   assert.match(record.detail, /^herdr: server not reachable; the plugin's folders are unknown/u);
-  await assert.rejects(runPluginUpdate({ stateDir: repo.stateDir, id: "../x", binary: herdr.binary }), TypeError);
+  await assert.rejects(runPluginUpdate({ stateDir: repo.stateDir, id: "../x", binary: herdr.binary, tag: "v1.0.1" }), TypeError);
+  for (const tag of [undefined, "main", "v1.0", "v1.0.1-rc.1", "--yes", "v1.0.1;x"]) {
+    await assert.rejects(runPluginUpdate({ stateDir: repo.stateDir, id: "herdrabbit", binary: herdr.binary, tag }), TypeError, String(tag));
+  }
 });
 
 test("a restart Herdr ran and finished is the run's success, with nothing restarted twice", async (context) => {
@@ -670,7 +823,7 @@ test("a restart Herdr ran and finished is the run's success, with nothing restar
   const dirs = { configDir: join(repo.root, "cfg"), stateDir: join(repo.root, "pstate") };
   assert.equal(await pluginRun(repo, herdr, { pluginDirs: dirs, nodeBin: fresh.node }), 0);
   assert.deepEqual(await herdr.asked(), [
-    "plugin update herdrabbit --yes", "plugin action invoke herdrabbit.restart",
+    "plugin list --plugin herdrabbit --json", "plugin install ultivis-iot/HerdRabbit --ref v1.0.1 --yes", "plugin action invoke herdrabbit.restart",
     "plugin log list --plugin herdrabbit --limit 50", "plugin log list --plugin herdrabbit --limit 50",
   ]);
   assert.deepEqual(await fresh.ran(), []);
@@ -794,7 +947,7 @@ test("update.sh's step is read from the lines it logs", () => {
   assert.equal(scriptPhase(""), null);
   assert.equal(scriptPhase("", "verify"), "verify");
   const lines = [
-    ["  > Fetching main in /home/me/HerdRabbit", "fetch"],
+    ["  > Fetching the latest release in /home/me/HerdRabbit", "fetch"],
     ["  > Updating Herdr", "herdr"],
     ["  > Installing runtime dependencies", "install"],
     ["  > Verifying the updated code", "verify"],
@@ -812,7 +965,7 @@ test("update.sh's step is read from the lines it logs", () => {
   assert.equal(scriptPhase("  > Configuring Claude to use native terminal scrollback\n  x verification failed", "verify"), "verify");
   assert.equal(scriptPhase("  > Rolling back to abc1234", "verify"), "verify");
   // The furthest step seen holds: an earlier step's line later on does not move it back.
-  assert.equal(scriptPhase("  > Verifying the updated code\n  > Restarting herdrabbit.service\n  > Fetching main again"), "restart");
+  assert.equal(scriptPhase("  > Verifying the updated code\n  > Restarting herdrabbit.service\n  > Fetching the latest release again"), "restart");
   assert.equal(scriptPhase("  > Installing runtime dependencies", "verify"), "verify");
   assert.equal(scriptPhase("  > Updated to abc1234.\n  > Updating Herdr"), "done");
 });
@@ -838,7 +991,7 @@ test("the run's status names its steps and the one it is at", async (context) =>
   assert.deepEqual(await script.runStatus().then(({ state, phase, steps }) => ({ state, phase, steps: steps.length })),
     { state: "idle", phase: null, steps: 6 });
   await write({ state: "running", unit: "herdrabbit-update-1", startedAt: new Date(now).toISOString(), mode: "script" });
-  await writeFile(join(repo.stateDir, "update.log"), "  > Fetching main in /x\n  > Updating Herdr\n");
+  await writeFile(join(repo.stateDir, "update.log"), "  > Fetching the latest release in /x\n  > Updating Herdr\n");
   let status = await script.runStatus();
   assert.equal(status.mode, "script");
   assert.deepEqual(status.steps, RUN_STEPS.script);
@@ -1049,14 +1202,16 @@ test("a restart invoke that timed out is followed in Herdr's log, and nothing re
     const repo = await scratch(context);
     await mkdir(repo.stateDir, { mode: 0o700 });
     const fresh = await newCheckout(repo.root);
-    const list = JSON.stringify({ result: { plugins: [{ plugin_id: "herdrabbit", plugin_root: fresh.checkout }] } });
+    const list = JSON.stringify({ result: { plugins: [{
+      plugin_id: "herdrabbit", plugin_root: fresh.checkout, source: { kind: "github", owner: "jwgung", repo: "HerdRabbit" },
+    }] } });
     const fake = processes(fresh.node, (name) => ({
       "plugin action invoke": { stdout: INVOKED, hang: true, immortal },
       "plugin log list": { stdout: SPAWN_FAILED },
       "plugin list --plugin": { stdout: list },
     })[name] ?? {});
     const exit = await runPluginUpdate({
-      stateDir: repo.stateDir, id: "herdrabbit", binary: "herdr", cwd: repo.root, spawnImpl: fake.spawnImpl, sleep: async () => {},
+      stateDir: repo.stateDir, id: "herdrabbit", binary: "herdr", tag: "v1.0.1", cwd: repo.root, spawnImpl: fake.spawnImpl, sleep: async () => {},
       pluginDirs: { configDir: join(repo.root, "cfg"), stateDir: join(repo.root, "pstate") }, nodeBin: fresh.node,
       environment: { PATH: "/usr/bin" }, invokeBounds: { timeout: 10, killGraceMs: 20, closeWaitMs: 30 },
     });
