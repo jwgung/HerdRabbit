@@ -7,10 +7,10 @@ import { sessionProjectChoices } from "../ui-model.js?v=1.4.23";
 // first). The form makes a session in the project with a shell or an
 // installed agent, and a name if one is given. Which agents are installed is
 // asked of the project's machine each time it opens (the server keeps its
-// answer briefly). Once an agent is
-// chosen, that machine's earlier sessions of it in the project's folder are
-// offered too: picking one resumes it instead of starting new. Titles are
-// shown as text only. Choosing another project asks again, of its machine.
+// answer briefly). Once an agent is chosen, that machine's earlier sessions
+// of it in the project's folder are offered too: picking one resumes it
+// instead of starting new. Titles are shown as text only. Choosing another
+// project asks again, of its machine.
 // Listeners are registered when this is called, not on import.
 export function createSessionDialog({ state, api, snapshotRecords, createSession }) {
   const dialog = document.querySelector("#session-dialog");
