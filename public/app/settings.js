@@ -45,7 +45,7 @@ export function createSettings(deps) {
   // The chat column's width is the root's, so it holds before any chat is drawn.
   document.documentElement.dataset.chatWidth = readChatWidth(panePreferenceStorage);
 
-  const visiblePages = () => settingsPageList({ security: state.authRequired === true, pcs: state.connectPcEnabled === true });
+  const visiblePages = () => settingsPageList({ security: state.authRequired === true, pcs: state.connectPcAvailable === true });
 
   function pressOnly(buttons, attribute, value) {
     for (const button of buttons) button.setAttribute("aria-pressed", String(button.getAttribute(attribute) === value));

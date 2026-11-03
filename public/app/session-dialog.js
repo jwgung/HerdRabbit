@@ -5,8 +5,9 @@ import { sessionProjectChoices } from "../ui-model.js?v=1.4.23";
 // The "New session" dialog: a project's ⋯ menu opens it for that project,
 // and the + menu opens it with a Project select (the selected pane's project
 // first). The form makes a session in the project with a shell or an
-// installed agent, and a name if one is given. Which agents are installed is asked of the project's machine
-// each time it opens (the server keeps its answer briefly). Once an agent is
+// installed agent, and a name if one is given. Which agents are installed is
+// asked of the project's machine each time it opens (the server keeps its
+// answer briefly). Once an agent is
 // chosen, that machine's earlier sessions of it in the project's folder are
 // offered too: picking one resumes it instead of starting new. Titles are
 // shown as text only. Choosing another project asks again, of its machine.

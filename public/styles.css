@@ -164,7 +164,7 @@ body.sidebar-collapsed .navigator {
 }
 
 /* The rail is for moving between sessions, but the footer's two controls (the
-   uploads folder and the settings menu, the only way to Update) stay within
+   uploads folder and the settings button, the only way to Update) stay within
    reach: stacked in the rail, which is the sidebar's last --sidebar-rail. */
 body.sidebar-collapsed .navigator-footer {
   flex-direction: column;
@@ -2994,7 +2994,7 @@ body.is-resizing-sidebar {
 }
 
 /* The footer holds two controls: the uploads folder at the start and the
-   settings menu at the far end. */
+   settings button at the far end. */
 .navigator .navigator-footer {
   grid-row: 4;
   justify-content: space-between;

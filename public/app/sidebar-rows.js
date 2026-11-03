@@ -13,8 +13,8 @@ import {
 import { writeCollapsedGroupIds, writeCollapsedWorkspaceIds } from "../workspace-preference.js?v=1.4.23";
 import { tiles as viewTiles } from "../view-split.js?v=1.4.23";
 
-// The sidebar's rows and what they open: the ⋯ action menus (also used by the
-// settings menu, AI accounts and Files), a project's heading with its collapse
+// The sidebar's rows and what they open: the ⋯ action menus (also used by
+// AI accounts and Files), a project's heading with its collapse
 // and rename, a session's row with its agent mark, the fold on server and
 // session headings, the rename form shared by projects, sessions and machines,
 // and creating (through the New session dialog) or closing sessions and

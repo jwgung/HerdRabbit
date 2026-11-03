@@ -269,8 +269,6 @@ const state = {
   pushSubscription: null,
   pushBusy: false,
   authRequired: false,
-  // Whether this HerdRabbit can connect to other PCs (Settings → PCs).
-  connectPcEnabled: false,
   passkeyAvailable: false,
   passkeyBusy: false,
   sessionsBusy: false,
@@ -279,7 +277,8 @@ const state = {
   terminalParked: null,
   // This PC's own Connect PC port, { address, allowed }, or null when closed.
   connectPc: null,
-  // Whether other PCs can be connected from here (this machine's row offers Connect PC…).
+  // Whether other PCs can be connected from here: this machine's row offers
+  // Connect PC… and Settings lists its PCs page only then.
   connectPcAvailable: false,
   // Split tabs shown as a grid of their panes (tab id -> "grid"); any other
   // tab shows its selected pane alone.
@@ -305,7 +304,7 @@ const {
 } = notificationNavigation;
 
 // Made right after `state`, which it reads, and before anything at the top
-// level hands `api` on (createSettingsMenu below does, for the Update panel).
+// level hands `api` on (createSettings below does, for the Update panel).
 const { api, transferRequest, conversationRequest } = createApiClient({
   launchToken: () => state.launchToken,
   csrfToken: () => state.csrfToken,
@@ -1496,7 +1495,6 @@ async function initializeApplication() {
   state.pushPublicKey = typeof bootstrap.pushPublicKey === "string"
     ? bootstrap.pushPublicKey
     : null;
-  state.connectPcEnabled = bootstrap.servers === true;
   state.connectPcAvailable = bootstrap.servers === true;
   syncSettings();
   state.connectPc = bootstrap.connectPc && typeof bootstrap.connectPc.address === "string" ? bootstrap.connectPc : null;
