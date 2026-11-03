@@ -89,3 +89,56 @@ export function pluginMachines(servers = []) {
     ...servers.filter((server) => server.transport === "link").map((server) => ({ id: server.id, name: server.name || server.id })),
   ];
 }
+
+// Browse (Herdr's plugin marketplace). A listing's link, only when it is a
+// GitHub repository, or a folder in one, as the server builds it.
+const MARKET_URL = /^https:\/\/github\.com\/[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}(?:\/tree\/HEAD(?:\/[A-Za-z0-9._-]{1,100}){1,8})?$/u;
+
+export function marketplaceUrl(item) {
+  return typeof item?.url === "string" && MARKET_URL.test(item.url) && !/\/\.\.?(?:\/|$)/u.test(item.url) ? item.url : null;
+}
+
+// Whether a listing is already on the machine: the same plugin id, or the
+// same GitHub repository and folder.
+export function marketplaceInstalled(item, plugins = []) {
+  const where = (owner, repo, subdir) => [owner, repo, subdir ?? ""].join("/").toLowerCase();
+  const listed = where(item?.owner, item?.repo, item?.subdir);
+  return (plugins ?? []).some((plugin) => plugin.id === item?.id ||
+    (plugin.source?.kind === "github" && where(plugin.source.owner, plugin.source.repo, plugin.source.subdir) === listed));
+}
+
+const AGES = [[365 * 86_400_000, "year"], [30 * 86_400_000, "month"], [7 * 86_400_000, "week"], [86_400_000, "day"], [3_600_000, "hour"], [60_000, "minute"]];
+
+// "3 days ago", "just now", or null for a time that cannot be read.
+export function timeAgo(iso, now = Date.now()) {
+  const then = Date.parse(iso ?? "");
+  if (Number.isNaN(then)) return null;
+  const gone = Math.max(0, now - then);
+  for (const [size, unit] of AGES) {
+    const amount = Math.floor(gone / size);
+    if (amount >= 1) return `${amount} ${unit}${amount === 1 ? "" : "s"} ago`;
+  }
+  return "just now";
+}
+
+// A listing's second line: stars, last push, platforms, the Herdr it needs.
+export function marketplaceDetails(item, now = Date.now()) {
+  const parts = [`★ ${Number(item?.stars ?? 0).toLocaleString("en-US")}`];
+  if (item?.starsThisWeek > 0) parts.push(`+${Number(item.starsThisWeek).toLocaleString("en-US")} this week`);
+  const pushed = timeAgo(item?.pushedAt, now);
+  if (pushed) parts.push(`updated ${pushed}`);
+  if (Array.isArray(item?.platforms) && item.platforms.length) parts.push(item.platforms.join(", "));
+  if (item?.minHerdrVersion) parts.push(`needs Herdr ${item.minHerdrVersion} or later`);
+  return parts.join(" · ");
+}
+
+// The line above the listings: how many, and how old the list is.
+export function marketplaceSummary(answer, query = "", now = Date.now()) {
+  const total = Number(answer?.total ?? 0);
+  if (total === 0) return query ? `No plugins in Herdr's marketplace match "${query}".` : "Herdr's marketplace lists no plugins.";
+  const count = `${total.toLocaleString("en-US")} plugin${total === 1 ? "" : "s"}${query ? ` ${total === 1 ? "matches" : "match"} "${query}"` : ""}`;
+  const listed = timeAgo(answer.generatedAt, now);
+  const read = timeAgo(answer.fetchedAt, now);
+  if (answer.stale) return `${count}. Herdr's marketplace could not be read just now; this list was read ${read ?? "earlier"}.`;
+  return `${count}${listed ? `, listed by Herdr ${listed}` : ""}.`;
+}

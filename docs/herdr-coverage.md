@@ -75,6 +75,7 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 |---|---|---|
 | `list` | Shown | Settings → Plugins, per machine |
 | `install` | Done | From a GitHub `owner/repo`, after confirmation; sign-in must be on |
+| marketplace ([herdr.dev/plugins](https://herdr.dev/plugins/)) | Shown | Settings → Plugins → Browse: search, Herdr's sort orders, Installed badge, Install… into the same confirm step |
 | `enable`, `disable`, `update`, `uninstall` | Done | Not for HerdRabbit itself, which updates from Settings → About |
 | `link`, `unlink` | Missing | Local plugin folders |
 | `action`, `pane` | Missing | Running a plugin's actions or opening its panes from the page |

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  marketplaceDetails, marketplaceInstalled, marketplaceSummary, marketplaceUrl, timeAgo,
   parsePluginSource, pluginMachines, pluginOperationText, pluginSourceText, pluginSourceUrl, validPluginRef,
 } from "../public/app/plugin-model.js";
 import { validatePluginRef, validatePluginSource } from "../src/herdr-plugins.mjs";
@@ -62,4 +63,46 @@ test("the machines are this PC, then each connected PC", () => {
     { id: "ssh", name: "Old", transport: "ssh" },
   ]), [{ id: "local", name: "This PC (desk)" }, { id: "link_1", name: "Laptop" }]);
   assert.deepEqual(pluginMachines([]), [{ id: "local", name: "This PC" }]);
+});
+
+const NOW = Date.parse("2026-11-04T00:00:00Z");
+const listing = {
+  owner: "zenbu-labs", repo: "terminal-browser", subdir: "herdr-plugin", spec: "zenbu-labs/terminal-browser/herdr-plugin",
+  id: "zenbu-labs.terminal-browser", name: "Terminal Browser", stars: 4403, starsThisWeek: 127,
+  pushedAt: "2026-11-01T00:00:00Z", platforms: ["linux", "macos"], minHerdrVersion: "0.8.2",
+  url: "https://github.com/zenbu-labs/terminal-browser/tree/HEAD/herdr-plugin",
+};
+
+test("a marketplace listing links only to its GitHub repository or folder", () => {
+  assert.equal(marketplaceUrl(listing), listing.url);
+  assert.equal(marketplaceUrl({ url: "https://github.com/a/b" }), "https://github.com/a/b");
+  for (const url of ["javascript:alert(1)", "http://github.com/a/b", "https://github.com.evil/a/b", "https://github.com/a",
+    "https://github.com/a/b/tree/HEAD/../x", "https://github.com/a/b?x=1", "https://github.com/a/b/blob/HEAD/x", null]) {
+    assert.equal(marketplaceUrl({ url }), null, String(url));
+  }
+});
+
+test("a listing is installed when its id or its repository and folder are", () => {
+  const github = (owner, repo, subdir = null) => ({ id: "other", source: { kind: "github", owner, repo, subdir } });
+  assert.equal(marketplaceInstalled(listing, [{ id: "zenbu-labs.terminal-browser", source: { kind: "local" } }]), true);
+  assert.equal(marketplaceInstalled(listing, [github("Zenbu-Labs", "Terminal-Browser", "herdr-plugin")]), true);
+  assert.equal(marketplaceInstalled(listing, [github("zenbu-labs", "terminal-browser")]), false);
+  assert.equal(marketplaceInstalled({ ...listing, subdir: null, id: "x" }, [github("zenbu-labs", "terminal-browser")]), true);
+  assert.equal(marketplaceInstalled(listing, []), false);
+});
+
+test("a listing's details and the list's summary read as sentences", () => {
+  assert.equal(timeAgo("2026-11-03T23:59:30Z", NOW), "just now");
+  assert.equal(timeAgo("2026-11-03T23:00:00Z", NOW), "1 hour ago");
+  assert.equal(timeAgo("2026-10-01T00:00:00Z", NOW), "1 month ago");
+  assert.equal(timeAgo("nonsense", NOW), null);
+  assert.equal(marketplaceDetails(listing, NOW),
+    "★ 4,403 · +127 this week · updated 3 days ago · linux, macos · needs Herdr 0.8.2 or later");
+  assert.equal(marketplaceDetails({ stars: 0 }, NOW), "★ 0");
+  assert.equal(marketplaceSummary({ total: 2042, generatedAt: "2026-11-03T21:00:00Z" }, "", NOW),
+    "2,042 plugins, listed by Herdr 3 hours ago.");
+  assert.equal(marketplaceSummary({ total: 1, generatedAt: null }, "notes", NOW), '1 plugin matches "notes".');
+  assert.equal(marketplaceSummary({ total: 0 }, "zzz", NOW), 'No plugins in Herdr\'s marketplace match "zzz".');
+  assert.equal(marketplaceSummary({ total: 3, stale: true, fetchedAt: "2026-11-03T22:00:00Z" }, "", NOW),
+    "3 plugins. Herdr's marketplace could not be read just now; this list was read 2 hours ago.");
 });

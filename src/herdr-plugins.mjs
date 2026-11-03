@@ -81,9 +81,11 @@ export function isHerdRabbitPlugin(id, source, selfId = null) {
     HERDRABBIT_REPO.test(String(source.repo ?? ""));
 }
 
-function text(value, max) {
+// One line of text another program wrote: control, direction-changing and
+// invisible characters become spaces, runs of space one, at most `max` characters.
+export function cleanText(value, max) {
   if (typeof value !== "string") return null;
-  const cleaned = value.replace(/[\u0000-\u001f\u007f]/gu, " ").replace(/\s+/gu, " ").trim();
+  const cleaned = value.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/gu, " ").replace(/\s+/gu, " ").trim();
   return cleaned ? cleaned.slice(0, max) : null;
 }
 
@@ -92,13 +94,13 @@ function text(value, max) {
 // "local"; its folder is not named.
 function cleanSource(source) {
   if (!source || typeof source !== "object") return null;
-  if (source.kind !== "github") return { kind: text(source.kind, 16) === "local" ? "local" : "other" };
+  if (source.kind !== "github") return { kind: cleanText(source.kind, 16) === "local" ? "local" : "other" };
   const owner = typeof source.owner === "string" && OWNER.test(source.owner) ? source.owner : null;
   const repo = typeof source.repo === "string" && validName(source.repo) ? source.repo : null;
   if (!owner || !repo) return { kind: "other" };
   const subdir = typeof source.subdir === "string" && source.subdir.split("/").every(validName) &&
     source.subdir.length <= MAX_SOURCE ? source.subdir : null;
-  const ref = text(source.ref ?? source.requested_ref, MAX_REF);
+  const ref = cleanText(source.ref ?? source.requested_ref, MAX_REF);
   const commit = typeof (source.commit ?? source.resolved_commit) === "string" &&
     COMMIT.test(source.commit ?? source.resolved_commit) ? (source.commit ?? source.resolved_commit) : null;
   return { kind: "github", owner, repo, subdir, ref, commit };
@@ -113,9 +115,9 @@ function cleanPlugin(raw, selfId = null) {
   const isProtected = raw.protected === true || isHerdRabbitPlugin(id, source, selfId);
   return {
     id,
-    name: text(raw.name, 100) ?? id,
-    version: text(raw.version, 40),
-    description: text(raw.description, 300),
+    name: cleanText(raw.name, 100) ?? id,
+    version: cleanText(raw.version, 40),
+    description: cleanText(raw.description, 300),
     enabled: raw.enabled !== false,
     source,
     protected: isProtected,
@@ -123,7 +125,7 @@ function cleanPlugin(raw, selfId = null) {
   };
 }
 
-function cleanTime(value) {
+export function cleanTime(value) {
   return typeof value === "string" && !Number.isNaN(Date.parse(value)) ? new Date(value).toISOString() : null;
 }
 

@@ -2,6 +2,7 @@ import { createElement } from "./dom.js?v=1.4.28";
 import {
   parsePluginSource, pluginMachines, pluginOperationText, pluginSourceText, pluginSourceUrl, validPluginRef,
 } from "./plugin-model.js?v=1.4.28";
+import { createPluginBrowse } from "./plugin-browse.js?v=1.4.28";
 
 const POLL_MS = 1_500;
 
@@ -9,13 +10,18 @@ const POLL_MS = 1_500;
 // runs Herdr's own commands (src/herdr-plugins.mjs) and says how a change
 // goes; this page lists, starts a change and follows it until it ends.
 // HerdRabbit's own plugin is listed but has no controls: its update is
-// About → Update. Only shown with sign-in on (settings.js decides).
+// About → Update. Browse lists Herdr's plugin marketplace (plugin-browse.js)
+// and installs through the same dialog. Only shown with sign-in on
+// (settings.js decides).
 export function createPluginsPage({ api, snapshotRecords, sidebarActionMenu }) {
   const machineRow = document.querySelector("#plugins-machine-row");
   const machineSelect = document.querySelector("#plugins-machine");
   const list = document.querySelector("#plugins-list");
   const feedback = document.querySelector("#plugins-feedback");
   const installButton = document.querySelector("#plugins-install");
+  const viewButtons = [...document.querySelectorAll("[data-plugins-view]")];
+  const installedView = document.querySelector("#plugins-installed-view");
+  const browseView = document.querySelector("#plugins-browse-view");
 
   const dialog = document.querySelector("#plugin-install-dialog");
   const form = document.querySelector("#plugin-install-form");
@@ -34,8 +40,15 @@ export function createPluginsPage({ api, snapshotRecords, sidebarActionMenu }) {
   const page = {
     visible: false, server: "local", machines: [], plugins: [], operation: null,
     loaded: false, loading: false, sending: false, timer: null, generation: 0,
-    pending: null,
+    pending: null, view: "installed", opener: null,
   };
+
+  const browse = createPluginBrowse({
+    api,
+    installed: () => ({ plugins: page.plugins, loaded: page.loaded }),
+    locked: () => locked(),
+    install: (source, opener) => openInstall(source, opener),
+  });
 
   const machineName = (id = page.server) => page.machines.find((item) => item.id === id)?.name ?? "this machine";
   const running = () => page.operation?.state === "running";
@@ -138,6 +151,7 @@ export function createPluginsPage({ api, snapshotRecords, sidebarActionMenu }) {
 
   function render() {
     installButton.disabled = locked();
+    browse.render();
     if (!page.loaded) return;
     if (page.plugins.length === 0) {
       list.replaceChildren(createElement("li", { className: "settings-row-hint plugin-empty", text: `No plugins are installed on ${machineName()}.` }));
@@ -249,21 +263,25 @@ export function createPluginsPage({ api, snapshotRecords, sidebarActionMenu }) {
     warning.textContent = `A plugin runs its build and its own code on ${machineName()}, as your user there. Install only plugins you trust.`;
   }
 
-  function openInstall() {
+  // From Install plugin…, or from a Browse listing with its source filled in.
+  function openInstall(source = "", opener = installButton) {
     if (locked()) return;
     form.reset();
+    sourceInput.value = source;
     page.pending = null;
+    page.opener = opener;
     setInstallFeedback("");
     document.querySelector("#plugin-install-machine").textContent = `On ${machineName()}`;
     showStep("source");
     syncInstallPreview();
     dialog.showModal();
-    sourceInput.focus();
+    if (source) submitButton.focus();
+    else sourceInput.focus();
   }
 
   sourceInput.addEventListener("input", () => { setInstallFeedback(""); syncInstallPreview(); });
   refInput.addEventListener("input", () => setInstallFeedback(""));
-  installButton.addEventListener("click", openInstall);
+  installButton.addEventListener("click", () => openInstall());
   cancelButton.addEventListener("click", () => {
     if (dialog.dataset.step === "confirm") {
       showStep("source");
@@ -296,7 +314,8 @@ export function createPluginsPage({ api, snapshotRecords, sidebarActionMenu }) {
       link.href = parsed.url;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
-      confirmRepo.append("Herdr downloads it from ", link, ", builds it and runs it there. It can do anything your user there can.");
+      confirmRepo.append("Herdr downloads it from ", link, ", builds it and runs it there. It can do anything your user there can.",
+        ref ? "" : " Without a Ref it takes the repository's default branch as it is now, which can differ from what a listing says.");
       setInstallFeedback("");
       showStep("confirm");
       submitButton.focus();
@@ -329,7 +348,24 @@ export function createPluginsPage({ api, snapshotRecords, sidebarActionMenu }) {
       render();
     }
   });
-  dialog.addEventListener("close", () => { page.pending = null; if (page.visible) installButton.focus({ preventScroll: true }); });
+  dialog.addEventListener("close", () => {
+    page.pending = null;
+    if (!page.visible) return;
+    // A listing's Install… is gone once the list is drawn again.
+    const opener = page.opener?.isConnected ? page.opener : installButton;
+    opener.focus({ preventScroll: true });
+  });
+
+  // Installed or Browse; the machine, the status line and Install plugin…
+  // are the same for both.
+  function showView(view) {
+    page.view = view;
+    for (const button of viewButtons) button.setAttribute("aria-pressed", String(button.dataset.pluginsView === view));
+    installedView.hidden = view !== "installed";
+    browseView.hidden = view !== "browse";
+    if (view === "browse") browse.show();
+  }
+  for (const button of viewButtons) button.addEventListener("click", () => showView(button.dataset.pluginsView));
 
   // Settings tells the page whether it is on screen; it reads its list as it
   // comes into view and stops following a change once it is gone.

@@ -7,8 +7,12 @@
 // refuses a bad ref, then asks to confirm before installing; while a change
 // runs the controls wait, and the page follows it until it ends. With sign-in
 // off there is no Plugins page. On a phone the controls are 44px targets and
-// nothing is wider than the screen. Runs on a desktop and a phone against an
-// in-process fake herdr and fake `herdr plugin` commands.
+// nothing is wider than the screen. Browse lists Herdr's plugin marketplace:
+// unreadable, it says so and points to Install plugin…; read, it sorts,
+// searches and reads more, marks what is installed, offers no Install for
+// HerdRabbit, and a listing's Install… fills in Source and goes through the
+// same confirm step. Runs on a desktop and a phone against an in-process fake
+// herdr, fake `herdr plugin` commands and a fake marketplace index.
 //
 // PLUGINS_SHOTS=<folder> keeps pictures of the page and the dialog.
 import assert from "node:assert/strict";
@@ -17,6 +21,8 @@ import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { HerdrCommandError } from "../src/herdr-client.mjs";
 import { PluginManager } from "../src/herdr-plugins.mjs";
+import { PluginMarketplace } from "../src/plugin-marketplace.mjs";
+import { fakeFetch, marketplaceIndex } from "../test/fixtures/fake-plugin-marketplace.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const LAPTOP = "link_11111111-1111-1111-1111-111111111111";
@@ -56,6 +62,17 @@ function fakePlugins(initial) {
 
 let local;
 let laptop;
+// The marketplace the hub reads: the fixture's plugins and enough more for
+// a second page.
+const marketIndex = marketplaceIndex();
+for (let index = 1; index <= 55; index += 1) {
+  marketIndex.plugins.push({
+    ...marketIndex.plugins[1], owner: "gen", name: `plugin-${index}`, fullName: `gen/plugin-${index}`, stars: 0, starsDelta7d: 0,
+    description: "Generated", pushedAt: "2026-01-01T00:00:00Z",
+    manifests: [{ ...marketIndex.plugins[1].manifests[0], id: `gen-${index}`, name: `Gen ${index}` }],
+  });
+}
+let market;
 const herdr = {
   async snapshot() {
     return {
@@ -86,6 +103,7 @@ function startServer(required) {
   const { server } = createHerdrHttpServer({
     herdr,
     plugins: { list: (...args) => local.manager.list(...args), start: (...args) => local.manager.start(...args) },
+    marketplace: { page: (...args) => market.page(...args) },
     auth: { required, hasValidSession: () => true, hasValidLaunchToken: () => true, onSessionsEnded: () => () => {} },
     logger: { info() {}, error() {} },
   });
@@ -277,11 +295,104 @@ try {
     assert.equal(await feedback.getAttribute("data-error"), "true");
     assert.equal(await rows.count(), 0);
 
+    // Browse, on This PC. Unreadable first: it says so and points to Install plugin….
+    await picker.selectOption("local");
+    await page.waitForFunction(() => document.querySelector('#plugins-list .plugin-row[data-plugin="tool"]'));
+    market = new PluginMarketplace({ fetch: fakeFetch({}, { status: 503 }).fetch });
+    const browseButton = pluginsPage.locator('[data-plugins-view="browse"]');
+    await browseButton.click();
+    assert.equal(await browseButton.getAttribute("aria-pressed"), "true");
+    assert.equal(await page.locator("#plugins-installed-view").isVisible(), false, `${where}: Installed still shows in Browse`);
+    const browseStatus = page.locator("#plugins-browse-status");
+    await page.waitForFunction(() => document.querySelector("#plugins-browse-status").dataset.error === "true");
+    assert.match(await browseStatus.textContent(), /could not be read \(it answered HTTP 503\)\. You can still install a plugin by its GitHub owner\/repo with Install plugin…/u);
+    assert.match(await pluginsPage.locator("#plugins-browse-view .plugin-warning").textContent(), /Nobody reviews them/u);
+    const listings = page.locator("#plugins-browse-list .market-row");
+    assert.equal(await listings.count(), 0);
+
+    // Readable: a new order reads it again, Popular first by stars.
+    market = new PluginMarketplace({ fetch: fakeFetch(marketIndex).fetch });
+    const sort = page.locator("#plugins-sort");
+    const specs = () => listings.evaluateAll((items) => items.map((item) => item.dataset.spec));
+    await sort.selectOption("name");
+    await page.waitForFunction(() => document.querySelectorAll("#plugins-browse-list .market-row").length === 50);
+    const names = await listings.locator("strong").allTextContents();
+    assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" })), `${where}: Name is not in order`);
+    assert.match(await browseStatus.textContent(), /^61 plugins, listed by Herdr /u);
+    await sort.selectOption("popular");
+    await page.waitForFunction(() => document.querySelector("#plugins-browse-list .market-row")?.dataset.spec === "zenbu-labs/terminal-browser/herdr-plugin");
+    assert.deepEqual((await specs()).slice(0, 4), ["zenbu-labs/terminal-browser/herdr-plugin", "annotate-dev/annotate", "annotate-dev/annotate/links", "someone/herdr-notes"]);
+    const first = listings.first();
+    assert.equal(await first.locator("a.plugin-source").getAttribute("href"), "https://github.com/zenbu-labs/terminal-browser/tree/HEAD/herdr-plugin");
+    assert.match(await first.locator(".market-details").textContent(), /^★ 4,403 · \+127 this week · updated .+ · linux, macos · needs Herdr 0\.8\.2 or later$/u);
+    for (const href of await listings.locator("a.plugin-source").evaluateAll((links) => links.map((link) => link.getAttribute("href")))) {
+      assert.match(href, /^https:\/\/github\.com\/[^/]+\/[^/]+(?:\/tree\/HEAD\/.+)?$/u);
+    }
+    // HerdRabbit: listed, never installable here.
+    const herdrabbitListing = listings.filter({ has: page.locator("strong", { hasText: "HerdRabbit" }) });
+    assert.equal(await herdrabbitListing.locator(".market-install").count(), 0, `${where}: HerdRabbit can be installed`);
+    assert.equal(await herdrabbitListing.locator(".plugin-state").textContent(), "Updated from About");
+    // Load more reads the next page, then there is no more.
+    const more = page.locator("#plugins-more");
+    assert.equal(await more.isVisible(), true, `${where}: no Load more`);
+    if (mobile) {
+      for (const target of [page.locator("#plugins-search"), sort, first.locator(".market-install"), more, browseButton]) {
+        const box = await target.boundingBox();
+        assert.ok(box.height >= 44, `${where}: ${await target.evaluate((node) => node.id || node.className)} is under 44px tall (${box.height})`);
+      }
+      const overflow = await page.locator(".settings-body").evaluate((element) => element.scrollWidth - element.clientWidth);
+      assert.ok(overflow <= 1, `${where}: Browse is wider than the screen (${overflow}px)`);
+    }
+    if (shots) await page.screenshot({ path: join(shots, `browse-${where}.png`) });
+    await more.click();
+    await page.waitForFunction(() => document.querySelectorAll("#plugins-browse-list .market-row").length === 61);
+    assert.equal(await more.isVisible(), false, `${where}: Load more after the last page`);
+
+    // Search, typed: a moment after the last key, the matching listings.
+    await page.locator("#plugins-search").click();
+    await page.keyboard.type("annotate");
+    await page.waitForFunction(() => document.querySelectorAll("#plugins-browse-list .market-row").length === 2);
+    assert.deepEqual(await specs(), ["annotate-dev/annotate", "annotate-dev/annotate/links"]);
+    assert.match(await browseStatus.textContent(), /^2 plugins match "annotate", listed by Herdr .+ ago\.$/u);
+
+    // Install… fills in Source; the same confirm step; Herdr's command runs.
+    const annotate = listings.filter({ has: page.locator("strong", { hasText: /^Annotate$/u }) });
+    await annotate.locator(".market-install").click();
+    await install.waitFor({ state: "visible" });
+    assert.equal(await page.locator("#plugin-install-source").inputValue(), "annotate-dev/annotate");
+    assert.equal(await page.locator("#plugin-install-repo a").getAttribute("href"), "https://github.com/annotate-dev/annotate");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "plugin-install-submit", `${where}: Continue is not focused`);
+    await page.keyboard.press("Enter");
+    await page.locator("#plugin-install-confirm-step").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#plugin-install-confirm-text").textContent(), "Install annotate-dev/annotate on This PC (workstation)?");
+    assert.ok(!local.state.ran.includes("plugin install annotate-dev/annotate --yes"), `${where}: installed before Install`);
+    await page.locator("#plugin-install-submit", { hasText: "Install" }).click();
+    await install.waitFor({ state: "hidden" });
+    await page.waitForFunction(() => /^Installing annotate-dev\/annotate…/u.test(document.querySelector("#plugins-feedback").textContent));
+    assert.equal(local.state.ran.at(-1), "plugin install annotate-dev/annotate --yes");
+    assert.equal(await annotate.locator(".market-install").isDisabled(), true, `${where}: Install… is not waiting`);
+    local.state.hold();
+    await page.waitForFunction(() => document.querySelector("#plugins-feedback").textContent === "Installed annotate-dev/annotate.");
+    await annotate.locator(".plugin-badge", { hasText: "Installed" }).waitFor({ state: "visible" });
+    const links = listings.filter({ has: page.locator("strong", { hasText: "Annotate Links" }) });
+    assert.equal(await links.locator(".market-install").isDisabled(), false, `${where}: another folder of the repository counts as installed`);
+    // A new order chosen while a search waits for its pause reads that search.
+    await page.locator("#plugins-search").fill("herdr-notes");
+    await sort.selectOption("recent");
+    await page.waitForFunction(() => document.querySelectorAll("#plugins-browse-list .market-row").length === 1);
+    assert.deepEqual(await specs(), ["someone/herdr-notes"]);
+    await page.waitForTimeout(400);
+    assert.deepEqual(await specs(), ["someone/herdr-notes"], `${where}: the search read again after the new order`);
+
+    // Installed again: the new plugin is in its list.
+    await pluginsPage.locator('[data-plugins-view="installed"]').click();
+    assert.ok((await page.locator("#plugins-list .plugin-row").evaluateAll((items) => items.map((row) => row.dataset.plugin))).includes("annotate"));
+
     assert.deepEqual(errors, [], `${where}: page errors: ${errors.join("; ")}`);
     await context.close();
     console.log(`ok: ${where}`);
   }
-  console.log("Plugins page: list, switch, menu, install with confirm, machines, sign-in only: ok");
+  console.log("Plugins page: list, switch, menu, install with confirm, machines, sign-in only, Browse: ok");
 } finally {
   await browser.close();
   signedIn.close();
