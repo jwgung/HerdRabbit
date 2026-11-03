@@ -25,7 +25,7 @@ export const AGENTS = Object.freeze([
   { name: "opencode", label: "OpenCode", marks: ["opencode"], chat: true, card: true, slash: true, stop: true },
   { name: "kiro", label: "Kiro", marks: ["kiro"], chat: true, card: true, slash: true, stop: true },
   { name: "agy", label: "Antigravity", marks: ["agy", "antigravity"], chat: true, card: true, slash: true, stop: true },
-  { name: "cursor", marks: ["cursor"] },
+  { name: "cursor", product: "Cursor Agent", marks: ["cursor"] },
 ].map((agent) => Object.freeze(agent)));
 
 // Which agent's mark a pane wears when the names it carries name more than one
@@ -53,4 +53,16 @@ export function listOfNames(names) {
 // What the program is called in a sentence, for the agents with a feature.
 export function productNamesWith(feature) {
   return AGENTS.filter((agent) => agent[feature] === true).map((agent) => agent.product ?? agent.label);
+}
+
+// What the New session dialog offers: a shell first, then each installed agent
+// (the names the server found on that machine's PATH) by its program's name,
+// in the table's order. Names the table does not know are not offered.
+export function sessionAgentChoices(installed) {
+  const names = new Set(Array.isArray(installed) ? installed : []);
+  return [
+    { value: "", label: "Shell" },
+    ...AGENTS.filter((agent) => names.has(agent.name))
+      .map((agent) => ({ value: agent.name, label: agent.product ?? agent.label })),
+  ];
 }

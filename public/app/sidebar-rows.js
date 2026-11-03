@@ -17,8 +17,8 @@ import { tiles as viewTiles } from "../view-split.js?v=1.4.23";
 // settings menu, AI accounts and Files), a project's heading with its collapse
 // and rename, a session's row with its agent mark, the fold on server and
 // session headings, the rename form shared by projects, sessions and machines,
-// and creating or closing sessions and projects. Nothing here runs until
-// createSidebarRows is called. The functions it calls live in app.js (or in
+// and creating (through the New session dialog) or closing sessions and
+// projects. Nothing here runs until createSidebarRows is called. The functions it calls live in app.js (or in
 // modules made around it) and are handed in as wrappers, so they may be
 // defined after this is made; `viewGrid` is made further down app.js and is
 // read through a getter on `deps`.
@@ -28,6 +28,7 @@ export function createSidebarRows(deps) {
     snapshotRecords, syncCreateProjectAvailability, agentForPane, visibleStatusForPane,
     choosePane, renderNavigation, selectedRecords, renderPaneHeading, showTerminalMessage,
     refreshTerminal, refreshSnapshot, setFeedback, closeMobileSidebar, selectPane, focusComposer,
+    openNewSession,
   } = deps;
 
   function sidebarActionMenu({
@@ -134,38 +135,32 @@ export function createSidebarRows(deps) {
     void refreshTerminal();
   }
 
-  async function createShellSession(workspaceId, button) {
-    if (state.mutationBusy) return;
-    state.mutationBusy = true;
-    button.disabled = true;
+  // A new session in a project, from the New session dialog: a shell, or an
+  // installed agent the server starts in it, named when a name is given. The
+  // server says which pane it made; an older answer is matched by what is new.
+  // Errors go back to the dialog, which shows them.
+  async function createSession(workspaceId, body = {}) {
     const previousPaneIds = new Set(
       snapshotRecords().panes.map((pane) => idOf(pane, "pane_id", "id")),
     );
     setFeedback("");
-    try {
-      const payload = await api(
-        `/api/workspaces/${encodeURIComponent(workspaceId)}/tabs`,
-        { method: "POST", body: {} },
-      );
-      state.snapshot = payload.snapshot || {};
-      const newPane = snapshotRecords().panes.find(
-        (pane) =>
-          !previousPaneIds.has(idOf(pane, "pane_id", "id")) &&
-          paneBelongsToWorkspace(pane, workspaceId),
-      );
-      state.collapsedWorkspaceIds.delete(workspaceId);
-      writeCollapsedWorkspaceIds(panePreferenceStorage, state.collapsedWorkspaceIds);
-      adoptMutationSnapshot(
-        state.snapshot,
-        newPane ? idOf(newPane, "pane_id", "id") : null,
-      );
-      closeMobileSidebar();
-    } catch (error) {
-      setFeedback(error.message, true);
-    } finally {
-      state.mutationBusy = false;
-      button.disabled = false;
-    }
+    const payload = await api(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/tabs`,
+      { method: "POST", body },
+    );
+    state.snapshot = payload.snapshot || {};
+    const newPane = snapshotRecords().panes.find(
+      (pane) =>
+        !previousPaneIds.has(idOf(pane, "pane_id", "id")) &&
+        paneBelongsToWorkspace(pane, workspaceId),
+    );
+    state.collapsedWorkspaceIds.delete(workspaceId);
+    writeCollapsedWorkspaceIds(panePreferenceStorage, state.collapsedWorkspaceIds);
+    adoptMutationSnapshot(
+      state.snapshot,
+      payload.paneId || (newPane ? idOf(newPane, "pane_id", "id") : null),
+    );
+    closeMobileSidebar();
   }
 
   async function closeSession(tab, label, button) {
@@ -366,9 +361,13 @@ export function createSidebarRows(deps) {
             },
           },
           {
-            label: "New session",
+            label: "New session…",
             paths: ["M12 5v14M5 12h14"],
-            onSelect: (button) => void createShellSession(workspaceId, button),
+            onSelect: () => openNewSession({
+              workspaceId,
+              workspaceLabel,
+              serverId: workspace.server_id || "local",
+            }),
           },
           {
             label: "Close project",
@@ -552,7 +551,7 @@ export function createSidebarRows(deps) {
   }
 
   return {
-    sidebarActionMenu, adoptMutationSnapshot, closeSession, renameForm, workspaceHeading,
+    sidebarActionMenu, adoptMutationSnapshot, createSession, closeSession, renameForm, workspaceHeading,
     agentMark, paneButton, attachGroupCollapse, serverRenameForm,
   };
 }

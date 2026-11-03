@@ -14,6 +14,7 @@ import { createChatPanel } from "./app/chat-lens.js?v=1.4.23";
 import { createKeyBar } from "./app/key-bar.js?v=1.4.23";
 import { createKeyBarEditor } from "./app/key-bar-editor.js?v=1.4.23";
 import { createProjectDialog } from "./app/project-dialog.js?v=1.4.23";
+import { createSessionDialog } from "./app/session-dialog.js?v=1.4.23";
 import { createFiles } from "./app/files.js?v=1.4.23";
 import { createConnectPc } from "./app/connect-pc.js?v=1.4.23";
 import { createApiClient, paneApi } from "./api-client.js?v=1.4.23";
@@ -722,7 +723,7 @@ const {
 });
 
 const {
-  sidebarActionMenu, adoptMutationSnapshot, closeSession, renameForm, workspaceHeading,
+  sidebarActionMenu, adoptMutationSnapshot, createSession, closeSession, renameForm, workspaceHeading,
   agentMark, paneButton, attachGroupCollapse, serverRenameForm,
 } = createSidebarRows({
   state,
@@ -746,6 +747,7 @@ const {
   closeMobileSidebar: (...args) => closeMobileSidebar(...args),
   selectPane: (...args) => selectPane(...args),
   focusComposer: (...args) => focusComposer(...args),
+  openNewSession: (...args) => openNewSession(...args),
 });
 
 const { showServerDetails, showSessions, showPasskeys, forgetComposerDrafts } = createAccountDialogs({
@@ -1149,6 +1151,12 @@ createProjectDialog({
   newProjectHerdrSession: (...args) => newProjectHerdrSession(...args),
   adoptMutationSnapshot: (...args) => adoptMutationSnapshot(...args),
   closeMobileSidebar: (...args) => closeMobileSidebar(...args),
+});
+const { open: openNewSession } = createSessionDialog({
+  state,
+  api: (...args) => api(...args),
+  snapshotRecords: (...args) => snapshotRecords(...args),
+  createSession,
 });
 
 // Only the last file link pressed is taken to. One still waiting gives way to
