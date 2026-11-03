@@ -1831,12 +1831,14 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
    stood 48px and a project 32px, so only a few fit on a phone. A session row
    stays 40px or more: it is the thing pressed most, and a finger needs it.
    Buttons keep their 28px width, so arrows and markers stay where the tree's
-   indent puts them. Placed after the rules it shortens so it wins. */
+   indent puts them. A machine keeps 6px above and below: with none, its row
+   touched the project heading under it, closer than any other two rows.
+   Placed after the rules it shortens so it wins. */
 @media (hover: none) {
   .workspace-action { height: 26px; }
   .workspace-heading { min-height: 26px; padding-block: 0; }
   .herdr-session-heading { height: 26px; }
-  .server-heading { padding-block: 0; }
+  .server-heading { padding-block: var(--space-1-5); }
   .session-action-menu { top: 8px; }
 }
 
