@@ -18,6 +18,8 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
   let target = null;
   // A late answer for a dialog opened since is dropped.
   let generation = 0;
+  // While the agent list is still being asked for, its select stays off.
+  let agentsLoading = false;
   // The agent last started here, chosen first next time while this page lasts.
   let lastAgent = "";
 
@@ -55,7 +57,10 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
       if (opened !== generation) return;
       say(`${error.message} A shell can still be opened.`, true);
     } finally {
-      if (opened === generation) agentSelect.disabled = false;
+      if (opened === generation) {
+        agentsLoading = false;
+        agentSelect.disabled = state.mutationBusy;
+      }
     }
   }
 
@@ -65,6 +70,7 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     target = { workspaceId, serverId };
     form.reset();
     fillAgents([]);
+    agentsLoading = true;
     agentSelect.disabled = true;
     const machine = machineName(serverId);
     context.textContent = machine
@@ -103,7 +109,8 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
       say(error.message, true);
     } finally {
       state.mutationBusy = false;
-      for (const control of [agentSelect, nameInput, cancel, submit]) control.disabled = false;
+      for (const control of [nameInput, cancel, submit]) control.disabled = false;
+      agentSelect.disabled = agentsLoading;
     }
   });
 

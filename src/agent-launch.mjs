@@ -27,9 +27,11 @@ async function isExecutableFile(path) {
 }
 
 // Which agents this machine has: those whose command is an executable file
-// in a folder on this server's PATH (the PATH Herdr, and so a new session's
-// shell, was started with). Nothing is run to find out. The answer is kept
-// for a little while, since the New session dialog asks each time it opens.
+// in a folder on this server's PATH. Nothing is run to find out. A new
+// session's shell gets its PATH from Herdr and the shell's own startup files,
+// which may differ (when Herdr was not started by this server), so an agent
+// found here can still fail to start there. The answer is kept for a little
+// while, since the New session dialog asks each time it opens.
 export class InstalledAgents {
   #searchPath;
   #isExecutable;
