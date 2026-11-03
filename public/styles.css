@@ -537,34 +537,14 @@ body.sidebar-collapsed .terminal-panel {
   max-width: min(280px, calc(100vw - 24px));
 }
 
-/* The settings menu's widest labels ("Fit panes to this window"). */
-.settings-menu > .sidebar-action-popover {
-  width: 210px;
-}
-
-/* A setting that is on or off shows it as the item's colour: the app's accent
-   when on, muted when off (Notifications also red when the browser blocks
-   them). The words are in its tooltip and accessible name. */
-.settings-menu .sidebar-action-item:is([data-notify="on"], [data-toggle="on"]) {
-  color: var(--accent);
-}
-
-.settings-menu .sidebar-action-item:is([data-notify="off"], [data-toggle="off"]) {
-  color: var(--muted);
-}
-
-.settings-menu .sidebar-action-item[data-notify="blocked"] {
-  color: var(--danger);
-}
-
-/* A newer version somewhere: a dot on the ⚙ button and on its menu item. */
+/* A newer version somewhere: a dot on the ⚙ button and on Update in About. */
 .settings-button.has-update,
-.settings-menu .sidebar-action-item.has-update {
+#settings-update.has-update {
   position: relative;
 }
 
 .settings-button.has-update::after,
-.settings-menu .sidebar-action-item.has-update::after {
+#settings-update.has-update::after {
   content: "";
   position: absolute;
   top: 5px;
@@ -576,10 +556,247 @@ body.sidebar-collapsed .terminal-panel {
   box-shadow: 0 0 0 2px var(--navigator-surface);
 }
 
-.settings-menu .sidebar-action-item.has-update::after {
-  top: 50%;
-  right: 10px;
-  transform: translateY(-50%);
+#settings-update.has-update::after {
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+/* The settings screen (public/app/settings.js). On a desktop a dialog with
+   its pages listed on the left; on a phone the list fills the screen and a
+   page replaces it, with Back. */
+.settings-dialog {
+  width: min(760px, calc(100vw - 32px));
+  height: min(600px, calc(100dvh - 32px));
+  overflow: hidden;
+}
+
+.settings-dialog[open] {
+  display: flex;
+}
+
+.settings-layout {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+}
+
+.settings-nav {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-2-5);
+  border-right: 1px solid var(--line);
+  background: var(--hover-surface);
+  overflow-y: auto;
+}
+
+.settings-nav-heading,
+.settings-page-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
+}
+
+.settings-nav-heading {
+  padding: 0 var(--space-1-5);
+}
+
+.settings-nav-heading h2,
+.settings-page-heading h3 {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
+.settings-page-heading h3 {
+  font-size: var(--font-xl);
+}
+
+.settings-page-list,
+.settings-pc-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-0-5);
+}
+
+.settings-page-link {
+  grid-template-columns: minmax(0, 1fr);
+  color: var(--control-text);
+}
+
+.settings-page-link[aria-current="page"] {
+  background: var(--selected-surface);
+  color: var(--text);
+}
+
+.settings-page-link .ui-nav-copy {
+  justify-content: space-between;
+}
+
+.settings-body {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  overflow-y: auto;
+}
+
+/* The page list is beside the page on a desktop: one close control, no Back. */
+.settings-back,
+.settings-nav .settings-close {
+  display: none;
+}
+
+.settings-back {
+  align-items: center;
+  gap: var(--space-1);
+  padding-left: var(--space-2);
+}
+
+.settings-back svg,
+.settings-close svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.settings-page {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+}
+
+.settings-page[hidden] {
+  display: none;
+}
+
+.settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-row[hidden] {
+  display: none;
+}
+
+.settings-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.settings-row-copy {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.settings-row-label {
+  font-size: var(--font-md);
+  font-weight: 600;
+}
+
+.settings-row-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-sm);
+}
+
+.settings-row-hint[data-error="true"] {
+  color: var(--danger);
+}
+
+.settings-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+}
+
+.settings-choices[hidden] {
+  display: none;
+}
+
+.settings-pc {
+  grid-template-columns: 10px minmax(0, 1fr);
+}
+
+.settings-page-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-versions {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+  font-size: var(--font-md);
+}
+
+.settings-versions dt {
+  color: var(--muted);
+}
+
+.settings-versions dd {
+  margin: 0;
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .settings-dialog {
+    width: 100vw;
+    max-width: none;
+    height: 100dvh;
+    max-height: none;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-nav {
+    padding: var(--space-4) var(--space-3);
+    border-right: 0;
+    background: var(--surface);
+  }
+
+  .settings-nav .settings-close,
+  .settings-back {
+    display: inline-flex;
+  }
+
+  .settings-page-heading .settings-close {
+    display: none;
+  }
+
+  .settings-dialog[data-view="list"] .settings-body,
+  .settings-dialog[data-view="page"] .settings-nav {
+    display: none;
+  }
+
+  .settings-body {
+    padding: var(--space-4) var(--space-3) var(--space-5);
+  }
 }
 
 #add-menu .sidebar-action-item {

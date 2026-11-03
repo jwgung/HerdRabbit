@@ -148,9 +148,13 @@ try {
     await page.waitForSelector(".settings-button.has-update");
     assert.equal(await button.getAttribute("aria-label"), "Settings (update available)");
     await button.click();
-    const item = page.locator('.settings-menu [data-action="update"]');
+    // Settings → About carries the news too, beside its name and on its Update button.
+    const about = page.locator("#settings-dialog .settings-page-link", { hasText: "About" });
+    await about.click();
+    assert.equal((await about.locator(".ui-badge").textContent()).trim(), "Update");
+    const item = page.locator("#settings-update");
     await item.waitFor({ state: "visible" });
-    assert.equal((await item.textContent()).trim(), "Update available");
+    assert.equal((await item.textContent()).trim(), "Update available…");
     await item.click();
 
     const dialog = page.locator("#update-dialog");
@@ -257,9 +261,8 @@ try {
       // date now; the dot stays for devbox, which still has an update.
       await page.waitForFunction(() => window.beforeUpdate !== true, null, { timeout: 20_000 });
       await page.locator(".settings-button").waitFor({ state: "visible" });
-      await page.waitForFunction(() => document.querySelector('.settings-menu [data-action="update"]')?.hidden === false);
-      await page.locator(".settings-button").click();
-      await page.locator('.settings-menu [data-action="update"]').click();
+      await page.waitForFunction(() => document.querySelector("#settings-update-row")?.hidden === false);
+      await openUpdateWindow(page);
       const after = page.locator('#update-dialog .update-server[data-server-id="local"]');
       await after.waitFor({ state: "visible" });
       assert.equal((await after.locator(".update-status").textContent()).trim(), "Up to date.");
@@ -273,8 +276,7 @@ try {
       assert.equal((await after.locator("details.update-log-fold > summary").textContent()).trim(), "Log");
       // seen once: after closing, the finished run does not come back
       await page.locator("#update-close").click();
-      await page.locator('.settings-button').click();
-      await page.locator('.settings-menu [data-action="update"]').click();
+      await openUpdateWindow(page);
       await after.waitFor({ state: "visible" });
       assert.equal(await after.locator(".update-progress").count(), 0, "a finished run seen once is gone");
     } else if (outcome === "failed") {
@@ -314,6 +316,16 @@ try {
   console.log("in-app update check passed");
 } finally {
   await browser.close();
+}
+
+// The Update window, from Settings → About (the screen stays under it, so a
+// second opening goes straight to its button).
+async function openUpdateWindow(page) {
+  if (!(await page.locator("#settings-dialog").isVisible())) {
+    await page.locator(".settings-button").click();
+    await page.locator("#settings-dialog .settings-page-link", { hasText: "About" }).click();
+  }
+  await page.locator("#settings-update").click();
 }
 
 async function waitForStep(scope, id, state) {
@@ -402,8 +414,7 @@ async function checkHerdr() {
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
     // HerdRabbit is up to date everywhere: the dot is Herdr's.
     await page.waitForSelector(".settings-button.has-update");
-    await page.locator(".settings-button").click();
-    await page.locator('.settings-menu [data-action="update"]').click();
+    await openUpdateWindow(page);
     const dialog = page.locator("#update-dialog");
     await dialog.waitFor({ state: "visible" });
     const local = dialog.locator('.update-server[data-server-id="local"]');
@@ -452,8 +463,7 @@ async function checkHerdr() {
       assert.match(await row.locator(".update-herdr-integrations").textContent(), /^Herdr asks to update its agent integrations: run the herdr integration install commands shown in the log in a terminal\.$/u);
       // seen once: after closing, the finished run does not come back
       await page.locator("#update-close").click();
-      await page.locator(".settings-button").click();
-      await page.locator('.settings-menu [data-action="update"]').click();
+      await openUpdateWindow(page);
       await dialog.waitFor({ state: "visible" });
       assert.equal(await row.locator(".update-progress").count(), 0, "a finished Herdr run seen once is gone");
       // devbox still has a newer Herdr, so the dot stays for it.

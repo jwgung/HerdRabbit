@@ -72,12 +72,11 @@ test("manages passkeys from this machine's menu only, with the password again", 
   assert.match(app, /querySelector\("#passkeys-add"\)\.addEventListener\("click", \(\) => \{[\s\S]*?askPasskeyPassword\(\{/);
   assert.match(page, /id="passkeys-add"/);
   assert.match(page, /id="passkey-dialog-password"[^>]*type="password"/);
-  assert.match(
-    app,
-    /key: "passkeys",\s+label: "Passkeys",/,
-  );
-  // Both sign-in items follow the sign-in being on; the machine menu has none of them.
-  assert.match(app, /for \(const key of \["passkeys", "sessions"\]\) item\(key\)\.hidden = !state\.authRequired;/);
+  // Settings → Security opens both; the page follows the sign-in being on,
+  // and the machine menu has none of them.
+  assert.match(page, /data-page="security"[\s\S]*?id="settings-passkeys"[\s\S]*?id="settings-sessions"/);
+  assert.match(app, /querySelector\("#settings-passkeys"\)\.addEventListener\("click", \(\) => void showPasskeys\(\)\);/);
+  assert.match(app, /settingsPageList\(\{ security: state\.authRequired === true/);
   const machineMenu = app.slice(app.indexOf("function serverActionMenu"), app.indexOf("// This machine is not a connection"));
   assert.doesNotMatch(machineMenu, /Passkeys|Signed-in devices|Sign out/);
   assert.doesNotMatch(app, /function signOut\(/);

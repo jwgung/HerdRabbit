@@ -87,7 +87,16 @@ try {
       }
       await page.waitForTimeout(400); // and one that was opening
       await settings.click();
-      await page.locator('.settings-menu [data-action="keys"]').click();
+      await page.locator("#settings-dialog .settings-page-link", { hasText: "Terminal & keys" }).click();
+      await page.locator("#settings-edit-keys").click();
+      await page.locator("#key-bar-dialog").waitFor({ state: "visible" });
+      // The editor opens over the settings screen, which closing it returns
+      // to, over the sidebar it came from; this check goes on with the pane,
+      // so both go now.
+      await page.evaluate(() => {
+        document.querySelector("#settings-dialog").close();
+        if (!window.matchMedia("(min-width: 761px)").matches) document.querySelector("#sidebar-scrim").click();
+      });
     };
     const barLabels = () => bar.locator("button").allTextContents();
     const dialog = page.locator("#key-bar-dialog");

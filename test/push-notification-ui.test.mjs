@@ -11,10 +11,11 @@ const page = await readFile(new URL("../public/index.html", import.meta.url), "u
 const worker = await readFile(new URL("../public/sw.js", import.meta.url), "utf8");
 const app = await readAppSource();
 
-test("offers the notification toggle as an item of the settings menu, hidden when push is unsupported", () => {
+test("offers the notification switch on the settings screen's Notifications page, hidden when push is unsupported", () => {
   assert.doesNotMatch(page, /id="notification-toggle"/);
-  assert.match(app, /key: "notifications", label: "Notifications"/);
-  assert.match(app, /notifications\.hidden = !push \|\| push\.hidden;/);
+  assert.match(page, /data-page="notifications"[\s\S]*?id="settings-notify-choices"/);
+  assert.match(app, /notifyGroup\.hidden = !pushShown;/);
+  assert.match(app, /notifyState\.textContent = notificationStateText\(push\);/);
 });
 
 test("describes enabled, disabled, denied, and unavailable push states", () => {

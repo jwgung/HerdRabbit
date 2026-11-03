@@ -1,7 +1,8 @@
 // Which lens a pane shows: its agent's conversation (Claude Code's or
 // Codex's) as a chat, or its terminal.
-// The last one chosen is kept per pane; a pane never chosen for opens in Chat
-// on a phone-sized or touch layout and in Terminal on a desktop.
+// The last one chosen is kept per pane; a pane never chosen for opens in the
+// lens Settings → Chat → "Open panes in" names, and on Auto in Chat on a
+// phone-sized or touch layout and in Terminal on a desktop.
 import { agentNamesWith, listOfNames, productNamesWith } from "./agents.js?v=1.4.23";
 
 export const LENS_STORAGE_KEY = "herdrbridge-pane-lens";
@@ -63,15 +64,46 @@ export function renamePaneLenses(storage, moves) {
   }
 }
 
-// A phone (narrow) or touch layout reads the chat first; a desktop the terminal.
-export function defaultLens({ compact = false, touch = false } = {}) {
+// Settings → Chat → "Open panes in": the lens a pane never chosen for opens
+// in. "auto" is the layout's own default (below). Kept per browser.
+export const OPEN_PANES_IN_STORAGE_KEY = "herdrbridge-open-panes-in";
+export const OPEN_PANES_IN = Object.freeze(["auto", ...LENSES]);
+const OPEN_PANES_IN_NAMES = Object.freeze({ auto: "Auto", chat: "Chat", terminal: "Terminal" });
+
+export function openPanesInName(value) {
+  return OPEN_PANES_IN_NAMES[value] ?? OPEN_PANES_IN_NAMES.auto;
+}
+
+export function readOpenPanesIn(storage) {
+  try {
+    const value = storage?.getItem(OPEN_PANES_IN_STORAGE_KEY);
+    return OPEN_PANES_IN.includes(value) ? value : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+export function writeOpenPanesIn(storage, value) {
+  if (!storage || !OPEN_PANES_IN.includes(value)) return false;
+  try {
+    storage.setItem(OPEN_PANES_IN_STORAGE_KEY, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// The lens for a pane never chosen for: the one "Open panes in" names, and on
+// Auto a phone (narrow) or touch layout reads the chat first, a desktop the terminal.
+export function defaultLens({ preference = "auto", compact = false, touch = false } = {}) {
+  if (LENSES.includes(preference)) return preference;
   return compact || touch ? "chat" : "terminal";
 }
 
 // The lens shown: the one chosen (or the default), but never a chat the pane
 // does not have.
-export function chooseLens({ stored = null, chatAvailable = false, compact = false, touch = false } = {}) {
-  const wanted = LENSES.includes(stored) ? stored : defaultLens({ compact, touch });
+export function chooseLens({ stored = null, chatAvailable = false, preference = "auto", compact = false, touch = false } = {}) {
+  const wanted = LENSES.includes(stored) ? stored : defaultLens({ preference, compact, touch });
   return wanted === "chat" && !chatAvailable ? "terminal" : wanted;
 }
 

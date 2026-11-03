@@ -21,8 +21,10 @@ test("the key bar is drawn from the saved layout; its Edit keys control sits at 
   assert.match(page, /<div class="quick-keys" id="quick-keys"[^>]*><\/div>/u, "the bar starts empty and is filled by the script");
   assert.match(page, /<dialog id="key-bar-dialog"/u);
   assert.match(app, /readKeyBarItems\(panePreferenceStorage\)/u);
-  assert.doesNotMatch(page, /id="key-bar-settings"/u, "the sidebar foot has the settings menu, not a button per setting");
-  assert.match(app, /key: "keys",\s+label: "Edit keys",[\s\S]*?closeMobileSidebar\(\);\s*openKeyBarDialog\(\);/u);
+  assert.doesNotMatch(page, /id="key-bar-settings"/u, "the sidebar foot has the settings button, not a button per setting");
+  // Settings → Terminal & keys opens the editor over the settings screen.
+  assert.match(page, /data-page="terminal"[\s\S]*?id="settings-edit-keys"[^>]*>Edit keys…</u);
+  assert.match(app, /querySelector\("#settings-edit-keys"\)\.addEventListener\("click", \(\) => openKeyBarDialog\(\)\);/u);
   assert.doesNotMatch(app, /key-bar-edit(?!or\.js)|EDIT_KEYS_ICON/u, "nothing of the editor is left in the bar itself");
   assert.match(app, /draggable = true/u, "rows drag on a desktop");
   assert.match(app, /"Move up"/u);
@@ -48,7 +50,7 @@ test("drafts: saved on pane switch, cleared before a send, never kept for a pass
 test("sign-out drops the drafts, and an unverifiable screen keeps a draft out of storage", () => {
   // every way out of a sign-in (sign-out, expired session) goes through showLogin
   assert.match(app, /function forgetComposerDrafts\(\) \{[^}]*composerDrafts\.clearAll\(\)/u);
-  assert.match(app, /function showLogin\(\) \{\s*forgetComposerDrafts\(\);/u);
+  assert.match(app, /function showLogin\(\) \{\s*(?:\/\/[^\n]*\n\s*)?closeSettings\(\);\s*forgetComposerDrafts\(\);/u);
   assert.match(app, /draftScreenIsSecret\(paneId, draftPaneId, attachedTerminal\.screenText\(8\)\)/u);
   assert.match(app, /composerDrafts\.set\(paneId, text, \{ memoryOnly: true \}\)/u, "a send that failed after leaving the pane is not written");
   assert.doesNotMatch(page, /key-bar-feedback/u);

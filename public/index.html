@@ -113,6 +113,20 @@
               <path d="M12 17v-6m-3 3 3-3 3 3" />
             </svg>
           </button>
+          <button
+            id="settings-open"
+            class="ghost-button settings-button"
+            type="button"
+            aria-haspopup="dialog"
+            aria-controls="settings-dialog"
+            aria-label="Settings"
+            title="Settings"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+              <path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" />
+              <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
+            </svg>
+          </button>
         </div>
         <div
           id="navigator-resizer"
@@ -354,6 +368,149 @@
         <p id="login-feedback" class="login-feedback" role="status" aria-live="polite"></p>
       </form>
     </section>
+
+    <dialog id="settings-dialog" class="app-dialog settings-dialog" aria-labelledby="settings-title" data-view="list">
+      <div class="settings-layout">
+        <nav class="settings-nav" aria-labelledby="settings-title">
+          <div class="settings-nav-heading">
+            <h2 id="settings-title">Settings</h2>
+            <button class="icon-button settings-close" type="button" data-settings-close aria-label="Close settings" title="Close">
+              <svg aria-hidden="true" viewBox="0 0 20 20" focusable="false"><path d="m5.5 5.5 9 9m0-9-9 9" /></svg>
+            </button>
+          </div>
+          <ul id="settings-page-list" class="settings-page-list" role="list"></ul>
+        </nav>
+        <div class="settings-body">
+          <div class="settings-page-heading">
+            <button id="settings-back" class="secondary-button settings-back" type="button" aria-label="Back to settings">
+              <svg aria-hidden="true" viewBox="0 0 20 20" focusable="false"><path d="M12.5 4.5 7 10l5.5 5.5" /></svg>
+              <span>Back</span>
+            </button>
+            <h3 id="settings-page-title">Appearance</h3>
+            <button class="icon-button settings-close" type="button" data-settings-close aria-label="Close settings" title="Close">
+              <svg aria-hidden="true" viewBox="0 0 20 20" focusable="false"><path d="m5.5 5.5 9 9m0-9-9 9" /></svg>
+            </button>
+          </div>
+
+          <section class="settings-page" data-page="appearance" aria-labelledby="settings-page-title" hidden>
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <span id="settings-theme-label" class="settings-row-label">Theme</span>
+              </div>
+              <div class="settings-choices" role="group" aria-labelledby="settings-theme-label">
+                <button type="button" class="settings-choice" data-theme-choice="dark" aria-pressed="false">Dark</button>
+                <button type="button" class="settings-choice" data-theme-choice="light" aria-pressed="false">Light</button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <span class="settings-row-label">Text size in a grid</span>
+                <p id="settings-text-size-hint" class="settings-row-hint" aria-live="polite"></p>
+              </div>
+              <button id="settings-text-size-reset" class="secondary-button" type="button" aria-describedby="settings-text-size-hint">Reset text size</button>
+            </div>
+          </section>
+
+          <section class="settings-page" data-page="chat" aria-labelledby="settings-page-title" hidden>
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <span id="settings-open-in-label" class="settings-row-label">Open panes in</span>
+                <p id="settings-open-in-hint" class="settings-row-hint" aria-live="polite"></p>
+              </div>
+              <div class="settings-choices" role="group" aria-labelledby="settings-open-in-label" aria-describedby="settings-open-in-hint">
+                <button type="button" class="settings-choice" data-open-in="auto" aria-pressed="false">Auto</button>
+                <button type="button" class="settings-choice" data-open-in="chat" aria-pressed="false">Chat</button>
+                <button type="button" class="settings-choice" data-open-in="terminal" aria-pressed="false">Terminal</button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <span id="settings-chat-width-label" class="settings-row-label">Chat width</span>
+                <p class="settings-row-hint">How wide the conversation may grow on a wide window.</p>
+              </div>
+              <div class="settings-choices" role="group" aria-labelledby="settings-chat-width-label">
+                <button type="button" class="settings-choice" data-chat-width="narrow" aria-pressed="false">Narrow</button>
+                <button type="button" class="settings-choice" data-chat-width="default" aria-pressed="false">Default</button>
+                <button type="button" class="settings-choice" data-chat-width="wide" aria-pressed="false">Wide</button>
+                <button type="button" class="settings-choice" data-chat-width="full" aria-pressed="false">Full</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-page" data-page="terminal" aria-labelledby="settings-page-title" hidden>
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <span class="settings-row-label">Keys under the terminal</span>
+                <p class="settings-row-hint">Choose the keys and their order. On a touch screen this is also where Enter in the message box is set.</p>
+              </div>
+              <button id="settings-edit-keys" class="secondary-button" type="button">Edit keys…</button>
+            </div>
+            <div id="settings-grid-fit-row" class="settings-row">
+              <div class="settings-row-copy">
+                <span id="settings-grid-fit-label" class="settings-row-label">Fit panes to this window</span>
+                <p id="settings-grid-fit-hint" class="settings-row-hint" aria-live="polite"></p>
+              </div>
+              <div class="settings-choices" role="group" aria-labelledby="settings-grid-fit-label" aria-describedby="settings-grid-fit-hint">
+                <button type="button" class="settings-choice" data-grid-fit="off" aria-pressed="false">Off</button>
+                <button type="button" class="settings-choice" data-grid-fit="on" aria-pressed="false">On</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-page" data-page="notifications" aria-labelledby="settings-page-title" hidden>
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <span id="settings-notify-label" class="settings-row-label">Notifications in this browser</span>
+                <p id="settings-notify-state" class="settings-row-hint" role="status" aria-live="polite"></p>
+              </div>
+              <div id="settings-notify-choices" class="settings-choices" role="group" aria-labelledby="settings-notify-label" aria-describedby="settings-notify-state">
+                <button type="button" class="settings-choice" data-notify-choice="off" aria-pressed="false">Off</button>
+                <button type="button" class="settings-choice" data-notify-choice="on" aria-pressed="false">On</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-page" data-page="security" aria-labelledby="settings-page-title" hidden>
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <span class="settings-row-label">Passkeys</span>
+                <p class="settings-row-hint">Passkeys that can sign in to this HerdRabbit.</p>
+              </div>
+              <button id="settings-passkeys" class="secondary-button" type="button">Passkeys…</button>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <span class="settings-row-label">Signed-in devices</span>
+                <p class="settings-row-hint">Browsers signed in to this HerdRabbit. Sign one out from the list.</p>
+              </div>
+              <button id="settings-sessions" class="secondary-button" type="button">Signed-in devices…</button>
+            </div>
+          </section>
+
+          <section class="settings-page" data-page="pcs" aria-labelledby="settings-page-title" hidden>
+            <p class="settings-row-hint">Other PCs running HerdRabbit that this one connects to. Choose one for its details.</p>
+            <ul id="settings-pc-list" class="settings-pc-list" role="list" aria-label="Connected PCs"></ul>
+            <div class="settings-page-actions">
+              <button id="settings-connect-pc" class="primary-button" type="button">Connect PC…</button>
+            </div>
+          </section>
+
+          <section class="settings-page" data-page="about" aria-labelledby="settings-page-title" hidden>
+            <dl class="settings-versions">
+              <dt>HerdRabbit</dt><dd id="settings-version-app">Unknown</dd>
+              <dt>Herdr</dt><dd id="settings-version-herdr">Unknown</dd>
+            </dl>
+            <div id="settings-update-row" class="settings-row">
+              <div class="settings-row-copy">
+                <span class="settings-row-label">Update</span>
+                <p id="settings-update-hint" class="settings-row-hint">Check this PC and each connected PC for a newer HerdRabbit, and update them.</p>
+              </div>
+              <button id="settings-update" class="secondary-button" type="button">Update…</button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </dialog>
 
     <dialog id="key-bar-dialog" class="app-dialog key-bar-dialog" aria-labelledby="key-bar-dialog-title">
       <div class="dialog-form key-bar-settings">

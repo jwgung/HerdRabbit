@@ -472,11 +472,11 @@ try {
       }
       if (shots) await page.locator(".navigator").screenshot({ path: join(shots, "sidebar-rail-desktop.png") });
       await page.locator(".navigator-footer .settings-button").click();
-      await page.waitForTimeout(300);
-      const menuBox = await page.locator(".navigator-footer .settings-menu .sidebar-action-popover").boundingBox();
-      assert.ok(menuBox && menuBox.x >= 0 && menuBox.y >= 0, "the settings menu opens on screen from the rail");
+      await page.locator("#settings-dialog").waitFor({ state: "visible" });
+      const screenBox = await page.locator("#settings-dialog").boundingBox();
+      assert.ok(screenBox && screenBox.x >= 0 && screenBox.y >= 0, "the settings screen opens on screen from the rail");
       await page.keyboard.press("Escape");
-      await page.locator(".navigator-footer .settings-button").click().catch(() => {});
+      await page.locator("#settings-dialog").waitFor({ state: "hidden" });
       await page.locator("#sidebar-toggle").click();
       await page.waitForTimeout(500);
       assert.equal(await page.locator("#file-panel").isVisible(), true, "Files is back once unfolded");
