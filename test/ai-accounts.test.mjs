@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { agyAdapter, claudeAdapter, createAgyAdapter, secretServiceFound, sessionBusAddress } from "../src/ai-account-adapters.mjs";
-import { SECRET, machine, stagedLocation, stagingDirectoryOf, writeAgy, writeClaude, writeCodex } from "./fixtures/ai-accounts.mjs";
+import { DatabaseSync } from "node:sqlite";
+import { agyAdapter, claudeAdapter, createAgyAdapter, createKiroAdapter, kiroWhoamiIdentity, secretServiceFound, sessionBusAddress } from "../src/ai-account-adapters.mjs";
+import { SECRET, fakeKiroWhoami, machine, stagedLocation, stagingDirectoryOf, writeAgy, writeClaude, writeCodex, writeKiro } from "./fixtures/ai-accounts.mjs";
 
 async function filesUnder(path) {
   const found = [];
@@ -264,6 +265,146 @@ test("a running agy holds a switch until confirmed", async (t) => {
   assert.match(await readFile(agy.token, "utf8"), /refresh-b1/u);
 });
 
+function kiroRows(location) {
+  const db = new DatabaseSync(location.db, { readOnly: true });
+  try {
+    return {
+      token: db.prepare("SELECT value FROM auth_kv WHERE key = 'kirocli:odic:token'").get()?.value ?? null,
+      clientId: JSON.parse(db.prepare("SELECT value FROM auth_kv WHERE key = 'kirocli:odic:device-registration'").get()?.value ?? "{}").client_id ?? null,
+      profile: db.prepare("SELECT value FROM state WHERE key = 'api.codewhisperer.profile'").get()?.value ?? null,
+      conversation: db.prepare("SELECT value FROM conversations_v2 WHERE key = '/work'").get()?.value ?? null,
+      telemetry: db.prepare("SELECT value FROM state WHERE key = 'telemetryClientId'").get()?.value ?? null,
+    };
+  } finally {
+    db.close();
+  }
+}
+
+test("Kiro is listed by the email kiro-cli reports, asked once per sign-in", async (t) => {
+  const { accounts, kiroWhoami } = await machine(t);
+  let { clis } = await accounts.list();
+  const entry = clis.find((cli) => cli.id === "kiro");
+  assert.equal(entry.label, "Kiro CLI");
+  assert.equal(entry.supported, true);
+  assert.equal(entry.current.email, "a@example.com");
+  assert.equal(entry.current.refreshExpiresAt, Date.parse("2027-01-28T00:00:00Z"), "its client registration is what runs out");
+  ({ clis } = await accounts.list());
+  assert.equal(kiroWhoami.calls.length, 1, "whoami goes over the network: once is enough for a sign-in");
+});
+
+test("Kiro switches its sign-in rows and leaves every other row of its database alone", async (t) => {
+  const { accounts, kiro, directory } = await machine(t);
+  const { login, finished } = await signInElsewhere(accounts, "kiro", (location) =>
+    writeKiro(location, { email: "b@example.com", token: "b1", clientId: "client-b" }));
+  assert.match(login.command, /^env XDG_DATA_HOME='.+' kiro-cli login --use-device-flow$/u);
+  assert.equal(finished.account.email, "b@example.com");
+  assert.equal(finished.account.active, false);
+
+  const switched = await accounts.switch("kiro", finished.account.id);
+  assert.equal(switched.changed, true);
+  let rows = kiroRows(kiro);
+  assert.match(rows.token, /refresh-b1/u);
+  assert.equal(rows.clientId, "client-b", "each account keeps its own client registration");
+  assert.match(rows.profile, /profile-b1/u);
+  assert.equal(rows.conversation, "a conversation", "conversations stay");
+  assert.equal(rows.telemetry, "telemetry-1", "and so does the rest of state");
+  for (const file of ["auth.json", "account.json"]) {
+    assert.equal((await stat(join(directory, "kiro", finished.account.id, file))).mode & 0o777, 0o600);
+  }
+
+  // Kiro refreshes while B is live; going back to A keeps B's new tokens.
+  writeKiro(kiro, { token: "b2", clientId: "client-b" });
+  const { clis } = await accounts.list();
+  const accountA = clis.find((cli) => cli.id === "kiro").accounts.find((item) => item.email === "a@example.com");
+  assert.ok(accountA, "the replaced account was saved on the way out");
+  await accounts.switch("kiro", accountA.id);
+  rows = kiroRows(kiro);
+  assert.match(rows.token, /refresh-a1/u);
+  assert.equal(rows.clientId, "client-a");
+  assert.match(await readFile(join(directory, "kiro", finished.account.id, "auth.json"), "utf8"), /refresh-b2/u);
+});
+
+test("after a restart the live Kiro sign-in is known from its saved copy, offline", async (t) => {
+  const { accounts, env, directory, kiroAdapter } = await machine(t);
+  await accounts.saveCurrent("kiro");
+  const offline = createKiroAdapter({ whoami: async () => { throw new Error("no network"); } });
+  const { AiAccounts } = await import("../src/ai-accounts.mjs");
+  const restarted = new AiAccounts({ directory, env, adapters: [offline] });
+  const { clis } = await restarted.list();
+  assert.equal(clis[0].current.email, "a@example.com");
+  assert.ok(clis[0].current.id, "matched to the saved account");
+  assert.ok(kiroAdapter);
+});
+
+test("a Kiro database another program is writing is left as it was", async (t) => {
+  const kiroWhoami = fakeKiroWhoami();
+  const quick = createKiroAdapter({ whoami: kiroWhoami.whoami, busyTimeoutMs: 50 });
+  const { accounts, kiro } = await machine(t, { adapters: [quick], kiroWhoami });
+  const { finished } = await signInElsewhere(accounts, "kiro", (location) =>
+    writeKiro(location, { email: "b@example.com", token: "b1", clientId: "client-b" }));
+  const writer = new DatabaseSync(kiro.db);
+  writer.exec("BEGIN IMMEDIATE");
+  try {
+    await assert.rejects(accounts.switch("kiro", finished.account.id), { code: "switch_failed" });
+  } finally {
+    writer.exec("ROLLBACK");
+    writer.close();
+  }
+  assert.match(kiroRows(kiro).token, /refresh-a1/u);
+});
+
+test("Kiro is offered only where its sign-in can be switched", async (t) => {
+  const { accounts, kiro, env } = await machine(t);
+  const noSqlite = createKiroAdapter({ whoami: fakeKiroWhoami().whoami, loadSqlite: async () => null });
+  assert.match((await noSqlite.support(env)).reason, /Node/u);
+  assert.equal((await noSqlite.support(env)).supported, false);
+  const kiroAdapter = createKiroAdapter({ whoami: fakeKiroWhoami().whoami });
+  assert.equal((await kiroAdapter.support(env, "darwin")).supported, false);
+  assert.equal((await kiroAdapter.support({ HOME: join(kiro.db, "..", "..", "..", "nowhere") }, "linux")).supported, true, "no database yet: nothing signed in");
+  const other = new DatabaseSync(kiro.db);
+  other.exec("DROP TABLE auth_kv");
+  other.close();
+  const changed = await kiroAdapter.support(env, "linux");
+  assert.equal(changed.supported, false);
+  assert.match(changed.reason, /database/u);
+  assert.ok(accounts);
+});
+
+test("a Kiro sign-in without a refresh token is no sign-in, and whoami's words are read with care", async (t) => {
+  const { home } = await machine(t);
+  const kiroWhoami = fakeKiroWhoami();
+  const kiroAdapter = createKiroAdapter({ whoami: kiroWhoami.whoami });
+  const location = kiroAdapter.locate({ HOME: join(home, "other") });
+  assert.equal(await kiroAdapter.identify(location), null, "no database");
+  writeKiro(location, { email: "c@example.com", token: "c1", clientId: "client-c", refresh: false });
+  assert.equal(await kiroAdapter.identify(location), null);
+  assert.equal(kiroWhoami.calls.length, 0, "nothing to ask about");
+  assert.deepEqual(kiroWhoamiIdentity('{"accountType":"IamIdentityCenter","email":"C@Example.com","region":"us-east-1","startUrl":"https://x"}\n\nProfile:\nKiroProfile\narn:aws:x\n'),
+    { email: "C@Example.com", accountType: "IamIdentityCenter", region: "us-east-1", startUrl: "https://x" });
+  assert.equal(kiroWhoamiIdentity('{"account":null}\n'), null, "not signed in");
+  assert.equal(kiroWhoamiIdentity("Error: something\n"), null);
+});
+
+test("a Kiro sign-in without a client registration is still told apart", async (t) => {
+  const { home } = await machine(t);
+  const kiroWhoami = fakeKiroWhoami();
+  const kiroAdapter = createKiroAdapter({ whoami: kiroWhoami.whoami });
+  const location = kiroAdapter.locate({ HOME: join(home, "social") });
+  writeKiro(location, { email: "d@example.com", token: "d1", registration: false });
+  assert.equal((await kiroAdapter.identify(location)).email, "d@example.com");
+  assert.equal((await kiroAdapter.identify(location)).refreshExpiresAt, null, "no registration, no end date");
+  assert.equal(kiroWhoami.calls.length, 1);
+});
+
+test("a running Kiro holds a switch until confirmed", async (t) => {
+  const { accounts, kiro } = await machine(t, { running: [{ paneId: "w1:p4", agent: "kiro", label: "infra" }] });
+  const { finished } = await signInElsewhere(accounts, "kiro", (location) =>
+    writeKiro(location, { email: "b@example.com", token: "b1", clientId: "client-b" }));
+  await assert.rejects(accounts.switch("kiro", finished.account.id), { code: "agents_running" });
+  await accounts.switch("kiro", finished.account.id, { confirmRunning: true });
+  assert.match(kiroRows(kiro).token, /refresh-b1/u);
+});
+
 test("abandoned sign-in directories are cleaned up", async (t) => {
   let clock = Date.now();
   const { accounts } = await machine(t, { now: () => clock });
@@ -291,6 +432,11 @@ test("no credential appears in anything returned or thrown", async (t) => {
   outputs.push(agyLogin.finished);
   await capture(accounts.switch("agy", agyLogin.finished.account.id));
   await capture(accounts.remove("agy", agyLogin.finished.account.id));
+  await capture(accounts.saveCurrent("kiro"));
+  const kiroLogin = await signInElsewhere(accounts, "kiro", (location) => writeKiro(location, { email: "b@example.com", token: "b1", clientId: "client-b" }));
+  outputs.push(kiroLogin.finished);
+  await capture(accounts.switch("kiro", kiroLogin.finished.account.id));
+  await capture(accounts.remove("kiro", kiroLogin.finished.account.id));
   const { finished } = await signInElsewhere(accounts, "claude", (location) =>
     writeClaude(location, { uuid: "uuid-b", email: "b@example.com", token: "b1" }));
   outputs.push(finished);

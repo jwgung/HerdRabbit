@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import { execFile } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { chmod, copyFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import { chmod, copyFile, mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -283,4 +283,245 @@ export function createAgyAdapter({ keyringHoldsToken = agyKeyringHoldsToken } = 
 
 export const agyAdapter = createAgyAdapter();
 
-export const DEFAULT_ADAPTERS = Object.freeze([claudeAdapter, codexAdapter, agyAdapter]);
+// Kiro CLI keeps its sign-in as rows of <XDG_DATA_HOME>/kiro-cli/data.sqlite3
+// (kiro-cli 2.35.1): every auth_kv row named kirocli:* -- the token and the
+// client registration it was issued to -- and three state rows saying where
+// it signs in and with which profile. The same file holds its conversations,
+// history and telemetry, and running kiro-cli processes keep it open, so only
+// those rows are swapped, in one transaction; the file itself is never
+// replaced. Each saved account keeps its own client registration.
+const KIRO_STATE_KEYS = Object.freeze(["auth.idc.start-url", "auth.idc.region", "api.codewhisperer.profile"]);
+const KIRO_TOKEN_KEY = /^kirocli:[a-z-]+:token$/u;
+
+async function loadNodeSqlite() {
+  try {
+    return (await import("node:sqlite")).DatabaseSync;
+  } catch {
+    return null;
+  }
+}
+
+// The first line of `kiro-cli whoami -f json`, or null when it says no one is
+// signed in or says something else.
+export function kiroWhoamiIdentity(output) {
+  const line = String(output ?? "").split("\n").find((item) => item.trim().startsWith("{"));
+  try {
+    const value = JSON.parse(line);
+    return text(value?.email)
+      ? { email: value.email, accountType: text(value.accountType), region: text(value.region), startUrl: text(value.startUrl) }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+// Whose sign-in the data folder holds. kiro-cli asks AWS: nothing in the
+// database names the account.
+function runKiroWhoami(dataHome) {
+  return new Promise((resolve, reject) => {
+    execFile("kiro-cli", ["whoami", "-f", "json"], {
+      env: { ...process.env, XDG_DATA_HOME: dataHome },
+      timeout: 15_000,
+      maxBuffer: 256 * 1024,
+      windowsHide: true,
+    }, (error, stdout) => {
+      const identity = kiroWhoamiIdentity(stdout);
+      if (identity) resolve(identity);
+      else if (error && error.code !== 1) reject(error);
+      else resolve(null);
+    });
+  });
+}
+
+// What tells one sign-in from another without the network, kept only as a
+// hash in memory: the client registration's id, or, for a sign-in without
+// one (Google, GitHub), its refresh token -- which a refresh changes, costing
+// one more whoami.
+function kiroFingerprint(rows) {
+  const parsed = (key) => {
+    try {
+      return JSON.parse(rows[key] ?? "null");
+    } catch {
+      return null;
+    }
+  };
+  const registration = Object.keys(rows).find((key) => key.endsWith(":device-registration"));
+  const token = Object.keys(rows).find((key) => KIRO_TOKEN_KEY.test(key));
+  const value = text(registration && parsed(registration)?.client_id) ?? text(token && parsed(token)?.refresh_token);
+  return value ? createHash("sha256").update(value).digest("hex") : null;
+}
+
+function kiroRefreshExpiresAt(rows) {
+  const registration = Object.entries(rows).find(([key]) => key.endsWith(":device-registration"))?.[1];
+  try {
+    const expiresAt = Date.parse(JSON.parse(registration ?? "null")?.client_secret_expires_at);
+    return Number.isFinite(expiresAt) ? expiresAt : null;
+  } catch {
+    return null;
+  }
+}
+
+function kiroSignedIn(rows) {
+  return Object.entries(rows).some(([key, value]) => {
+    if (!KIRO_TOKEN_KEY.test(key)) return false;
+    try {
+      return Boolean(text(JSON.parse(value)?.refresh_token));
+    } catch {
+      return false;
+    }
+  });
+}
+
+export function createKiroAdapter({ whoami = runKiroWhoami, loadSqlite = loadNodeSqlite, busyTimeoutMs = 5_000 } = {}) {
+  // Whose account each client registration is, as whoami or a saved copy said:
+  // whoami goes over the network, so it is asked once per sign-in.
+  const known = new Map();
+
+  async function open(file, { write = false } = {}) {
+    const DatabaseSync = await loadSqlite();
+    if (!DatabaseSync) throw new Error("node:sqlite is not available");
+    const db = new DatabaseSync(file, { readOnly: !write });
+    // kiro-cli writes the same file; wait for it rather than fail at once
+    db.exec(`PRAGMA busy_timeout = ${Number(busyTimeoutMs) | 0}`);
+    return db;
+  }
+
+  async function readRows(file) {
+    try {
+      await stat(file);
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+    const db = await open(file);
+    try {
+      const authKv = {};
+      for (const row of db.prepare("SELECT key, value FROM auth_kv WHERE key LIKE 'kirocli:%'").all()) authKv[row.key] = row.value;
+      const state = {};
+      const get = db.prepare("SELECT value FROM state WHERE key = ?");
+      for (const key of KIRO_STATE_KEYS) {
+        const row = get.get(key);
+        if (row) state[key] = row.value instanceof Uint8Array ? { base64: Buffer.from(row.value).toString("base64") } : row.value;
+      }
+      return { authKv, state };
+    } finally {
+      db.close();
+    }
+  }
+
+  return Object.freeze({
+    id: "kiro",
+    label: "Kiro CLI",
+    homeEnv: "XDG_DATA_HOME",
+    loginCommand: ["kiro-cli", "login", "--use-device-flow"],
+
+    locate(env) {
+      const dataHome = env.XDG_DATA_HOME || join(homeOf(env), ".local", "share");
+      return { db: join(dataHome, "kiro-cli", "data.sqlite3"), dataHome };
+    },
+
+    slot(directory) {
+      return { auth: join(directory, "auth.json"), account: join(directory, "account.json") };
+    },
+
+    async support(env, platform = process.platform) {
+      if (platform !== "linux") return { supported: false, reason: "Kiro CLI sign-ins are switched on Linux only" };
+      if (!(await loadSqlite())) return { supported: false, reason: "Switching Kiro CLI sign-ins needs Node 22.13 or later (node:sqlite)" };
+      const { db: file } = this.locate(env);
+      try {
+        const db = await open(file);
+        try {
+          const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name));
+          if (!tables.has("auth_kv") || !tables.has("state")) {
+            return { supported: false, reason: "Kiro CLI's database is laid out in a way HerdRabbit does not know" };
+          }
+        } finally {
+          db.close();
+        }
+      } catch (error) {
+        // no database yet: nothing is signed in, and a sign-in makes one
+        if (!/unable to open|ENOENT/u.test(String(error?.message))) throw error;
+      }
+      return { supported: true, reason: null };
+    },
+
+    async identify(location) {
+      if (location.auth) {
+        const [auth, account] = [await readJson(location.auth), await readJson(location.account)];
+        if (!auth?.authKv || !kiroSignedIn(auth.authKv) || !text(account?.email)) return null;
+        const identity = {
+          accountId: account.email.toLowerCase(),
+          email: account.email,
+          organization: null,
+          plan: null,
+          refreshExpiresAt: kiroRefreshExpiresAt(auth.authKv),
+        };
+        const fingerprint = kiroFingerprint(auth.authKv);
+        if (fingerprint) known.set(fingerprint, account.email);
+        return identity;
+      }
+      const rows = await readRows(location.db);
+      if (!rows || !kiroSignedIn(rows.authKv)) return null;
+      const fingerprint = kiroFingerprint(rows.authKv);
+      let email = fingerprint ? known.get(fingerprint) : undefined;
+      if (!email) {
+        email = (await whoami(location.dataHome))?.email;
+        if (!text(email)) return null;
+        if (fingerprint) known.set(fingerprint, email);
+      }
+      return {
+        accountId: email.toLowerCase(),
+        email,
+        organization: null,
+        plan: null,
+        refreshExpiresAt: kiroRefreshExpiresAt(rows.authKv),
+      };
+    },
+
+    async capture(location, slot) {
+      const rows = await readRows(location.db);
+      if (!rows || !kiroSignedIn(rows.authKv)) throw new Error("Kiro CLI is not signed in");
+      const identity = await this.identify(location);
+      if (!identity) throw new Error("Kiro CLI account details are missing");
+      await writePrivateFile(slot.auth, `${JSON.stringify(rows, null, 2)}\n`);
+      await writePrivateFile(slot.account, `${JSON.stringify({ email: identity.email }, null, 2)}\n`);
+    },
+
+    // One transaction: kiro-cli sees the old sign-in or the new one, never a
+    // mix, and a database it is writing is waited for and then left alone.
+    async install(slot, location) {
+      const saved = await readJson(slot.auth);
+      if (!saved?.authKv || !kiroSignedIn(saved.authKv)) throw new Error("Saved Kiro CLI sign-in is missing");
+      await stat(location.db);
+      const db = await open(location.db, { write: true });
+      try {
+        db.exec("BEGIN IMMEDIATE");
+        try {
+          db.prepare("DELETE FROM auth_kv WHERE key LIKE 'kirocli:%'").run();
+          const put = db.prepare("INSERT INTO auth_kv (key, value) VALUES (?, ?)");
+          for (const [key, value] of Object.entries(saved.authKv)) {
+            if (key.startsWith("kirocli:") && typeof value === "string") put.run(key, value);
+          }
+          const drop = db.prepare("DELETE FROM state WHERE key = ?");
+          const set = db.prepare("INSERT INTO state (key, value) VALUES (?, ?)");
+          for (const key of KIRO_STATE_KEYS) {
+            drop.run(key);
+            const value = saved.state?.[key];
+            if (typeof value === "string") set.run(key, value);
+            else if (typeof value?.base64 === "string") set.run(key, Buffer.from(value.base64, "base64"));
+          }
+          db.exec("COMMIT");
+        } catch (error) {
+          db.exec("ROLLBACK");
+          throw error;
+        }
+      } finally {
+        db.close();
+      }
+    },
+  });
+}
+
+export const kiroAdapter = createKiroAdapter();
+
+export const DEFAULT_ADAPTERS = Object.freeze([claudeAdapter, codexAdapter, agyAdapter, kiroAdapter]);

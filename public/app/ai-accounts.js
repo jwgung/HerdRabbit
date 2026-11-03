@@ -12,6 +12,7 @@ import { array, createElement } from "./dom.js?v=1.4.23";
 const AI_LOGIN_HINTS = Object.freeze({
   codex: " Device code sign-in must be on in ChatGPT settings.",
   agy: " Antigravity signs in on its first run: follow its steps there.",
+  kiro: " For your organization, have its start URL and region ready.",
 });
 
 // The AI accounts dialog and the sign-ins it waits on. Calling createAiAccounts

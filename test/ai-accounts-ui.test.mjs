@@ -148,6 +148,7 @@ test("a sign-in opens in a running session of the chosen server", () => {
   assert.equal(aiRestartHint("codex"), "codex resume");
   assert.equal(aiRestartHint("claude"), "claude --continue");
   assert.equal(aiRestartHint("agy"), "agy --continue");
+  assert.equal(aiRestartHint("kiro"), "kiro-cli chat --resume");
 });
 
 test("accounts are listed A to Z by email, the one in use included", () => {
