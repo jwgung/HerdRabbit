@@ -37,6 +37,8 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 
 ## Features
 
+[`docs/herdr-coverage.md`](docs/herdr-coverage.md) lists every Herdr command group, what the page does with it, and what is still missing.
+
 - Browse the current OS user's Herdr persistent sessions, workspaces, tabs, panes, and agent states
 - Aggregate multiple Herdr persistent sessions without local ID collisions
 - Split, close and zoom panes, move a pane out of a split again, and see a split tab as Herdr lays it out ([Split panes](#split-panes))
