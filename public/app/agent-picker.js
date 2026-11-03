@@ -1,5 +1,5 @@
-import { createElement } from "./dom.js?v=1.4.26";
-import { sessionAgentChoices } from "../agents.js?v=1.4.26";
+import { createElement } from "./dom.js?v=1.4.27";
+import { sessionAgentChoices } from "../agents.js?v=1.4.27";
 
 // The Agent choice of the New session and New project dialogs: a fieldset of
 // radio buttons, Shell first and then each installed agent, each with its
