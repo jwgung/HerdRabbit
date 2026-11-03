@@ -964,7 +964,7 @@ export function aiLoginSessionId(serverId, herdrSessions = []) {
   return session?.session_id ?? null;
 }
 
-const AI_RESTART_HINTS = Object.freeze({ codex: "codex resume", agy: "agy --continue" });
+const AI_RESTART_HINTS = Object.freeze({ codex: "codex resume", agy: "agy --continue", kiro: "kiro-cli chat --resume" });
 
 export function aiRestartHint(cli) {
   return AI_RESTART_HINTS[cli] ?? "claude --continue";

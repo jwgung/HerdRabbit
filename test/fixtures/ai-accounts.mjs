@@ -1,9 +1,11 @@
 import { Buffer } from "node:buffer";
+import { mkdirSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { AiAccounts } from "../../src/ai-accounts.mjs";
-import { agyAdapter, claudeAdapter, codexAdapter } from "../../src/ai-account-adapters.mjs";
+import { DatabaseSync } from "node:sqlite";
+import { agyAdapter, claudeAdapter, codexAdapter, createKiroAdapter } from "../../src/ai-account-adapters.mjs";
 
 // Every fake token carries this marker, so a test can prove no credential
 // leaves the files it lives in.
@@ -65,6 +67,70 @@ export async function writeAgy(location, { email, token, idToken } = {}) {
   }), { mode: 0o600 });
 }
 
+// Kiro CLI keeps its sign-in as rows of ~/.local/share/kiro-cli/data.sqlite3
+// (kiro-cli 2.35.1), in the same file as its conversations and telemetry. A
+// new database gets those other rows too, so a test can see they survive.
+// Whose account it is, kiro-cli only says over the network (whoami); the
+// fake whoami below answers from the registration's client id.
+const KIRO_EMAILS = new Map();
+
+export function writeKiro(location, { email, token, clientId = `client-${token}`, profile = `profile-${token}`, refresh = true, registration = true }) {
+  mkdirSync(dirname(location.db), { recursive: true });
+  const db = new DatabaseSync(location.db);
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS auth_kv (key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value BLOB);
+      CREATE TABLE IF NOT EXISTS conversations_v2 (key TEXT PRIMARY KEY, value TEXT);`);
+    db.prepare("INSERT OR IGNORE INTO conversations_v2 VALUES ('/work', 'a conversation')").run();
+    db.prepare("INSERT OR IGNORE INTO state VALUES ('telemetryClientId', 'telemetry-1')").run();
+    db.prepare("DELETE FROM auth_kv WHERE key LIKE 'kirocli:%'").run();
+    const put = db.prepare("INSERT INTO auth_kv VALUES (?, ?)");
+    put.run("kirocli:odic:token", JSON.stringify({
+      access_token: `${SECRET}-access-${token}`,
+      expires_at: "2026-11-03T10:00:00Z",
+      ...(refresh ? { refresh_token: `${SECRET}-refresh-${token}` } : {}),
+      region: "us-east-1",
+      start_url: "https://example.awsapps.com/start",
+      oauth_flow: "DeviceCode",
+      scopes: ["codewhisperer:completions"],
+    }));
+    if (registration) put.run("kirocli:odic:device-registration", JSON.stringify({
+      client_id: clientId,
+      client_secret: `${SECRET}-client-${token}`,
+      client_secret_expires_at: "2027-01-28T00:00:00Z",
+      region: "us-east-1",
+      oauth_flow: "DeviceCode",
+      scopes: ["codewhisperer:completions"],
+    }));
+    const state = db.prepare("INSERT OR REPLACE INTO state VALUES (?, ?)");
+    state.run("auth.idc.start-url", "https://example.awsapps.com/start");
+    state.run("auth.idc.region", "us-east-1");
+    state.run("api.codewhisperer.profile", JSON.stringify({ arn: `arn:aws:codewhisperer:us-east-1:1:profile/${profile}`, profile_name: profile }));
+  } finally {
+    db.close();
+  }
+  if (email) KIRO_EMAILS.set(registration ? clientId : `refresh:${token}`, email);
+}
+
+// What `kiro-cli whoami` would say for the data folder, counted.
+export function fakeKiroWhoami() {
+  const calls = [];
+  const whoami = async (dataHome) => {
+    calls.push(dataHome);
+    const db = new DatabaseSync(join(dataHome, "kiro-cli", "data.sqlite3"), { readOnly: true });
+    try {
+      const row = db.prepare("SELECT value FROM auth_kv WHERE key = 'kirocli:odic:device-registration'").get();
+      const token = JSON.parse(db.prepare("SELECT value FROM auth_kv WHERE key = 'kirocli:odic:token'").get()?.value ?? "{}");
+      const email = row ? KIRO_EMAILS.get(JSON.parse(row.value).client_id)
+        : KIRO_EMAILS.get(`refresh:${String(token.refresh_token).split("-refresh-")[1]}`);
+      return email ? { email, accountType: "IamIdentityCenter", region: "us-east-1", startUrl: "https://example.awsapps.com/start" } : null;
+    } finally {
+      db.close();
+    }
+  };
+  return { whoami, calls };
+}
+
 // The empty directory a sign-in command points its CLI at.
 export function stagingDirectoryOf(command) {
   return /=\s*'([^']+)'/u.exec(command)[1];
@@ -72,13 +138,14 @@ export function stagingDirectoryOf(command) {
 
 // Where a CLI signed in inside a sign-in directory would have written.
 export function stagedLocation(cli, directory) {
-  const adapter = { claude: claudeAdapter, codex: codexAdapter, agy: agyAdapter }[cli];
+  const adapter = { claude: claudeAdapter, codex: codexAdapter, agy: agyAdapter, kiro: createKiroAdapter() }[cli];
   return adapter.locate({ [adapter.homeEnv]: directory });
 }
 
-// A machine with Claude, Codex and Antigravity all signed in to account A.
-// No keyring is reachable from its environment, so Antigravity is in file mode.
-export async function machine(t, { running = [], adapters, now, email = "a@example.com" } = {}) {
+// A machine with Claude, Codex, Antigravity and Kiro all signed in to account A.
+// No keyring is reachable from its environment, so Antigravity is in file mode;
+// Kiro's whoami is the fake one, so no test reaches the network.
+export async function machine(t, { running = [], adapters, now, email = "a@example.com", kiroWhoami = fakeKiroWhoami() } = {}) {
   const home = await mkdtemp(join(tmpdir(), "herdr-ai-accounts-"));
   t.after(() => rm(home, { recursive: true, force: true }));
   const env = { HOME: home };
@@ -92,7 +159,11 @@ export async function machine(t, { running = [], adapters, now, email = "a@examp
   await writeCodex(codex, { accountId: "codex-a", email, token: "a1" });
   const agy = agyAdapter.locate(env);
   await writeAgy(agy, { email, token: "a1" });
+  const kiroAdapter = createKiroAdapter({ whoami: kiroWhoami.whoami });
+  const kiro = kiroAdapter.locate(env);
+  writeKiro(kiro, { email, token: "a1", clientId: "client-a" });
   const directory = join(home, ".config", "herdr-bridge", "ai-accounts");
-  const accounts = new AiAccounts({ directory, env, runningAgents: async () => running, adapters, now });
-  return { home, env, claude, codex, agy, directory, accounts };
+  const accounts = new AiAccounts({ directory, env, runningAgents: async () => running, now,
+    adapters: adapters ?? [claudeAdapter, codexAdapter, agyAdapter, kiroAdapter] });
+  return { home, env, claude, codex, agy, kiro, kiroAdapter, kiroWhoami, directory, accounts };
 }

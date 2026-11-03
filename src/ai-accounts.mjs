@@ -174,8 +174,11 @@ export class AiAccounts {
       const clis = [];
       for (const adapter of this.adapters.values()) {
         const support = await adapter.support(this.env);
+        // the saved copies first: an adapter that cannot tell offline whose
+        // the live sign-in is (Kiro) knows it from them
+        const slots = await this.#slots(adapter);
         const current = await this.#current(adapter);
-        const accounts = (await this.#slots(adapter)).map((slot) =>
+        const accounts = slots.map((slot) =>
           publicAccount(slot.id, slot.identity, slot.identity.accountId === current?.accountId));
         clis.push({
           id: adapter.id,
