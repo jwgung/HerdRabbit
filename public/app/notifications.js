@@ -1,4 +1,4 @@
-import { attachSwipeDismiss } from "../swipe-dismiss.js?v=1.4.28";
+import { attachSwipeDismiss } from "../swipe-dismiss.js?v=1.4.29";
 
 // Opening the pane a notification names, from a tap on the notification, a
 // message from the service worker, another window, or the in-app alert shown
