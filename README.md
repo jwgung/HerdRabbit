@@ -516,7 +516,7 @@ The CLI's own files are what gets switched: `~/.claude/.credentials.json` plus t
 - **Install plugin…** asks for a **Source**, `owner/repo` or `owner/repo/folder` (a pasted `https://github.com/…` address is reduced to that), and an optional **Ref** (a branch, tag or commit). It shows the `https://github.com/<owner>/<repo>` address it names and a warning that the plugin runs code on that machine, then asks to confirm before running `herdr plugin install <source> [--ref <ref>] --yes`.
 - HerdRabbit's own plugin is listed but has no controls here, and the server refuses to disable, uninstall, update or reinstall it (any repository named HerdRabbit counts): it updates from **About → Update**.
 - One plugin change runs at a time on a machine, and none while HerdRabbit or Herdr is updating there. An install or update clones and builds, which can take minutes; the page shows it running and follows it until it ends.
-- On a connected PC the commands run on that PC, which checks the request again. A PC on an older HerdRabbit says to update it there.
+- On a connected PC the commands run on that PC, which checks the request again, and only while that PC has a sign-in password too: one without says to set it there. A PC on an older HerdRabbit says to update it there.
 
 Source, ref and plugin id are checked on both machines: GitHub's owner and repository name rules, a git ref name without spaces, `..` or a leading `-`, and short plugin ids. Herdr is run with an argument list, never through a shell.
 

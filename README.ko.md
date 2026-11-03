@@ -551,7 +551,7 @@ iOS에서 PWA를 독립 실행 모드로 쓰면 내려받은 파일이 저장되
 - **Install plugin…**은 **Source**(`owner/repo` 또는 `owner/repo/folder`, 붙여 넣은 `https://github.com/…` 주소는 이 형태로 줄입니다)와 선택 사항인 **Ref**(브랜치, 태그, 커밋)를 받습니다. 가리키는 `https://github.com/<owner>/<repo>` 주소와 그 머신에서 코드가 실행된다는 경고를 보여 주고, 확인을 한 번 더 받은 뒤 `herdr plugin install <source> [--ref <ref>] --yes`를 실행합니다.
 - HerdRabbit 자신의 플러그인은 목록에는 나오지만 여기서는 조작할 수 없고, 서버도 끄기·제거·업데이트·재설치를 거절합니다(이름이 HerdRabbit인 저장소는 모두 해당). 업데이트는 **About → Update**에서 합니다.
 - 한 머신에서는 플러그인 변경을 한 번에 하나만 실행하고, HerdRabbit이나 Herdr를 업데이트하는 동안에는 시작하지 않습니다. 설치·업데이트는 clone과 빌드를 하므로 몇 분 걸릴 수 있으며, 화면이 진행 중임을 보여 주고 끝날 때까지 따라갑니다.
-- 붙인 PC에서는 명령이 그 PC에서 실행되고, 그 PC가 요청을 다시 검사합니다. 이전 버전 HerdRabbit PC는 그곳에서 업데이트하라고 알려 줍니다.
+- 붙인 PC에서는 명령이 그 PC에서 실행되고, 그 PC가 요청을 다시 검사합니다. 그 PC에도 로그인 비밀번호가 있어야 하며, 없으면 그곳에서 정하라고 알려 줍니다. 이전 버전 HerdRabbit PC는 그곳에서 업데이트하라고 알려 줍니다.
 
 Source, ref, 플러그인 id는 두 머신 모두에서 검사합니다. GitHub의 owner·저장소 이름 규칙, 공백·`..`·맨 앞 `-`가 없는 git ref 이름, 짧은 플러그인 id만 받습니다. Herdr는 셸 없이 인자 목록으로 실행합니다.
 
