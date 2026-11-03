@@ -1451,7 +1451,14 @@ export function createHerdrHttpServer({
   // there (someone else made one meanwhile), or none, cannot be told apart,
   // so nothing is typed into either.
   function madeTab(made, after, workspaceId, knownTabs) {
-    if (made?.tab_id && made?.pane_id) return { tabId: made.tab_id, paneId: made.pane_id };
+    // The ids the create call named, if the snapshot shows that pane in that
+    // tab of this project: a connected PC's answer is not taken on trust.
+    if (made?.tab_id && made?.pane_id) {
+      const tab = (after.tabs ?? []).find((item) => item.tab_id === made.tab_id);
+      const pane = (after.panes ?? []).find((item) => item.pane_id === made.pane_id);
+      if (tab?.workspace_id === workspaceId && pane?.tab_id === made.tab_id) return { tabId: made.tab_id, paneId: made.pane_id };
+      throw new HttpError(502, "session_missing", "The new session was made but could not be found. Refresh and try again.");
+    }
     const fresh = (after.tabs ?? []).filter((item) => item.workspace_id === workspaceId && !knownTabs.has(item.tab_id));
     const panes = fresh.length === 1 ? (after.panes ?? []).filter((item) => item.tab_id === fresh[0].tab_id) : [];
     if (panes.length !== 1) {

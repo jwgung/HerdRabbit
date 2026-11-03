@@ -199,6 +199,18 @@ test("the agent goes into the tab the create call named, even when another tab a
   ]);
 });
 
+test("a create answer that names a pane outside the new project is not typed into", async (context) => {
+  const herdr = fakeHerdr();
+  const create = herdr.createTab.bind(herdr);
+  // a connected PC that answers with a pane of another project
+  herdr.createTab = async (workspaceId) => { await create(workspaceId); return { tab_id: "w1:t1", pane_id: "w1:p1" }; };
+  const app = await start(context, herdr);
+  const response = await app.post(tabsOf(`${LAB}!hs~w1`), { agent: "codex" });
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).error.code, "session_missing");
+  assert.ok(!herdr.calls.some(([name]) => name === "sendText"), "nothing typed");
+});
+
 test("without ids from the create call, the one new tab is used", async (context) => {
   const app = await start(context, fakeHerdr({ answersIds: false }));
   const response = await app.post(tabsOf("w1"), { agent: "claude" });
