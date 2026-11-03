@@ -61,16 +61,19 @@ export function credentialRules({ home, env = {}, data = defaultDataPaths(home) 
   }
   const claude = claudeAdapter.locate(environment);
   const codex = codexAdapter.locate(environment);
-  files.push(claude.credentials, claude.global, codex.auth, agyAdapter.locate(environment).token,
-    kiroAdapter.locate(environment).db);
+  const kiroData = kiroAdapter.locate(environment).db;
+  files.push(claude.credentials, claude.global, codex.auth, agyAdapter.locate(environment).token, kiroData);
   return {
     trees: trees.map((path) => posix.resolve(path)),
     files: files.map((path) => posix.resolve(path)),
     // A name that starts this way, directly inside the folder: the Claude
-    // configuration folders, and ~/.claude.json's backups beside it.
+    // configuration folders, ~/.claude.json's backups beside it, and Kiro's
+    // database journal.
     prefixes: [
       { parent: at(".config"), prefix: "claude" },
       { parent: posix.dirname(posix.resolve(claude.global)), prefix: posix.basename(claude.global) },
+      // Kiro CLI's database and the journal SQLite keeps beside it
+      { parent: posix.dirname(posix.resolve(kiroData)), prefix: posix.basename(kiroData) },
     ],
   };
 }

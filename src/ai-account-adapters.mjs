@@ -316,7 +316,7 @@ export function kiroWhoamiIdentity(output) {
 }
 
 // Whose sign-in the data folder holds. kiro-cli asks AWS: nothing in the
-// database names the account.
+// database names the account. Its own error text is not passed on.
 function runKiroWhoami(dataHome) {
   return new Promise((resolve, reject) => {
     execFile("kiro-cli", ["whoami", "-f", "json"], {
@@ -327,72 +327,76 @@ function runKiroWhoami(dataHome) {
     }, (error, stdout) => {
       const identity = kiroWhoamiIdentity(stdout);
       if (identity) resolve(identity);
-      else if (error && error.code !== 1) reject(error);
+      // exit 1 with {"account":null} is "not signed in"
+      else if (error && error.code !== 1) reject(new Error("kiro-cli whoami did not answer"));
       else resolve(null);
     });
   });
 }
+
+// The parsed JSON of the first sign-in row whose key passes `match`, or null.
+function kiroRow(rows, match) {
+  const key = Object.keys(rows).find(match);
+  try {
+    const value = key ? JSON.parse(rows[key]) : null;
+    return value && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+const kiroToken = (rows) => kiroRow(rows, (key) => KIRO_TOKEN_KEY.test(key));
+const kiroRegistration = (rows) => kiroRow(rows, (key) => key.endsWith(":device-registration"));
+const kiroSignedIn = (rows) => Boolean(text(kiroToken(rows)?.refresh_token));
 
 // What tells one sign-in from another without the network, kept only as a
 // hash in memory: the client registration's id, or, for a sign-in without
 // one (Google, GitHub), its refresh token -- which a refresh changes, costing
 // one more whoami.
 function kiroFingerprint(rows) {
-  const parsed = (key) => {
-    try {
-      return JSON.parse(rows[key] ?? "null");
-    } catch {
-      return null;
-    }
-  };
-  const registration = Object.keys(rows).find((key) => key.endsWith(":device-registration"));
-  const token = Object.keys(rows).find((key) => KIRO_TOKEN_KEY.test(key));
-  const value = text(registration && parsed(registration)?.client_id) ?? text(token && parsed(token)?.refresh_token);
+  const value = text(kiroRegistration(rows)?.client_id) ?? text(kiroToken(rows)?.refresh_token);
   return value ? createHash("sha256").update(value).digest("hex") : null;
 }
 
-function kiroRefreshExpiresAt(rows) {
-  const registration = Object.entries(rows).find(([key]) => key.endsWith(":device-registration"))?.[1];
+// The client registration ends (about three months after sign-in), and then
+// kiro-cli has to sign in again.
+function kiroIdentity(email, rows) {
+  const expiresAt = Date.parse(kiroRegistration(rows)?.client_secret_expires_at);
+  return {
+    accountId: email.toLowerCase(),
+    email,
+    organization: null,
+    plan: null,
+    refreshExpiresAt: Number.isFinite(expiresAt) ? expiresAt : null,
+  };
+}
+
+async function fileExists(file) {
   try {
-    const expiresAt = Date.parse(JSON.parse(registration ?? "null")?.client_secret_expires_at);
-    return Number.isFinite(expiresAt) ? expiresAt : null;
-  } catch {
-    return null;
+    await stat(file);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
   }
 }
 
-function kiroSignedIn(rows) {
-  return Object.entries(rows).some(([key, value]) => {
-    if (!KIRO_TOKEN_KEY.test(key)) return false;
-    try {
-      return Boolean(text(JSON.parse(value)?.refresh_token));
-    } catch {
-      return false;
-    }
-  });
-}
-
 export function createKiroAdapter({ whoami = runKiroWhoami, loadSqlite = loadNodeSqlite, busyTimeoutMs = 5_000 } = {}) {
-  // Whose account each client registration is, as whoami or a saved copy said:
-  // whoami goes over the network, so it is asked once per sign-in.
+  // Whose account each sign-in is, as whoami or a saved copy said: whoami goes
+  // over the network, so it is asked once per sign-in while the server runs.
   const known = new Map();
 
   async function open(file, { write = false } = {}) {
     const DatabaseSync = await loadSqlite();
     if (!DatabaseSync) throw new Error("node:sqlite is not available");
     const db = new DatabaseSync(file, { readOnly: !write });
-    // kiro-cli writes the same file; wait for it rather than fail at once
-    db.exec(`PRAGMA busy_timeout = ${Number(busyTimeoutMs) | 0}`);
+    // kiro-cli writes the same file: wait this many milliseconds for it
+    db.exec(`PRAGMA busy_timeout = ${Math.trunc(Number(busyTimeoutMs)) || 0}`);
     return db;
   }
 
   async function readRows(file) {
-    try {
-      await stat(file);
-    } catch (error) {
-      if (error.code === "ENOENT") return null;
-      throw error;
-    }
+    if (!(await fileExists(file))) return null;
     const db = await open(file);
     try {
       const authKv = {};
@@ -409,16 +413,38 @@ export function createKiroAdapter({ whoami = runKiroWhoami, loadSqlite = loadNod
     }
   }
 
+  function locate(env) {
+    const dataHome = env.XDG_DATA_HOME || join(homeOf(env), ".local", "share");
+    return { db: join(dataHome, "kiro-cli", "data.sqlite3"), dataHome };
+  }
+
+  // A saved copy says whose it is; the live database is asked of kiro-cli.
+  async function identifySaved(location) {
+    const [auth, account] = [await readJson(location.auth), await readJson(location.account)];
+    if (!auth?.authKv || !kiroSignedIn(auth.authKv) || !text(account?.email)) return null;
+    const fingerprint = kiroFingerprint(auth.authKv);
+    if (fingerprint) known.set(fingerprint, account.email);
+    return kiroIdentity(account.email, auth.authKv);
+  }
+
+  async function identifyLive(location, rows) {
+    if (!rows || !kiroSignedIn(rows.authKv)) return null;
+    const fingerprint = kiroFingerprint(rows.authKv);
+    let email = fingerprint ? known.get(fingerprint) : undefined;
+    if (!email) {
+      email = (await whoami(location.dataHome))?.email;
+      if (!text(email)) return null;
+      if (fingerprint) known.set(fingerprint, email);
+    }
+    return kiroIdentity(email, rows.authKv);
+  }
+
   return Object.freeze({
     id: "kiro",
     label: "Kiro CLI",
     homeEnv: "XDG_DATA_HOME",
     loginCommand: ["kiro-cli", "login", "--use-device-flow"],
-
-    locate(env) {
-      const dataHome = env.XDG_DATA_HOME || join(homeOf(env), ".local", "share");
-      return { db: join(dataHome, "kiro-cli", "data.sqlite3"), dataHome };
-    },
+    locate,
 
     slot(directory) {
       return { auth: join(directory, "auth.json"), account: join(directory, "account.json") };
@@ -427,64 +453,34 @@ export function createKiroAdapter({ whoami = runKiroWhoami, loadSqlite = loadNod
     async support(env, platform = process.platform) {
       if (platform !== "linux") return { supported: false, reason: "Kiro CLI sign-ins are switched on Linux only" };
       if (!(await loadSqlite())) return { supported: false, reason: "Switching Kiro CLI sign-ins needs Node 22.13 or later (node:sqlite)" };
-      const { db: file } = this.locate(env);
+      const { db: file } = locate(env);
+      // no database yet: nothing is signed in, and a sign-in makes one
+      if (!(await fileExists(file))) return { supported: true, reason: null };
+      let tables;
       try {
         const db = await open(file);
         try {
-          const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name));
-          if (!tables.has("auth_kv") || !tables.has("state")) {
-            return { supported: false, reason: "Kiro CLI's database is laid out in a way HerdRabbit does not know" };
-          }
+          tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name));
         } finally {
           db.close();
         }
-      } catch (error) {
-        // no database yet: nothing is signed in, and a sign-in makes one
-        if (!/unable to open|ENOENT/u.test(String(error?.message))) {
-          return { supported: false, reason: "Kiro CLI's database could not be read" };
-        }
+      } catch {
+        return { supported: false, reason: "Kiro CLI's database could not be read" };
+      }
+      if (!tables.has("auth_kv") || !tables.has("state")) {
+        return { supported: false, reason: "Kiro CLI's database is laid out in a way HerdRabbit does not know" };
       }
       return { supported: true, reason: null };
     },
 
     async identify(location) {
-      if (location.auth) {
-        const [auth, account] = [await readJson(location.auth), await readJson(location.account)];
-        if (!auth?.authKv || !kiroSignedIn(auth.authKv) || !text(account?.email)) return null;
-        const identity = {
-          accountId: account.email.toLowerCase(),
-          email: account.email,
-          organization: null,
-          plan: null,
-          refreshExpiresAt: kiroRefreshExpiresAt(auth.authKv),
-        };
-        const fingerprint = kiroFingerprint(auth.authKv);
-        if (fingerprint) known.set(fingerprint, account.email);
-        return identity;
-      }
-      const rows = await readRows(location.db);
-      if (!rows || !kiroSignedIn(rows.authKv)) return null;
-      const fingerprint = kiroFingerprint(rows.authKv);
-      let email = fingerprint ? known.get(fingerprint) : undefined;
-      if (!email) {
-        email = (await whoami(location.dataHome))?.email;
-        if (!text(email)) return null;
-        if (fingerprint) known.set(fingerprint, email);
-      }
-      return {
-        accountId: email.toLowerCase(),
-        email,
-        organization: null,
-        plan: null,
-        refreshExpiresAt: kiroRefreshExpiresAt(rows.authKv),
-      };
+      return location.auth ? identifySaved(location) : identifyLive(location, await readRows(location.db));
     },
 
     async capture(location, slot) {
       const rows = await readRows(location.db);
-      if (!rows || !kiroSignedIn(rows.authKv)) throw new Error("Kiro CLI is not signed in");
-      const identity = await this.identify(location);
-      if (!identity) throw new Error("Kiro CLI account details are missing");
+      const identity = await identifyLive(location, rows);
+      if (!identity) throw new Error("Kiro CLI is not signed in");
       await writePrivateFile(slot.auth, `${JSON.stringify(rows, null, 2)}\n`);
       await writePrivateFile(slot.account, `${JSON.stringify({ email: identity.email }, null, 2)}\n`);
     },
@@ -494,7 +490,7 @@ export function createKiroAdapter({ whoami = runKiroWhoami, loadSqlite = loadNod
     async install(slot, location) {
       const saved = await readJson(slot.auth);
       if (!saved?.authKv || !kiroSignedIn(saved.authKv)) throw new Error("Saved Kiro CLI sign-in is missing");
-      await stat(location.db);
+      if (!(await fileExists(location.db))) throw new Error("Kiro CLI has no database on this machine yet");
       const db = await open(location.db, { write: true });
       try {
         db.exec("BEGIN IMMEDIATE");

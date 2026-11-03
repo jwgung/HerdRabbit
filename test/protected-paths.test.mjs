@@ -30,6 +30,7 @@ async function fakeHome(context) {
     codexAuth: join(home, ".codex", "auth.json"),
     agyToken: join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"),
     kiroData: join(home, ".local", "share", "kiro-cli", "data.sqlite3"),
+    kiroJournal: join(home, ".local", "share", "kiro-cli", "data.sqlite3-journal"),
     netrc: join(home, ".netrc"),
     gitCredentials: join(home, ".git-credentials"),
     awsCredentials: join(home, ".aws", "credentials"),

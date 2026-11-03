@@ -3,9 +3,9 @@ import { mkdirSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { AiAccounts } from "../../src/ai-accounts.mjs";
 import { DatabaseSync } from "node:sqlite";
-import { agyAdapter, claudeAdapter, codexAdapter, createKiroAdapter } from "../../src/ai-account-adapters.mjs";
+import { AiAccounts } from "../../src/ai-accounts.mjs";
+import { agyAdapter, claudeAdapter, codexAdapter, createKiroAdapter, kiroAdapter as liveKiroAdapter } from "../../src/ai-account-adapters.mjs";
 
 // Every fake token carries this marker, so a test can prove no credential
 // leaves the files it lives in.
@@ -71,7 +71,8 @@ export async function writeAgy(location, { email, token, idToken } = {}) {
 // (kiro-cli 2.35.1), in the same file as its conversations and telemetry. A
 // new database gets those other rows too, so a test can see they survive.
 // Whose account it is, kiro-cli only says over the network (whoami); the
-// fake whoami below answers from the registration's client id.
+// fake whoami below answers from the registration's client id. Synchronous,
+// as node:sqlite is.
 const KIRO_EMAILS = new Map();
 
 export function writeKiro(location, { email, token, clientId = `client-${token}`, profile = `profile-${token}`, refresh = true, registration = true }) {
@@ -138,7 +139,7 @@ export function stagingDirectoryOf(command) {
 
 // Where a CLI signed in inside a sign-in directory would have written.
 export function stagedLocation(cli, directory) {
-  const adapter = { claude: claudeAdapter, codex: codexAdapter, agy: agyAdapter, kiro: createKiroAdapter() }[cli];
+  const adapter = { claude: claudeAdapter, codex: codexAdapter, agy: agyAdapter, kiro: liveKiroAdapter }[cli];
   return adapter.locate({ [adapter.homeEnv]: directory });
 }
 
