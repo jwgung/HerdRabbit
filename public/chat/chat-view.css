@@ -291,6 +291,26 @@
   color: var(--text);
 }
 
+/* an answer's copy menu (copy-menu.js): the shared menu, words without icons */
+.chat-copy-menu {
+  flex: 0 0 auto;
+}
+
+.chat-copy-panel.ui-menu-panel {
+  position: fixed;
+  inset: auto;
+  width: max-content;
+  margin: 0;
+}
+
+.chat-copy-panel:not(:popover-open) {
+  display: none;
+}
+
+.chat-copy-panel .ui-menu-item {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* compactions and Claude Code's own notices: a quiet divider, the text on request */
 .chat-compact {
   color: var(--muted);

@@ -550,3 +550,68 @@ function blocksHtml(blocks, options) {
 export function renderMarkdown(source, { isLinkablePath = () => false } = {}) {
   return blocksHtml(parseMarkdown(source), { isLinkablePath });
 }
+
+// ---------------------------------------------------------------------------
+// Plain text: the same parse as the HTML, read as the chat shows it with no
+// markdown marks. Code keeps its text, lists their bullets and numbers, table
+// cells are split by tabs, and a link keeps its address in brackets when its
+// words are something else.
+
+const withoutScheme = (address) => address.replace(/^(?:https?:\/\/|mailto:)/iu, "");
+
+function inlineText(nodes) {
+  return nodes.map((node) => {
+    switch (node.type) {
+      case "text":
+      case "code": return node.value;
+      case "math": return `\\(${node.value}\\)`;
+      case "image": return node.alt;
+      case "strong":
+      case "em":
+      case "del": return inlineText(node.children);
+      case "link": {
+        const label = inlineText(node.children);
+        const href = safeMarkdownHref(node.href);
+        return href === null || withoutScheme(href) === withoutScheme(label) ? label : `${label} (${href})`;
+      }
+      case "file": {
+        const label = inlineText(node.children);
+        return label === node.path ? label : `${label} (${node.path})`;
+      }
+      default: return "";
+    }
+  }).join("");
+}
+
+function listText(block) {
+  return block.items.map((item, index) => {
+    const marker = item.checked !== undefined ? (item.checked ? "☑ " : "☐ ")
+      : block.ordered ? `${(block.start ?? 1) + index}. ` : "• ";
+    const head = `${marker}${inlineText(item.content)}`;
+    const nested = (item.blocks ?? []).map(blockText).filter((text) => text !== "").join("\n");
+    if (nested === "") return head;
+    const pad = " ".repeat(marker.length);
+    return `${head}\n${nested.split("\n").map((line) => (line === "" ? line : `${pad}${line}`)).join("\n")}`;
+  }).join("\n");
+}
+
+function blockText(block) {
+  switch (block.type) {
+    case "heading": return inlineText(block.content);
+    case "paragraph": return block.lines.map(inlineText).join("\n");
+    case "list": return listText(block);
+    case "blockquote": return blocksText(block.blocks);
+    case "code": return block.value;
+    case "math": return `\\[${block.value}\\]`;
+    case "table": return [block.header, ...block.rows].map((row) => row.map(inlineText).join("\t")).join("\n");
+    default: return "";
+  }
+}
+
+function blocksText(blocks) {
+  return blocks.map(blockText).filter((text) => text !== "").join("\n\n");
+}
+
+export function markdownText(source) {
+  return blocksText(parseMarkdown(source));
+}
