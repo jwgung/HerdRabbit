@@ -293,12 +293,21 @@ export const agyAdapter = createAgyAdapter();
 const KIRO_STATE_KEYS = Object.freeze(["auth.idc.start-url", "auth.idc.region", "api.codewhisperer.profile"]);
 const KIRO_TOKEN_KEY = /^kirocli:[a-z-]+:token$/u;
 
+// node:sqlite comes with Node 22.13 (earlier 22.x only behind a flag); without
+// it Kiro is reported unsupported rather than the whole module failing.
 async function loadNodeSqlite() {
   try {
     return (await import("node:sqlite")).DatabaseSync;
   } catch {
     return null;
   }
+}
+
+// Whether `kiro-cli whoami -f json` said no one is signed in.
+export function kiroWhoamiSaysSignedOut(output) {
+  const line = String(output ?? "").split("\n").find((item) => item.trim().startsWith("{"));
+  const parsed = line ? parsedRow(line) : null;
+  return parsed !== null && Object.hasOwn(parsed, "account") && parsed.account === null;
 }
 
 // The first line of `kiro-cli whoami -f json`, or null when it says no one is
@@ -327,27 +336,32 @@ function runKiroWhoami(dataHome) {
     }, (error, stdout) => {
       const identity = kiroWhoamiIdentity(stdout);
       if (identity) resolve(identity);
-      // exit 1 with {"account":null} is "not signed in"
-      else if (error && error.code !== 1) reject(new Error("kiro-cli whoami did not answer"));
-      else resolve(null);
+      // only its own {"account":null} means "not signed in"; any other
+      // failure (no network, say) is not taken for that
+      else if (kiroWhoamiSaysSignedOut(stdout)) resolve(null);
+      else reject(new Error("kiro-cli whoami did not answer"));
     });
   });
 }
 
-// The parsed JSON of the first sign-in row whose key passes `match`, or null.
-function kiroRow(rows, match) {
-  const key = Object.keys(rows).find(match);
+function parsedRow(value) {
   try {
-    const value = key ? JSON.parse(rows[key]) : null;
-    return value && typeof value === "object" ? value : null;
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : null;
   } catch {
     return null;
   }
 }
 
-const kiroToken = (rows) => kiroRow(rows, (key) => KIRO_TOKEN_KEY.test(key));
-const kiroRegistration = (rows) => kiroRow(rows, (key) => key.endsWith(":device-registration"));
-const kiroSignedIn = (rows) => Boolean(text(kiroToken(rows)?.refresh_token));
+// The sign-in in use: the first token row (odic, social, external-idp...)
+// that can still be refreshed. A stale one beside it is passed over.
+function kiroToken(rows) {
+  return Object.entries(rows).filter(([key]) => KIRO_TOKEN_KEY.test(key)).map(([, value]) => parsedRow(value))
+    .find((token) => text(token?.refresh_token)) ?? null;
+}
+
+const kiroRegistration = (rows) => parsedRow(Object.entries(rows).find(([key]) => key.endsWith(":device-registration"))?.[1]);
+const kiroSignedIn = (rows) => kiroToken(rows) !== null;
 
 // What tells one sign-in from another without the network, kept only as a
 // hash in memory: the client registration's id, or, for a sign-in without
@@ -391,7 +405,8 @@ export function createKiroAdapter({ whoami = runKiroWhoami, loadSqlite = loadNod
     if (!DatabaseSync) throw new Error("node:sqlite is not available");
     const db = new DatabaseSync(file, { readOnly: !write });
     // kiro-cli writes the same file: wait this many milliseconds for it
-    db.exec(`PRAGMA busy_timeout = ${Math.trunc(Number(busyTimeoutMs)) || 0}`);
+    const wait = Number.isFinite(busyTimeoutMs) ? Math.max(0, Math.trunc(busyTimeoutMs)) : 0;
+    db.exec(`PRAGMA busy_timeout = ${wait}`);
     return db;
   }
 
@@ -400,7 +415,7 @@ export function createKiroAdapter({ whoami = runKiroWhoami, loadSqlite = loadNod
     const db = await open(file);
     try {
       const authKv = {};
-      for (const row of db.prepare("SELECT key, value FROM auth_kv WHERE key LIKE 'kirocli:%'").all()) authKv[row.key] = row.value;
+      for (const row of db.prepare("SELECT key, value FROM auth_kv WHERE key GLOB 'kirocli:*'").all()) authKv[row.key] = row.value;
       const state = {};
       const get = db.prepare("SELECT value FROM state WHERE key = ?");
       for (const key of KIRO_STATE_KEYS) {
@@ -454,10 +469,10 @@ export function createKiroAdapter({ whoami = runKiroWhoami, loadSqlite = loadNod
       if (platform !== "linux") return { supported: false, reason: "Kiro CLI sign-ins are switched on Linux only" };
       if (!(await loadSqlite())) return { supported: false, reason: "Switching Kiro CLI sign-ins needs Node 22.13 or later (node:sqlite)" };
       const { db: file } = locate(env);
-      // no database yet: nothing is signed in, and a sign-in makes one
-      if (!(await fileExists(file))) return { supported: true, reason: null };
       let tables;
       try {
+        // no database yet: nothing is signed in, and a sign-in makes one
+        if (!(await fileExists(file))) return { supported: true, reason: null };
         const db = await open(file);
         try {
           tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name));
@@ -495,7 +510,8 @@ export function createKiroAdapter({ whoami = runKiroWhoami, loadSqlite = loadNod
       try {
         db.exec("BEGIN IMMEDIATE");
         try {
-          db.prepare("DELETE FROM auth_kv WHERE key LIKE 'kirocli:%'").run();
+          // GLOB, not LIKE: case-sensitive, so only kiro-cli's own rows go
+          db.prepare("DELETE FROM auth_kv WHERE key GLOB 'kirocli:*'").run();
           const put = db.prepare("INSERT INTO auth_kv (key, value) VALUES (?, ?)");
           for (const [key, value] of Object.entries(saved.authKv)) {
             if (key.startsWith("kirocli:") && typeof value === "string") put.run(key, value);
