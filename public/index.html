@@ -419,6 +419,24 @@
       </form>
     </dialog>
 
+    <dialog id="session-dialog" class="app-dialog" aria-labelledby="session-dialog-title">
+      <form id="session-create-form" class="dialog-form">
+        <div class="dialog-heading">
+          <h2 id="session-dialog-title">New session</h2>
+          <p id="session-dialog-context"></p>
+        </div>
+        <label for="session-agent">Agent</label>
+        <select id="session-agent"></select>
+        <label for="session-name">Session name</label>
+        <input id="session-name" name="label" type="text" maxlength="120" placeholder="Optional" autocomplete="off" />
+        <p id="session-dialog-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="session-dialog-cancel" class="secondary-button" type="button">Cancel</button>
+          <button class="primary-button" type="submit">Start</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="legacy-machines-dialog" class="app-dialog" aria-labelledby="legacy-machines-title">
       <div class="dialog-form">
         <div class="dialog-heading"><h2 id="legacy-machines-title">SSH machines were removed</h2></div>

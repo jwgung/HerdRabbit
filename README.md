@@ -45,7 +45,7 @@ When Tailscale is installed and running, the [one-line installer](#quick-install
 - Answer what an agent asks (tool approvals, questions, menus) with buttons on a card at the bottom of the chat, or from a banner over the terminal
 - Each pane keeps its own unsent draft, also across a reload
 - Send text and shell commands, or use a two-row extra-key bar (Ctrl/Alt/Shift, Esc, Tab, Home/End, PgUp/PgDn, arrows, slash, minus and Enter by default; edit it with **Edit keys**). Select modifiers, then tap a key or type it on your keyboard (for example Ctrl → End or Ctrl → C); on a phone keyboard, the letter typed after a modifier goes as that key and does not stay in the composer. PgUp and PgDn page through the terminal history a screen at a time, as a finger or the wheel does; hold Shift first to send the plain key to a program that pages itself, such as less or vim. With Ctrl or Alt held, or in a mirrored pane, they send their keys as before. Modifiers clear after one send or when switching panes. Ordinary composer shortcuts remain local unless a screen modifier is selected.
-- Create shell workspaces and tabs, rename workspaces and sessions, and close tabs or workspaces after confirmation
+- Create shell workspaces and tabs, start a new session with an agent installed on that machine and a name, rename workspaces and sessions, and close tabs or workspaces after confirmation
 - View images, video, audio, Markdown and text in the browser instead of downloading them first
 - Manage every machine from its row in the sidebar, this one included: read its name and versions, and rename or disconnect a PC added with Connect PC (or find it again after it moved port)
 - Switch the Claude Code or Codex account a machine uses without signing in again, from the same row
@@ -142,7 +142,7 @@ local herdr CLI ── default and named Herdr persistent sessions
                          └─ workspaces, tabs, and panes
 ```
 
-Creating a project creates a Herdr workspace and default shell. Creating a session creates a new tab and default shell in that workspace. HerdRabbit does not run a separate terminal backend; it reads from and writes to Herdr panes.
+Creating a project creates a Herdr workspace and default shell. Creating a session creates a new tab and default shell in that workspace, then names it and types the chosen agent's command into it when those were picked. HerdRabbit does not run a separate terminal backend; it reads from and writes to Herdr panes.
 
 ### Multiple Herdr persistent sessions
 
@@ -347,7 +347,8 @@ Project and tab names may appear on the lock screen. Previous commands and reque
 ### Projects and sessions
 
 - Use the top `+` → **New project** to create a named workspace with a default shell. It opens in the selected pane's Herdr session; the session picker lists every machine's running sessions, so a project can be made on another machine too.
-- Use a project's `⋯` menu to rename it, add a shell session, or close the project.
+- Use a project's `⋯` menu to rename it, add a session, or close the project.
+- **New session…** opens a dialog with an **Agent** picker and an optional **Session name**. The picker offers **Shell** and each agent installed on the project's machine: Claude Code (`claude`), Codex (`codex`), OpenCode (`opencode`), Kiro (`kiro-cli`), Antigravity (`agy`) and Cursor Agent (`cursor-agent`). An agent counts as installed when its command is an executable file in a folder on the PATH HerdRabbit's server runs with; nothing is run to find out, and the answer is kept for 30 seconds. A connected PC answers for itself; a PC on an older HerdRabbit offers only Shell and says to update it there. **Start** makes the tab, names it when a name was given, types the agent's command into it and selects it. The command comes from HerdRabbit's own list, never from the request, and an agent that is not installed there is refused before anything is made. The dialog chooses the agent last started from it while the page stays open.
 - Use a session's `⋯` menu to rename it or close that Herdr tab. A split session's menu also has **Even out layout** and **Separate all panes** (see [Split panes](#split-panes)).
 - Collapse or expand a project's child sessions with the arrow beside its name.
 - Drag a session to reorder it within its project, or onto another project of the same machine and Herdr session to move it there (it keeps its name; a split session with several panes can only be reordered within its project); drag a project's name to reorder projects. On a phone, hold a row for a moment before dragging; a short tap still selects and a swipe still scrolls. Reordering uses Herdr's `tab.move` and `workspace.move`, moving uses `pane move`.
@@ -358,7 +359,7 @@ A session shows the agent running in it until it is given a name. That is not a 
 
 The status word (`working`, `idle`) is not spelled out beside a session. The mark at the far right already carries it (`◐` working, `×` waiting for your answer, `✓` finished and not yet viewed, `○` idle, coloured per state), and rows have no status-coloured border; the selected row is only tinted. A line under the name shows the folder the session runs in when that differs from the name. The one exception is a session waiting for your answer: its line under the name says "Needs your answer" in red instead of the folder, and so does a split session's row when any of its panes waits. Hover a session, or read it with a screen reader, to get the status in words.
 
-Run commands such as `cd`, `codex`, or `claude` inside a created shell. Creation uses Herdr's `--no-focus` option so it does not steal focus from the desktop Herdr client.
+Run other commands such as `cd` inside a created shell, or start an agent there yourself. Creation uses Herdr's `--no-focus` option so it does not steal focus from the desktop Herdr client.
 
 ### Split panes
 
