@@ -72,7 +72,6 @@ export function credentialRules({ home, env = {}, data = defaultDataPaths(home) 
     prefixes: [
       { parent: at(".config"), prefix: "claude" },
       { parent: posix.dirname(posix.resolve(claude.global)), prefix: posix.basename(claude.global) },
-      // Kiro CLI's database and the journal SQLite keeps beside it
       { parent: posix.dirname(posix.resolve(kiroData)), prefix: posix.basename(kiroData) },
     ],
   };

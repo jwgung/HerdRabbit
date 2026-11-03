@@ -4,7 +4,7 @@ import { readdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { AiAccounts } from "../src/ai-accounts.mjs";
-import { agyAdapter, claudeAdapter, createAgyAdapter, createKiroAdapter, kiroWhoamiIdentity, secretServiceFound, sessionBusAddress } from "../src/ai-account-adapters.mjs";
+import { agyAdapter, claudeAdapter, createAgyAdapter, createKiroAdapter, kiroWhoamiIdentity, kiroWhoamiSaysSignedOut, secretServiceFound, sessionBusAddress } from "../src/ai-account-adapters.mjs";
 import { SECRET, fakeKiroWhoami, machine, stagedLocation, stagingDirectoryOf, writeAgy, writeClaude, writeCodex, writeKiro } from "./fixtures/ai-accounts.mjs";
 
 async function filesUnder(path) {
@@ -301,8 +301,14 @@ test("Kiro switches its sign-in rows and leaves every other row of its database 
   assert.equal(finished.account.email, "b@example.com");
   assert.equal(finished.account.active, false);
 
+  const lookalike = new DatabaseSync(kiro.db);
+  lookalike.prepare("INSERT INTO auth_kv VALUES ('KIROCLI:other', 'keep')").run();
+  lookalike.close();
   const switched = await accounts.switch("kiro", finished.account.id);
   assert.equal(switched.changed, true);
+  const kept = new DatabaseSync(kiro.db, { readOnly: true });
+  assert.equal(kept.prepare("SELECT value FROM auth_kv WHERE key = 'KIROCLI:other'").get()?.value, "keep", "only kiro-cli's own rows, by case");
+  kept.close();
   let rows = kiroRows(kiro);
   assert.match(rows.token, /refresh-b1/u);
   assert.equal(rows.clientId, "client-b", "each account keeps its own client registration");
@@ -391,6 +397,9 @@ test("a Kiro sign-in without a refresh token is no sign-in, and whoami's words a
   assert.deepEqual(kiroWhoamiIdentity('{"accountType":"IamIdentityCenter","email":"C@Example.com","region":"us-east-1","startUrl":"https://x"}\n\nProfile:\nKiroProfile\narn:aws:x\n'),
     { email: "C@Example.com", accountType: "IamIdentityCenter", region: "us-east-1", startUrl: "https://x" });
   assert.equal(kiroWhoamiIdentity('{"account":null}\n'), null, "not signed in");
+  assert.equal(kiroWhoamiSaysSignedOut('{"account":null}\n'), true);
+  assert.equal(kiroWhoamiSaysSignedOut("Error: dispatch failure\n"), false, "no network is not 'signed out'");
+  assert.equal(kiroWhoamiSaysSignedOut(""), false);
   assert.equal(kiroWhoamiIdentity("Error: something\n"), null);
 });
 
@@ -403,6 +412,28 @@ test("a Kiro sign-in without a client registration is still told apart", async (
   assert.equal((await counted.identify(location)).email, "d@example.com");
   assert.equal((await counted.identify(location)).refreshExpiresAt, null, "no registration, no end date");
   assert.equal(kiroWhoami.calls.length, 1);
+});
+
+test("a stale Kiro token row beside the live one is passed over", async (t) => {
+  const { home } = await machine(t);
+  const kiroWhoami = fakeKiroWhoami();
+  const counted = createKiroAdapter({ whoami: kiroWhoami.whoami });
+  const location = counted.locate({ HOME: join(home, "two") });
+  writeKiro(location, { email: "e@example.com", token: "e1", clientId: "client-e" });
+  const db = new DatabaseSync(location.db);
+  // a sign-in method used once, now without a refresh token, sorted first
+  db.prepare("INSERT INTO auth_kv VALUES ('kirocli:external-idp:token', ?)").run(JSON.stringify({ access_token: "old" }));
+  db.close();
+  assert.equal((await counted.identify(location)).email, "e@example.com");
+});
+
+test("a saved Kiro copy that cannot be read is not switched to", async (t) => {
+  const { accounts, kiro, directory } = await machine(t);
+  const { finished } = await signInElsewhere(accounts, "kiro", (location) =>
+    writeKiro(location, { email: "b@example.com", token: "b1", clientId: "client-b" }));
+  await writeFile(join(directory, "kiro", finished.account.id, "auth.json"), "{ not json");
+  await assert.rejects(accounts.switch("kiro", finished.account.id), { code: "account_not_found" });
+  assert.match(kiroRows(kiro).token, /refresh-a1/u);
 });
 
 test("a running Kiro holds a switch until confirmed", async (t) => {
