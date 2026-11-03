@@ -81,7 +81,7 @@ async function sendFile(response, file) {
 // `updater` is this PC's own AppUpdater (src/app-update.mjs): a hub checks
 // for and starts an update of this PC through it, never naming anything.
 export function linkRoutes({
-  client, files = null, aiAccounts = null, plugins = null, installedAgents = null, agentSessions = null, attach = null, conversations = null, slashCommands = null, updater = null, herdrUpdater = null, version, herdrVersion = () => null, serverName = "",
+  client, files = null, aiAccounts = null, plugins = null, pluginsAllowed = () => false, installedAgents = null, agentSessions = null, attach = null, conversations = null, slashCommands = null, updater = null, herdrUpdater = null, version, herdrVersion = () => null, serverName = "",
   maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024, protectedPaths = defaultProtectedPaths(),
   maxStatusStreams = MAX_STATUS_STREAMS,
 }) {
@@ -512,6 +512,11 @@ export function linkRoutes({
     const pluginMatch = url.pathname.match(PLUGIN_ROUTE);
     if (pluginMatch) {
       if (!plugins) throw new HttpError(501, "plugins_unavailable", "This PC cannot manage Herdr's plugins.");
+      // A plugin runs code here, so this PC's own sign-in must be on, as for
+      // its own page: a hub that is allowed in does not stand in for it.
+      if (!pluginsAllowed()) {
+        throw new HttpError(409, "password_auth_required", "Set a sign-in password on this PC to manage its plugins from another PC.");
+      }
       const [, segment, action] = pluginMatch;
       if (method === "GET" && segment === undefined) {
         sendJson(response, 200, await plugins.list());

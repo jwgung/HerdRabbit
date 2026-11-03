@@ -46,7 +46,7 @@ const UPDATE_CODES = new Set([
 // code: the person sees the PC's own reason.
 const PLUGIN_CODES = new Set([
   "invalid_plugin_id", "invalid_plugin_source", "invalid_plugin_ref", "plugin_not_found", "plugin_protected",
-  "plugin_busy", "plugin_not_updatable", "plugin_list_failed", "plugins_unavailable",
+  "plugin_busy", "plugin_not_updatable", "plugin_list_failed", "plugins_unavailable", "password_auth_required",
 ]);
 
 // What a connected PC answers about one pane's conversation and this hub
