@@ -1,6 +1,6 @@
-import { createElement } from "./dom.js?v=1.4.23";
-import { sessionAgentChoices, sessionChoiceLabel } from "../agents.js?v=1.4.23";
-import { sessionProjectChoices } from "../ui-model.js?v=1.4.23";
+import { createElement } from "./dom.js?v=1.4.24";
+import { sessionAgentChoices, sessionChoiceLabel } from "../agents.js?v=1.4.24";
+import { sessionProjectChoices } from "../ui-model.js?v=1.4.24";
 
 // The "New session" dialog: a project's ⋯ menu opens it for that project,
 // and the + menu opens it with a Project select (the selected pane's project

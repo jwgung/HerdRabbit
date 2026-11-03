@@ -1,11 +1,11 @@
-import { createElement } from "./dom.js?v=1.4.23";
-import { createUpdatePanel } from "../app-update.js?v=1.4.23";
-import { writeGridFit } from "../terminal-preference.js?v=1.4.23";
-import { applicationServerKeyBytes, pushButtonPresentation } from "../push-notifications.js?v=1.4.23";
-import { OPEN_PANES_IN, readOpenPanesIn, writeOpenPanesIn } from "../lens-preference.js?v=1.4.23";
-import { CHAT_WIDTHS, readChatWidth, writeChatWidth } from "../chat-width-preference.js?v=1.4.23";
-import { notificationStateText, settingsPageList, settingsPageTitle } from "../settings-pages.js?v=1.4.23";
-import { herdrVersionText } from "../ui-model.js?v=1.4.23";
+import { createElement } from "./dom.js?v=1.4.24";
+import { createUpdatePanel } from "../app-update.js?v=1.4.24";
+import { writeGridFit } from "../terminal-preference.js?v=1.4.24";
+import { applicationServerKeyBytes, pushButtonPresentation } from "../push-notifications.js?v=1.4.24";
+import { OPEN_PANES_IN, readOpenPanesIn, writeOpenPanesIn } from "../lens-preference.js?v=1.4.24";
+import { CHAT_WIDTHS, readChatWidth, writeChatWidth } from "../chat-width-preference.js?v=1.4.24";
+import { notificationStateText, settingsPageList, settingsPageTitle } from "../settings-pages.js?v=1.4.24";
+import { herdrVersionText } from "../ui-model.js?v=1.4.24";
 
 // What each "Open panes in" choice does, under the choice.
 const OPEN_PANES_IN_HINTS = Object.freeze({
