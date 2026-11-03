@@ -4,7 +4,7 @@
 
 Herdr 0.9.5(`herdr --help`와 명령 묶음마다의 `--help`)를 기준으로 확인했습니다. HerdRabbit은 Herdr의 이름을 그대로 씁니다. **세션(Session)** 안에 **워크스페이스(Workspace)**가, 워크스페이스 안에 **탭(Tab)**이, 탭 안에 **패인(Pane)**이 있습니다.
 
-**표시**는 페이지에 보인다는 뜻, **됨**은 페이지에서 할 수 있다는 뜻, **일부**는 일부만 된다는 뜻, **없음**은 아직 HerdRabbit에서 할 방법이 없다는 뜻입니다. Herdr 자체 터미널 화면이나 에이전트 통합만 쓰는 명령은 **필요 없음**으로 적었습니다.
+**표시**는 페이지에 보인다는 뜻, **됨**은 페이지에서 할 수 있다는 뜻, **일부**는 일부만 된다는 뜻, **내부 사용**은 HerdRabbit이 자기 일에 쓰지만 따로 조작하는 곳은 없다는 뜻, **없음**은 아직 HerdRabbit에서 할 방법이 없다는 뜻입니다. Herdr 자체 터미널 화면이나 에이전트 통합만 쓰는 명령은 **필요 없음**으로 적었습니다.
 
 ## 세션 (`herdr session`)
 
@@ -41,15 +41,16 @@ Herdr 0.9.5(`herdr --help`와 명령 묶음마다의 `--help`)를 기준으로 �
 
 | 명령 | HerdRabbit | 메모 |
 |---|---|---|
-| `list`, `get`, `layout`, `process-info` | 표시 | 패인, 폴더, 그 안의 에이전트, 탭의 배치 |
+| `list`, `get`, `layout` | 표시 | 패인, 폴더, 그 안의 에이전트, 탭의 배치 |
+| `process-info` | 내부 사용 | 패인에서 도는 Codex 대화를 찾을 때 읽음. 화면에는 없음 |
 | `read` | 됨 | 비춰 보이는 패인, 터미널 안 찾기 |
 | `send-text`, `send-keys`, `run` | 됨 | 입력창, 키 막대, 에이전트 시작 |
 | `split` | 됨 | 오른쪽·아래로 나누기, 같은 폴더에서 |
 | `close` | 됨 | |
 | `zoom` | 됨 | |
-| `resize` | 됨 | 나눈 경계 끌기 |
+| `resize` | 일부 | **Even out layout**만. 없는 것: 나눈 경계 끌기 |
 | `swap`, `move` | 됨 | 줄과 패인 끌어 옮기기, Move out to its own tab |
-| `rename` | 됨 | |
+| `rename` | 없음 | 패인 이름 붙이기(탭과 워크스페이스는 이름을 바꿀 수 있음) |
 | `focus`, `neighbor`, `edges` | 필요 없음 | 페이지가 직접 패인 사이를 옮깁니다 |
 | `input` | 없음 | 한 입력을 여러 패인에 함께 보내기 |
 | `wait-output` | 필요 없음 | 스크립트용 |
@@ -84,20 +85,22 @@ Herdr 0.9.5(`herdr --help`와 명령 묶음마다의 `--help`)를 기준으로 �
 | 명령 | HerdRabbit | 메모 |
 |---|---|---|
 | `herdr update` | 됨 | Settings → About, 모든 머신의 Herdr |
-| `herdr channel` | 없음 | Herdr의 stable·preview 채널 고르기 |
+| `herdr channel` | 일부 | Herdr 채널에 맞는 업데이트를 고를 때 읽음. 없는 것: stable·preview 고르기 |
 | `herdr config`, `herdr server reload-config` | 없음 | Herdr `config.toml` 편집(키, 테마, `new_cwd`) |
 | `herdr notification` | 필요 없음 | HerdRabbit은 자체 Web Push 알림을 보냅니다 |
 | `herdr agent`, `herdr integration` | 없음 | Herdr 내장 에이전트 통합 설치 |
 | `herdr machine` | 필요 없음 | Connect PC로 대체 |
-| `herdr status`, `herdr server stop`, `herdr api` | 없음 | Herdr 자체 상태 보기, 서버 멈추기 |
+| `herdr api` | 내부 사용 | 페이지 목록은 `herdr api snapshot`과 Herdr 소켓 API에서 옴 |
+| `herdr status`, `herdr server stop` | 없음 | Herdr 자체 상태 보기, 서버 멈추기 |
 
 ## 없는 기능, 추천 순서
 
-1. 새 워크스페이스와 새 탭의 폴더 고르기(`--cwd`). Ovis의 New workspace처럼.
-2. Git 워크트리: 브랜치마다 워크스페이스.
-3. 세션: 하나 더 시작하기, 멈추기, 멈춘 세션 지우기.
-4. 플러그인: 페이지에서 플러그인 동작 실행, 플러그인 패인 열기.
-5. Herdr 업데이트 채널과 `new_cwd` 같은 `config.toml` 설정.
-6. Herdr 에이전트 통합.
-7. 한 입력을 여러 패인에 보내기(`pane input`).
-8. 로컬 플러그인 폴더(`plugin link`), 플러그인 로그.
+1. 새 워크스페이스와 새 탭의 폴더 고르기(`--cwd`).
+2. 나눈 경계를 끌어 패인 크기 바꾸기, 패인 이름 붙이기.
+3. Git 워크트리: 브랜치마다 워크스페이스.
+4. 세션: 하나 더 시작하기, 멈추기, 멈춘 세션 지우기.
+5. 플러그인: 페이지에서 플러그인 동작 실행, 플러그인 패인 열기.
+6. Herdr 업데이트 채널과 `new_cwd` 같은 `config.toml` 설정.
+7. Herdr 에이전트 통합.
+8. 한 입력을 여러 패인에 보내기(`pane input`).
+9. 로컬 플러그인 폴더(`plugin link`), 플러그인 로그.
