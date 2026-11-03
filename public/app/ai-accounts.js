@@ -11,8 +11,8 @@ import {
   readAiAccountsTab,
   sortAiAccounts,
   writeAiAccountsTab,
-} from "../ui-model.js?v=1.4.27";
-import { array, createElement } from "./dom.js?v=1.4.27";
+} from "../ui-model.js?v=1.4.28";
+import { array, createElement } from "./dom.js?v=1.4.28";
 
 // What the sign-in wait says beyond "waiting", for a CLI that needs more.
 const AI_LOGIN_HINTS = Object.freeze({
