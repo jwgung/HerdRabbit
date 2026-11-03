@@ -774,6 +774,7 @@ const { showAiAccounts, resumeAiLogins } = createAiAccounts({
   api: (...args) => api(...args),
   snapshotRecords: (...args) => snapshotRecords(...args),
   sidebarActionMenu: (...args) => sidebarActionMenu(...args),
+  agentMark: (...args) => agentMark(...args),
   setFeedback: (...args) => setFeedback(...args),
   adoptMutationSnapshot: (...args) => adoptMutationSnapshot(...args),
   closeMobileSidebar: (...args) => closeMobileSidebar(...args),

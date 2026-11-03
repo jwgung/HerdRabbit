@@ -1671,14 +1671,75 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .server-details dd { margin: 0; overflow-wrap: anywhere; }
 
-/* AI accounts: one short list per CLI, bordered like the tailnet list. */
+/* AI accounts: a tab per CLI over that CLI's short list, bordered like the
+   tailnet list. */
 .ai-accounts-dialog { max-height: 90dvh; overflow-y: auto; }
 
-.ai-accounts-list { display: grid; gap: var(--space-3); }
+/* minmax(0, …) so tabs too wide for a phone scroll inside their row instead of
+   widening the dialog. */
+.ai-accounts-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+
+.ai-accounts-tabs {
+  display: flex;
+  gap: var(--space-0-5);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--line);
+}
+
+.ai-accounts-tabs::-webkit-scrollbar { display: none; }
+
+.ai-accounts-tab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-height: 36px;
+  margin-bottom: -1px;
+  padding: var(--space-1-5) var(--space-2-5);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--font-md);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* Inside the scrolling row the outer ring would be clipped. */
+.ai-accounts-tab:focus-visible { outline-offset: -2px; }
+
+@media (hover: hover) {
+  .ai-accounts-tab:not(:disabled):hover { background: var(--hover-surface); color: var(--text); }
+}
+
+.ai-accounts-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.ai-accounts-tab .agent-icon { flex: none; }
+
+/* A CLI with an account in use: a dot beside its name; the tab's label says it in words. */
+.ai-accounts-tab-in-use {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
 
 .ai-cli { display: grid; gap: var(--space-1-5); }
 
-.ai-cli h3 { margin: 0; font-size: var(--font-lg); }
+.ai-cli[hidden] { display: none; }
+
+.ai-cli:focus-visible { outline-offset: 2px; }
+
+.ai-cli .dialog-feedback { margin: 0; }
 
 .ai-account-rows {
   display: grid;
@@ -1765,6 +1826,12 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 }
 
 .ai-account-identity strong { font-size: var(--font-lg); }
+
+/* Touch: the tabs and + Add account are 44px tall boxes; a hit area drawn
+   outside them would be clipped by the scrolling row and the list's border. */
+@media (hover: none) {
+  .ai-accounts-tab, .ai-account-add { min-height: 44px; }
+}
 
 /* Update: one block per PC, with what changed and, during a run, its log. */
 /* The heading and the buttons stay put: only the list of PCs scrolls. */
