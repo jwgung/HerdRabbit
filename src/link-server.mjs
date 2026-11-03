@@ -11,6 +11,7 @@ import { validateTransferName } from "./file-store.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 import { SlashCommandCatalog, paneCommandTarget } from "./slash-commands.mjs";
 import { agentCommand } from "./agent-launch.mjs";
+import { isFolder, projectFolder } from "./project-folder.mjs";
 
 // Undici tears a response down after five idle minutes, and a quiet terminal
 // easily goes that long, so the stream says something well before then.
@@ -411,7 +412,7 @@ export function linkRoutes({
     if (method === "GET" && url.pathname === "/api/link/agent-sessions" && agentSessions) {
       const agent = url.searchParams.get("agent");
       const cwd = url.searchParams.get("cwd");
-      if (agentCommand(agent) === null || typeof cwd !== "string" || !cwd.startsWith("/") || cwd.length > 4096) {
+      if (agentCommand(agent) === null || !isFolder(cwd)) {
         throw new HttpError(400, "invalid_input", "Invalid session list request");
       }
       sendJson(response, 200, { sessions: await agentSessions.list(agent, cwd) });
@@ -434,8 +435,14 @@ export function linkRoutes({
       const workspaceId = decodePaneId(workspaceMatch[1]);
       const body = await readJsonBody(request, maxBodyBytes);
       if (workspaceMatch[2] === "tabs") {
-        // The new tab's ids go back, so the hub types only into this one.
-        const made = await client.createTab(workspaceId, ...(body.cwd === undefined ? [] : [{ cwd: body.cwd }]));
+        // The new tab's ids go back, so the hub types only into this one. A
+        // folder is taken only when it is this project's own, by the rule the
+        // hub uses over this PC's snapshot: the hub cannot open a tab anywhere else.
+        const { cwd } = body;
+        if (cwd !== undefined && (!isFolder(cwd) || cwd !== projectFolder(await client.snapshot(), workspaceId))) {
+          throw new HttpError(400, "invalid_input", "That folder is not this project's folder");
+        }
+        const made = await client.createTab(workspaceId, { cwd });
         sendJson(response, 200, { ok: true, ...made });
         return true;
       }

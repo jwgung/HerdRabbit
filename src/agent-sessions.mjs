@@ -1,11 +1,12 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { AGENT_COMMANDS } from "./agent-launch.mjs";
 import { SESSION_ID as CLAUDE_SESSION_ID, claudeProjectDir, parseClaudeTranscript } from "./conversation/claude.mjs";
 import { THREAD_ID } from "./conversation/codex.mjs";
-import { kiroWorkspaceHash, parseKiroTranscript } from "./conversation/kiro.mjs";
+import { SESSION_ID as KIRO_SESSION_ID, kiroWorkspaceHash, parseKiroTranscript } from "./conversation/kiro.mjs";
 import { OPENCODE_SESSION_ID } from "./conversation/opencode.mjs";
 import { localTranscriptStore } from "./conversation/stores.mjs";
+import { isFolder } from "./project-folder.mjs";
 
 // A folder's earlier agent sessions, and how one is resumed. The stores are
 // the ones the Chat view reads (src/conversation/); this only lists what they
@@ -18,7 +19,9 @@ const MAX_TITLE = 120;
 const HEAD_BYTES = 64 * 1024;
 const TAIL_BYTES = 64 * 1024;
 const MAX_META_BYTES = 64 * 1024;
-const KIRO_SESSION = /^sess_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+// Kiro's id is `sess_` and its uuid. Lower case only, as Kiro writes it and the
+// list gives it (the uuid pattern alone also takes upper case).
+const KIRO_SESSION = new RegExp(`^sess_${KIRO_SESSION_ID.source.slice(1)}`, KIRO_SESSION_ID.flags.replace("i", ""));
 
 // What each agent's CLI takes to resume a session, checked against its own
 // --help (claude 2.x, codex, opencode, kiro-cli chat), and the shape of its
@@ -65,8 +68,6 @@ export function cleanSessionList(agent, list) {
   return clean;
 }
 
-const validFolder = (cwd) => typeof cwd === "string" && cwd.startsWith("/") && cwd.length <= 4096 && !/[\u0000-\u001f\u007f]/u.test(cwd);
-
 // Whole lines of a part of a file: a cut first or last line is dropped.
 function lines(text, { cutStart = false, cutEnd = false } = {}) {
   const all = text.split("\n");
@@ -101,7 +102,7 @@ export class AgentSessions {
   // for an agent this cannot resume. A store that cannot be read throws.
   async list(agent, cwd) {
     if (!canResume(agent)) return null;
-    if (!validFolder(cwd)) return [];
+    if (!isFolder(cwd)) return [];
     const found = agent === "claude" ? await this.#claude(cwd)
       : agent === "codex" ? await this.#store.codex.recentThreads(cwd, this.#limit)
         : agent === "kiro" ? await this.#kiro(cwd)
@@ -109,29 +110,15 @@ export class AgentSessions {
     return cleanSessionList(agent, found).slice(0, this.#limit);
   }
 
-  // Claude keeps a folder's sessions as `<uuid>.jsonl` under the folder's
-  // project directory. The title is the user's name for it, else Claude's own,
-  // else its first prompt; one with neither (nothing said in it) is skipped.
+  // The store lists a folder's Claude sessions, newest first. The title is the
+  // user's name for it, else Claude's own, else its first prompt; one with
+  // neither (nothing said in it) is skipped.
   async #claude(cwd) {
-    const project = join(this.#store.configDir, "projects", claudeProjectDir(cwd));
-    let names;
-    try { names = await readdir(project); } catch (error) {
-      if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return [];
-      throw error;
-    }
-    const files = [];
-    for (const name of names) {
-      const id = name.endsWith(".jsonl") ? name.slice(0, -".jsonl".length) : "";
-      if (!CLAUDE_SESSION_ID.test(id)) continue;
-      const info = await this.#store.stat(join(project, name));
-      if (info) files.push({ id, path: join(project, name), ...info });
-    }
-    files.sort((a, b) => b.mtimeMs - a.mtimeMs);
     const sessions = [];
-    for (const file of files) {
+    for (const file of await this.#store.sessionsIn(claudeProjectDir(cwd))) {
       if (sessions.length >= this.#limit) break;
       const title = await this.#claudeTitle(file);
-      if (title) sessions.push({ id: file.id, title, updatedAt: Math.round(file.mtimeMs) });
+      if (title) sessions.push({ id: file.session, title, updatedAt: Math.round(file.mtimeMs) });
     }
     return sessions;
   }
