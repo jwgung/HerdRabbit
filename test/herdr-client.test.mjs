@@ -250,6 +250,29 @@ test("creates and closes shell workspaces and tabs without changing Herdr focus"
   ]);
 });
 
+test("a new project's ids come from Herdr's own answer, and none from an answer that names none", async () => {
+  const made = {
+    stdout: JSON.stringify({
+      id: "cli:workspace:create",
+      result: {
+        type: "workspace_created",
+        workspace: { workspace_id: "w13", label: "Shop" },
+        tab: { tab_id: "w13:t1", workspace_id: "w13" },
+        root_pane: { pane_id: "w13:p1", tab_id: "w13:t1", workspace_id: "w13" },
+      },
+    }),
+    stderr: "",
+  };
+  const partial = { stdout: JSON.stringify({ result: { workspace: { workspace_id: "w14" }, tab: { tab_id: "w14:t1" } } }), stderr: "" };
+  const fake = recordingRunner([made, { stdout: "", stderr: "" }, { stdout: "created", stderr: "" }, partial]);
+  const client = new HerdrClient({ runner: fake.runner });
+
+  assert.deepEqual(await client.createWorkspace("Shop"), { workspace_id: "w13", tab_id: "w13:t1", pane_id: "w13:p1" });
+  assert.equal(await client.createWorkspace("Shop"), null);
+  assert.equal(await client.createWorkspace("Shop"), null);
+  assert.equal(await client.createWorkspace("Shop"), null, "a pane it does not name is not guessed");
+});
+
 test("a new tab's ids come from Herdr's own answer, and none from an answer that names none", async () => {
   const made = {
     stdout: JSON.stringify({

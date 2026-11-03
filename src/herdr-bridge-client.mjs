@@ -3,6 +3,7 @@ import {
   HerdrClient,
   HerdrCommandError,
   InputValidationError,
+  createdProject,
   createdTab,
   mapMovedIds,
   validation,
@@ -224,7 +225,9 @@ export class HerdrBridgeClient {
 
   async createWorkspace(label, herdrSessionId) {
     const sessionName = this.#sessionForId(herdrSessionId);
-    return this.#clientForSession(sessionName).createWorkspace(label);
+    const made = await this.#clientForSession(sessionName).createWorkspace(label);
+    const scoped = (id) => scopedId(sessionName, id);
+    return made && createdProject(scoped(made.workspace_id), scoped(made.tab_id), scoped(made.pane_id));
   }
 
   async closeWorkspace(workspaceId) {

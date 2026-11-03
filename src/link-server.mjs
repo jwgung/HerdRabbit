@@ -4,7 +4,7 @@ import {
   HttpError, acceptUpload, aiAccountRoute, conversationCursor, decodePaneId, readJsonBody, requestedVersions, sendJson,
 } from "./http-basics.mjs";
 import { ConversationUnavailable } from "./conversation/pages.mjs";
-import { validation } from "./herdr-client.mjs";
+import { createdProject, validation } from "./herdr-client.mjs";
 import { LINK_PROTOCOL } from "./link-protocol.mjs";
 import { directoryFingerprint, fileAccessError, listDirectory, openFile } from "./file-browser.mjs";
 import { validateTransferName } from "./file-store.mjs";
@@ -98,7 +98,10 @@ export function linkRoutes({
       // What this PC answers beyond the protocol's base, so a hub asks only
       // for what is there. A PC from before this list says nothing.
       features: [
-        ...(conversations ? ["conversation"] : []), "scroll_bottom", "commands", ...(updater ? ["update"] : []),
+        ...(conversations ? ["conversation"] : []), "scroll_bottom", "commands",
+        // A new project's answer names its ids (workspace, tab, first pane).
+        "project_ids",
+        ...(updater ? ["update"] : []),
         // Herdr's check rides on the update answer: without it there is none to ask
         ...(updater && herdrUpdater ? ["herdr_update"] : []),
         // Which agents a new session here can start (src/agent-launch.mjs).
@@ -423,10 +426,11 @@ export function linkRoutes({
     // a person on that machine would drive, so the rules cannot drift apart.
     if (method === "POST" && url.pathname === "/api/link/workspaces") {
       const body = await readJsonBody(request, maxBodyBytes);
-      await (body.herdrSessionId === undefined
+      // The new project's ids go back, so the hub types only into its pane.
+      const made = await (body.herdrSessionId === undefined
         ? client.createWorkspace(body.label)
         : client.createWorkspace(body.label, body.herdrSessionId));
-      sendJson(response, 201, { ok: true });
+      sendJson(response, 201, { ok: true, ...createdProject(made?.workspace_id, made?.tab_id, made?.pane_id) });
       return true;
     }
 

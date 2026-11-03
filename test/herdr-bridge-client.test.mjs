@@ -266,3 +266,22 @@ test("a pane moved out comes back under scoped pane and tab ids of its Herdr ses
   assert.deepEqual(await client.movePaneOut(`${sessionId}~w2:p4`), { pane_id: `${sessionId}~w2:p4`, tab_id: `${sessionId}~w2:t7` });
   assert.deepEqual(fake.calls.at(-1).args, ["--session=review", "pane", "move", "w2:p4", "--new-tab", "--no-focus"]);
 });
+
+test("a new project in a session comes back with its ids scoped to that session", async () => {
+  const fake = recordingRunner([
+    { stdout: JSON.stringify({ sessions: [{ name: "review", default: false, running: true }] }), stderr: "" },
+    { stdout: JSON.stringify({ result: { snapshot: snapshot("리뷰") } }), stderr: "" },
+    {
+      stdout: JSON.stringify({ result: { workspace: { workspace_id: "w4" }, tab: { tab_id: "w4:t1" }, root_pane: { pane_id: "w4:p1" } } }),
+      stderr: "",
+    },
+    { stdout: "", stderr: "" },
+  ]);
+  const client = new HerdrBridgeClient({ runner: fake.runner });
+  const sessionId = sessionIds.sessionIdForName("review");
+  await client.snapshot();
+  assert.deepEqual(await client.createWorkspace("Shop", sessionId), {
+    workspace_id: `${sessionId}~w4`, tab_id: `${sessionId}~w4:t1`, pane_id: `${sessionId}~w4:p1`,
+  });
+  assert.equal(await client.createWorkspace("Shop", sessionId), null);
+});

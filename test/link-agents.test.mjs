@@ -26,9 +26,9 @@ const client = (address) => new LinkClient({ profile: { id: LINK_ID, name: "Dev 
 
 test("a PC that can tell its installed agents names it among its features", async (context) => {
   const withAgents = await startPeer(context, { installedAgents: { async list() { return ["claude"]; } } });
-  assert.deepEqual((await (await fetch(`${withAgents}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "agents"]);
+  assert.deepEqual((await (await fetch(`${withAgents}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "project_ids", "agents"]);
   const without = await startPeer(context);
-  assert.deepEqual((await (await fetch(`${without}/api/link/hello`)).json()).features, ["scroll_bottom", "commands"]);
+  assert.deepEqual((await (await fetch(`${without}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "project_ids"]);
 });
 
 test("the hub hears which agents a connected PC has, and keeps only agents it knows", async (context) => {
@@ -92,7 +92,7 @@ test("a PC that lists its earlier sessions names it, and answers for the folder 
     },
   });
   assert.deepEqual((await (await fetch(`${address}/api/link/hello`)).json()).features,
-    ["scroll_bottom", "commands", "agents", "agent_sessions"]);
+    ["scroll_bottom", "commands", "project_ids", "agents", "agent_sessions"]);
   assert.deepEqual(await client(address).agentSessions("claude", "/work/My App"), [{ id: CLAUDE_A, title: "Fix login", updatedAt: 10 }]);
   assert.deepEqual(asked, [["claude", "/work/My App"]]);
 });
@@ -192,4 +192,58 @@ test("the hub's client hands the folder to whichever machine makes the tab, and 
   assert.deepEqual(await multi.createTab("w1"), { tab_id: "w1:t2", pane_id: "w1:p2" });
   assert.deepEqual(await multi.createTab(`${LINK_ID}!hs~w1`, { cwd: "/srv/b" }), { tab_id: `${LINK_ID}!hs~w1:t5`, pane_id: `${LINK_ID}!hs~w1:p5` });
   assert.deepEqual(calls, [["local", "w1", { cwd: "/work/a" }], ["local", "w1", { cwd: undefined }], ["remote", "hs~w1", { cwd: "/srv/b" }]]);
+});
+
+// ---------------------------------------------------------------------------
+// A new project's ids: a PC names the pane it made, so the hub types only there.
+
+test("a project made over the link names its ids, and the hub's client prefixes them", async (context) => {
+  const calls = [];
+  const peerClient = {
+    ...herdr,
+    async createWorkspace(...args) { calls.push(args); return { workspace_id: "hs~w7", tab_id: "hs~w7:t1", pane_id: "hs~w7:p1" }; },
+  };
+  const address = await startSessionsPeer(context, { client: peerClient });
+  const link = client(address);
+  assert.equal(await link.namesNewProjects(), true);
+  assert.deepEqual(await link.createWorkspace("Shop", "hs"), { workspace_id: "hs~w7", tab_id: "hs~w7:t1", pane_id: "hs~w7:p1" });
+  assert.deepEqual(calls, [["Shop", "hs"]]);
+
+  const profile = { id: LINK_ID, name: "Dev box", address };
+  const multi = new MultiServerClient({ local: herdr, profiles: { list: () => [profile] }, remoteFactory: () => link });
+  assert.deepEqual(await multi.createWorkspace("Shop", `${LINK_ID}!hs`), {
+    workspace_id: `${LINK_ID}!hs~w7`, tab_id: `${LINK_ID}!hs~w7:t1`, pane_id: `${LINK_ID}!hs~w7:p1`,
+  });
+});
+
+test("a PC whose client names no ids gives the hub none, and an older PC says it does not name them", async (context) => {
+  const silent = await startSessionsPeer(context, { client: { ...herdr, async createWorkspace() {} } });
+  assert.equal(await client(silent).createWorkspace("Shop"), null);
+  // A PC from before this does not list project_ids among its features.
+  const routes = linkRoutes({ client: herdr, version: "2.0.0", serverName: "old-box" });
+  const server = createPeerServer({
+    peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
+    link: async (request, response, url, method) => {
+      const end = response.end.bind(response);
+      response.end = (body, ...rest) => {
+        if (typeof body === "string" && body.includes('"features"')) {
+          body = body.replace(/,?"project_ids"/u, "");
+          response.setHeader("Content-Length", Buffer.byteLength(body));
+        }
+        return end(body, ...rest);
+      };
+      return routes(request, response, url, method);
+    },
+    logger: { error() {} },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  context.after(() => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }));
+  assert.equal(await client(`http://127.0.0.1:${server.address().port}`).namesNewProjects(), false);
+});
+
+test("the hub's client gives back a new local project's ids as this PC's client names them", async () => {
+  const local = { ...herdr, async createWorkspace() { return { workspace_id: "w3", tab_id: "w3:t1", pane_id: "w3:p1" }; } };
+  const multi = new MultiServerClient({ local, profiles: { list: () => [] } });
+  assert.deepEqual(await multi.createWorkspace("Shop"), { workspace_id: "w3", tab_id: "w3:t1", pane_id: "w3:p1" });
 });

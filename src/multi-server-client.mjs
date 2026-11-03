@@ -1,4 +1,4 @@
-import { HerdrCommandError, InputValidationError, createdTab, mapMovedIds } from "./herdr-client.mjs";
+import { HerdrCommandError, InputValidationError, createdProject, createdTab, mapMovedIds } from "./herdr-client.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported } from "./herdr-version.mjs";
 import { LinkClient } from "./link-client.mjs";
 import { LINK_PROTOCOL } from "./link-protocol.mjs";
@@ -355,14 +355,16 @@ export class MultiServerClient {
     const prefix = (id) => entry.profile.id === "local" ? id : `${entry.profile.id}!${id}`;
     return made ? createdTab(prefix(made.tab_id), prefix(made.pane_id)) : null;
   }
+  // The new project's ids carry its machine's prefix, like the snapshot's.
   async createWorkspace(label, sessionId) {
     if (!sessionId) return this.local.createWorkspace(label);
     const { entry, id } = this.target(sessionId);
-    const result = await entry.client.createWorkspace(label, id);
+    const made = await entry.client.createWorkspace(label, id);
     if (entry.profile.id !== "local") {
       if (entry.pending) await entry.pending;
       await this.refresh(entry);
     }
-    return result;
+    const prefix = (value) => entry.profile.id === "local" ? value : `${entry.profile.id}!${value}`;
+    return made ? createdProject(prefix(made.workspace_id), prefix(made.tab_id), prefix(made.pane_id)) : null;
   }
 }

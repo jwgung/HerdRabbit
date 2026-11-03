@@ -1237,12 +1237,7 @@ export function createHerdrHttpServer({
       if (method === "POST" && url.pathname === "/api/workspaces") {
         requireWriteAuthorization(request, csrfToken);
         const body = await readJsonBody(request, maxBodyBytes);
-        if (body.herdrSessionId === undefined) {
-          await herdr.createWorkspace(body.label);
-        } else {
-          await herdr.createWorkspace(body.label, body.herdrSessionId);
-        }
-        sendJson(response, 201, { snapshot: await herdr.snapshot() });
+        sendJson(response, 201, await createProject(body));
         return;
       }
 
@@ -1469,6 +1464,72 @@ export function createHerdrHttpServer({
     return sessions === null ? answer([], "machine") : answer(sessions);
   }
 
+  // Refused unless `serverId`'s machine says it has `agent` installed.
+  async function requireAgentOn(serverId, agent) {
+    const { agents } = await agentsOn(serverId);
+    if (agents === null) {
+      throw new HttpError(501, "link_unsupported", "That PC is too old to start agents from here; update it there.");
+    }
+    if (!agents.includes(agent)) {
+      throw new HttpError(409, "agent_not_installed", "That agent is not installed on that machine. Choose another, or install it there first.");
+    }
+  }
+
+  // A new project in a Herdr session, with a shell or with an agent started in
+  // its first pane. As for a new session, everything that can be refused is
+  // refused before Herdr is asked to make anything, and the command typed is
+  // the agent table's. It is typed only into the pane the create call itself
+  // named, once the snapshot shows that pane in that call's new project on
+  // the machine asked: a PC that does not name it is not asked to start one.
+  async function createProject(body) {
+    const agent = body.agent === undefined || body.agent === null || body.agent === "" ? null : body.agent;
+    if (agent !== null && agentCommand(agent) === null) throw new InputValidationError("Unknown agent");
+    const sessionId = body.herdrSessionId;
+    const create = () => sessionId === undefined ? herdr.createWorkspace(body.label) : herdr.createWorkspace(body.label, sessionId);
+    if (agent === null) {
+      const made = await create();
+      const snapshot = await herdr.snapshot();
+      const paneId = typeof made?.pane_id === "string" && (snapshot.panes ?? []).some((pane) => pane.pane_id === made.pane_id)
+        ? made.pane_id : null;
+      return paneId === null ? { snapshot } : { snapshot, paneId };
+    }
+    const before = await herdr.snapshot();
+    let serverId = LOCAL_SERVER;
+    if (sessionId !== undefined) {
+      const session = typeof sessionId === "string"
+        ? (before.herdr_sessions ?? []).find((item) => item.session_id === sessionId) : null;
+      if (!session) throw new InputValidationError("Choose a running Herdr session");
+      serverId = session.server_id ?? LOCAL_SERVER;
+    }
+    await requireAgentOn(serverId, agent);
+    if (serverId !== LOCAL_SERVER && !(await herdr.agentsClient?.(serverId)?.namesNewProjects?.())) {
+      throw new HttpError(501, "link_unsupported", "That PC is too old to start an agent in a new project from here; update it there.");
+    }
+    const knownProjects = new Set((before.workspaces ?? []).map((item) => item.workspace_id));
+    const made = await create();
+    const after = await herdr.snapshot();
+    const { paneId } = madeProjectPane(made, after, serverId, knownProjects);
+    await herdr.sendText(paneId, agentCommand(agent), { submit: true });
+    return { snapshot: after, paneId };
+  }
+
+  // The first pane of the project a create call named: a project new since
+  // `knownProjects`, on `serverId`'s machine, with that tab and pane in it.
+  function madeProjectPane(made, after, serverId, knownProjects) {
+    const projectPaneMissing = () => new HttpError(502, "project_pane_missing", "The project was made, but its first pane could not be found, so no agent was started. Start one from the project's ⋯ menu.");
+    const workspaceId = made?.workspace_id;
+    const workspace = typeof workspaceId === "string" && !knownProjects.has(workspaceId)
+      ? (after.workspaces ?? []).find((item) => item.workspace_id === workspaceId) : null;
+    if (!workspace || (workspace.server_id ?? LOCAL_SERVER) !== serverId || !made.tab_id || !made.pane_id) {
+      throw projectPaneMissing();
+    }
+    try {
+      return madeTab(made, after, workspaceId, new Set());
+    } catch {
+      throw projectPaneMissing();
+    }
+  }
+
   // A new session in a project: a shell, optionally named, optionally with an
   // agent started in it, or an earlier session of that agent resumed in the
   // project's folder. Everything that can be refused is refused before Herdr
@@ -1491,15 +1552,7 @@ export function createHerdrHttpServer({
     const before = await herdr.snapshot();
     const workspace = projectOf(before, workspaceId);
     const serverId = workspace.server_id ?? LOCAL_SERVER;
-    if (agent !== null) {
-      const { agents } = await agentsOn(serverId);
-      if (agents === null) {
-        throw new HttpError(501, "link_unsupported", "That PC is too old to start agents from here; update it there.");
-      }
-      if (!agents.includes(agent)) {
-        throw new HttpError(409, "agent_not_installed", "That agent is not installed on that machine. Choose another, or install it there first.");
-      }
-    }
+    if (agent !== null) await requireAgentOn(serverId, agent);
     let folder = null;
     if (resume !== null) {
       folder = projectFolder(before, workspaceId);
