@@ -1,5 +1,5 @@
 import { Readable, Transform, pipeline } from "node:stream";
-import { HerdrCommandError, TERMINAL_ID, createdTab } from "./herdr-client.mjs";
+import { HerdrCommandError, TERMINAL_ID, createdProject, createdTab } from "./herdr-client.mjs";
 import { validSize } from "./pane-attachments.mjs";
 import { FileAccessError, UNKNOWN_SIZE_STREAM_BYTES } from "./file-browser.mjs";
 import { LINK_PROTOCOL, ResponseTooLarge, checkLinkCompatibility, normalizeLinkSnapshot, readLimitedText } from "./link-protocol.mjs";
@@ -727,9 +727,18 @@ export class LinkClient {
 
   // Project and tab changes. The connected PC runs them through its own Herdr client,
   // so its validation is what decides -- this side only carries the request.
+  // The new project's ids, as the PC names them; null from a PC that does not say.
   async createWorkspace(label, herdrSessionId) {
     const body = herdrSessionId === undefined ? { label } : { label, herdrSessionId };
-    return this.#request("/api/link/workspaces", { method: "POST", body, timeoutMs: this.timeouts.write });
+    const answer = await this.#request("/api/link/workspaces", { method: "POST", body, timeoutMs: this.timeouts.write });
+    return createdProject(answer?.workspace_id, answer?.tab_id, answer?.pane_id);
+  }
+
+  // Whether the PC names a new project's ids (`project_ids`): only then may
+  // the hub start an agent in it, since it types only into a pane named.
+  async namesNewProjects() {
+    await this.#ready();
+    return this.#features.has("project_ids");
   }
 
   async renameWorkspace(workspaceId, label) {

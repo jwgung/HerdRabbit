@@ -344,6 +344,12 @@ export function createdTab(tabId, paneId) {
     : null;
 }
 
+// A new project's ids, or null unless all three are named.
+export function createdProject(workspaceId, tabId, paneId) {
+  const tab = createdTab(tabId, paneId);
+  return tab && typeof workspaceId === "string" && workspaceId ? { workspace_id: workspaceId, ...tab } : null;
+}
+
 function unwrapResult(payload) {
   return payload && typeof payload === "object" && "result" in payload
     ? payload.result
@@ -491,12 +497,18 @@ export class HerdrClient {
     return this.#run(["workspace", "rename", safeWorkspaceId, safeLabel]);
   }
 
+  // The project Herdr made, its tab and first pane, from Herdr's own answer
+  // (`.result.workspace`, `.result.tab`, `.result.root_pane`); null when the
+  // answer does not name all three.
   async createWorkspace(label) {
     const safeLabel = validateWorkspaceLabel(label);
-    return this.#run(
+    const stdout = await this.#run(
       ["workspace", "create", "--label", safeLabel, "--no-focus"],
       { json: false },
     );
+    let result;
+    try { result = unwrapResult(JSON.parse(stdout)); } catch { return null; }
+    return createdProject(result?.workspace?.workspace_id, result?.tab?.tab_id, result?.root_pane?.pane_id);
   }
 
   async closeWorkspace(workspaceId) {

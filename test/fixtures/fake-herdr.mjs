@@ -84,7 +84,13 @@ if (args[0] === "workspace" && args[1] === "create") {
   state.snapshot.panes.push({ pane_id: paneId, tab_id: tabId, workspace_id: workspaceId, label: "Shell" });
   state.outputs[paneId] = "$ ";
   await saveState(state);
-  success({ workspace_id: workspaceId, tab_id: tabId, pane_id: paneId });
+  // Herdr's own answer names the project, its tab and its first pane.
+  success({
+    type: "workspace_created",
+    workspace: { workspace_id: workspaceId, label },
+    tab: { tab_id: tabId, workspace_id: workspaceId },
+    root_pane: { pane_id: paneId, tab_id: tabId, workspace_id: workspaceId },
+  });
   process.exit(0);
 }
 
