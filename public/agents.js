@@ -66,3 +66,23 @@ export function sessionAgentChoices(installed) {
       .map((agent) => ({ value: agent.name, label: agent.product ?? agent.label })),
   ];
 }
+
+// How an earlier session reads in the New session dialog: its title (or
+// "Untitled session") and how long ago it was last used.
+export function sessionChoiceLabel({ title, updatedAt } = {}, now = Date.now()) {
+  const name = typeof title === "string" && title ? title : "Untitled session";
+  if (!Number.isFinite(updatedAt)) return name;
+  const minutes = Math.floor((now - updatedAt) / 60_000);
+  let ago;
+  if (minutes < 1) ago = "just now";
+  else if (minutes < 60) ago = `${minutes} min ago`;
+  else if (minutes < 24 * 60) ago = `${Math.floor(minutes / 60)} h ago`;
+  else if (minutes < 7 * 24 * 60) ago = `${Math.floor(minutes / (24 * 60))} d ago`;
+  else {
+    const day = new Date(updatedAt);
+    ago = day.toLocaleDateString("en-US", {
+      month: "short", day: "numeric", ...(day.getFullYear() === new Date(now).getFullYear() ? {} : { year: "numeric" }),
+    });
+  }
+  return `${name} · ${ago}`;
+}

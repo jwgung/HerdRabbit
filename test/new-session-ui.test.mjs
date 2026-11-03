@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { sessionAgentChoices } from "../public/agents.js";
+import { sessionAgentChoices, sessionChoiceLabel } from "../public/agents.js";
 
 test("a new session offers a shell first, then the installed agents in the table's order", () => {
   assert.deepEqual(sessionAgentChoices(["cursor", "codex", "claude", "kiro", "agy", "opencode"]), [
@@ -28,4 +28,22 @@ test("the project menu opens the New session dialog, and the dialog has an agent
   assert.match(html, /<label for="session-name">Session name<\/label>\s*<input id="session-name"[^>]*maxlength="120"/u);
   const rows = await readFile(new URL("../public/app/sidebar-rows.js", import.meta.url), "utf8");
   assert.match(rows, /label: "New session…"/u);
+});
+
+test("an earlier session is offered by its title and how long ago it was used", () => {
+  const now = Date.UTC(2026, 9, 10, 12, 0, 0);
+  const label = (session) => sessionChoiceLabel(session, now);
+  assert.equal(label({ title: "Fix login", updatedAt: now - 20_000 }), "Fix login · just now");
+  assert.equal(label({ title: "Fix login", updatedAt: now - 5 * 60_000 }), "Fix login · 5 min ago");
+  assert.equal(label({ title: "Fix login", updatedAt: now - 3 * 3_600_000 }), "Fix login · 3 h ago");
+  assert.equal(label({ title: "Fix login", updatedAt: now - 2 * 86_400_000 }), "Fix login · 2 d ago");
+  assert.equal(label({ title: "Fix login", updatedAt: Date.UTC(2026, 6, 4, 12) }), "Fix login · Jul 4");
+  assert.equal(label({ title: "Fix login", updatedAt: Date.UTC(2025, 6, 4, 12) }), "Fix login · Jul 4, 2025");
+  assert.equal(label({ title: "", updatedAt: now - 5 * 60_000 }), "Untitled session · 5 min ago");
+  assert.equal(label({ title: "Fix login", updatedAt: null }), "Fix login");
+});
+
+test("the New session dialog can resume an earlier session", async () => {
+  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  assert.match(html, /<label id="session-resume-label" for="session-resume" hidden>Session<\/label>\s*<select id="session-resume" hidden>/u);
 });
