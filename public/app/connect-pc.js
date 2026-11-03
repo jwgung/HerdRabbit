@@ -83,14 +83,19 @@ export function createConnectPc({ api, refreshSnapshot, panePreferenceStorage })
     }
   }
 
-  document.querySelector("#manage-servers").addEventListener("click", () => {
-    document.querySelector("#add-menu").open = false;
+  // Opened from Settings → PCs (and the sidebar's "+" menu while it has the item).
+  function openConnectPc() {
     resetServerForm();
     serversDialog.showModal();
     // PCs already added are managed from their sidebar rows; here the list
     // marks them as added.
     serverFeedback.textContent = "";
     void lookForServers();
+  }
+
+  document.querySelector("#manage-servers")?.addEventListener("click", () => {
+    document.querySelector("#add-menu").open = false;
+    openConnectPc();
   });
 
   const candidateList = document.querySelector("#server-candidates");
@@ -247,5 +252,5 @@ export function createConnectPc({ api, refreshSnapshot, panePreferenceStorage })
     });
   });
 
-  return { showLegacyMachinesNotice };
+  return { showLegacyMachinesNotice, openConnectPc };
 }

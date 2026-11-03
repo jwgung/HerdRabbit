@@ -590,6 +590,14 @@ export function serverConnectionState(server, pageConnection) {
   return { online: server.available === true, error: false, text: server.status };
 }
 
+// A PC's Herdr version as Details and Settings → About show it.
+export function herdrVersionText(server) {
+  if (!server?.herdr_version) return "Unknown";
+  return server.herdr_supported === false
+    ? `${server.herdr_version} (update to ${server.herdr_min_version} or newer)`
+    : server.herdr_version;
+}
+
 // What the sidebar's tree is made of, decided from the snapshot and nothing
 // else; the page draws it and keeps its own editing and dragging to itself.
 //   servers    the machines, each with `children` (what stands under it)

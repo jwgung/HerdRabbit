@@ -1,7 +1,7 @@
 import { browserSessionStorage, browserStorage } from "./app/dom.js?v=1.4.23";
 import { createSnapshotModel } from "./app/snapshot.js?v=1.4.23";
 import { createNotifications } from "./app/notifications.js?v=1.4.23";
-import { createSettingsMenu } from "./app/settings-menu.js?v=1.4.23";
+import { createSettings } from "./app/settings.js?v=1.4.23";
 import { createComposer } from "./app/composer.js?v=1.4.23";
 import { createSidebarRows } from "./app/sidebar-rows.js?v=1.4.23";
 import { createAccountDialogs } from "./app/account-dialogs.js?v=1.4.23";
@@ -151,7 +151,6 @@ const elements = {
   sidebarScrim: document.querySelector("#sidebar-scrim"),
   mobileSidebarOpen: document.querySelector("#mobile-sidebar-open"),
   // The key bar's editor lives with the other settings at the foot of the sidebar.
-  navigatorFooter: document.querySelector(".navigator-footer"),
   workspaceList: document.querySelector("#workspace-list"),
   paneContext: document.querySelector("#pane-context"),
   paneTitle: document.querySelector("#pane-title"),
@@ -269,6 +268,8 @@ const state = {
   pushSubscription: null,
   pushBusy: false,
   authRequired: false,
+  // Whether this HerdRabbit can connect to other PCs (Settings → PCs).
+  connectPcEnabled: false,
   passkeyAvailable: false,
   passkeyBusy: false,
   sessionsBusy: false,
@@ -444,6 +445,8 @@ async function dismissDeliveredNotifications() {
 }
 
 function showLogin() {
+  // Signed out (from Signed-in devices, say): nothing of the app stays over the sign-in.
+  closeSettings();
   forgetComposerDrafts();
   terminalStream.pause();
   paneGrid.pause();
@@ -646,22 +649,21 @@ function setFeedback(text, isError = false) {
   elements.actionFeedback.dataset.error = String(isError);
 }
 const {
-  settingsMenu, buildSettingsMenu, syncSettingsMenu, updatePanel, syncThemeItem,
-  renderNotificationItem, syncPushSubscription,
-} = createSettingsMenu({
+  closeSettings, syncSettings, updatePanel, renderNotificationItem, syncPushSubscription,
+} = createSettings({
   state,
-  elements,
   api,
   snapshotRecords: (...args) => snapshotRecords(...args),
   setFeedback: (...args) => setFeedback(...args),
   panePreferenceStorage,
   desktopMedia,
   get paneGrid() { return paneGrid; },
-  sidebarActionMenu: (...args) => sidebarActionMenu(...args),
-  closeMobileSidebar: (...args) => closeMobileSidebar(...args),
+  get chatLens() { return chatLens; },
   openKeyBarDialog: (...args) => openKeyBarDialog(...args),
   showPasskeys: (...args) => showPasskeys(...args),
   showSessions: (...args) => showSessions(...args),
+  showServerDetails: (...args) => showServerDetails(...args),
+  openConnectPc: (...args) => openConnectPc(...args),
 });
 
 // On a Herdr grid whose cells keep their panes' sizes the text size steps the
@@ -1004,7 +1006,7 @@ const {
   closeMobileSidebar: (...args) => closeMobileSidebar(...args),
   setFeedback: (...args) => setFeedback(...args),
   showLogin: (...args) => showLogin(...args),
-  syncSettingsMenu: (...args) => syncSettingsMenu(...args),
+  syncSettings: (...args) => syncSettings(...args),
   applyTerminalFontSize: (...args) => applyTerminalFontSize(...args),
   isLinkableTerminalPath: (...args) => isLinkableTerminalPath(...args),
   openTerminalPath: (...args) => openTerminalPath(...args),
@@ -1192,7 +1194,7 @@ const {
   syncSidebar: (...args) => syncSidebar(...args),
 });
 
-window.addEventListener("herdr-theme-change", syncThemeItem);
+window.addEventListener("herdr-theme-change", () => syncSettings());
 
 elements.sidebarToggle.addEventListener("click", () => {
   markSidebarAnimating();
@@ -1313,12 +1315,9 @@ document.addEventListener("keydown", (event) => {
   if (activateLensShortcut(event)) return;
   if (activatePaneShortcut(event)) return;
   if (event.key !== "Escape") return;
-  // The settings menu answers Escape on its own; the sidebar stays as it is.
-  if (settingsMenu.details?.open) {
-    settingsMenu.details.open = false;
-    settingsMenu.details.querySelector("summary").focus();
-    return;
-  }
+  // An open dialog (the settings screen, a window over it) answers Escape on
+  // its own; the sidebar under it stays as it is.
+  if (document.querySelector("dialog[open]")) return;
   document.querySelector("#add-menu").open = false;
   state.openActionMenuId = null;
   for (const menu of elements.workspaceList.querySelectorAll(
@@ -1487,6 +1486,8 @@ async function initializeApplication() {
     ? bootstrap.pushPublicKey
     : null;
   document.querySelector("#manage-servers").hidden = bootstrap.servers !== true;
+  state.connectPcEnabled = bootstrap.servers === true;
+  syncSettings();
   state.connectPc = bootstrap.connectPc && typeof bootstrap.connectPc.address === "string" ? bootstrap.connectPc : null;
   showApplication();
   showLegacyMachinesNotice(bootstrap.legacyMachines);
@@ -1512,7 +1513,7 @@ async function initializeApplication() {
   }
 }
 
-const { showLegacyMachinesNotice } = createConnectPc({
+const { showLegacyMachinesNotice, openConnectPc } = createConnectPc({
   api: (...args) => api(...args),
   refreshSnapshot: (...args) => refreshSnapshot(...args),
   panePreferenceStorage,
@@ -1530,8 +1531,6 @@ async function start() {
       if (launch.targetURL) acceptNotificationTarget(launch.targetURL);
     });
   }
-  buildSettingsMenu();
-  syncThemeItem();
   renderNotificationItem();
   syncSidebar();
   resizeTerminalInput();
@@ -1552,7 +1551,7 @@ async function start() {
     const authStatus = await api("/api/auth/status", { csrf: false });
     state.passkeyAvailable = authStatus.passkeyAvailable === true;
     state.authRequired = authStatus.required === true;
-    syncSettingsMenu();
+    syncSettings();
     if (authStatus.required && !authStatus.authenticated) {
       showLogin();
       return;

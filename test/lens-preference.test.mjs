@@ -111,3 +111,38 @@ test("a Codex pane has a chat too; other agents do not", () => {
   assert.equal(chatUnavailableText("no_session_id"), "Chat appears once the agent reports its session.");
   assert.equal(chatMayBecomeAvailable("not_supported_agent"), false);
 });
+
+test("Open panes in: Auto by default, kept in this browser", async () => {
+  const { OPEN_PANES_IN, OPEN_PANES_IN_STORAGE_KEY, readOpenPanesIn, writeOpenPanesIn, openPanesInName } =
+    await import("../public/lens-preference.js");
+  assert.deepEqual(OPEN_PANES_IN, ["auto", "chat", "terminal"]);
+  assert.deepEqual(OPEN_PANES_IN.map(openPanesInName), ["Auto", "Chat", "Terminal"]);
+  const storage = memoryStorage();
+  assert.equal(readOpenPanesIn(storage), "auto");
+  assert.equal(writeOpenPanesIn(storage, "chat"), true);
+  assert.equal(storage.values.get(OPEN_PANES_IN_STORAGE_KEY), "chat");
+  assert.equal(readOpenPanesIn(storage), "chat");
+  assert.equal(writeOpenPanesIn(storage, "sideways"), false);
+  assert.equal(readOpenPanesIn(storage), "chat");
+  assert.equal(readOpenPanesIn(memoryStorage({ [OPEN_PANES_IN_STORAGE_KEY]: "sideways" })), "auto");
+  const broken = { getItem() { throw new Error("denied"); }, setItem() { throw new Error("full"); } };
+  assert.equal(readOpenPanesIn(broken), "auto");
+  assert.equal(writeOpenPanesIn(broken, "chat"), false);
+  assert.equal(readOpenPanesIn(null), "auto");
+});
+
+test("Open panes in sets the default lens; a pane's own choice still wins", () => {
+  // Auto is the layout's own default.
+  assert.equal(defaultLens({ preference: "auto", compact: true }), "chat");
+  assert.equal(defaultLens({ preference: "auto", compact: false, touch: false }), "terminal");
+  // Chat or Terminal holds on any layout.
+  assert.equal(defaultLens({ preference: "chat", compact: false, touch: false }), "chat");
+  assert.equal(defaultLens({ preference: "terminal", compact: true, touch: true }), "terminal");
+  assert.equal(defaultLens({ preference: "bogus", compact: true }), "chat");
+  assert.equal(chooseLens({ preference: "chat", chatAvailable: true }), "chat");
+  assert.equal(chooseLens({ preference: "terminal", compact: true, chatAvailable: true }), "terminal");
+  assert.equal(chooseLens({ preference: "chat", stored: "terminal", chatAvailable: true }), "terminal");
+  assert.equal(chooseLens({ preference: "terminal", stored: "chat", chatAvailable: true }), "chat");
+  // Never a chat the pane does not have.
+  assert.equal(chooseLens({ preference: "chat", chatAvailable: false }), "terminal");
+});

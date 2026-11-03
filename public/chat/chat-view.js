@@ -37,6 +37,7 @@ import {
   chatReadBusy,
   chatUnavailableText,
   chooseLens,
+  readOpenPanesIn,
   readPaneLens,
   writePaneLens,
 } from "../lens-preference.js?v=1.4.23";
@@ -961,7 +962,10 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
     const available = paneId !== null && agentName !== null && chatAvailable(paneId);
     const { compact, touch } = layout();
     const next = paneId === null ? "terminal"
-      : chooseLens({ stored: chosen.get(paneId) ?? readPaneLens(storage, paneId), chatAvailable: available, compact, touch });
+      : chooseLens({
+        stored: chosen.get(paneId) ?? readPaneLens(storage, paneId), chatAvailable: available,
+        preference: readOpenPanesIn(storage), compact, touch,
+      });
     const changed = next !== reported.lens || paneId !== reported.paneId;
     lens = next;
     // hidden first, while its place is still read: a hidden chat keeps its scroll
@@ -1042,6 +1046,8 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
       apply();
     },
     setStatus(id, status) { chats.get(id)?.setStatus(status); },
+    // "Open panes in" changed: a pane never chosen for follows it now.
+    reapply() { apply(); },
     toggle() { setLens(lens === "chat" ? "terminal" : "chat"); },
     showTerminal() { setLens("terminal"); },
     // Switches to the Chat lens; false when this pane has none.

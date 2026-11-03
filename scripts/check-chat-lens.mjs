@@ -424,6 +424,24 @@ try {
     console.log({ mobile, defaultLens: true, noReattachOnSwitch: true, fitOnce: true, draftKept: true, scrollKept: true, shortcut: true,
       olderPages: true, liveUpdate: true, send: true, unavailable: true, remembered: true, parked: true, longFolded: true, pendingClock: true });
     await context.close();
+    // Settings → Chat → "Open panes in" overrides the device's default for a
+    // pane never chosen for: Chat on a desktop, Terminal on a phone.
+    {
+      const wanted = mobile ? "terminal" : "chat";
+      const preferred = await browser.newContext({ serviceWorkers: "block", hasTouch: mobile, isMobile: mobile,
+        viewport: { width: mobile ? 390 : 1280, height: 844 } });
+      await preferred.addInitScript((value) => localStorage.setItem("herdrbridge-open-panes-in", value), wanted);
+      const other = await preferred.newPage();
+      const otherErrors = [];
+      other.on("pageerror", (error) => otherErrors.push(error.message));
+      await other.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
+      await other.locator("#lens-switch").waitFor({ state: "visible" });
+      await other.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
+      await other.waitForFunction((value) => document.querySelector(".terminal-stage").dataset.lens === value, wanted);
+      assert.equal(await other.locator(".terminal-stage").getAttribute("data-lens"), wanted, "Open panes in sets the default lens");
+      assert.deepEqual(otherErrors, []);
+      await preferred.close();
+    }
     // the next round reads the transcript as written by the first
     await writeFile(transcript, jsonl(Array.from({ length: 70 }, (_, n) => exchange(n)).flat()));
   }

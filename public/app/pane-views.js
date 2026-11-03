@@ -49,7 +49,7 @@ export function createPaneViews(deps) {
     snapshotRecords, agentForPane, visibleStatusForPane, acknowledgePaneCompletion, completeNotificationRelay,
     selectedRecords, selectedRecordsFor, followMovedPaneState, refreshSnapshot, refreshTerminal,
     renderNavigation, renderPaneHeading, showTerminalMessage, resetInputHistoryNavigation, syncComposerDraft,
-    focusComposer, closeMobileSidebar, setFeedback, showLogin, syncSettingsMenu, applyTerminalFontSize,
+    focusComposer, closeMobileSidebar, setFeedback, showLogin, syncSettings, applyTerminalFontSize,
     isLinkableTerminalPath, openTerminalPath, sidebarActionMenu, paneButton, agentMark,
   } = deps;
 
@@ -158,7 +158,7 @@ export function createPaneViews(deps) {
     manualFont: readGridFont(panePreferenceStorage),
     onFontChange: (font) => {
       writeGridFont(panePreferenceStorage, font);
-      syncSettingsMenu();
+      syncSettings();
     },
     menuFor: paneGridMenu,
     onSelect: (paneId) => selectPane(paneId, { fromGrid: true }),

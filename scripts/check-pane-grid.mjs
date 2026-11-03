@@ -1203,7 +1203,10 @@ try {
       assert.equal(parseFloat((await fill(page)).cells[0].font), autoFont, `${count} cells: Ctrl+0 goes back to auto`);
       await wheel(120, 3);
       await page.locator(".settings-button").click();
-      await page.locator('[data-action="grid-font"]').click();
+      await page.locator("#settings-dialog .settings-page-link", { hasText: "Appearance" }).click();
+      await page.locator("#settings-text-size-reset").click();
+      await page.keyboard.press("Escape");
+      await page.locator("#settings-dialog").waitFor({ state: "hidden" });
       await gridSettled(page);
       assert.equal(parseFloat((await fill(page)).cells[0].font), autoFont, `${count} cells: Reset text size goes back to auto`);
       assert.equal(await setting(), global, `${count} cells: the global setting is still unchanged`);
@@ -1439,18 +1442,18 @@ try {
       assert.ok(asked.length > 0);
       assert.deepEqual([last.cols, last.rows], ptySize(paneId), `${paneId}: the frames carry the size its pty has`);
     };
+    // Settings → Terminal & keys → Fit panes to this window: Off or On.
     const toggleFit = async (page, on) => {
       await page.locator(".settings-button").click();
-      const item = page.locator('[data-action="grid-fit"]');
-      assert.equal(await item.getAttribute("aria-checked"), String(!on));
-      await item.click();
-      await page.locator(".settings-button").click();
-      assert.equal(await page.locator('[data-action="grid-fit"]').getAttribute("aria-checked"), String(on));
-      // The label stays; on or off is the item's data-toggle (its colour) and its accessible name.
-      assert.equal(await page.locator('[data-action="grid-fit"] span').textContent(), "Fit panes to this window");
-      assert.equal(await page.locator('[data-action="grid-fit"]').getAttribute("data-toggle"), on ? "on" : "off");
-      assert.equal(await page.locator('[data-action="grid-fit"]').getAttribute("aria-label"), `Fit panes to this window, ${on ? "on" : "off"}`);
-      await page.locator(".settings-button").click();
+      await page.locator("#settings-dialog .settings-page-link", { hasText: "Terminal & keys" }).click();
+      const choices = page.locator("#settings-grid-fit-row .settings-choices");
+      const pressed = () => choices.locator('[aria-pressed="true"]').allTextContents();
+      assert.deepEqual(await pressed(), [on ? "Off" : "On"]);
+      await choices.getByRole("button", { name: on ? "On" : "Off", exact: true }).click();
+      assert.deepEqual(await pressed(), [on ? "On" : "Off"]);
+      assert.match(await page.locator("#settings-grid-fit-hint").textContent(), on ? /^On:/u : /^Off:/u);
+      await page.keyboard.press("Escape");
+      await page.locator("#settings-dialog").waitFor({ state: "hidden" });
       assert.equal(await page.evaluate(() => localStorage.getItem("herdrbridge-grid-fit")), on ? "on" : "off", "the choice is remembered");
     };
 
@@ -1473,8 +1476,10 @@ try {
       if (shots && viewport.width === 1700) await page.screenshot({ path: join(shots, `fit-on-${count}-1700.png`) });
       // The grid's own text size has no say here: no Reset text size.
       await page.locator(".settings-button").click();
-      assert.equal(await page.locator('[data-action="grid-font"]').isVisible(), false, `${what}: no Reset text size`);
-      await page.locator(".settings-button").click();
+      await page.locator("#settings-dialog .settings-page-link", { hasText: "Appearance" }).click();
+      assert.equal(await page.locator("#settings-text-size-reset").isDisabled(), true, `${what}: no Reset text size`);
+      await page.keyboard.press("Escape");
+      await page.locator("#settings-dialog").waitFor({ state: "hidden" });
       if (viewport.width === 1280) {
         // Ctrl+wheel changes the terminal font, and the cells (and their panes) follow it.
         const global = await setting(page);

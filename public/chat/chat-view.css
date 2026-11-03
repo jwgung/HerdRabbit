@@ -158,6 +158,20 @@
   line-height: 1.55;
 }
 
+/* Settings → Chat → Chat width (public/chat-width-preference.js), set on the
+   root by the page. Default is the rule above. */
+:root[data-chat-width="narrow"] .chat-transcript {
+  max-width: 680px;
+}
+
+:root[data-chat-width="wide"] .chat-transcript {
+  max-width: 1120px;
+}
+
+:root[data-chat-width="full"] .chat-transcript {
+  max-width: none;
+}
+
 .chat-turns {
   display: flex;
   flex-direction: column;
@@ -232,6 +246,13 @@
   border-radius: var(--radius-card);
   background: var(--surface-raised);
   overflow-wrap: anywhere;
+}
+
+/* A wider column gives a message more room too (a phone keeps its own). */
+@media (min-width: 761px) {
+  :root:is([data-chat-width="wide"], [data-chat-width="full"]) .chat-bubble {
+    max-width: min(80%, 820px);
+  }
 }
 
 .chat-image-note {

@@ -914,3 +914,12 @@ test("the uploads list is newest first, ties by name, and the input is left alon
   assert.deepEqual(files, copy);
   assert.deepEqual(sortUploads([{ name: "x" }, { name: "y", modifiedAt: "2026-10-01T00:00:00Z" }]).map((file) => file.name), ["y", "x"]);
 });
+
+test("names a PC's Herdr version, and says when it is too old", async () => {
+  const { herdrVersionText } = await import("../public/ui-model.js");
+  assert.equal(herdrVersionText({}), "Unknown");
+  assert.equal(herdrVersionText({ herdr_version: "0.9.5", herdr_supported: true }), "0.9.5");
+  assert.equal(herdrVersionText({ herdr_version: "0.8.2", herdr_supported: false, herdr_min_version: "0.9.0" }),
+    "0.8.2 (update to 0.9.0 or newer)");
+  assert.equal(herdrVersionText(null), "Unknown");
+});

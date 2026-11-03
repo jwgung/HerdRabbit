@@ -1,4 +1,4 @@
-import { paneServerId, passkeyDetails } from "../ui-model.js?v=1.4.23";
+import { herdrVersionText, paneServerId, passkeyDetails } from "../ui-model.js?v=1.4.23";
 import { clearLaunchToken, writeLaunchToken } from "../launch-session.js?v=1.4.23";
 import { array, createElement } from "./dom.js?v=1.4.23";
 
@@ -27,13 +27,6 @@ export function createAccountDialogs({
   const serverDetailsDialog = document.querySelector("#server-details-dialog");
   document.querySelector("#server-details-close")
     .addEventListener("click", () => serverDetailsDialog.close());
-
-  function herdrVersionText(server) {
-    if (!server.herdr_version) return "Unknown";
-    return server.herdr_supported === false
-      ? `${server.herdr_version} (update to ${server.herdr_min_version} or newer)`
-      : server.herdr_version;
-  }
 
   const SERVER_KINDS = { local: "This PC", link: "Connect PC" };
 
