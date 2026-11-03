@@ -13,6 +13,7 @@
 // agent's text keeps them as text.
 
 import { findPaths, isFileName, isQuotablePath, namesPath } from "../path-links.js?v=1.4.23";
+import { previewFor } from "../file-preview.js?v=1.4.23";
 
 // ---------------------------------------------------------------------------
 // Escaping and addresses.
@@ -63,6 +64,29 @@ export function markdownFileTarget(href) {
   const path = withoutAnchor.replace(/(?::\d+){1,2}$/u, "");
   if (path === "" || /^[a-z][a-z0-9+.-]*:/iu.test(path) || (path !== withoutAnchor && !/[./]/u.test(path))) return null;
   return path;
+}
+
+// The local image an `![](…)` target names, as the agent wrote it (relative or
+// absolute, decoded once), or null. Only a file the file viewer would draw as
+// an image counts, and never an address: a remote or inline picture is not
+// loaded into the chat, and stays the link it was. A home (`~`) or a Windows
+// path cannot be resolved on the page, so it is refused too.
+//
+// Adapted from Ovis (MIT, Copyright (c) 2026 devswha), src/lib/markdownImages.ts.
+export function chatImageTarget(src) {
+  const value = String(src ?? "").trim();
+  if (value === "" || value.startsWith("//")) return null;
+  let path;
+  if (/^[a-z][a-z0-9+.-]*:/iu.test(value)) {
+    path = fileUriPath(value);
+    if (path === null) return null;
+  } else {
+    // the target is URL-encoded, a literal `#` or `?` in a name included
+    try { path = decodeURIComponent(value.replace(/[?#].*$/su, "")); } catch { return null; }
+  }
+  if (path === "" || path.startsWith("//") || /^~|^[A-Za-z]:|\\|[\u0000-\u001f\u007f]/u.test(path)) return null;
+  if (path.endsWith("/")) return null;
+  return previewFor(path)?.kind === "image" ? path : null;
 }
 
 // A bare URL without the punctuation that closes the sentence around it.
@@ -120,7 +144,7 @@ const MAX_INLINE_DEPTH = 16;
 // The marks in a line, left to right. The pattern is only tried where a mark
 // can start, and where its closer may be far away, only if one is there.
 export function* inlineMarks(source) {
-  const marker = /(`[^`\n]+`|\\\(.+?\\\)|\[[^\]\n]+\]\([^\s)]+\)|<https?:\/\/[^\s<>]+>|file:\/\/\/[!#-;=?-_a-~]+|https?:\/\/[!-;=?-~]+|(?<![\w.@/-])www\.[!-;=?-~]+|\*\*[^*\n]+\*\*|(?<![\p{L}\p{N}\p{M}_])__(?=\S)[^\n]*?\S__(?![\p{L}\p{N}\p{M}_])|~~[^~\n]+~~|(?<!\*)\*[^*\n]+\*(?!\*)|(?<![\p{L}\p{N}\p{M}_])_(?=\S)[^\n]*?\S_(?![\p{L}\p{N}\p{M}_]))/yu;
+  const marker = /(`[^`\n]+`|\\\(.+?\\\)|\[[^\]\n]*\]\([^\s)]+\)|<https?:\/\/[^\s<>]+>|file:\/\/\/[!#-;=?-_a-~]+|https?:\/\/[!-;=?-~]+|(?<![\w.@/-])www\.[!-;=?-~]+|\*\*[^*\n]+\*\*|(?<![\p{L}\p{N}\p{M}_])__(?=\S)[^\n]*?\S__(?![\p{L}\p{N}\p{M}_])|~~[^~\n]+~~|(?<!\*)\*[^*\n]+\*(?!\*)|(?<![\p{L}\p{N}\p{M}_])_(?=\S)[^\n]*?\S_(?![\p{L}\p{N}\p{M}_]))/yu;
   const emphasis = /(?<![\p{L}\p{N}\p{M}_])_(?=\S)[^\n]*?\S_(?![\p{L}\p{N}\p{M}_])/yu;
   const opener = /[`[<*_~]|\\\(|file:\/\/\/|https?:\/\/|www\./gu;
   const next = (pattern) => {
@@ -153,7 +177,9 @@ export function* inlineMarks(source) {
     } else if (char === "[") {
       const label = labelEnd(start + 1);
       const target = label + 2;
-      if (!(label > start + 1 && source[label] === "]" && source[label + 1] === "(")) pattern = null;
+      // an empty label only for an image: `![](shot.png)`
+      const labelled = label > start + 1 || source[start - 1] === "!";
+      if (!(labelled && source[label] === "]" && source[label + 1] === "(")) pattern = null;
       else {
         const end = targetEnd(target);
         if (!(end > target && source[end] === ")")) pattern = null;
@@ -203,11 +229,13 @@ export function parseInline(source, links = true, depth = 0) {
       const label = token.slice(1, split);
       const target = token.slice(split + 2, -1);
       const href = safeMarkdownHref(target) ?? webLikeHref(target);
-      const file = href === null ? markdownFileTarget(target) : null;
-      const shown = href !== null ? { type: "link", href, children: parseInline(label, false, depth) }
-        : file !== null ? { type: "file", path: file, children: parseInline(label, false, depth) }
-          : { type: "text", value: label };
-      if (image) nodes.push({ type: "image", alt: label, src: target, fallback: [{ type: "text", value: "!" }, shown] });
+      const local = image ? chatImageTarget(target) : null;
+      const file = href === null ? local ?? markdownFileTarget(target) : null;
+      const words = label === "" ? [{ type: "text", value: file ?? target }] : parseInline(label, false, depth);
+      const shown = href !== null ? { type: "link", href, children: words }
+        : file !== null ? { type: "file", path: file, children: words }
+          : { type: "text", value: label || token };
+      if (image) nodes.push({ type: "image", alt: label, src: target, path: local, fallback: [{ type: "text", value: "!" }, shown] });
       else nodes.push(shown);
     } else if (token.startsWith("**") || token.startsWith("__")) {
       nodes.push({ type: "strong", children: parseInline(token.slice(2, -2), links, depth + 1) });
@@ -445,7 +473,15 @@ function inlineHtml(nodes, options, interactive = true) {
         return `<code>${escapeHtml(node.value)}</code>`;
       }
       case "math": return `<code class="md-math">${escapeHtml(`\\(${node.value}\\)`)}</code>`;
-      case "image": return inlineHtml(node.fallback, options, interactive);
+      case "image": {
+        if (!interactive || node.path === null) return inlineHtml(node.fallback, options, interactive);
+        // A local image: a placeholder holding its plain fallback, which
+        // chat-images.js swaps for the picture once the file route has it.
+        const words = node.alt === "" ? "" : inlineHtml(parseInline(node.alt, false), options, false);
+        const fallback = linkable(node.path) ? fileButton(node.path, words || escapeHtml(node.path), false)
+          : words ? `${words} (<code>${escapeHtml(node.path)}</code>)` : `<code>${escapeHtml(node.path)}</code>`;
+        return `<span class="md-image" data-image="${escapeHtml(node.path)}" data-alt="${escapeHtml(node.alt)}">${fallback}</span>`;
+      }
       case "strong": return `<strong>${inlineHtml(node.children, options, interactive)}</strong>`;
       case "em": return `<em>${inlineHtml(node.children, options, interactive)}</em>`;
       case "del": return `<del>${inlineHtml(node.children, options, interactive)}</del>`;

@@ -1,0 +1,208 @@
+/* An agent's local images in the chat (chat-images.js) and the viewer they
+   open in (image-viewer.js). Rules: docs/design.md. */
+
+.md-image {
+  display: inline;
+}
+
+.md-image[data-state="shown"] {
+  display: block;
+  margin: var(--space-2) 0;
+}
+
+.md-image-open {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+
+.md-image-open:hover {
+  border-color: var(--hover-line);
+}
+
+.md-image-picture {
+  display: block;
+  max-width: 100%;
+  max-height: min(60vh, 480px);
+  height: auto;
+}
+
+.md-image-note {
+  color: var(--muted);
+  font-size: calc(var(--font-sm) * var(--chat-scale, 1));
+}
+
+/* The viewer: a modal <dialog> over the whole screen, in the top layer, so
+   no z-index; the picture sits on the terminal's black in both themes. */
+.image-viewer {
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--terminal-bg);
+  color: var(--terminal-text);
+  overflow: hidden;
+  /* the viewer's own pinch and swipe, never the page's zoom */
+  touch-action: none;
+}
+
+.image-viewer[open] {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.image-viewer::backdrop {
+  background: var(--terminal-bg);
+}
+
+.image-viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: max(var(--space-2), env(safe-area-inset-top)) max(var(--space-3), env(safe-area-inset-right)) var(--space-2) max(var(--space-3), env(safe-area-inset-left));
+}
+
+.image-viewer-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.image-viewer-name,
+.image-viewer-count {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-viewer-name {
+  font-size: var(--font-md);
+  font-weight: 600;
+}
+
+.image-viewer-count {
+  color: color-mix(in srgb, var(--terminal-text) 70%, transparent);
+  font-size: var(--font-xs);
+}
+
+.image-viewer-tools {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--space-1);
+}
+
+/* 44px on every screen: the viewer is mostly held in a hand. */
+.image-viewer-button {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--terminal-text) 24%, transparent);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--terminal-bg) 72%, transparent);
+  color: var(--terminal-text);
+  font-size: var(--font-sm);
+  line-height: 1;
+  transition: background-color var(--motion-fast), border-color var(--motion-fast);
+}
+
+.image-viewer-button:hover {
+  border-color: color-mix(in srgb, var(--terminal-text) 48%, transparent);
+  background: color-mix(in srgb, var(--terminal-text) 14%, transparent);
+}
+
+.image-viewer-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.image-viewer-zoom {
+  width: auto;
+  padding: 0 var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.image-viewer-main {
+  position: relative;
+  min-height: 0;
+}
+
+.image-viewer-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+
+.image-viewer-stage.is-zoomed {
+  cursor: grab;
+}
+
+.image-viewer-stage.is-zoomed:active {
+  cursor: grabbing;
+}
+
+.image-viewer-picture {
+  position: absolute;
+  inset: 0;
+  max-width: 100%;
+  max-height: 100%;
+  margin: auto;
+  transform-origin: center;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.image-viewer-step {
+  position: absolute;
+  top: 50%;
+  z-index: var(--layer-raised);
+  transform: translateY(-50%);
+}
+
+.image-viewer-step[hidden] {
+  display: none;
+}
+
+.image-viewer-step.is-previous {
+  left: max(var(--space-2), env(safe-area-inset-left));
+}
+
+.image-viewer-step.is-next {
+  right: max(var(--space-2), env(safe-area-inset-right));
+}
+
+.image-viewer-status {
+  min-height: calc(var(--font-sm) * 1.5);
+  margin: 0;
+  padding: var(--space-1) var(--space-3) max(var(--space-2), env(safe-area-inset-bottom));
+  font-size: var(--font-sm);
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .image-viewer-bar {
+    gap: var(--space-1);
+    padding-left: max(var(--space-2), env(safe-area-inset-left));
+    padding-right: max(var(--space-2), env(safe-area-inset-right));
+  }
+
+  .image-viewer-tools {
+    gap: var(--space-0-5);
+  }
+}

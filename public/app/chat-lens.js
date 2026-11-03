@@ -1,7 +1,10 @@
 import { createTerminalFind, isFindShortcut } from "../terminal-find.js?v=1.4.23";
 import { createChatLens } from "../chat/chat-view.js?v=1.4.23";
+import { createChatImages } from "../chat/chat-images.js?v=1.4.23";
+import { createImageViewer } from "../chat/image-viewer.js?v=1.4.23";
 import { createChatFind } from "../chat/chat-find.js?v=1.4.23";
 import { composerPlaceholder, createPromptDock } from "../chat/prompt-card.js?v=1.4.23";
+import { paneServerId } from "../ui-model.js?v=1.4.23";
 import {
   chatScale,
   pinchedChatFontSize,
@@ -19,7 +22,7 @@ export function createChatPanel(deps) {
     state, elements, panePreferenceStorage, desktopMedia, terminalStream, attachedTerminal, paneCalls,
     conversationRequest, api, usesTouchInputEnvironment, isLinkableTerminalPath, openTerminalPath, setFeedback,
     showNewestTerminalOutput, scheduleTerminalPark, syncComposerExpanded, resizeTerminalInput, syncSendButton,
-    refreshTerminal, refreshAfterSubmission,
+    refreshTerminal, refreshAfterSubmission, selectedRecordsFor, viewTicket,
   } = deps;
   let promptDock = null;
   let terminalFind = null;
@@ -37,6 +40,17 @@ export function createChatPanel(deps) {
     fetchJson: conversationRequest,
     isLinkablePath: isLinkableTerminalPath,
     onOpenPath: openTerminalPath,
+    // An agent's `![](path)` images, from the Files tab's file route, resolved
+    // against the pane's folder as its path links are.
+    images: createChatImages({
+      context: (paneId) => {
+        const pane = selectedRecordsFor(paneId).pane;
+        const cwd = pane?.foreground_cwd || pane?.cwd;
+        return pane ? { server: paneServerId(paneId) || "local", cwd: typeof cwd === "string" ? cwd : null } : null;
+      },
+      viewTicket,
+      viewer: createImageViewer({ viewTicket }),
+    }),
     onCopy: (ok) => setFeedback(ok ? "Copied." : "Could not copy. Copying needs a secure connection (HTTPS).", !ok),
     onChatDrawn: (chat, drawn) => {
       chatFind?.redrawn(chat, drawn);

@@ -43,6 +43,11 @@ sentence about a call (`toolVerb` and `isToolNarration` in `public/chat/work-blo
 `public/chat/chat-view.js`) are adapted from Ovis, https://github.com/devswha/ovis --
 `src/lib/toolVerbs.ts` and the `WorkRow` of `src/components/ChatView.tsx`.
 
+The local-image rules of the chat's Markdown (`chatImageTarget` in `public/chat/markdown.js`, from
+`src/lib/markdownImages.ts`) and the gallery stepping and arrow-key arithmetic of the chat's image viewer
+(`wrapIndex` and `arrowAction` in `public/chat/image-viewer.js`, from `src/lib/imageViewer.ts`) are adapted
+from Ovis, https://github.com/devswha/ovis
+
 MIT License. Copyright (c) 2026 devswha. Same permission notice and warranty disclaimer as above.
 
 ## xterm.js and its addons

@@ -109,7 +109,7 @@ export function turnKeys(turns) {
 // ---------------------------------------------------------------------------
 // One pane's chat.
 
-function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPath, onViewInTerminal, onCopy, onAvailability, onDrawn = () => {} }) {
+function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPath, onViewInTerminal, onCopy, onAvailability, onDrawn = () => {}, images = null }) {
   const root = element(document, "div", { className: "chat-pane", attrs: { "data-pane-id": paneId } });
   root.hidden = true;
   const scroller = element(document, "div", { className: "chat-scroll", attrs: { role: "log", "aria-live": "polite", "aria-label": "Conversation", tabindex: "0" } });
@@ -219,6 +219,8 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     const node = element(document, "div", { className });
     node.innerHTML = renderMarkdown(text, { isLinkablePath });
     highlightCodeBlocks(node);
+    // local `![](path)` images: chat-images.js
+    images?.attach(node, paneId);
     return node;
   };
 
@@ -885,7 +887,7 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
 // code and details. `layout()` answers { compact, touch }.
 export function createChatLens({ document = globalThis.document, stage, host, chatButton, terminalButton, group,
   storage, layout, connection, fetchJson, isLinkablePath = () => false, onOpenPath = () => {}, onCopy = () => {},
-  onLensChange = () => {}, onChatDrawn = () => {} }) {
+  onLensChange = () => {}, onChatDrawn = () => {}, images = null }) {
   const chats = new Map();
   // paneId -> { state: "checking" | "available" | "unavailable", reason, checkedAt }
   const availability = new Map();
@@ -908,7 +910,7 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
       return chat;
     }
     chat = createPaneChat({
-      paneId: id, document, fetchJson, isLinkablePath, onOpenPath, onCopy,
+      paneId: id, document, fetchJson, isLinkablePath, onOpenPath, onCopy, images,
       onViewInTerminal: () => setLens("terminal"),
       onDrawn: (drawn) => onChatDrawn(chat, drawn),
       onAvailability: ({ available, reason = null }) => {
