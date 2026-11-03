@@ -5,7 +5,8 @@
 
 import { agentLabelFor, agentNamesWith } from "../agents.js?v=1.4.23";
 
-// How long a sent message waits for the transcript before its bubble goes:
+// How long a sent message waits for the transcript before its bubble goes
+// (a minute, as Ovis's src/lib/sentWaiting.ts, MIT):
 // the turn has not come by then (Esc in the terminal, an agent that rewrote
 // it, a turn with no time), and the chat stops saying it is on its way.
 export const PENDING_MS = 60_000;

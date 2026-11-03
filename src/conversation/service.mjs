@@ -1,5 +1,6 @@
 // A pane's conversation, from the pane id the browser knows: which agent it
-// runs (Claude Code, Codex or OpenCode, each with its own format), which file
+// runs (Claude Code, Codex, OpenCode, Kiro CLI or Antigravity, each with its
+// own format), which file
 // (or, for OpenCode, which session of its database) of this machine's holds
 // it, and the page or tool output asked for. A PC connected with Connect PC
 // reads its own transcripts: its panes' pages, tool output, change signature and
