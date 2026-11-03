@@ -29,6 +29,7 @@ import { MAX_TEXT_PREVIEW_BYTES, inlineTypeFor, isMarkdown } from "../public/fil
 import { renderMarkdown } from "./markdown.mjs";
 import { secretPrompt } from "./secret-prompt.mjs";
 import { agentCommand } from "./agent-launch.mjs";
+import { canResume, resumeCommand } from "./agent-sessions.mjs";
 import { validateServerProfile } from "./server-profiles.mjs";
 import { ConversationMonitor } from "./conversation/monitor.mjs";
 import { ConversationService } from "./conversation/service.mjs";
@@ -523,6 +524,8 @@ export function createHerdrHttpServer({
   // Which agents this PC can start in a new session (src/agent-launch.mjs),
   // or null when it cannot tell. A connected PC answers over its link.
   installedAgents = null,
+  // This PC's earlier agent sessions by folder (src/agent-sessions.mjs).
+  agentSessions = null,
   csrfToken = randomBytes(32).toString("base64url"),
   maxBodyBytes = 16 * 1024,
   maxTransferBytes = Infinity,
@@ -1267,6 +1270,14 @@ export function createHerdrHttpServer({
         return;
       }
 
+      // A project's earlier sessions of one agent, for the New session dialog.
+      const workspaceSessionsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/agent-sessions$/u);
+      if (method === "GET" && workspaceSessionsMatch) {
+        requireSameOrigin(request);
+        sendJson(response, 200, await projectSessions(decodePaneId(workspaceSessionsMatch[1]), url.searchParams.get("agent")));
+        return;
+      }
+
       const workspaceCloseMatch = url.pathname.match(
         /^\/api\/workspaces\/([^/]+)\/close$/,
       );
@@ -1411,14 +1422,70 @@ export function createHerdrHttpServer({
     return { serverId: value, agents: (await remote.installedAgents?.()) ?? null };
   }
 
+  // The folder a project works in, as the page shows a pane's: the first of
+  // its panes, in Herdr's order, that is in an absolute folder. Herdr gives a
+  // project no folder of its own.
+  function projectFolder(snapshot, workspaceId) {
+    for (const pane of snapshot.panes ?? []) {
+      if (pane?.workspace_id !== workspaceId) continue;
+      const folder = [pane.foreground_cwd, pane.cwd].find((value) => typeof value === "string" && value.startsWith("/") && value.length <= 4096);
+      if (folder) return folder;
+    }
+    return null;
+  }
+
+  // The sessions of `agent` the project's machine lists in `folder`: this
+  // PC's own lister, or a connected PC's answer over its link. Null when that
+  // machine cannot tell (no lister, or a PC from before this).
+  async function sessionsOn(serverId, agent, folder) {
+    let sessions;
+    try {
+      if (serverId === LOCAL_SERVER) sessions = agentSessions ? await agentSessions.list(agent, folder) : null;
+      else {
+        const remote = herdr.agentsClient?.(serverId);
+        if (!remote) throw new HttpError(404, "unknown_server", "That server is no longer configured.");
+        sessions = typeof remote.agentSessions === "function" ? await remote.agentSessions(agent, folder) : null;
+      }
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(503, "sessions_unavailable", "Earlier sessions could not be read just now. Try again in a moment.");
+    }
+    return Array.isArray(sessions) ? sessions : null;
+  }
+
+  function projectOf(snapshot, workspaceId) {
+    const workspace = (snapshot.workspaces ?? []).find((item) => item.workspace_id === workspaceId);
+    if (!workspace) throw new HttpError(404, "unknown_workspace", "That project is no longer there.");
+    return workspace;
+  }
+
+  // { agent, folder, supported, reason, sessions }: `reason` says why a list
+  // cannot be had, "agent" (no resume flag known for it) or "machine".
+  async function projectSessions(workspaceId, agent) {
+    if (agentCommand(agent) === null) throw new InputValidationError("Unknown agent");
+    const snapshot = await herdr.snapshot();
+    const workspace = projectOf(snapshot, workspaceId);
+    const folder = projectFolder(snapshot, workspaceId);
+    const answer = (sessions, reason = null) => ({ agent, folder, supported: reason === null, reason, sessions });
+    if (!canResume(agent)) return answer([], "agent");
+    if (folder === null) return answer([]);
+    const sessions = await sessionsOn(workspace.server_id ?? LOCAL_SERVER, agent, folder);
+    return sessions === null ? answer([], "machine") : answer(sessions);
+  }
+
   // A new session in a project: a shell, optionally named, optionally with an
-  // agent started in it. Everything that can be refused is refused before
-  // Herdr is asked to make anything; the command typed is the agent table's,
-  // never the request's.
+  // agent started in it, or an earlier session of that agent resumed in the
+  // project's folder. Everything that can be refused is refused before Herdr
+  // is asked to make anything; the command typed is the agent table's, plus
+  // for a resume an id of that agent's shape that the project's machine has
+  // just listed for the folder. Nothing of the request is typed as it came.
   async function createSession(workspaceId, body) {
     const agent = body.agent === undefined || body.agent === null || body.agent === "" ? null : body.agent;
-    const command = agent === null ? null : agentCommand(agent);
-    if (agent !== null && command === null) throw new InputValidationError("Unknown agent");
+    const resume = body.resume === undefined || body.resume === null || body.resume === "" ? null : body.resume;
+    if (agent !== null && agentCommand(agent) === null) throw new InputValidationError("Unknown agent");
+    if (resume !== null && agent === null) throw new InputValidationError("Choose the agent of the session to resume");
+    const command = agent === null ? null : resume === null ? agentCommand(agent) : resumeCommand(agent, resume);
+    if (command === null && agent !== null) throw new InputValidationError("Invalid session id");
     const label = body.label === undefined || body.label === null || (typeof body.label === "string" && body.label.trim() === "")
       ? null : validation.validateTabLabel(body.label);
     if (agent === null && label === null) {
@@ -1426,10 +1493,10 @@ export function createHerdrHttpServer({
       return { snapshot: await herdr.snapshot() };
     }
     const before = await herdr.snapshot();
-    const workspace = (before.workspaces ?? []).find((item) => item.workspace_id === workspaceId);
-    if (!workspace) throw new HttpError(404, "unknown_workspace", "That project is no longer there.");
+    const workspace = projectOf(before, workspaceId);
+    const serverId = workspace.server_id ?? LOCAL_SERVER;
     if (agent !== null) {
-      const { agents } = await agentsOn(workspace.server_id ?? LOCAL_SERVER);
+      const { agents } = await agentsOn(serverId);
       if (agents === null) {
         throw new HttpError(501, "link_unsupported", "That PC is too old to start agents from here; update it there.");
       }
@@ -1437,8 +1504,20 @@ export function createHerdrHttpServer({
         throw new HttpError(409, "agent_not_installed", "That agent is not installed on that machine. Choose another, or install it there first.");
       }
     }
+    let folder = null;
+    if (resume !== null) {
+      folder = projectFolder(before, workspaceId);
+      const listed = folder === null ? [] : await sessionsOn(serverId, agent, folder);
+      if (listed === null) {
+        throw new HttpError(501, "link_unsupported", "That PC is too old to resume sessions from here; update it there.");
+      }
+      if (!listed.some((session) => session?.id === resume)) {
+        throw new HttpError(409, "session_not_found", "That session is no longer in this project's folder. Choose another, or start a new one.");
+      }
+    }
     const knownTabs = new Set((before.tabs ?? []).map((tab) => tab.tab_id));
-    const made = await herdr.createTab(workspaceId);
+    // a resumed session opens where the agent kept it: some agents find a session only from its own folder
+    const made = await (folder === null ? herdr.createTab(workspaceId) : herdr.createTab(workspaceId, { cwd: folder }));
     const after = await herdr.snapshot();
     const { tabId, paneId } = madeTab(made, after, workspaceId, knownTabs);
     if (label !== null) await herdr.renameTab(tabId, label);

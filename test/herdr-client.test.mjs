@@ -270,6 +270,21 @@ test("a new tab's ids come from Herdr's own answer, and none from an answer that
   assert.equal(await client.createTab("w12"), null);
 });
 
+test("a tab can open in a given folder, passed to Herdr as one argument, and still names its ids", async () => {
+  const made = {
+    stdout: JSON.stringify({ result: { tab: { tab_id: "w12:t5" }, root_pane: { pane_id: "w12:p8" } } }),
+    stderr: "",
+  };
+  const fake = recordingRunner([made]);
+  const client = new HerdrClient({ runner: fake.runner });
+  assert.deepEqual(await client.createTab("w12", { cwd: "/work/My App; rm -rf ~" }), { tab_id: "w12:t5", pane_id: "w12:p8" });
+  assert.deepEqual(fake.calls[0].args, ["tab", "create", "--workspace", "w12", "--cwd", "/work/My App; rm -rf ~", "--no-focus"]);
+  for (const cwd of ["relative", "/a\nb", "/a\u0000b", `/${"x".repeat(5000)}`, 7, ""]) {
+    await assert.rejects(() => client.createTab("w12", { cwd }), InputValidationError, JSON.stringify(cwd));
+  }
+  assert.equal(fake.calls.length, 1);
+});
+
 test("rejects invalid pane ids, row counts, text and keys", async () => {
   const client = new HerdrClient({ runner: async () => assert.fail("runner must not execute") });
 

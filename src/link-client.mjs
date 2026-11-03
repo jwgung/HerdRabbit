@@ -10,6 +10,7 @@ import { ConversationError, ConversationUnavailable, HistoryChanged, TOOL_ID } f
 import { cleanCheck, cleanRunStatus } from "./app-update.mjs";
 import { cleanHerdrCheck, cleanHerdrRunStatus } from "./herdr-update.mjs";
 import { knownAgentNames } from "./agent-launch.mjs";
+import { cleanSessionList } from "./agent-sessions.mjs";
 
 // fileIdle: how long a file being passed on may go quiet before it fails
 const TIMEOUTS = { hello: 5_000, snapshot: 8_000, read: 6_000, write: 6_000, fileIdle: 60_000 };
@@ -425,6 +426,16 @@ export class LinkClient {
     return knownAgentNames(answer?.agents);
   }
 
+  // A folder's earlier sessions of `agent` on the connected PC, held to the
+  // ids the hub may type; null from a PC from before this (not asked).
+  async agentSessions(agent, cwd) {
+    await this.#ready();
+    if (!this.#features.has("agent_sessions")) return null;
+    const query = new URLSearchParams({ agent, cwd });
+    const answer = await this.#request(`/api/link/agent-sessions?${query}`, { timeoutMs: this.timeouts.read });
+    return cleanSessionList(agent, answer?.sessions);
+  }
+
   // The PC's own update. A PC that does not name `update` has no such
   // routes: nothing is asked, and null says it is too old to be updated
   // from here. What comes back is held to the shape this hub shows.
@@ -730,8 +741,10 @@ export class LinkClient {
   }
 
   // The new tab's ids, as the PC names them; null from a PC that does not say.
-  async createTab(workspaceId) {
-    const answer = await this.#workspace(workspaceId, "tabs", {});
+  // A folder reaches only a PC that lists its sessions (`agent_sessions`):
+  // the hub asks for one only after that PC listed a session there.
+  async createTab(workspaceId, { cwd } = {}) {
+    const answer = await this.#workspace(workspaceId, "tabs", cwd === undefined ? {} : { cwd });
     return createdTab(answer?.tab_id, answer?.pane_id);
   }
 

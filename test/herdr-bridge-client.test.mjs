@@ -110,7 +110,7 @@ test("routes scoped workspace, tab and pane operations to their Herdr session", 
   await client.snapshot();
   await client.createWorkspace("새 프로젝트", sessionId);
   await client.renameWorkspace(`${sessionId}~w2`, "이름 변경");
-  assert.deepEqual(await client.createTab(`${sessionId}~w2`), { tab_id: `${sessionId}~w2:t3`, pane_id: `${sessionId}~w2:p3` });
+  assert.deepEqual(await client.createTab(`${sessionId}~w2`, { cwd: "/srv/a b" }), { tab_id: `${sessionId}~w2:t3`, pane_id: `${sessionId}~w2:p3` });
   await client.renameTab(`${sessionId}~w2:t3`, "배포 확인");
   await client.closeTab(`${sessionId}~w2:t3`);
   await client.readPane(`${sessionId}~w2:p3`, { lines: 20 });
@@ -123,7 +123,7 @@ test("routes scoped workspace, tab and pane operations to their Herdr session", 
     ["--session=review", "api", "snapshot"],
     ["--session=review", "workspace", "create", "--label", "새 프로젝트", "--no-focus"],
     ["--session=review", "workspace", "rename", "w2", "이름 변경"],
-    ["--session=review", "tab", "create", "--workspace", "w2", "--no-focus"],
+    ["--session=review", "tab", "create", "--workspace", "w2", "--cwd", "/srv/a b", "--no-focus"],
     ["--session=review", "tab", "rename", "w2:t3", "배포 확인"],
     ["--session=review", "tab", "close", "w2:t3"],
     ["--session=review", "pane", "read", "w2:p3", "--source", "recent-unwrapped", "--lines", "20", "--format", "ansi"],

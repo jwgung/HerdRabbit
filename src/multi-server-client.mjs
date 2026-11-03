@@ -328,7 +328,7 @@ export class MultiServerClient {
   }
   renameWorkspace(id, label) { return this.invoke("renameWorkspace", id, [label], true); }
   closeWorkspace(id) { return this.invoke("closeWorkspace", id, [], true); }
-  createTab(id) { return this.#createTab(id); }
+  createTab(id, ...options) { return this.#createTab(id, options); }
   renameTab(id, label) { return this.invoke("renameTab", id, [label], true); }
   closeTab(id) { return this.invoke("closeTab", id, [], true); }
   moveTab(id, insertIndex) { return this.invoke("moveTab", id, [insertIndex], true); }
@@ -349,9 +349,9 @@ export class MultiServerClient {
     return mapMovedIds(result, (id) => entry.profile.id === "local" ? id : `${entry.profile.id}!${id}`);
   }
   // The new tab's ids carry its machine's prefix, like the snapshot's.
-  async #createTab(workspaceId) {
+  async #createTab(workspaceId, options) {
     const { entry } = this.target(workspaceId);
-    const made = await this.invoke("createTab", workspaceId, [], true);
+    const made = await this.invoke("createTab", workspaceId, options, true);
     const prefix = (id) => entry.profile.id === "local" ? id : `${entry.profile.id}!${id}`;
     return made ? createdTab(prefix(made.tab_id), prefix(made.pane_id)) : null;
   }

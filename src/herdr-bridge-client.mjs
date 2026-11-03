@@ -232,9 +232,9 @@ export class HerdrBridgeClient {
     return this.#clientForSession(target.sessionName).closeWorkspace(target.localId);
   }
 
-  async createTab(workspaceId) {
+  async createTab(workspaceId, ...options) {
     const target = this.#targetForScopedId(workspaceId, validation.validateWorkspaceId);
-    const made = await this.#clientForSession(target.sessionName).createTab(target.localId);
+    const made = await this.#clientForSession(target.sessionName).createTab(target.localId, ...options);
     return made && createdTab(scopedId(target.sessionName, made.tab_id), scopedId(target.sessionName, made.pane_id));
   }
 

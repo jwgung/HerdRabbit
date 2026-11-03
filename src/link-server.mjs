@@ -10,6 +10,7 @@ import { directoryFingerprint, fileAccessError, listDirectory, openFile } from "
 import { validateTransferName } from "./file-store.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 import { SlashCommandCatalog, paneCommandTarget } from "./slash-commands.mjs";
+import { agentCommand } from "./agent-launch.mjs";
 
 // Undici tears a response down after five idle minutes, and a quiet terminal
 // easily goes that long, so the stream says something well before then.
@@ -72,10 +73,12 @@ async function sendFile(response, file) {
 // uses): a hub's Chat reads this PC's transcripts through it, here.
 // `slashCommands` is this PC's own SlashCommandCatalog (the one its page
 // uses): a hub's composer lists a pane's `/` commands through it.
+// `agentSessions` is this PC's own AgentSessions (src/agent-sessions.mjs): a
+// hub lists a folder's earlier sessions here before resuming one here.
 // `updater` is this PC's own AppUpdater (src/app-update.mjs): a hub checks
 // for and starts an update of this PC through it, never naming anything.
 export function linkRoutes({
-  client, files = null, aiAccounts = null, installedAgents = null, attach = null, conversations = null, slashCommands = null, updater = null, herdrUpdater = null, version, herdrVersion = () => null, serverName = "",
+  client, files = null, aiAccounts = null, installedAgents = null, agentSessions = null, attach = null, conversations = null, slashCommands = null, updater = null, herdrUpdater = null, version, herdrVersion = () => null, serverName = "",
   maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024, protectedPaths = defaultProtectedPaths(),
   maxStatusStreams = MAX_STATUS_STREAMS,
 }) {
@@ -99,6 +102,9 @@ export function linkRoutes({
         ...(updater && herdrUpdater ? ["herdr_update"] : []),
         // Which agents a new session here can start (src/agent-launch.mjs).
         ...(installedAgents ? ["agents"] : []),
+        // A folder's earlier sessions (src/agent-sessions.mjs); a PC that names
+        // it also opens a tab in a folder asked.
+        ...(agentSessions ? ["agent_sessions"] : []),
       ],
     };
   }
@@ -400,6 +406,18 @@ export function linkRoutes({
       return true;
     }
 
+    // A folder's earlier sessions of one agent here. The hub types only an id
+    // of that agent's shape from this list, into a session it makes here.
+    if (method === "GET" && url.pathname === "/api/link/agent-sessions" && agentSessions) {
+      const agent = url.searchParams.get("agent");
+      const cwd = url.searchParams.get("cwd");
+      if (agentCommand(agent) === null || typeof cwd !== "string" || !cwd.startsWith("/") || cwd.length > 4096) {
+        throw new HttpError(400, "invalid_input", "Invalid session list request");
+      }
+      sendJson(response, 200, { sessions: await agentSessions.list(agent, cwd) });
+      return true;
+    }
+
     // Project and tab changes. The connected PC validates them through the same client
     // a person on that machine would drive, so the rules cannot drift apart.
     if (method === "POST" && url.pathname === "/api/link/workspaces") {
@@ -417,7 +435,8 @@ export function linkRoutes({
       const body = await readJsonBody(request, maxBodyBytes);
       if (workspaceMatch[2] === "tabs") {
         // The new tab's ids go back, so the hub types only into this one.
-        sendJson(response, 200, { ok: true, ...(await client.createTab(workspaceId)) });
+        const made = await client.createTab(workspaceId, ...(body.cwd === undefined ? [] : [{ cwd: body.cwd }]));
+        sendJson(response, 200, { ok: true, ...made });
         return true;
       }
       if (workspaceMatch[2] === "rename") await client.renameWorkspace(workspaceId, body.label);
