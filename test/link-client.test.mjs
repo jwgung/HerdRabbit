@@ -55,7 +55,7 @@ function peerHerdr(calls, snapshotOverrides = {}) {
     async createWorkspace(label, sessionId) { calls.push(["createWorkspace", label, sessionId]); },
     async renameWorkspace(id, label) { calls.push(["renameWorkspace", id, label]); },
     async closeWorkspace(id) { calls.push(["closeWorkspace", id]); },
-    async createTab(id) { calls.push(["createTab", id]); },
+    async createTab(id) { calls.push(["createTab", id]); return { tab_id: `${id}:t9`, pane_id: `${id}:p9` }; },
     async renameTab(id, label) { calls.push(["renameTab", id, label]); },
     async closeTab(id) { calls.push(["closeTab", id]); },
   };
@@ -239,6 +239,24 @@ test("project and tab changes reach the connected PC with the prefix taken off",
   sawCall(["closeTab", `${SESSION}~wB:t1`]);
   await herdr.closeWorkspace(`${LINK_ID}!${SESSION}~wB`);
   sawCall(["closeWorkspace", `${SESSION}~wB`]);
+});
+
+test("a connected PC's new tab comes back with its ids, prefixed like its snapshot", async (context) => {
+  const { address } = await startLinkedPeer(context);
+  const { herdr } = hubFor(address);
+  await settled(herdr);
+  assert.deepEqual(await herdr.createTab(`${LINK_ID}!${SESSION}~wB`), {
+    tab_id: `${LINK_ID}!${SESSION}~wB:t9`, pane_id: `${LINK_ID}!${SESSION}~wB:p9`,
+  });
+});
+
+test("a connected PC that does not name its new tab gives the hub no ids to trust", async (context) => {
+  const herdr = peerHerdr([]);
+  herdr.createTab = async () => {};
+  const { address } = await startLinkedPeer(context, { herdr });
+  const hub = hubFor(address);
+  await settled(hub.herdr);
+  assert.equal(await hub.herdr.createTab(`${LINK_ID}!${SESSION}~wB`), null);
 });
 
 test("a change the connected PC refuses arrives as the connected PC's own complaint", async (context) => {

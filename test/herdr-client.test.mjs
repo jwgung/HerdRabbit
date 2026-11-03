@@ -250,6 +250,26 @@ test("creates and closes shell workspaces and tabs without changing Herdr focus"
   ]);
 });
 
+test("a new tab's ids come from Herdr's own answer, and none from an answer that names none", async () => {
+  const made = {
+    stdout: JSON.stringify({
+      id: "cli:tab:create",
+      result: {
+        type: "tab_created",
+        tab: { tab_id: "w12:t4", workspace_id: "w12" },
+        root_pane: { pane_id: "w12:p7", tab_id: "w12:t4", workspace_id: "w12" },
+      },
+    }),
+    stderr: "",
+  };
+  const fake = recordingRunner([made, { stdout: "", stderr: "" }, { stdout: "created", stderr: "" }]);
+  const client = new HerdrClient({ runner: fake.runner });
+
+  assert.deepEqual(await client.createTab("w12"), { tab_id: "w12:t4", pane_id: "w12:p7" });
+  assert.equal(await client.createTab("w12"), null);
+  assert.equal(await client.createTab("w12"), null);
+});
+
 test("rejects invalid pane ids, row counts, text and keys", async () => {
   const client = new HerdrClient({ runner: async () => assert.fail("runner must not execute") });
 

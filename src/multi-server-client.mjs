@@ -1,4 +1,4 @@
-import { HerdrCommandError, InputValidationError, mapMovedIds } from "./herdr-client.mjs";
+import { HerdrCommandError, InputValidationError, createdTab, mapMovedIds } from "./herdr-client.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported } from "./herdr-version.mjs";
 import { LinkClient } from "./link-client.mjs";
 import { LINK_PROTOCOL } from "./link-protocol.mjs";
@@ -163,9 +163,15 @@ export class MultiServerClient {
   // a connected PC answers for its own files over its Connect PC port. Local
   // is handled by the caller.
   fileClient(serverId) {
+    return this.#remoteClient(serverId);
+  }
+
+  // The link client of a connected PC still configured; null for this PC
+  // and for a PC no longer configured.
+  #remoteClient(serverId) {
     this.syncEntries();
     const entry = serverId === "local" ? null : this.entries.get(serverId);
-    return entry ? entry.client : null;
+    return entry?.client ?? null;
   }
 
   // A pane of a PC connected with Connect PC: { serverId, id, client }, where
@@ -205,17 +211,13 @@ export class MultiServerClient {
   // A connected PC's own update goes through its link; this PC's is the
   // caller's. Null for this PC and for a PC no longer configured.
   updateClient(serverId) {
-    this.syncEntries();
-    const entry = serverId === "local" ? null : this.entries.get(serverId);
-    return entry?.client ?? null;
+    return this.#remoteClient(serverId);
   }
 
   // Which agents a connected PC has is asked of that PC, over its link; this
   // PC's are the caller's. Null for this PC and for a PC no longer configured.
   agentsClient(serverId) {
-    this.syncEntries();
-    const entry = serverId === "local" ? null : this.entries.get(serverId);
-    return entry?.client ?? null;
+    return this.#remoteClient(serverId);
   }
 
   // Account routes address a server the same way: a connected PC switches its
@@ -326,7 +328,7 @@ export class MultiServerClient {
   }
   renameWorkspace(id, label) { return this.invoke("renameWorkspace", id, [label], true); }
   closeWorkspace(id) { return this.invoke("closeWorkspace", id, [], true); }
-  createTab(id) { return this.invoke("createTab", id, [], true); }
+  createTab(id) { return this.#createTab(id); }
   renameTab(id, label) { return this.invoke("renameTab", id, [label], true); }
   closeTab(id) { return this.invoke("closeTab", id, [], true); }
   moveTab(id, insertIndex) { return this.invoke("moveTab", id, [insertIndex], true); }
@@ -345,6 +347,13 @@ export class MultiServerClient {
       await this.refresh(entry);
     }
     return mapMovedIds(result, (id) => entry.profile.id === "local" ? id : `${entry.profile.id}!${id}`);
+  }
+  // The new tab's ids carry its machine's prefix, like the snapshot's.
+  async #createTab(workspaceId) {
+    const { entry } = this.target(workspaceId);
+    const made = await this.invoke("createTab", workspaceId, [], true);
+    const prefix = (id) => entry.profile.id === "local" ? id : `${entry.profile.id}!${id}`;
+    return made ? createdTab(prefix(made.tab_id), prefix(made.pane_id)) : null;
   }
   async createWorkspace(label, sessionId) {
     if (!sessionId) return this.local.createWorkspace(label);

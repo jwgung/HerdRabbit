@@ -3,6 +3,7 @@ import {
   HerdrClient,
   HerdrCommandError,
   InputValidationError,
+  createdTab,
   mapMovedIds,
   validation,
 } from "./herdr-client.mjs";
@@ -233,7 +234,8 @@ export class HerdrBridgeClient {
 
   async createTab(workspaceId) {
     const target = this.#targetForScopedId(workspaceId, validation.validateWorkspaceId);
-    return this.#clientForSession(target.sessionName).createTab(target.localId);
+    const made = await this.#clientForSession(target.sessionName).createTab(target.localId);
+    return made && createdTab(scopedId(target.sessionName, made.tab_id), scopedId(target.sessionName, made.pane_id));
   }
 
   async renameTab(tabId, label) {

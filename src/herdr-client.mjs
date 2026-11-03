@@ -330,6 +330,13 @@ function parseJson(text) {
   }
 }
 
+// The ids of a tab just made, or null when either is missing.
+export function createdTab(tabId, paneId) {
+  return typeof tabId === "string" && tabId && typeof paneId === "string" && paneId
+    ? { tab_id: tabId, pane_id: paneId }
+    : null;
+}
+
 function unwrapResult(payload) {
   return payload && typeof payload === "object" && "result" in payload
     ? payload.result
@@ -492,12 +499,18 @@ export class HerdrClient {
     });
   }
 
+  // The tab Herdr made and its first pane, from Herdr's own answer
+  // (`.result.tab` and `.result.root_pane`); null when the answer names
+  // neither, so a caller never has to guess which new tab is this one.
   async createTab(workspaceId) {
     const safeWorkspaceId = validateWorkspaceId(workspaceId);
-    return this.#run(
+    const stdout = await this.#run(
       ["tab", "create", "--workspace", safeWorkspaceId, "--no-focus"],
       { json: false },
     );
+    let result;
+    try { result = unwrapResult(JSON.parse(stdout)); } catch { return null; }
+    return createdTab(result?.tab?.tab_id, result?.root_pane?.pane_id);
   }
 
   async renameTab(tabId, label) {

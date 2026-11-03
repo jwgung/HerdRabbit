@@ -2,13 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
+import { AGENT_COMMANDS } from "../src/agent-launch.mjs";
 
 const LAB = "link_11111111-1111-1111-1111-111111111111";
 const OLD = "link_22222222-2222-2222-2222-222222222222";
 
 // A herdr that makes tabs the way the multi-server client reports them: a
-// connected PC's ids carry its prefix and its records name it.
-function fakeHerdr() {
+// connected PC's ids carry its prefix and its records name it. Its create
+// call names the tab it made, as Herdr's answer does; `answersIds: false`
+// is a Herdr or PC that does not say.
+function fakeHerdr({ answersIds = true } = {}) {
   const calls = [];
   const workspaces = [
     { workspace_id: "w1", label: "Platform" },
@@ -19,15 +22,21 @@ function fakeHerdr() {
   const panes = [{ pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1" }];
   return {
     calls,
+    // Another tab made in a project by someone else, between two snapshots.
+    addTab(workspaceId) {
+      const n = tabs.length + 1;
+      const prefix = `${workspaceId}:`;
+      tabs.push({ tab_id: `${prefix}t${n}`, workspace_id: workspaceId, label: String(n) });
+      panes.push({ pane_id: `${prefix}p${n}`, tab_id: `${prefix}t${n}`, workspace_id: workspaceId });
+      return { tab_id: `${prefix}t${n}`, pane_id: `${prefix}p${n}` };
+    },
     async snapshot() {
       return { workspaces: [...workspaces], tabs: tabs.map((tab) => ({ ...tab })), panes: [...panes], agents: [] };
     },
     async createTab(workspaceId) {
       calls.push(["createTab", workspaceId]);
-      const n = tabs.length + 1;
-      const prefix = `${workspaceId}:`;
-      tabs.push({ tab_id: `${prefix}t${n}`, workspace_id: workspaceId, label: String(n) });
-      panes.push({ pane_id: `${prefix}p${n}`, tab_id: `${prefix}t${n}`, workspace_id: workspaceId });
+      const made = this.addTab(workspaceId);
+      return answersIds ? made : null;
     },
     async renameTab(tabId, label) {
       calls.push(["renameTab", tabId, label]);
@@ -166,12 +175,68 @@ test("a name Herdr would refuse is refused before the session is made", async (c
 
 test("a session Herdr made but that cannot be found is reported, not typed into blindly", async (context) => {
   const herdr = fakeHerdr();
-  herdr.createTab = async (workspaceId) => { herdr.calls.push(["createTab", workspaceId]); };
+  herdr.createTab = async (workspaceId) => { herdr.calls.push(["createTab", workspaceId]); return null; };
   const app = await start(context, herdr);
   const response = await app.post(tabsOf("w1"), { agent: "claude", label: "Lost" });
   assert.equal(response.status, 502);
   assert.equal((await response.json()).error.code, "session_missing");
   assert.deepEqual(herdr.calls, [["createTab", "w1"]]);
+});
+
+test("the agent goes into the tab the create call named, even when another tab appeared meanwhile", async (context) => {
+  const herdr = fakeHerdr();
+  const create = herdr.createTab.bind(herdr);
+  // Someone else's tab lands first, so it is the first new one in the list.
+  herdr.createTab = async (workspaceId) => { herdr.addTab(workspaceId); return create(workspaceId); };
+  const app = await start(context, herdr);
+  const response = await app.post(tabsOf("w1"), { agent: "codex", label: "Mine" });
+  assert.equal(response.status, 201);
+  assert.equal((await response.json()).paneId, "w1:p3");
+  assert.deepEqual(herdr.calls, [
+    ["createTab", "w1"],
+    ["renameTab", "w1:t3", "Mine"],
+    ["sendText", "w1:p3", "codex", { submit: true }],
+  ]);
+});
+
+test("without ids from the create call, the one new tab is used", async (context) => {
+  const app = await start(context, fakeHerdr({ answersIds: false }));
+  const response = await app.post(tabsOf("w1"), { agent: "claude" });
+  assert.equal(response.status, 201);
+  assert.equal((await response.json()).paneId, "w1:p2");
+  assert.deepEqual(app.herdr.calls, [["createTab", "w1"], ["sendText", "w1:p2", "claude", { submit: true }]]);
+});
+
+test("without ids from the create call, two new tabs are not guessed between and nothing is typed", async (context) => {
+  const herdr = fakeHerdr({ answersIds: false });
+  const create = herdr.createTab.bind(herdr);
+  herdr.createTab = async (workspaceId) => { herdr.addTab(workspaceId); return create(workspaceId); };
+  const app = await start(context, herdr);
+  const response = await app.post(tabsOf("w1"), { agent: "claude", label: "Which" });
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).error.code, "session_missing");
+  assert.deepEqual(herdr.calls, [["createTab", "w1"]]);
+});
+
+test("every agent is started by exactly its command from the agent table", async (context) => {
+  const names = Object.keys(AGENT_COMMANDS);
+  const app = await start(context, fakeHerdr(), { installedAgents: { async list() { return names; } } });
+  for (const agent of names) {
+    assert.equal((await app.post(tabsOf("w1"), { agent })).status, 201, agent);
+  }
+  const typed = app.herdr.calls.filter(([name]) => name === "sendText");
+  assert.deepEqual(typed.map(([, , text, options]) => [text, options]), names.map((agent) => [AGENT_COMMANDS[agent], { submit: true }]));
+});
+
+test("a JSON null body is refused as bad input, not a server error", async (context) => {
+  const app = await start(context);
+  const response = await fetch(`${app.baseUrl}${tabsOf("w1")}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl },
+    body: "null",
+  });
+  assert.equal(response.status, 400);
+  assert.deepEqual(app.herdr.calls, []);
 });
 
 test("starting an agent needs the page's write token", async (context) => {

@@ -93,7 +93,10 @@ test("routes scoped workspace, tab and pane operations to their Herdr session", 
     },
     ok,
     renamed,
-    ok,
+    {
+      stdout: JSON.stringify({ result: { tab: { tab_id: "w2:t3" }, root_pane: { pane_id: "w2:p3" } } }),
+      stderr: "",
+    },
     renamed,
     ok,
     ok,
@@ -107,7 +110,7 @@ test("routes scoped workspace, tab and pane operations to their Herdr session", 
   await client.snapshot();
   await client.createWorkspace("새 프로젝트", sessionId);
   await client.renameWorkspace(`${sessionId}~w2`, "이름 변경");
-  await client.createTab(`${sessionId}~w2`);
+  assert.deepEqual(await client.createTab(`${sessionId}~w2`), { tab_id: `${sessionId}~w2:t3`, pane_id: `${sessionId}~w2:p3` });
   await client.renameTab(`${sessionId}~w2:t3`, "배포 확인");
   await client.closeTab(`${sessionId}~w2:t3`);
   await client.readPane(`${sessionId}~w2:p3`, { lines: 20 });
