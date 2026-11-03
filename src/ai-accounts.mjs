@@ -120,6 +120,18 @@ export class AiAccounts {
     return adapter.identify(adapter.locate(this.env)).catch(() => null);
   }
 
+  // Whose the live sign-in is, before it is replaced: one that is there but
+  // cannot be told (Kiro offline) is not taken for none, or the switch would
+  // overwrite it unsaved.
+  async #currentBeforeSwitch(adapter) {
+    try {
+      return await adapter.identify(adapter.locate(this.env));
+    } catch {
+      throw new AiAccountError("current_unknown",
+        `Could not tell which ${adapter.label} account is signed in now, so it was not replaced. Try again.`, { status: 503 });
+    }
+  }
+
   // Copies a sign-in -- the live one, or one just made in a sign-in directory --
   // into the slot that already holds the same account, so tokens the CLI has
   // since rotated replace the stale copy. A new slot that fails is removed.
@@ -266,7 +278,7 @@ export class AiAccounts {
         });
       }
 
-      const current = await this.#current(adapter);
+      const current = await this.#currentBeforeSwitch(adapter);
       if (current?.accountId === target.accountId) {
         return { cli: adapter.id, account: publicAccount(accountId, target, true), changed: false };
       }

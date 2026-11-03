@@ -436,6 +436,17 @@ test("a saved Kiro copy that cannot be read is not switched to", async (t) => {
   assert.match(kiroRows(kiro).token, /refresh-a1/u);
 });
 
+test("a Kiro sign-in that cannot be named is not overwritten by a switch", async (t) => {
+  const { accounts, directory, env, kiro } = await machine(t);
+  const { finished } = await signInElsewhere(accounts, "kiro", (location) =>
+    writeKiro(location, { email: "b@example.com", token: "b1", clientId: "client-b" }));
+  // a restarted server, offline, whose live account A was never saved
+  const offline = createKiroAdapter({ whoami: async () => { throw new Error("kiro-cli whoami did not answer"); } });
+  const restarted = new AiAccounts({ directory, env, adapters: [offline] });
+  await assert.rejects(restarted.switch("kiro", finished.account.id), { code: "current_unknown", status: 503 });
+  assert.match(kiroRows(kiro).token, /refresh-a1/u, "A is still signed in");
+});
+
 test("a running Kiro holds a switch until confirmed", async (t) => {
   const { accounts, kiro } = await machine(t, { running: [{ paneId: "w1:p4", agent: "kiro", label: "infra" }] });
   const { finished } = await signInElsewhere(accounts, "kiro", (location) =>
