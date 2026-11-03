@@ -311,7 +311,7 @@ export function createFiles({
     const list = [...(files || [])].filter((file) => file instanceof File);
     if (list.length === 0) return [];
     if (!state.selectedPaneId) {
-      report("Select a session first.", true);
+      report("Select a tab first.", true);
       return [];
     }
 
@@ -511,7 +511,7 @@ export function createFiles({
     if (!context) return;
     context.textContent = target === sessionServerId()
       ? `Stored on ${serverLabel(target)}, path inserted into the composer.`
-      : `Stored on ${serverLabel(target)}. The selected session runs elsewhere, so the path is not inserted.`;
+      : `Stored on ${serverLabel(target)}. The selected tab runs elsewhere, so the path is not inserted.`;
   }
 
   async function refreshUploadsList() {

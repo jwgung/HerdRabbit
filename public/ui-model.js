@@ -181,7 +181,7 @@ export function uploadSummary({ saved = [], failed = [], elsewhere = null } = {}
   if (saved.length > 0) {
     const what = saved.length === 1 ? saved[0] : `${saved.length} files`;
     parts.push(elsewhere
-      ? `Uploaded ${what} to ${elsewhere}. ${saved.length === 1 ? "The path was" : "The paths were"} not inserted: this session runs elsewhere.`
+      ? `Uploaded ${what} to ${elsewhere}. ${saved.length === 1 ? "The path was" : "The paths were"} not inserted: this tab runs elsewhere.`
       : `Uploaded ${what}.`);
   }
   if (failed.length > 0) {
@@ -658,7 +658,7 @@ export function navigationModel({
     return {
       kind: "session", id, record: session, status,
       tone: session.available === true ? "online" : session.running === true ? "error" : "stopped",
-      emptyText: session.available === true ? "No open projects" : status,
+      emptyText: session.available === true ? "No open workspaces" : status,
       workspaces: array(workspaces)
         .filter((workspace) => idOf(workspace, "herdr_session_id", "herdrSessionId") === id)
         .map(workspaceNode),
@@ -672,7 +672,7 @@ export function navigationModel({
     role: server.id === "local" ? "host"
       : !server.available ? (server.status === "Connecting" ? "connecting" : "offline") : null,
     emptyText: !server.available || !sessions.some((session) => session.server_id === server.id)
-      ? (server.available ? "No Herdr sessions. Start Herdr on this server." : server.status)
+      ? (server.available ? "No sessions. Start Herdr on this server." : server.status)
       : null,
     children: [],
   }));

@@ -108,7 +108,7 @@ export function createProjectDialog({
     state.createProjectSessionId = sessionSelect.value || state.createProjectSessionId;
     const label = elements.projectName.value.trim();
     if (!label) {
-      elements.projectName.setCustomValidity("Enter a project name.");
+      elements.projectName.setCustomValidity("Enter a workspace name.");
       elements.projectName.reportValidity();
       return;
     }
@@ -118,7 +118,7 @@ export function createProjectDialog({
     const submitButton = elements.projectCreateForm.querySelector('button[type="submit"]');
     const controls = [elements.projectName, sessionSelect, agentField, elements.projectDialogCancel, submitButton];
     for (const control of controls) control.disabled = true;
-    say(agent ? "Creating project and starting the agent…" : "Creating project…");
+    say(agent ? "Creating workspace and starting the agent…" : "Creating workspace…");
     const previousPaneIds = new Set(
       snapshotRecords().panes.map((pane) => idOf(pane, "pane_id", "id")),
     );

@@ -1439,14 +1439,14 @@ export function createHerdrHttpServer({
       }
     } catch (error) {
       if (error instanceof HttpError) throw error;
-      throw new HttpError(503, "sessions_unavailable", "Earlier sessions could not be read just now. Try again in a moment.");
+      throw new HttpError(503, "sessions_unavailable", "Earlier conversations could not be read just now. Try again in a moment.");
     }
     return Array.isArray(sessions) ? sessions : null;
   }
 
   function projectOf(snapshot, workspaceId) {
     const workspace = (snapshot.workspaces ?? []).find((item) => item.workspace_id === workspaceId);
-    if (!workspace) throw new HttpError(404, "unknown_workspace", "That project is no longer there.");
+    if (!workspace) throw new HttpError(404, "unknown_workspace", "That workspace is no longer there.");
     return workspace;
   }
 
@@ -1498,12 +1498,12 @@ export function createHerdrHttpServer({
     if (sessionId !== undefined) {
       const session = typeof sessionId === "string"
         ? (before.herdr_sessions ?? []).find((item) => item.session_id === sessionId) : null;
-      if (!session) throw new InputValidationError("Choose a running Herdr session");
+      if (!session) throw new InputValidationError("Choose a running session");
       serverId = session.server_id ?? LOCAL_SERVER;
     }
     await requireAgentOn(serverId, agent);
     if (serverId !== LOCAL_SERVER && !(await herdr.agentsClient?.(serverId)?.namesNewProjects?.())) {
-      throw new HttpError(501, "link_unsupported", "That PC is too old to start an agent in a new project from here; update it there.");
+      throw new HttpError(501, "link_unsupported", "That PC is too old to start an agent in a new workspace from here; update it there.");
     }
     const knownProjects = new Set((before.workspaces ?? []).map((item) => item.workspace_id));
     const made = await create();
@@ -1516,7 +1516,7 @@ export function createHerdrHttpServer({
   // The first pane of the project a create call named: a project new since
   // `knownProjects`, on `serverId`'s machine, with that tab and pane in it.
   function madeProjectPane(made, after, serverId, knownProjects) {
-    const projectPaneMissing = () => new HttpError(502, "project_pane_missing", "The project was made, but its first pane could not be found, so no agent was started. Start one from the project's ⋯ menu.");
+    const projectPaneMissing = () => new HttpError(502, "project_pane_missing", "The workspace was made, but its first pane could not be found, so no agent was started. Start one from the workspace's ⋯ menu.");
     const workspaceId = made?.workspace_id;
     const workspace = typeof workspaceId === "string" && !knownProjects.has(workspaceId)
       ? (after.workspaces ?? []).find((item) => item.workspace_id === workspaceId) : null;
@@ -1540,9 +1540,9 @@ export function createHerdrHttpServer({
     const agent = body.agent === undefined || body.agent === null || body.agent === "" ? null : body.agent;
     const resume = body.resume === undefined || body.resume === null || body.resume === "" ? null : body.resume;
     if (agent !== null && agentCommand(agent) === null) throw new InputValidationError("Unknown agent");
-    if (resume !== null && agent === null) throw new InputValidationError("Choose the agent of the session to resume");
+    if (resume !== null && agent === null) throw new InputValidationError("Choose the agent of the conversation to resume");
     const command = agent === null ? null : resume === null ? agentCommand(agent) : resumeCommand(agent, resume);
-    if (command === null && agent !== null) throw new InputValidationError("Invalid session id");
+    if (command === null && agent !== null) throw new InputValidationError("Invalid conversation id");
     const label = body.label === undefined || body.label === null || (typeof body.label === "string" && body.label.trim() === "")
       ? null : validation.validateTabLabel(body.label);
     if (agent === null && label === null) {
@@ -1558,10 +1558,10 @@ export function createHerdrHttpServer({
       folder = projectFolder(before, workspaceId);
       const listed = folder === null ? [] : await sessionsOn(serverId, agent, folder);
       if (listed === null) {
-        throw new HttpError(501, "link_unsupported", "That PC is too old to resume sessions from here; update it there.");
+        throw new HttpError(501, "link_unsupported", "That PC is too old to resume conversations from here; update it there.");
       }
       if (!listed.some((session) => session?.id === resume)) {
-        throw new HttpError(409, "session_not_found", "That session is no longer in this project's folder. Choose another, or start a new one.");
+        throw new HttpError(409, "session_not_found", "That conversation is no longer in this workspace's folder. Choose another, or start a new one.");
       }
     }
     const knownTabs = new Set((before.tabs ?? []).map((tab) => tab.tab_id));
@@ -1585,12 +1585,12 @@ export function createHerdrHttpServer({
       const tab = (after.tabs ?? []).find((item) => item.tab_id === made.tab_id);
       const pane = (after.panes ?? []).find((item) => item.pane_id === made.pane_id);
       if (tab?.workspace_id === workspaceId && pane?.tab_id === made.tab_id) return { tabId: made.tab_id, paneId: made.pane_id };
-      throw new HttpError(502, "session_missing", "The new session was made but could not be found. Refresh and try again.");
+      throw new HttpError(502, "session_missing", "The new tab was made but could not be found. Refresh and try again.");
     }
     const fresh = (after.tabs ?? []).filter((item) => item.workspace_id === workspaceId && !knownTabs.has(item.tab_id));
     const panes = fresh.length === 1 ? (after.panes ?? []).filter((item) => item.tab_id === fresh[0].tab_id) : [];
     if (panes.length !== 1) {
-      throw new HttpError(502, "session_missing", "The new session was made but could not be found. Refresh and try again.");
+      throw new HttpError(502, "session_missing", "The new tab was made but could not be found. Refresh and try again.");
     }
     return { tabId: fresh[0].tab_id, paneId: panes[0].pane_id };
   }
@@ -1608,13 +1608,13 @@ export function createHerdrHttpServer({
   // The command typed there names only the empty directory to sign in to.
   async function openLoginPane(serverId, herdrSessionId, login) {
     if (herdrSessionId !== undefined && typeof herdrSessionId !== "string") {
-      throw new InputValidationError("Invalid Herdr session id");
+      throw new InputValidationError("Invalid session id");
     }
     const remote = serverId !== LOCAL_SERVER;
     if (remote && !herdrSessionId?.startsWith(`${serverId}!`)) {
-      throw new InputValidationError("Choose a running Herdr session on that server");
+      throw new InputValidationError("Choose a running session on that server");
     }
-    if (!remote && herdrSessionId?.includes("!")) throw new InputValidationError("Invalid Herdr session id");
+    if (!remote && herdrSessionId?.includes("!")) throw new InputValidationError("Invalid session id");
     const label = `${AI_LOGIN_LABEL_PREFIX}${login.label} (${login.loginId.slice(6, 14)})`;
     await (herdrSessionId === undefined ? herdr.createWorkspace(label) : herdr.createWorkspace(label, herdrSessionId));
     const snapshot = await herdr.snapshot();

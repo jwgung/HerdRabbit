@@ -1,14 +1,14 @@
-// Browser check of dropping a session on a pane, against an in-process fake
-// herdr that keeps its own layout. A session of one pane of the same project
+// Browser check of dropping a tab on a pane, against an in-process fake
+// herdr that keeps its own layout. A tab of one pane of the same workspace
 // dragged from the sidebar onto a grid cell's edge shows the half it would
 // take and joins that pane's tab on that side (each of the four), then is
 // selected in the grid; the middle of a cell is no drop; the pane shown alone
-// is a target too; a gap in the list still reorders; a split session or one of
-// another machine shows no zones, nor does a connected PC's session over that
-// PC's own pane, nor another project's session over a Herdr grid; a refusal is
+// is a target too; a gap in the list still reorders; a split tab or one of
+// another machine shows no zones, nor does a connected PC's tab over that
+// PC's own pane, nor another workspace's tab over a Herdr grid; a refusal is
 // said; a pane moved that could not then be swapped to the left is followed
 // all the same and the miss is said; and a narrow screen has no zones at all.
-// Another project's session dropped on the pane alone makes this window's own
+// Another workspace's tab dropped on the pane alone makes this window's own
 // view split instead (each of the four sides): no move is asked, Herdr is
 // left as it was, the tiles sit where they were dropped, the selected tile
 // takes the typing, a sidebar row of a tile focuses it and another pane opens
@@ -308,7 +308,7 @@ try {
       const moved = herdrState.panes.find((pane) => pane.cwd === `/work/${{ left: "alpha", right: "beta", up: "eta", down: "theta" }[side]}`);
       await page.waitForFunction((id) => document.querySelector(`.pane-button[data-pane-id="${id}"]`)?.getAttribute("aria-pressed") === "true", moved.pane_id);
       await page.waitForFunction((id) => document.querySelector(`.pane-grid-cell[data-pane-id="${id}"]`)?.classList.contains("is-focused"), moved.pane_id);
-      assert.equal(await page.locator(tabRow(sourcePane)).count(), 0, `${side}: the session it came from is gone`);
+      assert.equal(await page.locator(tabRow(sourcePane)).count(), 0, `${side}: the tab it came from is gone`);
       assert.equal(await page.locator(".pane-drop-preview").count(), 0, "the preview leaves with the drag");
     }
     // The cells sit where Herdr put the moved panes: left of p2, then right of
@@ -341,14 +341,14 @@ try {
     target = await box(page, cell("w1:p1"));
     during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
     assert.ok(during.ghost);
-    assert.equal(during.preview, null, "a split session cannot join another");
+    assert.equal(during.preview, null, "a split tab cannot join another");
     await page.waitForTimeout(300);
     assert.equal(calls.length, before);
 
     // 5. Nor does another machine's session.
     source = await box(page, tabRow("laptop!w1:p1"));
     during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
-    assert.equal(during.preview, null, "another machine's session cannot join");
+    assert.equal(during.preview, null, "another machine's tab cannot join");
     await page.waitForTimeout(300);
     assert.equal(calls.length, before);
 
@@ -358,7 +358,7 @@ try {
     target = await box(page, cell("w1:p1"));
     during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
     assert.ok(during.ghost);
-    assert.equal(during.preview, null, "another project's session cannot join a grid");
+    assert.equal(during.preview, null, "another workspace's tab cannot join a grid");
     await page.waitForTimeout(300);
     assert.equal(calls.length, before);
     assert.equal(await page.locator(".pane-grid.is-view:not([hidden])").count(), 0, "no view split over a grid");
@@ -414,7 +414,7 @@ try {
     await page.waitForTimeout(300);
     assert.equal(calls.length, before);
 
-    // 9. Nor is a connected PC's pane split from here, even by its own sessions.
+    // 9. Nor is a connected PC's pane split from here, even by its own tabs.
     await page.locator(tabRow("laptop!w1:p2")).scrollIntoViewIfNeeded();
     source = await box(page, tabRow("laptop!w1:p2"));
     during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
@@ -494,9 +494,9 @@ try {
       } else {
         assert.ok(Math.abs(first.height - second.height) <= 3 && first.y < second.y && Math.abs(first.x - second.x) <= 1, `${side}: one over the other`);
       }
-      assert.equal(await page.locator(`${tile("w2:p1")} .pane-grid-context`).textContent(), "Docs", "a tile names its project");
+      assert.equal(await page.locator(`${tile("w2:p1")} .pane-grid-context`).textContent(), "Docs", "a tile names its workspace");
       assert.equal(await page.locator(`${tile("w1:p3")} .pane-grid-context`).textContent(), "Platform");
-      assert.equal(await page.locator(`${tile("w2:p1")} .pane-grid-label`).textContent(), "Gamma", "and its session");
+      assert.equal(await page.locator(`${tile("w2:p1")} .pane-grid-label`).textContent(), "Gamma", "and its tab");
       assert.equal(await page.locator(".pane-grid.is-view .pane-grid-menu").count(), 0, "no Herdr actions on a tile");
       assert.equal(await page.locator("#lens-switch").isVisible(), false, "no Chat lens in the tiles");
       // Close split view: the pane on screen shows alone, nothing else changes.
@@ -640,7 +640,7 @@ try {
     assert.equal(await page.locator('.pane-button[data-pane-id="w1:p3"]').getAttribute("aria-pressed"), "true", "the last tile shows alone");
     assert.equal(await page.locator("#view-back").isVisible(), false, "no view split is kept");
     assert.equal(await page.evaluate(() => sessionStorage.getItem("herdrbridge-view-split")), null);
-    assert.equal(await page.locator(tabRow("w2:p1")).count(), 1, "the removed pane is still a session");
+    assert.equal(await page.locator(tabRow("w2:p1")).count(), 1, "the removed pane is still a tab");
     assert.deepEqual(calls, [], "Herdr was asked nothing");
     assert.deepEqual(moveRequests, []);
     assert.deepEqual(errors, []);

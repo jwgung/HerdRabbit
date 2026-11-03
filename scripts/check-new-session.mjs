@@ -1,10 +1,10 @@
-// Browser check of New session with an agent. A project's ⋯ menu opens, as a
-// popover beside its button, "New session…"; the dialog offers a shell and the
-// agents installed on the project's machine (this one's, or a connected PC's
+// Browser check of New tab with an agent. A workspace's ⋯ menu opens, as a
+// popover beside its button, "New tab…"; the dialog offers a shell and the
+// agents installed on the workspace's machine (this one's, or a connected PC's
 // own answer), each a choice with its program's mark, and a name. Starting
 // one makes the tab, names it, types the agent's command into its pane and
 // selects it. An agent gone by the time Start is pressed is refused and said
-// so in the dialog. Choosing an agent with earlier sessions in the project's
+// so in the dialog. Choosing an agent with earlier conversations in the workspace's
 // folder offers them. There is no + at the top of the sidebar. Runs on a
 // desktop and a phone against an in-process fake herdr.
 //
@@ -29,7 +29,7 @@ const panes = [
 ];
 let calls = [];
 let localAgents = ["codex", "claude"];
-// Claude's one earlier session in Platform's folder, offered to resume.
+// Claude's one earlier conversation in Platform's folder, offered to resume.
 const EARLIER = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
 const agentSessions = {
   async list(agent, folder) {
@@ -104,7 +104,7 @@ try {
       await openSidebar();
       const summary = page.locator(`summary[aria-label="More actions for ${project}"]`);
       await summary.click();
-      const item = page.locator(".sidebar-action-item:visible", { hasText: "New session…" });
+      const item = page.locator(".sidebar-action-item:visible", { hasText: "New tab…" });
       await item.waitFor({ state: "visible" });
       return { summary, item };
     };
@@ -197,7 +197,7 @@ try {
     await dialog.waitFor({ state: "hidden" });
     localAgents = ["codex", "claude"];
 
-    // Claude in Platform's folder has an earlier session to resume; back to a
+    // Claude in Platform's folder has an earlier conversation to resume; back to a
     // shell, there is none to offer.
     await (await openDialog("Platform")).item.click();
     await dialog.waitFor({ state: "visible" });

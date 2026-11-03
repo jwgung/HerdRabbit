@@ -135,7 +135,7 @@ const UNAVAILABLE_TEXT = {
   not_supported_agent: `Chat is only for ${listOfNames(productNamesWith("chat"))} panes.`,
   unsupported_opencode_version: "Chat can't read this OpenCode version's conversations yet.",
   opencode_needs_newer_node: "Chat needs Node 22.5 or newer on this machine to read OpenCode conversations.",
-  no_session_id: "Chat appears once the agent reports its session.",
+  no_session_id: "Chat appears once the agent reports its conversation.",
   server_unavailable: "Chat is unavailable: the machine is not connected.",
   linked_pc_old: "Chat needs a newer HerdRabbit on that PC: update it there.",
   transcript_missing: "Chat is unavailable: the agent's conversation file was not found.",

@@ -70,7 +70,7 @@ export function createAccountDialogs({
       ...linkDetailRows(server),
       ["Herdr", herdrVersionText(server)],
       ["Status", server.available ? "Connected" : server.status || "Offline"],
-      ["Herdr sessions", String(sessions.length)],
+      ["Sessions", String(sessions.length)],
       ["Panes", String(panes.length)],
     ];
     const list = document.querySelector("#server-details");

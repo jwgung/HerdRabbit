@@ -1446,7 +1446,7 @@ test("pane swap and relocate routes need write authorization, a target, and pass
     async relocatePane(...args) {
       calls.push(["relocatePane", ...args]);
       return args[2] === "left"
-        ? { pane_id: "w1:p2", placed: false, restored: true, message: "no room. The pane was put back in its session." }
+        ? { pane_id: "w1:p2", placed: false, restored: true, message: "no room. The pane was put back in its tab." }
         : { pane_id: "w1:p2" };
     },
   };
@@ -1473,7 +1473,7 @@ test("pane swap and relocate routes need write authorization, a target, and pass
   // Not placed is still an answer: the page follows the pane and says why.
   const unplaced = await post("w1%3Ap2/relocate", { targetPaneId: "w1:p3", side: "left" });
   assert.equal(unplaced.status, 200);
-  assert.deepEqual(await unplaced.json(), { pane_id: "w1:p2", placed: false, restored: true, message: "no room. The pane was put back in its session." });
+  assert.deepEqual(await unplaced.json(), { pane_id: "w1:p2", placed: false, restored: true, message: "no room. The pane was put back in its tab." });
   assert.deepEqual(calls, [
     ["swapPanes", "w1:p2", "w1:p3"],
     ["swapPanes", "w1:p2", "w1:p9"],
@@ -1517,7 +1517,7 @@ test("a pane moves out of its split session with write authorization, with or wi
     async snapshot() { return { workspaces: [], tabs: [], panes: [] }; },
     async movePaneOut(paneId) {
       calls.push(paneId);
-      if (paneId === "w1:p9") throw new HerdrCommandError("That pane is already a session of its own.", { code: "split_session" });
+      if (paneId === "w1:p9") throw new HerdrCommandError("That pane is already a tab of its own.", { code: "split_session" });
       return { pane_id: "w1:p2", tab_id: "w1:t5" };
     },
   };
@@ -1572,7 +1572,7 @@ test("a split tab is evened out with write authorization, a layout it cannot eve
     async snapshot() { return { workspaces: [], tabs: [], panes: [] }; },
     async evenLayout(paneId) {
       calls.push(paneId);
-      if (paneId === "w1:p9") throw new HerdrCommandError("That session has only one pane.", { code: "split_session" });
+      if (paneId === "w1:p9") throw new HerdrCommandError("That tab has only one pane.", { code: "split_session" });
       if (paneId === "w1:p3") return { pane_id: paneId, changed: false, steps: 0, even: false, message: "This layout is not made of splits that can be evened out." };
       return { pane_id: paneId, changed: true, steps: 3, even: true };
     },

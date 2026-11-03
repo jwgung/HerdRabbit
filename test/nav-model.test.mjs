@@ -86,7 +86,7 @@ test("a session says whether it is running, failed to connect, or stopped, and w
     ],
   });
   const [up, failed, down] = next.children;
-  assert.deepEqual([up.status, up.tone, up.emptyText], ["Running", "online", "No open projects"]);
+  assert.deepEqual([up.status, up.tone, up.emptyText], ["Running", "online", "No open workspaces"]);
   assert.deepEqual([failed.status, failed.tone, failed.emptyText], ["Connection failed", "error", "Connection failed"]);
   assert.deepEqual([down.status, down.tone, down.emptyText], ["Stopped", "stopped", "Stopped"]);
 });
@@ -118,7 +118,7 @@ test("a machine says what it is and why it is empty", () => {
   assert.equal(byId.local.role, "host");
   assert.equal(byId.local.emptyText, null);
   assert.equal(byId.link_ok.role, null);
-  assert.equal(byId.link_ok.emptyText, "No Herdr sessions. Start Herdr on this server.");
+  assert.equal(byId.link_ok.emptyText, "No sessions. Start Herdr on this server.");
   assert.equal(byId.link_connecting.role, "connecting");
   assert.equal(byId.link_connecting.emptyText, "Connecting");
   assert.equal(byId.link_down.role, "offline");

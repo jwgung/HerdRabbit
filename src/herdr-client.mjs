@@ -56,7 +56,7 @@ function validateHerdrSessionName(sessionName) {
     Buffer.byteLength(sessionName, "utf8") > MAX_HERDR_SESSION_NAME_LENGTH ||
     /[\u0000-\u001f\u007f]/u.test(sessionName)
   ) {
-    throw new InputValidationError("Invalid Herdr session name");
+    throw new InputValidationError("Invalid session name");
   }
   return sessionName;
 }
@@ -101,7 +101,7 @@ function validateWorkspaceLabel(label) {
 }
 
 function validateTabLabel(label) {
-  return validateLabel(label, "Session");
+  return validateLabel(label, "Tab");
 }
 
 // A folder a new tab opens in (src/project-folder.mjs).
@@ -594,18 +594,18 @@ export class HerdrClient {
     const safeIndex = validateInsertIndex(insertIndex);
     const snapshot = await this.snapshot();
     const tab = (snapshot?.tabs ?? []).find((item) => item.tab_id === safeTabId);
-    if (!tab) throw new HerdrCommandError("That session is no longer open", { code: "tab_not_found" });
+    if (!tab) throw new HerdrCommandError("That tab is no longer open", { code: "tab_not_found" });
     if (tab.workspace_id === safeWorkspaceId) {
       await this.moveTab(safeTabId, safeIndex);
       return { tab_id: safeTabId, panes: [], reordered: true };
     }
     if (!(snapshot.workspaces ?? []).some((item) => item.workspace_id === safeWorkspaceId)) {
-      throw new HerdrCommandError("That project is no longer open", { code: "workspace_not_found" });
+      throw new HerdrCommandError("That workspace is no longer open", { code: "workspace_not_found" });
     }
     const paneIds = (snapshot.panes ?? []).filter((item) => item.tab_id === safeTabId).map((item) => validatePaneId(item.pane_id));
-    if (paneIds.length === 0) throw new HerdrCommandError("That session has no panes", { code: "tab_not_found" });
+    if (paneIds.length === 0) throw new HerdrCommandError("That tab has no panes", { code: "tab_not_found" });
     if (paneIds.length > 1) {
-      throw new HerdrCommandError("A split session can only be reordered within its project.", { code: "split_session" });
+      throw new HerdrCommandError("A split tab can only be reordered within its workspace.", { code: "split_session" });
     }
     const targetTabs = (snapshot.tabs ?? []).filter((item) => item.workspace_id === safeWorkspaceId).length;
     const label = carriedTabLabel(tab.label);
@@ -786,9 +786,9 @@ export class HerdrClient {
       this.#paneInfo(safePaneId), this.#paneInfo(safeTargetId), this.#tabLayout(safePaneId),
     ]);
     if (sourceTab.length > 1) {
-      throw new HerdrCommandError("Only a session of one pane can be moved next to another.", { code: "split_session" });
+      throw new HerdrCommandError("Only a tab of one pane can be moved next to another.", { code: "split_session" });
     }
-    if (source.tab_id === target.tab_id) throw new InputValidationError("That pane is already in this session");
+    if (source.tab_id === target.tab_id) throw new InputValidationError("That pane is already in this tab");
     const direction = safeSide === "left" || safeSide === "right" ? "right" : "down";
     const result = await this.#run([
       "pane", "move", safePaneId, "--tab", validateTabId(target.tab_id),
@@ -820,9 +820,9 @@ export class HerdrClient {
     // Only ids shaped like pane ids are ever handed back to Herdr.
     const paneIds = layout.panes.map((item) => item?.pane_id).filter((id) => typeof id === "string" && PANE_ID_PATTERN.test(id));
     if (!paneIds.includes(safePaneId) || !paneIds.includes(safeTargetId) || paneIds.length < 2) {
-      throw new InputValidationError("Those panes are not in the same session");
+      throw new InputValidationError("Those panes are not in the same tab");
     }
-    if (layout.zoomed === true) throw new InputValidationError("Unzoom the session before moving its panes");
+    if (layout.zoomed === true) throw new InputValidationError("Unzoom the tab before moving its panes");
     let { tab_id: tabId, workspace_id: workspaceId } = layout;
     if (typeof tabId !== "string" || typeof workspaceId !== "string") {
       ({ tab_id: tabId, workspace_id: workspaceId } = await this.#paneInfo(safePaneId));
@@ -895,14 +895,14 @@ export class HerdrClient {
             "pane", "move", liftedId, "--tab", tab.tabId, "--split", direction, "--target-pane", anchor, "--no-focus",
           ]));
           return { pane_id: back.paneId, placed: false, restored: true,
-            message: `${reason} The pane was put back in its session.` };
+            message: `${reason} The pane was put back in its tab.` };
         } catch {
           // The next neighbour, or the next way of splitting it.
         }
       }
     }
     return { pane_id: liftedId, placed: false, restored: false, ...(liftedTabId ? { tab_id: liftedTabId } : {}),
-      message: `${reason} The pane is in a session of its own now.` };
+      message: `${reason} The pane is in a tab of its own now.` };
   }
 
   // Takes a pane out of its split session into a session (Herdr tab) of its
@@ -913,7 +913,7 @@ export class HerdrClient {
     const safePaneId = validatePaneId(paneId);
     const tabPanes = await this.#tabLayout(safePaneId);
     if (tabPanes.length < 2) {
-      throw new HerdrCommandError("That pane is already a session of its own.", { code: "split_session" });
+      throw new HerdrCommandError("That pane is already a tab of its own.", { code: "split_session" });
     }
     const result = await this.#run(["pane", "move", safePaneId, "--new-tab", "--no-focus"]);
     const { paneId: moved, tabId } = movedPaneIds(result);
@@ -939,9 +939,9 @@ export class HerdrClient {
     };
     const original = await read();
     if (original.panes.length < 2) {
-      throw new HerdrCommandError("That session has only one pane.", { code: "split_session" });
+      throw new HerdrCommandError("That tab has only one pane.", { code: "split_session" });
     }
-    if (original.zoomed === true) throw new InputValidationError("Unzoom the session before evening out its panes");
+    if (original.zoomed === true) throw new InputValidationError("Unzoom the tab before evening out its panes");
     let steps = 0;
     // The layout as Herdr last answered it.
     let layout = original;

@@ -599,7 +599,7 @@ test("a relocate that cannot split back in puts the pane back in its tab, or say
     jsonReply({ move_result: { pane: { pane_id: "w1:p1", tab_id: "w1:t1" } } })]);
   assert.deepEqual(await new HerdrClient({ runner: restored.runner }).relocatePane("w1:p1", "w1:p3", "left"), {
     pane_id: "w1:p1", placed: false, restored: true,
-    message: "There is no room to split this pane. The pane was put back in its session.",
+    message: "There is no room to split this pane. The pane was put back in its tab.",
   });
   assert.deepEqual(restored.calls.at(-1).args, ["pane", "move", "w1:p1", "--tab", "w1:t1", "--split", "right", "--target-pane", "w1:p2", "--no-focus"]);
   assert.equal(restored.calls.filter((call) => call.args[1] === "swap").length, 0, "no swap after a failed placement");
@@ -613,7 +613,7 @@ test("a relocate that cannot split back in puts the pane back in its tab, or say
   const stranded = recordingRunner([tabLayout(["w1:p1", "w1:p2", "w1:p3"]), lifted, full(), full(), full(), full(), full()]);
   assert.deepEqual(await new HerdrClient({ runner: stranded.runner }).relocatePane("w1:p1", "w1:p3", "down"), {
     pane_id: "w1:p1", placed: false, restored: false, tab_id: "w1:t7",
-    message: "There is no room to split this pane. The pane is in a session of its own now.",
+    message: "There is no room to split this pane. The pane is in a tab of its own now.",
   });
   assert.equal(stranded.calls.length, 7, "the target and its one other neighbour, each right and down");
 });

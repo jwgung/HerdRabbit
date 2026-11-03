@@ -129,7 +129,7 @@ export function createSidebarRows(deps) {
     renderPaneHeading(selected.pane, selected.tab, selected.workspace);
     if (previousPaneId !== state.selectedPaneId) {
       showTerminalMessage(
-        state.selectedPaneId ? "Loading output…" : "No open sessions.",
+        state.selectedPaneId ? "Loading output…" : "No open tabs.",
       );
     }
     void refreshTerminal();
@@ -169,7 +169,7 @@ export function createSidebarRows(deps) {
     if (
       !tabId ||
       state.mutationBusy ||
-      !window.confirm(`Close session “${label}”? This will also stop any running processes.`)
+      !window.confirm(`Close tab “${label}”? This will also stop any running processes.`)
     ) return;
     state.mutationBusy = true;
     button.disabled = true;
@@ -198,7 +198,7 @@ export function createSidebarRows(deps) {
   async function closeProject(workspaceId, workspaceLabel, button) {
     if (
       state.mutationBusy ||
-      !window.confirm(`Close project “${workspaceLabel}”? This will close all of its sessions and stop any running processes.`)
+      !window.confirm(`Close workspace “${workspaceLabel}”? This will close all of its tabs and stop any running processes.`)
     ) return;
     state.mutationBusy = true;
     button.disabled = true;
@@ -323,9 +323,9 @@ export function createSidebarRows(deps) {
     if (editing) {
       heading.append(renameForm({
         value: workspaceLabel,
-        label: `${workspaceLabel} project name`,
+        label: `${workspaceLabel} workspace name`,
         maxLength: 120,
-        invalidMessage: "Enter a project name.",
+        invalidMessage: "Enter a workspace name.",
         onCancel: stopWorkspaceRename,
         onSubmit: async (label) => {
           await api(`/api/workspaces/${encodeURIComponent(workspaceId)}/rename`, {
@@ -361,7 +361,7 @@ export function createSidebarRows(deps) {
             },
           },
           {
-            label: "New session…",
+            label: "New tab…",
             paths: ["M12 5v14M5 12h14"],
             onSelect: () => openNewSession({
               workspaceId,
@@ -370,7 +370,7 @@ export function createSidebarRows(deps) {
             }),
           },
           {
-            label: "Close project",
+            label: "Close workspace",
             paths: ["M6 6l12 12M18 6 6 18"],
             danger: true,
             onSelect: (button) => void closeProject(
@@ -453,7 +453,7 @@ export function createSidebarRows(deps) {
     const paneId = idOf(pane, "pane_id", "id");
     const agent = agentForPane(paneId);
     const currentAgentStatus = visibleStatusForPane(paneId, agent, pane);
-    const workspaceLabel = displayRecordLabel(workspace, "Project");
+    const workspaceLabel = displayRecordLabel(workspace, "Workspace");
     const tabLabel = displayTabLabel(tab);
     const agentLabel = displayRecordLabel(agent, displayRecordLabel(pane, "Terminal"));
     // Once a session has a name, that name is what it is; the agent running in it

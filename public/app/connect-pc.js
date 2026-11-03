@@ -229,7 +229,7 @@ export function createConnectPc({ api, refreshSnapshot, panePreferenceStorage })
       verifiedServerSettings = tested;
       syncServerSubmitState();
       const reached = result.version ? `Connected to HerdRabbit ${result.version}.` : "Connected.";
-      serverFeedback.textContent = `${reached} ${result.sessions} Herdr sessions, ${result.panes} panes. You can save now.`;
+      serverFeedback.textContent = `${reached} ${result.sessions} sessions, ${result.panes} panes. You can save now.`;
     });
   });
   serverForm.addEventListener("submit", (event) => {
