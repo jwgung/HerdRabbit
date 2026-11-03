@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { answerBody, answerSummary, bannerText, cardVersion, composerPlaceholder, contextKey, contextVisible, dockMode, initialSelection, numberedChoice, optionLabel, shouldWatchPrompt } from "../public/chat/prompt-card.js";
-import { comparableText, formatElapsed, pendingMessage, settlePending, showsWorking, workingText } from "../public/chat/chat-activity.js";
+import { PENDING_MS, comparableText, formatElapsed, pendingMessage, settlePending, showsWorking, workingText } from "../public/chat/chat-activity.js";
 import {
   CHAT_FONT_SIZE_STORAGE_KEY, DEFAULT_CHAT_FONT_SIZE, MAX_CHAT_FONT_SIZE, MIN_CHAT_FONT_SIZE,
   adjustedChatFontSize, chatScale, pinchedChatFontSize, readChatFontSize, writeChatFontSize,
@@ -99,7 +99,7 @@ test("the working row shows while the agent works, or briefly after a send, neve
   assert.equal(workingText(null, now, "gemini"), "The agent is working");
 });
 
-test("a pending message waits until the transcript says it once more, or 30 s", () => {
+test("a pending message waits until the transcript says it once more, or a minute", () => {
   const user = (text) => ({ role: "user", parts: [{ kind: "text", text }] });
   const turns = [user("run the tests"), { role: "assistant", parts: [] }];
   const now = 5_000;
@@ -109,7 +109,7 @@ test("a pending message waits until the transcript says it once more, or 30 s", 
   assert.equal(comparableText(" a\n b "), "a b");
   assert.deepEqual(settlePending([again], turns, now + 10), [again]);
   assert.deepEqual(settlePending([again], [...turns, user("run the tests")], now + 10), []);
-  assert.deepEqual(settlePending([again], turns, now + 30_001), []);
+  assert.deepEqual(settlePending([again], turns, now + PENDING_MS + 1), []);
 });
 
 test("the chat's text size is its own, remembered and bounded", () => {

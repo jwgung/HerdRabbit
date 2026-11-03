@@ -25,9 +25,11 @@ const transcript = join(project, `${SESSION}.jsonl`);
 
 const jsonl = (entries) => `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
 const at = (n, seconds = 0) => new Date(Date.UTC(2026, 9, 1, 9, 0, 0) + n * 60_000 + seconds * 1000).toISOString();
+// A user message long enough to fold to its first 12 lines.
+const LONG_PROMPT = Array.from({ length: 20 }, (_, n) => `long prompt line ${n + 1}`).join("\n");
 // One exchange: a prompt, a command the agent ran, its output, and an answer.
 const exchange = (n) => [
-  { type: "user", uuid: `u${n}`, parentUuid: null, timestamp: at(n), message: { role: "user", content: `prompt ${n}` } },
+  { type: "user", uuid: `u${n}`, parentUuid: null, timestamp: at(n), message: { role: "user", content: n === 68 ? LONG_PROMPT : `prompt ${n}` } },
   { type: "assistant", timestamp: at(n, 2), message: { role: "assistant", stop_reason: "tool_use", content: [
     { type: "text", text: `Looking at step ${n}.` },
     { type: "tool_use", id: `toolu_${n}`, name: "Bash", input: { command: `ls step-${n}`, description: "List the step" } },
@@ -188,6 +190,27 @@ try {
     assert.match(await answer.textContent(), /<script>alert\(1\)<\/script>/u);
     assert.equal(await answer.locator(".md-code pre").first().textContent(), "console.log(69);");
     assert.equal(await answer.locator('.md-file[data-path="/tmp/notes.md"]').count(), 1, "a path the viewer opens is a link");
+    // A long user message folds to 12 lines behind "Show all", and opens and folds again.
+    const long = chat.locator(".chat-bubble.is-capped").filter({ hasText: "long prompt line 1" });
+    assert.equal(await chat.locator(".chat-bubble.is-capped").count(), 1, "only the long message folds");
+    const foldState = () => long.evaluate((bubble) => {
+      const body = bubble.querySelector(".markdown");
+      const button = bubble.querySelector(".chat-bubble-more");
+      const line = parseFloat(getComputedStyle(body).lineHeight);
+      return { clipped: body.scrollHeight > body.clientHeight + 1, lines: Math.round(body.clientHeight / line),
+        label: button.textContent, expanded: button.getAttribute("aria-expanded"), height: button.getBoundingClientRect().height };
+    });
+    const shut = await foldState();
+    assert.deepEqual({ clipped: shut.clipped, lines: shut.lines, label: shut.label, expanded: shut.expanded },
+      { clipped: true, lines: 12, label: "Show all", expanded: "false" }, "folded to 12 lines");
+    assert.ok(shut.height >= 44, `Show all is a 44px target: ${shut.height}`);
+    await long.locator(".chat-bubble-more").click();
+    const opened = await foldState();
+    assert.deepEqual({ clipped: opened.clipped, label: opened.label, expanded: opened.expanded },
+      { clipped: false, label: "Show less", expanded: "true" }, "Show all shows every line");
+    await long.locator(".chat-bubble-more").click();
+    assert.equal((await foldState()).clipped, true, "Show less folds it again");
+
     // Work is folded under one header, and a row opens to the call and its output.
     const block = answer.locator(".work-block");
     assert.match(await block.locator(".work-block-head").textContent(), /Worked for 7s.*1 command/u);
@@ -334,9 +357,32 @@ try {
     await settle(300);
     assert.deepEqual(typesSince(returnFrom, ["attach"]), ["attach"], "back in Terminal it attaches again");
     await shows("ready terminal");
+
+    // A message the transcript does not take: dimmed at once, a clock after
+    // 5 s, gone after a minute.
+    await page.locator("#lens-chat").click();
+    await page.locator("#terminal-input").fill("waiting for the transcript");
+    await page.locator(".send-button").click();
+    await settle(300);
+    const waiting = () => page.evaluate(() => {
+      const bubble = [...document.querySelectorAll('.chat-pane[data-pane-id="w1:p1"] .chat-turn-user.is-pending')]
+        .find((item) => item.textContent.includes("waiting for the transcript"));
+      return bubble ? { clock: Boolean(bubble.querySelector(".chat-pending-clock")), opacity: Number(getComputedStyle(bubble.querySelector(".chat-bubble")).opacity) } : null;
+    });
+    const sent = await waiting();
+    assert.ok(sent && !sent.clock && sent.opacity < 1, `dimmed, no clock yet: ${JSON.stringify(sent)}`);
+    await page.clock.fastForward(5_000);
+    await settle(300);
+    assert.equal((await waiting())?.clock, true, "a clock after 5 s");
+    await page.clock.fastForward(50_000);
+    await settle(300);
+    assert.notEqual(await waiting(), null, "still on its way before a minute");
+    await page.clock.fastForward(6_000);
+    await settle(300);
+    assert.equal(await waiting(), null, "gone after a minute");
     assert.deepEqual(errors, []);
     console.log({ mobile, defaultLens: true, noReattachOnSwitch: true, fitOnce: true, draftKept: true, scrollKept: true, shortcut: true,
-      olderPages: true, liveUpdate: true, send: true, unavailable: true, remembered: true, parked: true });
+      olderPages: true, liveUpdate: true, send: true, unavailable: true, remembered: true, parked: true, longFolded: true, pendingClock: true });
     await context.close();
     // the next round reads the transcript as written by the first
     await writeFile(transcript, jsonl(Array.from({ length: 70 }, (_, n) => exchange(n)).flat()));

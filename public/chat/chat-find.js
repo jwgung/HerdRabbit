@@ -27,7 +27,7 @@ const BLOCK_CLASSES = ["chat-file-name", "chat-file-folder"];
 // The page's own furniture, not the conversation: copy and fold buttons, a
 // code block's language, words only a screen reader hears.
 const SKIPPED_CLASSES = ["chat-copy", "md-code-copy", "md-code-more", "md-code-head", "chat-tool-more",
-  "chat-link-button", "sr-only", "work-caret"];
+  "chat-bubble-more", "chat-link-button", "sr-only", "work-caret"];
 
 const TEXT_NODE = 3;
 const ELEMENT_NODE = 1;
@@ -228,8 +228,8 @@ export function createChatFind({
     return node ?? null;
   }
 
-  // Unfolds what hides the current match (a folded code block, a shut
-  // notice), then scrolls it to the middle of the view.
+  // Unfolds what hides the current match (a folded code block or user
+  // message, a shut notice), then scrolls it to the middle of the view.
   function reveal() {
     const first = matches[index]?.[0];
     if (!first) return;
@@ -237,6 +237,9 @@ export function createChatFind({
       if (String(node.tagName).toUpperCase() === "DETAILS" && !node.open) node.open = true;
       if (node.classList?.contains("md-code") && node.classList.contains("is-folded") && !node.classList.contains("is-expanded")) {
         Array.from(node.childNodes).find((child) => child.getAttribute?.("data-action") === "unfold-code")?.click?.();
+      }
+      if (node.classList?.contains("chat-bubble") && node.classList.contains("is-capped") && !node.classList.contains("is-expanded")) {
+        Array.from(node.childNodes).find((child) => child.getAttribute?.("data-action") === "unfold-message")?.click?.();
       }
     }
     first.scrollIntoView?.({ block: "center", inline: "nearest" });
