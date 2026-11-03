@@ -1460,5 +1460,6 @@ export function createFiles({
     speechStop,
     syncAttachAvailability,
     viewFile,
+    viewTicket,
   };
 }

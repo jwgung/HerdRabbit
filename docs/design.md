@@ -187,6 +187,7 @@ JS에서만 쓰는 기준도 같은 값을 따른다(`public/app.js`): `(min-wid
 - 메뉴: 폰과 데스크톱 모두 단추 옆 팝오버(`--radius-panel`, `--shadow-popover`, `--layer-popover`)로 연다. 메뉴는 항목이 몇 개뿐이라, 화면 아래 시트로 열면 단추와 너무 떨어진다(UI-4에서 시도했다가 되돌림). 터치에서는 항목이 44px 높이다.
 - 위험한 항목은 `is-danger`로 표시하고 맨 아래에 둔다.
 - 대화상자는 `dialog.app-dialog`와 `.dialog-form`을 쓴다. 앱의 대화상자는 제출을 JS로 처리하고, `form method="dialog"`는 `public/ui` 예제의 방식이다. 주 동작 버튼은 오른쪽 끝, 취소·닫기는 맨 왼쪽, 그 밖의 보조 동작은 사이다(Connect PC: Close · Test connection · Save).
+- 채팅 그림 보기(`dialog.image-viewer`, `public/chat/image-viewer.js`)는 예외다. 그림이 주인공인 전체 화면이라 `app-dialog`를 쓰지 않고, 두 테마 모두 터미널 바탕(`--terminal-bg`, `--terminal-text`) 위에 44×44px 단추를 둔다. top layer라 z-index가 없고, 그림 위 양옆 단추만 `--layer-raised`다.
 - 클래스와 마크업은 `public/ui/README.md`의 HTML 인터페이스를 따른다.
 
 ## 움직임

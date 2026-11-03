@@ -1063,6 +1063,8 @@ const chatPanel = createChatPanel({
   syncSendButton: (...args) => syncSendButton(...args),
   refreshTerminal: (...args) => refreshTerminal(...args),
   refreshAfterSubmission: (...args) => refreshAfterSubmission(...args),
+  selectedRecordsFor: (...args) => selectedRecordsFor(...args),
+  viewTicket: (...args) => viewTicket(...args),
 });
 const { chatLens, syncTerminalFind, applyChatFontSize, overChat, showTerminalView } = chatPanel;
 promptDock = chatPanel.promptDock;
@@ -1173,6 +1175,7 @@ const {
   speechStop,
   syncAttachAvailability,
   viewFile,
+  viewTicket,
 } = createFiles({
   state,
   elements,
