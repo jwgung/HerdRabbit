@@ -544,7 +544,7 @@ Switch between light and dark mode in ⚙ Settings → Appearance. Adjust termin
 | `HERDR_WEB_MAX_TRANSFER_MB` | unset (no limit) | Largest single upload or download, in megabytes (a positive integer). Unset means no limit; on a shared or low-disk host, setting one is a good idea. |
 | `HERDR_WEB_AUTH_FILE` | `~/.config/herdr-bridge/auth.json` | Password hash and signing-secret file |
 | `HERDR_WEB_PUSH_FILE` | `~/.config/herdr-bridge/push.json` | VAPID keys and browser Push subscriptions |
-| `HERDR_WEB_AI_ACCOUNTS_DIR` | `~/.config/herdr-bridge/ai-accounts` | Saved Claude Code and Codex sign-ins |
+| `HERDR_WEB_AI_ACCOUNTS_DIR` | `~/.config/herdr-bridge/ai-accounts` | Saved AI CLI sign-ins (Claude Code, Codex, Antigravity CLI, Kiro CLI) |
 | `HERDR_WEB_PLUGIN_CONFIG_DIR`, `HERDR_WEB_PLUGIN_STATE_DIR` | set by the plugin runner | Herdr's plugin config and state folders (from `HERDR_PLUGIN_CONFIG_DIR` and `HERDR_PLUGIN_STATE_DIR`), which the plugin runner sets for the server; the in-app direct restart needs them. Not meant to be set by hand. |
 | `HERDR_BIN` | `herdr` | Herdr executable path |
 

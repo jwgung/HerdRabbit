@@ -577,7 +577,7 @@ iOS에서 PWA를 독립 실행 모드로 쓰면 내려받은 파일이 저장되
 | `HERDR_WEB_MAX_TRANSFER_MB` | 설정 안 함(제한 없음) | 업로드·다운로드 1건의 최대 크기(MB, 양의 정수). 설정하지 않으면 제한 없음. 여럿이 쓰거나 디스크가 넉넉하지 않은 호스트에서는 제한을 두는 것을 권장합니다 |
 | `HERDR_WEB_AUTH_FILE` | `~/.config/herdr-bridge/auth.json` | 비밀번호 해시와 세션 서명 키를 저장한 인증 파일 |
 | `HERDR_WEB_PUSH_FILE` | `~/.config/herdr-bridge/push.json` | VAPID 키와 브라우저 Push 구독을 저장한 파일 |
-| `HERDR_WEB_AI_ACCOUNTS_DIR` | `~/.config/herdr-bridge/ai-accounts` | 저장한 Claude Code·Codex 로그인 |
+| `HERDR_WEB_AI_ACCOUNTS_DIR` | `~/.config/herdr-bridge/ai-accounts` | 저장한 AI CLI 로그인(Claude Code·Codex·Antigravity CLI·Kiro CLI) |
 | `HERDR_WEB_PLUGIN_CONFIG_DIR`, `HERDR_WEB_PLUGIN_STATE_DIR` | 플러그인 러너가 설정 | Herdr의 플러그인 설정·상태 폴더(`HERDR_PLUGIN_CONFIG_DIR`, `HERDR_PLUGIN_STATE_DIR`)로, 플러그인 러너가 서버에 설정합니다. 앱 안의 직접 재시작에 필요합니다. 직접 설정하는 값이 아닙니다. |
 | `HERDR_BIN` | `herdr` | 사용할 Herdr 실행 파일 경로 |
 
