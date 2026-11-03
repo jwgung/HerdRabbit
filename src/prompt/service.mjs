@@ -1,9 +1,10 @@
 // A pane's prompt card: read off its screen (any status for Claude, Codex, Kiro
-// and OpenCode panes, whose readers insist on the menu itself being on screen; the
-// generic fallback, the only card an Antigravity (agy) pane gets, only while
-// herdr reports the agent blocked), answered by keys sent to the pane, and announced to the pages that
-// watch the pane when it appears, changes or goes. An OpenCode pane has a card
-// only while it runs a version its reader was checked against (SUPPORTED_OPENCODE_TUI).
+// and OpenCode panes, whose readers insist on the menu itself being on screen;
+// the generic fallback, the only card an Antigravity (agy) pane gets, only
+// while herdr reports the agent blocked), answered by keys sent to the pane,
+// and announced to the pages that watch the pane when it appears, changes or
+// goes. An OpenCode pane has a card only while it runs a version its reader was
+// checked against (SUPPORTED_OPENCODE_TUI).
 //
 // The answer flow follows herdr-web-ui's (MIT, Copyright (c) 2026 devswha,
 // https://github.com/devswha/herdr-web-ui, server/prompt.ts): the screen is
