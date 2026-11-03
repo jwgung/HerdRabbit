@@ -20,7 +20,7 @@ export function createPluginBrowse({ api, installed, locked, install }) {
   const more = document.querySelector("#plugins-more");
 
   const state = {
-    started: false, loading: false, items: [], total: 0, answer: null, query: "", sort: "popular",
+    started: false, loading: false, items: [], total: 0, query: "", sort: "popular",
     generation: 0, timer: null,
   };
 
@@ -99,7 +99,6 @@ export function createPluginBrowse({ api, installed, locked, install }) {
       const items = Array.isArray(answer.items) ? answer.items : [];
       state.items = append ? [...state.items, ...items] : items;
       state.total = Number(answer.total) || 0;
-      state.answer = answer;
       state.loading = false;
       setStatus(marketplaceSummary(answer, state.query), Boolean(answer.stale));
     } catch (error) {
