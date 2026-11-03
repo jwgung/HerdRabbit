@@ -1438,14 +1438,26 @@ export function createHerdrHttpServer({
       }
     }
     const knownTabs = new Set((before.tabs ?? []).map((tab) => tab.tab_id));
-    await herdr.createTab(workspaceId);
+    const made = await herdr.createTab(workspaceId);
     const after = await herdr.snapshot();
-    const tab = (after.tabs ?? []).find((item) => item.workspace_id === workspaceId && !knownTabs.has(item.tab_id));
-    const pane = tab && (after.panes ?? []).find((item) => item.tab_id === tab.tab_id);
-    if (!pane) throw new HttpError(502, "session_missing", "The new session was made but could not be found. Refresh and try again.");
-    if (label !== null) await herdr.renameTab(tab.tab_id, label);
-    if (command !== null) await herdr.sendText(pane.pane_id, command, { submit: true });
-    return { snapshot: label === null ? after : await herdr.snapshot(), paneId: pane.pane_id };
+    const { tabId, paneId } = madeTab(made, after, workspaceId, knownTabs);
+    if (label !== null) await herdr.renameTab(tabId, label);
+    if (command !== null) await herdr.sendText(paneId, command, { submit: true });
+    return { snapshot: label === null ? after : await herdr.snapshot(), paneId };
+  }
+
+  // The tab a create call made: the ids its answer names, or, from a Herdr or
+  // PC that names none, the one tab new in that project since. Two new tabs
+  // there (someone else made one meanwhile), or none, cannot be told apart,
+  // so nothing is typed into either.
+  function madeTab(made, after, workspaceId, knownTabs) {
+    if (made?.tab_id && made?.pane_id) return { tabId: made.tab_id, paneId: made.pane_id };
+    const fresh = (after.tabs ?? []).filter((item) => item.workspace_id === workspaceId && !knownTabs.has(item.tab_id));
+    const panes = fresh.length === 1 ? (after.panes ?? []).filter((item) => item.tab_id === fresh[0].tab_id) : [];
+    if (panes.length !== 1) {
+      throw new HttpError(502, "session_missing", "The new session was made but could not be found. Refresh and try again.");
+    }
+    return { tabId: fresh[0].tab_id, paneId: panes[0].pane_id };
   }
 
   function accountsSource(value) {

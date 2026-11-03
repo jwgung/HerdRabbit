@@ -75,7 +75,7 @@ async function sendFile(response, file) {
 // `updater` is this PC's own AppUpdater (src/app-update.mjs): a hub checks
 // for and starts an update of this PC through it, never naming anything.
 export function linkRoutes({
-  client, files = null, aiAccounts = null, agents = null, attach = null, conversations = null, slashCommands = null, updater = null, herdrUpdater = null, version, herdrVersion = () => null, serverName = "",
+  client, files = null, aiAccounts = null, installedAgents = null, attach = null, conversations = null, slashCommands = null, updater = null, herdrUpdater = null, version, herdrVersion = () => null, serverName = "",
   maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024, protectedPaths = defaultProtectedPaths(),
   maxStatusStreams = MAX_STATUS_STREAMS,
 }) {
@@ -98,7 +98,7 @@ export function linkRoutes({
         // Herdr's check rides on the update answer: without it there is none to ask
         ...(updater && herdrUpdater ? ["herdr_update"] : []),
         // Which agents a new session here can start (src/agent-launch.mjs).
-        ...(agents ? ["agents"] : []),
+        ...(installedAgents ? ["agents"] : []),
       ],
     };
   }
@@ -395,8 +395,8 @@ export function linkRoutes({
 
     // The agents installed on this machine, by name only. The hub types the
     // command itself, from its own table, into the session it makes here.
-    if (method === "GET" && url.pathname === "/api/link/agents" && agents) {
-      sendJson(response, 200, { agents: await agents.list() });
+    if (method === "GET" && url.pathname === "/api/link/agents" && installedAgents) {
+      sendJson(response, 200, { agents: await installedAgents.list() });
       return true;
     }
 
@@ -415,10 +415,14 @@ export function linkRoutes({
     if (method === "POST" && workspaceMatch) {
       const workspaceId = decodePaneId(workspaceMatch[1]);
       const body = await readJsonBody(request, maxBodyBytes);
+      if (workspaceMatch[2] === "tabs") {
+        // The new tab's ids go back, so the hub types only into this one.
+        sendJson(response, 200, { ok: true, ...(await client.createTab(workspaceId)) });
+        return true;
+      }
       if (workspaceMatch[2] === "rename") await client.renameWorkspace(workspaceId, body.label);
       else if (workspaceMatch[2] === "close") await client.closeWorkspace(workspaceId);
-      else if (workspaceMatch[2] === "move") await client.moveWorkspace(workspaceId, body.insertIndex);
-      else await client.createTab(workspaceId);
+      else await client.moveWorkspace(workspaceId, body.insertIndex);
       sendJson(response, 200, { ok: true });
       return true;
     }

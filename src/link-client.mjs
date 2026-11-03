@@ -1,5 +1,5 @@
 import { Readable, Transform, pipeline } from "node:stream";
-import { HerdrCommandError, TERMINAL_ID } from "./herdr-client.mjs";
+import { HerdrCommandError, TERMINAL_ID, createdTab } from "./herdr-client.mjs";
 import { validSize } from "./pane-attachments.mjs";
 import { FileAccessError, UNKNOWN_SIZE_STREAM_BYTES } from "./file-browser.mjs";
 import { LINK_PROTOCOL, ResponseTooLarge, checkLinkCompatibility, normalizeLinkSnapshot, readLimitedText } from "./link-protocol.mjs";
@@ -729,8 +729,10 @@ export class LinkClient {
     return this.#workspace(workspaceId, "close", {});
   }
 
+  // The new tab's ids, as the PC names them; null from a PC that does not say.
   async createTab(workspaceId) {
-    return this.#workspace(workspaceId, "tabs", {});
+    const answer = await this.#workspace(workspaceId, "tabs", {});
+    return createdTab(answer?.tab_id, answer?.pane_id);
   }
 
   async moveWorkspace(workspaceId, insertIndex) {
