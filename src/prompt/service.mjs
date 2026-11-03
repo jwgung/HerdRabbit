@@ -1,6 +1,7 @@
-// A pane's prompt card: read off its screen (any status for Claude, Codex and
-// OpenCode panes, whose readers insist on the menu itself being on screen; the generic
-// fallback only while herdr reports the agent blocked), answered by keys sent to the pane, and announced to the pages that
+// A pane's prompt card: read off its screen (any status for Claude, Codex, Kiro
+// and OpenCode panes, whose readers insist on the menu itself being on screen; the
+// generic fallback, the only card an Antigravity (agy) pane gets, only while
+// herdr reports the agent blocked), answered by keys sent to the pane, and announced to the pages that
 // watch the pane when it appears, changes or goes. An OpenCode pane has a card
 // only while it runs a version its reader was checked against (SUPPORTED_OPENCODE_TUI).
 //
@@ -184,7 +185,7 @@ export class PromptService {
   }
 
   // The card the pane shows now, with the reader's bookkeeping, or null. A
-  // Claude, Codex or OpenCode pane is read whatever its status, by its agent's reader;
+  // Claude, Codex, Kiro or OpenCode pane is read whatever its status, by its agent's reader;
   // any other pane only while herdr reports it blocked. The fallback card (any
   // agent) is for blocked panes only. A password prompt is never a card.
   // `fresh`: the version is asked now, not taken from the last few seconds
@@ -478,7 +479,7 @@ export class PromptService {
         if (agent) entry.missing = 0;
         if (agent && agent.status === "blocked") { entry.quiet = 0; reading.push({ entry, agent }); }
         else if (agent && readerName(agent)) {
-          // A Claude, Codex or OpenCode pane herdr does not call blocked may still wait
+          // A Claude, Codex, Kiro or OpenCode pane herdr does not call blocked may still wait
           // on a menu, so it is read too -- but less often while nothing has
           // shown: every tick, then every 2nd, then every 4th, until a card,
           // a status change or input (a nudge) brings it back to every tick.
