@@ -957,6 +957,69 @@ export function aiAccountsToSave(clis = []) {
   return clis.filter((cli) => cli.supported && cli.current && !cli.current.id).map((cli) => cli.id);
 }
 
+// The accounts a CLI's list shows: its saved ones, plus the live sign-in when
+// it could not be saved.
+export function aiAccountsListed(cli) {
+  const accounts = Array.isArray(cli?.accounts) ? [...cli.accounts] : [];
+  if (cli?.current && !accounts.some((account) => account.active)) accounts.unshift(cli.current);
+  return accounts;
+}
+
+// One tab per CLI in AI accounts. `installed` is the agents found on the
+// machine (GET /api/agents), or null when that is not known; a CLI with no
+// sign-in, no saved account and no open sign-in that is not installed there
+// has nothing to show and no tab. A CLI with anything here always has one.
+export function aiAccountTabs(clis = [], { installed = null } = {}) {
+  const found = Array.isArray(installed) ? new Set(installed) : null;
+  return (Array.isArray(clis) ? clis : []).flatMap((cli) => {
+    const accounts = aiAccountsListed(cli);
+    const logins = Array.isArray(cli.logins) ? cli.logins : [];
+    if (found && !found.has(cli.id) && accounts.length === 0 && logins.length === 0) return [];
+    return [{ id: cli.id, label: cli.label, count: accounts.length, inUse: accounts.some((account) => account.active), cli }];
+  });
+}
+
+// What a screen reader hears for a tab; the tab itself shows the mark, the
+// name, the count and a dot for the account in use.
+export function aiAccountTabLabel(tab) {
+  const count = tab.count === 0 ? "no accounts" : `${tab.count} account${tab.count === 1 ? "" : "s"}`;
+  return `${tab.label}, ${count}${tab.inUse ? ", one in use" : ""}`;
+}
+
+// Which tab opens first: the CLI holding the account a sign-in just saved,
+// else the one being signed in, else the one last chosen in this browser,
+// else the first.
+export function aiAccountsFirstTab(tabs = [], { highlight = null, signingIn = null, remembered = null } = {}) {
+  const has = (id) => tabs.some((tab) => tab.id === id);
+  const added = highlight ? tabs.find((tab) => aiAccountsListed(tab.cli).some((account) => account.id === highlight)) : null;
+  if (added) return added.id;
+  if (signingIn && has(signingIn)) return signingIn;
+  if (remembered && has(remembered)) return remembered;
+  return tabs[0]?.id ?? null;
+}
+
+export const AI_ACCOUNTS_TAB_KEY = "herdrbridge-ai-accounts-tab";
+const AI_CLI_ID = /^[a-z][a-z0-9-]{0,31}$/u;
+
+export function readAiAccountsTab(storage) {
+  try {
+    const value = storage?.getItem(AI_ACCOUNTS_TAB_KEY) ?? null;
+    return typeof value === "string" && AI_CLI_ID.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeAiAccountsTab(storage, id) {
+  if (!storage || typeof id !== "string" || !AI_CLI_ID.test(id)) return false;
+  try {
+    storage.setItem(AI_ACCOUNTS_TAB_KEY, id);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // A sign-in terminal opens in a running Herdr session of the server it is for.
 export function aiLoginSessionId(serverId, herdrSessions = []) {
   const session = herdrSessions.find((item) =>

@@ -4,7 +4,12 @@ import { readFile } from "node:fs/promises";
 import {
   AI_LOGIN_LABEL_PREFIX,
   aiAccountNotice,
+  aiAccountTabLabel,
+  aiAccountTabs,
+  aiAccountsFirstTab,
   aiAccountsToSave,
+  readAiAccountsTab,
+  writeAiAccountsTab,
   aiLoginSessionId,
   aiRestartHint,
   isAiLoginWorkspace,
@@ -171,4 +176,73 @@ test("a row showing In use is as tall as one holding a menu", async () => {
   const styles = await readFile(new URL("../public/styles.css", import.meta.url), "utf8");
   assert.match(styles, /\.ai-account-actions \{[^}]*min-height: 28px;/u);
   assert.match(styles, /\.workspace-action \{[^}]*height: 28px;/u);
+});
+
+const CLAUDE = { id: "claude", label: "Claude Code", supported: true, current: { id: "c2", email: "b@example.com", active: true },
+  accounts: [{ id: "c1", email: "a@example.com" }, { id: "c2", email: "b@example.com", active: true }], logins: [] };
+const CODEX = { id: "codex", label: "Codex", supported: true, current: null, accounts: [], logins: [] };
+const AGY = { id: "agy", label: "Antigravity CLI", supported: false, reason: "The keyring holds it.", current: null, accounts: [], logins: [] };
+const KIRO = { id: "kiro", label: "Kiro CLI", supported: true, current: null, accounts: [{ id: "k1", email: "k@example.com" }], logins: [] };
+
+test("a CLI gets a tab unless it has nothing here and is not installed", () => {
+  const ids = (tabs) => tabs.map((tab) => tab.id);
+  // Not knowing what is installed hides nothing.
+  assert.deepEqual(ids(aiAccountTabs([CLAUDE, CODEX, AGY, KIRO], { installed: null })), ["claude", "codex", "agy", "kiro"]);
+  // Codex and agy are not installed and have nothing; Kiro is not installed but has an account.
+  assert.deepEqual(ids(aiAccountTabs([CLAUDE, CODEX, AGY, KIRO], { installed: ["claude"] })), ["claude", "kiro"]);
+  assert.deepEqual(ids(aiAccountTabs([CLAUDE, CODEX, AGY, KIRO], { installed: ["claude", "codex", "agy"] })), ["claude", "codex", "agy", "kiro"]);
+  // Signed in without a saved copy, or a sign-in still open: shown.
+  const signedIn = { ...CODEX, current: { id: null, email: "x@example.com", active: true } };
+  const signingIn = { ...CODEX, id: "agy", logins: ["login_1"] };
+  assert.deepEqual(ids(aiAccountTabs([signedIn, signingIn], { installed: [] })), ["codex", "agy"]);
+  assert.deepEqual(aiAccountTabs(undefined, { installed: null }), []);
+});
+
+test("a tab says how many accounts are saved and whether one is in use", () => {
+  const [claude, codex, kiro] = aiAccountTabs([CLAUDE, CODEX, KIRO], { installed: null });
+  assert.deepEqual([claude.count, claude.inUse, claude.label], [2, true, "Claude Code"]);
+  assert.deepEqual([codex.count, codex.inUse], [0, false]);
+  assert.deepEqual([kiro.count, kiro.inUse], [1, false]);
+  assert.equal(claude.cli, CLAUDE);
+  assert.equal(aiAccountTabLabel(claude), "Claude Code, 2 accounts, one in use");
+  assert.equal(aiAccountTabLabel(codex), "Codex, no accounts");
+  assert.equal(aiAccountTabLabel(kiro), "Kiro CLI, 1 account");
+  // Signed in but not saved: listed in the tab as one, and in use.
+  const [unsaved] = aiAccountTabs([{ ...CODEX, current: { id: null, email: "x@example.com", active: true } }], { installed: null });
+  assert.deepEqual([unsaved.count, unsaved.inUse], [1, true]);
+});
+
+test("the first tab is the one being signed in or just added, then the last chosen, then the first", () => {
+  const tabs = aiAccountTabs([CLAUDE, CODEX, KIRO], { installed: null });
+  assert.equal(aiAccountsFirstTab(tabs, {}), "claude");
+  assert.equal(aiAccountsFirstTab(tabs, { remembered: "kiro" }), "kiro");
+  assert.equal(aiAccountsFirstTab(tabs, { remembered: "agy" }), "claude", "a remembered tab that is hidden is passed over");
+  assert.equal(aiAccountsFirstTab(tabs, { remembered: "kiro", signingIn: "codex" }), "codex");
+  assert.equal(aiAccountsFirstTab(tabs, { remembered: "claude", highlight: "k1" }), "kiro");
+  assert.equal(aiAccountsFirstTab(tabs, { highlight: "k1", signingIn: "codex" }), "kiro", "the account just added wins over an open wait");
+  assert.equal(aiAccountsFirstTab(tabs, { highlight: "nope", remembered: "codex" }), "codex");
+  assert.equal(aiAccountsFirstTab([], { remembered: "kiro" }), null);
+});
+
+test("the tab last chosen is kept in this browser", () => {
+  const kept = new Map();
+  const storage = { getItem: (key) => kept.get(key) ?? null, setItem: (key, value) => kept.set(key, value) };
+  assert.equal(readAiAccountsTab(storage), null);
+  assert.equal(writeAiAccountsTab(storage, "kiro"), true);
+  assert.equal(readAiAccountsTab(storage), "kiro");
+  assert.equal(writeAiAccountsTab(storage, "x".repeat(100)), false, "only a short CLI id is kept");
+  assert.equal(readAiAccountsTab(storage), "kiro");
+  const broken = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } };
+  assert.equal(readAiAccountsTab(broken), null);
+  assert.equal(writeAiAccountsTab(broken, "codex"), false);
+  assert.equal(readAiAccountsTab(null), null);
+});
+
+test("the dialog lists CLIs as ARIA tabs with the program marks", async () => {
+  const app = await readAppSource();
+  assert.match(app, /setAttribute\("role", "tablist"\)/u);
+  assert.match(app, /setAttribute\("role", "tab"\)/u);
+  assert.match(app, /setAttribute\("role", "tabpanel"\)/u);
+  assert.match(app, /agentMark\(tab\.id\)/u);
+  assert.match(app, /fetchInstalledAgents|\/api\/agents\?server=/u);
 });

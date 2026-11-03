@@ -1,10 +1,16 @@
 import {
   aiAccountNotice,
+  aiAccountTabLabel,
+  aiAccountTabs,
+  aiAccountsFirstTab,
+  aiAccountsListed,
   aiAccountsToSave,
   aiLoginSessionId,
   aiRestartHint,
   isAiLoginWorkspace,
+  readAiAccountsTab,
   sortAiAccounts,
+  writeAiAccountsTab,
 } from "../ui-model.js?v=1.4.23";
 import { array, createElement } from "./dom.js?v=1.4.23";
 
@@ -23,6 +29,7 @@ export function createAiAccounts({
   api,
   snapshotRecords,
   sidebarActionMenu,
+  agentMark,
   setFeedback,
   adoptMutationSnapshot,
   closeMobileSidebar,
@@ -35,7 +42,8 @@ export function createAiAccounts({
   const aiAccountsFeedback = document.querySelector("#ai-accounts-feedback");
   const aiAccountsLogin = document.querySelector("#ai-accounts-login");
   // highlight names the account a sign-in just saved, marked until the dialog closes.
-  const aiAccounts = { server: null, busy: false, highlight: null };
+  // tab is the CLI whose list is shown; it stays while the list is reloaded.
+  const aiAccounts = { server: null, busy: false, highlight: null, tab: null };
   // A sign-in outlives the dialog: it closes so the terminal can be used. The
   // sign-in directory gains its credential files the moment the CLI is signed in,
   // and finishing is what checks for them, so asking every few seconds saves the
@@ -110,34 +118,128 @@ export function createAiAccounts({
     return row;
   }
 
-  function renderAiAccounts(clis) {
+  // One tab per CLI, each wearing its program's mark, over the list of the one
+  // chosen. A tab is a WAI-ARIA tab: arrow keys, Home and End move between
+  // them and choose as they go, and only the chosen one is in the Tab order.
+  function renderAiAccounts(clis, installed) {
+    const tabs = aiAccountTabs(clis, { installed });
     aiAccountsList.replaceChildren();
-    for (const cli of clis) {
-      const section = createElement("section", { className: "ai-cli" });
-      section.append(createElement("h3", { text: cli.label }));
-      if (cli.reason) {
-        const note = createElement("p", { className: "dialog-feedback", text: cli.reason });
-        note.dataset.error = String(!cli.supported);
-        section.append(note);
-      }
-      const rows = createElement("ul", { className: "ai-account-rows" });
-      const accounts = array(cli.accounts);
-      // Saved on open, so this only shows when saving was not possible.
-      if (cli.current && !accounts.some((account) => account.active)) accounts.unshift(cli.current);
-      for (const account of sortAiAccounts(accounts)) rows.append(aiAccountRow(cli, account));
-      if (cli.supported) {
-        const add = createElement("li", { className: "ai-account-add-row" });
-        add.append(aiButton("+ Add account", () => void aiAccountsAction(() => startAiLogin(cli)), "ai-account-add"));
-        rows.append(add);
-      }
-      if (rows.children.length > 0) section.append(rows);
-      aiAccountsList.append(section);
+    if (tabs.length === 0) {
+      aiAccountsList.append(createElement("p", { className: "dialog-feedback",
+        text: "No AI CLI was found on this machine, and none has an account saved here. Install one there, then open AI accounts again." }));
+      return;
+    }
+    const pending = pendingAiLogins.get(aiAccounts.server.id);
+    if (!tabs.some((tab) => tab.id === aiAccounts.tab)) {
+      aiAccounts.tab = aiAccountsFirstTab(tabs, {
+        highlight: aiAccounts.highlight,
+        signingIn: pending?.cli,
+        remembered: readAiAccountsTab(localStorageOrNull()),
+      });
+    }
+    const tablist = createElement("div", { className: "ai-accounts-tabs" });
+    tablist.setAttribute("role", "tablist");
+    tablist.setAttribute("aria-label", "AI CLIs");
+    const buttons = [];
+    const panels = [];
+    const choose = (id, { focus = false } = {}) => {
+      aiAccounts.tab = id;
+      buttons.forEach((button, index) => {
+        const chosen = tabs[index].id === id;
+        button.setAttribute("aria-selected", String(chosen));
+        button.tabIndex = chosen ? 0 : -1;
+        panels[index].hidden = !chosen;
+        if (chosen) {
+          if (focus) button.focus();
+          button.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+        }
+      });
+    };
+    for (const tab of tabs) {
+      const button = createElement("button", { className: "ai-accounts-tab" });
+      button.type = "button";
+      button.id = `ai-accounts-tab-${tab.id}`;
+      button.dataset.cli = tab.id;
+      button.setAttribute("role", "tab");
+      button.setAttribute("aria-controls", `ai-accounts-panel-${tab.id}`);
+      button.setAttribute("aria-label", aiAccountTabLabel(tab));
+      button.append(agentMark(tab.id), createElement("span", { className: "ai-accounts-tab-name", text: tab.label }));
+      if (tab.count > 0) button.append(createElement("span", { className: "ui-badge ai-accounts-tab-count", text: String(tab.count) }));
+      if (tab.inUse) button.append(createElement("span", { className: "ai-accounts-tab-in-use" }));
+      button.addEventListener("click", () => {
+        choose(tab.id);
+        writeAiAccountsTab(localStorageOrNull(), tab.id);
+      });
+      buttons.push(button);
+      panels.push(aiAccountsPanel(tab));
+    }
+    tablist.addEventListener("keydown", (event) => {
+      const at = buttons.indexOf(event.target);
+      if (at < 0) return;
+      const last = buttons.length - 1;
+      const to = { ArrowRight: at === last ? 0 : at + 1, ArrowLeft: at === 0 ? last : at - 1, Home: 0, End: last }[event.key];
+      if (to === undefined) return;
+      event.preventDefault();
+      choose(tabs[to].id, { focus: true });
+      writeAiAccountsTab(localStorageOrNull(), tabs[to].id);
+    });
+    tablist.append(...buttons);
+    aiAccountsList.append(tablist, ...panels);
+    choose(aiAccounts.tab);
+  }
+
+  // A CLI's tab panel: why it cannot be switched, when it cannot, then its
+  // accounts and + Add account.
+  function aiAccountsPanel(tab) {
+    const { cli } = tab;
+    const panel = createElement("section", { className: "ai-cli" });
+    panel.id = `ai-accounts-panel-${tab.id}`;
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", `ai-accounts-tab-${tab.id}`);
+    if (cli.reason) {
+      const note = createElement("p", { className: "dialog-feedback ai-cli-reason", text: cli.reason });
+      note.dataset.error = String(!cli.supported);
+      panel.append(note);
+    }
+    const rows = createElement("ul", { className: "ai-account-rows" });
+    // Saved on open, so the live sign-in is only listed apart when saving was not possible.
+    for (const account of sortAiAccounts(aiAccountsListed(cli))) rows.append(aiAccountRow(cli, account));
+    if (cli.supported) {
+      const add = createElement("li", { className: "ai-account-add-row" });
+      add.append(aiButton("+ Add account", () => void aiAccountsAction(() => startAiLogin(cli)), "ai-account-add"));
+      rows.append(add);
+    }
+    if (rows.children.length > 0) panel.append(rows);
+    else if (!cli.reason) panel.append(createElement("p", { className: "dialog-feedback", text: "No accounts are saved for this CLI." }));
+    // Tab from the tab reaches the panel's first control; a panel with none
+    // takes the focus itself, so its note can still be reached.
+    if (!panel.querySelector("button, summary")) panel.tabIndex = 0;
+    return panel;
+  }
+
+  function localStorageOrNull() {
+    try {
+      return window.localStorage;
+    } catch {
+      return null;
+    }
+  }
+
+  // The agents installed on the machine, or null when it cannot say (a PC on
+  // an older HerdRabbit, or the question failed), which hides no CLI.
+  async function fetchInstalledAgents(server) {
+    try {
+      const answer = await api(`/api/agents?server=${encodeURIComponent(server.id)}`);
+      return answer.supported === false || !Array.isArray(answer.agents) ? null : answer.agents;
+    } catch {
+      return null;
     }
   }
 
   async function loadAiAccounts() {
     const server = aiAccounts.server;
     const list = () => api(`/api/ai-accounts?server=${encodeURIComponent(server.id)}`);
+    const installed = fetchInstalledAgents(server);
     let payload = await list();
     const unsaved = aiAccountsToSave(array(payload.clis));
     if (unsaved.length > 0) {
@@ -148,7 +250,7 @@ export function createAiAccounts({
     }
     settleAiLogins(server, array(payload.clis));
     renderAiLogin();
-    renderAiAccounts(array(payload.clis));
+    renderAiAccounts(array(payload.clis), await installed);
     setAiAccountsFeedback("");
   }
 
@@ -244,6 +346,7 @@ export function createAiAccounts({
           (aiAccountsDialog.open && aiAccounts.server?.id !== server.id);
         if (elsewhere) return;
         aiAccounts.highlight = payload.account.id;
+        aiAccounts.tab = null;
         if (aiAccountsDialog.open) await aiAccountsAction(loadAiAccounts);
         else await showAiAccounts(snapshotRecords().servers.find((item) => item.id === server.id) ?? server);
         if (aiAccountsFeedback.dataset.error !== "true") setAiAccountsFeedback(saved);
@@ -257,6 +360,7 @@ export function createAiAccounts({
 
   function showAiAccounts(server) {
     aiAccounts.server = server;
+    aiAccounts.tab = null;
     aiAccountsList.replaceChildren();
     document.querySelector("#ai-accounts-title").textContent = `AI accounts · ${server.name}`;
     renderAiLogin();
