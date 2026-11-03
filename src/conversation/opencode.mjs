@@ -93,6 +93,9 @@ export const STATEMENTS = Object.freeze({
   sessionVersion: "SELECT version FROM session WHERE id = ?",
   newestInDirectory: "SELECT id FROM session WHERE directory = ? AND parent_id IS NULL AND time_archived IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1",
   newestInDirectoryAny: "SELECT id FROM session WHERE directory = ? AND parent_id IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1",
+  // a folder's top-level sessions, newest first: what a resume list shows
+  recentInDirectory: "SELECT id, title, time_updated FROM session WHERE directory = ? AND parent_id IS NULL AND time_archived IS NULL ORDER BY time_updated DESC, id DESC LIMIT ?",
+  recentInDirectoryAny: "SELECT id, title, time_updated FROM session WHERE directory = ? AND parent_id IS NULL ORDER BY time_updated DESC, id DESC LIMIT ?",
   sequence: "SELECT seq FROM event_sequence WHERE aggregate_id = ?",
   partsChanged: "SELECT MAX(time_updated) AS updated, COUNT(*) AS parts FROM part WHERE session_id = ?",
   messagesChanged: "SELECT MAX(time_updated) AS updated, COUNT(*) AS messages FROM message WHERE session_id = ?",
@@ -122,6 +125,8 @@ export const STATEMENTS = Object.freeze({
   sessionV2Version: "SELECT version FROM session_v2 WHERE id = ?",
   newestInDirectoryV2: "SELECT id FROM session_v2 WHERE directory = ? AND parent_id IS NULL AND time_archived IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1",
   newestInDirectoryAnyV2: "SELECT id FROM session_v2 WHERE directory = ? AND parent_id IS NULL ORDER BY time_updated DESC, id DESC LIMIT 1",
+  recentInDirectoryV2: "SELECT id, title, time_updated FROM session_v2 WHERE directory = ? AND parent_id IS NULL AND time_archived IS NULL ORDER BY time_updated DESC, id DESC LIMIT ?",
+  recentInDirectoryAnyV2: "SELECT id, title, time_updated FROM session_v2 WHERE directory = ? AND parent_id IS NULL ORDER BY time_updated DESC, id DESC LIMIT ?",
   messageV2: "SELECT id, seq FROM session_message WHERE id = ? AND session_id = ?",
   messagesChangedV2: "SELECT MAX(time_updated) AS updated, COUNT(*) AS messages FROM session_message WHERE session_id = ?",
   // V2's pages key on seq, unique per session and always increasing: a
@@ -609,7 +614,7 @@ export function statementsOf(db, onPrepare = null) {
 }
 
 // What a store asks its reader, by name; nothing else is answered.
-export const OPERATIONS = Object.freeze(["locate", "identity", "page", "toolOutput", "pendingQuestion", "sessionVersion"]);
+export const OPERATIONS = Object.freeze(["locate", "identity", "page", "toolOutput", "pendingQuestion", "sessionVersion", "recent"]);
 
 // The reads of one database: read(op, args, file) runs one of OPERATIONS on
 // a short connection, `file` the database file's dev:ino:size:mtime as the
@@ -641,6 +646,10 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
       archive: (v1 && OPTIONAL.session.every((column) => sessions.has(column))) || (v2 && sessionsV2.has("time_archived")),
       version: (v1 && sessions.has(SESSION_VERSION)) || (v2 && sessionsV2.has(SESSION_VERSION)),
       v2Archive: v2 && sessionsV2.has("time_archived"),
+      // a resume list reads each table's titles, where that table has them
+      v1Archive: v1 && OPTIONAL.session.every((column) => sessions.has(column)),
+      titles: v1 && sessions.has("title"),
+      titlesV2: v2 && sessionsV2.has("title"),
     };
   }
 
@@ -1018,6 +1027,29 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
       return null;
     },
 
+    // A folder's newest `limit` top-level sessions across both tables, as
+    // { id, title, updatedAt }: a session OpenCode 2 carried on is listed once,
+    // at its newer time.
+    recent(db, { cwd, limit } = {}) {
+      if (typeof cwd !== "string" || !isAbsolute(cwd) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) return [];
+      const byId = new Map();
+      const take = (rows) => {
+        for (const row of rows) {
+          const id = String(row.id);
+          if (!OPENCODE_SESSION_ID.test(id)) continue;
+          const updatedAt = Number.isFinite(Number(row.time_updated)) ? Number(row.time_updated) : null;
+          const known = byId.get(id);
+          if (known && (known.updatedAt ?? 0) >= (updatedAt ?? 0)) continue;
+          byId.set(id, { id, title: typeof row.title === "string" ? row.title : "", updatedAt });
+        }
+      };
+      if (db.shape.titles) take(db.statement(db.shape.v1Archive ? "recentInDirectory" : "recentInDirectoryAny").all(cwd, limit));
+      if (db.shape.titlesV2) take(db.statement(db.shape.v2Archive ? "recentInDirectoryV2" : "recentInDirectoryAnyV2").all(cwd, limit));
+      return [...byId.values()]
+        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || (a.id < b.id ? 1 : -1))
+        .slice(0, limit);
+    },
+
     sessionVersion(db, session) {
       if (db.shape.v1) {
         const row = db.statement("session").get(session);
@@ -1359,6 +1391,12 @@ export function localOpencodeStore({
     async pendingQuestion(session) {
       if (typeof session !== "string" || !OPENCODE_SESSION_ID.test(session)) return null;
       return (await read("pendingQuestion", session)) ?? null;
+    },
+
+    // A folder's newest top-level sessions, as { id, title, updatedAt }; none
+    // when there is no database yet. A database too busy throws (READ_BUSY).
+    async recent(cwd, limit) {
+      return (await read("recent", { cwd, limit })) ?? [];
     },
 
     // The OpenCode version that wrote the session (its `version` column), or

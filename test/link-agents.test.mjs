@@ -60,3 +60,90 @@ test("the hub asks a connected PC through its own link, and never for this PC", 
   assert.equal(multi.agentsClient("local"), null);
   assert.equal(multi.agentsClient("link_00000000-0000-0000-0000-000000000000"), null);
 });
+
+// ---------------------------------------------------------------------------
+// Earlier sessions: the connected PC lists its own; the hub keeps what it can type.
+
+const CLAUDE_A = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
+
+async function startSessionsPeer(context, { agentSessions, client: peerClient = herdr, allowed } = {}) {
+  const server = createPeerServer({
+    peer: new PeerIdentity({ addresses: allowed ?? ["127.0.0.1"] }),
+    link: linkRoutes({ client: peerClient, installedAgents: { async list() { return ["claude"]; } }, agentSessions, version: "2.0.0", serverName: "dev-box" }),
+    logger: { error() {} },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  context.after(() => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }));
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+test("a PC that lists its earlier sessions names it, and answers for the folder asked", async (context) => {
+  const asked = [];
+  const address = await startSessionsPeer(context, {
+    agentSessions: {
+      async list(agent, cwd) {
+        asked.push([agent, cwd]);
+        return [
+          { id: CLAUDE_A, title: "Fix\nlogin", updatedAt: 10 },
+          { id: "$(reboot)", title: "bad", updatedAt: 1 },
+        ];
+      },
+    },
+  });
+  assert.deepEqual((await (await fetch(`${address}/api/link/hello`)).json()).features,
+    ["scroll_bottom", "commands", "agents", "agent_sessions"]);
+  assert.deepEqual(await client(address).agentSessions("claude", "/work/My App"), [{ id: CLAUDE_A, title: "Fix login", updatedAt: 10 }]);
+  assert.deepEqual(asked, [["claude", "/work/My App"]]);
+});
+
+test("a PC refuses to list for an unknown agent or a folder that is not absolute", async (context) => {
+  let asked = 0;
+  const address = await startSessionsPeer(context, { agentSessions: { async list() { asked += 1; return []; } } });
+  for (const query of ["agent=rm&cwd=%2Fw", "agent=claude&cwd=relative", "agent=claude", "cwd=%2Fw"]) {
+    assert.equal((await fetch(`${address}/api/link/agent-sessions?${query}`)).status, 400, query);
+  }
+  assert.equal(asked, 0);
+});
+
+test("an older PC is not asked for its sessions, and the route is gated like the others", async (context) => {
+  const older = await startPeer(context, { installedAgents: { async list() { return ["claude"]; } } });
+  assert.equal(await client(older).agentSessions("claude", "/w"), null);
+  let asked = 0;
+  const closed = await startSessionsPeer(context, { agentSessions: { async list() { asked += 1; return []; } }, allowed: ["100.64.0.9"] });
+  assert.equal((await fetch(`${closed}/api/link/agent-sessions?agent=claude&cwd=%2Fw`)).status, 403);
+  assert.equal(asked, 0);
+});
+
+test("a session made over the link opens in the folder asked, and as before without one, and names its ids", async (context) => {
+  const calls = [];
+  const peerClient = {
+    ...herdr,
+    async createTab(...args) {
+      calls.push(args);
+      return { tab_id: `hs~w1:t${calls.length}`, pane_id: `hs~w1:p${calls.length}` };
+    },
+  };
+  const address = await startSessionsPeer(context, { agentSessions: { async list() { return []; } }, client: peerClient });
+  const link = client(address);
+  assert.deepEqual(await link.createTab("hs~w1", { cwd: "/work/My App" }), { tab_id: "hs~w1:t1", pane_id: "hs~w1:p1" });
+  assert.deepEqual(await link.createTab("hs~w1"), { tab_id: "hs~w1:t2", pane_id: "hs~w1:p2" });
+  assert.deepEqual(calls, [["hs~w1", { cwd: "/work/My App" }], ["hs~w1"]]);
+});
+
+test("the hub's client hands the folder to whichever machine makes the tab, and gives back its ids", async () => {
+  const calls = [];
+  const local = { ...herdr, async createTab(...args) { calls.push(["local", ...args]); return { tab_id: "w1:t2", pane_id: "w1:p2" }; } };
+  const remote = {
+    ...herdr,
+    marker: "link",
+    close() {},
+    async createTab(...args) { calls.push(["remote", ...args]); return { tab_id: "hs~w1:t5", pane_id: "hs~w1:p5" }; },
+  };
+  const profile = { id: LINK_ID, name: "Dev box", address: "http://127.0.0.1:1" };
+  const multi = new MultiServerClient({ local, profiles: { list: () => [profile] }, remoteFactory: () => remote });
+  assert.deepEqual(await multi.createTab("w1", { cwd: "/work/a" }), { tab_id: "w1:t2", pane_id: "w1:p2" });
+  assert.deepEqual(await multi.createTab("w1"), { tab_id: "w1:t2", pane_id: "w1:p2" });
+  assert.deepEqual(await multi.createTab(`${LINK_ID}!hs~w1`, { cwd: "/srv/b" }), { tab_id: `${LINK_ID}!hs~w1:t5`, pane_id: `${LINK_ID}!hs~w1:p5` });
+  assert.deepEqual(calls, [["local", "w1", { cwd: "/work/a" }], ["local", "w1"], ["remote", "hs~w1", { cwd: "/srv/b" }]]);
+});

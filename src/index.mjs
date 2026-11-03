@@ -19,6 +19,7 @@ import { ServerProfiles } from "./server-profiles.mjs";
 import { PeerIdentity } from "./peer-identity.mjs";
 import { linkRoutes } from "./link-server.mjs";
 import { InstalledAgents } from "./agent-launch.mjs";
+import { AgentSessions } from "./agent-sessions.mjs";
 import { linkAttachSockets, routedSpawner } from "./link-attach.mjs";
 import { createPeerServer } from "./peer-server.mjs";
 import { discoverPeers, readTailnetPeers, tailnetLoginOf } from "./tailnet-peers.mjs";
@@ -123,6 +124,9 @@ const slashCommands = new SlashCommandCatalog({ guard: protectedPaths });
 const aiAccounts = new AiAccounts({ directory: config.aiAccountsDir, runningAgents: () => runningAgentsIn(local) });
 // Which agents a new session here can start: looked up on PATH, never run.
 const installedAgents = new InstalledAgents();
+// A folder's earlier agent sessions, from the stores the Chat view reads (one
+// OpenCode reader for both).
+const agentSessions = new AgentSessions({ store: conversations.localStore });
 const notificationMonitor = new AgentNotificationMonitor({ herdr, push });
 // In-app update: this checkout against origin's main, and update.sh run from
 // the page (or from a PC this one is connected to) in a unit of its own --
@@ -198,6 +202,7 @@ const { server } = createHerdrHttpServer({
   }),
   aiAccounts,
   installedAgents,
+  agentSessions,
   maxBodyBytes: config.maxBodyBytes,
   maxTransferBytes: config.maxTransferBytes,
   protectedPaths,
@@ -218,7 +223,7 @@ const peerServer = config.peerHost ? createPeerServer({
     loginOf: (address) => tailnetLoginOf(address),
   }),
   link: linkRoutes({
-    client: local, files, aiAccounts, installedAgents, attach: linkAttach, conversations, slashCommands, updater, herdrUpdater, version: hubVersion, herdrVersion: () => herdrVersion,
+    client: local, files, aiAccounts, installedAgents, agentSessions, attach: linkAttach, conversations, slashCommands, updater, herdrUpdater, version: hubVersion, herdrVersion: () => herdrVersion,
     serverName: hostname(), maxTransferBytes: config.maxTransferBytes, protectedPaths,
   }),
   attach: linkAttach,

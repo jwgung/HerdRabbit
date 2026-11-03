@@ -314,6 +314,40 @@ export function localCodexFiles(home) {
         index.db.close();
       }
     },
+    // The newest `limit` interactive threads begun in `cwd`, by Codex's index,
+    // as { id, title, updatedAt }: what a resume list shows. Only threads whose
+    // rollout is still in the store; none without an index (every rollout is
+    // not scanned for this).
+    async recentThreads(cwd, limit) {
+      if (typeof cwd !== "string" || !isAbsolute(cwd) || !Number.isSafeInteger(limit) || limit < 1) return [];
+      const index = await threadIndex();
+      if (index === null) return [];
+      try {
+        const { db, columns } = index;
+        if (!columns.has("cwd")) return [];
+        const where = ["cwd = ?"];
+        if (columns.has("archived")) where.push("archived = 0");
+        if (columns.has("agent_role")) where.push("agent_role IS NULL");
+        if (columns.has("source")) where.push("source IN ('cli', 'vscode')");
+        // the columns named here are fixed; which of them this index has decides the select
+        const time = columns.has("updated_at_ms") ? "updated_at_ms" : columns.has("updated_at") ? "updated_at * 1000" : "NULL";
+        const titles = ["title", "first_user_message"].filter((column) => columns.has(column));
+        const title = titles.length > 0 ? `COALESCE(${titles.map((column) => `NULLIF(${column}, '')`).join(", ")}, '')` : "''";
+        const order = time === "NULL" ? "" : ` ORDER BY ${time} DESC`;
+        const rows = db.prepare(`SELECT id, rollout_path, ${title} AS title, ${time} AS updated FROM threads WHERE ${where.join(" AND ")}${order} LIMIT ${limit}`).all(cwd);
+        const threads = [];
+        for (const row of rows) {
+          if (typeof row.id !== "string" || !THREAD_ID.test(row.id) || typeof row.rollout_path !== "string") continue;
+          if (await rollout(row.rollout_path) === null) continue;
+          threads.push({ id: row.id, title: typeof row.title === "string" ? row.title : "", updatedAt: Number.isFinite(row.updated) ? Number(row.updated) : null });
+        }
+        return threads;
+      } catch {
+        return [];
+      } finally {
+        index.db.close();
+      }
+    },
     // The rollouts the pane's own Codex processes hold open (Linux /proc).
     async openBy(pids) {
       const open = new Set();
@@ -446,6 +480,24 @@ export function localKiroStore(configDir, { procRoot = "/proc" } = {}) {
         if (session !== null) found.add(session);
       }
       return [...found];
+    },
+    // Every session of the workspace `hash` with a transcript, newest first:
+    // [{ session, path, mtimeMs }], the session its uuid.
+    async sessionsIn(hash) {
+      if (typeof hash !== "string" || !/^[0-9a-f]{16}$/u.test(hash)) return [];
+      let entries;
+      try {
+        entries = await readdir(join(sessions, hash));
+      } catch (error) {
+        if (absent(error) || error?.code === "EACCES") return [];
+        throw error;
+      }
+      const found = [];
+      for (const dir of entries.filter((name) => SESS_DIR.test(name))) {
+        const transcript = await transcriptOf(hash, dir);
+        if (transcript) found.push({ session: SESS_DIR.exec(dir)[1].toLowerCase(), ...transcript });
+      }
+      return found.sort((a, b) => b.mtimeMs - a.mtimeMs);
     },
     // { session, hashes, anywhere }: a reported session uuid (or null), the
     // workspace hashes to look under, most specific first, and whether the

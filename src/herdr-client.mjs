@@ -103,6 +103,15 @@ function validateTabLabel(label) {
   return validateLabel(label, "Session");
 }
 
+// A folder a new tab opens in: absolute, one line. It goes to Herdr as one
+// argument, never through a shell.
+function validateCwd(cwd) {
+  if (typeof cwd !== "string" || !cwd.startsWith("/") || cwd.length > 4096 || /[\u0000-\u001f\u007f]/u.test(cwd)) {
+    throw new InputValidationError("Invalid folder");
+  }
+  return cwd;
+}
+
 function validateInsertIndex(index) {
   if (!Number.isInteger(index) || index < 0 || index > MAX_INSERT_INDEX) {
     throw new InputValidationError("Invalid position");
@@ -502,10 +511,12 @@ export class HerdrClient {
   // The tab Herdr made and its first pane, from Herdr's own answer
   // (`.result.tab` and `.result.root_pane`); null when the answer names
   // neither, so a caller never has to guess which new tab is this one.
-  async createTab(workspaceId) {
+  // `cwd`: the folder the tab's shell starts in; Herdr's own choice without one.
+  async createTab(workspaceId, { cwd } = {}) {
     const safeWorkspaceId = validateWorkspaceId(workspaceId);
+    const folder = cwd === undefined ? [] : ["--cwd", validateCwd(cwd)];
     const stdout = await this.#run(
-      ["tab", "create", "--workspace", safeWorkspaceId, "--no-focus"],
+      ["tab", "create", "--workspace", safeWorkspaceId, ...folder, "--no-focus"],
       { json: false },
     );
     let result;
