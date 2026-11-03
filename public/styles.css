@@ -1827,7 +1827,7 @@ body.sidebar-collapsed :is(.server-heading, .server-empty) { display: none; }
    session marker right of the server's icon. */
 body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-children-inner) { padding-left: 0; }
 
-/* On touch every heading row is 26px tall, as a row in Files is: a machine
+/* On touch every heading row but a machine's is 26px tall, as a row in Files is: a machine
    stood 48px and a project 32px, so only a few fit on a phone. A session row
    stays 40px or more: it is the thing pressed most, and a finger needs it.
    Buttons keep their 28px width, so arrows and markers stay where the tree's
