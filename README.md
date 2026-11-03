@@ -517,7 +517,7 @@ Live terminal input (including composer submissions and extra keys) and output u
 
 ### Settings
 
-The ⚙ button at the foot of the sidebar opens the settings screen. On a desktop it is a dialog with the page list on the left; on a phone (760px wide or less) it fills the screen with the list, a page opens when tapped, and **Back** returns to the list. Everything on it is kept in this browser unless it says otherwise.
+The ⚙ button at the foot of the sidebar opens the settings screen. On a desktop it is a dialog with the page list on the left; on a phone (760px wide or less) it fills the screen with the list, a page opens when tapped, and the back arrow (`‹`, labelled **Back to settings**) returns to the list. Everything on it is kept in this browser unless it says otherwise.
 
 - **Appearance:** the theme (**Dark** / **Light**) and **Reset text size**, for a grid whose text size was changed by hand.
 - **Chat:** **Open panes in** (**Auto** / **Chat** / **Terminal**, see [Chat](#chat)) and **Chat width** (**Narrow** / **Default** / **Wide** / **Full**): how wide the conversation column grows on a wide window, 680px, 860px, 1120px or the whole stage. A phone keeps its own width.
