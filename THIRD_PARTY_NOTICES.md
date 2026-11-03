@@ -28,6 +28,17 @@ the following conditions: The above copyright notice and this permission notice 
 included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED
 "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
 
+## Ovis
+
+In `public/chat/chat-activity.js`, the pending message's timing (`PENDING_MS`,
+`PENDING_CLOCK_MS`, from `src/lib/sentWaiting.ts`) and the long user message fold
+(`USER_FOLD_LINES`, `USER_FOLD_CHARS`, `foldsUserMessage`, from `src/lib/userMessageFold.ts`,
+itself adapted from t3code's `shouldCollapseUserMessage`, https://github.com/pingdotgg/t3code,
+MIT, Copyright (c) 2026 T3 Tools Inc.) are adapted from Ovis at revision
+`527e93bde58369bdce2248f7f89274e9f2086ac8`, https://github.com/devswha/ovis
+
+MIT License. Copyright (c) 2026 devswha. Same permission notice and warranty disclaimer as above.
+
 ## xterm.js and its addons
 
 `public/vendor/xterm.mjs` and `public/vendor/xterm.css` contain xterm.js 5.5.0,

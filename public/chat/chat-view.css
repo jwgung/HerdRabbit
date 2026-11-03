@@ -917,6 +917,46 @@ pre.md-math {
   white-space: pre-wrap;
 }
 
+/* the clock a message gets once it has waited a while for the transcript */
+.chat-pending-clock {
+  width: calc(var(--font-sm) * var(--chat-scale, 1));
+  height: calc(var(--font-sm) * var(--chat-scale, 1));
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+/* A long user message folds to its first 12 lines (chat-activity.js
+   USER_FOLD_LINES) of the chat's line height, the last one fading into the
+   bubble, with "Show all" under it. */
+.chat-bubble.is-capped:not(.is-expanded) .markdown {
+  max-height: calc(12 * 1.55em);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, var(--text) calc(100% - 1.55em), transparent);
+}
+
+.chat-bubble-more {
+  width: calc(100% + 2 * var(--space-3));
+  min-height: 44px;
+  margin: var(--space-1) calc(-1 * var(--space-3)) calc(-1 * var(--space-2));
+  padding: 0 var(--space-3);
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  background: transparent;
+  color: var(--accent);
+  font-size: calc(var(--font-sm) * var(--chat-scale, 1));
+  cursor: pointer;
+}
+
+.chat-bubble-more:hover,
+.chat-bubble-more:focus-visible {
+  background: var(--hover-surface);
+}
+
 .chat-working {
   margin: 0;
   display: inline-flex;

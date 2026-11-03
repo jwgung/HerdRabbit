@@ -28,7 +28,7 @@ import {
 } from "./work-blocks.js?v=1.4.23";
 import { paneRenames } from "../pane-rename.js?v=1.4.23";
 import { ConversationLoader } from "./conversation-refresh.js?v=1.4.23";
-import { OPTIMISTIC_MS, answerRecord, pendingMessage, settleAnswers, settlePending, showsWorking, workingSince as turnBegan, workingText } from "./chat-activity.js?v=1.4.23";
+import { OPTIMISTIC_MS, PENDING_CLOCK_ICON, answerRecord, foldsUserMessage, pendingMessage, pendingShowsClock, settleAnswers, settlePending, showsWorking, workingSince as turnBegan, workingText } from "./chat-activity.js?v=1.4.23";
 import {
   chatMayBecomeAvailable,
   chatReadBusy,
@@ -181,6 +181,8 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
   // What the reader opened or closed: work blocks by turn, rows by turn and part.
   const blockChoice = new Map();
   const openRows = new Set();
+  // Long user messages the reader opened, by turn.
+  const openMessages = new Set();
   // Whole tool outputs fetched on request, by tool id.
   const wholeOutputs = new Map();
 
@@ -449,14 +451,17 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     if (!working && status !== "working") workingSince = null;
     const since = turnBegan({ turns: loader.history.turns, seen: workingSince, now, idleAt, sending: pending.length > 0 });
     const text = working ? workingText(since, now, agent) : "";
-    const key = `${pending.map((item) => `${item.at}:${item.text}`).join("\n")}|${cardAnswers.map((item) => `${item.at}:${item.text}`).join("\n")}|${text}`;
+    const key = `${pending.map((item) => `${item.at}:${pendingShowsClock(item, now)}:${item.text}`).join("\n")}|${cardAnswers.map((item) => `${item.at}:${item.text}`).join("\n")}|${text}`;
     if (key !== activityKey) {
       activityKey = key;
       const nodes = pending.map((item) => {
         const article = element(document, "article", { className: "chat-turn chat-turn-user is-pending", attrs: { "aria-label": "Sending" } });
         const bubble = element(document, "div", { className: "chat-bubble" });
         bubble.append(element(document, "p", { className: "chat-pending-text", text: item.text }));
-        article.append(bubble, element(document, "div", { className: "chat-turn-meta", text: "Sending…" }));
+        const meta = element(document, "div", { className: "chat-turn-meta", text: "Sending…" });
+        // a message the transcript has not had for a while gets a clock
+        if (pendingShowsClock(item, now)) meta.insertAdjacentHTML("afterbegin", PENDING_CLOCK_ICON);
+        article.append(bubble, meta);
         return article;
       });
       // an answer given on the prompt card, until the agent's next step shows
@@ -516,6 +521,14 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
       const bubble = element(document, "div", { className: "chat-bubble" });
       if (images > 0) bubble.append(element(document, "p", { className: "chat-image-note", text: images === 1 ? "Pasted image" : `${images} pasted images` }));
       if (text) bubble.append(markdown(text));
+      // a long message folds to its first lines (chat-activity.js)
+      if (foldsUserMessage(text)) {
+        const open = openMessages.has(key);
+        bubble.classList.add("is-capped");
+        bubble.classList.toggle("is-expanded", open);
+        bubble.append(element(document, "button", { className: "chat-bubble-more", text: open ? "Show less" : "Show all",
+          attrs: { type: "button", "data-action": "unfold-message", "aria-expanded": String(open) } }));
+      }
       const meta = element(document, "div", { className: "chat-turn-meta" });
       const time = timeElement(turn.ts);
       if (time) meta.append(time);
@@ -698,6 +711,17 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
         const expanded = block.classList.toggle("is-expanded");
         action.setAttribute("aria-expanded", String(expanded));
         action.textContent = expanded ? "Show less" : `Show all ${action.dataset.lines} lines`;
+        break;
+      }
+      case "unfold-message": {
+        const bubble = action.closest(".chat-bubble");
+        const key = [...drawn.entries()].find(([, value]) => value.node.contains(action))?.[0];
+        const open = bubble.classList.toggle("is-expanded");
+        if (key) { if (open) openMessages.add(key); else openMessages.delete(key); }
+        action.setAttribute("aria-expanded", String(open));
+        action.textContent = open ? "Show less" : "Show all";
+        // folded from its end, the message's top comes back into view
+        if (!open && bubble.getBoundingClientRect().top < scroller.getBoundingClientRect().top) bubble.scrollIntoView({ block: "start" });
         break;
       }
       case "toggle-block": {

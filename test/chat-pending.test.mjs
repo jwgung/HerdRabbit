@@ -109,3 +109,20 @@ test("an answer to a card shows until the transcript moves on, or for ANSWER_MS 
   assert.deepEqual(settleAnswers([record], turns, 1_000 + ANSWER_MS + 1), [], "timed out");
   assert.equal(answerRecord("", turns), null);
 });
+
+test("a pending bubble gets a clock after PENDING_CLOCK_MS, and goes after a minute with no turn for it", async () => {
+  const { PENDING_CLOCK_MS, pendingShowsClock } = await import("../public/chat/chat-activity.js");
+  assert.equal(PENDING_CLOCK_MS, 5_000);
+  assert.equal(PENDING_MS, 60_000);
+  const earlier = [user("first"), reply("ok")];
+  const now = 500_000;
+  const sent = pendingMessage("still on its way", earlier, now);
+  assert.equal(pendingShowsClock(sent, now), false, "dimmed only, at first");
+  assert.equal(pendingShowsClock(sent, now + PENDING_CLOCK_MS - 1), false);
+  assert.equal(pendingShowsClock(sent, now + PENDING_CLOCK_MS), true, "a clock once it has waited 5 s");
+  // the transcript says nothing newer: the bubble waits out the minute, then goes
+  assert.deepEqual(settlePending([sent], earlier, now + 30_001), [sent], "no longer gone at 30 s");
+  assert.deepEqual(settlePending([sent], earlier, now + PENDING_MS), [sent]);
+  assert.deepEqual(settlePending([sent], earlier, now + PENDING_MS + 1), []);
+  assert.equal(pendingShowsClock({ at: Number.NaN }, now), false, "no time, no clock");
+});

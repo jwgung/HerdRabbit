@@ -1,11 +1,20 @@
 // What the end of the Chat lens says while the agent works: a "Claude is
 // working" (or "Codex is working", "OpenCode is working") row with the time it has taken, and the message just sent shown as
-// a pending bubble until the transcript has it.
+// a pending bubble until the transcript has it. Also when a long user
+// message folds.
 
 import { agentLabelFor, agentNamesWith } from "../agents.js?v=1.4.23";
 
-// How long a sent message waits for the transcript before its bubble goes.
-export const PENDING_MS = 30_000;
+// How long a sent message waits for the transcript before its bubble goes:
+// the turn has not come by then (Esc in the terminal, an agent that rewrote
+// it, a turn with no time), and the chat stops saying it is on its way.
+export const PENDING_MS = 60_000;
+// How long a pending bubble waits before it gets a clock. An idle agent
+// writes the turn within a second and a slow PC within a few, so a clock
+// sooner would flash on most sends; past this something holds it (a turn
+// still running, a PC far away). Ovis's WAITING_SEND_MS and WAITING_HINT_MS
+// (src/lib/sentWaiting.ts, MIT).
+export const PENDING_CLOCK_MS = 5_000;
 // How long a send alone (no status yet) keeps the working row up.
 export const OPTIMISTIC_MS = 30_000;
 
@@ -131,6 +140,33 @@ export function settlePending(pending, turns, now = Date.now(), maxAge = PENDING
     if (after.some((entry) => saysSent(entry.text, item.text, item.priors))) return false;
     return !(now - item.at >= STALE_PENDING_MS && after.length > (item.ahead ?? 0));
   });
+}
+
+// Whether a pending bubble has waited long enough to show its clock.
+export function pendingShowsClock(item, now = Date.now()) {
+  return Number.isFinite(item?.at) && now - item.at >= PENDING_CLOCK_MS;
+}
+
+// The clock a pending bubble shows once it has waited: a fixed icon, never
+// built from what was sent.
+export const PENDING_CLOCK_ICON = '<svg class="chat-pending-clock" viewBox="0 0 16 16" aria-hidden="true" focusable="false">'
+  + '<circle cx="8" cy="8" r="6.25"/><path d="M8 4.75V8l2.25 1.5"/></svg>';
+
+// A long user message (a pasted log, a whole file) folds to USER_FOLD_LINES
+// lines behind "Show all", so the exchange around it stays in view: a message
+// of more lines than that, or of more characters than about that many lines
+// hold in the widest bubble (a paste with few breaks). A link counts as its
+// words, not its address. Adapted from Ovis's shouldFoldUserMessage
+// (src/lib/userMessageFold.ts, MIT), itself from t3code's
+// shouldCollapseUserMessage (MIT).
+export const USER_FOLD_LINES = 12;
+export const USER_FOLD_CHARS = 900;
+const MARKDOWN_LINK = /!?\[([^\]\n]*)\]\((?:<[^>\n]*>|[^\s)]*)\)/gu;
+
+export function foldsUserMessage(text) {
+  const shown = String(text ?? "").replace(/\r\n?/gu, "\n").replace(MARKDOWN_LINK, "$1").trim();
+  if (shown === "") return false;
+  return shown.length > USER_FOLD_CHARS || shown.split("\n").length > USER_FOLD_LINES;
 }
 
 // How long the chat shows an answer given on a prompt card while the
