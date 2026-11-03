@@ -206,9 +206,9 @@ JS에서만 쓰는 기준도 같은 값을 따른다(`public/app.js`): `(min-wid
 ## 문구
 
 - UI 언어는 영어다. 문장형 대소문자(Sentence case)를 쓴다: "Sign out everywhere", "Back to grid".
-- 버튼은 동사로 시작한다. 대화상자를 여는 버튼과 진행 중 문구에는 `…`(U+2026)을 붙인다: "Loading projects…".
+- 버튼은 동사로 시작한다. 대화상자를 여는 버튼과 진행 중 문구에는 `…`(U+2026)을 붙인다: "Loading workspaces…".
 - 오류 문구는 무슨 일이 있었는지와 다음에 할 일을 한 문장씩 쓴다. 느낌표를 쓰지 않는다.
-- 같은 개념은 한 단어로 부른다: pane, tab, session, project, machine.
+- 같은 개념은 한 단어로 부르고, 이름은 Herdr를 따른다: machine → session → workspace → tab → pane. 에이전트가 이어 쓰는 예전 기록은 conversation이다.
 
 ## 검사
 
