@@ -13,6 +13,7 @@ const userFacingSources = [
   "../public/lens-preference.js",
   "../public/chat/chat-view.js",
   "../public/chat/markdown.js",
+  "../public/chat/code-highlight.js",
   "../public/chat/work-blocks.js",
   "../public/chat/conversation-refresh.js",
   "../public/chat/diff.js",

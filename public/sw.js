@@ -109,6 +109,7 @@ const APP_SHELL = [
   "/push-notifications.js?v=1.4.23",
   "/lens-preference.js?v=1.4.23",
   "/chat/markdown.js?v=1.4.23",
+  "/chat/code-highlight.js?v=1.4.23",
   "/chat/diff.js?v=1.4.23",
   "/chat/work-blocks.js?v=1.4.23",
   "/chat/conversation-refresh.js?v=1.4.23",

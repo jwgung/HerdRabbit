@@ -124,6 +124,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | 스크롤바 | `--scrollbar-*` |
 | 찾기 강조 | `--find-mark`(터미널), `--find-mark-chat`(채팅), `--find-mark-current`(채팅의 현재 결과) |
 | diff | `--diff-add`, `--diff-del` (diff는 터미널 바탕 위에 그려서 두 테마 같은 값) |
+| 코드 색 | `--code-keyword`, `--code-string`, `--code-comment`, `--code-number`, `--code-meta` (채팅 코드 블록의 터미널 바탕 위에 그려서 두 테마 같은 값, `public/chat/code-highlight.js`) |
 | 위험 바탕 위 글자 | `--danger-ink` |
 | 문서 보기 바탕 | `--viewer-page` (문서가 스스로 흰 바탕을 가정하므로 두 테마 모두 흰색) |
 

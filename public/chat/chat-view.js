@@ -7,6 +7,7 @@
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatView.tsx and
 // ChatView.css, rewritten as plain DOM code without React.
 import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.4.23";
+import { highlightCodeBlocks } from "./code-highlight.js?v=1.4.23";
 import { lineDiff } from "./diff.js?v=1.4.23";
 import {
   deliveredFiles,
@@ -15,6 +16,7 @@ import {
   isCommandTool,
   isLiveWorkTurn,
   isTodoTool,
+  isToolNarration,
   parseToolInput,
   splitDeliveredPath,
   splitTurn,
@@ -216,6 +218,7 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
   const markdown = (text, className = "markdown") => {
     const node = element(document, "div", { className });
     node.innerHTML = renderMarkdown(text, { isLinkablePath });
+    highlightCodeBlocks(node);
     return node;
   };
 
@@ -363,10 +366,16 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     const row = element(document, "div", { className: `work-row${part.error ? " is-error" : ""}`, attrs: { "data-row": rowKey } });
     const summary = todoCallSummary(part) ?? part.summary ?? "";
     const verb = toolVerb(part);
+    const narration = verb === null && isToolNarration(part);
     const head = element(document, "button", { className: "work-row-head", attrs: { type: "button", "aria-expanded": String(open), "data-action": "toggle-row" } });
+    // a verb or the agent's sentence stands in for the tool's name, which the title keeps
+    if (verb || narration) head.title = `${part.name} · ${summary}`;
     head.append(caret());
-    head.append(element(document, "span", { className: `work-row-name${verb ? " is-verb" : ""}`, text: verb ?? part.name }));
-    if (summary && summary !== part.name) head.append(document.createTextNode(" "), element(document, "span", { className: "work-row-summary", text: summary }));
+    if (!narration) head.append(element(document, "span", { className: `work-row-name${verb ? " is-verb" : ""}`, text: verb ?? part.name }));
+    if (summary && summary !== part.name) {
+      if (!narration) head.append(document.createTextNode(" "));
+      head.append(element(document, "span", { className: "work-row-summary", text: summary }));
+    }
     if (part.error) head.append(document.createTextNode(" "), element(document, "span", { className: "work-row-failed", text: "failed" }));
     row.append(head);
     if (open) row.append(rowDetail(part));

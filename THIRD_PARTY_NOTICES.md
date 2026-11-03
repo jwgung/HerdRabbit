@@ -37,6 +37,12 @@ itself adapted from t3code's `shouldCollapseUserMessage`, https://github.com/pin
 MIT, Copyright (c) 2026 T3 Tools Inc.) are adapted from Ovis at revision
 `527e93bde58369bdce2248f7f89274e9f2086ac8`, https://github.com/devswha/ovis
 
+The Codex `shell_command` verb, the `exec` script that applies a patch reading as an edit, and the
+work rows that read as the agent's own
+sentence about a call (`toolVerb` and `isToolNarration` in `public/chat/work-blocks.js`, drawn by
+`public/chat/chat-view.js`) are adapted from Ovis, https://github.com/devswha/ovis --
+`src/lib/toolVerbs.ts` and the `WorkRow` of `src/components/ChatView.tsx`.
+
 MIT License. Copyright (c) 2026 devswha. Same permission notice and warranty disclaimer as above.
 
 ## xterm.js and its addons
