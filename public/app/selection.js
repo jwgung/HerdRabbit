@@ -62,7 +62,7 @@ export function createSelection(deps) {
     deps.chatLens.select(paneId, { agent: chatAgent(pane, agent), status: agentStatus(agent, pane) });
     deps.promptDock?.select(paneId, { agent: chatAgent(pane, agent), status: agentStatus(agent, pane) });
     syncSendButton();
-    const workspaceLabel = displayRecordLabel(workspace, "Project");
+    const workspaceLabel = displayRecordLabel(workspace, "Workspace");
     const tabLabel = displayTabLabel(tab);
 
     const sessionName = typeof pane.herdr_session_name === "string"
@@ -340,7 +340,7 @@ export function createSelection(deps) {
       // The pane on screen went away and nothing took its place.
       if (state.renderedPaneId) {
         deps.attachedTerminal.show(null);
-        showTerminalMessage("No open sessions.");
+        showTerminalMessage("No open tabs.");
       }
       return;
     }

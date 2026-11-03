@@ -376,7 +376,7 @@ export function createAiAccounts({
       throw new Error("A sign-in is already open. Finish it in its terminal or cancel it.");
     }
     const herdrSessionId = aiLoginSessionId(server.id, snapshotRecords().herdrSessions);
-    if (!herdrSessionId) throw new Error(`${server.name} has no running Herdr session to sign in from.`);
+    if (!herdrSessionId) throw new Error(`${server.name} has no running session to sign in from.`);
     const payload = await api("/api/ai-accounts/logins", {
       method: "POST",
       body: { server: server.id, cli: cli.id, herdrSessionId },

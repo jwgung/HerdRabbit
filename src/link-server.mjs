@@ -416,7 +416,7 @@ export function linkRoutes({
       const agent = url.searchParams.get("agent");
       const cwd = url.searchParams.get("cwd");
       if (agentCommand(agent) === null || !isFolder(cwd)) {
-        throw new HttpError(400, "invalid_input", "Invalid session list request");
+        throw new HttpError(400, "invalid_input", "Invalid conversation list request");
       }
       sendJson(response, 200, { sessions: await agentSessions.list(agent, cwd) });
       return true;
@@ -444,7 +444,7 @@ export function linkRoutes({
         // hub uses over this PC's snapshot: the hub cannot open a tab anywhere else.
         const { cwd } = body;
         if (cwd !== undefined && (!isFolder(cwd) || cwd !== projectFolder(await client.snapshot(), workspaceId))) {
-          throw new HttpError(400, "invalid_input", "That folder is not this project's folder");
+          throw new HttpError(400, "invalid_input", "That folder is not this workspace's folder");
         }
         const made = await client.createTab(workspaceId, { cwd });
         sendJson(response, 200, { ok: true, ...made });

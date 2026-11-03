@@ -254,7 +254,7 @@ export function createPaneViews(deps) {
       return [{
         paneId,
         label: paneDisplayTitle(displayTabLabel(records.tab), pane, "Terminal", agent),
-        context: displayRecordLabel(records.workspace, "Project"),
+        context: displayRecordLabel(records.workspace, "Workspace"),
         status,
         statusIcon: agentStatusIcon(status),
         statusText: agentStatusLabel(status),
@@ -490,7 +490,7 @@ export function createPaneViews(deps) {
     if (tabLabel) return tabLabel;
     const paneId = splitTabFocusPaneId(tabId, tabPanes.map((pane) => idOf(pane, "pane_id", "id")));
     const pane = tabPanes.find((item) => idOf(item, "pane_id", "id") === paneId);
-    return paneDisplayTitle("", pane, "", agentForPane(paneId)) || "Split session";
+    return paneDisplayTitle("", pane, "", agentForPane(paneId)) || "Split tab";
   }
 
   // A split session is one row in the sidebar, as a one-pane session is: its
@@ -510,10 +510,10 @@ export function createPaneViews(deps) {
     button.dataset.tabId = tabId;
     button.dataset.status = status;
     button.setAttribute("aria-pressed", String(paneIds.includes(state.selectedPaneId)));
-    const where = displayRecordLabel(workspace, "Project");
+    const where = displayRecordLabel(workspace, "Workspace");
     button.setAttribute(
       "aria-label",
-      `${name}, split session, ${paneIds.length} panes, ${statusText}, ${where}`,
+      `${name}, split tab, ${paneIds.length} panes, ${statusText}, ${where}`,
     );
     button.title = `${name} · ${paneIds.length} panes · ${statusText}`;
     // Its mark column holds the arrow (laid over it, see splitDisclosureButton):
@@ -585,7 +585,7 @@ export function createPaneViews(deps) {
         onSelect: () => void paneGridAction(paneId, "zoom", { mode: "toggle" }) },
       { key: "even-layout", label: "Even out layout", paths: EVEN_ICON,
         onSelect: () => void evenOutLayout(paneId) },
-      { key: "move-out", label: "Move out to its own session", paths: MOVE_OUT_ICON,
+      { key: "move-out", label: "Move out to its own tab", paths: MOVE_OUT_ICON,
         onSelect: () => void movePanesOut([paneId]) },
       { separator: true },
       { key: "close", label: "Close pane", paths: ["M6 6l12 12M18 6 6 18"], danger: true,
@@ -706,7 +706,7 @@ export function createPaneViews(deps) {
     const paneIds = panesOfTab(tabId).map((pane) => idOf(pane, "pane_id", "id"));
     if (paneIds.length < 2) return;
     const count = paneIds.length;
-    if (!window.confirm(`Separate the ${count} panes of “${name}” into ${count} sessions? Each pane keeps running; only the split is undone.`)) return;
+    if (!window.confirm(`Separate the ${count} panes of “${name}” into ${count} tabs? Each pane keeps running; only the split is undone.`)) return;
     void movePanesOut(paneIds.slice(1));
   }
 
@@ -716,7 +716,7 @@ export function createPaneViews(deps) {
     const status = agentStatus(agentForPane(paneId), pane);
     const last = panesOfTab(idOf(pane, "tab_id", "tabId")).length <= 1;
     const label = paneDisplayTitle("", pane, "Terminal", agentForPane(paneId));
-    const reason = last ? " It is the session's last pane, so the session closes too."
+    const reason = last ? " It is the tab's last pane, so the tab closes too."
       : status === "working" ? " Its agent is still working."
       : status === "blocked" ? " Its agent is waiting for your answer." : "";
     if ((last || status === "working" || status === "blocked") &&

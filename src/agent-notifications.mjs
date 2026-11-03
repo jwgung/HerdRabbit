@@ -84,7 +84,7 @@ function recordsForSnapshot(snapshot) {
       serverLabel: array(snapshot.servers).length > 1 ? pane.server_name : "",
       status: statusOf(agent, pane),
       sequence: sequenceOf(agent, pane),
-      projectLabel: firstLabel(workspace, ["label", "name"], "Project"),
+      projectLabel: firstLabel(workspace, ["label", "name"], "Workspace"),
       tabLabel: firstLabel(tab, ["label", "name"], "Tab"),
     };
   }).filter((record) => record.paneId !== "");

@@ -265,12 +265,12 @@ test("a change the connected PC refuses arrives as the connected PC's own compla
   const calls = [];
   const strict = {
     ...peerHerdr(calls),
-    async renameWorkspace() { throw new InputValidationError("Enter a project name."); },
+    async renameWorkspace() { throw new InputValidationError("Enter a workspace name."); },
   };
   const { address } = await startLinkedPeer(context, { herdr: strict });
   const { herdr } = hubFor(address);
   await settled(herdr);
-  await assert.rejects(() => herdr.renameWorkspace(`${LINK_ID}!${SESSION}~wB`, ""), /Enter a project name/u);
+  await assert.rejects(() => herdr.renameWorkspace(`${LINK_ID}!${SESSION}~wB`, ""), /Enter a workspace name/u);
 });
 
 test("a connected PC answers for its own files, and the hub never reads a disk", async (context) => {

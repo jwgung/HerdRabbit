@@ -1,6 +1,6 @@
 // Browser check of dragging in the sidebar, against an in-process fake herdr
-// that keeps its own order: a session reordered within its project, a session
-// with one pane carried to another project (and one with two panes that is not), a project reordered, no drop on
+// that keeps its own order: a tab reordered within its workspace, a tab
+// with one pane carried to another workspace (and one with two panes that is not), a workspace reordered, no drop on
 // another machine, a refused move put back, and on a phone a long press that
 // drags while a swipe still scrolls and a short tap still selects.
 // DRAG_SCREENSHOTS=<folder> keeps pictures taken mid-drag.
@@ -176,7 +176,7 @@ try {
       { shot: shots && join(shots, "desktop-dark-dragging.png") });
     assert.ok(during.ghost, "the row follows the pointer");
     assert.ok(during.line !== null, "a line shows where it lands");
-    assert.deepEqual(during.highlighted, [], "its own project is not highlighted");
+    assert.deepEqual(during.highlighted, [], "its own workspace is not highlighted");
     await page.waitForFunction(() => document.querySelector('.workspace-group h3')?.textContent && !document.querySelector(".is-drag-source"));
     await page.waitForTimeout(300);
     assert.deepEqual(callsNow(), [["moveTab", "w1:t1", 3]]);
@@ -192,8 +192,8 @@ try {
     source = await box(page, tabRow("w1:p2"));
     target = await box(page, tabRow("w2:p1"));
     during = await mouseDrag(page, { x: source.x + 60, y: source.y + 20 }, { x: target.x + 60, y: target.y + 4 });
-    assert.deepEqual(during.highlighted, [], "a split session does not light up another project");
-    assert.equal(during.line, null, "no line over another project");
+    assert.deepEqual(during.highlighted, [], "a split tab does not light up another workspace");
+    assert.equal(during.line, null, "no line over another workspace");
     await page.waitForTimeout(300);
     assert.equal(calls.length, callsBeforeSplit, "nothing was asked of the server");
     assert.deepEqual((await sidebar(page)).Platform, ["Infra", "Web", "Release"]);
@@ -207,7 +207,7 @@ try {
     source = await box(page, tabRow("w1:p1"));
     target = await box(page, tabRow("w2:p1"));
     during = await mouseDrag(page, { x: source.x + 60, y: source.y + 12 }, { x: target.x + 60, y: target.y + 4 });
-    assert.deepEqual(during.highlighted, ["Docs"], "the project it would move to is highlighted");
+    assert.deepEqual(during.highlighted, ["Docs"], "the workspace it would move to is highlighted");
     await page.waitForFunction(() => document.querySelector('.pane-button[aria-pressed="true"]')?.dataset.paneId?.startsWith("w2:"));
     assert.deepEqual(callsNow().at(-1), ["moveTabToWorkspace", "w1:t1", "w2", 0]);
     const afterCross = await sidebar(page);
@@ -331,7 +331,7 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log("Sidebar drag (reorder, move to another project, project order, no other machine, refusal put back; phone long press, swipe, tap): passed");
+  console.log("Sidebar drag (reorder, move to another workspace, workspace order, no other machine, refusal put back; phone long press, swipe, tap): passed");
 } finally {
   await browser.close();
   await new Promise((resolve) => server.close(resolve));

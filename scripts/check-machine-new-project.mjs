@@ -1,11 +1,11 @@
-// Browser check of where a project is made and of the sidebar footer. There is
-// no + at the top of the sidebar: a machine's ⋯ menu offers New project…, as a
+// Browser check of where a workspace is made and of the sidebar footer. There is
+// no + at the top of the sidebar: a machine's ⋯ menu offers New workspace…, as a
 // popover beside its button, and only while a Herdr session runs there. The
-// dialog makes the project on that machine, in the selected pane's session
+// dialog makes the workspace on that machine, in the selected pane's session
 // when that is there, else the machine's default; a machine with more than one
 // running session lets another be picked, one with a single session shows no
 // picker. Its Agent choices are that machine's installed agents, each with its
-// program's mark, and one chosen is started in the new project's first pane.
+// program's mark, and one chosen is started in the new workspace's first pane.
 // The footer's uploads and settings buttons look alike, their icons centred.
 // Runs on a desktop and a phone against an in-process fake herdr.
 //
@@ -148,26 +148,26 @@ try {
 
     // This machine's ⋯ menu makes projects, first, as a popover beside its button.
     const local = await machineMenu("local");
-    const item = local.locator(".sidebar-action-item", { hasText: "New project…" });
+    const item = local.locator(".sidebar-action-item", { hasText: "New workspace…" });
     assert.deepEqual((await local.locator(".sidebar-action-item").allTextContents()).map((text) => text.trim()).slice(0, 3),
-      ["New project…", "Details", "AI accounts"], "this machine's menu does not lead with New project");
+      ["New workspace…", "Details", "AI accounts"], "this machine's menu does not lead with New workspace");
     const button = await local.locator(".sidebar-action-menu > summary").boundingBox();
     const menu = await local.locator(".sidebar-action-popover").boundingBox();
     assert.ok(Math.abs(menu.y - (button.y + button.height)) < 40 || Math.abs(menu.y + menu.height - button.y) < 40,
       `the machine menu is not beside its button: ${JSON.stringify({ button, menu })}`);
-    if (mobile) assert.ok((await item.boundingBox()).height >= 44, "New project is under 44px");
+    if (mobile) assert.ok((await item.boundingBox()).height >= 44, "New workspace is under 44px");
     if (shots) await page.screenshot({ path: join(shots, `machine-menu-${where}.png`) });
     await page.keyboard.press("Escape");
     // An offline machine has no session to make one in.
     const laptop = await machineMenu("laptop");
-    assert.equal(await laptop.locator(".sidebar-action-item", { hasText: "New project" }).count(), 0,
-      "an offline machine offers New project");
+    assert.equal(await laptop.locator(".sidebar-action-item", { hasText: "New workspace" }).count(), 0,
+      "an offline machine offers New workspace");
     await page.keyboard.press("Escape");
 
-    // New project from a machine's menu: made there, the agent chosen started.
+    // New workspace from a machine's menu: made there, the agent chosen started.
     const makeOn = async (serverId, label, { pick = null, agent = "", sessions = [], first, agents }) => {
       const heading = await machineMenu(serverId);
-      await heading.locator(".sidebar-action-item", { hasText: "New project…" }).click();
+      await heading.locator(".sidebar-action-item", { hasText: "New workspace…" }).click();
       const dialog = page.locator("#project-dialog");
       await dialog.waitFor({ state: "visible" });
       const picker = page.locator("#project-server-session");
@@ -197,10 +197,10 @@ try {
       const before = typed.length;
       await dialog.locator('button[type="submit"]').click();
       await dialog.waitFor({ state: "hidden" });
-      assert.deepEqual(created.at(-1), { label, herdrSessionId: pick ?? first }, `${label}: the project was not made there`);
+      assert.deepEqual(created.at(-1), { label, herdrSessionId: pick ?? first }, `${label}: the workspace was not made there`);
       const pane = panes.at(-1).pane_id;
       assert.deepEqual(typed.slice(before), agent ? [[pane, agent]] : [],
-        `${label}: the agent was not started in the new project's pane`);
+        `${label}: the agent was not started in the new workspace's pane`);
       await page.waitForFunction((id) => document.querySelector(`.pane-button[data-pane-id="${id}"]`)?.getAttribute("aria-pressed") === "true", pane);
     };
     const localAgents = [["", "Shell"], ["claude", "Claude Code"], ["codex", "Codex"]];
@@ -222,7 +222,7 @@ try {
     await page.locator(".pane-button").first().waitFor({ state: "visible" });
     const lab = page.locator('.server-heading[data-server-id="lab"]');
     await lab.locator(".sidebar-action-menu > summary").click();
-    await lab.locator(".sidebar-action-item", { hasText: "New project…" }).click();
+    await lab.locator(".sidebar-action-item", { hasText: "New workspace…" }).click();
     await page.locator("#project-dialog").waitFor({ state: "visible" });
     const picked = await page.locator("#project-server-session").inputValue();
     await page.keyboard.press("Escape");
@@ -242,10 +242,10 @@ try {
   const local = page.locator('.server-heading[data-server-id="local"]');
   await local.locator(".sidebar-action-menu > summary").click();
   await local.locator(".sidebar-action-item", { hasText: "Details" }).waitFor({ state: "visible" });
-  assert.equal(await local.locator(".sidebar-action-item", { hasText: "New project" }).count(), 0,
-    "New project is offered with no running session");
+  assert.equal(await local.locator(".sidebar-action-item", { hasText: "New workspace" }).count(), 0,
+    "New workspace is offered with no running session");
   await context.close();
-  console.log("new project from a machine's menu and the footer look: ok");
+  console.log("new workspace from a machine's menu and the footer look: ok");
 } finally {
   await browser.close();
   server.close();

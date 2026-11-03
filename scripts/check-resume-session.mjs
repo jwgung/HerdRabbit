@@ -1,9 +1,9 @@
-// Browser check of resuming an earlier agent session from New session. Once
+// Browser check of resuming an agent's earlier conversation from New tab. Once
 // an agent is chosen, the dialog offers "Start new" and that agent's earlier
-// sessions in the project's folder, by title and time, as text only. Picking
+// conversations in the workspace's folder, by title and time, as text only. Picking
 // one makes the tab in that folder and types the agent's resume command. A
-// connected PC from before this says it cannot list them, and a new session
-// still starts; a session gone by the time Resume is pressed is refused and
+// connected PC from before this says it cannot list them, and a new conversation
+// still starts; a conversation gone by the time Resume is pressed is refused and
 // said so. Runs on a desktop and a phone against an in-process fake herdr.
 //
 // RESUME_SESSION_SHOTS=<folder> keeps pictures of the dialog.
@@ -112,7 +112,7 @@ try {
     const openDialog = async (project) => {
       await openSidebar();
       await page.locator(`summary[aria-label="More actions for ${project}"]`).click();
-      await page.locator(".sidebar-action-item:visible", { hasText: "New session…" }).click();
+      await page.locator(".sidebar-action-item:visible", { hasText: "New tab…" }).click();
       await dialog.waitFor({ state: "visible" });
       await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
     };
@@ -122,9 +122,9 @@ try {
     };
     const offered = () => resume.locator("option").evaluateAll((options) => options.map((option) => [option.value, option.textContent]));
 
-    // A shell offers no earlier sessions.
+    // A shell offers no earlier conversations.
     await openDialog("Platform");
-    assert.equal(await resume.isVisible(), false, `${where}: a shell offers earlier sessions`);
+    assert.equal(await resume.isVisible(), false, `${where}: a shell offers earlier conversations`);
 
     // Claude: "Start new" first, then the folder's sessions by title and time, the title as text.
     calls = [];
@@ -133,11 +133,11 @@ try {
     assert.deepEqual(await offered(), [
       ["", "Start new"],
       [CLAUDE_A, `${MARKUP} · 5 min ago`],
-      [CLAUDE_B, "Untitled session · 3 h ago"],
-    ], `${where}: the earlier sessions are not offered as listed`);
+      [CLAUDE_B, "Untitled conversation · 3 h ago"],
+    ], `${where}: the earlier conversations are not offered as listed`);
     assert.equal(await dialog.locator("img").count(), 0, `${where}: a title was rendered as markup`);
     assert.equal(await page.evaluate(() => window.__injected ?? null), null, `${where}: a title ran as markup`);
-    assert.match(await feedback.textContent(), /Earlier sessions in \/work\/alpha\./u);
+    assert.match(await feedback.textContent(), /Earlier conversations in \/work\/alpha\./u);
     assert.equal(await submit.textContent(), "Start");
     assert.deepEqual(calls, [["listSessions", "claude", "/work/alpha"]]);
     if (mobile) {
@@ -149,12 +149,12 @@ try {
     }
     if (shots) await page.screenshot({ path: join(shots, `resume-${where}.png`) });
 
-    // An agent with no earlier sessions here says so; one that cannot resume says nothing.
+    // An agent with no earlier conversations here says so; one that cannot resume says nothing.
     await choose("codex");
     assert.equal(await resume.isVisible(), false, `${where}: an empty list is shown`);
-    assert.match(await feedback.textContent(), /No earlier sessions in \/work\/alpha\./u);
+    assert.match(await feedback.textContent(), /No earlier conversations in \/work\/alpha\./u);
     await choose("agy");
-    assert.equal(await resume.isVisible(), false, `${where}: agy offers earlier sessions`);
+    assert.equal(await resume.isVisible(), false, `${where}: agy offers earlier conversations`);
     assert.equal(await feedback.textContent(), "");
 
     // Resume one: made in the folder, named, the resume command typed, selected.
@@ -184,7 +184,7 @@ try {
     calls = [];
     await submit.click();
     await page.waitForFunction(() => document.querySelector("#session-dialog-feedback").dataset.error === "true");
-    assert.match(await feedback.textContent(), /no longer in this project's folder/u);
+    assert.match(await feedback.textContent(), /no longer in this workspace's folder/u);
     assert.deepEqual(calls, [["listSessions", "claude", "/work/alpha"]], `${where}: a session was made for one that is gone`);
     await dialog.locator("#session-dialog-cancel").click();
     await dialog.waitFor({ state: "hidden" });
@@ -195,7 +195,7 @@ try {
     await openDialog("Bench");
     await choose("opencode");
     assert.equal(await resume.isVisible(), false, `${where}: an older PC's sessions are offered`);
-    assert.match(await feedback.textContent(), /cannot list earlier sessions/u);
+    assert.match(await feedback.textContent(), /cannot list earlier conversations/u);
     calls = [];
     await submit.click();
     await dialog.waitFor({ state: "hidden" });
@@ -206,7 +206,7 @@ try {
     assert.deepEqual(errors, [], `${where}: page errors: ${errors.join("; ")}`);
     await context.close();
   }
-  console.log("resume an earlier agent session from New session: ok");
+  console.log("resume an agent's earlier conversation from New tab: ok");
 } finally {
   await browser.close();
   server.close();

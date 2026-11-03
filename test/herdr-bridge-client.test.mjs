@@ -227,7 +227,7 @@ test("panes are swapped and relocated within one Herdr session, answered under s
   // Left in a session of its own: its pane and that session come back scoped.
   assert.deepEqual(await client.relocatePane(`${sessionId}~w2:p3`, `${sessionId}~w2:p4`, "right"), {
     pane_id: `${sessionId}~w2:p3`, placed: false, restored: false, tab_id: `${sessionId}~w2:t9`,
-    message: "no room. The pane is in a session of its own now.",
+    message: "no room. The pane is in a tab of its own now.",
   });
   const other = `${sessionIds.sessionIdForName("other")}~w1:p1`;
   await assert.rejects(client.swapPanes(`${sessionId}~w2:p3`, other), InputValidationError);

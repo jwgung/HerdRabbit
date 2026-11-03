@@ -20,8 +20,8 @@
 // (same cells and terminals, the carried pane still selected); its own cell,
 // Escape and a zoomed tab do nothing, refusals are said, and the header's
 // buttons and the terminal's selection and typing are as before. A split
-// session's pane rows in the sidebar carry the cell's ⋯ (not a connected PC's), a pane
-// moves out of its split into a session of its own from there or from a cell,
+// tab's pane rows in the sidebar carry the cell's ⋯ (not a connected PC's), a pane
+// moves out of its split into a tab of its own from there or from a cell,
 // and the split row's ⋯ separates all its panes. Even out layout, from the
 // split row's ⋯ or a cell's, gives the panes equal shares and the cells slide
 // there; a layout that cannot be evened out is said. By default (Settings >
@@ -183,7 +183,7 @@ const herdr = {
     const pane = panes.find((item) => item.pane_id === paneId);
     if (!pane) throw new HerdrCommandError("That pane is no longer open", { code: "pane_not_found" });
     if (panes.filter((item) => item.tab_id === pane.tab_id).length < 2) {
-      throw new HerdrCommandError("That pane is already a session of its own.", { code: "split_session" });
+      throw new HerdrCommandError("That pane is already a tab of its own.", { code: "split_session" });
     }
     movedOut.push(paneId);
     const tabId = `w1:t${40 + movedTabs.length}`;
@@ -909,18 +909,18 @@ try {
 
     // 6. A move that could not finish is said, and the pane is followed.
     await page.route("**/api/panes/*/relocate", (route) => route.fulfill({ json: {
-      pane_id: "w1:p1", placed: false, restored: true, message: "There is no room to split this pane. The pane was put back in its session." } }));
+      pane_id: "w1:p1", placed: false, restored: true, message: "There is no room to split this pane. The pane was put back in its tab." } }));
     const before = rearranged.length;
     seen = await carry("w1:p1", at(await boxOf("w1:p4"), 0.08, 0.5));
     assert.equal(seen.side, "left");
-    await page.locator("#action-feedback").filter({ hasText: "The pane was put back in its session." }).waitFor();
+    await page.locator("#action-feedback").filter({ hasText: "The pane was put back in its tab." }).waitFor();
     assert.equal(rearranged.length, before);
     await page.unroute("**/api/panes/*/relocate");
     // A refusal is said too.
     await page.route("**/api/panes/*/swap", (route) => route.fulfill({ status: 400,
-      json: { error: { code: "invalid_input", message: "Those panes are not in the same session" } } }));
+      json: { error: { code: "invalid_input", message: "Those panes are not in the same tab" } } }));
     await carry("w1:p1", at(await boxOf("w1:p4"), 0.5, 0.5));
-    await page.locator("#action-feedback").filter({ hasText: "Those panes are not in the same session" }).waitFor();
+    await page.locator("#action-feedback").filter({ hasText: "Those panes are not in the same tab" }).waitFor();
     await page.unroute("**/api/panes/*/swap");
 
     // 7. The header's buttons still work: ⋯ opens its menu, ⤢ opens the pane alone.
@@ -1727,11 +1727,11 @@ try {
     assert.equal(menus.local.length, 4, "each of this machine's pane rows has a ⋯");
     for (const items of menus.local) assert.deepEqual(items, ["split-right", "split-down", "zoom", "even-layout", "move-out", "close"]);
     assert.equal(menus.remote, 0, "a connected PC's pane rows have no ⋯");
-    assert.deepEqual(menus.localRow, ["Rename", "even-layout", "separate-all", "Close session"]);
-    assert.deepEqual(menus.remoteRow, ["Rename", "Close session"], "no Even out or Separate all for a connected PC");
+    assert.deepEqual(menus.localRow, ["Rename", "even-layout", "separate-all", "Close tab"]);
+    assert.deepEqual(menus.remoteRow, ["Rename", "Close tab"], "no Even out or Separate all for a connected PC");
     // A session of one pane has nothing to even out or separate.
     assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.tab-group[data-tab-id="w1:t2"] .session-row > .session-action-menu .sidebar-action-item')]
-      .map((item) => item.dataset.action ?? item.textContent)), ["Rename", "Close session"]);
+      .map((item) => item.dataset.action ?? item.textContent)), ["Rename", "Close tab"]);
 
     // Close from a pane row asks first when its agent is waiting for an
     // answer or working; a dismissed close asks the server nothing.
@@ -1752,14 +1752,14 @@ try {
     assert.deepEqual(["w1:p1", "w1:p2", "w1:p4"].map((id) => rects.get(id).width), [40, 40, 40], "three equal columns");
 
     // The selected pane moved out, renamed by Herdr: it stays selected under
-    // its new id, a session of its own in the same project.
+    // its new id, a tab of its own in the same workspace.
     renameOnMove = "w1:p60";
     await paneMenu("w1:p2", "move-out");
     await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w1:p60"]')?.getAttribute("aria-pressed") === "true");
     assert.deepEqual(requests.at(-1), ["move-out", "w1:p2", {}]);
     assert.deepEqual(movedOut, ["w1:p2"]);
-    assert.equal(await page.locator('.tab-group[data-tab-id="w1:t40"]:not([data-split]) .pane-button[data-pane-id="w1:p60"]').count(), 1, "its own session row");
-    assert.equal(await page.locator('.workspace-group[data-workspace-id="w1"] .tab-group[data-tab-id="w1:t40"]').count(), 1, "in the same project");
+    assert.equal(await page.locator('.tab-group[data-tab-id="w1:t40"]:not([data-split]) .pane-button[data-pane-id="w1:p60"]').count(), 1, "its own tab row");
+    assert.equal(await page.locator('.workspace-group[data-workspace-id="w1"] .tab-group[data-tab-id="w1:t40"]').count(), 1, "in the same workspace");
     await page.locator("#pane-title").filter({ hasText: /beta/u }).waitFor();
     assert.equal(await isSplit("w1:t1"), 1, "three panes are still a split");
 
@@ -1778,15 +1778,15 @@ try {
 
     // A move-out Herdr refuses is said, and nothing moves.
     await page.route("**/api/panes/*/move-out", (route) => route.fulfill({ status: 409,
-      json: { error: { code: "split_session", message: "That pane is already a session of its own." } } }));
+      json: { error: { code: "split_session", message: "That pane is already a tab of its own." } } }));
     await paneMenu("w1:p5", "move-out");
-    await feedbackSays("That pane is already a session of its own.");
+    await feedbackSays("That pane is already a tab of its own.");
     await page.unroute("**/api/panes/*/move-out");
     assert.deepEqual(movedOut, ["w1:p2"]);
 
     if (!mobile) {
       // The grid cell's ⋯ moves a pane out too. Opening a cell's ⋯ selects
-      // its pane, so the pane moved out stays selected, alone in its session.
+      // its pane, so the pane moved out stays selected, alone in its tab.
       await page.locator('.split-session-button[data-tab-id="w1:t1"]').click();
       await page.locator('.pane-grid-cell[data-pane-id="w1:p5"]').waitFor();
       await page.locator('.pane-grid-cell[data-pane-id="w1:p5"] .pane-grid-menu > summary').click();
@@ -1808,7 +1808,7 @@ try {
     await rowMenu("w1:t1", "separate-all");
     await page.waitForTimeout(200);
     const count = mobile ? 3 : 2;
-    assert.match(asked ?? "", new RegExp(`Separate the ${count} panes of “Split work” into ${count} sessions`, "u"));
+    assert.match(asked ?? "", new RegExp(`Separate the ${count} panes of “Split work” into ${count} tabs`, "u"));
     assert.equal(requests.length, before, "a dismissed separate asks nothing");
     // ...then every pane but the first, one after another.
     page.once("dialog", (dialog) => void dialog.accept());
@@ -1817,9 +1817,9 @@ try {
     const separated = mobile ? ["w1:p5", "w1:p3"] : ["w1:p3"];
     assert.deepEqual(movedOut.slice(-separated.length), separated);
     assert.deepEqual(requests.slice(before).map(([action, paneId]) => [action, paneId]), separated.map((id) => ["move-out", id]));
-    assert.equal(await page.locator('.tab-group[data-tab-id="w1:t1"] .pane-button[data-pane-id="w1:p1"]').count(), 1, "the first pane stays in the session");
+    assert.equal(await page.locator('.tab-group[data-tab-id="w1:t1"] .pane-button[data-pane-id="w1:p1"]').count(), 1, "the first pane stays in the tab");
     await page.waitForTimeout(300);
-    assert.equal(await page.locator(".terminal-panel.is-grid").count(), 0, "a session of one pane shows it alone");
+    assert.equal(await page.locator(".terminal-panel.is-grid").count(), 0, "a tab of one pane shows it alone");
     assert.deepEqual(errors, [], "no script errors");
     await context.close();
     console.log(`ok: ${mobile ? "phone" : "desktop"} pane actions in the sidebar and moving out`);

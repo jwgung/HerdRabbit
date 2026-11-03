@@ -1,19 +1,19 @@
-// Browser check of the sidebar's session rows: a program mark on the left, the
+// Browser check of the sidebar's tab rows: a program mark on the left, the
 // status glyph at the far right, a folder line under the name, and a machine row with
-// a monitor, "Host" and a connection dot. A split session (a tab of several
+// a monitor, "Host" and a connection dot. A split tab (one of several
 // panes) is one row: its name (the tab's, else its focus pane's title, else
-// "Split session"), a grid badge with the pane count and the most urgent status
-// of its panes. It is drawn as every other session row, but where their
+// "Split tab"), a grid badge with the pane count and the most urgent status
+// of its panes. It is drawn as every other tab row, but where their
 // program mark is it has the arrow (one arrow, none at the right): centred on
 // the marks' column, its pill right before the status in their column. The
-// arrow shows its panes under it (kept after a reload) as full session rows
+// arrow shows its panes under it (kept after a reload) as full tab rows
 // one tree step in, as tall and as far apart as other rows, with no guide
 // line, each with its own ⋯ (Split right, Split down, Zoom, Move out to its
-// own session, Close pane) lined up with every other ⋯; a pane there opens
+// own tab, Close pane) lined up with every other ⋯; a pane there opens
 // alone; the row opens the grid on a desktop and the pane with the map on a
 // phone, stays highlighted while one of its panes is selected, and its ⋯ menu
-// renames, separates and closes the whole session. A folded sidebar's rail
-// lists the sessions even with the Files tab chosen, and keeps the footer's
+// renames, separates and closes the whole tab. A folded sidebar's rail
+// lists the tabs even with the Files tab chosen, and keeps the footer's
 // uploads and settings buttons.
 // Runs against a fake herdr on a desktop and a phone layout.
 // SIDEBAR_SCREENSHOTS=<folder> keeps pictures in both themes.
@@ -319,7 +319,7 @@ try {
     assert.deepEqual(["w1:t8", "w1:t9", "w1:t10"].map((id) => [split[id].name, split[id].badge, split[id].status, split[id].glyph]), [
       ["Pair review", "3", "blocked", "×"], // blocked beats working and done
       ["lint", "2", "working", "◐"], // working beats done; named by its first pane's folder
-      ["Split session", "2", "done", "✓"], // done beats idle; nothing else to name it
+      ["Split tab", "2", "done", "✓"], // done beats idle; nothing else to name it
     ]);
     assert.equal(split["w1:t8"].sub, "Needs your answer", "a split session with a blocked pane says so on its row");
     for (const [id, tab] of Object.entries(split)) {
@@ -360,7 +360,7 @@ try {
       assert.equal(child.iconX, split["w1:t8"].iconX + 10, `${child.id} mark one tree step in`);
       assert.equal(child.statusX, plainRow.statusX, `${child.id} status in the sessions' column`);
       assert.deepEqual(child.menu, ["split-right:Split right", "split-down:Split down", "zoom:Zoom",
-        "even-layout:Even out layout", "move-out:Move out to its own session", "close:Close pane"], `${child.id} ⋯ has the grid cell's actions`);
+        "even-layout:Even out layout", "move-out:Move out to its own tab", "close:Close pane"], `${child.id} ⋯ has the grid cell's actions`);
       assert.ok(child.menuAfterStatus, `${child.id} ⋯ at the far right, after the status`);
     }
     // Every ⋯ still ends on one line, the panes' ones included.
@@ -439,7 +439,7 @@ try {
     page.once("dialog", (dialog) => { asked = dialog.message(); void dialog.dismiss(); });
     await page.locator(`${menuOf("w1:t9")} > summary`).click();
     await page.locator(`${menuOf("w1:t9")} [data-action="separate-all"]`).click();
-    assert.match(asked ?? "", /Separate the 2 panes of “Lint pair” into 2 sessions/u);
+    assert.match(asked ?? "", /Separate the 2 panes of “Lint pair” into 2 tabs/u);
     await page.waitForTimeout(200);
     assert.equal(await page.locator('.tab-group[data-tab-id="w1:t9"][data-split="true"]').count(), 1, "a dismissed separate keeps the split");
     if (mobile && !(await page.locator(`${menuOf("w1:t10")} > summary`).isVisible())) await openSidebar();
@@ -447,9 +447,9 @@ try {
     asked = null;
     page.once("dialog", (dialog) => { asked = dialog.message(); void dialog.accept(); });
     await page.locator(`${menuOf("w1:t10")} > summary`).click();
-    await page.locator(`${menuOf("w1:t10")} .sidebar-action-item`, { hasText: "Close session" }).click();
+    await page.locator(`${menuOf("w1:t10")} .sidebar-action-item`, { hasText: "Close tab" }).click();
     await page.locator('.tab-group[data-tab-id="w1:t10"]').waitFor({ state: "detached" });
-    assert.match(asked ?? "", /Close session “Split session”/u);
+    assert.match(asked ?? "", /Close tab “Split tab”/u);
     assert.deepEqual(tabCalls.at(-1), ["close", "w1:t10"]);
     if (!mobile) {
       // At its narrowest the sidebar still draws every row as one line each.

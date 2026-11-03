@@ -45,14 +45,14 @@
 
         <div class="navigator-tabs" role="tablist" aria-label="Sidebar sections">
           <button id="tab-sessions" class="navigator-tab" type="button" role="tab"
-            aria-selected="true" aria-controls="workspace-list">Sessions</button>
+            aria-selected="true" aria-controls="workspace-list">Workspaces</button>
           <button id="tab-files" class="navigator-tab" type="button" role="tab"
             aria-selected="false" aria-controls="file-panel">Files</button>
         </div>
 
         <div id="navigator-content" class="navigator-content">
           <nav id="workspace-list" role="tabpanel" aria-labelledby="tab-sessions"
-            aria-label="Projects, tabs, and panes"></nav>
+            aria-label="Workspaces, tabs, and panes"></nav>
           <div id="file-panel" class="file-panel" role="tabpanel" aria-labelledby="tab-files" hidden>
             <div class="file-panel-actions">
               <select id="file-server" aria-label="Server">
@@ -142,7 +142,7 @@
             <span class="pane-heading-separator" aria-hidden="true">·</span>
             <h2 id="pane-title">Terminal</h2>
           </div>
-          <button id="grid-back" class="secondary-button grid-back" type="button" title="Show every pane of this session" hidden>
+          <button id="grid-back" class="secondary-button grid-back" type="button" title="Show every pane of this tab" hidden>
             <svg aria-hidden="true" viewBox="0 0 20 20" focusable="false">
               <rect x="2.5" y="3.5" width="6.5" height="5.5" rx="1" />
               <rect x="11" y="3.5" width="6.5" height="5.5" rx="1" />
@@ -198,9 +198,9 @@
         </div>
 
         <div class="terminal-stage" data-lens="terminal">
-          <div id="pane-map" class="pane-map" role="group" aria-label="Panes of this session" hidden></div>
+          <div id="pane-map" class="pane-map" role="group" aria-label="Panes of this tab" hidden></div>
           <div id="chat-host" class="chat-host" aria-label="Conversation"></div>
-          <p id="terminal-message" class="terminal-message" role="status" aria-live="polite">Loading projects…</p>
+          <p id="terminal-message" class="terminal-message" role="status" aria-live="polite">Loading workspaces…</p>
           <div id="terminal-xterm" class="terminal-xterm" hidden></div>
           <div id="terminal-status" class="terminal-status" role="status" aria-live="polite" hidden>
             <p class="terminal-status-reason"><span id="terminal-status-text"></span><span id="terminal-status-countdown" class="terminal-status-countdown" aria-hidden="true"></span></p>
@@ -544,12 +544,12 @@
     <dialog id="project-dialog" class="app-dialog" aria-labelledby="project-dialog-title">
       <form id="project-create-form" class="dialog-form">
         <div class="dialog-heading">
-          <h2 id="project-dialog-title">New project</h2>
+          <h2 id="project-dialog-title">New workspace</h2>
           <p id="project-session-context">A shell opens in it, or the agent chosen.</p>
         </div>
-        <label for="project-server-session">Herdr session</label>
+        <label for="project-server-session">Session</label>
         <select id="project-server-session"></select>
-        <label for="project-name">Project name</label>
+        <label for="project-name">Workspace name</label>
         <input id="project-name" name="label" type="text" maxlength="120" required />
         <fieldset id="project-agent" class="agent-picker">
           <legend>Agent</legend>
@@ -566,16 +566,16 @@
     <dialog id="session-dialog" class="app-dialog" aria-labelledby="session-dialog-title">
       <form id="session-create-form" class="dialog-form">
         <div class="dialog-heading">
-          <h2 id="session-dialog-title">New session</h2>
+          <h2 id="session-dialog-title">New tab</h2>
           <p id="session-dialog-context"></p>
         </div>
         <fieldset id="session-agent" class="agent-picker">
           <legend>Agent</legend>
           <div class="agent-choices"></div>
         </fieldset>
-        <label id="session-resume-label" for="session-resume" hidden>Session</label>
+        <label id="session-resume-label" for="session-resume" hidden>Conversation</label>
         <select id="session-resume" hidden></select>
-        <label for="session-name">Session name</label>
+        <label for="session-name">Tab name</label>
         <input id="session-name" name="label" type="text" maxlength="120" placeholder="Optional" autocomplete="off" />
         <p id="session-dialog-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
         <div class="dialog-actions">

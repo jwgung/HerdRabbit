@@ -70,21 +70,21 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     fillSessions([]);
     if (!agent || !target) return;
     const current = () => asked === sessionsAsked && opened === generation;
-    say("Looking for earlier sessions…");
+    say("Looking for earlier conversations…");
     try {
       const answer = await api(`/api/workspaces/${encodeURIComponent(target.workspaceId)}/agent-sessions?agent=${encodeURIComponent(agent)}`);
       if (!current()) return;
       const where = answer.folder ? ` in ${answer.folder}` : " here";
       const sessions = Array.isArray(answer.sessions) ? answer.sessions : [];
       if (!answer.supported) {
-        say(answer.reason === "machine" ? "This machine cannot list earlier sessions. Update HerdRabbit there to resume one." : "");
-      } else if (sessions.length === 0) say(`No earlier sessions${where}.`);
+        say(answer.reason === "machine" ? "This machine cannot list earlier conversations. Update HerdRabbit there to resume one." : "");
+      } else if (sessions.length === 0) say(`No earlier conversations${where}.`);
       else {
         fillSessions(sessions);
-        say(`Earlier sessions${where}.`);
+        say(`Earlier conversations${where}.`);
       }
     } catch (error) {
-      if (current()) say(`${error.message} A new session can still be started.`, true);
+      if (current()) say(`${error.message} A new conversation can still be started.`, true);
     }
   }
 
@@ -137,8 +137,8 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     fillAgents([]);
     const machine = machineName(serverId);
     context.textContent = machine
-      ? `In project “${workspaceLabel}” on ${machine}.`
-      : `In project “${workspaceLabel}”.`;
+      ? `In workspace “${workspaceLabel}” on ${machine}.`
+      : `In workspace “${workspaceLabel}”.`;
     dialog.showModal();
     askForAgents();
     window.requestAnimationFrame(() => agents.focus());
@@ -168,7 +168,7 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     const controls = [agentField, resumeSelect, nameInput, cancel, submit];
     state.mutationBusy = true;
     for (const control of controls) control.disabled = true;
-    say(resume ? "Resuming session…" : agent ? "Starting session…" : "Opening session…");
+    say(resume ? "Resuming conversation…" : agent ? "Opening tab and starting the agent…" : "Opening tab…");
     try {
       await createSession(target.workspaceId, { ...(agent ? { agent } : {}), ...(resume ? { resume } : {}), ...(label ? { label } : {}) });
       lastAgent = agent;

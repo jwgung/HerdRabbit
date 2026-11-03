@@ -507,11 +507,11 @@ test("sums up a batch of uploads, naming what failed and why", () => {
   assert.equal(uploadSummary({ saved: ["a.png", "b.txt"] }), "Uploaded 2 files.");
   assert.equal(
     uploadSummary({ saved: ["a.png"], elsewhere: "Laptop" }),
-    "Uploaded a.png to Laptop. The path was not inserted: this session runs elsewhere.",
+    "Uploaded a.png to Laptop. The path was not inserted: this tab runs elsewhere.",
   );
   assert.equal(
     uploadSummary({ saved: ["a.png", "b.txt"], elsewhere: "Laptop" }),
-    "Uploaded 2 files to Laptop. The paths were not inserted: this session runs elsewhere.",
+    "Uploaded 2 files to Laptop. The paths were not inserted: this tab runs elsewhere.",
   );
   assert.equal(
     uploadSummary({ saved: ["a.png"], failed: [{ name: "big.mov", reason: "larger than 50 MB" }] }),

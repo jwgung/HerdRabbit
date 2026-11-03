@@ -23,14 +23,14 @@ function sessionNameForId(sessionId) {
     typeof sessionId !== "string" ||
     sessionId.length > SESSION_ID_PREFIX.length + 320
   ) {
-    throw new InputValidationError("Invalid Herdr session id");
+    throw new InputValidationError("Invalid session id");
   }
   const match = sessionId.match(SESSION_ID_PATTERN);
-  if (!match) throw new InputValidationError("Invalid Herdr session id");
+  if (!match) throw new InputValidationError("Invalid session id");
 
   const name = Buffer.from(match[1], "base64url").toString("utf8");
   if (Buffer.from(name, "utf8").toString("base64url") !== match[1]) {
-    throw new InputValidationError("Invalid Herdr session id");
+    throw new InputValidationError("Invalid session id");
   }
   validation.validateHerdrSessionName(name);
   return name;
@@ -165,7 +165,7 @@ export class HerdrBridgeClient {
   #sessionForId(sessionId) {
     const sessionName = sessionNameForId(sessionId || sessionIdForName("default"));
     if (!this.runningSessionNames.has(sessionName)) {
-      throw new InputValidationError("Herdr session is not running");
+      throw new InputValidationError("That session is not running");
     }
     return sessionName;
   }
@@ -266,7 +266,7 @@ export class HerdrBridgeClient {
     const tab = this.#targetForScopedId(tabId, validation.validateTabId);
     const workspace = this.#targetForScopedId(workspaceId, validation.validateWorkspaceId);
     if (tab.sessionName !== workspace.sessionName) {
-      throw new InputValidationError("A session can only move to a project in the same Herdr session");
+      throw new InputValidationError("A tab can only move to a workspace in the same session");
     }
     const result = await this.#clientForSession(tab.sessionName)
       .moveTabToWorkspace(tab.localId, workspace.localId, insertIndex);
@@ -329,7 +329,7 @@ export class HerdrBridgeClient {
     const pane = this.#targetForScopedId(paneId, validation.validatePaneId);
     const target = this.#targetForScopedId(targetPaneId, validation.validatePaneId);
     if (pane.sessionName !== target.sessionName) {
-      throw new InputValidationError("A pane can only be dropped in the same Herdr session");
+      throw new InputValidationError("A pane can only be dropped in the same session");
     }
     const result = await this.#clientForSession(pane.sessionName).movePaneSplit(pane.localId, target.localId, side);
     return { ...result, pane_id: scopedId(pane.sessionName, result.pane_id) };
@@ -341,7 +341,7 @@ export class HerdrBridgeClient {
     const pane = this.#targetForScopedId(paneId, validation.validatePaneId);
     const target = this.#targetForScopedId(targetPaneId, validation.validatePaneId);
     if (pane.sessionName !== target.sessionName) {
-      throw new InputValidationError("Those panes are not in the same session");
+      throw new InputValidationError("Those panes are not in the same tab");
     }
     return { pane, target, client: this.#clientForSession(pane.sessionName) };
   }

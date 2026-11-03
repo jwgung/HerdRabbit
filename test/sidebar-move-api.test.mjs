@@ -149,7 +149,7 @@ test("a split session is refused for another project without moving any pane, an
   const client = new HerdrClient({ runner: fake.runner });
   await assert.rejects(client.moveTabToWorkspace("w1:t2", "w2", 1), (error) =>
     error instanceof HerdrCommandError && error.code === "split_session" &&
-    error.message === "A split session can only be reordered within its project.");
+    error.message === "A split tab can only be reordered within its workspace.");
   assert.equal(fake.calls.some((args) => args[0] === "pane"), false, "no pane move");
 
   const baseUrl = await startServer(context, new MultiServerClient({ local: client }));

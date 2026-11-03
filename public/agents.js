@@ -71,7 +71,7 @@ export function sessionAgentChoices(installed) {
 // How an earlier session reads in the New session dialog: its title (or
 // "Untitled session") and how long ago it was last used.
 export function sessionChoiceLabel({ title, updatedAt } = {}, now = Date.now()) {
-  const name = typeof title === "string" && title ? title : "Untitled session";
+  const name = typeof title === "string" && title ? title : "Untitled conversation";
   if (!Number.isFinite(updatedAt)) return name;
   const minutes = Math.floor((now - updatedAt) / 60_000);
   let ago;

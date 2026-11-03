@@ -192,7 +192,7 @@ export class MultiServerClient {
     try {
       const snapshot = await client.snapshot();
       if (snapshot.herdr_sessions.some((session) => session.running && !session.available)) {
-        throw new InputValidationError("Connected to HerdRabbit, but a running Herdr session could not be read.");
+        throw new InputValidationError("Connected to HerdRabbit, but a running session could not be read.");
       }
       const info = client.info?.() ?? {};
       return {
@@ -338,7 +338,7 @@ export class MultiServerClient {
     const tab = this.target(tabId);
     const workspace = this.target(workspaceId);
     if (tab.entry !== workspace.entry) {
-      throw new InputValidationError("A session can only move to a project on the same machine");
+      throw new InputValidationError("A tab can only move to a workspace on the same machine");
     }
     const { entry } = tab;
     const result = await entry.client.moveTabToWorkspace(tab.id, workspace.id, insertIndex);

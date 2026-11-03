@@ -32,7 +32,7 @@ export function createNavigation(deps) {
     // A project is made on a machine, in a Herdr session running there.
     if (herdrSessionForServer(server.id)) {
       actions.push({
-        label: "New project…",
+        label: "New workspace…",
         paths: ["M3 7h6l2 2h10v10H3z", "M12 12v5M9.5 14.5h5"],
         onSelect: () => openNewProject(server.id),
       });
@@ -137,10 +137,10 @@ export function createNavigation(deps) {
     const cleared = clearedTabLabel(tab);
     return renameForm({
       value: tabLabel,
-      label: "Session name",
-      placeholder: cleared === null ? "Session name" : "Session name — empty to clear",
+      label: "Tab name",
+      placeholder: cleared === null ? "Tab name" : "Tab name — empty to clear",
       maxLength: 120,
-      invalidMessage: "Enter a session name.",
+      invalidMessage: "Enter a tab name.",
       allowEmpty: cleared !== null,
       onCancel: () => { state.editingTabId = null; renderNavigation(); },
       onSubmit: async (typed) => {
@@ -238,7 +238,7 @@ export function createNavigation(deps) {
       const group = createElement("section", { className: "workspace-group" });
       group.dataset.workspaceId = workspaceId;
       group.dataset.dropScope = dropScope(workspace);
-      const workspaceLabel = displayRecordLabel(workspace, "Project");
+      const workspaceLabel = displayRecordLabel(workspace, "Workspace");
       const { hasCompletion, hasRequest } = node;
       const children = createElement("div", { className: "workspace-children" });
       children.id = `workspace-${workspaceId}-children`;
@@ -305,7 +305,7 @@ export function createNavigation(deps) {
           tabGroup.append(sessionRow);
           sessionLabel =
             tabLabel ||
-            displayRecordLabel(agentForPane(idOf(tabPanes[0], "pane_id", "id")), "Session");
+            displayRecordLabel(agentForPane(idOf(tabPanes[0], "pane_id", "id")), "Tab");
         }
         const sessionMenu = sidebarActionMenu({
           id: `tab-${tabId}`,
@@ -336,7 +336,7 @@ export function createNavigation(deps) {
               onSelect: () => void separateSplitSession(tabId, sessionLabel),
             }] : []),
             {
-              label: "Close session",
+              label: "Close tab",
               paths: ["M6 6l12 12M18 6 6 18"],
               danger: true,
               onSelect: (button) => void closeSession(
@@ -367,7 +367,7 @@ export function createNavigation(deps) {
         className: `herdr-session-dot${node.tone === "online" ? " is-online" : node.tone === "error" ? " is-error" : ""}`,
       });
       statusDot.setAttribute("aria-hidden", "true");
-      sessionHeading.setAttribute("aria-label", `Herdr ${session.name}, ${node.status}`);
+      sessionHeading.setAttribute("aria-label", `Session ${session.name}, ${node.status}`);
       sessionHeading.title = node.status;
       sessionHeading.append(
         statusDot,
@@ -390,7 +390,7 @@ export function createNavigation(deps) {
         sessionHeading,
         sessionBody,
         `session:${node.id}`,
-        displayRecordLabel(session, "Herdr session"),
+        displayRecordLabel(session, "Session"),
       );
       parent.append(sessionGroup);
     };
@@ -405,7 +405,7 @@ export function createNavigation(deps) {
     if (tree.empty) {
       elements.workspaceList.append(createElement("p", {
         className: "empty-state",
-        text: "No open projects.",
+        text: "No open workspaces.",
       }));
       return;
     }
@@ -471,7 +471,7 @@ export function createNavigation(deps) {
     let reorderedFeedback = "";
     try {
       const payload = await api(pathFor(request), { method: "POST", body: request.body });
-      if (payload.moved?.reordered === false) reorderedFeedback = "Moved; it is at the end of the project.";
+      if (payload.moved?.reordered === false) reorderedFeedback = "Moved; it is at the end of the workspace.";
       // A session moved to another project brings its panes under new ids; the
       // one on screen is followed there.
       const followed = followMovedPane(state.selectedPaneId, payload.moved?.panes);
