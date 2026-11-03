@@ -281,11 +281,9 @@ try {
           y: Math.abs(box.top + box.height / 2 - (icon.top + icon.height / 2)) };
       });
       // A page's heading: × on a desktop, the Back arrow on a phone (whose × is on the list).
-      for (const button of [dialog.locator(mobile ? "#settings-back" : ".settings-page-heading .settings-close")]) {
-        const look = await centred(button);
-        assert.equal(look.text, "", `a settings header button has words: ${look.text}`);
-        assert.ok(look.x <= 0.5 && look.y <= 0.5, `a settings header icon is off centre: ${JSON.stringify(look)}`);
-      }
+      const look = await centred(dialog.locator(mobile ? "#settings-back" : ".settings-page-heading .settings-close"));
+      assert.equal(look.text, "", `a settings header button has words: ${look.text}`);
+      assert.ok(look.x <= 0.5 && look.y <= 0.5, `a settings header icon is off centre: ${JSON.stringify(look)}`);
 
       if (mobile) {
         // Back returns to the list, on the page it came from.
