@@ -404,7 +404,7 @@ try {
     const browseStatus = page.locator("#plugins-browse-status");
     await page.waitForFunction(() => document.querySelector("#plugins-browse-status").dataset.error === "true");
     assert.match(await browseStatus.textContent(), /could not be read \(it answered HTTP 503\)\. You can still install a plugin by its GitHub owner\/repo with Install plugin…/u);
-    assert.match(await pluginsPage.locator("#plugins-browse-view .plugin-warning").textContent(), /Nobody reviews them/u);
+    assert.equal(await pluginsPage.locator("#plugins-browse-view .plugin-warning").count(), 0, `${where}: Browse still shows its note`);
     const listings = page.locator("#plugins-browse-list .market-row");
     assert.equal(await listings.count(), 0);
 
