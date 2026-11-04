@@ -1,5 +1,5 @@
-import { createElement } from "./dom.js?v=1.4.32";
-import { sessionAgentChoices } from "../agents.js?v=1.4.32";
+import { createElement } from "./dom.js?v=1.4.33";
+import { sessionAgentChoices } from "../agents.js?v=1.4.33";
 
 // The Agent choice of the New tab and New workspace dialogs: a fieldset of
 // radio buttons, Shell first and then each installed agent, each with its
