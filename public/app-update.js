@@ -1,4 +1,4 @@
-// In-app update: the Update window (⚙ Settings → About). Each PC -- this one and every PC
+// In-app update: the Update window (⚙ Settings → Updates). Each PC -- this one and every PC
 // connected with Connect PC -- is checked when the app opens and when Check is
 // pressed, never on a timer, for a release newer than the version it runs. Update runs update.sh on that PC (the server
 // starts it outside its own service), and this page follows the run: through
@@ -8,9 +8,10 @@
 // Each PC also has a Herdr row: the Herdr it runs against the newest on its
 // channel, and Update Herdr, which runs `herdr update --handoff` there and is
 // followed the same way, without a restart.
-// Settings → Plugins drives the same panel for HerdRabbit's own row (its
-// versions, Update… and the run's progress line): state(), subscribe(),
-// follow() and run() below, so both places start and show one update.
+// Settings → Updates drives the same panel for its list and Update all (the
+// versions, Update and the run's progress line): state(), subscribe(),
+// follow(), run() and runHerdr() below, so both places start and show one
+// update. Settings → Plugins reads state() to wait while one runs.
 
 export const BLOCKED_TEXT = {
   running: "An update is already running.",
@@ -177,7 +178,7 @@ export function runFailedText(status) {
 
 export const WAITING_TEXT = "Waiting for HerdRabbit to come back…";
 
-// HerdRabbit's versions on one PC in a line, for Settings → Plugins:
+// HerdRabbit's versions on one PC in a line, for Settings → Updates:
 // { text, error, note, canUpdate }. `installed` is the version Herdr lists
 // when the check does not name one. Null when the PC was not checked or
 // cannot update itself from the page.
@@ -191,6 +192,13 @@ export function appVersionText(check, installed = null) {
     text: `${current} → ${latest} available`, error: false,
     note: check.blocked ? blockedText(check.blocked) : null, canUpdate: !check.blocked,
   };
+}
+
+// Herdr's versions on one PC in a line, for Settings → Updates: "0.9.3 →
+// 0.9.5 available", or null when there is nothing newer.
+export function herdrVersionText(herdr) {
+  if (herdr?.available !== true) return null;
+  return `${herdr.current ?? "unknown"} → ${herdr.latest ?? "unknown"} available`;
 }
 
 // A HerdRabbit run in a line, as the Update window heads it: its state, then
@@ -285,7 +293,7 @@ export function createUpdatePanel({
   // Which run of this PC's server the page was loaded from.
   let baseline = null;
   let checking = false;
-  // Settings → Plugins, told whenever anything here changes.
+  // Settings → Updates and Plugins, told whenever anything here changes.
   const listeners = new Set();
 
   const entry = (id) => {
@@ -359,19 +367,23 @@ export function createUpdatePanel({
   const keep = (run) => ({ logOpen: run?.logOpen, since: run?.since });
   const busy = (item) => item.run?.tracking === true || item.herdrRun?.tracking === true;
 
-  async function runHerdr(id) {
+  // Like run() below, for Herdr: answers how its run ended, or null when it
+  // was not started.
+  async function runHerdr(id, { confirmed = false } = {}) {
     const server = servers().find((item) => item.id === id);
     const item = entry(id);
-    if (!server || !item.check?.herdr?.available || busy(item)) return;
-    if (!confirm(herdrConfirmText(server.name, item.check.herdr))) return;
+    if (!server || !item.check?.herdr?.available || busy(item)) return null;
+    if (!confirmed && !confirm(herdrConfirmText(server.name, item.check.herdr))) return null;
     feedback.textContent = "";
+    let status;
     try {
-      const status = await api("/api/update/herdr/run", { method: "POST", body: { server: id } });
-      void trackHerdr(id, status);
+      status = await api("/api/update/herdr/run", { method: "POST", body: { server: id } });
     } catch (error) {
       feedback.textContent = error.message || "Could not start the Herdr update.";
       feedback.dataset.error = "true";
+      return { state: "failed", startFailed: true, detail: feedback.textContent };
     }
+    return trackHerdr(id, status);
   }
 
   // Polls Herdr's run until it ends, then checks that PC again so the new
@@ -404,6 +416,7 @@ export function createUpdatePanel({
     item.herdrRun.tracking = false;
     item.herdrRun.waiting = false;
     changed();
+    return item.herdrRun.status;
   }
 
   // Asks (unless the person already said yes, as Update all does), starts
@@ -469,7 +482,7 @@ export function createUpdatePanel({
     return item.run.status;
   }
 
-  // A PC's runs started elsewhere (another page, or About on another device)
+  // A PC's runs started elsewhere (another page, or Updates on another device)
   // are followed here too, and a PC not checked yet is checked.
   async function follow(id) {
     const item = entry(id);

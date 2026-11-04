@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  updateAllConfirmText, updateAllCount, updateAllPlan, updateAllResultText,
+  herdrCanUpdate, updateAllConfirmText, updateAllCount, updateAllPlan, updateAllResultText,
 } from "../public/app/plugin-model.js";
-import { appVersionText, herdrRunSummary, runSummary } from "../public/app-update.js";
+import { appVersionText, herdrRunSummary, herdrVersionText, runSummary } from "../public/app-update.js";
 import { RUN_STEPS } from "../src/app-update.mjs";
 
 const plugin = (id, fields = {}) => ({ id, name: id.toUpperCase(), updatable: true, protected: false, updateAvailable: true, ...fields });
@@ -27,6 +27,29 @@ test("Update all takes the plugins marked behind, in list order, and HerdRabbit 
   assert.equal(updateAllCount(updateAllPlan([], null)), 0);
 });
 
+const herdr = (fields = {}) => ({ current: "0.9.3", latest: "0.9.5", available: true, blocked: null, error: null, ...fields });
+
+test("Update all takes Herdr between the plugins and HerdRabbit when it can be updated", () => {
+  const plan = updateAllPlan([plugin("a")], appVersionText(check()), herdr());
+  assert.deepEqual({ plugins: plan.plugins.map((item) => item.id), herdr: plan.herdr, app: plan.app },
+    { plugins: ["a"], herdr: true, app: true });
+  assert.equal(updateAllCount(plan), 3);
+  for (const fields of [{ available: false }, { blocked: "managed_install" }, { error: "manifest_failed" }]) {
+    assert.equal(herdrCanUpdate(herdr(fields)), false);
+    assert.equal(updateAllPlan([], null, herdr(fields)).herdr, false);
+  }
+  assert.equal(updateAllPlan([], null, null).herdr, false);
+  assert.equal(herdrVersionText(herdr()), "0.9.3 → 0.9.5 available");
+  assert.equal(herdrVersionText(herdr({ available: false })), null);
+  const text = updateAllConfirmText("Laptop", plan, {
+    appLine: "1.4.29 → 1.4.30 available", herdrLine: herdrVersionText(herdr()), herdrDetails: "Panes keep running.",
+  });
+  assert.deepEqual(text.split("\n").slice(0, 4), [
+    "Update these 3 on Laptop, one at a time?", "• A", "• Herdr (0.9.3 → 0.9.5)", "• HerdRabbit (1.4.29 → 1.4.30), last: it restarts",
+  ]);
+  assert.match(text, /Panes keep running\./u);
+});
+
 test("Update all asks once, naming each update and HerdRabbit last", () => {
   const plan = updateAllPlan([plugin("a")], appVersionText(check()));
   const text = updateAllConfirmText("Laptop", plan, { appLine: "1.4.29 → 1.4.30 available", appDetails: "Herdr restarts it." });
@@ -46,7 +69,7 @@ test("Update all's last word: all done, or where it stopped and what was left", 
   assert.equal(updateAllResultText([], [], "The update failed.").text, "Update all stopped. The update failed.");
 });
 
-test("HerdRabbit's versions in a line, from About's check", () => {
+test("HerdRabbit's versions in a line, from the update check", () => {
   assert.deepEqual(appVersionText(check()), { text: "1.4.29 → 1.4.30 available", error: false, note: null, canUpdate: true });
   assert.equal(appVersionText(check({ available: false })).text, "1.4.29 · Up to date");
   assert.equal(appVersionText(check({ current: { sha: "abc1234" } }), "1.4.28").text, "1.4.28 → 1.4.30 available");

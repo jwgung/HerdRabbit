@@ -7,6 +7,7 @@ import { CHAT_WIDTHS, readChatWidth, writeChatWidth } from "../chat-width-prefer
 import { notificationStateText, settingsPageList, settingsPageTitle } from "../settings-pages.js?v=1.4.30";
 import { herdrVersionText } from "../ui-model.js?v=1.4.30";
 import { createPluginsPage } from "./plugins.js?v=1.4.30";
+import { createUpdatesPage } from "./updates.js?v=1.4.30";
 
 // What each "Open panes in" choice does, under the choice.
 const OPEN_PANES_IN_HINTS = Object.freeze({
@@ -38,8 +39,8 @@ export function createSettings(deps) {
   const settings = {
     page: "appearance",
     push: null,
-    // In-app update: whether Update shows, and whether some PC has a newer
-    // version (a dot on the ⚙ button and on About).
+    // In-app update: whether Update… shows, and whether some PC has a newer
+    // version (a dot on the ⚙ button and on Updates).
     update: { visible: false, available: false },
   };
 
@@ -62,7 +63,7 @@ export function createSettings(deps) {
       button.dataset.page = page.id;
       const copy = createElement("span", { className: "ui-nav-copy" });
       copy.append(createElement("strong", { text: page.title }));
-      if (page.id === "about" && settings.update.available) {
+      if (page.id === "updates" && settings.update.available) {
         copy.append(createElement("span", { className: "ui-badge is-accent", text: "Update" }));
       }
       button.append(copy);
@@ -217,7 +218,8 @@ export function createSettings(deps) {
     }));
   }
 
-  // About
+  // About: the versions this machine runs. Updates: the Update window's
+  // Update… and each machine's updates.
   const appVersion = document.querySelector("#settings-version-app");
   const herdrVersion = document.querySelector("#settings-version-herdr");
   const updateRow = document.querySelector("#settings-update-row");
@@ -261,9 +263,9 @@ export function createSettings(deps) {
 
     renderPcs();
     // On a phone the page is on screen only when it, not the list, is shown.
-    pluginsPage.sync({
-      visible: dialog.open && settings.page === "plugins" && (desktopMedia.matches || dialog.dataset.view === "page"),
-    });
+    const onScreen = (id) => dialog.open && settings.page === id && (desktopMedia.matches || dialog.dataset.view === "page");
+    pluginsPage.sync({ visible: onScreen("plugins") });
+    updatesPage.sync({ visible: onScreen("updates") });
 
     const local = snapshotRecords().servers.find((server) => server.id === "local");
     appVersion.textContent = local?.version || "Unknown";
@@ -295,11 +297,19 @@ export function createSettings(deps) {
   });
   document.querySelector("#update-close").addEventListener("click", () => document.querySelector("#update-dialog").close());
 
-  // Plugins: read when the page comes into view, per machine. HerdRabbit's
-  // own row there drives the Update window's panel, so About and Plugins
-  // start and show the same update.
-  const pluginsPage = createPluginsPage({ api, snapshotRecords, sidebarActionMenu, appUpdates: updatePanel });
-  dialog.addEventListener("close", () => pluginsPage.sync({ visible: false }));
+  // Plugins: read when the page comes into view, per machine; its update
+  // badges and HerdRabbit's row open Updates. Updates drives the Update
+  // window's panel, so both start and show the same update; its plugin
+  // part only where Plugins shows.
+  const pluginsShown = () => visiblePages().some((page) => page.id === "plugins");
+  const pluginsPage = createPluginsPage({
+    api, snapshotRecords, sidebarActionMenu, appUpdates: updatePanel, openUpdates: () => showPage("updates", { focus: true }),
+  });
+  const updatesPage = createUpdatesPage({ api, snapshotRecords, appUpdates: updatePanel, pluginsShown });
+  dialog.addEventListener("close", () => {
+    pluginsPage.sync({ visible: false });
+    updatesPage.sync({ visible: false });
+  });
 
   function supportsPushNotifications() {
     return Boolean(

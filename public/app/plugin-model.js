@@ -1,4 +1,4 @@
-// Settings → Plugins without the page: what a typed source names, whether a
+// Settings → Plugins (and Updates) without the page: what a typed source names, whether a
 // ref may be sent, and how a plugin and a change read. The server checks the
 // same rules again (src/herdr-plugins.mjs); these only let the page say so
 // before anything is sent.
@@ -81,26 +81,36 @@ export function pluginOperationText(operation, plugins = []) {
   return { text: `Couldn't ${verbs[2]} ${what}: ${operation.detail || "Herdr reported an error."}`, error: true, running: false };
 }
 
-// What Update all would update on a machine, in order: each plugin the
-// server marks `updateAvailable` (and could update), then HerdRabbit last
-// when `app` (appVersionText in app-update.js) says it can be updated --
-// its update restarts the server.
-export function updateAllPlan(plugins = [], app = null) {
+// Whether Herdr's check on a machine (the `herdr` of its update check) says
+// it can be updated from the page.
+export function herdrCanUpdate(herdr) {
+  return herdr?.available === true && !herdr.blocked && !herdr.error;
+}
+
+// What Update all (Settings → Updates) would update on a machine, in order:
+// each plugin the server marks `updateAvailable` (and could update), then
+// Herdr when its check (`herdr`) says it can be updated, then HerdRabbit last
+// when `app` (appVersionText in app-update.js) says it can be -- its update
+// restarts the server.
+export function updateAllPlan(plugins = [], app = null, herdr = null) {
   return {
     plugins: (plugins ?? []).filter((plugin) => plugin.updateAvailable === true && plugin.updatable === true && !plugin.protected),
+    herdr: herdrCanUpdate(herdr),
     app: app?.canUpdate === true,
   };
 }
 
 export function updateAllCount(plan) {
-  return plan.plugins.length + (plan.app ? 1 : 0);
+  return plan.plugins.length + (plan.herdr ? 1 : 0) + (plan.app ? 1 : 0);
 }
 
 // The one question Update all asks: what, where, in which order. `appLine`
 // is HerdRabbit's "1.4.30 → 1.4.30 available" and `appDetails` what its own
-// update's confirm says it does.
-export function updateAllConfirmText(machine, plan, { appLine = "", appDetails = "" } = {}) {
+// update's confirm says it does; `herdrLine` and `herdrDetails` the same for
+// Herdr.
+export function updateAllConfirmText(machine, plan, { appLine = "", appDetails = "", herdrLine = "", herdrDetails = "" } = {}) {
   const lines = plan.plugins.map((plugin) => `• ${plugin.name}`);
+  if (plan.herdr) lines.push(`• Herdr${herdrLine ? ` (${herdrLine.replace(/ available$/u, "")})` : ""}`);
   if (plan.app) lines.push(`• HerdRabbit${appLine ? ` (${appLine.replace(/ available$/u, "")})` : ""}, last: it restarts`);
   return [
     `Update ${updateAllCount(plan) === 1 ? "this" : `these ${updateAllCount(plan)}`} on ${machine}, one at a time?`,
@@ -108,6 +118,7 @@ export function updateAllConfirmText(machine, plan, { appLine = "", appDetails =
     "",
     "Update all stops at the first update that fails.",
     ...(plan.plugins.length ? ["Herdr downloads and builds each plugin's new version, which runs its own code there."] : []),
+    ...(plan.herdr && herdrDetails ? [herdrDetails] : []),
     ...(plan.app && appDetails ? [appDetails] : []),
   ].join("\n");
 }

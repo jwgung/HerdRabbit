@@ -11,6 +11,10 @@ export const SETTINGS_PAGES = Object.freeze([
   { id: "pcs", title: "PCs" },
   // Herdr's plugins, per machine: only with sign-in on, as a plugin runs code.
   { id: "plugins", title: "Plugins" },
+  // HerdRabbit's and Herdr's updates on every machine (no sign-in needed),
+  // and the plugins' where Plugins shows.
+  { id: "updates", title: "Updates" },
+  // The versions this machine runs.
   { id: "about", title: "About" },
 ].map((page) => Object.freeze(page)));
 

@@ -572,11 +572,20 @@ body.sidebar-collapsed .terminal-panel {
 }
 
 .settings-nav-heading,
+/* The page's heading stays at the top while the page scrolls under it
+   (the body's own top padding is drawn by the heading). */
 .settings-page-heading {
+  position: sticky;
+  top: calc(-1 * var(--space-4));
+  z-index: var(--layer-raised);
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-height: 34px;
+  margin: calc(-1 * var(--space-4)) 0 calc(-1 * var(--space-2));
+  padding: var(--space-4) 0 var(--space-2);
+  background: var(--surface);
 }
 
 .settings-nav-heading {
@@ -877,16 +886,72 @@ a.plugin-source:hover {
   white-space: nowrap;
 }
 
-/* Update all beside Install plugin…, wrapping on a narrow screen. */
-.settings-page[data-page="plugins"] .settings-page-actions {
-  flex-wrap: wrap;
+/* "Update available" on a row the server marks, and HerdRabbit's "Updated
+   from Updates": each opens Settings → Updates. */
+.plugin-update-badge {
+  flex: none;
+}
+
+button.plugin-update-badge,
+.plugin-updates-link {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.plugin-update-badge {
+  font-size: var(--font-sm);
+}
+
+.plugin-updates-link {
+  padding: 0;
+  background: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.plugin-updates-link:hover {
+  color: var(--text);
+}
+
+/* Settings → Updates (public/app/updates.js): per machine, its name, a row
+   per update (as a plugin row), Update all and the line under them. The
+   rows' versions and runs read as HerdRabbit's row in Plugins did. */
+.updates-machines {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.updates-machine {
+  display: grid;
   gap: var(--space-2);
 }
 
-/* HerdRabbit's row: its versions from About's check, a run in one line,
-   and "Update available" on any row the server marks. */
-.plugin-update-badge {
-  flex: none;
+.updates-machine-name {
+  font-size: var(--font-lg);
+}
+
+.updates-empty,
+.updates-status {
+  margin: 0;
+}
+
+.updates-status:empty {
+  display: none;
+}
+
+.updates-status[data-error="true"] {
+  color: var(--danger);
+}
+
+.updates-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.updates-run,
+.updates-all {
+  white-space: nowrap;
 }
 
 .plugin-update-line,
@@ -908,11 +973,6 @@ a.plugin-source:hover {
 
 .plugin-update-run {
   color: var(--text);
-}
-
-.plugin-app-update,
-.plugin-app-details {
-  white-space: nowrap;
 }
 
 .plugin-actions .sidebar-action-menu.is-disabled {
@@ -1036,10 +1096,45 @@ a.plugin-source:hover {
   display: none;
 }
 
+/* Search and order stay under the page's heading while the listings
+   scroll. */
 .plugins-browse-tools {
+  position: sticky;
+  top: calc(34px + var(--space-2));
+  z-index: var(--layer-raised);
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  margin: 0 calc(-1 * var(--space-1));
+  padding: var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+/* A listing: lit under the pointer, its description in two lines. */
+.market-row {
+  transition: background-color var(--motion-fast) ease;
+}
+
+.market-row:hover {
+  background: var(--hover-surface);
+}
+
+.market-row .plugin-title strong {
+  font-weight: 600;
+}
+
+.market-row .plugin-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.market-row .market-details {
+  font-variant-numeric: tabular-nums;
 }
 
 .plugins-search {
@@ -1087,9 +1182,10 @@ a.plugin-source:hover {
   .plugin-actions .workspace-action,
   .plugins-machine,
   #plugins-install,
-  #plugins-update-all,
-  .plugin-app-update,
-  .plugin-app-details,
+  .updates-run,
+  .updates-all,
+  #updates-check,
+  .plugin-updates-link,
   .market-install,
   .plugins-more,
   .plugin-install-dialog :is(.ui-input, .dialog-actions button) {

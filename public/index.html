@@ -478,7 +478,7 @@
           </section>
 
           <section class="settings-page" data-page="plugins" aria-labelledby="settings-page-title" hidden>
-            <p class="settings-row-hint">Herdr plugins add actions and panes to Herdr. A plugin runs its own code on its machine. HerdRabbit's own row updates it the same way About does.</p>
+            <p class="settings-row-hint">Herdr plugins add actions and panes to Herdr. A plugin runs its own code on its machine. HerdRabbit itself, Herdr and plugins with a new version are updated from Updates.</p>
             <div id="plugins-machine-row" class="settings-row" hidden>
               <div class="settings-row-copy">
                 <label for="plugins-machine" class="settings-row-label">Machine</label>
@@ -513,8 +513,22 @@
             </div>
             <p id="plugins-feedback" class="settings-row-hint" role="status" aria-live="polite"></p>
             <div class="settings-page-actions">
-              <button id="plugins-update-all" class="secondary-button" type="button" hidden>Update all</button>
               <button id="plugins-install" class="primary-button" type="button">Install plugin…</button>
+            </div>
+          </section>
+
+          <section class="settings-page" data-page="updates" aria-labelledby="settings-page-title" hidden>
+            <div id="settings-update-row" class="settings-row">
+              <div class="settings-row-copy">
+                <span class="settings-row-label">HerdRabbit and Herdr</span>
+                <p id="settings-update-hint" class="settings-row-hint">Check this PC and each connected PC for a newer HerdRabbit release and a newer Herdr, and update them. The Update window shows each one in full: what changed, and each run's steps and log.</p>
+              </div>
+              <button id="settings-update" class="secondary-button" type="button">Update…</button>
+            </div>
+            <p id="updates-hint" class="settings-row-hint">Per machine, what has an update. Update all updates them one at a time: plugins first, then Herdr, then HerdRabbit last, as it restarts.</p>
+            <div id="updates-list" class="updates-machines"></div>
+            <div class="settings-page-actions">
+              <button id="updates-check" class="secondary-button" type="button">Check</button>
             </div>
           </section>
 
@@ -523,13 +537,6 @@
               <dt>HerdRabbit</dt><dd id="settings-version-app">Unknown</dd>
               <dt>Herdr</dt><dd id="settings-version-herdr">Unknown</dd>
             </dl>
-            <div id="settings-update-row" class="settings-row">
-              <div class="settings-row-copy">
-                <span class="settings-row-label">Update</span>
-                <p id="settings-update-hint" class="settings-row-hint">Check this PC and each connected PC for a newer HerdRabbit release, and update them.</p>
-              </div>
-              <button id="settings-update" class="secondary-button" type="button">Update…</button>
-            </div>
           </section>
         </div>
       </div>

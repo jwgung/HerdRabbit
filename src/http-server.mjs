@@ -1057,7 +1057,7 @@ export function createHerdrHttpServer({
         } else if ((method === "POST" && action !== undefined) || (method === "DELETE" && segment !== undefined && action === undefined)) {
           const plugin = validatePluginId(decodePaneId(segment));
           if (plugin === HERDRABBIT_ID) {
-            throw new HttpError(403, "plugin_protected", "HerdRabbit's own plugin is left alone here; update it from Settings → About.");
+            throw new HttpError(403, "plugin_protected", "HerdRabbit's own plugin is left alone here; update it from Settings → Updates.");
           }
           const server = method === "DELETE" ? url.searchParams.get("server") : (await readJsonBody(request, maxBodyBytes)).server;
           const { serverId, source } = pluginsSource(server);
