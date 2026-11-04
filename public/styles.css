@@ -671,11 +671,10 @@ body.sidebar-collapsed .workspace-branch {
   background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 
-/* The page shown: a raised row with a bar at its left, so the pick is not
+/* The page shown: a raised row with its name in bold, so the pick is not
    told by colour alone. */
 .settings-page-link[aria-current="page"] {
   background: var(--segment-selected);
-  box-shadow: inset 3px 0 0 var(--accent);
   color: var(--text);
 }
 
