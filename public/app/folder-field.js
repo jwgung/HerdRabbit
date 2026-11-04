@@ -31,9 +31,9 @@ export function workspaceFolder(panes, workspaceId) {
 
 // The Folder row of the New workspace and New tab dialogs: a path on the
 // machine the dialog is for, typed or chosen with Browse…, which lists that
-// machine's folders through the Files tab's own listing (/api/browse). Only a
-// folder changed from the one it opened with is sent (`value()`); left as it
-// opened, the server makes the workspace or tab as it always did.
+// machine's folders through the Files tab's own listing (/api/browse). The
+// folder shown is the one sent (`value()`), so what opens is where the dialog
+// said: Herdr's own new_cwd setting does not decide it.
 // `root` holds the input, the Browse… button and an empty picker container.
 export function createFolderField(root, { api }) {
   const input = root.querySelector("input");
@@ -59,7 +59,7 @@ export function createFolderField(root, { api }) {
   );
 
   let serverId = "local";
-  // What the input opened with: left so, nothing is sent.
+  // What the input opened with.
   let initial = "";
   // The folder the picker shows ({ path, parent }), and which listing is the latest.
   let shown = null;
@@ -101,10 +101,9 @@ export function createFolderField(root, { api }) {
     }
   }
 
-  // The folder to send, or null when it is the one the dialog opened with.
+  // The folder to send: what is shown, or the one it opened with when emptied.
   function value() {
-    const typed = input.value.trim();
-    return typed === "" || typed === initial ? null : typed;
+    return input.value.trim() || initial;
   }
 
   function render(answer) {

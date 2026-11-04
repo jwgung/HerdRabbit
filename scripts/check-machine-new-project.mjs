@@ -208,7 +208,10 @@ try {
       const before = typed.length;
       await dialog.locator('button[type="submit"]').click();
       await dialog.waitFor({ state: "hidden" });
-      assert.deepEqual(created.at(-1), { label, herdrSessionId: pick ?? first, ...(cwd === undefined ? {} : { cwd }) },
+      // The folder shown is the one sent: left at ~, this PC's home, or a
+      // connected PC's "~" for that PC to expand.
+      const wanted = cwd ?? (serverId === "local" ? home : "~");
+      assert.deepEqual(created.at(-1), { label, herdrSessionId: pick ?? first, cwd: wanted },
         `${label}: the workspace was not made there`);
       const pane = panes.at(-1).pane_id;
       assert.deepEqual(typed.slice(before), agent ? [[pane, agent]] : [],
