@@ -534,6 +534,15 @@ The CLI's own files are what gets switched: `~/.claude/.credentials.json` plus t
 
 Source, ref and plugin id are checked on both machines: GitHub's owner and repository name rules, a git ref name without spaces, `..` or a leading `-`, and short plugin ids. Herdr is run with an argument list, never through a shell.
 
+### Herdr settings
+
+**Settings → Herdr** changes Herdr's own settings on each machine (pick it in **Machine** when there is more than one). Like Plugins it is shown only when sign-in (a password) is on, and the server refuses every request otherwise; on a connected PC the commands run there, and only while that PC has a sign-in password too. A PC on an older HerdRabbit says to update it there. Herdr's version and its update stay in **Settings → Updates** (**Open Updates**).
+
+- **Update channel:** **Stable** or **Preview**, read with `herdr channel show` and set with `herdr channel set <stable|preview>`. Herdr keeps the channel in `config.toml` (`[update] channel`), and Updates checks for Herdr's update on that channel.
+- **Agent integrations:** each integration `herdr integration status` lists, with its state (**Installed** and its version, **Not installed**, **Outdated**, **Needs repair**; experimental ones are marked). **Install…** / **Uninstall…** (and **Update…** / **Repair…**, which install again) ask first, then run `herdr integration install|uninstall <name>`. Only a name Herdr lists on that machine is run. The hook files Herdr names are not shown.
+- **config.toml:** the machine's Herdr config as text, at the path `herdr --help` names (`HERDR_CONFIG_PATH` if set, else `~/.config/herdr/config.toml`), up to 512 KB. **Check** runs `herdr config check` on the text and shows Herdr's diagnostics. **Save…** asks first; Herdr checks the text in a private temporary file (`HERDR_CONFIG_PATH` pointed at it) and a config it rejects is never written. One it accepts replaces the file: the old file is copied beside it as `config.toml.bak-<YYYYMMDD-HHMMSS>` (Herdr's own backup name), the new one is written next to it and renamed over it with the old file's mode, checked once more in place (the backup is put back if that fails), then `herdr server reload-config` runs. If no Herdr server is running, the page says so; the config applies when Herdr starts. A save names the version it edited, so a file changed meanwhile (another editor, a channel change) is not overwritten: **Revert** reads it again. A `config.toml` that is a symbolic link stays one: the file it points at is written. **Herdr's defaults** shows `herdr --default-config`, to read.
+- One change at a time on a machine, and none while HerdRabbit or Herdr is updating there. Herdr is run with an argument list, never through a shell. Backups are kept; remove old ones by hand.
+
 ### Output and history
 
 Terminal output and history come only from Herdr's own screen and scrollback. Claude's JSONL transcript, Codex's rollout and OpenCode's database are never merged into the terminal; only the Chat lens reads them, as its own view (and a Claude plan or question card takes its words from them). In an attached terminal the wheel or a finger drag scrolls Herdr's own history; a mirrored pane shows its current screen only. History Herdr no longer holds cannot be shown. Claude must run in the plain terminal mode the installer configures for its scrollback to be readable.
@@ -553,6 +562,7 @@ The ⚙ button at the foot of the sidebar opens the settings screen. On a deskto
 - **Security** (shown when a password is set): **Passkeys** and **Signed-in devices**.
 - **PCs** (shown where Connect PC is available): the connected PCs, each opening its Details, and **Connect PC**.
 - **Plugins** (shown when a password is set): Herdr's plugins on each machine, see [Plugins](#plugins).
+- **Herdr** (shown when a password is set): Herdr's update channel, agent integrations and `config.toml` on each machine, see [Herdr settings](#herdr-settings).
 - **Updates:** **Update…** (the Update window: HerdRabbit and Herdr on each PC in full) and, per machine, what has an update, each with **Update**, and **Update all** (plugins, then Herdr, then HerdRabbit last). Shown always; plugins only where Plugins shows.
 - **About:** this machine's HerdRabbit and Herdr versions.
 

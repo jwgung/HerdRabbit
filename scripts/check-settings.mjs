@@ -7,7 +7,8 @@
 // devices; Fit panes to this window on wide screens), Notifications (only a
 // switch where push works), Security (with sign-in on: Passkeys and
 // Signed-in devices), PCs (where Connect PC is: the list and Connect PC),
-// Plugins (with sign-in on, where this HerdRabbit manages them), Updates
+// Plugins (with sign-in on, where this HerdRabbit manages them), Herdr (the
+// same: Herdr's channel, integrations and config.toml), Updates
 // (always: the Update window's Update… and each machine's updates) and
 // About (versions only). A page's heading stays put while the page scrolls. Each control does what its old menu item did. Runs on a
 // desktop and a phone against an in-process fake herdr.
@@ -38,7 +39,7 @@ await once(server, "listening");
 const url = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ args: ["--no-sandbox"] });
 const PUSH_KEY = "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U";
-const ALL_PAGES = ["Appearance", "Chat", "Terminal & keys", "Notifications", "Security", "PCs", "Plugins", "Updates", "About"];
+const ALL_PAGES = ["Appearance", "Chat", "Terminal & keys", "Notifications", "Security", "PCs", "Plugins", "Herdr", "Updates", "About"];
 
 try {
   for (const mobile of [false, true]) {
@@ -55,7 +56,7 @@ try {
         await page.route("**/api/auth/status", (route) => route.fulfill({ json: { required: true, authenticated: true, passkeyAvailable: false } }));
         await page.route("**/api/bootstrap", async (route) => {
           const response = await route.fetch();
-          await route.fulfill({ response, json: { ...(await response.json()), pushPublicKey: PUSH_KEY, servers: true, plugins: true } });
+          await route.fulfill({ response, json: { ...(await response.json()), pushPublicKey: PUSH_KEY, servers: true, plugins: true, herdrSettings: true } });
         });
         await page.route("**/api/servers/discover", (route) => route.fulfill({ json: { available: false, candidates: [] } }));
         // This PC's versions, as a hub started by the service reports them.
@@ -100,7 +101,7 @@ try {
       await button.click();
       await dialog.waitFor({ state: "visible" });
       const listed = await dialog.locator(".settings-page-link").allTextContents();
-      assert.deepEqual(listed, full ? ALL_PAGES : ALL_PAGES.filter((name) => name !== "Security" && name !== "PCs" && name !== "Plugins"));
+      assert.deepEqual(listed, full ? ALL_PAGES : ALL_PAGES.filter((name) => name !== "Security" && name !== "PCs" && name !== "Plugins" && name !== "Herdr"));
       const box = await dialog.boundingBox();
       if (mobile) {
         // A phone: the list fills the screen; no page beside it.
@@ -272,6 +273,11 @@ try {
         await open("Plugins", "plugins");
         assert.equal(await page.locator("#plugins-install").isVisible(), true);
         await shoot("plugins");
+
+        // Herdr: the channel, integrations and config.toml (scripts/check-herdr-settings.mjs drives them).
+        await open("Herdr", "herdr");
+        assert.equal(await page.locator("#herdr-config-save").isVisible(), true);
+        await shoot("herdr");
       }
 
       // Updates: each machine's updates and Check (scripts/check-in-app-update.mjs

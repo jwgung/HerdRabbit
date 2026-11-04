@@ -33,6 +33,7 @@ import { AppUpdater } from "./app-update.mjs";
 import { HerdrUpdater } from "./herdr-update.mjs";
 import { PluginManager } from "./herdr-plugins.mjs";
 import { PluginMarketplace } from "./plugin-marketplace.mjs";
+import { HerdrSettings } from "./herdr-settings.mjs";
 
 const config = readConfig();
 const leafWarning = legacyLeafWarning(config);
@@ -161,6 +162,13 @@ const plugins = new PluginManager({
   busy: async () => updater.starting || (await updater.runStatus()).state === "running" ||
     (await herdrUpdater.runStatus()).state === "running",
 });
+// Herdr's own settings on this PC (Settings → Herdr, and a hub's over the
+// link): nothing changes while HerdRabbit's or Herdr's own update runs.
+const herdrSettings = new HerdrSettings({
+  binary: config.herdrBin,
+  busy: async () => updater.starting || (await updater.runStatus()).state === "running" ||
+    (await herdrUpdater.runStatus()).state === "running",
+});
 // Herdr's plugin marketplace, for Settings → Plugins → Browse: read when
 // first asked for, then kept for a few minutes.
 const marketplace = new PluginMarketplace();
@@ -218,6 +226,7 @@ const { server } = createHerdrHttpServer({
   aiAccounts,
   plugins,
   marketplace,
+  herdrSettings,
   installedAgents,
   agentSessions,
   maxBodyBytes: config.maxBodyBytes,
@@ -240,7 +249,7 @@ const peerServer = config.peerHost ? createPeerServer({
     loginOf: (address) => tailnetLoginOf(address),
   }),
   link: linkRoutes({
-    client: local, files, aiAccounts, plugins, pluginsAllowed: () => auth.required, installedAgents, agentSessions, attach: linkAttach, conversations, slashCommands, updater, herdrUpdater, version: hubVersion, herdrVersion: () => herdrVersion,
+    client: local, files, aiAccounts, plugins, pluginsAllowed: () => auth.required, herdrSettings, installedAgents, agentSessions, attach: linkAttach, conversations, slashCommands, updater, herdrUpdater, version: hubVersion, herdrVersion: () => herdrVersion,
     serverName: hostname(), maxTransferBytes: config.maxTransferBytes, protectedPaths,
   }),
   attach: linkAttach,

@@ -528,6 +528,62 @@
             </div>
           </section>
 
+          <section class="settings-page" data-page="herdr" aria-labelledby="settings-page-title" hidden>
+            <p class="settings-row-hint">Herdr's own settings on each machine: what it updates to, which agents report to it, and its config.toml.</p>
+            <div class="settings-card">
+              <div id="herdr-machine-row" class="settings-row" hidden>
+                <div class="settings-row-copy">
+                  <label for="herdr-machine" class="settings-row-label">Machine</label>
+                </div>
+                <select id="herdr-machine" class="ui-input plugins-machine"></select>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <span id="herdr-channel-label" class="settings-row-label">Update channel</span>
+                  <p class="settings-row-hint">Preview gets new Herdr builds first.</p>
+                </div>
+                <div id="herdr-channel-choices" class="settings-choices" role="group" aria-labelledby="herdr-channel-label">
+                  <button type="button" class="settings-choice" data-herdr-channel="stable" aria-pressed="false">Stable</button>
+                  <button type="button" class="settings-choice" data-herdr-channel="preview" aria-pressed="false">Preview</button>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <span class="settings-row-label">Herdr update</span>
+                  <p class="settings-row-hint">The version and its update are in Updates.</p>
+                </div>
+                <button id="herdr-open-updates" class="text-button" type="button">Open Updates</button>
+              </div>
+            </div>
+            <h4 class="herdr-settings-heading">Agent integrations</h4>
+            <ul id="herdr-integrations" class="plugin-rows" role="list" aria-label="Agent integrations"></ul>
+            <h4 class="herdr-settings-heading">config.toml</h4>
+            <div class="settings-card herdr-config">
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <p id="herdr-config-path" class="settings-row-hint herdr-config-path"></p>
+                </div>
+                <div class="settings-choices" role="group" aria-label="Show">
+                  <button type="button" class="settings-choice" data-herdr-config-view="edit" aria-pressed="true">Edit</button>
+                  <button type="button" class="settings-choice" data-herdr-config-view="default" aria-pressed="false">Herdr's defaults</button>
+                </div>
+              </div>
+              <div class="herdr-config-body">
+                <textarea id="herdr-config-text" class="ui-input herdr-config-text" spellcheck="false" autocomplete="off"
+                  autocapitalize="off" wrap="off" aria-label="config.toml" aria-describedby="herdr-config-path"></textarea>
+                <textarea id="herdr-config-default" class="ui-input herdr-config-text" readonly spellcheck="false" wrap="off"
+                  aria-label="Herdr's default config, to read" hidden></textarea>
+                <pre id="herdr-config-diagnostics" class="herdr-config-diagnostics" hidden></pre>
+              </div>
+            </div>
+            <p id="herdr-feedback" class="settings-row-hint" role="status" aria-live="polite"></p>
+            <div class="settings-page-actions herdr-config-actions">
+              <button id="herdr-config-check" class="text-button" type="button">Check</button>
+              <button id="herdr-config-revert" class="secondary-button" type="button">Revert</button>
+              <button id="herdr-config-save" class="primary-button" type="button">Save…</button>
+            </div>
+          </section>
+
           <section class="settings-page" data-page="updates" aria-labelledby="settings-page-title" hidden>
             <div class="settings-card">
               <div id="settings-update-row" class="settings-row">

@@ -235,6 +235,13 @@ export class MultiServerClient {
     return entry?.client.plugins?.() ?? null;
   }
 
+  // Herdr's own settings on a connected PC, over its link. Local is the caller's.
+  herdrSettingsClient(serverId) {
+    this.syncEntries();
+    const entry = serverId === "local" ? null : this.entries.get(serverId);
+    return entry?.client.herdrSettings?.() ?? null;
+  }
+
   target(id) {
     this.syncEntries();
     if (typeof id !== "string") throw new InputValidationError("Invalid target id");
