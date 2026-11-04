@@ -293,6 +293,21 @@ test("a new tab's ids come from Herdr's own answer, and none from an answer that
   assert.equal(await client.createTab("w12"), null);
 });
 
+test("a workspace can open in a given folder, passed to Herdr as one argument, and still names its ids", async () => {
+  const made = {
+    stdout: JSON.stringify({ result: { workspace: { workspace_id: "w13" }, tab: { tab_id: "w13:t1" }, root_pane: { pane_id: "w13:p1" } } }),
+    stderr: "",
+  };
+  const fake = recordingRunner([made]);
+  const client = new HerdrClient({ runner: fake.runner });
+  assert.deepEqual(await client.createWorkspace("Shop", { cwd: "/work/My App; rm -rf ~" }), { workspace_id: "w13", tab_id: "w13:t1", pane_id: "w13:p1" });
+  assert.deepEqual(fake.calls[0].args, ["workspace", "create", "--label", "Shop", "--cwd", "/work/My App; rm -rf ~", "--no-focus"]);
+  for (const cwd of ["relative", "~/x", "/a\nb", `/${"x".repeat(5000)}`, 7, ""]) {
+    await assert.rejects(() => client.createWorkspace("Shop", { cwd }), InputValidationError, JSON.stringify(cwd));
+  }
+  assert.equal(fake.calls.length, 1);
+});
+
 test("a tab can open in a given folder, passed to Herdr as one argument, and still names its ids", async () => {
   const made = {
     stdout: JSON.stringify({ result: { tab: { tab_id: "w12:t5" }, root_pane: { pane_id: "w12:p8" } } }),

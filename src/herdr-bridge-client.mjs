@@ -223,9 +223,9 @@ export class HerdrBridgeClient {
     return this.#clientForSession(target.sessionName).renameWorkspace(target.localId, label);
   }
 
-  async createWorkspace(label, herdrSessionId) {
+  async createWorkspace(label, herdrSessionId, { cwd } = {}) {
     const sessionName = this.#sessionForId(herdrSessionId);
-    const made = await this.#clientForSession(sessionName).createWorkspace(label);
+    const made = await this.#clientForSession(sessionName).createWorkspace(label, { cwd });
     const scoped = (id) => scopedId(sessionName, id);
     return made && createdProject(scoped(made.workspace_id), scoped(made.tab_id), scoped(made.pane_id));
   }

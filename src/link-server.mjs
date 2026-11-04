@@ -11,7 +11,7 @@ import { validateTransferName } from "./file-store.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 import { SlashCommandCatalog, paneCommandTarget } from "./slash-commands.mjs";
 import { agentCommand } from "./agent-launch.mjs";
-import { isFolder, projectFolder } from "./project-folder.mjs";
+import { existingFolder, isFolder } from "./project-folder.mjs";
 
 // Undici tears a response down after five idle minutes, and a quiet terminal
 // easily goes that long, so the stream says something well before then.
@@ -103,6 +103,9 @@ export function linkRoutes({
         ...(conversations ? ["conversation"] : []), "scroll_bottom", "commands",
         // A new project's answer names its ids (workspace, tab, first pane).
         "project_ids",
+        // A new workspace or tab here opens in any folder this PC has, as asked
+        // (absolute or ~-relative, checked here: src/project-folder.mjs).
+        "folders",
         ...(updater ? ["update"] : []),
         // Herdr's check rides on the update answer: without it there is none to ask
         ...(updater && herdrUpdater ? ["herdr_update"] : []),
@@ -430,10 +433,14 @@ export function linkRoutes({
     // a person on that machine would drive, so the rules cannot drift apart.
     if (method === "POST" && url.pathname === "/api/link/workspaces") {
       const body = await readJsonBody(request, maxBodyBytes);
+      // A folder asked for is one this PC has: `~` is this PC's home.
+      const cwd = body.cwd === undefined ? undefined : await existingFolder(body.cwd);
       // The new project's ids go back, so the hub types only into its pane.
-      const made = await (body.herdrSessionId === undefined
-        ? client.createWorkspace(body.label)
-        : client.createWorkspace(body.label, body.herdrSessionId));
+      const made = await (cwd !== undefined
+        ? client.createWorkspace(body.label, body.herdrSessionId, { cwd })
+        : body.herdrSessionId === undefined
+          ? client.createWorkspace(body.label)
+          : client.createWorkspace(body.label, body.herdrSessionId));
       sendJson(response, 201, { ok: true, ...createdProject(made?.workspace_id, made?.tab_id, made?.pane_id) });
       return true;
     }
@@ -444,12 +451,9 @@ export function linkRoutes({
       const body = await readJsonBody(request, maxBodyBytes);
       if (workspaceMatch[2] === "tabs") {
         // The new tab's ids go back, so the hub types only into this one. A
-        // folder is taken only when it is this project's own, by the rule the
-        // hub uses over this PC's snapshot: the hub cannot open a tab anywhere else.
-        const { cwd } = body;
-        if (cwd !== undefined && (!isFolder(cwd) || cwd !== projectFolder(await client.snapshot(), workspaceId))) {
-          throw new HttpError(400, "invalid_input", "That folder is not this workspace's folder");
-        }
+        // folder asked for is one this PC has (`~` is this PC's home): a shell
+        // there could go to it anyway.
+        const cwd = body.cwd === undefined ? undefined : await existingFolder(body.cwd);
         const made = await client.createTab(workspaceId, { cwd });
         sendJson(response, 200, { ok: true, ...made });
         return true;

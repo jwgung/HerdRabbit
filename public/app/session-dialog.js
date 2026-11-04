@@ -1,10 +1,12 @@
 import { createElement } from "./dom.js?v=1.4.31";
 import { sessionChoiceLabel } from "../agents.js?v=1.4.31";
 import { createAgentPicker } from "./agent-picker.js?v=1.4.31";
+import { createFolderField, workspaceFolder } from "./folder-field.js?v=1.4.31";
 
 // The "New tab" dialog: a workspace's ⋯ menu opens it for that workspace.
 // The form makes a tab in the workspace with a shell or an installed agent,
-// each shown with its mark, and a name if one is given. Which agents are
+// each shown with its mark, and a name if one is given, in the workspace's
+// folder or another typed or chosen with Browse…. Which agents are
 // installed is asked of the workspace's machine each time it opens (the server
 // keeps its answer briefly). Once an agent is chosen, that machine's earlier
 // conversations of it in the workspace's folder are offered too: picking one
@@ -19,6 +21,7 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
   const resumeLabel = document.querySelector("#session-resume-label");
   const resumeSelect = document.querySelector("#session-resume");
   const nameInput = document.querySelector("#session-name");
+  const folder = createFolderField(document.querySelector("#session-folder-field"), { api });
   const feedback = document.querySelector("#session-dialog-feedback");
   const cancel = document.querySelector("#session-dialog-cancel");
   const submit = form.querySelector('button[type="submit"]');
@@ -58,8 +61,10 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
 
   const resuming = () => !resumeSelect.hidden && resumeSelect.value !== "";
 
+  // A resumed conversation opens in the workspace's folder, where it was kept.
   function showChoice() {
     submit.textContent = resuming() ? "Resume" : "Start";
+    folder.setHidden(resuming());
   }
 
   // The chosen agent's earlier sessions in the project's folder, asked of the
@@ -135,6 +140,7 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     target = { workspaceId, serverId };
     form.reset();
     fillAgents([]);
+    folder.reset({ serverId, folder: workspaceFolder(snapshotRecords().panes, workspaceId) });
     const machine = machineName(serverId);
     context.textContent = machine
       ? `In workspace “${workspaceLabel}” on ${machine}.`
@@ -156,6 +162,7 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     target = null;
     form.reset();
     fillSessions([]);
+    folder.close();
     say("");
   });
 
@@ -165,12 +172,16 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     const agent = agents.value();
     const resume = agent && resuming() ? resumeSelect.value : "";
     const label = nameInput.value.trim();
+    const chosenFolder = resume ? null : folder.value();
     const controls = [agentField, resumeSelect, nameInput, cancel, submit];
     state.mutationBusy = true;
     for (const control of controls) control.disabled = true;
+    folder.setDisabled(true);
     say(resume ? "Resuming conversation…" : agent ? "Opening tab and starting the agent…" : "Opening tab…");
     try {
-      await createSession(target.workspaceId, { ...(agent ? { agent } : {}), ...(resume ? { resume } : {}), ...(label ? { label } : {}) });
+      await createSession(target.workspaceId, {
+        ...(agent ? { agent } : {}), ...(resume ? { resume } : {}), ...(label ? { label } : {}), ...(chosenFolder ? { folder: chosenFolder } : {}),
+      });
       lastAgent = agent;
       dialog.close();
     } catch (error) {
@@ -178,6 +189,7 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     } finally {
       state.mutationBusy = false;
       for (const control of controls) control.disabled = false;
+      folder.setDisabled(false);
       // the agent list may still be on its way: its choices stay off until it lands
       agentField.disabled = agentsLoading;
     }

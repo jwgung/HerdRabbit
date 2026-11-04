@@ -612,6 +612,14 @@
         <select id="project-server-session"></select>
         <label for="project-name">Workspace name</label>
         <input id="project-name" name="label" type="text" maxlength="120" required />
+        <div id="project-folder-field" class="folder-field">
+          <label for="project-folder">Folder</label>
+          <div class="folder-row">
+            <input id="project-folder" name="folder" type="text" maxlength="4096" autocomplete="off" autocapitalize="off" spellcheck="false" />
+            <button class="secondary-button folder-browse" type="button" aria-controls="project-folder-picker">Browse…</button>
+          </div>
+          <div id="project-folder-picker" class="folder-picker" role="group" aria-label="Choose a folder" hidden></div>
+        </div>
         <fieldset id="project-agent" class="agent-picker">
           <legend>Agent</legend>
           <div class="agent-choices"></div>
@@ -636,6 +644,14 @@
         </fieldset>
         <label id="session-resume-label" for="session-resume" hidden>Conversation</label>
         <select id="session-resume" hidden></select>
+        <div id="session-folder-field" class="folder-field">
+          <label for="session-folder">Folder</label>
+          <div class="folder-row">
+            <input id="session-folder" name="folder" type="text" maxlength="4096" autocomplete="off" autocapitalize="off" spellcheck="false" />
+            <button class="secondary-button folder-browse" type="button" aria-controls="session-folder-picker">Browse…</button>
+          </div>
+          <div id="session-folder-picker" class="folder-picker" role="group" aria-label="Choose a folder" hidden></div>
+        </div>
         <label for="session-name">Tab name</label>
         <input id="session-name" name="label" type="text" maxlength="120" placeholder="Optional" autocomplete="off" />
         <p id="session-dialog-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>

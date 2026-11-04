@@ -5,15 +5,27 @@
 // one makes the tab, names it, types the agent's command into its pane and
 // selects it. An agent gone by the time Start is pressed is refused and said
 // so in the dialog. Choosing an agent with earlier conversations in the workspace's
-// folder offers them. There is no + at the top of the sidebar. Runs on a
-// desktop and a phone against an in-process fake herdr.
+// folder offers them, and while one is chosen the Folder row is hidden. The
+// Folder row opens with the workspace's folder (~ for this machine's home);
+// Browse… lists that machine's folders to go into, up from, and use, and the
+// folder chosen is the one the tab opens in, on this machine or a connected
+// PC. A folder that is not there is refused in the dialog. There is no + at
+// the top of the sidebar. Runs on a desktop and a phone against an in-process
+// fake herdr, with a home folder of its own.
 //
 // NEW_SESSION_SHOTS=<folder> keeps pictures of the menu and the dialog.
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
+
+// This machine's home for the check: Platform works in ~/alpha.
+const home = await mkdtemp(join(tmpdir(), "herdrabbit-new-session-"));
+for (const folder of ["alpha/src", "beta/inner"]) await mkdir(join(home, folder), { recursive: true });
+const ALPHA = join(home, "alpha");
 
 const workspaces = [
   { workspace_id: "w1", label: "Platform", herdr_session_id: "hs_local", server_id: "local" },
@@ -24,7 +36,7 @@ const tabs = [
   { tab_id: "lab:w1:t1", workspace_id: "lab:w1", label: "1", herdr_session_id: "lab!hs_work" },
 ];
 const panes = [
-  { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "shell", cwd: "/work/alpha", herdr_session_id: "hs_local", server_id: "local" },
+  { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "shell", cwd: ALPHA, herdr_session_id: "hs_local", server_id: "local" },
   { pane_id: "lab:w1:p1", tab_id: "lab:w1:t1", workspace_id: "lab:w1", label: "shell", cwd: "/work/bench", herdr_session_id: "lab!hs_work", server_id: "lab" },
 ];
 let calls = [];
@@ -33,7 +45,7 @@ let localAgents = ["codex", "claude"];
 const EARLIER = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
 const agentSessions = {
   async list(agent, folder) {
-    return agent === "claude" && folder === "/work/alpha" ? [{ id: EARLIER, title: "Fix login", updatedAt: Date.now() - 60_000 }] : [];
+    return agent === "claude" && folder === ALPHA ? [{ id: EARLIER, title: "Fix login", updatedAt: Date.now() - 60_000 }] : [];
   },
 };
 const herdr = {
@@ -53,8 +65,8 @@ const herdr = {
       agents: [],
     };
   },
-  async createTab(workspaceId) {
-    calls.push(["createTab", workspaceId]);
+  async createTab(workspaceId, { cwd } = {}) {
+    calls.push(["createTab", workspaceId, ...(cwd === undefined ? [] : [cwd])]);
     const n = tabs.length + 1;
     const workspace = workspaces.find((item) => item.workspace_id === workspaceId);
     tabs.push({ tab_id: `${workspaceId}:t${n}`, workspace_id: workspaceId, label: String(n), herdr_session_id: workspace.herdr_session_id });
@@ -69,11 +81,25 @@ const herdr = {
   async sendKeys() {},
   async readPane() { return "$ "; },
   agentsClient(serverId) {
-    return serverId === "lab" ? { async installedAgents() { return ["opencode"]; } } : null;
+    return serverId === "lab" ? { async installedAgents() { return ["opencode"]; }, async opensFolders() { return true; } } : null;
+  },
+  // The lab PC's own folders: its home, and Bench's folder with one inside.
+  fileClient(serverId) {
+    if (serverId !== "lab") return null;
+    const folder = (path, names) => ({ path, parent: path === "/" ? null : path.replace(/\/[^/]+$/u, "") || "/", truncated: false, total: names.length,
+      entries: names.map((name) => ({ name, path: `${path === "/" ? "" : path}/${name}`, kind: "directory", hidden: false, readable: true })) });
+    return {
+      async home() { return "/home/lab"; },
+      async listDirectory(path) {
+        if (!path) return folder("/home/lab", ["notes"]);
+        if (path === "/work/bench") return folder(path, ["api", "web"]);
+        return folder(path, []);
+      },
+    };
   },
 };
 const { server } = createHerdrHttpServer({
-  herdr, installedAgents: { async list() { return localAgents; } }, agentSessions, logger: { info() {}, error() {} },
+  herdr, installedAgents: { async list() { return localAgents; } }, agentSessions, logger: { info() {}, error() {} }, homeDirectory: home,
 });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
@@ -136,14 +162,14 @@ try {
     assert.equal(await chosen(dialog), "", `${where}: Shell is not chosen first`);
     assert.match(await dialog.locator("#session-dialog-context").textContent(), /Platform.*workstation/u);
     if (mobile) {
-      for (const selector of ['#session-agent .agent-choice[data-agent="codex"]', "#session-name", 'button[type="submit"]']) {
+      for (const selector of ['#session-agent .agent-choice[data-agent="codex"]', "#session-name", "#session-folder", "#session-folder-field .folder-browse", 'button[type="submit"]']) {
         const look = await dialog.locator(selector).evaluate((element) => ({
           // A button drawn smaller takes taps on a 44px ::before (docs/design.md).
           height: Math.max(element.getBoundingClientRect().height, parseFloat(getComputedStyle(element, "::before").height) || 0),
           font: parseFloat(getComputedStyle(element).fontSize),
         }));
         assert.ok(look.height >= 44, `${where}: ${selector} is under 44px tall (${look.height})`);
-        if (selector === "#session-name") assert.ok(look.font >= 16, `${where}: ${selector} text is under 16px`);
+        if (selector === "#session-name" || selector === "#session-folder") assert.ok(look.font >= 16, `${where}: ${selector} text is under 16px`);
       }
     }
     if (shots) await page.screenshot({ path: join(shots, `dialog-${where}.png`) });
@@ -206,10 +232,90 @@ try {
     await dialog.locator("#session-resume").waitFor({ state: "visible" });
     assert.match(await dialog.locator("#session-resume").textContent(), /Fix login/u);
     if (shots) await page.screenshot({ path: join(shots, `resume-dialog-${where}.png`) });
+    // Resuming keeps the workspace's folder: there is none to choose meanwhile.
+    await dialog.locator("#session-resume").selectOption(EARLIER);
+    await dialog.locator("#session-folder-field").waitFor({ state: "hidden" });
+    await dialog.locator("#session-resume").selectOption("");
+    await dialog.locator("#session-folder-field").waitFor({ state: "visible" });
     await choose(dialog, "");
     await dialog.locator("#session-resume").waitFor({ state: "hidden" });
     await dialog.locator("#session-dialog-cancel").click();
     await dialog.waitFor({ state: "hidden" });
+
+    // The Folder row opens with the workspace's folder, shown from ~; Browse…
+    // goes up, into a folder, and uses it, and the tab opens there.
+    const folderInput = dialog.locator("#session-folder");
+    const picker = dialog.locator("#session-folder-picker");
+    const pickerPath = () => picker.locator(".folder-picker-path").textContent();
+    const listed = () => picker.locator(".folder-picker-item").allTextContents();
+    await (await openDialog("Platform")).item.click();
+    await dialog.waitFor({ state: "visible" });
+    await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
+    await page.waitForFunction(() => document.querySelector("#session-folder").value === "~/alpha");
+    await dialog.locator("#session-folder-field .folder-browse").click();
+    await picker.waitFor({ state: "visible" });
+    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "~/alpha");
+    assert.deepEqual(await listed(), ["src"], `${where}: ~/alpha's folders are not listed`);
+    if (mobile) {
+      for (const selector of [".folder-picker-item", ".folder-up", ".folder-choose"]) {
+        const height = await picker.locator(selector).first().evaluate((element) =>
+          Math.max(element.getBoundingClientRect().height, parseFloat(getComputedStyle(element, "::before").height) || 0));
+        assert.ok(height >= 44, `${where}: ${selector} is under 44px tall (${height})`);
+      }
+    }
+    if (shots) await page.screenshot({ path: join(shots, `folder-picker-${where}.png`) });
+    await picker.locator(".folder-up").click();
+    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "~");
+    assert.deepEqual(await listed(), ["alpha", "beta"], `${where}: the home folder's folders are not listed`);
+    await picker.locator(".folder-picker-item", { hasText: "beta" }).click();
+    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "~/beta");
+    // Escape closes the list, and the dialog stays.
+    await page.keyboard.press("Escape");
+    await picker.waitFor({ state: "hidden" });
+    assert.ok(await dialog.isVisible(), `${where}: Escape in the folder list closed the dialog`);
+    assert.equal(await folderInput.inputValue(), "~/alpha", `${where}: closing the list changed the folder`);
+    await dialog.locator("#session-folder-field .folder-browse").click();
+    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "~/alpha");
+    await picker.locator(".folder-up").click();
+    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "~");
+    await picker.locator(".folder-picker-item", { hasText: "beta" }).click();
+    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "~/beta");
+    await picker.locator(".folder-choose").click();
+    await picker.waitFor({ state: "hidden" });
+    assert.equal(await folderInput.inputValue(), "~/beta", `${where}: Use this folder did not fill the folder`);
+    calls = [];
+    await dialog.locator('button[type="submit"]').click();
+    await dialog.waitFor({ state: "hidden" });
+    assert.deepEqual(calls, [["createTab", "w1", join(home, "beta")]], `${where}: the tab did not open in the folder chosen`);
+
+    // A folder typed that is not there is refused in the dialog, and nothing is made.
+    await (await openDialog("Platform")).item.click();
+    await dialog.waitFor({ state: "visible" });
+    await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
+    await folderInput.fill("~/missing");
+    calls = [];
+    await dialog.locator('button[type="submit"]').click();
+    await page.waitForFunction(() => document.querySelector("#session-dialog-feedback").dataset.error === "true");
+    assert.match(await dialog.locator("#session-dialog-feedback").textContent(), /no folder/u);
+    assert.deepEqual(calls, [], `${where}: a tab was made in a folder that is not there`);
+    await dialog.locator("#session-dialog-cancel").click();
+    await dialog.waitFor({ state: "hidden" });
+
+    // A connected PC's folders are that PC's own, and its tab opens in the one chosen.
+    await (await openDialog("Bench")).item.click();
+    await dialog.waitFor({ state: "visible" });
+    await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
+    assert.equal(await folderInput.inputValue(), "/work/bench", `${where}: Bench's folder is not the one offered`);
+    await dialog.locator("#session-folder-field .folder-browse").click();
+    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "/work/bench");
+    assert.deepEqual(await listed(), ["api", "web"], `${where}: the PC's folders are not its own`);
+    await picker.locator(".folder-picker-item", { hasText: "api" }).click();
+    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "/work/bench/api");
+    await picker.locator(".folder-choose").click();
+    calls = [];
+    await dialog.locator('button[type="submit"]').click();
+    await dialog.waitFor({ state: "hidden" });
+    assert.deepEqual(calls, [["createTab", "lab:w1", "/work/bench/api"]], `${where}: the PC's tab did not open in the folder chosen`);
 
     assert.deepEqual(errors, [], `${where}: page errors: ${errors.join("; ")}`);
     await context.close();
@@ -218,4 +324,5 @@ try {
 } finally {
   await browser.close();
   server.close();
+  await rm(home, { recursive: true, force: true });
 }

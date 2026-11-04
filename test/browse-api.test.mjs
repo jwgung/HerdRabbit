@@ -66,6 +66,30 @@ test("lists a folder with its parent and entries", async (context) => {
   assert.ok(listing.parent);
 });
 
+test("~ and ~/… list from the home folder of the machine read", async (context) => {
+  const directory = await fixture();
+  const asked = [];
+  const remote = {
+    async home() { return "/home/far"; },
+    async listDirectory(path) { asked.push(path); return { path: path ?? "/home/far", parent: null, entries: [], truncated: false, total: 0 }; },
+  };
+  const LINK = "link_11111111-1111-1111-1111-111111111111";
+  const app = await startServer({
+    homeDirectory: directory,
+    herdr: { ...herdr, fileClient: (id) => (id === LINK ? remote : null) },
+  });
+  context.after(() => closeServer(app.server));
+  const home = await (await browse(app, "~")).json();
+  assert.equal(home.path, directory);
+  assert.ok(home.entries.some((entry) => entry.name === "nested"));
+  assert.equal((await (await browse(app, "~/nested")).json()).path, join(directory, "nested"));
+  assert.equal((await browse(app, "~other")).status, 400);
+  const far = (path) => fetch(`${app.baseUrl}/api/browse?server=${LINK}&path=${encodeURIComponent(path)}`, { headers: { Origin: app.baseUrl } });
+  assert.equal((await (await far("~")).json()).path, "/home/far");
+  assert.equal((await (await far("~/src")).json()).path, "/home/far/src");
+  assert.deepEqual(asked, [null, "/home/far/src"]);
+});
+
 test("carries a file down through a one-time ticket", async (context) => {
   const app = await startServer();
   context.after(() => closeServer(app.server));

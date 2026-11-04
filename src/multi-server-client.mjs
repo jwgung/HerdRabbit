@@ -363,10 +363,10 @@ export class MultiServerClient {
     return made ? createdTab(prefix(made.tab_id), prefix(made.pane_id)) : null;
   }
   // The new project's ids carry its machine's prefix, like the snapshot's.
-  async createWorkspace(label, sessionId) {
-    if (!sessionId) return this.local.createWorkspace(label);
+  async createWorkspace(label, sessionId, { cwd } = {}) {
+    if (!sessionId) return cwd === undefined ? this.local.createWorkspace(label) : this.local.createWorkspace(label, undefined, { cwd });
     const { entry, id } = this.target(sessionId);
-    const made = await entry.client.createWorkspace(label, id);
+    const made = cwd === undefined ? await entry.client.createWorkspace(label, id) : await entry.client.createWorkspace(label, id, { cwd });
     if (entry.profile.id !== "local") {
       if (entry.pending) await entry.pending;
       await this.refresh(entry);

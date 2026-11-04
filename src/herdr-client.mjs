@@ -104,7 +104,7 @@ function validateTabLabel(label) {
   return validateLabel(label, "Tab");
 }
 
-// A folder a new tab opens in (src/project-folder.mjs).
+// A folder a new tab or project opens in (src/project-folder.mjs).
 function validateCwd(cwd) {
   if (!isFolder(cwd)) throw new InputValidationError("Invalid folder");
   return cwd;
@@ -499,11 +499,13 @@ export class HerdrClient {
 
   // The project Herdr made, its tab and first pane, from Herdr's own answer
   // (`.result.workspace`, `.result.tab`, `.result.root_pane`); null when the
-  // answer does not name all three.
-  async createWorkspace(label) {
+  // answer does not name all three. `cwd`: the folder its first shell starts
+  // in; Herdr's own choice without one.
+  async createWorkspace(label, { cwd } = {}) {
     const safeLabel = validateWorkspaceLabel(label);
+    const folder = cwd === undefined ? [] : ["--cwd", validateCwd(cwd)];
     const stdout = await this.#run(
-      ["workspace", "create", "--label", safeLabel, "--no-focus"],
+      ["workspace", "create", "--label", safeLabel, ...folder, "--no-focus"],
       { json: false },
     );
     let result;

@@ -4,6 +4,7 @@ import { FileAccessError } from "./file-browser.mjs";
 import { HerdrCommandError, InputValidationError } from "./herdr-client.mjs";
 import { HttpError } from "./http-basics.mjs";
 import { PasskeyError } from "./passkey-auth.mjs";
+import { FolderError } from "./project-folder.mjs";
 import { PushValidationError } from "./web-push-service.mjs";
 
 // What a thrown error says to a client: status, code and message, the same on
@@ -15,6 +16,10 @@ export function errorResponse(error) {
   // File and SFTP failures already carry a status; without this they would
   // surface as 500s from the paths that throw outside a route's own handling.
   if (error instanceof FileAccessError) {
+    return { status: error.status, code: error.code, message: error.message };
+  }
+  // A folder asked for that is not there, or not a folder (src/project-folder.mjs).
+  if (error instanceof FolderError) {
     return { status: error.status, code: error.code, message: error.message };
   }
   if (error instanceof InputValidationError) {

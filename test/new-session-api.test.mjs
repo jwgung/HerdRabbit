@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { AGENT_COMMANDS } from "../src/agent-launch.mjs";
 
@@ -33,8 +36,8 @@ function fakeHerdr({ answersIds = true } = {}) {
     async snapshot() {
       return { workspaces: [...workspaces], tabs: tabs.map((tab) => ({ ...tab })), panes: [...panes], agents: [] };
     },
-    async createTab(workspaceId) {
-      calls.push(["createTab", workspaceId]);
+    async createTab(workspaceId, options) {
+      calls.push(["createTab", workspaceId, ...(options?.cwd === undefined ? [] : [options.cwd])]);
       const made = this.addTab(workspaceId);
       return answersIds ? made : null;
     },
@@ -44,7 +47,12 @@ function fakeHerdr({ answersIds = true } = {}) {
     },
     async sendText(paneId, text, options) { calls.push(["sendText", paneId, text, options]); },
     agentsClient(serverId) {
-      if (serverId === LAB) return { async installedAgents() { calls.push(["remoteAgents", LAB]); return ["codex", "opencode"]; } };
+      if (serverId === LAB) {
+        return {
+          async installedAgents() { calls.push(["remoteAgents", LAB]); return ["codex", "opencode"]; },
+          async opensFolders() { return true; },
+        };
+      }
       // A connected PC from before this answers nothing about its agents.
       if (serverId === OLD) return { async installedAgents() { return null; } };
       return null;
@@ -259,4 +267,59 @@ test("starting an agent needs the page's write token", async (context) => {
   });
   assert.equal(response.status, 403);
   assert.deepEqual(app.herdr.calls, []);
+});
+
+// ---------------------------------------------------------------------------
+// The folder a new tab opens in.
+
+async function folders(context) {
+  const home = await mkdtemp(join(tmpdir(), "herdrabbit-tab-folders-"));
+  context.after(() => rm(home, { recursive: true, force: true }));
+  await mkdir(join(home, "My App"));
+  await writeFile(join(home, "notes.txt"), "x");
+  return { home, app: join(home, "My App"), file: join(home, "notes.txt") };
+}
+
+test("a new tab opens in the folder asked, ~ being this PC's home, with or without an agent and a name", async (context) => {
+  const { home, app: folder } = await folders(context);
+  const app = await start(context, fakeHerdr(), { homeDirectory: home });
+  const plain = await app.post(tabsOf("w1"), { folder });
+  assert.equal(plain.status, 201);
+  assert.equal((await app.post(tabsOf("w1"), { folder: "~/My App", agent: "claude", label: "Fix" })).status, 201);
+  assert.equal((await app.post(tabsOf("w1"), { folder: "~" })).status, 201);
+  assert.equal((await app.post(tabsOf("w1"), { folder: null })).status, 201);
+  assert.deepEqual(app.herdr.calls, [
+    ["createTab", "w1", folder],
+    ["createTab", "w1", folder],
+    ["renameTab", "w1:t3", "Fix"],
+    ["sendText", "w1:p3", "claude", { submit: true }],
+    ["createTab", "w1", home],
+    ["createTab", "w1"],
+  ]);
+});
+
+test("a tab's folder that is not a full path, not there, or a file is refused before the tab is made", async (context) => {
+  const { home, file } = await folders(context);
+  const app = await start(context, fakeHerdr(), { homeDirectory: home });
+  for (const [folder, code] of [
+    ["relative", "invalid_folder"], ["~root", "invalid_folder"], [["/"], "invalid_folder"], ["/a\nb", "invalid_folder"],
+    ["~/missing", "folder_not_found"], [file, "not_a_folder"],
+  ]) {
+    const response = await app.post(tabsOf("w1"), { folder });
+    assert.equal(response.status, 400, JSON.stringify(folder));
+    assert.equal((await response.json()).error.code, code, JSON.stringify(folder));
+  }
+  // a resumed conversation keeps its workspace's folder
+  const resumed = await app.post(tabsOf("w1"), { agent: "claude", resume: "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e", folder: home });
+  assert.equal(resumed.status, 400);
+  assert.deepEqual(app.herdr.calls, []);
+});
+
+test("a connected PC checks a tab's folder itself, and an older PC is not asked to open one", async (context) => {
+  const app = await start(context);
+  assert.equal((await app.post(tabsOf(`${LAB}!hs~w1`), { folder: "~/src" })).status, 201);
+  const old = await app.post(tabsOf(`${OLD}!hs~w1`), { folder: "/srv" });
+  assert.equal(old.status, 501);
+  assert.equal((await old.json()).error.code, "link_unsupported");
+  assert.deepEqual(app.herdr.calls, [["createTab", `${LAB}!hs~w1`, "~/src"]]);
 });

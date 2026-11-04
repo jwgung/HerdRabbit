@@ -2640,6 +2640,76 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   .dialog-form .agent-choice { min-height: 44px; }
 }
 
+/* Folder, in the New workspace and New tab dialogs: the path and Browse…, and
+   under them, once opened, the folders in it to go into or to use. */
+.folder-field { display: grid; gap: var(--space-1-5); min-width: 0; }
+
+.folder-field[hidden],
+.folder-picker[hidden] { display: none; }
+
+.folder-row { display: flex; gap: var(--space-2); min-width: 0; }
+
+.folder-row input { flex: 1 1 auto; }
+
+.folder-row .secondary-button { flex: none; }
+
+.folder-picker {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+}
+
+.folder-picker-bar { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+
+.folder-picker-bar .secondary-button { flex: none; }
+
+.folder-picker-path {
+  min-width: 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  overflow-wrap: anywhere;
+}
+
+.folder-picker-list {
+  display: grid;
+  max-height: min(240px, 35dvh);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.folder-picker-item {
+  width: 100%;
+  min-height: 32px;
+  padding: var(--space-1-5) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-md);
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.folder-picker .dialog-feedback:empty { display: none; }
+
+.folder-picker-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+
+@media (hover: hover) {
+  .folder-picker-item:hover { background: var(--hover-surface); }
+}
+
+@media (hover: none) {
+  .folder-picker-item { min-height: 44px; }
+}
+
 /* Update: one block per PC, with what changed and, during a run, its log. */
 /* The heading and the buttons stay put: only the list of PCs scrolls. */
 .update-dialog { max-height: 90dvh; overflow: hidden; }

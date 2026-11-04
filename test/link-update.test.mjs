@@ -57,9 +57,9 @@ const client = (address) => new LinkClient({ profile: { id: LINK_ID, name: "Dev 
 test("a PC with in-app update names it among its features", async (context) => {
   const withUpdate = await startPeer(context, { updater: noisyUpdater([]) });
   const hello = await (await fetch(`${withUpdate}/api/link/hello`)).json();
-  assert.deepEqual(hello.features, ["scroll_bottom", "commands", "project_ids", "update"]);
+  assert.deepEqual(hello.features, ["scroll_bottom", "commands", "project_ids", "folders", "update"]);
   const without = await startPeer(context);
-  assert.deepEqual((await (await fetch(`${without}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "project_ids"]);
+  assert.deepEqual((await (await fetch(`${without}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "project_ids", "folders"]);
 });
 
 test("the hub asks a connected PC about its update and keeps only what it shows", async (context) => {
@@ -148,10 +148,10 @@ function updaterWithHerdr(calls) {
 test("a PC that updates Herdr names it, and the hub keeps only what it shows", async (context) => {
   const calls = [];
   const address = await startPeer(context, { updater: updaterWithHerdr(calls), herdrUpdater: noisyHerdr(calls) });
-  assert.deepEqual((await (await fetch(`${address}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "project_ids", "update", "herdr_update"]);
+  assert.deepEqual((await (await fetch(`${address}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "project_ids", "folders", "update", "herdr_update"]);
   // Herdr's check comes with the update answer: a PC without one does not name it
   const alone = await startPeer(context, { herdrUpdater: noisyHerdr([]) });
-  assert.deepEqual((await (await fetch(`${alone}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "project_ids"]);
+  assert.deepEqual((await (await fetch(`${alone}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "project_ids", "folders"]);
   const link = client(address);
   const check = await link.updateCheck();
   assert.equal(check.herdr.current, "0.9.3");

@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { linkRoutes } from "../src/link-server.mjs";
 import { LinkClient } from "../src/link-client.mjs";
 import { MultiServerClient } from "../src/multi-server-client.mjs";
@@ -26,9 +29,9 @@ const client = (address) => new LinkClient({ profile: { id: LINK_ID, name: "Dev 
 
 test("a PC that can tell its installed agents names it among its features", async (context) => {
   const withAgents = await startPeer(context, { installedAgents: { async list() { return ["claude"]; } } });
-  assert.deepEqual((await (await fetch(`${withAgents}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "project_ids", "agents"]);
+  assert.deepEqual((await (await fetch(`${withAgents}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "project_ids", "folders", "agents"]);
   const without = await startPeer(context);
-  assert.deepEqual((await (await fetch(`${without}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "project_ids"]);
+  assert.deepEqual((await (await fetch(`${without}/api/link/hello`)).json()).features, ["scroll_bottom", "commands", "project_ids", "folders"]);
 });
 
 test("the hub hears which agents a connected PC has, and keeps only agents it knows", async (context) => {
@@ -92,7 +95,7 @@ test("a PC that lists its earlier sessions names it, and answers for the folder 
     },
   });
   assert.deepEqual((await (await fetch(`${address}/api/link/hello`)).json()).features,
-    ["scroll_bottom", "commands", "project_ids", "agents", "agent_sessions"]);
+    ["scroll_bottom", "commands", "project_ids", "folders", "agents", "agent_sessions"]);
   assert.deepEqual(await client(address).agentSessions("claude", "/work/My App"), [{ id: CLAUDE_A, title: "Fix login", updatedAt: 10 }]);
   assert.deepEqual(asked, [["claude", "/work/My App"]]);
 });
@@ -115,27 +118,20 @@ test("an older PC is not asked for its sessions, and the route is gated like the
   assert.equal(asked, 0);
 });
 
-// This PC's snapshot: project hs~w1 works in /work/My App (its first pane with
-// a folder); hs~w2 has no folder yet.
-const folderHerdr = {
-  async snapshot() {
-    return {
-      herdr_sessions: [], agents: [],
-      workspaces: [{ workspace_id: "hs~w1" }, { workspace_id: "hs~w2" }],
-      tabs: [{ tab_id: "hs~w1:t0", workspace_id: "hs~w1" }, { tab_id: "hs~w2:t0", workspace_id: "hs~w2" }],
-      panes: [
-        { pane_id: "hs~w1:p0", tab_id: "hs~w1:t0", workspace_id: "hs~w1", cwd: "" },
-        { pane_id: "hs~w1:p9", tab_id: "hs~w1:t0", workspace_id: "hs~w1", cwd: "/home/u", foreground_cwd: "/work/My App" },
-        { pane_id: "hs~w2:p0", tab_id: "hs~w2:t0", workspace_id: "hs~w2", cwd: "" },
-      ],
-    };
-  },
-};
+// Folders on this PC: "My App" is one, "notes.txt" a file in the folder above it.
+async function folders(context) {
+  const root = await mkdtemp(join(tmpdir(), "herdrabbit-link-folders-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "My App"));
+  await writeFile(join(root, "notes.txt"), "x");
+  return { root, app: join(root, "My App"), file: join(root, "notes.txt") };
+}
 
 test("a session made over the link opens in the folder asked, and as before without one, and names its ids", async (context) => {
+  const { app } = await folders(context);
   const calls = [];
   const peerClient = {
-    ...folderHerdr,
+    ...herdr,
     async createTab(...args) {
       calls.push(args);
       return { tab_id: `hs~w1:t${calls.length}`, pane_id: `hs~w1:p${calls.length}` };
@@ -143,38 +139,82 @@ test("a session made over the link opens in the folder asked, and as before with
   };
   const address = await startSessionsPeer(context, { agentSessions: { async list() { return []; } }, client: peerClient });
   const link = client(address);
-  assert.deepEqual(await link.createTab("hs~w1", { cwd: "/work/My App" }), { tab_id: "hs~w1:t1", pane_id: "hs~w1:p1" });
+  assert.equal(await link.opensFolders(), true);
+  assert.deepEqual(await link.createTab("hs~w1", { cwd: app }), { tab_id: "hs~w1:t1", pane_id: "hs~w1:p1" });
   assert.deepEqual(await link.createTab("hs~w1"), { tab_id: "hs~w1:t2", pane_id: "hs~w1:p2" });
-  assert.deepEqual(calls, [["hs~w1", { cwd: "/work/My App" }], ["hs~w1", { cwd: undefined }]]);
+  assert.deepEqual(calls, [["hs~w1", { cwd: app }], ["hs~w1", { cwd: undefined }]]);
 });
 
-test("a PC opens a tab in a folder only when it is that project's own folder", async (context) => {
+test("a PC opens a tab or a workspace in any folder it has, ~ being its home, and refuses one it does not", async (context) => {
+  const { root, app, file } = await folders(context);
   const calls = [];
-  const peerClient = { ...folderHerdr, async createTab(...args) { calls.push(args); return { tab_id: "hs~w1:t1", pane_id: "hs~w1:p1" }; } };
+  const peerClient = {
+    ...herdr,
+    async createTab(...args) { calls.push(["createTab", ...args]); return { tab_id: "hs~w1:t1", pane_id: "hs~w1:p1" }; },
+    async createWorkspace(...args) { calls.push(["createWorkspace", ...args]); return { workspace_id: "hs~w3", tab_id: "hs~w3:t1", pane_id: "hs~w3:p1" }; },
+  };
   const address = await startSessionsPeer(context, { agentSessions: { async list() { return []; } }, client: peerClient });
-  const post = (workspace, body) => fetch(`${address}/api/link/workspaces/${encodeURIComponent(workspace)}/tabs`, {
+  const post = (path, body) => fetch(`${address}${path}`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
-  for (const [workspace, cwd] of [
-    ["hs~w1", "/etc"],
-    // another pane's folder in the same project is not the project's folder
-    ["hs~w1", "/home/u"],
-    ["hs~w1", "/work/My App/"],
-    ["hs~w1", "relative"],
-    ["hs~w1", null],
-    ["hs~w1", 7],
-    // a project with no folder takes none
-    ["hs~w2", "/work/My App"],
-    ["hs~w2", null],
-    ["hs~w9", "/work/My App"],
+  const tabs = "/api/link/workspaces/hs~w1/tabs";
+  for (const [cwd, code] of [
+    ["relative", "invalid_folder"], [null, "invalid_folder"], [7, "invalid_folder"], ["~other/x", "invalid_folder"],
+    ["/a\nb", "invalid_folder"], [join(root, "missing"), "folder_not_found"], [file, "not_a_folder"],
   ]) {
-    const response = await post(workspace, { cwd });
-    assert.equal(response.status, 400, `${workspace} ${JSON.stringify(cwd)}`);
-    assert.equal((await response.json()).error.code, "invalid_input");
+    for (const [path, body] of [[tabs, { cwd }], ["/api/link/workspaces", { label: "Shop", cwd }]]) {
+      const response = await post(path, body);
+      assert.equal(response.status, 400, `${path} ${JSON.stringify(cwd)}`);
+      assert.equal((await response.json()).error.code, code, `${path} ${JSON.stringify(cwd)}`);
+    }
   }
   assert.deepEqual(calls, []);
-  assert.equal((await post("hs~w1", { cwd: "/work/My App" })).status, 200);
-  assert.deepEqual(calls, [["hs~w1", { cwd: "/work/My App" }]]);
+  assert.equal((await post(tabs, { cwd: `${root}/x/../My App/` })).status, 200);
+  assert.equal((await post(tabs, { cwd: "~" })).status, 200);
+  assert.equal((await post("/api/link/workspaces", { label: "Shop", herdrSessionId: "hs", cwd: app })).status, 201);
+  assert.equal((await post("/api/link/workspaces", { label: "Shop", cwd: "~" })).status, 201);
+  assert.equal((await post("/api/link/workspaces", { label: "Plain" })).status, 201);
+  assert.deepEqual(calls, [
+    ["createTab", "hs~w1", { cwd: app }],
+    ["createTab", "hs~w1", { cwd: homedir() }],
+    ["createWorkspace", "Shop", "hs", { cwd: app }],
+    ["createWorkspace", "Shop", undefined, { cwd: homedir() }],
+    ["createWorkspace", "Plain"],
+  ]);
+});
+
+test("the hub hears why a PC refused a folder, and asks an older PC for none", async (context) => {
+  const { root } = await folders(context);
+  const address = await startSessionsPeer(context, { client: { ...herdr, async createTab() { return null; } } });
+  await assert.rejects(() => client(address).createTab("hs~w1", { cwd: join(root, "missing") }),
+    (error) => error.status === 400 && error.code === "folder_not_found");
+  // A PC from before this does not list folders among its features.
+  let asked = 0;
+  const routes = linkRoutes({ client: { ...herdr, async createWorkspace() { asked += 1; } }, version: "2.0.0", serverName: "old-box" });
+  const server = createPeerServer({
+    peer: new PeerIdentity({ addresses: ["127.0.0.1"] }),
+    link: async (request, response, url, method) => {
+      const end = response.end.bind(response);
+      response.end = (body, ...rest) => {
+        if (typeof body === "string" && body.includes('"features"')) {
+          body = body.replace(/,?"folders"/u, "");
+          response.setHeader("Content-Length", Buffer.byteLength(body));
+        }
+        return end(body, ...rest);
+      };
+      return routes(request, response, url, method);
+    },
+    logger: { error() {} },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  context.after(() => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }));
+  const old = client(`http://127.0.0.1:${server.address().port}`);
+  assert.equal(await old.opensFolders(), false);
+  await assert.rejects(() => old.createWorkspace("Shop", "hs", { cwd: "/srv" }), (error) => error.code === "link_unsupported");
+  assert.equal(asked, 0);
+  assert.equal(await old.createWorkspace("Shop", "hs"), null);
+  assert.equal(asked, 1);
 });
 
 test("the hub's client hands the folder to whichever machine makes the tab, and gives back its ids", async () => {

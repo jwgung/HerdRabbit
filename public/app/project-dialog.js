@@ -1,11 +1,13 @@
 import { createElement } from "./dom.js?v=1.4.31";
 import { idOf } from "./snapshot.js?v=1.4.31";
 import { createAgentPicker } from "./agent-picker.js?v=1.4.31";
+import { createFolderField } from "./folder-field.js?v=1.4.31";
 
 // The "New workspace" dialog: a machine's ⋯ menu opens it for that machine. The
 // form creates the workspace in one of the machine's running sessions
 // (a choice only when it has more than one), with a shell or with an agent
-// installed there started in its first pane, each agent shown with its mark.
+// installed there started in its first pane, each agent shown with its mark,
+// in the machine's home folder or a folder typed or chosen with Browse….
 // Which agents are installed is asked of the machine when the dialog opens.
 // Listeners are registered when this is called, not on import.
 export function createProjectDialog({
@@ -24,6 +26,7 @@ export function createProjectDialog({
   const sessionSelect = document.querySelector("#project-server-session");
   const agentField = document.querySelector("#project-agent");
   const agents = createAgentPicker(agentField, { agentMark });
+  const folder = createFolderField(document.querySelector("#project-folder-field"), { api });
   // The machine the dialog was opened for.
   let serverId = "local";
   // A late agent list, for a session chosen before the one chosen now, is dropped.
@@ -85,6 +88,7 @@ export function createProjectDialog({
       ? `On ${machine}, with a shell or the agent chosen.`
       : "A shell opens in it, or the agent chosen.";
     agents.fill([]);
+    folder.reset({ serverId });
     say("");
     elements.projectDialog.showModal();
     window.requestAnimationFrame(() => elements.projectName.focus());
@@ -99,6 +103,7 @@ export function createProjectDialog({
     asked += 1;
     state.createProjectSessionId = null;
     elements.projectCreateForm.reset();
+    folder.close();
     elements.projectDialogFeedback.textContent = "";
   });
 
@@ -114,10 +119,12 @@ export function createProjectDialog({
     }
     elements.projectName.setCustomValidity("");
     const agent = agents.value();
+    const chosenFolder = folder.value();
     state.mutationBusy = true;
     const submitButton = elements.projectCreateForm.querySelector('button[type="submit"]');
     const controls = [elements.projectName, sessionSelect, agentField, elements.projectDialogCancel, submitButton];
     for (const control of controls) control.disabled = true;
+    folder.setDisabled(true);
     say(agent ? "Creating workspace and starting the agent…" : "Creating workspace…");
     const previousPaneIds = new Set(
       snapshotRecords().panes.map((pane) => idOf(pane, "pane_id", "id")),
@@ -131,6 +138,7 @@ export function createProjectDialog({
             ? { herdrSessionId: state.createProjectSessionId }
             : {}),
           ...(agent ? { agent } : {}),
+          ...(chosenFolder ? { folder: chosenFolder } : {}),
         },
       });
       state.snapshot = payload.snapshot || {};
@@ -155,6 +163,7 @@ export function createProjectDialog({
     } finally {
       state.mutationBusy = false;
       for (const control of controls) control.disabled = false;
+      folder.setDisabled(false);
       // the agent list may still be on its way: its choices stay off until it lands
       agentField.disabled = agentsLoading;
     }
