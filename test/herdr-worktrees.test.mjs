@@ -54,7 +54,7 @@ test("a branch name is one Git takes, narrowed to plain characters", () => {
 });
 
 test("worktree commands go to Herdr as argv, by workspace, without taking focus", async () => {
-  const fake = recordingRunner([out(LIST), out(opened("created")), out(opened("opened", { already_open: true })), out({ result: { type: "worktree_removed", workspace_id: "w2", path: "/work/worktrees/shop/feat-cart", forced: true } })]);
+  const fake = recordingRunner([out(LIST), out(opened("created")), out(LIST), out(opened("opened", { already_open: true })), out(LIST), out({ result: { type: "worktree_removed", workspace_id: "w2", path: "/work/worktrees/shop/feat-cart", forced: true } })]);
   const client = new HerdrClient({ runner: fake.runner });
 
   const list = await client.listWorktrees("w1");
@@ -67,17 +67,21 @@ test("worktree commands go to Herdr as argv, by workspace, without taking focus"
   assert.deepEqual(await client.createWorktree("w1", { branch: " feat/cart ", base: "origin/main", label: " Cart " }), {
     workspace_id: "w3", tab_id: "w3:t1", pane_id: "w3:p1", path: "/work/worktrees/shop/feat-cart", branch: "feat/cart", already_open: false,
   });
-  assert.equal((await client.openWorktree("w1", { path: "/work/worktrees/shop/feat-cart; rm -rf ~" })).already_open, true);
+  assert.equal((await client.openWorktree("w1", { path: "/work/worktrees/shop/feat-cart" })).already_open, true);
+  // A folder the repository's list does not name is never opened.
+  await assert.rejects(client.openWorktree("w1", { path: "/home/me/.ssh" }), { code: "worktree_not_found" });
   assert.deepEqual(await client.removeWorktree("w2", { force: true }), { workspace_id: "w2", path: "/work/worktrees/shop/feat-cart", forced: true });
 
   assert.deepEqual(fake.calls.map((call) => call.args), [
     ["worktree", "list", "--workspace", "w1"],
     ["worktree", "create", "--workspace", "w1", "--branch", "feat/cart", "--base", "origin/main", "--label", "Cart", "--no-focus"],
-    ["worktree", "open", "--workspace", "w1", "--path", "/work/worktrees/shop/feat-cart; rm -rf ~", "--no-focus"],
+    ["worktree", "list", "--workspace", "w1"],
+    ["worktree", "open", "--workspace", "w1", "--path", "/work/worktrees/shop/feat-cart", "--no-focus"],
+    ["worktree", "list", "--workspace", "w1"],
     ["worktree", "remove", "--workspace", "w2", "--force"],
   ]);
   // Git's work takes longer than a workspace command's few seconds.
-  assert.ok(fake.calls.slice(1).every((call) => call.timeout >= 60_000));
+  assert.ok(fake.calls.filter((call) => call.args[1] !== "list").every((call) => call.timeout >= 60_000));
 });
 
 test("optional parts are left out, and a bad name or id never reaches Herdr", async () => {

@@ -804,7 +804,7 @@ export class LinkClient {
 
   async removeWorktree(workspaceId, { force } = {}) {
     await this.#worktreesSupported();
-    const answer = await this.#worktreeChange(workspaceId, "worktree/remove", { force: validateForce(force) });
+    const answer = await this.#worktreeChange(workspaceId, "worktree/remove", { confirmed: true, force: validateForce(force) });
     return {
       workspace_id: typeof answer?.workspace_id === "string" ? answer.workspace_id : workspaceId,
       path: worktreeText(answer?.path),
