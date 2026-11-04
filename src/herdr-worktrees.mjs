@@ -27,16 +27,17 @@ export const WORKTREE_REFUSAL_CODES = new Set([
   "worktree_create_failed", "worktree_open_failed", "worktree_remove_failed", "stale_worktree_operation",
 ]);
 
-// A ref name's shape, as `git check-ref-format` takes it, narrowed: letters,
-// digits and `._/-` only (no spaces, no `~^:?*[\@`), no part starting with a
-// dot or ending in `.lock`, no `..` or `//`, not starting with `-` or `/` and
-// not ending with `/` or `.`.
+// A ref name's shape, as `git check-ref-format --branch` takes it: no control
+// characters, spaces or `~^:?*[\`, no `..`, `@{` or `//`, no part starting
+// with a dot or ending in `.lock`, not `@` alone, not starting with `/`, and
+// not ending with `/` or `.`. It may not start with `-` either: Git would read
+// it as an option of `git branch`.
 function isRefName(ref) {
-  return /^[A-Za-z0-9._/-]+$/u.test(ref) && !/^[-/]/u.test(ref) && !/[/.]$/u.test(ref) &&
-    !/\.\.|\/\/|(?:^|\/)\.|\.lock(?:\/|$)/u.test(ref);
+  return ref.length > 0 && !/[\u0000-\u0020\u007f~^:?*[\\]/u.test(ref) && ref !== "@" && !/^[-/]/u.test(ref) && !/[/.]$/u.test(ref) &&
+    !/\.\.|@\{|\/\/|(?:^|\/)\.|\.lock(?:\/|$)/u.test(ref);
 }
 
-const INVALID_REF = "Use letters, digits and . _ / - only, not starting with - or /.";
+const INVALID_REF = "It may not hold spaces or ~ ^ : ? * [ \\, “..”, “@{” or “//”, or start with - or /.";
 
 function refText(value, noun) {
   if (typeof value !== "string") throw new WorktreeInputError(`${noun} must be text`);

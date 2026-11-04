@@ -43,13 +43,18 @@ function recordingRunner(responses) {
   return { calls, runner };
 }
 
-test("a branch name is one Git takes, narrowed to plain characters", () => {
-  for (const name of ["feat/cart", "fix-12", "release/1.4.x", "a_b", "  spaced-out  "]) assert.equal(validateBranchName(name), name.trim());
-  for (const name of ["", "-x", "--help", "/x", "x/", "x.", "a..b", "a//b", ".x", "a/.b", "x.lock", "a/b.lock/c", "a b", "a:b", "a~1", "a^", "HEAD", "기능", "a\nb", `${"x".repeat(201)}`, 7, null]) {
+test("a branch name is one Git takes", () => {
+  for (const name of ["feat/cart", "fix-12", "release/1.4.x", "a_b", "  spaced-out  ", "feat/한글-이름", "기능", "user@x", "a+b", "x{y}", "it's", "a-", "x.lockx", "a@b{c}"]) {
+    assert.equal(validateBranchName(name), name.trim());
+  }
+  for (const name of [
+    "", "-x", "--help", "/x", "x/", "x.", "a..b", "a//b", ".x", "a/.b", "x.lock", "a/b.lock/c", "a b", "a\tb", "a:b", "a~1", "a^", "a?", "a*", "a[b", "a\\b",
+    "a@{b", "@", "HEAD", "a\nb", "a\u007fb", `${"x".repeat(201)}`, 7, null,
+  ]) {
     assert.throws(() => validateBranchName(name), WorktreeInputError, JSON.stringify(name));
   }
-  for (const base of ["main", "origin/main", "v1.2.0", "HEAD~2", "main^", "HEAD^^", "0123abc"]) assert.equal(validateBaseRef(base), base);
-  for (const base of ["", "-x", "~1", "a~b", "a..b", "@{-1}", "a b"]) assert.throws(() => validateBaseRef(base), WorktreeInputError, base);
+  for (const base of ["main", "origin/main", "v1.2.0", "HEAD~2", "main^", "HEAD^^", "0123abc", "feat/한글", "user@x~1"]) assert.equal(validateBaseRef(base), base);
+  for (const base of ["", "-x", "~1", "a~b", "a..b", "@{-1}", "a b", "a:b"]) assert.throws(() => validateBaseRef(base), WorktreeInputError, base);
   assert.deepEqual(errorResponse(new WorktreeInputError("x")), { status: 400, code: "invalid_input", message: "x" });
 });
 
