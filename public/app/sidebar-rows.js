@@ -358,7 +358,7 @@ export function createSidebarRows(deps) {
         tag.append(createIcon(BRANCH_ICON, "workspace-branch-icon"), createElement("span", { text: branch }));
         heading.append(tag);
       }
-      const target = { workspaceId, workspaceLabel, branch };
+      const target = { workspaceId, workspaceLabel, branch, serverId: workspace.server_id || "local" };
       // New and Open start from the repository's own workspace (Herdr
       // refuses them from a worktree); a worktree workspace removes itself.
       const worktreeActions = worktree?.is_linked_worktree === true

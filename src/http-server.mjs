@@ -1471,7 +1471,7 @@ export function createHerdrHttpServer({
           return;
         }
         const made = worktreeMatch[2] === "worktrees"
-          ? await herdr.createWorktree(workspaceId, { branch: body.branch, base: body.base, label: body.label })
+          ? await createWorktree(workspaceId, body)
           : await herdr.openWorktree(workspaceId, { path: body.path, label: body.label });
         // Made either way: an unreadable snapshot is reloaded by the page.
         sendJson(response, worktreeMatch[2] === "worktrees" ? 201 : 200, {
@@ -1750,6 +1750,34 @@ export function createHerdrHttpServer({
     } catch {
       throw projectPaneMissing();
     }
+  }
+
+  // A new worktree of a workspace's repository, optionally with an agent
+  // started in its first pane. As for a new workspace, the agent is checked
+  // on the workspace's machine before Herdr is asked to make anything, the
+  // command typed is the agent table's, and it is typed only into the pane
+  // the create call named, once the snapshot shows it in that call's new
+  // workspace on that machine.
+  async function createWorktree(workspaceId, body) {
+    const agent = body.agent === undefined || body.agent === null || body.agent === "" ? null : body.agent;
+    const options = { branch: body.branch, base: body.base, label: body.label };
+    if (agent === null) return herdr.createWorktree(workspaceId, options);
+    if (agentCommand(agent) === null) throw new InputValidationError("Unknown agent");
+    const before = await herdr.snapshot();
+    const serverId = projectOf(before, workspaceId).server_id ?? LOCAL_SERVER;
+    await requireAgentOn(serverId, agent);
+    const made = await herdr.createWorktree(workspaceId, options);
+    const after = await herdr.snapshot();
+    const workspace = typeof made?.workspace_id === "string"
+      ? (after.workspaces ?? []).find((item) => item.workspace_id === made.workspace_id) : null;
+    const pane = workspace && (workspace.server_id ?? LOCAL_SERVER) === serverId
+      ? (after.panes ?? []).find((item) => item.pane_id === made.pane_id && item.workspace_id === made.workspace_id && item.tab_id === made.tab_id)
+      : null;
+    if (!pane) {
+      throw new HttpError(502, "worktree_pane_missing", "The worktree was made, but its first pane could not be found, so no agent was started. Start one from the workspace's ⋯ menu.");
+    }
+    await herdr.sendText(pane.pane_id, agentCommand(agent), { submit: true });
+    return made;
   }
 
   // A new session in a project: a shell, optionally named, optionally in a

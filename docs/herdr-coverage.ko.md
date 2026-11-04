@@ -68,7 +68,7 @@ Herdr 0.9.5(`herdr --help`와 명령 묶음마다의 `--help`)를 기준으로 �
 | 명령 | HerdRabbit | 메모 |
 |---|---|---|
 | `list` | 됨 | Open worktree…가 저장소의 체크아웃을 보여 줌. 워크트리 워크스페이스는 이름 옆에 브랜치 표시 |
-| `create` | 됨 | 저장소 워크스페이스의 New worktree…: 브랜치, 선택 사항인 시작점과 이름, `--path`는 쓰지 않음. Herdr 포커스를 가져오지 않고 엶 |
+| `create` | 됨 | 저장소 워크스페이스의 New worktree…: 브랜치(Git ref 규칙), 선택 사항인 시작점·이름·에이전트, `--path`는 쓰지 않음. Herdr 포커스를 가져오지 않고 엶 |
 | `open` | 됨 | Open worktree…가 목록의 체크아웃을 폴더로(`--path`) 엶 |
 | `remove` | 됨 | 워크트리 워크스페이스의 Remove worktree…, 확인 뒤. Git이 변경 있는 체크아웃을 거절하면 한 번 더 확인한 뒤에만 `--force` |
 | `--cwd`, `--trust-repository` | 없음 | 워크스페이스 대신 폴더에서 시작하기, 다른 사용자 소유 저장소 |
@@ -83,8 +83,8 @@ Herdr 0.9.5(`herdr --help`와 명령 묶음마다의 `--help`)를 기준으로 �
 | `enable`, `disable`, `update`, `uninstall` | 됨 | HerdRabbit 자신은 제외(Settings → Updates에서 업데이트). 새 버전이 있는 플러그인도 그곳에서 업데이트(Update all) |
 | 업데이트 확인 | 표시 | Ref 없이 GitHub에서 설치한 플러그인만, 마켓플레이스의 head commit이 설치된 커밋과 다르면 "Update available"(목록은 10분마다 다시 읽음). Update all은 하나씩, HerdRabbit은 마지막, 처음 실패에서 멈춤 |
 | `link`, `unlink` | 됨 | Link local folder…(입력하거나 Browse…로 고른 폴더, Files 탭과 같은 검사, 매니페스트가 HerdRabbit이나 이미 있는 플러그인이 아닐 것). 링크한 플러그인은 Unlink… |
-| `action list`, `action invoke` | 됨 | ⋯ → Actions and panes… → Run. 보고 있는 패인을 위해(그 워크스페이스·탭·폴더를 Herdr 컨텍스트로, 소켓으로), 없으면 Herdr 포커스가 있는 곳에서. HerdRabbit 자신의 것은 제외 |
-| `pane open` | 됨 | ⋯ → Actions and panes… → Open. 보고 있는 패인의 워크스페이스에 새 탭으로 열고 보여 줌. overlay·popup 배치는 쓰지 않음: overlay는 어디든 Herdr 자신의 포커스를 덮고, popup은 패인이 아님. HerdRabbit 자신의 것은 제외 |
+| `action list`, `action invoke` | 됨 | ⋯ → Actions and panes… → Run. 보고 있는 패인이나 대화상자에서 고른 워크스페이스의 활성 패인을 위해(그 워크스페이스·탭·폴더를 Herdr 컨텍스트로, 소켓으로), 없으면 Herdr 포커스가 있는 곳에서. HerdRabbit 자신의 것은 제외 |
+| `pane open` | 됨 | ⋯ → Actions and panes… → Open. 고른 워크스페이스(기본은 보고 있는 패인의 워크스페이스)에 새 탭으로 열고 보여 줌. overlay·popup 배치는 쓰지 않음: overlay는 어디든 Herdr 자신의 포커스를 덮고, popup은 패인이 아님. HerdRabbit 자신의 것은 제외 |
 | `pane focus`, `pane close` | 필요 없음 | 연 플러그인 패인은 평범한 패인이라 다른 패인처럼 보여 주고 닫음 |
 | `log list` | 됨 | ⋯ → Logs…: 최근 20개, 최신순, 색과 폴더를 뺀 출력 |
 | `config-dir` | 없음 | |

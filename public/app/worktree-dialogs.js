@@ -1,4 +1,5 @@
 import { createElement } from "./dom.js?v=1.4.34";
+import { createAgentPicker } from "./agent-picker.js?v=1.4.34";
 
 // Git worktrees from a workspace's ⋯ menu (Herdr's `herdr worktree`): New
 // worktree… checks a branch out in a new folder of the workspace's repository
@@ -7,8 +8,10 @@ import { createElement } from "./dom.js?v=1.4.34";
 // its folder (never the branch) and closes it, and asks again before forcing
 // past changes Git has not committed. Herdr says whether the workspace's
 // folder is in Git: the dialogs ask it as they open and say so when it is not.
+// New worktree… may start an installed agent of the workspace's machine in
+// the new workspace's first pane, as New workspace… does; Shell is the default.
 // Listeners are registered when this is called, not on import.
-export function createWorktreeDialogs({ state, api, adoptMutationSnapshot, closeMobileSidebar, refreshSnapshot, setFeedback }) {
+export function createWorktreeDialogs({ state, api, agentMark, adoptMutationSnapshot, closeMobileSidebar, refreshSnapshot, setFeedback }) {
   const create = {
     dialog: document.querySelector("#worktree-dialog"),
     form: document.querySelector("#worktree-create-form"),
@@ -18,8 +21,12 @@ export function createWorktreeDialogs({ state, api, adoptMutationSnapshot, close
     label: document.querySelector("#worktree-label"),
     feedback: document.querySelector("#worktree-dialog-feedback"),
     cancel: document.querySelector("#worktree-dialog-cancel"),
+    agentField: document.querySelector("#worktree-agent"),
   };
   create.submit = create.form.querySelector('button[type="submit"]');
+  create.agents = createAgentPicker(create.agentField, { agentMark });
+  // The agent last started in a worktree, chosen first next time while this page lasts.
+  let lastAgent = "";
   const pick = {
     dialog: document.querySelector("#worktree-open-dialog"),
     form: document.querySelector("#worktree-open-form"),
@@ -75,16 +82,34 @@ export function createWorktreeDialogs({ state, api, adoptMutationSnapshot, close
     closeMobileSidebar();
   }
 
-  async function openNew({ workspaceId, workspaceLabel }) {
+  // The workspace's machine's agents; a machine that cannot list them, or an
+  // answer that fails, leaves Shell only, and the worktree can still be made.
+  async function loadAgents(serverId, opened) {
+    create.agentField.disabled = true;
+    try {
+      const answer = await api(`/api/agents?server=${encodeURIComponent(serverId)}`);
+      if (opened !== generation) return;
+      create.agents.fill(answer.agents ?? [], create.agents.value() || lastAgent);
+    } catch {
+      if (opened === generation) create.agents.fill([]);
+    } finally {
+      if (opened === generation) create.agentField.disabled = state.mutationBusy;
+    }
+  }
+
+  async function openNew({ workspaceId, workspaceLabel, serverId = "local" }) {
     if (state.mutationBusy) return;
     target = { workspaceId, workspaceLabel };
     const opened = ++generation;
     create.context.textContent = `A branch of ${workspaceLabel}'s repository, checked out in a new folder and opened as its own workspace.`;
     create.submit.disabled = true;
+    create.agents.fill([]);
     say(create.feedback, "");
     create.dialog.showModal();
     window.requestAnimationFrame(() => create.branch.focus());
+    const agentsLoaded = loadAgents(serverId, opened);
     const list = await loadList(create.feedback, opened);
+    await agentsLoaded;
     if (!list || opened !== generation) return;
     if (list.source?.repo_name) {
       create.context.textContent = `A branch of ${list.source.repo_name}, checked out in a new folder and opened as its own workspace. A local branch of that name is used as it is.`;
@@ -113,20 +138,24 @@ export function createWorktreeDialogs({ state, api, adoptMutationSnapshot, close
     }
     const base = create.base.value.trim();
     const label = create.label.value.trim();
-    const controls = [create.branch, create.base, create.label, create.cancel, create.submit];
+    const agent = create.agents.value();
+    const controls = [create.branch, create.base, create.label, create.agentField, create.cancel, create.submit];
     setBusy(controls, true);
-    say(create.feedback, "Creating the worktree…");
+    say(create.feedback, agent ? "Creating the worktree and starting the agent…" : "Creating the worktree…");
     try {
       const payload = await api(worktreesPath(target.workspaceId), {
         method: "POST",
-        body: { branch, ...(base ? { base } : {}), ...(label ? { label } : {}) },
+        body: { branch, ...(base ? { base } : {}), ...(label ? { label } : {}), ...(agent ? { agent } : {}) },
       });
+      lastAgent = agent;
       setBusy(controls, false);
       create.dialog.close();
       adopt(payload);
     } catch (error) {
       setBusy(controls, false);
       say(create.feedback, refusal(error), true);
+      // Made, but the agent could not be started: the sidebar shows the new workspace.
+      if (error.code === "worktree_pane_missing") void refreshSnapshot();
     }
   });
 
