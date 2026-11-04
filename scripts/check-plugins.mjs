@@ -209,10 +209,13 @@ const herdr = {
         { id: OLD, name: "Old box", transport: "link", available: true, status: "Connected" },
       ],
       herdr_sessions: [{ session_id: SESSION, name: "default", default: true, machine_default: true, running: true, available: true, server_id: "local", server_name: "workstation" }],
-      workspaces: [{ workspace_id: "w1", label: "Platform", herdr_session_id: SESSION, server_id: "local" }],
+      workspaces: [{ workspace_id: "w1", label: "Platform", herdr_session_id: SESSION, server_id: "local" },
+        { workspace_id: "w2", label: "Docs", active_tab_id: "w2:t1", herdr_session_id: SESSION, server_id: "local" }],
       tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "1", herdr_session_id: SESSION },
+        { tab_id: "w2:t1", workspace_id: "w2", label: "1", herdr_session_id: SESSION },
         ...pluginPanes.map((pane) => ({ tab_id: pane.tab_id, workspace_id: "w1", label: "Board", herdr_session_id: SESSION }))],
       panes: [{ pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "shell", cwd: "/work", herdr_session_id: SESSION, server_id: "local" },
+        { pane_id: "w2:p1", tab_id: "w2:t1", workspace_id: "w2", label: "docs", cwd: "/docs", focused: true, herdr_session_id: SESSION, server_id: "local" },
         ...pluginPanes],
       agents: [],
     };
@@ -456,6 +459,19 @@ try {
     await detailsDialog.getByRole("button", { name: "Run Apply layout" }).click();
     await page.waitForFunction(() => document.querySelector("#plugin-details-feedback").textContent === "Started Apply layout. Logs… shows how it goes.");
     assert.deepEqual(local.state.panes, [["invoke", "w1:p1", "gen-4", "apply"]]);
+
+    // Another workspace of the machine: its active pane, until Platform is chosen again.
+    const workspacePick = page.locator("#plugin-details-workspace");
+    assert.deepEqual(await workspacePick.locator("option").allTextContents(), ["Platform", "Docs"]);
+    assert.equal(await workspacePick.inputValue(), "w1");
+    await workspacePick.selectOption("w2");
+    assert.equal(await page.locator("#plugin-details-actions-where").textContent(), "Runs for the active pane of Docs.");
+    assert.equal(await page.locator("#plugin-details-panes-where").textContent(), "Opens as a new tab in Docs.");
+    await detailsDialog.getByRole("button", { name: "Run Apply layout" }).click();
+    await page.waitForFunction(() => document.querySelector("#plugin-details-feedback").textContent === "Started Apply layout. Logs… shows how it goes.");
+    assert.deepEqual(local.state.panes.at(-1), ["invoke", "w2:p1", "gen-4", "apply"]);
+    await workspacePick.selectOption("w1");
+    assert.equal(await page.locator("#plugin-details-actions-where").textContent(), "Runs for the pane you have open, in Platform.");
 
     // Logs…, from the dialog: newest first, colours and folders gone.
     await page.locator("#plugin-details-logs").click();

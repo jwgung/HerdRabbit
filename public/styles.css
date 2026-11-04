@@ -1263,6 +1263,16 @@ button.plugin-update-badge {
   width: min(640px, calc(100vw - 32px));
 }
 
+/* The workspace an action runs for and a pane opens in. */
+.plugin-details-workspace {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.plugin-details-workspace[hidden] {
+  display: none;
+}
+
 .plugin-entries {
   display: grid;
   gap: var(--space-1-5);
@@ -1556,6 +1566,7 @@ button.plugin-update-badge {
   .plugin-switch,
   .plugin-actions .workspace-action,
   .plugins-machine,
+  #plugin-details-workspace,
   #plugins-install,
   .updates-run,
   .updates-all,

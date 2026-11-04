@@ -1,7 +1,7 @@
 import { createElement } from "./dom.js?v=1.4.34";
 import {
   parsePluginSource, pluginLogSummary, pluginMachines, pluginOperationText, pluginSourceText, pluginSourceUrl, pluginTarget,
-  pluginTargetText, validPluginRef,
+  pluginTargetText, pluginWorkspaces, validPluginRef,
 } from "./plugin-model.js?v=1.4.34";
 import { createPluginBrowse } from "./plugin-browse.js?v=1.4.34";
 import { createFolderField } from "./folder-field.js?v=1.4.34";
@@ -304,14 +304,18 @@ export function createPluginsPage({
   }
 
   // Actions and panes…: one plugin's, on the machine it was opened for. Run
-  // and Open go to the pane on show when it is on that machine.
+  // and Open go to the workspace chosen above them: the one of the pane on
+  // show when it is on that machine, else the machine's first. Within it,
+  // the pane on show when it is there, else the workspace's active pane.
   const detailsDialog = document.querySelector("#plugin-details-dialog");
   const detailsTitle = document.querySelector("#plugin-details-title");
   const detailsMachine = document.querySelector("#plugin-details-machine");
   const detailsActions = document.querySelector("#plugin-details-actions");
   const detailsPanes = document.querySelector("#plugin-details-panes");
   const detailsFeedback = document.querySelector("#plugin-details-feedback");
-  const details = { id: null, server: null, busy: false, opener: null };
+  const detailsWorkspaceRow = document.querySelector("#plugin-details-workspace-row");
+  const detailsWorkspace = document.querySelector("#plugin-details-workspace");
+  const details = { id: null, server: null, busy: false, opener: null, workspaceId: null };
 
   function sayDetails(text, isError = false) {
     detailsFeedback.textContent = text;
@@ -319,7 +323,36 @@ export function createPluginsPage({
   }
 
   const detailsPlugin = () => (details.server === page.server ? page.plugins.find((item) => item.id === details.id) : null) ?? null;
-  const detailsTarget = () => pluginTarget(snapshotRecords(), selectedPaneId(), details.server);
+  const detailsTarget = () => pluginTarget(snapshotRecords(), selectedPaneId(), details.server, details.workspaceId);
+
+  // The machine's workspaces to choose from; the one chosen is kept while it
+  // is still there, else the pane on show's, else the first.
+  function renderWorkspaces() {
+    const records = snapshotRecords();
+    const choices = pluginWorkspaces(records, details.server);
+    if (!choices.some((item) => item.workspaceId === details.workspaceId)) {
+      const shown = pluginTarget(records, selectedPaneId(), details.server);
+      details.workspaceId = shown?.workspaceId ?? choices[0]?.workspaceId ?? null;
+    }
+    detailsWorkspaceRow.hidden = choices.length === 0;
+    const current = [...detailsWorkspace.options].map((option) => `${option.value}\u0000${option.textContent}`).join("\n");
+    const wanted = choices.map((item) => `${item.workspaceId}\u0000${item.workspace}`).join("\n");
+    if (current !== wanted) {
+      detailsWorkspace.replaceChildren(...choices.map((item) => {
+        const option = createElement("option", { text: item.workspace });
+        option.value = item.workspaceId;
+        return option;
+      }));
+    }
+    if (details.workspaceId) detailsWorkspace.value = details.workspaceId;
+    detailsWorkspace.disabled = details.busy;
+  }
+
+  detailsWorkspace.addEventListener("change", () => {
+    details.workspaceId = detailsWorkspace.value || null;
+    sayDetails("");
+    renderDetails();
+  });
 
   function entryRow(entry, label, disabled, onClick) {
     const row = createElement("li", { className: "plugin-entry" });
@@ -340,6 +373,7 @@ export function createPluginsPage({
       detailsDialog.close();
       return;
     }
+    renderWorkspaces();
     const target = detailsTarget();
     const where = pluginTargetText(target, machineName(details.server), plugin.enabled);
     detailsTitle.textContent = plugin.name;
@@ -361,6 +395,7 @@ export function createPluginsPage({
     details.id = plugin.id;
     details.server = page.server;
     details.busy = false;
+    details.workspaceId = null;
     details.opener = document.activeElement;
     sayDetails("");
     detailsDialog.showModal();

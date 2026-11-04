@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   marketplaceDetails, marketplaceInstalled, marketplaceSummary, marketplaceUrl, timeAgo,
-  pluginLogSummary, pluginTarget, pluginTargetText,
+  pluginLogSummary, pluginTarget, pluginTargetText, pluginWorkspaces,
   parsePluginSource, pluginMachines, pluginOperationText, pluginSourceText, pluginSourceUrl, validPluginRef,
 } from "../public/app/plugin-model.js";
 import { validatePluginRef, validatePluginSource } from "../src/herdr-plugins.mjs";
@@ -116,20 +116,58 @@ test("a plugin's actions run and panes open for the pane on show when it is on t
       { pane_id: "link_1!w2:p1", workspace_id: "link_1!w2" },
     ],
   };
-  assert.deepEqual(pluginTarget(records, "w1:p1", "local"), { paneId: "w1:p1", workspace: "Platform" });
-  assert.deepEqual(pluginTarget(records, "link_1!w2:p1", "link_1"), { paneId: "link_1!w2:p1", workspace: "Laptop work" });
+  assert.deepEqual(pluginTarget(records, "w1:p1", "local"), { paneId: "w1:p1", workspace: "Platform", workspaceId: "w1", shown: true });
+  assert.deepEqual(pluginTarget(records, "link_1!w2:p1", "link_1"), { paneId: "link_1!w2:p1", workspace: "Laptop work", workspaceId: "link_1!w2", shown: true });
   assert.equal(pluginTarget(records, "w1:p1", "link_1"), null);
   assert.equal(pluginTarget(records, "link_1!w2:p1", "local"), null);
   assert.equal(pluginTarget(records, "gone", "local"), null);
   assert.equal(pluginTarget(records, null, "local"), null);
 
-  assert.deepEqual(pluginTargetText({ paneId: "w1:p1", workspace: "Platform" }, "This PC"), {
+  assert.deepEqual(pluginTargetText({ paneId: "w1:p1", workspace: "Platform", shown: true }, "This PC"), {
     actions: "Runs for the pane you have open, in Platform.",
     panes: "Opens as a new tab in Platform, beside the pane you have open.",
   });
   assert.match(pluginTargetText(null, "Laptop").actions, /Herdr's own focus is on Laptop/u);
   assert.match(pluginTargetText(null, "Laptop").panes, /^Open a pane on Laptop first/u);
   assert.match(pluginTargetText(null, "Laptop", false).actions, /is off/u);
+});
+
+test("a plugin's actions may run for another workspace of that machine, at its active pane", () => {
+  const records = {
+    workspaces: [
+      { workspace_id: "w1", label: "Platform", active_tab_id: "w1:t1" },
+      { workspace_id: "w3", label: "Docs", active_tab_id: "w3:t2" },
+      { workspace_id: "w4", label: "", active_tab_id: null },
+      { workspace_id: "w5", label: "Empty" },
+      { workspace_id: "link_1!w2", label: "Laptop work", active_tab_id: "link_1!w2:t1" },
+    ],
+    panes: [
+      { pane_id: "w1:p1", workspace_id: "w1", tab_id: "w1:t1" },
+      { pane_id: "w1:p2", workspace_id: "w1", tab_id: "w1:t1", focused: true },
+      { pane_id: "w3:p1", workspace_id: "w3", tab_id: "w3:t1", focused: true },
+      { pane_id: "w3:p2", workspace_id: "w3", tab_id: "w3:t2" },
+      { pane_id: "w3:p3", workspace_id: "w3", tab_id: "w3:t2", focused: true },
+      { pane_id: "w4:p1", workspace_id: "w4", tab_id: "w4:t1" },
+      { pane_id: "link_1!w2:p1", workspace_id: "link_1!w2", tab_id: "link_1!w2:t1" },
+    ],
+  };
+  const local = pluginWorkspaces(records, "local");
+  assert.deepEqual(local.map((item) => [item.workspaceId, item.workspace]), [["w1", "Platform"], ["w3", "Docs"], ["w4", "w4"]], "a workspace with no pane is not offered");
+  assert.deepEqual(pluginWorkspaces(records, "link_1").map((item) => item.workspaceId), ["link_1!w2"]);
+
+  // The pane on show when it is in the workspace chosen, else that workspace's active tab's focused pane.
+  assert.deepEqual(pluginTarget(records, "w1:p1", "local", "w1"), { paneId: "w1:p1", workspace: "Platform", workspaceId: "w1", shown: true });
+  assert.deepEqual(pluginTarget(records, "w1:p1", "local", "w3"), { paneId: "w3:p3", workspace: "Docs", workspaceId: "w3", shown: false });
+  assert.deepEqual(pluginTarget(records, null, "local", "w4"), { paneId: "w4:p1", workspace: "w4", workspaceId: "w4", shown: false });
+  assert.equal(pluginTarget(records, "w1:p1", "local", "link_1!w2"), null, "not a workspace of that machine");
+  assert.equal(pluginTarget(records, "w1:p1", "local", "w5"), null);
+  // Without a choice it stays the pane on show.
+  assert.equal(pluginTarget(records, "w1:p1", "local").paneId, "w1:p1");
+
+  assert.deepEqual(pluginTargetText({ paneId: "w3:p3", workspace: "Docs", shown: false }, "This PC"), {
+    actions: "Runs for the active pane of Docs.",
+    panes: "Opens as a new tab in Docs.",
+  });
 });
 
 test("a log's line names what ran, how it went and when", () => {
