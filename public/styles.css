@@ -458,6 +458,43 @@ body.sidebar-collapsed .terminal-panel {
   white-space: nowrap;
 }
 
+/* A worktree workspace's branch beside its name: quieter than the name, and
+   the first to give up room on a narrow sidebar. */
+.workspace-branch {
+  min-width: 0;
+  max-width: 55%;
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}
+
+.workspace-branch > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-branch-icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+body.sidebar-collapsed .workspace-branch {
+  display: none;
+}
+
 .workspace-action {
   width: 28px;
   min-width: 28px;
@@ -2649,6 +2686,77 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 @media (hover: none) {
   .dialog-form .agent-choice { min-height: 44px; }
+}
+
+/* Open worktree: one row per checkout of the repository, its branch over its
+   folder, chosen as an agent is (the radio covers the row). */
+.worktree-choices { display: grid; min-width: 0; margin: 0; padding: 0; border: 0; }
+
+.worktree-choices legend {
+  margin-bottom: var(--space-1-5);
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--font-sm);
+}
+
+.worktree-choice-list {
+  display: grid;
+  gap: var(--space-1-5);
+  max-height: min(320px, 50vh);
+  overflow-y: auto;
+}
+
+.dialog-form .worktree-choice {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-1-5) var(--space-2-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.dialog-form .worktree-choice input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.worktree-choice-text { display: grid; min-width: 0; flex: 1 1 auto; gap: 1px; }
+
+.worktree-choice-branch,
+.worktree-choice-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worktree-choice-branch { font-family: var(--mono); font-size: var(--font-md); font-weight: 600; }
+
+.worktree-choice-path { color: var(--muted); font-size: var(--font-xs); }
+
+.worktree-choice:has(input:checked) {
+  border-color: var(--selected-border);
+  background: var(--selected-surface);
+}
+
+.worktree-choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.worktree-choice:has(input:disabled) { opacity: 0.6; cursor: default; }
+
+@media (hover: hover) {
+  .worktree-choice:not(:has(input:checked, input:disabled)):hover { background: var(--hover-surface); }
 }
 
 /* Folder, in the New workspace and New tab dialogs: the path and Browse…, and

@@ -2,6 +2,7 @@ import { AiAccountError } from "./ai-accounts.mjs";
 import { ConversationError } from "./conversation/pages.mjs";
 import { FileAccessError } from "./file-browser.mjs";
 import { HerdrCommandError, InputValidationError } from "./herdr-client.mjs";
+import { WORKTREE_REFUSAL_CODES, WorktreeInputError } from "./herdr-worktrees.mjs";
 import { HttpError } from "./http-basics.mjs";
 import { PasskeyError } from "./passkey-auth.mjs";
 import { FolderError } from "./project-folder.mjs";
@@ -22,7 +23,7 @@ export function errorResponse(error) {
   if (error instanceof FolderError) {
     return { status: error.status, code: error.code, message: error.message };
   }
-  if (error instanceof InputValidationError) {
+  if (error instanceof InputValidationError || error instanceof WorktreeInputError) {
     return { status: 400, code: "invalid_input", message: error.message };
   }
   if (error instanceof PushValidationError) {
@@ -44,7 +45,8 @@ export function errorResponse(error) {
   if (error instanceof HerdrCommandError) {
     return {
       status: error.code === "herdr_timeout" ? 504
-        : error.code === "split_session" || error.code === "pane_split_failed" || error.code === "stale_content" || error.code === "input_not_empty" ? 409
+        : error.code === "split_session" || error.code === "pane_split_failed" || error.code === "stale_content" || error.code === "input_not_empty" ||
+          WORKTREE_REFUSAL_CODES.has(error.code) ? 409
           : error.code === "link_unsupported" ? 501 : 502,
       code: error.code,
       message: error.message,

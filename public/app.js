@@ -15,6 +15,7 @@ import { createKeyBar } from "./app/key-bar.js?v=1.4.33";
 import { createKeyBarEditor } from "./app/key-bar-editor.js?v=1.4.33";
 import { createProjectDialog } from "./app/project-dialog.js?v=1.4.33";
 import { createSessionDialog } from "./app/session-dialog.js?v=1.4.33";
+import { createWorktreeDialogs } from "./app/worktree-dialogs.js?v=1.4.33";
 import { createFiles } from "./app/files.js?v=1.4.33";
 import { createConnectPc } from "./app/connect-pc.js?v=1.4.33";
 import { createApiClient, paneApi } from "./api-client.js?v=1.4.33";
@@ -749,6 +750,9 @@ const {
   selectPane: (...args) => selectPane(...args),
   focusComposer: (...args) => focusComposer(...args),
   openNewSession: (...args) => openNewSession(...args),
+  openNewWorktree: (...args) => worktreeDialogs.openNew(...args),
+  openWorktree: (...args) => worktreeDialogs.openExisting(...args),
+  removeWorktree: (...args) => worktreeDialogs.remove(...args),
 });
 
 const { showServerDetails, showSessions, showPasskeys, forgetComposerDrafts } = createAccountDialogs({
@@ -1167,6 +1171,14 @@ const { open: openNewSession } = createSessionDialog({
   snapshotRecords: (...args) => snapshotRecords(...args),
   createSession,
   agentMark: (...args) => agentMark(...args),
+});
+const worktreeDialogs = createWorktreeDialogs({
+  state,
+  api: (...args) => api(...args),
+  adoptMutationSnapshot: (...args) => adoptMutationSnapshot(...args),
+  closeMobileSidebar: (...args) => closeMobileSidebar(...args),
+  refreshSnapshot: (...args) => refreshSnapshot(...args),
+  setFeedback: (...args) => setFeedback(...args),
 });
 
 // Only the last file link pressed is taken to. One still waiting gives way to

@@ -7,6 +7,10 @@ import { callHerdrSocket } from "./herdr-rpc.mjs";
 import { claudeInputBox, restoredDraftStep } from "./prompt/claude-input.mjs";
 import { canEvenLayout, evenLayoutStep, layoutRects, layoutSignature, layoutUnevenness } from "./even-layout.mjs";
 import { isFolder } from "./project-folder.mjs";
+import {
+  validateBaseRef, validateBranchName, validateForce, validateWorktreePath,
+  worktreeList, worktreeOpened, worktreeRemoved,
+} from "./herdr-worktrees.mjs";
 
 const execFileAsync = promisify(execFile);
 // Herdr IDs may contain letters (for example wB:p1). Require the exact end
@@ -23,6 +27,13 @@ const MAX_EVEN_STEPS = 60;
 // More projects or sessions than anyone keeps open; Herdr refuses an index
 // past its own list anyway.
 const MAX_INSERT_INDEX = 10_000;
+// A worktree create runs `git worktree add` (and a remove `git worktree
+// remove`) before Herdr answers, which takes longer than a workspace command.
+export const WORKTREE_TIMEOUT_MS = 60_000;
+// How long the branch of a worktree workspace is kept before Herdr is asked
+// again, and how long that ask may take inside a snapshot.
+const WORKTREE_BRANCH_TTL_MS = 15_000;
+const WORKTREE_BRANCH_TIMEOUT_MS = 2_000;
 
 export const ALLOWED_KEYS = Object.freeze([...TERMINAL_KEYS, "ctrl+c", "shift+tab"]);
 
@@ -476,7 +487,94 @@ export class HerdrClient {
 
   async snapshot() {
     const result = await this.#run(["api", "snapshot"]);
-    return result?.snapshot ?? result;
+    const snapshot = result?.snapshot ?? result;
+    await this.#addWorktreeBranches(snapshot);
+    return snapshot;
+  }
+
+  // Each repository's branches, by checkout folder, from `worktree list`:
+  // { at, branches: Map(path -> branch), pending }.
+  #worktreeBranches = new Map();
+
+  // Herdr's snapshot says which workspaces are Git checkouts it manages
+  // (`workspace.worktree`) but not their branch, so the branch is added from
+  // that repository's `worktree list`, kept a while and asked again in the
+  // background. A repository seen for the first time is waited on, briefly;
+  // one Herdr cannot list just has no branch.
+  async #addWorktreeBranches(snapshot) {
+    const workspaces = Array.isArray(snapshot?.workspaces) ? snapshot.workspaces : [];
+    const repos = new Map();
+    for (const workspace of workspaces) {
+      const key = workspace?.worktree?.repo_key;
+      if (typeof key !== "string" || !WORKSPACE_ID_PATTERN.test(workspace.workspace_id ?? "")) continue;
+      if (!repos.has(key)) repos.set(key, workspace.workspace_id);
+    }
+    await Promise.all([...repos].map(([key, workspaceId]) => {
+      const known = this.#worktreeBranches.get(key);
+      if (!known) return this.#loadWorktreeBranches(key, workspaceId);
+      if (!known.pending && this.now() - known.at >= WORKTREE_BRANCH_TTL_MS) void this.#loadWorktreeBranches(key, workspaceId);
+      return null;
+    }));
+    for (const workspace of workspaces) {
+      const branch = this.#worktreeBranches.get(workspace?.worktree?.repo_key)?.branches.get(workspace.worktree.checkout_path);
+      if (branch) workspace.worktree = { ...workspace.worktree, branch };
+    }
+  }
+
+  #loadWorktreeBranches(key, workspaceId) {
+    const known = this.#worktreeBranches.get(key) ?? { at: 0, branches: new Map(), pending: null };
+    known.pending = this.#run(["worktree", "list", "--workspace", workspaceId], { timeoutMs: WORKTREE_BRANCH_TIMEOUT_MS })
+      .then((result) => {
+        known.branches = new Map(worktreeList(result).worktrees.filter((item) => item.branch).map((item) => [item.path, item.branch]));
+      })
+      .catch(() => {})
+      .finally(() => {
+        known.at = this.now();
+        known.pending = null;
+      });
+    this.#worktreeBranches.set(key, known);
+    return known.pending;
+  }
+
+  // The Git checkouts of a workspace's repository (`worktree list`), primary
+  // first. Herdr refuses one whose folder is not in Git (`not_git_worktree`).
+  async listWorktrees(workspaceId) {
+    const safeWorkspaceId = validateWorkspaceId(workspaceId);
+    return worktreeList(await this.#run(["worktree", "list", "--workspace", safeWorkspaceId]));
+  }
+
+  // A new branch (or an existing local one) checked out in a new folder and
+  // opened as its own workspace, grouped with this one, without taking
+  // Herdr's focus. Herdr picks the folder; `base` is what a new branch starts
+  // from (HEAD without one); `label` names the workspace.
+  async createWorktree(workspaceId, { branch, base, label } = {}) {
+    const args = ["worktree", "create", "--workspace", validateWorkspaceId(workspaceId), "--branch", validateBranchName(branch)];
+    if (base !== undefined) args.push("--base", validateBaseRef(base));
+    if (label !== undefined) args.push("--label", validateWorkspaceLabel(label));
+    const made = worktreeOpened(await this.#run([...args, "--no-focus"], { timeoutMs: WORKTREE_TIMEOUT_MS }));
+    this.#worktreeBranches.clear();
+    return made;
+  }
+
+  // An existing checkout of the repository, by the folder Herdr listed it
+  // in, opened as a workspace (or the one it is already open in).
+  async openWorktree(workspaceId, { path, label } = {}) {
+    const args = ["worktree", "open", "--workspace", validateWorkspaceId(workspaceId), "--path", validateWorktreePath(path)];
+    if (label !== undefined) args.push("--label", validateWorkspaceLabel(label));
+    const opened = worktreeOpened(await this.#run([...args, "--no-focus"], { timeoutMs: WORKTREE_TIMEOUT_MS }));
+    this.#worktreeBranches.clear();
+    return opened;
+  }
+
+  // The checkout of a linked-worktree workspace deleted (`git worktree
+  // remove`) and the workspace closed; the branch stays. Git refuses a
+  // checkout with changes (`dirty_worktree_requires_force`) unless `force`.
+  async removeWorktree(workspaceId, { force } = {}) {
+    const safeWorkspaceId = validateWorkspaceId(workspaceId);
+    const args = ["worktree", "remove", "--workspace", safeWorkspaceId, ...(validateForce(force) ? ["--force"] : [])];
+    const removed = worktreeRemoved(await this.#run(args, { timeoutMs: WORKTREE_TIMEOUT_MS }), safeWorkspaceId);
+    this.#worktreeBranches.clear();
+    return removed;
   }
 
   async listSessions({ timeoutMs = this.timeoutMs } = {}) {

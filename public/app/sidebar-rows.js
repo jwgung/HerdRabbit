@@ -18,7 +18,7 @@ import { tiles as viewTiles } from "../view-split.js?v=1.4.33";
 // and rename, a session's row with its agent mark, the fold on server and
 // session headings, the rename form shared by projects, sessions and machines,
 // and creating (through the New session dialog) or closing sessions and
-// projects. Nothing here runs until createSidebarRows is called. The
+// projects, and a workspace's Git worktrees (public/app/worktree-dialogs.js). Nothing here runs until createSidebarRows is called. The
 // functions it calls live in app.js (or in modules made around it) and are
 // handed in as wrappers, so they may be defined after this is made;
 // `viewGrid` is made further down app.js and is read through a getter on
@@ -29,7 +29,7 @@ export function createSidebarRows(deps) {
     snapshotRecords, agentForPane, visibleStatusForPane,
     choosePane, renderNavigation, selectedRecords, renderPaneHeading, showTerminalMessage,
     refreshTerminal, refreshSnapshot, setFeedback, closeMobileSidebar, selectPane, focusComposer,
-    openNewSession,
+    openNewSession, openNewWorktree, openWorktree, removeWorktree,
   } = deps;
 
   function sidebarActionMenu({
@@ -283,6 +283,9 @@ export function createSidebarRows(deps) {
     return form;
   }
 
+  // A branch forking off a line: Git's own picture of a branch.
+  const BRANCH_ICON = ["M6 3v12", "M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M18 9a9 9 0 0 1-9 9"];
+
   function workspaceHeading(group, workspace, workspaceLabel, children) {
     const workspaceId = idOf(workspace, "workspace_id", "id");
     const collapsed = state.collapsedWorkspaceIds.has(workspaceId);
@@ -344,6 +347,32 @@ export function createSidebarRows(deps) {
       }));
     } else {
       heading.append(createElement("h3", { text: workspaceLabel }));
+      // Herdr's Git checkout of a worktree workspace (and of its repository's
+      // own workspace once grouped with one): its branch, beside the name.
+      const worktree = workspace.worktree && typeof workspace.worktree === "object" ? workspace.worktree : null;
+      const branch = typeof worktree?.branch === "string" && worktree.branch ? worktree.branch : null;
+      if (branch) {
+        const tag = createElement("span", { className: "workspace-branch" });
+        tag.title = `Branch ${branch}`;
+        tag.setAttribute("aria-label", `Branch ${branch}`);
+        tag.append(createIcon(BRANCH_ICON, "workspace-branch-icon"), createElement("span", { text: branch }));
+        heading.append(tag);
+      }
+      const target = { workspaceId, workspaceLabel, branch };
+      // New and Open start from the repository's own workspace (Herdr
+      // refuses them from a worktree); a worktree workspace removes itself.
+      const worktreeActions = worktree?.is_linked_worktree === true
+        ? [{
+          label: "Remove worktree…",
+          key: "remove-worktree",
+          paths: ["M4 7h16", "M10 11v6M14 11v6", "M6 7l1 13h10l1-13", "M9 7V4h6v3"],
+          danger: true,
+          onSelect: (button) => void removeWorktree(target, button),
+        }]
+        : [
+          { label: "New worktree…", key: "new-worktree", paths: BRANCH_ICON, onSelect: () => openNewWorktree(target) },
+          { label: "Open worktree…", key: "open-worktree", paths: ["M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"], onSelect: () => openWorktree(target) },
+        ];
       heading.append(sidebarActionMenu({
         id: `workspace-${workspaceId}`,
         label: `More actions for ${workspaceLabel}`,
@@ -369,6 +398,7 @@ export function createSidebarRows(deps) {
               serverId: workspace.server_id || "local",
             }),
           },
+          ...worktreeActions,
           {
             label: "Close workspace",
             paths: ["M6 6l12 12M18 6 6 18"],
