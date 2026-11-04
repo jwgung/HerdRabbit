@@ -1,6 +1,6 @@
-import { createElement } from "./dom.js?v=1.4.29";
-import { idOf } from "./snapshot.js?v=1.4.29";
-import { createAgentPicker } from "./agent-picker.js?v=1.4.29";
+import { createElement } from "./dom.js?v=1.4.30";
+import { idOf } from "./snapshot.js?v=1.4.30";
+import { createAgentPicker } from "./agent-picker.js?v=1.4.30";
 
 // The "New workspace" dialog: a machine's ⋯ menu opens it for that machine. The
 // form creates the workspace in one of the machine's running sessions
