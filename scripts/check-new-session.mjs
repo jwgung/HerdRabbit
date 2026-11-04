@@ -7,16 +7,16 @@
 // so in the dialog. Choosing an agent with earlier conversations in the workspace's
 // folder offers them, and while one is chosen the Folder row is hidden. The
 // Folder row opens with the workspace's folder (~ for this machine's home);
-// Browse… lists that machine's folders to go into, up from, and use, and the
-// folder chosen is the one the tab opens in, on this machine or a connected
-// PC. A folder that is not there is refused in the dialog. There is no + at
+// Browse… opens the Files tab's tree for that machine in folders only (no
+// file, no broken link) to go into, up from with ↑, and use, and the folder
+// chosen is the one the tab opens in, on this machine or a connected PC. A folder that is not there is refused in the dialog. There is no + at
 // the top of the sidebar. Runs on a desktop and a phone against an in-process
 // fake herdr, with a home folder of its own.
 //
 // NEW_SESSION_SHOTS=<folder> keeps pictures of the menu and the dialog.
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
@@ -25,6 +25,9 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright")
 // This machine's home for the check: Platform works in ~/alpha.
 const home = await mkdtemp(join(tmpdir(), "herdrabbit-new-session-"));
 for (const folder of ["alpha/src", "beta/inner"]) await mkdir(join(home, folder), { recursive: true });
+// Beside the folders, a file and a link to nothing: neither is a folder to offer.
+await writeFile(join(home, "notes.txt"), "notes\n");
+await symlink(join(home, "gone"), join(home, "dead"));
 const ALPHA = join(home, "alpha");
 
 const workspaces = [
@@ -243,43 +246,47 @@ try {
     await dialog.waitFor({ state: "hidden" });
 
     // The Folder row opens with the workspace's folder, shown from ~; Browse…
-    // goes up, into a folder, and uses it, and the tab opens there.
+    // opens the Files tree there in folders only, goes up, into a folder, and
+    // uses it, and the tab opens there.
     const folderInput = dialog.locator("#session-folder");
     const picker = dialog.locator("#session-folder-picker");
-    const pickerPath = () => picker.locator(".folder-picker-path").textContent();
-    const listed = () => picker.locator(".folder-picker-item").allTextContents();
+    const pathIs = (wanted) => page.waitForFunction((text) =>
+      document.querySelector("#session-folder-picker .file-path")?.value === text, wanted);
+    const listed = () => picker.locator(".browse-row .transfer-name").allTextContents();
+    const into = (name) => picker.locator(".browse-row", { has: page.locator(".transfer-name", { hasText: new RegExp(`^${name}$`, "u") }) }).click();
     await (await openDialog("Platform")).item.click();
     await dialog.waitFor({ state: "visible" });
     await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
     await page.waitForFunction(() => document.querySelector("#session-folder").value === "~/alpha");
     await dialog.locator("#session-folder-field .folder-browse").click();
     await picker.waitFor({ state: "visible" });
-    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "~/alpha");
+    await pathIs(ALPHA);
     assert.deepEqual(await listed(), ["src"], `${where}: ~/alpha's folders are not listed`);
     if (mobile) {
-      for (const selector of [".folder-picker-item", ".folder-up", ".folder-choose"]) {
+      for (const selector of [".browse-row", ".file-up", ".folder-choose"]) {
         const height = await picker.locator(selector).first().evaluate((element) =>
           Math.max(element.getBoundingClientRect().height, parseFloat(getComputedStyle(element, "::before").height) || 0));
         assert.ok(height >= 44, `${where}: ${selector} is under 44px tall (${height})`);
       }
     }
     if (shots) await page.screenshot({ path: join(shots, `folder-picker-${where}.png`) });
-    await picker.locator(".folder-up").click();
-    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "~");
-    assert.deepEqual(await listed(), ["alpha", "beta"], `${where}: the home folder's folders are not listed`);
-    await picker.locator(".folder-picker-item", { hasText: "beta" }).click();
-    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "~/beta");
-    // Escape closes the list, and the dialog stays.
+    await picker.locator(".file-up").click();
+    await pathIs(home);
+    // notes.txt is a file and dead a link to nothing: only folders are offered.
+    assert.deepEqual(await listed(), ["alpha", "beta"], `${where}: the home folder's folders are not listed, or more than its folders are`);
+    await into("beta");
+    await pathIs(join(home, "beta"));
+    // Escape closes the picker, and the dialog stays.
     await page.keyboard.press("Escape");
     await picker.waitFor({ state: "hidden" });
-    assert.ok(await dialog.isVisible(), `${where}: Escape in the folder list closed the dialog`);
-    assert.equal(await folderInput.inputValue(), "~/alpha", `${where}: closing the list changed the folder`);
+    assert.ok(await dialog.isVisible(), `${where}: Escape in the folder picker closed the dialog`);
+    assert.equal(await folderInput.inputValue(), "~/alpha", `${where}: closing the picker changed the folder`);
     await dialog.locator("#session-folder-field .folder-browse").click();
-    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "~/alpha");
-    await picker.locator(".folder-up").click();
-    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "~");
-    await picker.locator(".folder-picker-item", { hasText: "beta" }).click();
-    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "~/beta");
+    await pathIs(ALPHA);
+    await picker.locator(".file-up").click();
+    await pathIs(home);
+    await into("beta");
+    await pathIs(join(home, "beta"));
     await picker.locator(".folder-choose").click();
     await picker.waitFor({ state: "hidden" });
     assert.equal(await folderInput.inputValue(), "~/beta", `${where}: Use this folder did not fill the folder`);
@@ -307,11 +314,13 @@ try {
     await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
     assert.equal(await folderInput.inputValue(), "/work/bench", `${where}: Bench's folder is not the one offered`);
     await dialog.locator("#session-folder-field .folder-browse").click();
-    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "/work/bench");
+    await pathIs("/work/bench");
     assert.deepEqual(await listed(), ["api", "web"], `${where}: the PC's folders are not its own`);
-    await picker.locator(".folder-picker-item", { hasText: "api" }).click();
-    await page.waitForFunction(() => document.querySelector("#session-folder-picker .folder-picker-path").textContent === "/work/bench/api");
+    await into("api");
+    await pathIs("/work/bench/api");
     await picker.locator(".folder-choose").click();
+    await picker.waitFor({ state: "hidden" });
+    assert.equal(await folderInput.inputValue(), "/work/bench/api", `${where}: Use this folder did not fill the PC's folder`);
     calls = [];
     await dialog.locator('button[type="submit"]').click();
     await dialog.waitFor({ state: "hidden" });

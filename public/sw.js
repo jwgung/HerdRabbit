@@ -60,6 +60,7 @@ const APP_SHELL = [
   "/app/session-dialog.js?v=1.4.32",
   "/app/agent-picker.js?v=1.4.32",
   "/app/folder-field.js?v=1.4.32",
+  "/app/folder-tree.js?v=1.4.32",
   "/app/key-bar-editor.js?v=1.4.32",
   "/app/account-dialogs.js?v=1.4.32",
   "/app/ai-accounts.js?v=1.4.32",

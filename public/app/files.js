@@ -1,11 +1,7 @@
 import {
-  browseDiffSummary,
-  diffBrowseListing,
-  flattenTree,
   formatTransferSize,
   insertPathAtSelection,
   paneServerId,
-  parentDirectory,
   sortUploads,
   uploadSummary,
 } from "../ui-model.js?v=1.4.32";
@@ -20,11 +16,12 @@ import {
   writeNavigatorWidth,
 } from "../browse-preference.js?v=1.4.32";
 import { createSpeechButton, speechSupported } from "../speech-recognition.js?v=1.4.32";
-import { array, createElement, createIcon } from "./dom.js?v=1.4.32";
+import { array, createElement } from "./dom.js?v=1.4.32";
+import { browseUrl, createFolderTree, isOpenableFolder } from "./folder-tree.js?v=1.4.32";
 
 // Files in and out of a machine: uploads, downloads and the uploads dialog,
-// the file viewer, voice input, the Files tab's tree and the path completion
-// under it. Called once, where this code used to run in app.js: it registers
+// the file viewer, voice input, and the Files tab around its tree
+// (folder-tree.js). Called once, where this code used to run in app.js: it registers
 // its listeners and its refresh timer then, in the same order as before.
 // `revealState.generation` is the page's count of file-link presses, which
 // app.js also moves on when a link is pressed.
@@ -600,9 +597,6 @@ export function createFiles({
     setTransferFeedback("");
   });
 
-  // Only folders that were opened have been fetched, so the tree keeps a listing
-  // per visited path rather than one nested structure.
-
   const browseState = {
     // null means "follow the session being viewed", which is where an upload
     // used to go. Picking a machine in the Files tab pins it for both browsing
@@ -610,473 +604,68 @@ export function createFiles({
     pinnedServer: null,
     get server() { return this.pinnedServer ?? sessionServerId(); },
     set server(value) { this.pinnedServer = value; },
-    root: null,
     uploads: null,
-    loaded: new Map(),
-    expanded: new Set(),
-    selected: null,
-    busy: false,
-    addedPaths: new Set(),
-    clearDiffTimer: null,
+    // The folder on show, and whether a load is under way: the tree's.
+    get root() { return fileTree.root; },
+    get busy() { return fileTree.busy; },
   };
 
-  const FOLDER_ICON = ["M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"];
-  const FILE_ICON = ["M7 3h7l5 5v13H7z", "M14 3v5h5"];
-  const IMAGE_ICON = ["M4 5h16v14H4z", "M4 16l5-5 4 4 3-3 4 4", "M9 9.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0"];
-  const CODE_ICON = ["M9 8l-4 4 4 4", "M15 8l4 4-4 4"];
-  const DATA_ICON = ["M12 6c4 0 7-.9 7-2v12c0 1.1-3 2-7 2s-7-.9-7-2V4c0 1.1 3 2 7 2Z", "M5 4c0 1.1 3 2 7 2s7-.9 7-2"];
-  const ARCHIVE_ICON = ["M4 7h16v13H4z", "M4 7l2-3h12l2 3", "M12 11v3"];
-
-  const ICONS_BY_EXTENSION = new Map(Object.entries({
-    png: IMAGE_ICON, jpg: IMAGE_ICON, jpeg: IMAGE_ICON, gif: IMAGE_ICON,
-    webp: IMAGE_ICON, svg: IMAGE_ICON, avif: IMAGE_ICON, bmp: IMAGE_ICON, ico: IMAGE_ICON,
-    js: CODE_ICON, mjs: CODE_ICON, cjs: CODE_ICON, ts: CODE_ICON, tsx: CODE_ICON,
-    jsx: CODE_ICON, py: CODE_ICON, rb: CODE_ICON, go: CODE_ICON, rs: CODE_ICON,
-    java: CODE_ICON, c: CODE_ICON, h: CODE_ICON, cpp: CODE_ICON, sh: CODE_ICON,
-    css: CODE_ICON, html: CODE_ICON, vue: CODE_ICON, php: CODE_ICON, sql: CODE_ICON,
-    json: DATA_ICON, yaml: DATA_ICON, yml: DATA_ICON, toml: DATA_ICON,
-    csv: DATA_ICON, xml: DATA_ICON, db: DATA_ICON, sqlite: DATA_ICON,
-    zip: ARCHIVE_ICON, gz: ARCHIVE_ICON, tar: ARCHIVE_ICON, tgz: ARCHIVE_ICON,
-    bz2: ARCHIVE_ICON, xz: ARCHIVE_ICON, rar: ARCHIVE_ICON, "7z": ARCHIVE_ICON,
-  }));
-
-  function entryIcon(entry) {
-    if (entry.kind === "directory") return FOLDER_ICON;
-    const dot = entry.name.lastIndexOf(".");
-    const extension = dot > 0 ? entry.name.slice(dot + 1).toLowerCase() : "";
-    return ICONS_BY_EXTENSION.get(extension) || FILE_ICON;
+  function syncUploadsButton() {
+    elements.fileUploads.disabled = !browseState.uploads || fileTree.root === browseState.uploads;
   }
 
-  function browseActionButton({ label, paths, danger = false, run }) {
-    const button = createElement("button", {
-      className: `secondary-button ${danger ? "is-danger" : ""}`.trim(),
-    });
-    button.type = "button";
-    button.setAttribute("aria-label", label);
-    button.title = label;
-    button.append(createIcon(paths));
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      run();
-    });
-    return button;
-  }
+  // The Files tab's tree, in the panel; what it adds for the sidebar is the
+  // file buttons, the reveal hand-off and the last folder per machine.
+  const fileTree = createFolderTree(elements.filePanel, {
+    request: (url) => transferRequest(url).then((response) => response.json()),
+    server: () => browseState.server,
+    fileActions: (entry) => [
+      // Reading a log or checking a screenshot is most of what a file in this
+      // tree is opened for, and downloading it to a phone to do that is a detour.
+      ...(canView(entry.name, entry.size) ? [{
+        label: `View ${entry.name}`,
+        paths: ["M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z", "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"],
+        run: () => void viewFile(entry.path, entry.name, browseState.server, entry.size),
+      }] : []),
+      {
+        label: `Download ${entry.name}`,
+        paths: ["M12 4v11m-4-4 4 4 4-4", "M5 20h14"],
+        run: () => void downloadPath(entry.path, entry.name),
+      },
+    ],
+    // A folder picked by hand: a file link still waiting gives way to it.
+    onNavigate: () => { revealState.generation += 1; },
+    onShown: (listing) => {
+      writeBrowsePath(browsePathStorage, listing.path, browseState.server);
+      syncUploadsButton();
+    },
+  });
 
-  // A folder the tree can open into: not a broken link, and not one of the
-  // sign-in folders the server lists by name only.
-  function isOpenableFolder(entry) {
-    return entry.kind === "directory" && !entry.broken && entry.locked !== true;
-  }
-
-  // The server marks a locked entry readable: false too, so the file actions
-  // need no separate locked test.
-  function browseRow({ entry, depth, expanded }) {
-    // Sign-in keys and HerdRabbit's own settings are listed by name only: the
-    // server never opens them, so neither does the tree.
-    const locked = entry.locked === true;
-    const row = createElement("div", { className: "transfer-row browse-row" });
-    if (locked) row.classList.add("is-locked");
-    row.tabIndex = -1;
-    row.style.setProperty("--depth", String(depth));
-    row.dataset.path = entry.path;
-    if (browseState.addedPaths?.has(entry.path)) {
-      row.classList.add("is-added");
-    } else if (entry.removed) {
-      row.classList.add("is-removed");
-    }
-
-    const lead = createElement("div", { className: "browse-lead" });
-    // One guide per level, drawn in the DOM so the lines line up with the rows
-    // above and below rather than being faked with padding.
-    for (let level = 0; level < depth; level += 1) {
-      lead.append(createElement("span", { className: "browse-indent" }));
-    }
-    if (isOpenableFolder(entry) && !entry.removed) {
-      const twisty = createElement("button", { className: "browse-twisty" });
-      twisty.type = "button";
-      twisty.dataset.name = entry.name;
-      setBrowseTwisty(twisty, expanded);
-      twisty.append(createIcon(["M9 6l6 6-6 6"]));
-      twisty.addEventListener("click", (event) => {
-        // The row toggles too, so without this the chevron would fire twice and
-        // land back where it started.
-        event.stopPropagation();
-        void toggleBrowseFolder(entry.path);
-      });
-      lead.append(twisty);
-    } else {
-      lead.append(createElement("span", { className: "browse-twisty-gap" }));
-    }
-
-    lead.append(createIcon(entryIcon(entry), "browse-icon"));
-
-    // One line per entry: the name carries the row, the size sits at the end, and
-    // the full timestamp waits in the tooltip rather than wrapping the row.
-    const copy = createElement("div", { className: "transfer-copy" });
-    const name = createElement("div", { className: "transfer-name", text: entry.name });
-    if (entry.symlink) name.append(createElement("span", { className: "transfer-tag", text: "link" }));
-    copy.append(name);
-    lead.append(copy);
-    if (entry.removed) {
-      row.title = `${entry.name} (removed)`;
-    } else if (locked) {
-      row.title = `${entry.name}\nHerdRabbit does not open sign-in keys or its own settings.`;
-    } else if (entry.modifiedAt) {
-      const size = entry.kind === "directory" ? "" : `${formatTransferSize(entry.size ?? 0)} · `;
-      row.title = `${entry.name}\n${size}${new Date(entry.modifiedAt).toLocaleString()}`;
-    }
-
-    if (entry.broken) {
-      lead.append(createElement("span", { className: "transfer-meta", text: "broken" }));
-    } else if (locked) {
-      lead.append(createElement("span", { className: "transfer-meta", text: "locked" }));
-    }
-
-    const actions = createElement("div", { className: "transfer-row-actions" });
-    if (!entry.removed) {
-      // Expanding shows a folder in place; this re-roots the tree there, so a deep
-      // path stops costing a column of indentation.
-      if (isOpenableFolder(entry)) {
-        actions.append(browseActionButton({
-          label: `Open ${entry.name} as the root`,
-          paths: ["M4 12h13", "M13 7l5 5-5 5", "M20 5v14"],
-          run: () => void loadBrowseFolder(entry.path),
-        }));
-      }
-      if (entry.kind === "file" && entry.readable !== false) {
-        // Reading a log or checking a screenshot is most of what a file in this
-        // tree is opened for, and downloading it to a phone to do that is a detour.
-        if (canView(entry.name, entry.size)) {
-          actions.append(browseActionButton({
-            label: `View ${entry.name}`,
-            paths: ["M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z", "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"],
-            run: () => void viewFile(entry.path, entry.name, browseState.server, entry.size),
-          }));
-        }
-        actions.append(browseActionButton({
-          label: `Download ${entry.name}`,
-          paths: ["M12 4v11m-4-4 4 4 4-4", "M5 20h14"],
-          run: () => void downloadPath(entry.path, entry.name),
-        }));
-      }
-
-      // Clicking the row selects it, and clicking a folder opens it -- the way an
-      // editor sidebar behaves, rather than making people hit the small chevron.
-      row.dataset.selected = String(browseState.selected === entry.path);
-      row.addEventListener("click", () => {
-        browseState.selected = entry.path;
-        for (const other of elements.browseTree.querySelectorAll(".browse-row")) {
-          other.dataset.selected = "false";
-        }
-        row.dataset.selected = "true";
-        if (isOpenableFolder(entry)) void toggleBrowseFolder(entry.path);
-      });
-    }
-
-    row.append(lead, actions);
-    return row;
-  }
-
-  // Folds as long as a project does in Sessions, which is what the CSS animates.
-  const BROWSE_FOLD_MS = 180;
-
-  function setBrowseTwisty(twisty, expanded) {
-    twisty.setAttribute("aria-expanded", String(expanded));
-    twisty.setAttribute("aria-label", `${expanded ? "Collapse" : "Expand"} ${twisty.dataset.name}`);
-  }
-
-  // An open folder's rows sit in their own wrapper, right after the folder's row,
-  // so a folder opens and closes on its own -- sliding, as a project does --
-  // instead of the whole tree being drawn again.
-  function browseChildren() {
-    const children = createElement("div", { className: "browse-children" });
-    const inner = createElement("div", { className: "browse-children-inner" });
-    children.append(inner);
-    return { children, inner };
-  }
-
-  function appendBrowseRows(container, rows) {
-    const open = [{ depth: -1, container }];
-    for (const row of rows) {
-      while (open.at(-1).depth >= row.depth) open.pop();
-      const parent = open.at(-1).container;
-      parent.append(browseRow(row));
-      if (row.expanded && row.entry.kind === "directory") {
-        const { children, inner } = browseChildren();
-        parent.append(children);
-        open.push({ depth: row.depth, container: inner });
-      }
-    }
-  }
-
-  function browseRowElement(path) {
-    return [...elements.browseTree.querySelectorAll(".browse-row")].find((row) => row.dataset.path === path) || null;
-  }
-
-  function renderBrowseTree() {
-    if (document.activeElement !== elements.filePath) {
-      elements.filePath.value = browseState.root || "";
-    }
-    elements.fileUp.disabled = !parentDirectory(browseState.root);
-    elements.fileUploads.disabled = !browseState.uploads || browseState.root === browseState.uploads;
-
-    const rows = flattenTree(browseState.root, browseState.loaded, browseState.expanded);
-
-    elements.browseTree.replaceChildren();
-    if (rows.length === 0) {
-      elements.browseTree.append(createElement("p", {
-        className: "transfer-empty",
-        text: "This folder is empty.",
-      }));
-      return;
-    }
-    appendBrowseRows(elements.browseTree, rows);
-  }
-
+  // The Files tab's request, for any machine: the composer's `@` files use it too.
   async function fetchListing(target, { prefix = "", server = browseState.server } = {}) {
-    const parts = [`server=${encodeURIComponent(server)}`];
-    // A remote listing with no path starts at that server's home.
-    if (target) parts.push(`path=${encodeURIComponent(target)}`);
-    if (prefix !== "") parts.push(`prefix=${encodeURIComponent(prefix)}`);
-    return transferRequest(`/api/browse?${parts.join("&")}`).then((response) => response.json());
-  }
-
-  async function toggleBrowseFolder(path) {
-    if (browseState.expanded.has(path)) {
-      browseState.expanded.delete(path);
-      const row = browseRowElement(path);
-      const children = row?.nextElementSibling?.classList.contains("browse-children") ? row.nextElementSibling : null;
-      if (!children) {
-        renderBrowseTree();
-        return;
-      }
-      setBrowseTwisty(row.querySelector(".browse-twisty"), false);
-      children.inert = true;
-      children.classList.add("is-collapsed");
-      // Dropped once folded, unless the folder was opened again meanwhile.
-      window.setTimeout(() => {
-        if (children.classList.contains("is-collapsed")) children.remove();
-      }, BROWSE_FOLD_MS);
-      return;
-    }
-    if (!browseState.loaded.has(path)) {
-      setBrowseFeedback("Loading…");
-      try {
-        const listing = await fetchListing(path);
-        browseState.loaded.set(listing.path, listing);
-        setBrowseFeedback(listing.truncated ? `Showing the first ${listing.entries.length} of ${listing.total}.` : "");
-      } catch (error) {
-        setBrowseFeedback(error.message, true);
-        return;
-      }
-    }
-    browseState.expanded.add(path);
-    // Looked up after the listing arrives: the tree may have been drawn again
-    // while it loaded.
-    const row = browseRowElement(path);
-    if (!row) {
-      renderBrowseTree();
-      return;
-    }
-    setBrowseTwisty(row.querySelector(".browse-twisty"), true);
-    const folding = row.nextElementSibling?.classList.contains("browse-children") ? row.nextElementSibling : null;
-    const { children, inner } = folding ? { children: folding, inner: folding.firstElementChild } : browseChildren();
-    if (!folding) {
-      children.classList.add("is-collapsed");
-      const depth = Number(row.style.getPropertyValue("--depth")) + 1;
-      appendBrowseRows(inner, flattenTree(path, browseState.loaded, browseState.expanded, depth));
-      row.after(children);
-      // Laid out folded first, so opening is a change the transition can run.
-      children.getBoundingClientRect();
-    }
-    children.inert = false;
-    children.classList.remove("is-collapsed");
+    return transferRequest(browseUrl(server, target, prefix)).then((response) => response.json());
   }
 
   // Says whether the folder is now the one on show.
-  async function loadBrowseFolder(target, { refresh = false, reveal = false } = {}) {
+  function loadBrowseFolder(target, { reveal = false } = {}) {
     if (!reveal) revealState.generation += 1;
-    if (browseState.busy) return false;
-    browseState.busy = true;
-    window.clearTimeout(browseState.clearDiffTimer);
-    browseState.clearDiffTimer = null;
-    browseState.addedPaths.clear();
-    setBrowseFeedback("Loading…");
-    try {
-      const listing = await fetchListing(target);
-      if (!refresh) browseState.expanded.clear();
-      browseState.loaded.clear();
-      browseState.loaded.set(listing.path, listing);
-      browseState.root = listing.path;
-      writeBrowsePath(browsePathStorage, listing.path, browseState.server);
-      renderBrowseTree();
-      setBrowseFeedback(listing.truncated ? `Showing the first ${listing.entries.length} of ${listing.total}.` : "");
-      return true;
-    } catch (error) {
-      setBrowseFeedback(error.message, true);
-      return false;
-    } finally {
-      browseState.busy = false;
-    }
+    return fileTree.open(target);
   }
 
   const BROWSE_AUTO_REFRESH_MS = 1_500;
-  const BROWSE_DIFF_CLEAR_MS = 4_000;
-
-  async function checkBrowseChanges(targets) {
-    const targetEtags = {};
-    for (const path of targets) {
-      const listing = browseState.loaded.get(path);
-      if (listing?.etag) targetEtags[path] = listing.etag;
-    }
-    if (Object.keys(targetEtags).length !== targets.length) {
-      return targets;
-    }
-    const parts = [`server=${encodeURIComponent(browseState.server)}`];
-    parts.push(`targets=${encodeURIComponent(JSON.stringify(targetEtags))}`);
-    const result = await transferRequest(`/api/browse/check?${parts.join("&")}`)
-      .then((r) => r.json())
-      .catch(() => ({ changed: targets }));
-    return Array.isArray(result?.changed) ? result.changed : targets;
-  }
 
   async function refreshBrowseFolder({ silent = false } = {}) {
-    if (browseState.busy || !browseState.root) return;
-    browseState.busy = true;
-    if (!silent) elements.fileRefresh?.classList.add("is-busy");
-
+    if (silent || fileTree.busy || !fileTree.root) {
+      await fileTree.refresh({ silent });
+      return;
+    }
+    elements.fileRefresh?.classList.add("is-busy");
     try {
-      const targets = [
-        browseState.root,
-        ...[...browseState.expanded].filter((path) => browseState.loaded.has(path) && path !== browseState.root),
-      ];
-
-      let pathsToFetch = targets;
-
-      if (silent) {
-        const changed = await checkBrowseChanges(targets);
-        if (changed.length === 0) {
-          return;
-        }
-        pathsToFetch = targets.filter((path) => changed.includes(path));
-      }
-
-      const results = await Promise.allSettled(pathsToFetch.map((path) => fetchListing(path)));
-
-      let totalAdded = 0;
-      let totalRemoved = 0;
-      let anyChanged = false;
-
-      for (let i = 0; i < pathsToFetch.length; i += 1) {
-        const targetPath = pathsToFetch[i];
-        const result = results[i];
-
-        if (result.status !== "fulfilled") {
-          if (targetPath !== browseState.root) {
-            browseState.expanded.delete(targetPath);
-            browseState.loaded.delete(targetPath);
-            anyChanged = true;
-          }
-          continue;
-        }
-
-        const newListing = result.value;
-        const oldListing = browseState.loaded.get(targetPath);
-
-        const { listing: diffedListing, added, removed } = diffBrowseListing(oldListing, newListing);
-
-        for (const entry of added) {
-          browseState.addedPaths.add(entry.path);
-          totalAdded += 1;
-          anyChanged = true;
-        }
-
-        for (const entry of removed) {
-          browseState.addedPaths.delete(entry.path);
-          if (browseState.selected === entry.path) browseState.selected = null;
-          totalRemoved += 1;
-          anyChanged = true;
-        }
-
-        const newPaths = new Set((newListing.entries || []).map((entry) => entry.path));
-        for (const path of browseState.addedPaths) {
-          if (parentDirectory(path) === targetPath && !newPaths.has(path)) {
-            browseState.addedPaths.delete(path);
-          }
-        }
-
-        if (
-          !oldListing ||
-          diffedListing.entries.length !== oldListing.entries.length ||
-          diffedListing.entries.some((entry, idx) => {
-            const old = oldListing.entries[idx];
-            return (
-              !old ||
-              old.path !== entry.path ||
-              Boolean(old.removed) !== Boolean(entry.removed) ||
-              old.size !== entry.size ||
-              old.modifiedAt !== entry.modifiedAt
-            );
-          })
-        ) {
-          anyChanged = true;
-        }
-
-        browseState.loaded.set(targetPath, diffedListing);
-      }
-
-      if (anyChanged) {
-        renderBrowseTree();
-      }
-
-      const summary = browseDiffSummary(totalAdded, totalRemoved);
-
-      if (summary) {
-        setBrowseFeedback(summary);
-        window.clearTimeout(browseState.clearDiffTimer);
-        browseState.clearDiffTimer = window.setTimeout(() => {
-          browseState.clearDiffTimer = null;
-          browseState.addedPaths.clear();
-          for (const [path, listing] of browseState.loaded.entries()) {
-            const cleaned = listing.entries.filter((entry) => !entry.removed);
-            if (cleaned.length !== listing.entries.length) {
-              browseState.loaded.set(path, { ...listing, entries: cleaned });
-            }
-          }
-          renderBrowseTree();
-          const rootListing = browseState.loaded.get(browseState.root);
-          setBrowseFeedback(
-            rootListing?.truncated ? `Showing the first ${rootListing.entries.length} of ${rootListing.total}.` : ""
-          );
-        }, BROWSE_DIFF_CLEAR_MS);
-      } else if (!silent) {
-        if (browseState.addedPaths.size > 0 || [...browseState.loaded.values()].some((l) => l.entries.some((e) => e.removed))) {
-          browseState.addedPaths.clear();
-          for (const [path, listing] of browseState.loaded.entries()) {
-            const cleaned = listing.entries.filter((entry) => !entry.removed);
-            if (cleaned.length !== listing.entries.length) {
-              browseState.loaded.set(path, { ...listing, entries: cleaned });
-            }
-          }
-          renderBrowseTree();
-        }
-        const rootListing = browseState.loaded.get(browseState.root);
-        setBrowseFeedback(
-          rootListing?.truncated
-            ? `Showing the first ${rootListing.entries.length} of ${rootListing.total}.`
-            : "Folder is up to date."
-        );
-      }
-    } catch (error) {
-      if (!silent) {
-        setBrowseFeedback(error.message, true);
-      }
+      await fileTree.refresh({ silent });
     } finally {
-      browseState.busy = false;
       elements.fileRefresh?.classList.remove("is-busy");
     }
   }
-
 
   const browsePathStorage = (() => {
     try {
@@ -1093,6 +682,7 @@ export function createFiles({
       .then((response) => response.json())
       .catch(() => ({ directory: null }));
     browseState.uploads = directory || null;
+    syncUploadsButton();
     return browseState.uploads;
   }
 
@@ -1149,13 +739,7 @@ export function createFiles({
     writeFileServer(browsePathStorage, browseState.server);
     syncAttachAvailability();
     browseState.uploads = null;
-    browseState.root = null;
-    window.clearTimeout(browseState.clearDiffTimer);
-    browseState.clearDiffTimer = null;
-    browseState.addedPaths.clear();
-    browseState.loaded.clear();
-    browseState.expanded.clear();
-    completion.entries = [];
+    fileTree.clear();
     return loadBrowseFolder(target ?? (readBrowsePath(browsePathStorage, browseState.server) || ""), { reveal });
   }
 
@@ -1219,31 +803,18 @@ export function createFiles({
     if (outcome === REVEAL_FAILED) return;
     await ensureUploadsPath();
     if (generation !== revealState.generation) return;
-    const listing = browseState.loaded.get(browseState.root);
-    let entry = listing?.entries.find((item) => item.name === name);
-    // A folder listed only in part may hold it past the cut: ask for it by name,
-    // and add it to the rows already shown.
-    if (!entry && listing?.truncated) {
-      try {
-        entry = (await fetchListing(browseState.root, { prefix: name })).entries.find((item) => item.name === name);
-      } catch { /* the note below still says it could not be found */ }
-      if (generation !== revealState.generation) return;
-      if (entry) listing.entries.push(entry);
-    }
+    const entry = await fileTree.locate(name);
+    if (generation !== revealState.generation) return;
     if (!entry) {
       setBrowseFeedback(`${name} is not in this folder.`);
       return;
     }
     if (isOpenableFolder(entry)) {
-      browseState.selected = null;
+      fileTree.select(null);
       await open(entry.path, false);
       return;
     }
-    browseState.selected = entry.path;
-    renderBrowseTree();
-    const row = browseRowElement(entry.path);
-    row?.scrollIntoView({ block: "center" });
-    row?.focus({ preventScroll: true });
+    fileTree.select(entry.path);
   }
 
   // The collapsed rail is for moving between sessions, so it shows the session
@@ -1321,11 +892,6 @@ export function createFiles({
     else void openFilePanel();
   });
 
-  elements.fileUp.addEventListener("click", () => {
-    const parent = parentDirectory(browseState.root);
-    if (parent) void loadBrowseFolder(parent);
-  });
-
   // The uploads folder gets its own dialog rather than sending the tree there:
   // it is a short list you act on, not somewhere to browse.
   elements.fileUploads.addEventListener("click", () => openUploadsDialog());
@@ -1348,106 +914,6 @@ export function createFiles({
       void refreshBrowseFolder({ silent: true });
     }
   });
-
-  const completion = { entries: [], active: -1, timer: null };
-
-  function hideSuggestions() {
-    // Cancel the pending lookup too, or it reopens the list a moment later.
-    window.clearTimeout(completion.timer);
-    completion.active = -1;
-    elements.fileSuggestions.hidden = true;
-    elements.fileSuggestions.replaceChildren();
-    elements.filePath.setAttribute("aria-expanded", "false");
-  }
-
-  function applySuggestion(value) {
-    elements.filePath.value = value;
-    hideSuggestions();
-    void loadBrowseFolder(value);
-  }
-
-  function renderSuggestions(matches) {
-    elements.fileSuggestions.replaceChildren();
-    if (matches.length === 0) {
-      hideSuggestions();
-      return;
-    }
-    matches.forEach((entry, index) => {
-      const item = createElement("li", { className: "file-suggestion" });
-      item.setAttribute("role", "option");
-      item.setAttribute("aria-selected", String(index === completion.active));
-      item.append(createElement("span", { text: entry.name }));
-      item.addEventListener("mousedown", (event) => {
-        // mousedown beats the input losing focus and closing the list first.
-        event.preventDefault();
-        applySuggestion(entry.path);
-      });
-      elements.fileSuggestions.append(item);
-    });
-    elements.fileSuggestions.hidden = false;
-    elements.filePath.setAttribute("aria-expanded", "true");
-  }
-
-  async function updateCompletion() {
-    const typed = elements.filePath.value;
-    if (!typed.startsWith("/")) {
-      hideSuggestions();
-      return;
-    }
-    const cut = typed.lastIndexOf("/");
-    const folder = cut === 0 ? "/" : typed.slice(0, cut);
-    const prefix = typed.slice(cut + 1).toLowerCase();
-
-    // The server does the prefix match: a folder like /tmp can hold thousands of
-    // entries, and filtering here would only see whatever survived the limit.
-    try {
-      const listing = await fetchListing(folder, { prefix });
-      // Typing moves on while the request is in flight; a reply the caret has
-      // already left behind would otherwise replace the newer list.
-      if (elements.filePath.value !== typed) return;
-      completion.entries = listing.entries.filter((entry) => entry.kind === "directory");
-    } catch {
-      if (elements.filePath.value !== typed) return;
-      completion.entries = [];
-    }
-    completion.active = -1;
-    renderSuggestions(completion.entries.slice(0, 12));
-  }
-
-  elements.filePath.addEventListener("input", () => {
-    // A short wait keeps a fast typist from firing one listing per keystroke.
-    window.clearTimeout(completion.timer);
-    completion.timer = window.setTimeout(() => void updateCompletion(), 150);
-  });
-
-  elements.filePath.addEventListener("keydown", (event) => {
-    const items = [...elements.fileSuggestions.children];
-    if (event.key === "Escape" && !elements.fileSuggestions.hidden) {
-      event.preventDefault();
-      hideSuggestions();
-      return;
-    }
-    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && items.length > 0) {
-      event.preventDefault();
-      const step = event.key === "ArrowDown" ? 1 : -1;
-      completion.active = (completion.active + step + items.length) % items.length;
-      items.forEach((item, index) => item.setAttribute("aria-selected", String(index === completion.active)));
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      const chosen = items[completion.active];
-      if (chosen) {
-        const match = completion.entries.find((entry) => entry.name === chosen.textContent);
-        applySuggestion(match ? match.path : elements.filePath.value);
-        return;
-      }
-      hideSuggestions();
-      void loadBrowseFolder(elements.filePath.value);
-    }
-  });
-
-  elements.filePath.addEventListener("blur", () => window.setTimeout(hideSuggestions, 120));
 
   return {
     applyNavigatorPanels,

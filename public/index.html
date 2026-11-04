@@ -60,9 +60,9 @@
               </select>
             </div>
             <div id="file-tree" class="browse-tree"></div>
-            <p id="file-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+            <p id="file-feedback" class="dialog-feedback file-feedback" role="status" aria-live="polite"></p>
             <div class="file-path-row">
-              <input id="file-path" type="text" spellcheck="false" autocomplete="off"
+              <input id="file-path" class="file-path" type="text" spellcheck="false" autocomplete="off"
                 autocapitalize="off" autocorrect="off" aria-label="Folder path"
                 aria-autocomplete="list" aria-expanded="false" aria-controls="file-suggestions" />
               <button id="file-refresh" class="secondary-button" type="button"
@@ -72,7 +72,7 @@
                   <path d="M20 4v5h-5" />
                 </svg>
               </button>
-              <button id="file-up" class="secondary-button" type="button"
+              <button id="file-up" class="secondary-button file-up" type="button"
                 aria-label="Go to parent folder" title="Parent folder">
                 <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
                   <path d="M12 19V6m-6 6 6-6 6 6" />
@@ -618,7 +618,26 @@
             <input id="project-folder" name="folder" type="text" maxlength="4096" autocomplete="off" autocapitalize="off" spellcheck="false" />
             <button class="secondary-button folder-browse" type="button" aria-controls="project-folder-picker">Browse…</button>
           </div>
-          <div id="project-folder-picker" class="folder-picker" role="group" aria-label="Choose a folder" hidden></div>
+          <div id="project-folder-picker" class="folder-picker" role="group" aria-label="Choose a folder" hidden>
+            <div class="browse-tree" aria-label="Folders"></div>
+            <p class="dialog-feedback file-feedback" role="status" aria-live="polite"></p>
+            <div class="file-path-row">
+              <input class="file-path" type="text" spellcheck="false" autocomplete="off"
+                autocapitalize="off" autocorrect="off" aria-label="Folder path"
+                aria-autocomplete="list" aria-expanded="false" aria-controls="project-folder-suggestions" />
+              <button class="secondary-button file-up" type="button"
+                aria-label="Go to parent folder" title="Parent folder">
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                  <path d="M12 19V6m-6 6 6-6 6 6" />
+                </svg>
+              </button>
+              <ul id="project-folder-suggestions" class="file-suggestions" role="listbox" hidden></ul>
+            </div>
+            <div class="folder-picker-actions">
+              <button class="secondary-button folder-close" type="button">Close</button>
+              <button class="secondary-button folder-choose" type="button">Use this folder</button>
+            </div>
+          </div>
         </div>
         <fieldset id="project-agent" class="agent-picker">
           <legend>Agent</legend>
@@ -650,7 +669,26 @@
             <input id="session-folder" name="folder" type="text" maxlength="4096" autocomplete="off" autocapitalize="off" spellcheck="false" />
             <button class="secondary-button folder-browse" type="button" aria-controls="session-folder-picker">Browse…</button>
           </div>
-          <div id="session-folder-picker" class="folder-picker" role="group" aria-label="Choose a folder" hidden></div>
+          <div id="session-folder-picker" class="folder-picker" role="group" aria-label="Choose a folder" hidden>
+            <div class="browse-tree" aria-label="Folders"></div>
+            <p class="dialog-feedback file-feedback" role="status" aria-live="polite"></p>
+            <div class="file-path-row">
+              <input class="file-path" type="text" spellcheck="false" autocomplete="off"
+                autocapitalize="off" autocorrect="off" aria-label="Folder path"
+                aria-autocomplete="list" aria-expanded="false" aria-controls="session-folder-suggestions" />
+              <button class="secondary-button file-up" type="button"
+                aria-label="Go to parent folder" title="Parent folder">
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                  <path d="M12 19V6m-6 6 6-6 6 6" />
+                </svg>
+              </button>
+              <ul id="session-folder-suggestions" class="file-suggestions" role="listbox" hidden></ul>
+            </div>
+            <div class="folder-picker-actions">
+              <button class="secondary-button folder-close" type="button">Close</button>
+              <button class="secondary-button folder-choose" type="button">Use this folder</button>
+            </div>
+          </div>
         </div>
         <label for="session-name">Tab name</label>
         <input id="session-name" name="label" type="text" maxlength="120" placeholder="Optional" autocomplete="off" />

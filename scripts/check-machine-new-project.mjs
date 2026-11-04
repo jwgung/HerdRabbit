@@ -7,8 +7,8 @@
 // picker. Its Agent choices are that machine's installed agents, each with its
 // program's mark, and one chosen is started in the new workspace's first pane.
 // Its Folder opens as ~ (the machine's home, Herdr's own choice when left so);
-// Browse… lists this machine's folders and the one used is where the
-// workspace opens, and a folder typed for a connected PC goes to that PC.
+// Browse… opens the Files tab's tree for this machine in folders only, and
+// the folder gone into and used is where the workspace opens, and a folder typed for a connected PC goes to that PC.
 // The footer's uploads and settings buttons look alike, their icons centred.
 // Runs on a desktop and a phone against an in-process fake herdr.
 //
@@ -225,16 +225,16 @@ try {
     await makeOn("local", `Codex ${where}`, { first: "hs_local", agent: "codex", agents: localAgents });
     // Browse… from ~ into projects/shop: the workspace opens there.
     const pathIs = (text) => page.waitForFunction((wanted) =>
-      document.querySelector("#project-folder-picker .folder-picker-path")?.textContent === wanted, text);
+      document.querySelector("#project-folder-picker .file-path")?.value === wanted, text);
     await makeOn("local", `Shop ${where}`, { first: "hs_local", agents: localAgents, cwd: join(home, "projects", "shop"), async folder(dialog) {
       const picker = dialog.locator("#project-folder-picker");
       await dialog.locator("#project-folder-field .folder-browse").click();
-      await pathIs("~");
-      assert.deepEqual(await picker.locator(".folder-picker-item").allTextContents(), ["projects"], `${where}: the home folder's folders are not listed`);
-      await picker.locator(".folder-picker-item", { hasText: "projects" }).click();
-      await pathIs("~/projects");
-      await picker.locator(".folder-picker-item", { hasText: "shop" }).click();
-      await pathIs("~/projects/shop");
+      await pathIs(home);
+      assert.deepEqual(await picker.locator(".browse-row .transfer-name").allTextContents(), ["projects"], `${where}: the home folder's folders are not listed`);
+      await picker.locator(".browse-row", { hasText: "projects" }).click();
+      await pathIs(join(home, "projects"));
+      await picker.locator(".browse-row", { hasText: "shop" }).click();
+      await pathIs(join(home, "projects", "shop"));
       if (mobile) {
         const height = await dialog.locator("#project-folder-field .folder-browse").evaluate((element) =>
           Math.max(element.getBoundingClientRect().height, parseFloat(getComputedStyle(element, "::before").height) || 0));
@@ -242,6 +242,7 @@ try {
       }
       if (shots) await page.screenshot({ path: join(shots, `project-folder-${where}.png`) });
       await picker.locator(".folder-choose").click();
+      await picker.waitFor({ state: "hidden" });
       assert.equal(await dialog.locator("#project-folder").inputValue(), "~/projects/shop");
     } });
     // lab runs two sessions: its default first, the other one pickable.
