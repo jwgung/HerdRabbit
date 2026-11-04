@@ -82,9 +82,12 @@ Herdr 0.9.5(`herdr --help`와 명령 묶음마다의 `--help`)를 기준으로 �
 | 마켓플레이스([herdr.dev/plugins](https://herdr.dev/plugins/)) | 표시 | Settings → Plugins → Browse: 검색, Herdr와 같은 정렬, Installed 표시, Install…은 같은 확인 단계로 |
 | `enable`, `disable`, `update`, `uninstall` | 됨 | HerdRabbit 자신은 제외(Settings → Updates에서 업데이트). 새 버전이 있는 플러그인도 그곳에서 업데이트(Update all) |
 | 업데이트 확인 | 표시 | Ref 없이 GitHub에서 설치한 플러그인만, 마켓플레이스의 head commit이 설치된 커밋과 다르면 "Update available"(목록은 10분마다 다시 읽음). Update all은 하나씩, HerdRabbit은 마지막, 처음 실패에서 멈춤 |
-| `link`, `unlink` | 없음 | 로컬 플러그인 폴더 |
-| `action`, `pane` | 없음 | 페이지에서 플러그인 동작 실행, 플러그인 패인 열기 |
-| `log`, `config-dir` | 없음 | |
+| `link`, `unlink` | 됨 | Link local folder…(입력하거나 Browse…로 고른 폴더, Files 탭과 같은 검사, 매니페스트가 HerdRabbit이나 이미 있는 플러그인이 아닐 것). 링크한 플러그인은 Unlink… |
+| `action list`, `action invoke` | 됨 | ⋯ → Actions and panes… → Run. 보고 있는 패인을 위해(그 워크스페이스·탭·폴더를 Herdr 컨텍스트로, 소켓으로), 없으면 Herdr 포커스가 있는 곳에서. HerdRabbit 자신의 것은 제외 |
+| `pane open` | 됨 | ⋯ → Actions and panes… → Open. 보고 있는 패인의 워크스페이스에 새 탭으로 열고 보여 줌. overlay·popup 배치는 쓰지 않음: overlay는 어디든 Herdr 자신의 포커스를 덮고, popup은 패인이 아님. HerdRabbit 자신의 것은 제외 |
+| `pane focus`, `pane close` | 필요 없음 | 연 플러그인 패인은 평범한 패인이라 다른 패인처럼 보여 주고 닫음 |
+| `log list` | 됨 | ⋯ → Logs…: 최근 20개, 최신순, 색과 폴더를 뺀 출력 |
+| `config-dir` | 없음 | |
 
 ## 그 밖의 명령
 
@@ -102,8 +105,8 @@ Herdr 0.9.5(`herdr --help`와 명령 묶음마다의 `--help`)를 기준으로 �
 
 ## 없는 기능, 추천 순서
 
+지금은 아래 기능을 만들 계획이 없습니다.
+
 1. 나눈 경계를 끌어 패인 크기 바꾸기, 패인 이름 붙이기.
 2. 세션: 하나 더 시작하기, 멈추기, 멈춘 세션 지우기.
-3. 플러그인: 페이지에서 플러그인 동작 실행, 플러그인 패인 열기.
-4. 한 입력을 여러 패인에 보내기(`pane input`).
-5. 로컬 플러그인 폴더(`plugin link`), 플러그인 로그.
+3. 한 입력을 여러 패인에 보내기(`pane input`).

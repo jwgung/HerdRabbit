@@ -161,6 +161,10 @@ const plugins = new PluginManager({
   selfId: config.pluginId || null,
   busy: async () => updater.starting || (await updater.runStatus()).state === "running" ||
     (await herdrUpdater.runStatus()).state === "running",
+  // A plugin's action runs, and its pane opens, for one of this PC's panes;
+  // a folder linked is one the Files tab would open.
+  herdr: local,
+  guard: protectedPaths,
 });
 // Herdr's own settings on this PC (Settings → Herdr, and a hub's over the
 // link): nothing changes while HerdRabbit's or Herdr's own update runs.

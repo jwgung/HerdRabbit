@@ -54,7 +54,7 @@ test("the list keeps what the page shows and nothing of where it lives", () => {
   assert.deepEqual(state.plugins[0], {
     id: "herdrabbit", name: "HerdRabbit", version: "1.4.27", description: "Phone access", enabled: true,
     source: { kind: "github", owner: "ultivis-iot", repo: "HerdRabbit", subdir: null, ref: "v1.4.27", commit: "a074fe0dbe4c3d96ed53fdeb325bd6d6cd1e080e" },
-    protected: true, updatable: false,
+    protected: true, updatable: false, actions: [], panes: [],
   });
   assert.equal(state.plugins[1].enabled, false);
   assert.equal(state.plugins[1].updatable, true);

@@ -27,6 +27,7 @@ export function createSettings(deps) {
   const {
     state, api, snapshotRecords, setFeedback, panePreferenceStorage, desktopMedia,
     openKeyBarDialog, showPasskeys, showSessions, showServerDetails, openConnectPc, sidebarActionMenu,
+    refreshSnapshot = async () => {}, showPane = () => {},
   } = deps;
 
   const dialog = document.querySelector("#settings-dialog");
@@ -307,6 +308,14 @@ export function createSettings(deps) {
   const pluginsShown = () => visiblePages().some((page) => page.id === "plugins");
   const pluginsPage = createPluginsPage({
     api, snapshotRecords, sidebarActionMenu, appUpdates: updatePanel, openUpdates: () => showPage("updates", { focus: true }),
+    // A plugin's action runs, and its pane opens, for the pane on show; the
+    // pane opened is shown once the sidebar has it, Settings closed.
+    selectedPaneId: () => state.selectedPaneId,
+    refreshSnapshot,
+    showPane: (paneId) => {
+      dialog.close();
+      showPane(paneId);
+    },
   });
   const updatesPage = createUpdatesPage({ api, snapshotRecords, appUpdates: updatePanel, pluginsShown });
   // Herdr: its channel, integrations and config.toml, per machine; Herdr's

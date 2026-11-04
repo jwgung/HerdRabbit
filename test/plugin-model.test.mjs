@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   marketplaceDetails, marketplaceInstalled, marketplaceSummary, marketplaceUrl, timeAgo,
+  pluginLogSummary, pluginTarget, pluginTargetText,
   parsePluginSource, pluginMachines, pluginOperationText, pluginSourceText, pluginSourceUrl, validPluginRef,
 } from "../public/app/plugin-model.js";
 import { validatePluginRef, validatePluginSource } from "../src/herdr-plugins.mjs";
@@ -105,4 +106,46 @@ test("a listing's details and the list's summary read as sentences", () => {
   assert.equal(marketplaceSummary({ total: 0 }, "zzz", NOW), 'No plugins in Herdr\'s marketplace match "zzz".');
   assert.equal(marketplaceSummary({ total: 3, stale: true, fetchedAt: "2026-11-03T22:00:00Z" }, "", NOW),
     "3 plugins. Herdr's marketplace could not be read just now; this list was read 2 hours ago.");
+});
+
+test("a plugin's actions run and panes open for the pane on show when it is on that machine", () => {
+  const records = {
+    workspaces: [{ workspace_id: "w1", label: "Platform" }, { workspace_id: "link_1!w2", label: "Laptop work" }],
+    panes: [
+      { pane_id: "w1:p1", workspace_id: "w1", server_id: "local" },
+      { pane_id: "link_1!w2:p1", workspace_id: "link_1!w2" },
+    ],
+  };
+  assert.deepEqual(pluginTarget(records, "w1:p1", "local"), { paneId: "w1:p1", workspace: "Platform" });
+  assert.deepEqual(pluginTarget(records, "link_1!w2:p1", "link_1"), { paneId: "link_1!w2:p1", workspace: "Laptop work" });
+  assert.equal(pluginTarget(records, "w1:p1", "link_1"), null);
+  assert.equal(pluginTarget(records, "link_1!w2:p1", "local"), null);
+  assert.equal(pluginTarget(records, "gone", "local"), null);
+  assert.equal(pluginTarget(records, null, "local"), null);
+
+  assert.deepEqual(pluginTargetText({ paneId: "w1:p1", workspace: "Platform" }, "This PC"), {
+    actions: "Runs for the pane you have open, in Platform.",
+    panes: "Opens as a new tab in Platform, beside the pane you have open.",
+  });
+  assert.match(pluginTargetText(null, "Laptop").actions, /Herdr's own focus is on Laptop/u);
+  assert.match(pluginTargetText(null, "Laptop").panes, /^Open a pane on Laptop first/u);
+  assert.match(pluginTargetText(null, "Laptop", false).actions, /is off/u);
+});
+
+test("a log's line names what ran, how it went and when", () => {
+  const now = Date.parse("2026-11-04T12:00:00Z");
+  const plugin = { actions: [{ id: "apply", title: "Apply layout" }] };
+  assert.equal(pluginLogSummary({ action: "apply", status: "failed", exitCode: 2, startedAt: "2026-11-04T11:57:00Z" }, plugin, now),
+    "Apply layout · Failed (exit 2) · 3 minutes ago");
+  assert.equal(pluginLogSummary({ action: "gone", status: "succeeded", exitCode: 0, startedAt: "2026-11-04T12:00:00Z" }, plugin, now),
+    "gone · Succeeded · just now");
+  assert.equal(pluginLogSummary({ event: "startup", status: "running" }, plugin, now), "Startup hook · Running");
+  assert.equal(pluginLogSummary({ event: "pane_created", status: "weird" }, null, now), "Event: pane_created · Unknown");
+  assert.equal(pluginLogSummary({}, null, now), "Command · Unknown");
+});
+
+test("linking and unlinking read as changes", () => {
+  assert.deepEqual(pluginOperationText({ action: "link", plugin: "layout", state: "running" }), { text: "Linking layout…", error: false, running: true });
+  assert.deepEqual(pluginOperationText({ action: "unlink", plugin: "layout", state: "succeeded" }, [{ id: "layout", name: "Layout" }]),
+    { text: "Unlinked Layout.", error: false, running: false });
 });

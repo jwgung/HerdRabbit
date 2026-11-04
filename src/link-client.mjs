@@ -13,7 +13,6 @@ import { knownAgentNames } from "./agent-launch.mjs";
 import { cleanSessionList } from "./agent-sessions.mjs";
 import { HttpError } from "./http-basics.mjs";
 import { FOLDER_CODES, FolderError } from "./project-folder.mjs";
-import { cleanPluginState, validatePluginId, validatePluginRef, validatePluginSource } from "./herdr-plugins.mjs";
 import {
   WORKTREE_REFUSAL_CODES, validateBaseRef, validateBranchName, validateForce, validateWorktreePath, worktreeList, worktreeText,
 } from "./herdr-worktrees.mjs";
@@ -21,6 +20,11 @@ import {
   cleanConfigCheck, cleanConfigFile, cleanDefaultConfig, cleanDiagnostics, cleanHerdrSettings,
   validateChannel, validateConfigText, validateConfigVersion, validateIntegrationAction, validateIntegrationName,
 } from "./herdr-settings.mjs";
+import {
+  cleanOpenedPane, cleanPluginLogs, cleanPluginLog, cleanPluginState, cleanText, validateLogLimit, validatePluginActionId, validatePluginId,
+  validatePluginPaneId, validatePluginRef, validatePluginSource,
+} from "./herdr-plugins.mjs";
+import { isFolderRequest, invalidFolder } from "./project-folder.mjs";
 
 // fileIdle: how long a file being passed on may go quiet before it fails
 const TIMEOUTS = { hello: 5_000, snapshot: 8_000, read: 6_000, write: 6_000, fileIdle: 60_000 };
@@ -59,6 +63,9 @@ const UPDATE_CODES = new Set([
 const PLUGIN_CODES = new Set([
   "invalid_plugin_id", "invalid_plugin_source", "invalid_plugin_ref", "plugin_not_found", "plugin_protected",
   "plugin_busy", "plugin_not_updatable", "plugin_list_failed", "plugins_unavailable", "password_auth_required",
+  "invalid_plugin_action", "invalid_plugin_pane", "invalid_log_limit", "plugin_action_not_found", "plugin_pane_not_found",
+  "plugin_disabled", "plugin_not_linked", "plugin_exists", "plugin_manifest_missing", "plugin_action_failed",
+  "plugin_pane_failed", "plugin_log_failed", "pane_required", "pane_not_found",
 ]);
 
 // Why a connected PC would not read or change its Herdr settings, passed on
@@ -927,22 +934,54 @@ export class LinkClient {
       await this.#ready();
       if (!this.#features.has("plugins")) throw tooOld(this.address, "managing plugins from here");
     };
-    const post = (path, body) => this.#request(`/api/link/plugins${path}`, {
-      method: "POST", body, timeoutMs: PLUGIN_WRITE_TIMEOUT_MS, pluginErrors: true,
+    // Actions, panes, logs and linking came later than listing and changing.
+    const extras = async (what) => {
+      await supported();
+      if (!this.#features.has("plugin_extras")) throw tooOld(this.address, what);
+    };
+    const post = (path, body, options = {}) => this.#request(`/api/link/plugins${path}`, {
+      method: "POST", body, timeoutMs: PLUGIN_WRITE_TIMEOUT_MS, pluginErrors: true, ...options,
     });
+    const pane = (paneId) => (typeof paneId === "string" && paneId ? { pane: paneId } : {});
     return {
       list: async () => {
         await supported();
         return cleanPluginState(await this.#request("/api/link/plugins", { timeoutMs: PLUGIN_READ_TIMEOUT_MS, pluginErrors: true }));
       },
-      start: async (action, { plugin, source, ref } = {}) => {
+      start: async (action, { plugin, source, ref, path, enabled } = {}) => {
         await supported();
         if (action === "install") {
           const spec = validatePluginSource(source).spec;
           return cleanPluginState(await post("/install", { source: spec, ref: validatePluginRef(ref) }));
         }
-        if (!["enable", "disable", "update", "uninstall"].includes(action)) throw new HttpError(404, "not_found", "Not found");
+        if (action === "link") {
+          await extras("linking a plugin folder from here");
+          if (!isFolderRequest(path)) throw invalidFolder();
+          return cleanPluginState(await post("/link", { path, enabled: enabled !== false }, { folderErrors: true }));
+        }
+        if (action === "unlink") await extras("unlinking a plugin from here");
+        else if (!["enable", "disable", "update", "uninstall"].includes(action)) throw new HttpError(404, "not_found", "Not found");
         return cleanPluginState(await post(`/${encodeURIComponent(validatePluginId(plugin))}/${action}`, {}));
+      },
+      invoke: async (plugin, action, { paneId = null } = {}) => {
+        await extras("running plugin actions from here");
+        const answer = await post(`/${encodeURIComponent(validatePluginId(plugin))}/run`, { action: validatePluginActionId(action), ...pane(paneId) });
+        const id = validatePluginActionId(action);
+        return { action: { id, title: cleanText(answer?.action?.title, 100) ?? id }, log: cleanPluginLog(answer?.log) };
+      },
+      openPane: async (plugin, entrypoint, { paneId = null } = {}) => {
+        await extras("opening plugin panes from here");
+        const answer = await post(`/${encodeURIComponent(validatePluginId(plugin))}/open`, { entrypoint: validatePluginPaneId(entrypoint), ...pane(paneId) });
+        const id = validatePluginPaneId(entrypoint);
+        return { pane: { id, title: cleanText(answer?.pane?.title, 100) ?? id }, ...cleanOpenedPane(answer) };
+      },
+      logs: async (plugin, { limit } = {}) => {
+        await extras("reading plugin logs from here");
+        const query = new URLSearchParams({ limit: String(validateLogLimit(limit)) });
+        const answer = await this.#request(`/api/link/plugins/${encodeURIComponent(validatePluginId(plugin))}/logs?${query}`, {
+          timeoutMs: PLUGIN_READ_TIMEOUT_MS, pluginErrors: true,
+        });
+        return { logs: cleanPluginLogs(answer?.logs) };
       },
     };
   }

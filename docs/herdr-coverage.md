@@ -82,9 +82,12 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 | marketplace ([herdr.dev/plugins](https://herdr.dev/plugins/)) | Shown | Settings → Plugins → Browse: search, Herdr's sort orders, Installed badge, Install… into the same confirm step |
 | `enable`, `disable`, `update`, `uninstall` | Done | Not for HerdRabbit itself, which Settings → Updates updates instead; plugins with a new version are updated there too (Update all) |
 | update check | Shown | "Update available" when the marketplace's head commit differs from the installed one, only for plugins installed from GitHub without a Ref (the list is read every 10 minutes); Update all runs them one at a time, HerdRabbit last, and stops at the first failure |
-| `link`, `unlink` | Missing | Local plugin folders |
-| `action`, `pane` | Missing | Running a plugin's actions or opening its panes from the page |
-| `log`, `config-dir` | Missing | |
+| `link`, `unlink` | Done | Link local folder… (a folder typed or picked with Browse…, checked like the Files tab's, its manifest not HerdRabbit's or a plugin already there); Unlink… for a linked plugin |
+| `action list`, `action invoke` | Done | ⋯ → Actions and panes… → Run, for the pane on show (its workspace, tab and folder as Herdr's context, over the socket), or where Herdr's focus is without one. Not HerdRabbit's own |
+| `pane open` | Done | ⋯ → Actions and panes… → Open, as a new tab of the pane on show's workspace, then shown. Overlay and popup placements are not used: an overlay covers Herdr's own focus wherever it is and a popup is not a pane. Not HerdRabbit's own |
+| `pane focus`, `pane close` | Not needed | An opened plugin pane is a normal pane: shown and closed like any other |
+| `log list` | Done | ⋯ → Logs…: the last 20, newest first, output without colours or folders |
+| `config-dir` | Missing | |
 
 ## Other commands
 
@@ -102,8 +105,8 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 
 ## Missing, in a suggested order
 
+None of these is planned for now.
+
 1. Resizing panes by dragging a split's divider, and naming a pane.
 2. Sessions: start another, stop one, delete a stopped one.
-3. Plugins: run a plugin's actions and open its panes from the page.
-4. Sending one input to several panes (`pane input`).
-5. Local plugin folders (`plugin link`), plugin logs.
+3. Sending one input to several panes (`pane input`).

@@ -22,10 +22,19 @@
 // the first failure saying what was left. Runs on a desktop and a phone
 // against an in-process fake herdr, fake `herdr plugin` commands, fake
 // updaters and a fake marketplace index.
+// A plugin's ⋯ → Actions and panes… runs an action for the pane on show and
+// opens a pane as a new tab of its workspace, which is then shown with
+// Settings closed; Logs… lists its command logs newest first, without this
+// PC's folders; HerdRabbit's own actions and panes are not offered. Link
+// local folder… takes a folder typed or picked with Browse…, links it (off
+// when asked) after naming the machine and what linking runs; a linked
+// plugin's ⋯ has Unlink… (confirmed) in place of Uninstall….
 //
 // PLUGINS_SHOTS=<folder> keeps pictures of the page and the dialog.
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { HerdrCommandError } from "../src/herdr-client.mjs";
@@ -41,6 +50,8 @@ const SESSION = "hs_local";
 
 const herdrabbit = () => ({
   plugin_id: "herdrabbit", name: "HerdRabbit", version: "1.4.27", enabled: true, description: "Open your Herdr sessions from a phone.",
+  actions: [{ id: "restart", title: "HerdRabbit: restart", contexts: ["workspace"], command: ["node", "scripts/plugin.mjs", "restart"] }],
+  panes: [{ id: "connect", title: "HerdRabbit: connect", placement: "overlay", command: ["node", "scripts/plugin.mjs", "connect"] }],
   source: { kind: "github", owner: "ultivis-iot", repo: "HerdRabbit", requested_ref: "v1.4.27", resolved_commit: "a074fe0dbe4c3d96ed53fdeb325bd6d6cd1e080e" },
 });
 // Installed from the marketplace's gen/plugin-3 on its default branch, a
@@ -49,7 +60,21 @@ const HEAD = "ad4614fcee1a9049a08ea9ca421889b9ce6966f8";
 const gen = (index, commit) => ({
   plugin_id: `gen-${index}`, name: `Gen ${index}`, version: "0.1.0", enabled: true,
   source: { kind: "github", owner: "gen", repo: `plugin-${index}`, requested_ref: null, resolved_commit: commit },
+  ...(index === 4 ? {
+    actions: [{ id: "apply", title: "Apply layout", contexts: ["workspace"], command: ["sh", "/home/me/gen/apply.sh"] }],
+    panes: [{ id: "board", title: "Board", placement: "overlay", command: ["sh", "/home/me/gen/board.sh"] }],
+  } : {}),
 });
+// Herdr's command logs for Gen 4, oldest first, as `herdr plugin log list` answers.
+const GEN_LOGS = [
+  { log_id: "plugin-log-1", plugin_id: "gen-4", event: "startup", command: ["sh"], status: "succeeded", exit_code: 0,
+    started_unix_ms: Date.now() - 3 * 3_600_000, finished_unix_ms: Date.now() - 3 * 3_600_000 + 500, stdout: "ready\n", stderr: "" },
+  { log_id: "plugin-log-2", plugin_id: "gen-4", action_id: "apply", command: ["sh"], status: "failed", exit_code: 2,
+    started_unix_ms: Date.now() - 5 * 60_000, finished_unix_ms: Date.now() - 5 * 60_000 + 800,
+    stdout: "\u001b[32mApplying\u001b[0m in /home/me/projects/site\n", stderr: "error: /home/me/gen/layout.json not found\n" },
+];
+// The panes Herdr opened for a plugin, added to the snapshot.
+const pluginPanes = [];
 const notes = () => ({
   plugin_id: "notes", name: "Notes", version: "0.2.0", enabled: false, description: "Notes beside a pane.",
   source: { kind: "github", owner: "someone", repo: "herdr-notes", requested_ref: "main", resolved_commit: "1234567890abcdef1234567890abcdef12345678" },
@@ -61,11 +86,20 @@ const notes = () => ({
 // update of `failUpdate` fails.
 const order = [];
 function fakePlugins(initial) {
-  const state = { plugins: initial, ran: [], hold: null, failUpdate: null };
+  const state = { plugins: initial, ran: [], hold: null, failUpdate: null, panes: [] };
   const run = async (args) => {
     if (args[1] === "list") return { code: 0, stdout: JSON.stringify({ id: "cli:plugin", result: { type: "plugin_list", plugins: state.plugins } }), stderr: "" };
+    if (args[1] === "log") {
+      const logs = GEN_LOGS.filter((log) => log.plugin_id === args[4]);
+      return { code: 0, stdout: JSON.stringify({ id: "cli:plugin", result: { type: "plugin_log_list", logs } }), stderr: "" };
+    }
     state.ran.push(args.join(" "));
     const [, action, target] = args;
+    if (action === "link") {
+      state.plugins.push({ plugin_id: "layout", name: "Layout", version: "0.0.1", enabled: !args.includes("--disabled"), source: { kind: "local" } });
+    } else if (action === "unlink") {
+      state.plugins = state.plugins.filter((item) => item.plugin_id !== target);
+    }
     if (action === "update") {
       order.push(`plugin ${target}`);
       if (target === state.failUpdate) return { code: 1, stdout: "", stderr: "error: could not fetch gen/plugin-3\n" };
@@ -83,7 +117,21 @@ function fakePlugins(initial) {
     }
     return { code: 0, stdout: "", stderr: "" };
   };
-  return { state, manager: new PluginManager({ run }) };
+  // This PC's Herdr for a pane: an action is recorded; a pane opens as a new
+  // tab of the pane's workspace and shows up in the snapshot.
+  const herdr = {
+    async pluginActionInvoke(paneId, pluginId, actionId) {
+      state.panes.push(["invoke", paneId, pluginId, actionId]);
+      return { log_id: "plugin-log-3", plugin_id: pluginId, action_id: actionId, command: ["sh"], status: "running", started_unix_ms: Date.now() };
+    },
+    async pluginPaneOpen(paneId, pluginId, entrypoint) {
+      state.panes.push(["open", paneId, pluginId, entrypoint]);
+      const index = pluginPanes.length + 9;
+      pluginPanes.push({ pane_id: `w1:p${index}`, tab_id: `w1:t${index}`, workspace_id: "w1", label: "Board", herdr_session_id: SESSION, server_id: "local" });
+      return { pane_id: `w1:p${index}`, tab_id: `w1:t${index}` };
+    },
+  };
+  return { state, manager: new PluginManager({ run, herdr }) };
 }
 
 let local;
@@ -162,8 +210,10 @@ const herdr = {
       ],
       herdr_sessions: [{ session_id: SESSION, name: "default", default: true, machine_default: true, running: true, available: true, server_id: "local", server_name: "workstation" }],
       workspaces: [{ workspace_id: "w1", label: "Platform", herdr_session_id: SESSION, server_id: "local" }],
-      tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "1", herdr_session_id: SESSION }],
-      panes: [{ pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "shell", cwd: "/work", herdr_session_id: SESSION, server_id: "local" }],
+      tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "1", herdr_session_id: SESSION },
+        ...pluginPanes.map((pane) => ({ tab_id: pane.tab_id, workspace_id: "w1", label: "Board", herdr_session_id: SESSION }))],
+      panes: [{ pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "shell", cwd: "/work", herdr_session_id: SESSION, server_id: "local" },
+        ...pluginPanes],
       agents: [],
     };
   },
@@ -184,7 +234,11 @@ function startServer(required) {
     updater,
     herdrUpdater,
     now: () => Date.now() + skew,
-    plugins: { list: (...args) => local.manager.list(...args), start: (...args) => local.manager.start(...args) },
+    plugins: {
+      list: (...args) => local.manager.list(...args), start: (...args) => local.manager.start(...args),
+      invoke: (...args) => local.manager.invoke(...args), openPane: (...args) => local.manager.openPane(...args),
+      logs: (...args) => local.manager.logs(...args),
+    },
     marketplace: { page: (...args) => market.page(...args), updatesFor: (...args) => market.updatesFor(...args) },
     auth: { required, hasValidSession: () => true, hasValidLaunchToken: () => true, onSessionsEnded: () => () => {} },
     logger: { info() {}, error() {} },
@@ -199,6 +253,9 @@ await Promise.all([once(signedIn, "listening"), once(signedOut, "listening")]);
 const url = (server) => `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ args: ["--no-sandbox"] });
 const shots = process.env.PLUGINS_SHOTS;
+// A plugin folder on this PC for Link local folder….
+const pluginDir = await realpath(await mkdtemp(join(tmpdir(), "herdrabbit-check-plugin-")));
+await writeFile(join(pluginDir, "herdr-plugin.toml"), 'id = "layout"\nname = "Layout"\nversion = "0.0.1"\n');
 
 try {
   for (const mobile of [false, true]) {
@@ -208,6 +265,7 @@ try {
     Object.assign(app, { phase: "available", starts: 0, letGo: false });
     Object.assign(herdrWorld, { version: "0.9.3", running: false });
     order.length = 0;
+    pluginPanes.length = 0;
     laptop = fakePlugins([{ plugin_id: "far", name: "Far away", version: "3.1.0", enabled: true, source: { kind: "local" } }]);
     const context = await browser.newContext({ serviceWorkers: "block", hasTouch: mobile, isMobile: mobile,
       viewport: { width: mobile ? 390 : 1280, height: 844 } });
@@ -302,7 +360,7 @@ try {
     // ⋯ → Update, then Uninstall… after a confirm.
     const menu = rows.filter({ hasText: "Notes" }).locator(".sidebar-action-menu");
     await menu.locator("summary").click();
-    assert.deepEqual(await menuItems(), ["Update", "Uninstall…"]);
+    assert.deepEqual(await menuItems(), ["Logs…", "Update", "Uninstall…"]);
     await page.locator(".sidebar-action-popover:visible .sidebar-action-item", { hasText: "Update" }).click();
     await page.waitForFunction(() => document.querySelector("#plugins-feedback").textContent === "Updated Notes.");
     await idle();
@@ -373,13 +431,115 @@ try {
     await install.waitFor({ state: "hidden" });
     assert.equal(await settings.isVisible(), true, `${where}: Escape closed Settings too`);
 
+    // ⋯ → Actions and panes…: Run for the pane on show, in its workspace.
+    const genMenu = () => rows.filter({ hasText: "Gen 4" }).locator(".sidebar-action-menu summary");
+    const pickItem = (text) => page.locator(".sidebar-action-popover:popover-open .sidebar-action-item", { hasText: text }).click();
+    await genMenu().click();
+    assert.deepEqual(await menuItems(), ["Actions and panes…", "Logs…", "Update", "Uninstall…"]);
+    await pickItem("Actions and panes…");
+    const detailsDialog = page.locator("#plugin-details-dialog");
+    await detailsDialog.waitFor({ state: "visible" });
+    assert.equal(await page.locator("#plugin-details-title").textContent(), "Gen 4");
+    assert.equal(await page.locator("#plugin-details-machine").textContent(), "On This PC (workstation)");
+    assert.equal(await page.locator("#plugin-details-actions-where").textContent(), "Runs for the pane you have open, in Platform.");
+    assert.equal(await page.locator("#plugin-details-panes-where").textContent(), "Opens as a new tab in Platform, beside the pane you have open.");
+    assert.deepEqual(await detailsDialog.locator(".plugin-entry-title").allTextContents(), ["Apply layout", "Board"]);
+    if (mobile) {
+      for (const target of [detailsDialog.locator(".plugin-entry-run").first(), page.locator("#plugin-details-close"), page.locator("#plugin-details-logs")]) {
+        const box = await target.boundingBox();
+        assert.ok(box.height >= 44, `${where}: ${await target.evaluate((node) => node.id || node.className)} is under 44px tall (${box.height})`);
+      }
+      const overflow = await detailsDialog.evaluate((element) => element.scrollWidth - element.clientWidth);
+      assert.ok(overflow <= 1, `${where}: Actions and panes is wider than the screen (${overflow}px)`);
+    }
+    if (shots) await page.screenshot({ path: join(shots, `details-${where}.png`) });
+    await detailsDialog.getByRole("button", { name: "Run Apply layout" }).click();
+    await page.waitForFunction(() => document.querySelector("#plugin-details-feedback").textContent === "Started Apply layout. Logs… shows how it goes.");
+    assert.deepEqual(local.state.panes, [["invoke", "w1:p1", "gen-4", "apply"]]);
+
+    // Logs…, from the dialog: newest first, colours and folders gone.
+    await page.locator("#plugin-details-logs").click();
+    const logsDialog = page.locator("#plugin-logs-dialog");
+    await logsDialog.waitFor({ state: "visible" });
+    await logsDialog.locator(".plugin-log").first().waitFor({ state: "visible" });
+    assert.equal(await page.locator("#plugin-logs-title").textContent(), "Gen 4 logs");
+    assert.deepEqual(await logsDialog.locator(".plugin-log-summary").allTextContents(),
+      ["Apply layout · Failed (exit 2) · 5 minutes ago", "Startup hook · Succeeded · 3 hours ago"]);
+    assert.deepEqual(await logsDialog.locator(".plugin-log").first().locator(".plugin-log-output").allTextContents(),
+      ["Applying in …/site\n", "error: …/layout.json not found\n"]);
+    assert.doesNotMatch(await logsDialog.textContent(), /\/home\/me/u);
+    if (mobile) {
+      const overflow = await logsDialog.evaluate((element) => element.scrollWidth - element.clientWidth);
+      assert.ok(overflow <= 1, `${where}: Logs is wider than the screen (${overflow}px)`);
+    }
+    if (shots) await page.screenshot({ path: join(shots, `logs-${where}.png`) });
+    await page.keyboard.press("Escape");
+    await logsDialog.waitFor({ state: "hidden" });
+    assert.equal(await detailsDialog.isVisible(), true, `${where}: Escape in Logs closed Actions and panes too`);
+
+    // Open: a new tab of that workspace, shown, Settings closed.
+    await detailsDialog.getByRole("button", { name: "Open Board" }).click();
+    await settings.waitFor({ state: "hidden" });
+    assert.equal(await detailsDialog.isVisible(), false);
+    assert.deepEqual(local.state.panes.at(-1), ["open", "w1:p1", "gen-4", "board"]);
+    await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w1:p9"]')?.getAttribute("aria-pressed") === "true");
+    // Back to the first pane and to Plugins.
+    if (mobile) await page.locator("#mobile-sidebar-open").click();
+    await page.locator('.pane-button[data-pane-id="w1:p1"]').click();
+    await openSettings();
+    if (!(await pluginsPage.isVisible())) await settings.locator(".settings-page-link", { hasText: "Plugins" }).click();
+    await pluginsPage.waitFor({ state: "visible" });
+    await rows.filter({ hasText: "Gen 4" }).waitFor({ state: "visible" });
+
+    // Link local folder…: the machine, what it runs, a folder picked with Browse….
+    const linkDialog = page.locator("#plugin-link-dialog");
+    await page.locator("#plugins-link").click();
+    await linkDialog.waitFor({ state: "visible" });
+    assert.equal(await page.locator("#plugin-link-machine").textContent(), "On This PC (workstation)");
+    assert.match(await page.locator("#plugin-link-warning").textContent(), /without building it, and runs its startup hooks on This PC \(workstation\)/u);
+    assert.equal(await page.locator("#plugin-link-folder").inputValue(), "~");
+    await page.locator("#plugin-link-folder").fill(pluginDir);
+    await linkDialog.locator(".folder-browse").click();
+    await linkDialog.locator(".folder-picker").waitFor({ state: "visible" });
+    await page.waitForFunction((dir) => document.querySelector("#plugin-link-folder-picker .file-path")?.value === dir, pluginDir);
+    await linkDialog.locator(".folder-choose").click();
+    await linkDialog.locator(".folder-picker").waitFor({ state: "hidden" });
+    assert.equal(await page.locator("#plugin-link-folder").inputValue(), pluginDir);
+    if (mobile) {
+      for (const target of ["#plugin-link-folder", "#plugin-link-cancel", "#plugin-link-submit", ".plugin-link-enabled"]) {
+        assert.ok((await page.locator(target).boundingBox()).height >= 44, `${where}: ${target} is under 44px tall`);
+      }
+      const overflow = await linkDialog.evaluate((element) => element.scrollWidth - element.clientWidth);
+      assert.ok(overflow <= 1, `${where}: Link is wider than the screen (${overflow}px)`);
+    }
+    if (shots) await page.screenshot({ path: join(shots, `link-${where}.png`) });
+    await page.locator("#plugin-link-enabled").uncheck();
+    await page.locator("#plugin-link-submit").click();
+    await linkDialog.waitFor({ state: "hidden" });
+    await page.waitForFunction(() => document.querySelector("#plugins-feedback").textContent === "Linked Layout.");
+    assert.equal(local.state.ran.at(-1), `plugin link ${pluginDir} --disabled`);
+    const layoutRow = rows.filter({ has: page.locator("strong", { hasText: "Layout" }) });
+    assert.equal(await layoutRow.locator(".plugin-source").textContent(), "Linked from a folder");
+    assert.equal(await layoutRow.locator('[role="switch"]').getAttribute("aria-checked"), "false");
+    await idle();
+
+    // Unlink…, confirmed: Herdr forgets it, the folder stays.
+    await layoutRow.locator(".sidebar-action-menu summary").click();
+    assert.deepEqual(await menuItems(), ["Logs…", "Unlink…"]);
+    await pickItem("Unlink…");
+    await page.waitForFunction(() => document.querySelector("#plugins-feedback").textContent === "Unlinked layout.");
+    assert.match(confirms.at(-1), /^Unlink Layout from This PC \(workstation\)\? Herdr stops using it; its folder stays as it is\.$/u);
+    assert.equal(local.state.ran.at(-1), "plugin unlink layout");
+    assert.deepEqual(await ids(), ["herdrabbit", "gen-3", "gen-4", "tool"]);
+    await idle();
+
     // Another machine: its own list, and the install warning names it.
     await picker.selectOption(LAPTOP);
     await page.waitForFunction(() => document.querySelector('.plugin-row[data-plugin="far"]'));
     assert.equal(await rows.filter({ hasText: "Far away" }).locator(".plugin-source").textContent(), "Linked from a folder");
     await rows.filter({ hasText: "Far away" }).locator(".sidebar-action-menu summary").click();
-    assert.deepEqual(await menuItems(), ["Uninstall…"],
-      `${where}: a linked plugin offers Update`);
+    assert.deepEqual(await menuItems(), ["Logs…", "Unlink…"],
+      `${where}: a linked plugin offers Update or Uninstall`);
     await page.keyboard.press("Escape");
     await page.locator("#plugins-install").click();
     assert.match(await page.locator("#plugin-install-warning").textContent(), /on Laptop,/u);
@@ -605,4 +765,5 @@ try {
   await browser.close();
   signedIn.close();
   signedOut.close();
+  await rm(pluginDir, { recursive: true, force: true });
 }

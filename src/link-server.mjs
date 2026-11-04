@@ -21,8 +21,9 @@ const MAX_WATCHED_PANES = 512;
 // Status streams open at once. A hub keeps one per page watching this PC.
 const MAX_STATUS_STREAMS = 16;
 const AI_ACCOUNT_ROUTE = aiAccountRoute("/api/link/ai-accounts");
-// /api/link/plugins, /api/link/plugins/install, /api/link/plugins/<id>/<action>.
-const PLUGIN_ROUTE = /^\/api\/link\/plugins(?:\/([^/]{1,200})(?:\/(enable|disable|update|uninstall))?)?$/u;
+// /api/link/plugins, /api/link/plugins/install, /api/link/plugins/link,
+// /api/link/plugins/<id>/<action>.
+const PLUGIN_ROUTE = /^\/api\/link\/plugins(?:\/([^/]{1,200})(?:\/(enable|disable|update|uninstall|unlink|run|open|logs))?)?$/u;
 
 
 
@@ -122,6 +123,9 @@ export function linkRoutes({
         // Herdr's own settings here (src/herdr-settings.mjs): its channel,
         // integrations and config.toml.
         ...(herdrSettings ? ["herdr_settings"] : []),
+        // ... and their actions run, their panes opened, their logs read, a
+        // local folder linked and a linked plugin unlinked.
+        ...(plugins ? ["plugin_extras"] : []),
       ],
     };
   }
@@ -555,14 +559,31 @@ export function linkRoutes({
         sendJson(response, 200, await plugins.list());
         return true;
       }
+      if (method === "GET" && action === "logs") {
+        sendJson(response, 200, await plugins.logs(decodePaneId(segment), { limit: url.searchParams.get("limit") ?? undefined }));
+        return true;
+      }
       const install = segment === "install" && action === undefined;
-      if (method !== "POST" || segment === undefined || (!install && action === undefined)) {
+      const link = segment === "link" && action === undefined;
+      if (method !== "POST" || segment === undefined || action === "logs" || (!install && !link && action === undefined)) {
         throw new HttpError(405, "method_not_allowed", "Method not allowed");
       }
       const body = await readJsonBody(request, maxBodyBytes);
+      // A pane here, by its id on this PC; this PC's manager and Herdr check it.
+      const paneId = typeof body.pane === "string" && body.pane ? body.pane : null;
+      if (action === "run") {
+        sendJson(response, 200, await plugins.invoke(decodePaneId(segment), body.action, { paneId }));
+        return true;
+      }
+      if (action === "open") {
+        sendJson(response, 200, await plugins.openPane(decodePaneId(segment), body.entrypoint, { paneId }));
+        return true;
+      }
       const answer = install
         ? await plugins.start("install", { source: body.source, ref: body.ref })
-        : await plugins.start(action, { plugin: decodePaneId(segment) });
+        : link
+          ? await plugins.start("link", { path: body.path, enabled: body.enabled !== false })
+          : await plugins.start(action, { plugin: decodePaneId(segment) });
       sendJson(response, 202, answer);
       return true;
     }
