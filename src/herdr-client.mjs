@@ -559,7 +559,15 @@ export class HerdrClient {
   // An existing checkout of the repository, by the folder Herdr listed it
   // in, opened as a workspace (or the one it is already open in).
   async openWorktree(workspaceId, { path, label } = {}) {
-    const args = ["worktree", "open", "--workspace", validateWorkspaceId(workspaceId), "--path", validateWorktreePath(path)];
+    const safeWorkspaceId = validateWorkspaceId(workspaceId);
+    const safePath = validateWorktreePath(path);
+    // Only a checkout Herdr lists for this workspace's repository: a folder
+    // named here is never opened on its own say-so.
+    const listed = await this.listWorktrees(safeWorkspaceId);
+    if (!listed.worktrees.some((item) => item.path === safePath && !item.is_bare && !item.is_prunable)) {
+      throw new HerdrCommandError("That folder is not one of this repository's worktrees.", { code: "worktree_not_found" });
+    }
+    const args = ["worktree", "open", "--workspace", safeWorkspaceId, "--path", safePath];
     if (label !== undefined) args.push("--label", validateWorkspaceLabel(label));
     const opened = worktreeOpened(await this.#run([...args, "--no-focus"], { timeoutMs: WORKTREE_TIMEOUT_MS }));
     this.#worktreeBranches.clear();

@@ -463,6 +463,8 @@ export function linkRoutes({
       } else if (worktreeMatch[2] === "worktrees/open") {
         sendJson(response, 200, { ok: true, ...await client.openWorktree(workspaceId, { path: body.path, label: body.label }) });
       } else {
+        // As on the hub's own route: a removal is asked for in so many words.
+        if (body.confirmed !== true) throw new HttpError(400, "confirmation_required", "Removing a worktree must be confirmed.");
         sendJson(response, 200, { ok: true, ...await client.removeWorktree(workspaceId, { force: body.force }) });
       }
       return true;
