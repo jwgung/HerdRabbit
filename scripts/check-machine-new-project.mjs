@@ -6,7 +6,7 @@
 // running session lets another be picked, one with a single session shows no
 // picker. Its Agent choices are that machine's installed agents, each with its
 // program's mark, and one chosen is started in the new workspace's first pane.
-// Its Folder opens as ~ (the machine's home, Herdr's own choice when left so);
+// Its Folder opens as ~ (the machine's home, sent as the folder);
 // Browse… opens the Files tab's tree for this machine in folders only, and
 // the folder gone into and used is where the workspace opens, and a folder typed for a connected PC goes to that PC.
 // The footer's uploads and settings buttons look alike, their icons centred.

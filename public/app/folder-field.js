@@ -1,4 +1,6 @@
-import { createFolderTree } from "./folder-tree.js?v=1.4.32";
+import { browseUrl, createFolderTree } from "./folder-tree.js?v=1.4.32";
+
+const IDLE_POLL_MS = 50;
 
 // Each machine's home folder, as its Files listing of `~` answered, while this
 // page lasts: a folder in it is shown as `~/…`.
@@ -33,7 +35,6 @@ export function workspaceFolder(panes, workspaceId) {
 // left as the dialog opened (`asOpened()`), makes it as before.
 // `root` holds the input, the Browse… button and the picker's markup (a
 // folder tree's parts, Close and Use this folder).
-const IDLE_POLL_MS = 50;
 
 export function createFolderField(root, { api }) {
   const input = root.querySelector(".folder-row input");
@@ -66,7 +67,7 @@ export function createFolderField(root, { api }) {
   async function homeOf(server) {
     if (homes.has(server)) return homes.get(server);
     try {
-      const answer = await api(`/api/browse?server=${encodeURIComponent(server)}&path=~`);
+      const answer = await api(browseUrl(server, "~"));
       if (typeof answer?.path === "string") homes.set(server, answer.path);
     } catch { /* shown as a full path */ }
     return homes.get(server) ?? null;
