@@ -198,27 +198,67 @@ export function marketplaceSummary(answer, query = "", now = Date.now()) {
 
 // The machine a pane of the page is on: its record's, else its id's
 // `<server>!` part; this PC's otherwise.
-function paneServer(pane, paneId) {
-  if (typeof pane?.server_id === "string" && pane.server_id) return pane.server_id;
-  const separator = paneId.indexOf("!");
-  return separator > 0 ? paneId.slice(0, separator) : "local";
+function serverOf(record, id) {
+  if (typeof record?.server_id === "string" && record.server_id) return record.server_id;
+  const separator = id.indexOf("!");
+  return separator > 0 ? id.slice(0, separator) : "local";
 }
 
-// Where a plugin's actions run and its panes open on `server`: the pane open
-// on the page when it is on that machine, and its workspace's name.
-// { paneId, workspace } or null.
-export function pluginTarget(records, paneId, server) {
-  if (typeof paneId !== "string" || paneId === "") return null;
-  const pane = (records?.panes ?? []).find((item) => item?.pane_id === paneId);
-  if (!pane || paneServer(pane, paneId) !== server) return null;
-  const workspace = (records?.workspaces ?? []).find((item) => item?.workspace_id === pane.workspace_id);
-  return { paneId, workspace: typeof workspace?.label === "string" && workspace.label ? workspace.label : null };
+const paneServer = (pane, paneId) => serverOf(pane, paneId);
+const workspaceName = (workspace) => (typeof workspace?.label === "string" && workspace.label ? workspace.label : workspace.workspace_id);
+
+// The workspaces of `server` an action may run for or a pane open in: those
+// with a pane. [{ workspaceId, workspace }] in the sidebar's order.
+export function pluginWorkspaces(records, server) {
+  const panes = records?.panes ?? [];
+  return (records?.workspaces ?? [])
+    .filter((item) => typeof item?.workspace_id === "string" && item.workspace_id && serverOf(item, item.workspace_id) === server)
+    .filter((item) => panes.some((pane) => pane?.workspace_id === item.workspace_id))
+    .map((item) => ({ workspaceId: item.workspace_id, workspace: workspaceName(item) }));
+}
+
+// A workspace's active pane: the focused one of its active tab, else that
+// tab's first, else the workspace's first.
+function activePane(records, workspace) {
+  const panes = (records?.panes ?? []).filter((pane) => pane?.workspace_id === workspace.workspace_id && typeof pane.pane_id === "string");
+  const inTab = panes.filter((pane) => pane.tab_id === workspace.active_tab_id);
+  return inTab.find((pane) => pane.focused === true) ?? inTab[0] ?? panes[0] ?? null;
+}
+
+// Where a plugin's actions run and its panes open on `server`. Without
+// `workspaceId`: the pane open on the page when it is on that machine. With
+// it: that pane when it is in that workspace, else the workspace's active
+// pane. { paneId, workspace, workspaceId, shown } or null; `shown` says the
+// pane is the one on show.
+export function pluginTarget(records, paneId, server, workspaceId = null) {
+  const shown = typeof paneId === "string" && paneId !== ""
+    ? (records?.panes ?? []).find((item) => item?.pane_id === paneId) ?? null
+    : null;
+  const shownHere = shown && paneServer(shown, paneId) === server ? shown : null;
+  const wanted = workspaceId ?? shownHere?.workspace_id;
+  if (!wanted) return null;
+  const workspace = (records?.workspaces ?? []).find((item) => item?.workspace_id === wanted);
+  if (workspaceId !== null && (!workspace || serverOf(workspace, workspace.workspace_id) !== server)) return null;
+  const pane = shownHere?.workspace_id === wanted ? shownHere : workspace ? activePane(records, workspace) : null;
+  if (!pane) return null;
+  return {
+    paneId: pane.pane_id,
+    workspace: workspace ? workspaceName(workspace) : null,
+    workspaceId: wanted,
+    shown: pane === shownHere,
+  };
 }
 
 // The lines above a plugin's actions and panes: where they run.
 export function pluginTargetText(target, machine, enabled = true) {
   if (!enabled) return { actions: "The plugin is off. Turn it on to run its actions.", panes: "The plugin is off. Turn it on to open its panes." };
   const where = target?.workspace ? `in ${target.workspace}` : "in its workspace";
+  if (target && !target.shown) {
+    return {
+      actions: `Runs for the active pane ${target.workspace ? `of ${target.workspace}` : "of its workspace"}.`,
+      panes: `Opens as a new tab ${where}.`,
+    };
+  }
   return target
     ? { actions: `Runs for the pane you have open, ${where}.`, panes: `Opens as a new tab ${where}, beside the pane you have open.` }
     : {
