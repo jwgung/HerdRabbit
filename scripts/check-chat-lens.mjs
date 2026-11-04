@@ -180,6 +180,22 @@ try {
         await page.locator(".terminal-heading").screenshot({ path: join(process.env.CHAT_LENS_SCREENSHOTS, `header-${mobile ? "phone" : "desktop"}-${theme}.png`) });
       }
     }
+    // On a desktop the sidebar's footer sits on the composer's row: its top
+    // line meets the chat's bottom edge band and its buttons share the row's middle.
+    if (!mobile) {
+      const look = await page.evaluate(() => {
+        const box = (selector) => document.querySelector(selector)?.getBoundingClientRect();
+        const footer = box(".navigator-footer");
+        const button = box(".navigator-footer .settings-button");
+        const composer = box(".input-composer textarea, .input-composer input, .input-composer");
+        return footer && button && composer
+          ? { buttonMiddle: button.top + button.height / 2, composerMiddle: composer.top + composer.height / 2 }
+          : null;
+      });
+      assert.ok(look, "the footer or the composer is missing");
+      assert.ok(Math.abs(look.buttonMiddle - look.composerMiddle) <= 2,
+        `the sidebar footer's buttons are off the composer's row: ${JSON.stringify(look)}`);
+    }
     if (process.env.CHAT_LENS_SCREENSHOTS) {
       for (const theme of ["dark", "light"]) {
         await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
