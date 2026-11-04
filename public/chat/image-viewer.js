@@ -16,7 +16,7 @@
 // The step and key arithmetic follows Ovis (MIT, Copyright (c) 2026 devswha),
 // src/lib/imageViewer.ts.
 
-import { ticketUrl } from "./chat-images.js?v=1.4.30";
+import { ticketUrl } from "./chat-images.js?v=1.4.31";
 
 export const FIT = Object.freeze({ scale: 1, x: 0, y: 0 });
 const MAX_SCALE = 8;
