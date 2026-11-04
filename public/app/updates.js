@@ -1,11 +1,11 @@
-import { createElement } from "./dom.js?v=1.4.35";
+import { createElement } from "./dom.js?v=1.4.36";
 import {
   pluginMachines, pluginOperationText, updateAllConfirmText, updateAllCount, updateAllPlan, updateAllResultText,
-} from "./plugin-model.js?v=1.4.35";
+} from "./plugin-model.js?v=1.4.36";
 import {
   appVersionText, confirmDetails as appConfirmDetails, herdrBlockedText, herdrConfirmDetails, herdrErrorText, herdrRunSummary,
   herdrUpdateText, runSummary,
-} from "../app-update.js?v=1.4.35";
+} from "../app-update.js?v=1.4.36";
 
 const POLL_MS = 1_500;
 const GIVE_UP_MS = 15 * 60_000;

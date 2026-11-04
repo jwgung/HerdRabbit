@@ -1,4 +1,4 @@
-import { browseUrl, createFolderTree } from "./folder-tree.js?v=1.4.35";
+import { browseUrl, createFolderTree } from "./folder-tree.js?v=1.4.36";
 
 const IDLE_POLL_MS = 50;
 
