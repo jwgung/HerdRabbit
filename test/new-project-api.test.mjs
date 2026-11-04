@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { AGENT_COMMANDS } from "../src/agent-launch.mjs";
 
@@ -29,8 +32,8 @@ function fakeHerdr({ answer } = {}) {
     async snapshot() {
       return { herdr_sessions: [...sessions], workspaces: [...workspaces], tabs: [...tabs], panes: [...panes], agents: [] };
     },
-    async createWorkspace(label, sessionId) {
-      calls.push(["createWorkspace", label, sessionId]);
+    async createWorkspace(label, sessionId, options) {
+      calls.push(["createWorkspace", label, sessionId, ...(options ? [options] : [])]);
       const session = sessions.find((item) => item.session_id === (sessionId ?? "hs"));
       const n = workspaces.length + 1;
       const id = `${session.session_id}~w${n}`;
@@ -46,6 +49,7 @@ function fakeHerdr({ answer } = {}) {
         return {
           async installedAgents() { calls.push(["remoteAgents", LAB]); return ["codex", "opencode"]; },
           async namesNewProjects() { return true; },
+          async opensFolders() { return true; },
         };
       }
       // A connected PC from before this answers nothing about its agents.
@@ -187,4 +191,68 @@ test("starting an agent in a new project needs the page's write token", async (c
   const response = await app.post({ label: "Shop", agent: "claude" }, { "X-Herdr-CSRF": "wrong" });
   assert.equal(response.status, 403);
   assert.deepEqual(app.herdr.calls, []);
+});
+
+// ---------------------------------------------------------------------------
+// The folder a new project opens in.
+
+// "home" stands for this PC's home folder; "home/My App" is a folder in it
+// and "home/notes.txt" a file.
+async function folders(context) {
+  const home = await mkdtemp(join(tmpdir(), "herdrabbit-project-folders-"));
+  context.after(() => rm(home, { recursive: true, force: true }));
+  await mkdir(join(home, "My App"));
+  await writeFile(join(home, "notes.txt"), "x");
+  return { home, app: join(home, "My App"), file: join(home, "notes.txt") };
+}
+
+test("a new project opens in the folder asked, ~ being this PC's home", async (context) => {
+  const { home, app: folder } = await folders(context);
+  const app = await start(context, fakeHerdr(), { homeDirectory: home });
+  assert.equal((await app.post({ label: "Shop", folder })).status, 201);
+  assert.equal((await app.post({ label: "Shop", herdrSessionId: "hs", folder: "~/My App/" })).status, 201);
+  assert.equal((await app.post({ label: "Shop", folder: "~" })).status, 201);
+  const started = await app.post({ label: "Shop", folder: `${home}/x/../My App`, agent: "claude" });
+  assert.equal(started.status, 201);
+  assert.equal((await app.post({ label: "Plain", folder: "" })).status, 201);
+  assert.deepEqual(app.herdr.calls, [
+    ["createWorkspace", "Shop", undefined, { cwd: folder }],
+    ["createWorkspace", "Shop", "hs", { cwd: folder }],
+    ["createWorkspace", "Shop", undefined, { cwd: home }],
+    ["createWorkspace", "Shop", undefined, { cwd: folder }],
+    ["sendText", "hs~w5:p1", "claude", { submit: true }],
+    ["createWorkspace", "Plain", undefined],
+  ]);
+});
+
+test("a folder that is not a full path, not there, or a file is refused before anything is made", async (context) => {
+  const { home, file } = await folders(context);
+  const app = await start(context, fakeHerdr(), { homeDirectory: home });
+  for (const [folder, code] of [
+    ["relative/dir", "invalid_folder"], ["~other", "invalid_folder"], [7, "invalid_folder"], ["/a\u0000b", "invalid_folder"],
+    [`/${"x".repeat(5000)}`, "invalid_folder"], ["~/missing", "folder_not_found"], [join(home, "missing"), "folder_not_found"],
+    [file, "not_a_folder"], [`${file}/inside`, "folder_not_found"],
+  ]) {
+    const response = await app.post({ label: "Shop", folder });
+    assert.equal(response.status, 400, JSON.stringify(folder));
+    assert.equal((await response.json()).error.code, code, JSON.stringify(folder));
+  }
+  assert.deepEqual(app.herdr.calls, []);
+});
+
+test("a connected PC is handed the folder as asked to check itself, and an older one is not asked", async (context) => {
+  const app = await start(context);
+  assert.equal((await app.post({ label: "Shop", herdrSessionId: `${LAB}!hs`, folder: "~/src" })).status, 201);
+  const old = await app.post({ label: "Shop", herdrSessionId: `${OLD}!hs`, folder: "/srv" });
+  assert.equal(old.status, 501);
+  assert.equal((await old.json()).error.code, "link_unsupported");
+  const bad = await app.post({ label: "Shop", herdrSessionId: `${LAB}!hs`, folder: "src" });
+  assert.equal(bad.status, 400);
+  assert.equal((await bad.json()).error.code, "invalid_folder");
+  // without a folder, an older PC makes a project as before
+  assert.equal((await app.post({ label: "Shop", herdrSessionId: `${OLD}!hs` })).status, 201);
+  assert.deepEqual(app.herdr.calls, [
+    ["createWorkspace", "Shop", `${LAB}!hs`, { cwd: "~/src" }],
+    ["createWorkspace", "Shop", `${OLD}!hs`],
+  ]);
 });

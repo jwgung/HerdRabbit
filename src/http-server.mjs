@@ -1,6 +1,8 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -30,7 +32,7 @@ import { renderMarkdown } from "./markdown.mjs";
 import { secretPrompt } from "./secret-prompt.mjs";
 import { agentCommand } from "./agent-launch.mjs";
 import { canResume, resumeCommand } from "./agent-sessions.mjs";
-import { projectFolder } from "./project-folder.mjs";
+import { existingFolder, invalidFolder, isFolderRequest, projectFolder } from "./project-folder.mjs";
 import { validateServerProfile } from "./server-profiles.mjs";
 import { ConversationMonitor } from "./conversation/monitor.mjs";
 import { ConversationService } from "./conversation/service.mjs";
@@ -547,6 +549,8 @@ export function createHerdrHttpServer({
   installedAgents = null,
   // This PC's earlier agent sessions by folder (src/agent-sessions.mjs).
   agentSessions = null,
+  // This PC's home folder: what `~` means in a folder asked for here.
+  homeDirectory = homedir(),
   csrfToken = randomBytes(32).toString("base64url"),
   maxBodyBytes = 16 * 1024,
   maxTransferBytes = Infinity,
@@ -1079,7 +1083,7 @@ export function createHerdrHttpServer({
             throw new HttpError(400, "invalid_input", "That name is too long.");
           }
           const { serverId, source } = fileSource(url.searchParams.get("server"));
-          const target = url.searchParams.get("path");
+          const target = await browseTarget(url.searchParams.get("path"), source);
           // A connected PC does its own reading, so it needs none of the local
           // thread budget -- and one that stops answering cannot exhaust it.
           const listing = source
@@ -1505,6 +1509,31 @@ export function createHerdrHttpServer({
     return Array.isArray(sessions) ? sessions : null;
   }
 
+  // A Files path, with `~` and `~/…` for the home folder of the machine read
+  // (a connected PC lists its home when asked for no path).
+  async function browseTarget(value, source) {
+    if (typeof value !== "string" || !(value === "~" || value.startsWith("~/"))) return value;
+    const rest = value.slice(2);
+    if (!source) return resolve(homeDirectory, rest);
+    if (rest === "") return null;
+    if (typeof source.home !== "function") return value;
+    return resolve(await source.home(), rest);
+  }
+
+  const noFolder = (value) => value === undefined || value === null || value === "";
+
+  // A folder asked for a new workspace or tab on `serverId`'s machine. This
+  // PC checks its own (`~` is homeDirectory); a connected PC that opens folders
+  // checks one there, `~` being its home, and one that does not is refused.
+  async function requestedFolder(value, serverId) {
+    if (serverId === LOCAL_SERVER) return existingFolder(value, { home: homeDirectory });
+    if (!isFolderRequest(value)) throw invalidFolder();
+    if (!(await herdr.agentsClient?.(serverId)?.opensFolders?.())) {
+      throw new HttpError(501, "link_unsupported", "That PC is too old to open a chosen folder from here; update it there.");
+    }
+    return value;
+  }
+
   function projectOf(snapshot, workspaceId) {
     const workspace = (snapshot.workspaces ?? []).find((item) => item.workspace_id === workspaceId);
     if (!workspace) throw new HttpError(404, "unknown_workspace", "That workspace is no longer there.");
@@ -1537,7 +1566,7 @@ export function createHerdrHttpServer({
   }
 
   // A new project in a Herdr session, with a shell or with an agent started in
-  // its first pane. As for a new session, everything that can be refused is
+  // its first pane, in a folder asked for (`folder`) or Herdr's own choice. As for a new session, everything that can be refused is
   // refused before Herdr is asked to make anything, and the command typed is
   // the agent table's. It is typed only into the pane the create call itself
   // named, once the snapshot shows that pane in that call's new project on
@@ -1546,14 +1575,9 @@ export function createHerdrHttpServer({
     const agent = body.agent === undefined || body.agent === null || body.agent === "" ? null : body.agent;
     if (agent !== null && agentCommand(agent) === null) throw new InputValidationError("Unknown agent");
     const sessionId = body.herdrSessionId;
-    const create = () => sessionId === undefined ? herdr.createWorkspace(body.label) : herdr.createWorkspace(body.label, sessionId);
-    if (agent === null) {
-      const made = await create();
-      const snapshot = await herdr.snapshot();
-      const paneId = typeof made?.pane_id === "string" && (snapshot.panes ?? []).some((pane) => pane.pane_id === made.pane_id)
-        ? made.pane_id : null;
-      return paneId === null ? { snapshot } : { snapshot, paneId };
-    }
+    const wantsFolder = !noFolder(body.folder);
+    const plain = () => sessionId === undefined ? herdr.createWorkspace(body.label) : herdr.createWorkspace(body.label, sessionId);
+    if (agent === null && !wantsFolder) return plainProject(await plain());
     const before = await herdr.snapshot();
     let serverId = LOCAL_SERVER;
     if (sessionId !== undefined) {
@@ -1562,16 +1586,30 @@ export function createHerdrHttpServer({
       if (!session) throw new InputValidationError("Choose a running session");
       serverId = session.server_id ?? LOCAL_SERVER;
     }
-    await requireAgentOn(serverId, agent);
-    if (serverId !== LOCAL_SERVER && !(await herdr.agentsClient?.(serverId)?.namesNewProjects?.())) {
-      throw new HttpError(501, "link_unsupported", "That PC is too old to start an agent in a new workspace from here; update it there.");
+    if (agent !== null) {
+      await requireAgentOn(serverId, agent);
+      if (serverId !== LOCAL_SERVER && !(await herdr.agentsClient?.(serverId)?.namesNewProjects?.())) {
+        throw new HttpError(501, "link_unsupported", "That PC is too old to start an agent in a new workspace from here; update it there.");
+      }
     }
+    const cwd = wantsFolder ? await requestedFolder(body.folder, serverId) : null;
+    const create = () => cwd === null ? plain() : herdr.createWorkspace(body.label, sessionId, { cwd });
+    if (agent === null) return plainProject(await create());
     const knownProjects = new Set((before.workspaces ?? []).map((item) => item.workspace_id));
     const made = await create();
     const after = await herdr.snapshot();
     const { paneId } = madeProjectPane(made, after, serverId, knownProjects);
     await herdr.sendText(paneId, agentCommand(agent), { submit: true });
     return { snapshot: after, paneId };
+  }
+
+  // A shell project's answer: the snapshot, and its first pane when the
+  // create call named one the snapshot shows.
+  async function plainProject(made) {
+    const snapshot = await herdr.snapshot();
+    const paneId = typeof made?.pane_id === "string" && (snapshot.panes ?? []).some((pane) => pane.pane_id === made.pane_id)
+      ? made.pane_id : null;
+    return paneId === null ? { snapshot } : { snapshot, paneId };
   }
 
   // The first pane of the project a create call named: a project new since
@@ -1591,9 +1629,9 @@ export function createHerdrHttpServer({
     }
   }
 
-  // A new session in a project: a shell, optionally named, optionally with an
-  // agent started in it, or an earlier session of that agent resumed in the
-  // project's folder. Everything that can be refused is refused before Herdr
+  // A new session in a project: a shell, optionally named, optionally in a
+  // folder asked for, optionally with an agent started in it, or an earlier
+  // session of that agent resumed in the project's folder. Everything that can be refused is refused before Herdr
   // is asked to make anything; the command typed is the agent table's, plus
   // for a resume an id of that agent's shape that the project's machine has
   // just listed for the folder. Nothing of the request is typed as it came.
@@ -1606,7 +1644,9 @@ export function createHerdrHttpServer({
     if (command === null && agent !== null) throw new InputValidationError("Invalid conversation id");
     const label = body.label === undefined || body.label === null || (typeof body.label === "string" && body.label.trim() === "")
       ? null : validation.validateTabLabel(body.label);
-    if (agent === null && label === null) {
+    const wantsFolder = !noFolder(body.folder);
+    if (wantsFolder && resume !== null) throw new InputValidationError("A resumed conversation opens in its workspace's folder");
+    if (agent === null && label === null && !wantsFolder) {
       await herdr.createTab(workspaceId);
       return { snapshot: await herdr.snapshot() };
     }
@@ -1614,7 +1654,7 @@ export function createHerdrHttpServer({
     const workspace = projectOf(before, workspaceId);
     const serverId = workspace.server_id ?? LOCAL_SERVER;
     if (agent !== null) await requireAgentOn(serverId, agent);
-    let folder = null;
+    let folder = wantsFolder ? await requestedFolder(body.folder, serverId) : null;
     if (resume !== null) {
       folder = projectFolder(before, workspaceId);
       const listed = folder === null ? [] : await sessionsOn(serverId, agent, folder);

@@ -21,7 +21,7 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 | Command | HerdRabbit | Notes |
 |---|---|---|
 | `list`, `get` | Shown | Workspaces in the sidebar |
-| `create` | Partly | **New workspace…** on a machine's ⋯ menu, with a shell or an agent. Missing: choosing its folder (`--cwd`); it opens where Herdr's `new_cwd` setting says |
+| `create` | Done | **New workspace…** on a machine's ⋯ menu, with a shell or an agent, in a folder typed or chosen with Browse… (`--cwd`); left at `~`, where Herdr's `new_cwd` setting says |
 | `rename` | Done | |
 | `close` | Done | After confirmation |
 | `focus` | Not needed | The page selects a pane itself |
@@ -32,7 +32,7 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 | Command | HerdRabbit | Notes |
 |---|---|---|
 | `list`, `get` | Shown | |
-| `create` | Partly | **New tab…** on a workspace's ⋯ menu, with a shell, an agent, or an agent's earlier conversation. A resumed conversation opens in the workspace's folder; a new tab does not choose its folder (`--cwd`) |
+| `create` | Done | **New tab…** on a workspace's ⋯ menu, with a shell, an agent, or an agent's earlier conversation, in the workspace's folder or another typed or chosen with Browse… (`--cwd`). A resumed conversation opens in the workspace's folder |
 | `rename` | Done | |
 | `close` | Done | After confirmation |
 | `focus` | Not needed | |
@@ -97,12 +97,11 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 
 ## Missing, in a suggested order
 
-1. Choosing the folder of a new workspace and a new tab (`--cwd`).
-2. Resizing panes by dragging a split's divider, and naming a pane.
-3. Git worktrees: a workspace per branch.
-4. Sessions: start another, stop one, delete a stopped one.
-5. Plugins: run a plugin's actions and open its panes from the page.
-6. Herdr's update channel and `config.toml` settings such as `new_cwd`.
-7. Herdr's agent integrations.
-8. Sending one input to several panes (`pane input`).
-9. Local plugin folders (`plugin link`), plugin logs.
+1. Resizing panes by dragging a split's divider, and naming a pane.
+2. Git worktrees: a workspace per branch.
+3. Sessions: start another, stop one, delete a stopped one.
+4. Plugins: run a plugin's actions and open its panes from the page.
+5. Herdr's update channel and `config.toml` settings such as `new_cwd`.
+6. Herdr's agent integrations.
+7. Sending one input to several panes (`pane input`).
+8. Local plugin folders (`plugin link`), plugin logs.

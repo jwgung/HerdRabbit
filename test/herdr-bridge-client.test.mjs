@@ -108,7 +108,7 @@ test("routes scoped workspace, tab and pane operations to their Herdr session", 
   const sessionId = sessionIds.sessionIdForName("review");
 
   await client.snapshot();
-  await client.createWorkspace("새 프로젝트", sessionId);
+  await client.createWorkspace("새 프로젝트", sessionId, { cwd: "/srv/a b" });
   await client.renameWorkspace(`${sessionId}~w2`, "이름 변경");
   assert.deepEqual(await client.createTab(`${sessionId}~w2`, { cwd: "/srv/a b" }), { tab_id: `${sessionId}~w2:t3`, pane_id: `${sessionId}~w2:p3` });
   await client.renameTab(`${sessionId}~w2:t3`, "배포 확인");
@@ -121,7 +121,7 @@ test("routes scoped workspace, tab and pane operations to their Herdr session", 
   assert.deepEqual(fake.calls.map((call) => call.args), [
     ["session", "list", "--json"],
     ["--session=review", "api", "snapshot"],
-    ["--session=review", "workspace", "create", "--label", "새 프로젝트", "--no-focus"],
+    ["--session=review", "workspace", "create", "--label", "새 프로젝트", "--cwd", "/srv/a b", "--no-focus"],
     ["--session=review", "workspace", "rename", "w2", "이름 변경"],
     ["--session=review", "tab", "create", "--workspace", "w2", "--cwd", "/srv/a b", "--no-focus"],
     ["--session=review", "tab", "rename", "w2:t3", "배포 확인"],

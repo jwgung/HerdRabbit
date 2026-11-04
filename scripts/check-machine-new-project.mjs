@@ -6,15 +6,24 @@
 // running session lets another be picked, one with a single session shows no
 // picker. Its Agent choices are that machine's installed agents, each with its
 // program's mark, and one chosen is started in the new workspace's first pane.
+// Its Folder opens as ~ (the machine's home, Herdr's own choice when left so);
+// Browse… lists this machine's folders and the one used is where the
+// workspace opens, and a folder typed for a connected PC goes to that PC.
 // The footer's uploads and settings buttons look alike, their icons centred.
 // Runs on a desktop and a phone against an in-process fake herdr.
 //
 // NEW_PROJECT_SHOTS=<folder> keeps pictures of the footer and the open menu.
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
+
+// This machine's home for the check, with ~/projects/shop in it.
+const home = await mkdtemp(join(tmpdir(), "herdrabbit-new-project-"));
+await mkdir(join(home, "projects", "shop"), { recursive: true });
 
 const workspaces = [
   { workspace_id: "w1", label: "Platform", herdr_session_id: "hs_local", server_id: "local" },
@@ -50,8 +59,8 @@ const herdr = {
       workspaces: [...workspaces], tabs: [...tabs], panes: [...panes], agents: [],
     };
   },
-  async createWorkspace(label, herdrSessionId) {
-    created.push({ label, herdrSessionId });
+  async createWorkspace(label, herdrSessionId, { cwd } = {}) {
+    created.push({ label, herdrSessionId, ...(cwd === undefined ? {} : { cwd }) });
     const n = workspaces.length + 1;
     const server_id = herdrSessionId.startsWith("lab!") ? "lab" : "local";
     workspaces.push({ workspace_id: `w${n}`, label, herdr_session_id: herdrSessionId, server_id });
@@ -64,13 +73,13 @@ const herdr = {
   async sendText(paneId, text) { typed.push([paneId, text]); },
   agentsClient(serverId) {
     return serverId === "lab"
-      ? { async installedAgents() { return ["opencode"]; }, async namesNewProjects() { return true; } }
+      ? { async installedAgents() { return ["opencode"]; }, async namesNewProjects() { return true; }, async opensFolders() { return true; } }
       : null;
   },
   async sendKeys() {},
 };
 const { server } = createHerdrHttpServer({
-  herdr, installedAgents: { async list() { return ["codex", "claude"]; } }, logger: { info() {}, error() {} },
+  herdr, installedAgents: { async list() { return ["codex", "claude"]; } }, logger: { info() {}, error() {} }, homeDirectory: home,
 });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
@@ -165,7 +174,7 @@ try {
     await page.keyboard.press("Escape");
 
     // New workspace from a machine's menu: made there, the agent chosen started.
-    const makeOn = async (serverId, label, { pick = null, agent = "", sessions = [], first, agents }) => {
+    const makeOn = async (serverId, label, { pick = null, agent = "", sessions = [], first, agents, folder = null, cwd }) => {
       const heading = await machineMenu(serverId);
       await heading.locator(".sidebar-action-item", { hasText: "New workspace…" }).click();
       const dialog = page.locator("#project-dialog");
@@ -193,11 +202,14 @@ try {
       }
       if (shots) await page.screenshot({ path: join(shots, `project-dialog-${serverId}-${where}.png`) });
       if (agent) await dialog.locator(`.agent-choice[data-agent="${agent}"]`).click();
+      assert.equal(await page.locator("#project-folder").inputValue(), "~", `${label}: the folder does not open as the home folder`);
+      if (folder) await folder(dialog);
       await page.locator("#project-name").fill(label);
       const before = typed.length;
       await dialog.locator('button[type="submit"]').click();
       await dialog.waitFor({ state: "hidden" });
-      assert.deepEqual(created.at(-1), { label, herdrSessionId: pick ?? first }, `${label}: the workspace was not made there`);
+      assert.deepEqual(created.at(-1), { label, herdrSessionId: pick ?? first, ...(cwd === undefined ? {} : { cwd }) },
+        `${label}: the workspace was not made there`);
       const pane = panes.at(-1).pane_id;
       assert.deepEqual(typed.slice(before), agent ? [[pane, agent]] : [],
         `${label}: the agent was not started in the new workspace's pane`);
@@ -208,9 +220,34 @@ try {
     // The page opened on w1:p1, this machine's pane.
     await makeOn("local", `Local ${where}`, { first: "hs_local", agents: localAgents });
     await makeOn("local", `Codex ${where}`, { first: "hs_local", agent: "codex", agents: localAgents });
+    // Browse… from ~ into projects/shop: the workspace opens there.
+    const pathIs = (text) => page.waitForFunction((wanted) =>
+      document.querySelector("#project-folder-picker .folder-picker-path")?.textContent === wanted, text);
+    await makeOn("local", `Shop ${where}`, { first: "hs_local", agents: localAgents, cwd: join(home, "projects", "shop"), async folder(dialog) {
+      const picker = dialog.locator("#project-folder-picker");
+      await dialog.locator("#project-folder-field .folder-browse").click();
+      await pathIs("~");
+      assert.deepEqual(await picker.locator(".folder-picker-item").allTextContents(), ["projects"], `${where}: the home folder's folders are not listed`);
+      await picker.locator(".folder-picker-item", { hasText: "projects" }).click();
+      await pathIs("~/projects");
+      await picker.locator(".folder-picker-item", { hasText: "shop" }).click();
+      await pathIs("~/projects/shop");
+      if (mobile) {
+        const height = await dialog.locator("#project-folder-field .folder-browse").evaluate((element) =>
+          Math.max(element.getBoundingClientRect().height, parseFloat(getComputedStyle(element, "::before").height) || 0));
+        assert.ok(height >= 44, `${where}: Browse… is under 44px tall (${height})`);
+      }
+      if (shots) await page.screenshot({ path: join(shots, `project-folder-${where}.png`) });
+      await picker.locator(".folder-choose").click();
+      assert.equal(await dialog.locator("#project-folder").inputValue(), "~/projects/shop");
+    } });
     // lab runs two sessions: its default first, the other one pickable.
     await makeOn("lab", `Lab ${where}`, { first: "lab!hs_main", pick: "lab!hs_work", agent: "opencode",
       sessions: ["lab!hs_work", "lab!hs_main"], agents: labAgents });
+    // A folder typed for a connected PC is that PC's to expand and check; the
+    // session picked first is the selected pane's, the one just made there.
+    await makeOn("lab", `Lab src ${where}`, { first: "lab!hs_work", sessions: ["lab!hs_work", "lab!hs_main"], agents: labAgents, cwd: "~/src",
+      async folder(dialog) { await dialog.locator("#project-folder").fill("~/src"); } });
 
     assert.deepEqual(errors, [], `page errors: ${errors.join("; ")}`);
     await context.close();
@@ -249,4 +286,5 @@ try {
 } finally {
   await browser.close();
   server.close();
+  await rm(home, { recursive: true, force: true });
 }

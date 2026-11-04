@@ -12,6 +12,7 @@ import { cleanHerdrCheck, cleanHerdrRunStatus } from "./herdr-update.mjs";
 import { knownAgentNames } from "./agent-launch.mjs";
 import { cleanSessionList } from "./agent-sessions.mjs";
 import { HttpError } from "./http-basics.mjs";
+import { FOLDER_CODES, FolderError } from "./project-folder.mjs";
 import { cleanPluginState, validatePluginId, validatePluginRef, validatePluginSource } from "./herdr-plugins.mjs";
 
 // fileIdle: how long a file being passed on may go quiet before it fails
@@ -272,7 +273,7 @@ export class LinkClient {
     this.#verify(await this.#request("/api/link/hello", { timeoutMs: this.timeouts.hello, checked: true }));
   }
 
-  async #request(path, { method = "GET", body, timeoutMs = this.timeouts.read, accountErrors = false, pluginErrors = false, checked = false, codes = null } = {}) {
+  async #request(path, { method = "GET", body, timeoutMs = this.timeouts.read, accountErrors = false, pluginErrors = false, folderErrors = false, checked = false, codes = null } = {}) {
     if (!checked) await this.#ready();
     const call = await this.#open(path, {
       method,
@@ -292,6 +293,10 @@ export class LinkClient {
       if (pluginErrors && PLUGIN_CODES.has(refusal?.code)) {
         const status = response.status >= 400 && response.status < 600 ? response.status : 502;
         throw new HttpError(status, refusal.code, readable(refusal.message) || "That PC refused the plugin change.");
+      }
+      // A folder that PC does not have is the asker's mistake, not a broken link.
+      if (folderErrors && response.status === 400 && FOLDER_CODES.has(refusal?.code)) {
+        throw new FolderError(refusal.code, readable(refusal.message) || "That folder cannot be used on that PC.");
       }
       if (codes?.has(refusal?.code)) {
         throw linkError(refusal.code, readable(refusal.message) || `HerdRabbit at ${this.address} returned ${response.status}.`);
@@ -744,10 +749,21 @@ export class LinkClient {
   // Project and tab changes. The connected PC runs them through its own Herdr client,
   // so its validation is what decides -- this side only carries the request.
   // The new project's ids, as the PC names them; null from a PC that does not say.
-  async createWorkspace(label, herdrSessionId) {
-    const body = herdrSessionId === undefined ? { label } : { label, herdrSessionId };
-    const answer = await this.#request("/api/link/workspaces", { method: "POST", body, timeoutMs: this.timeouts.write });
+  // A folder (`cwd`, absolute or ~-relative) reaches only a PC that opens
+  // folders asked (`folders`); that PC expands and checks it itself.
+  async createWorkspace(label, herdrSessionId, { cwd } = {}) {
+    if (cwd !== undefined && !(await this.opensFolders())) throw tooOld(this.address, "opening a workspace in a chosen folder");
+    const body = { label, ...(herdrSessionId === undefined ? {} : { herdrSessionId }), ...(cwd === undefined ? {} : { cwd }) };
+    const answer = await this.#request("/api/link/workspaces", { method: "POST", body, timeoutMs: this.timeouts.write, folderErrors: true });
     return createdProject(answer?.workspace_id, answer?.tab_id, answer?.pane_id);
+  }
+
+  // Whether the PC opens a new workspace or tab in any folder it has
+  // (`folders`). An older one takes a tab's folder only when it is that
+  // workspace's own (for a resume), and none for a new workspace.
+  async opensFolders() {
+    await this.#ready();
+    return this.#features.has("folders");
   }
 
   // Whether the PC names a new project's ids (`project_ids`): only then may
@@ -766,10 +782,11 @@ export class LinkClient {
   }
 
   // The new tab's ids, as the PC names them; null from a PC that does not say.
-  // A folder reaches only a PC that lists its sessions (`agent_sessions`):
-  // the hub asks for one only after that PC listed a session there.
+  // A folder reaches a PC that lists its sessions (`agent_sessions`) when it
+  // is the workspace's own, for a resume; any other only a PC that names
+  // `folders` (the hub checks before asking).
   async createTab(workspaceId, { cwd } = {}) {
-    const answer = await this.#workspace(workspaceId, "tabs", { cwd });
+    const answer = await this.#workspace(workspaceId, "tabs", { cwd }, { folderErrors: true });
     return createdTab(answer?.tab_id, answer?.pane_id);
   }
 
@@ -800,9 +817,9 @@ export class LinkClient {
     });
   }
 
-  async #workspace(workspaceId, action, body) {
+  async #workspace(workspaceId, action, body, options = {}) {
     return this.#request(`/api/link/workspaces/${encodeURIComponent(workspaceId)}/${action}`, {
-      method: "POST", body, timeoutMs: this.timeouts.write,
+      method: "POST", body, timeoutMs: this.timeouts.write, ...options,
     });
   }
 
