@@ -148,10 +148,18 @@ try {
     await page.waitForSelector(".settings-button.has-update");
     assert.equal(await button.getAttribute("aria-label"), "Settings (update available)");
     await button.click();
-    // Settings → About carries the news too, beside its name and on its Update button.
-    const about = page.locator("#settings-dialog .settings-page-link", { hasText: "About" });
-    await about.click();
-    assert.equal((await about.locator(".ui-badge").textContent()).trim(), "Update");
+    // Settings → Updates carries the news too, beside its name and on its Update button.
+    const updates = page.locator("#settings-dialog .settings-page-link", { hasText: "Updates" });
+    await updates.click();
+    assert.equal((await updates.locator(".ui-badge").textContent()).trim(), "Update");
+    assert.equal(await page.locator("#settings-dialog .settings-page-link", { hasText: "About" }).locator(".ui-badge").count(), 0);
+    // Its list: this PC's HerdRabbit with its Update; Update all for it.
+    const localUpdates = page.locator('#updates-list .updates-machine[data-server-id="local"]');
+    await localUpdates.locator('[data-update="app"]').waitFor({ state: "visible" });
+    assert.equal((await localUpdates.locator('[data-update="app"] .plugin-update-line').textContent()).trim(), "2.0.0 → 2.0.1 available");
+    assert.equal((await localUpdates.locator(".updates-all").textContent()).trim(), "Update all (1)");
+    // About shows the versions alone.
+    assert.equal(await page.locator('.settings-page[data-page="about"] button').count(), 0, "About has update controls");
     const item = page.locator("#settings-update");
     await item.waitFor({ state: "visible" });
     assert.equal((await item.textContent()).trim(), "Update available…");
@@ -318,12 +326,12 @@ try {
   await browser.close();
 }
 
-// The Update window, from Settings → About (the screen stays under it, so a
+// The Update window, from Settings → Updates (the screen stays under it, so a
 // second opening goes straight to its button).
 async function openUpdateWindow(page) {
   if (!(await page.locator("#settings-dialog").isVisible())) {
     await page.locator(".settings-button").click();
-    await page.locator("#settings-dialog .settings-page-link", { hasText: "About" }).click();
+    await page.locator("#settings-dialog .settings-page-link", { hasText: "Updates" }).click();
   }
   await page.locator("#settings-update").click();
 }

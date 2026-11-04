@@ -11,8 +11,9 @@ const PAGE = 50;
 // sorted and read a page at a time. Each listing says whether the machine
 // chosen in Machine has it already; Install… opens the page's own install
 // dialog with Source filled in, so it goes through the same confirm step.
-// HerdRabbit is listed with no Install: it is updated from About.
-export function createPluginBrowse({ api, installed, locked, install }) {
+// HerdRabbit is listed with no Install: it is updated from Updates
+// (`openUpdates`).
+export function createPluginBrowse({ api, installed, locked, install, openUpdates = () => {} }) {
   const search = document.querySelector("#plugins-search");
   const sort = document.querySelector("#plugins-sort");
   const status = document.querySelector("#plugins-browse-status");
@@ -52,7 +53,11 @@ export function createPluginBrowse({ api, installed, locked, install }) {
     const actions = createElement("div", { className: "plugin-actions" });
     const { plugins, loaded } = installed();
     if (item.protected) {
-      actions.append(createElement("span", { className: "plugin-state", text: "Updated from About" }));
+      const link = createElement("button", { className: "plugin-state plugin-updates-link", text: "Updated from Updates" });
+      link.type = "button";
+      link.title = "Open Updates";
+      link.addEventListener("click", () => openUpdates());
+      actions.append(link);
     } else if (loaded && marketplaceInstalled(item, plugins)) {
       actions.append(createElement("span", { className: "plugin-badge", text: "Installed" }));
     } else {

@@ -65,6 +65,7 @@ const APP_SHELL = [
   "/app/settings.js?v=1.4.30",
   "/app/plugins.js?v=1.4.30",
   "/app/plugin-model.js?v=1.4.30",
+  "/app/updates.js?v=1.4.30",
   "/app/plugin-browse.js?v=1.4.30",
   "/app/files.js?v=1.4.30",
   "/app/notifications.js?v=1.4.30",

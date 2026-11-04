@@ -7,8 +7,9 @@
 // devices; Fit panes to this window on wide screens), Notifications (only a
 // switch where push works), Security (with sign-in on: Passkeys and
 // Signed-in devices), PCs (where Connect PC is: the list and Connect PC),
-// Plugins (with sign-in on, where this HerdRabbit manages them) and
-// About (versions). Each control does what its old menu item did. Runs on a
+// Plugins (with sign-in on, where this HerdRabbit manages them), Updates
+// (always: the Update window's Update… and each machine's updates) and
+// About (versions only). A page's heading stays put while the page scrolls. Each control does what its old menu item did. Runs on a
 // desktop and a phone against an in-process fake herdr.
 //
 // SETTINGS_SHOTS=<folder> keeps pictures of each page in both themes.
@@ -37,7 +38,7 @@ await once(server, "listening");
 const url = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ args: ["--no-sandbox"] });
 const PUSH_KEY = "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U";
-const ALL_PAGES = ["Appearance", "Chat", "Terminal & keys", "Notifications", "Security", "PCs", "Plugins", "About"];
+const ALL_PAGES = ["Appearance", "Chat", "Terminal & keys", "Notifications", "Security", "PCs", "Plugins", "Updates", "About"];
 
 try {
   for (const mobile of [false, true]) {
@@ -273,8 +274,16 @@ try {
         await shoot("plugins");
       }
 
-      // About: this machine's versions.
+      // Updates: each machine's updates and Check (scripts/check-in-app-update.mjs
+      // and check-plugins.mjs drive them).
+      await open("Updates", "updates");
+      assert.equal(await page.locator("#updates-check").isVisible(), true);
+      await page.locator('#updates-list .updates-machine[data-server-id="local"]').waitFor({ state: "visible" });
+      await shoot("updates");
+
+      // About: this machine's versions, and nothing to press.
       await open("About", "about");
+      assert.equal(await pageOf("about").locator("button").count(), 0, "About has controls");
       assert.equal(await page.locator("#settings-version-app").textContent(), full ? "9.8.7" : "Unknown");
       assert.equal(await page.locator("#settings-version-herdr").textContent(), full ? "0.9.5" : "Unknown");
       await shoot("about");
