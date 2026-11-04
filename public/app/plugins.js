@@ -1,10 +1,10 @@
-import { createElement } from "./dom.js?v=1.4.29";
+import { createElement } from "./dom.js?v=1.4.30";
 import {
   parsePluginSource, pluginMachines, pluginOperationText, pluginSourceText, pluginSourceUrl, validPluginRef,
   updateAllConfirmText, updateAllCount, updateAllPlan, updateAllResultText,
-} from "./plugin-model.js?v=1.4.29";
-import { createPluginBrowse } from "./plugin-browse.js?v=1.4.29";
-import { appVersionText, confirmDetails as appConfirmDetails, herdrRunSummary, runSummary } from "../app-update.js?v=1.4.29";
+} from "./plugin-model.js?v=1.4.30";
+import { createPluginBrowse } from "./plugin-browse.js?v=1.4.30";
+import { appVersionText, confirmDetails as appConfirmDetails, herdrRunSummary, runSummary } from "../app-update.js?v=1.4.30";
 
 const POLL_MS = 1_500;
 

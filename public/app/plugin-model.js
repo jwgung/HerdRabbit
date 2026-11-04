@@ -97,7 +97,7 @@ export function updateAllCount(plan) {
 }
 
 // The one question Update all asks: what, where, in which order. `appLine`
-// is HerdRabbit's "1.4.29 → 1.4.30 available" and `appDetails` what its own
+// is HerdRabbit's "1.4.30 → 1.4.30 available" and `appDetails` what its own
 // update's confirm says it does.
 export function updateAllConfirmText(machine, plan, { appLine = "", appDetails = "" } = {}) {
   const lines = plan.plugins.map((plugin) => `• ${plugin.name}`);
