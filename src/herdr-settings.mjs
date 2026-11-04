@@ -400,18 +400,20 @@ export class HerdrSettings {
   // After a save: the newest KEPT_BACKUPS backups of config.toml are kept and
   // older ones removed, and a write a crash left half done (ten minutes old) goes.
   // Only plain files named as Herdr names backups; a folder or a link of that
-  // name, and other files, are left alone. A file that cannot go stays.
-  async #tidy(folder, name) {
+  // name, and other files, are left alone. A file that cannot go stays. The
+  // backup this save made is kept whatever its name sorts as (a clock set back).
+  // STALE_TEMP_MS stays well above a save's own time (its checks time out in seconds).
+  async #tidy(folder, name, made) {
     let entries;
     try { entries = await readdir(folder, { withFileTypes: true }); } catch { return; }
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
     const backupName = new RegExp(`^${escaped}\\.bak-\\d{8}-\\d{6}(?:-\\d{1,4})?$`, "u");
     const tempName = new RegExp(`^\\.${escaped}\\.herdrabbit-[0-9a-f]{12}$`, "u");
-    const backups = entries.filter((entry) => entry.isFile() && backupName.test(entry.name)).map((entry) => entry.name);
+    const backups = entries.filter((entry) => entry.isFile() && backupName.test(entry.name) && entry.name !== made).map((entry) => entry.name);
     // By time, then the -N of a second that had several.
     const order = (value) => value.replace(/-(\d{1,4})$/u, (_, n) => `~${n.padStart(4, "0")}`);
     backups.sort((a, b) => (order(a) < order(b) ? 1 : order(a) > order(b) ? -1 : 0));
-    for (const old of backups.slice(KEPT_BACKUPS)) await rm(join(folder, old), { force: true }).catch(() => {});
+    for (const old of backups.slice(made ? KEPT_BACKUPS - 1 : KEPT_BACKUPS)) await rm(join(folder, old), { force: true }).catch(() => {});
     for (const entry of entries) {
       if (!entry.isFile() || !tempName.test(entry.name)) continue;
       const path = join(folder, entry.name);
@@ -476,7 +478,7 @@ export class HerdrSettings {
         throw new HttpError(422, "config_invalid", "Herdr found problems in the saved config, so the old one was put back.", { diagnostics: inPlace.diagnostics });
       }
       const reload = await this.run(["server", "reload-config"], { timeout: READ_TIMEOUT_MS });
-      await this.#tidy(folder, basename(resolved));
+      await this.#tidy(folder, basename(resolved), backup ? basename(backup) : null);
       return {
         ...(await this.readConfig()),
         backup: backup ? basename(backup) : null,

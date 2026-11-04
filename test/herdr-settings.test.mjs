@@ -165,6 +165,21 @@ test("a save keeps the newest backups only, and clears a write left by a crash",
   assert.ok(names.includes(".config.toml.herdrabbit-ba9876543210"), "a recent one stays");
 });
 
+test("the backup a save makes is kept even when the clock is behind the others, and -10 sorts after -9", async (context) => {
+  const { configPath, folder, fake } = await world(context);
+  const settings = new HerdrSettings({ run: fake.run, home: folder, env: { PATH: "/usr/bin" }, now: () => new Date(2020, 0, 1, 9, 0, 0).getTime() });
+  const later = [...Array.from({ length: 8 }, (_, index) => `config.toml.bak-20300101-0900${String(index + 11)}`), "config.toml.bak-20300101-090000-9", "config.toml.bak-20300101-090000-10"];
+  for (const name of later) await writeFile(join(folder, name), name);
+  const saved = await settings.saveConfig("onboarding = false\n", (await settings.readConfig()).version);
+  assert.match(saved.backup, /^config\.toml\.bak-20200101-090000$/u);
+  const backups = (await readdir(folder)).filter((name) => name.startsWith("config.toml.bak-"));
+  assert.equal(backups.length, 10);
+  assert.ok(backups.includes(saved.backup), "the one just made stays");
+  assert.ok(!backups.includes("config.toml.bak-20300101-090000-9"), "the oldest goes");
+  assert.ok(backups.includes("config.toml.bak-20300101-090000-10"), "-10 is newer than -9");
+  assert.equal(await readFile(configPath, "utf8"), "onboarding = false\n");
+});
+
 test("a config Herdr refuses is not saved, and its diagnostics come back", async (context) => {
   const { settings, fake, configPath, folder } = await world(context);
   const { version } = await settings.readConfig();

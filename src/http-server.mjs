@@ -1766,17 +1766,15 @@ export function createHerdrHttpServer({
     const before = await herdr.snapshot();
     const serverId = projectOf(before, workspaceId).server_id ?? LOCAL_SERVER;
     await requireAgentOn(serverId, agent);
+    const knownProjects = new Set((before.workspaces ?? []).map((item) => item.workspace_id));
     const made = await herdr.createWorktree(workspaceId, options);
-    const after = await herdr.snapshot();
-    const workspace = typeof made?.workspace_id === "string"
-      ? (after.workspaces ?? []).find((item) => item.workspace_id === made.workspace_id) : null;
-    const pane = workspace && (workspace.server_id ?? LOCAL_SERVER) === serverId
-      ? (after.panes ?? []).find((item) => item.pane_id === made.pane_id && item.workspace_id === made.workspace_id && item.tab_id === made.tab_id)
-      : null;
-    if (!pane) {
+    let paneId;
+    try {
+      ({ paneId } = madeProjectPane(made, await herdr.snapshot(), serverId, knownProjects));
+    } catch {
       throw new HttpError(502, "worktree_pane_missing", "The worktree was made, but its first pane could not be found, so no agent was started. Start one from the workspace's ⋯ menu.");
     }
-    await herdr.sendText(pane.pane_id, agentCommand(agent), { submit: true });
+    await herdr.sendText(paneId, agentCommand(agent), { submit: true });
     return made;
   }
 

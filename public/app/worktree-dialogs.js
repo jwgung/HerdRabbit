@@ -90,8 +90,12 @@ export function createWorktreeDialogs({ state, api, agentMark, adoptMutationSnap
       const answer = await api(`/api/agents?server=${encodeURIComponent(serverId)}`);
       if (opened !== generation) return;
       create.agents.fill(answer.agents ?? [], create.agents.value() || lastAgent);
-    } catch {
-      if (opened === generation) create.agents.fill([]);
+      if (!answer.supported) create.agentsNote = "This machine cannot list its agents. Update HerdRabbit there to start one from here.";
+      else if (!answer.agents?.length) create.agentsNote = "No agents were found on this machine's PATH. A shell will open.";
+    } catch (error) {
+      if (opened !== generation) return;
+      create.agents.fill([]);
+      create.agentsNote = `${error.message} A shell can still be opened.`;
     } finally {
       if (opened === generation) create.agentField.disabled = state.mutationBusy;
     }
@@ -104,6 +108,7 @@ export function createWorktreeDialogs({ state, api, agentMark, adoptMutationSnap
     create.context.textContent = `A branch of ${workspaceLabel}'s repository, checked out in a new folder and opened as its own workspace.`;
     create.submit.disabled = true;
     create.agents.fill([]);
+    create.agentsNote = "";
     say(create.feedback, "");
     create.dialog.showModal();
     window.requestAnimationFrame(() => create.branch.focus());
@@ -111,6 +116,7 @@ export function createWorktreeDialogs({ state, api, agentMark, adoptMutationSnap
     const list = await loadList(create.feedback, opened);
     await agentsLoaded;
     if (!list || opened !== generation) return;
+    if (create.agentsNote) say(create.feedback, create.agentsNote);
     if (list.source?.repo_name) {
       create.context.textContent = `A branch of ${list.source.repo_name}, checked out in a new folder and opened as its own workspace. A local branch of that name is used as it is.`;
     }

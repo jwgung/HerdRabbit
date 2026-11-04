@@ -6,11 +6,11 @@ import { HerdrCommandError } from "../src/herdr-client.mjs";
 
 // A herdr whose worktree calls are recorded; `refuse` names a Herdr refusal
 // code for every change.
-function fakeHerdr({ refuse = null, namePane = true } = {}) {
+function fakeHerdr({ refuse = null, namePane = true, reopen = false } = {}) {
   const calls = [];
-  const workspaces = [{ workspace_id: "w1", label: "shop" }];
-  const tabs = [];
-  const panes = [];
+  const workspaces = [{ workspace_id: "w1", label: "shop" }, { workspace_id: "link_1!w1", label: "laptop shop", server_id: "link_1" }];
+  const tabs = [{ tab_id: "w1:t1", workspace_id: "w1" }];
+  const panes = [{ pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1" }];
   const fail = () => { if (refuse) throw new HerdrCommandError(`Herdr said ${refuse}`, { code: refuse }); };
   return {
     calls,
@@ -24,6 +24,14 @@ function fakeHerdr({ refuse = null, namePane = true } = {}) {
     async createWorktree(id, options) {
       calls.push(["create", id, options]);
       fail();
+      // A Herdr that answers with a workspace already there (its root pane).
+      if (reopen) return { workspace_id: "w1", tab_id: "w1:t1", pane_id: "w1:p1", path: "/work/shop", branch: options.branch, already_open: true };
+      if (id.startsWith("link_1!")) {
+        workspaces.push({ workspace_id: "link_1!w2", label: "cart", server_id: "link_1" });
+        tabs.push({ tab_id: "link_1!w2:t1", workspace_id: "link_1!w2" });
+        panes.push({ pane_id: "link_1!w2:p1", tab_id: "link_1!w2:t1", workspace_id: "link_1!w2" });
+        return { workspace_id: "link_1!w2", tab_id: "link_1!w2:t1", pane_id: "link_1!w2:p1", path: "/work/wt/cart", branch: options.branch, already_open: false };
+      }
       workspaces.push({ workspace_id: "w2", label: "cart", worktree: { is_linked_worktree: true, branch: options.branch } });
       tabs.push({ tab_id: "w2:t1", workspace_id: "w2" });
       panes.push({ pane_id: "w2:p1", tab_id: "w2:t1", workspace_id: "w2" });
@@ -143,4 +151,28 @@ test("a worktree made without a named pane is kept, and no agent is typed anywhe
   assert.equal(made.status, 502);
   assert.equal((await made.json()).error.code, "worktree_pane_missing");
   assert.deepEqual(app.herdr.calls.map((call) => call[0]), ["create"]);
+});
+
+test("an answer naming a workspace that was already there gets no agent typed into it", async (context) => {
+  const herdr = fakeHerdr({ reopen: true });
+  const app = await start(context, herdr);
+  const made = await app.post("/api/workspaces/w1/worktrees", { branch: "feat/cart", agent: "claude" });
+  assert.equal(made.status, 502);
+  assert.deepEqual(app.herdr.calls.map((call) => call[0]), ["create"]);
+});
+
+test("a connected PC's worktree starts an agent that PC has, and is refused one it lacks or an old PC", async (context) => {
+  for (const [remote, status, typed] of [
+    [{ async installedAgents() { return ["codex"]; } }, 201, [["type", "link_1!w2:p1", "codex", { submit: true }]]],
+    [{ async installedAgents() { return ["claude"]; } }, 409, []],
+    [{}, 501, []],
+  ]) {
+    const herdr = fakeHerdr();
+    herdr.agentsClient = (id) => (id === "link_1" ? remote : null);
+    const app = await start(context, herdr, { agents: ["codex"] });
+    const made = await app.post(`/api/workspaces/${encodeURIComponent("link_1!w1")}/worktrees`, { branch: "feat/cart", agent: "codex" });
+    assert.equal(made.status, status);
+    assert.deepEqual(herdr.calls.filter((call) => call[0] === "type"), typed);
+    if (status !== 201) assert.deepEqual(herdr.calls, [], "refused before anything is made");
+  }
 });
