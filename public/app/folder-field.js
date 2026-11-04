@@ -106,6 +106,11 @@ export function createFolderField(root, { api }) {
     return input.value.trim() || initial;
   }
 
+  // Whether it is still the folder the dialog opened with.
+  function asOpened() {
+    return value() === initial;
+  }
+
   function render(answer) {
     shown = answer;
     where.textContent = shownFolder(answer.path, homes.get(serverId));
@@ -208,5 +213,5 @@ export function createFolderField(root, { api }) {
     browse.disabled = disabled;
   }
 
-  return { reset, value, setHidden, setDisabled, close: closePicker };
+  return { reset, value, asOpened, setHidden, setDisabled, close: closePicker };
 }

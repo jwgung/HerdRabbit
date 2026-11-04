@@ -1523,12 +1523,15 @@ export function createHerdrHttpServer({
   const noFolder = (value) => value === undefined || value === null || value === "";
 
   // A folder asked for a new workspace or tab on `serverId`'s machine. This
-  // PC checks its own (`~` is homeDirectory); a connected PC that opens folders
+  // PC checks its own (`~` is homeDirectory). `asOpened` is the dialog's own
+  // folder, left as it opened: a connected PC too old to open folders makes
+  // the workspace or tab as before rather than being refused. One that opens folders
   // checks one there, `~` being its home, and one that does not is refused.
-  async function requestedFolder(value, serverId) {
+  async function requestedFolder(value, serverId, { asOpened = false } = {}) {
     if (serverId === LOCAL_SERVER) return existingFolder(value, { home: homeDirectory });
     if (!isFolderRequest(value)) throw invalidFolder();
     if (!(await herdr.agentsClient?.(serverId)?.opensFolders?.())) {
+      if (asOpened) return null;
       throw new HttpError(501, "link_unsupported", "That PC is too old to open a chosen folder from here; update it there.");
     }
     return value;
@@ -1592,7 +1595,7 @@ export function createHerdrHttpServer({
         throw new HttpError(501, "link_unsupported", "That PC is too old to start an agent in a new workspace from here; update it there.");
       }
     }
-    const cwd = wantsFolder ? await requestedFolder(body.folder, serverId) : null;
+    const cwd = wantsFolder ? await requestedFolder(body.folder, serverId, { asOpened: body.folderAsOpened === true }) : null;
     const create = () => cwd === null ? plain() : herdr.createWorkspace(body.label, sessionId, { cwd });
     if (agent === null) return plainProject(await create());
     const knownProjects = new Set((before.workspaces ?? []).map((item) => item.workspace_id));
@@ -1654,7 +1657,7 @@ export function createHerdrHttpServer({
     const workspace = projectOf(before, workspaceId);
     const serverId = workspace.server_id ?? LOCAL_SERVER;
     if (agent !== null) await requireAgentOn(serverId, agent);
-    let folder = wantsFolder ? await requestedFolder(body.folder, serverId) : null;
+    let folder = wantsFolder ? await requestedFolder(body.folder, serverId, { asOpened: body.folderAsOpened === true }) : null;
     if (resume !== null) {
       folder = projectFolder(before, workspaceId);
       const listed = folder === null ? [] : await sessionsOn(serverId, agent, folder);

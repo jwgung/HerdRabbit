@@ -138,7 +138,7 @@ export function createProjectDialog({
             ? { herdrSessionId: state.createProjectSessionId }
             : {}),
           ...(agent ? { agent } : {}),
-          ...(chosenFolder ? { folder: chosenFolder } : {}),
+          ...(chosenFolder ? { folder: chosenFolder, ...(folder.asOpened() ? { folderAsOpened: true } : {}) } : {}),
         },
       });
       state.snapshot = payload.snapshot || {};

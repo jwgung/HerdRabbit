@@ -180,7 +180,7 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     say(resume ? "Resuming conversation…" : agent ? "Opening tab and starting the agent…" : "Opening tab…");
     try {
       await createSession(target.workspaceId, {
-        ...(agent ? { agent } : {}), ...(resume ? { resume } : {}), ...(label ? { label } : {}), ...(chosenFolder ? { folder: chosenFolder } : {}),
+        ...(agent ? { agent } : {}), ...(resume ? { resume } : {}), ...(label ? { label } : {}), ...(chosenFolder ? { folder: chosenFolder, ...(folder.asOpened() ? { folderAsOpened: true } : {}) } : {}),
       });
       lastAgent = agent;
       dialog.close();
