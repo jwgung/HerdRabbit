@@ -186,3 +186,28 @@ test("Herdr's defaults are read, never written", async (context) => {
   assert.match((await settings.defaultConfig()).text, /^# herdr configuration/u);
   assert.deepEqual(changes(fake), ["--default-config"]);
 });
+
+test("an edit made on that PC while Herdr checks is not overwritten, and no backup is left", async (context) => {
+  const { settings, configPath, folder, fake } = await world(context);
+  const { version } = await settings.readConfig();
+  const run = fake.run;
+  // the other editor writes while `config check` runs on the temporary file
+  settings.run = async (args, options) => {
+    if (args[0] === "config" && options?.env?.HERDR_CONFIG_PATH && options.env.HERDR_CONFIG_PATH !== configPath) {
+      await writeFile(configPath, "onboarding = true\n");
+    }
+    return run(args, options);
+  };
+  await assert.rejects(settings.saveConfig("onboarding = false\n", version), { code: "config_changed", status: 409 });
+  assert.equal(await readFile(configPath, "utf8"), "onboarding = true\n");
+  assert.deepEqual((await readdir(folder)).sort(), ["config.toml"], "no backup, no temporary file");
+});
+
+test("a config.toml that links to nothing is not replaced by a file; a first one is the user's alone", async (context) => {
+  const { settings, configPath, home } = await world(context, { initial: null });
+  await symlink(join(home, "gone.toml"), configPath);
+  await assert.rejects(settings.saveConfig("onboarding = false\n", "none"), { code: "config_link_broken", status: 409 });
+  await rm(configPath);
+  await settings.saveConfig("onboarding = false\n", "none");
+  assert.equal((await stat(configPath)).mode & 0o777, 0o600);
+});

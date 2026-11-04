@@ -111,10 +111,10 @@ function text(value, max) {
 
 // Herdr's diagnostics as lines: no control characters but the newline,
 // bounded, and the temporary file a check read named config.toml.
-export function cleanDiagnostics(value, tempPath = null) {
+export function cleanDiagnostics(value, tempPath = null, shownAs = "config.toml") {
   let out = String(value ?? "").replace(/\r\n?/gu, "\n").replace(/\u001b\[[0-9;?]*[A-Za-z]/gu, "")
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/gu, "");
-  if (tempPath) out = out.split(tempPath).join("config.toml");
+  if (tempPath) out = out.split(tempPath).join(shownAs);
   out = out.trim();
   return out.length > MAX_DIAGNOSTICS ? `${out.slice(0, MAX_DIAGNOSTICS)}\n…` : out;
 }
@@ -369,20 +369,22 @@ export class HerdrSettings {
   }
 
   // `herdr config check` on a file. Answers { ok, diagnostics }.
-  async #check(path, shownPath = null) {
+  // `shownPath` in Herdr's output is written as `shownAs` (config.toml, or ~/…).
+  async #check(path, shownPath = null, shownAs = "config.toml") {
     const answer = await this.run(["config", "check"], { timeout: READ_TIMEOUT_MS, env: { ...this.env, HERDR_CONFIG_PATH: path } });
     if (answer.code === -1 && !answer.stdout && !answer.stderr) {
       throw new HttpError(502, "herdr_settings_failed", "Herdr could not be run on this PC.");
     }
     if (answer.timedOut) throw new HttpError(502, "herdr_settings_failed", "Herdr took too long to check the config.");
     const output = [answer.stdout, answer.stderr].filter(Boolean).join("\n");
-    return { ok: answer.code === 0, diagnostics: cleanDiagnostics(output, shownPath) };
+    return { ok: answer.code === 0, diagnostics: cleanDiagnostics(output, shownPath, shownAs) };
   }
 
   // The text checked as it would be saved, in a private temporary folder.
   async checkConfig(value) {
     const configText = validateConfigText(value);
-    const folder = await mkdtemp(join(this.tempRoot, "herdrabbit-config-"));
+    // its real path: what Herdr prints when it names the file (macOS /private/var)
+    const folder = await realpath(await mkdtemp(join(this.tempRoot, "herdrabbit-config-")));
     try {
       const path = join(folder, "config.toml");
       await writeFile(path, configText, { mode: 0o600 });
@@ -397,9 +399,15 @@ export class HerdrSettings {
     const version = validateConfigVersion(versionValue);
     return this.#change(async () => {
       const shownPath = await this.#configPath();
-      // A config.toml that is a link (a dotfiles checkout) keeps being one: the file it names is written.
-      const target = await realpath(shownPath).catch(() => shownPath);
-      const before = await readIfThere(target);
+      // A config.toml that is a link (a dotfiles checkout) keeps being one: the
+      // file it names is written. A link to nothing is not replaced by a file.
+      const link = await lstat(shownPath).catch(() => null);
+      const target = await realpath(shownPath).catch(() => null);
+      if (link?.isSymbolicLink() && target === null) {
+        throw new HttpError(409, "config_link_broken", "config.toml is a link to a file that is not there. Fix the link on that PC first.");
+      }
+      const resolved = target ?? shownPath;
+      const before = await readIfThere(resolved);
       if (configVersion(before) !== version) {
         throw new HttpError(409, "config_changed", "config.toml changed since it was read. Read it again, then save.");
       }
@@ -407,29 +415,38 @@ export class HerdrSettings {
       if (!checked.ok) {
         throw new HttpError(422, "config_invalid", "Herdr found problems in this config. Nothing was saved.", { diagnostics: checked.diagnostics });
       }
-      const folder = dirname(target);
+      const folder = dirname(resolved);
       let backup = null;
       if (before !== null) {
-        let name = `${basename(target)}.bak-${stamp(this.now())}`;
-        for (let n = 2; await exists(join(folder, name)); n += 1) name = `${basename(target)}.bak-${stamp(this.now())}-${n}`;
+        let name = `${basename(resolved)}.bak-${stamp(this.now())}`;
+        for (let n = 2; await exists(join(folder, name)); n += 1) name = `${basename(resolved)}.bak-${stamp(this.now())}-${n}`;
         backup = join(folder, name);
-        await copyFile(target, backup);
+        await copyFile(resolved, backup);
       }
-      const mode = before !== null ? (await stat(target)).mode & 0o777 : 0o644;
-      const temp = join(folder, `.${basename(target)}.herdrabbit-${randomBytes(6).toString("hex")}`);
+      // A new file is the user's alone; an existing one keeps its mode, less any write for others.
+      const mode = before !== null ? (await stat(resolved)).mode & 0o755 : 0o600;
+      const temp = join(folder, `.${basename(resolved)}.herdrabbit-${randomBytes(6).toString("hex")}`);
       try {
         await writeFile(temp, configText, { mode, flag: "wx" });
         await chmod(temp, mode);
-        await rename(temp, target);
+        // Read again just before it is replaced: an edit made while Herdr
+        // checked is not overwritten.
+        if (configVersion(await readIfThere(resolved)) !== version) {
+          await rm(temp, { force: true });
+          if (backup) await rm(backup, { force: true });
+          throw new HttpError(409, "config_changed", "config.toml changed while it was being checked. Read it again, then save.");
+        }
+        await rename(temp, resolved);
       } catch (error) {
         await rm(temp, { force: true });
+        if (error instanceof HttpError) throw error;
         throw new HttpError(500, "config_write_failed", `config.toml could not be written: ${cleanDetail(error?.code ?? error?.message ?? "")}`);
       }
       // Herdr reads it where it lives; should it disagree with the check, the old file comes back.
-      const inPlace = await this.#check(shownPath);
+      const inPlace = await this.#check(shownPath, shownPath, this.#shown(shownPath));
       if (!inPlace.ok) {
-        if (backup) await copyFile(backup, target);
-        else await rm(target, { force: true });
+        if (backup) await copyFile(backup, resolved);
+        else await rm(resolved, { force: true });
         throw new HttpError(422, "config_invalid", "Herdr found problems in the saved config, so the old one was put back.", { diagnostics: inPlace.diagnostics });
       }
       const reload = await this.run(["server", "reload-config"], { timeout: READ_TIMEOUT_MS });
