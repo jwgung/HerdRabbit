@@ -241,3 +241,33 @@ test("an unreadable marketplace is a 502 that says how to install anyway", async
   const none = await fixture(context, { marketplace: null });
   assert.equal((await none.get("/api/plugins/marketplace")).status, 404);
 });
+
+test("the list says which plugins have an update in Herdr's marketplace, on this PC and a connected PC", async (context) => {
+  const behind = { kind: "github", owner: "someone", repo: "herdr-notes", resolved_commit: "1234567890abcdef1234567890abcdef12345678" };
+  const remote = {
+    async list() { return { plugins: [{ plugin_id: "notes", name: "Notes", source: behind }], operation: null }; },
+    async start() { return { plugins: [], operation: null }; },
+  };
+  const { get, local } = await fixture(context, { remote });
+  // NOTES is pinned to main (the index names no default branch): not compared.
+  let body = await (await get("/api/plugins")).json();
+  assert.deepEqual(body.plugins.map((item) => [item.id, item.updateAvailable]),
+    [["herdrabbit", null], ["notes", null], ["local-tool", null]]);
+  body = await (await get(`/api/plugins?server=${LINK}`)).json();
+  assert.deepEqual(body.plugins.map((item) => [item.id, item.updateAvailable]), [["notes", true]]);
+  assert.ok(local.calls.every((call) => call.args[1] === "list"));
+});
+
+test("a marketplace that is down, or none, leaves updateAvailable null and the list answers", async (context) => {
+  const plugins = [{ plugin_id: "notes", name: "Notes", source: { kind: "github", owner: "someone", repo: "herdr-notes", resolved_commit: "1234567" } }];
+  const manager = () => new PluginManager({ run: fakeHerdr(plugins).run });
+  for (const marketplace of [new PluginMarketplace({ fetch: fakeFetch({}, { status: 503 }).fetch }), null,
+    { updatesFor: async () => { throw new Error("broken"); } }]) {
+    const { get } = await fixture(context, { plugins: manager(), marketplace });
+    const response = await get("/api/plugins");
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).plugins.map((item) => item.updateAvailable), [null]);
+  }
+  const { get } = await fixture(context, { plugins: manager() });
+  assert.deepEqual((await (await get("/api/plugins")).json()).plugins.map((item) => item.updateAvailable), [true]);
+});

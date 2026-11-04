@@ -217,10 +217,6 @@ export function createSettings(deps) {
     }));
   }
 
-  // Plugins: read when the page comes into view, per machine.
-  const pluginsPage = createPluginsPage({ api, snapshotRecords, sidebarActionMenu });
-  dialog.addEventListener("close", () => pluginsPage.sync({ visible: false }));
-
   // About
   const appVersion = document.querySelector("#settings-version-app");
   const herdrVersion = document.querySelector("#settings-version-herdr");
@@ -298,6 +294,12 @@ export function createSettings(deps) {
     },
   });
   document.querySelector("#update-close").addEventListener("click", () => document.querySelector("#update-dialog").close());
+
+  // Plugins: read when the page comes into view, per machine. HerdRabbit's
+  // own row there drives the Update window's panel, so About and Plugins
+  // start and show the same update.
+  const pluginsPage = createPluginsPage({ api, snapshotRecords, sidebarActionMenu, appUpdates: updatePanel });
+  dialog.addEventListener("close", () => pluginsPage.sync({ visible: false }));
 
   function supportsPushNotifications() {
     return Boolean(
