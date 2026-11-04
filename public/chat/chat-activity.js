@@ -3,7 +3,7 @@
 // as a pending bubble until the transcript has it. Also the rule for when a
 // long user message folds.
 
-import { agentLabelFor, agentNamesWith } from "../agents.js?v=1.4.34";
+import { agentLabelFor, agentNamesWith } from "../agents.js?v=1.4.35";
 
 // How long a sent message waits for the transcript before its bubble goes
 // (a minute, as Ovis's src/lib/sentWaiting.ts, MIT):
