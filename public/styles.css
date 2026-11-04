@@ -701,19 +701,8 @@ body.sidebar-collapsed .terminal-panel {
   display: none;
 }
 
-.settings-card-title {
-  margin: 0;
-  padding: var(--space-3) var(--space-4) 0;
-  font-size: var(--font-section);
-  font-weight: 700;
-}
-
 .settings-card > :is(.settings-row-hint, .settings-page-actions) {
   padding: 0 var(--space-4) var(--space-3);
-}
-
-.settings-card > .settings-card-title + .settings-row-hint {
-  padding-top: var(--space-1);
 }
 
 .settings-row {
