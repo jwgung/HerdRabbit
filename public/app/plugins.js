@@ -221,8 +221,9 @@ export function createPluginsPage({
     if (status) setFeedback(status.text, status.error);
   }
 
-  function adopt(answer) {
+  function adopt(answer, { started = false } = {}) {
     if (answer.server !== page.server) return;
+    if (started) page.following = true;
     page.plugins = Array.isArray(answer.plugins) ? answer.plugins : [];
     page.operation = answer.operation ?? null;
     page.loaded = true;
@@ -235,7 +236,10 @@ export function createPluginsPage({
   function schedule() {
     clearTimeout(page.timer);
     page.timer = null;
-    if (page.visible && running()) page.timer = setTimeout(() => void load({ quiet: true }), POLL_MS);
+    // A change this page started is followed to its end, on screen or not
+    // (a dialog over Settings, the phone's page list): its answer is said.
+    if (!running()) page.following = false;
+    if ((page.visible || page.following) && running()) page.timer = setTimeout(() => void load({ quiet: true }), POLL_MS);
   }
 
   async function load({ quiet = false } = {}) {
@@ -272,7 +276,7 @@ export function createPluginsPage({
     page.sending = true;
     render();
     try {
-      adopt(await api(path, options));
+      adopt(await api(path, options), { started: true });
       return { ok: true };
     } catch (error) {
       setFeedback(error.message, true);
@@ -531,7 +535,7 @@ export function createPluginsPage({
       const answer = await api("/api/plugins/link", { method: "POST", body: { server: linkServer, path, enabled: linkEnabled.checked } });
       page.sending = false;
       linkDialog.close();
-      adopt(answer);
+      adopt(answer, { started: true });
     } catch (error) {
       sayLink(error.message, true);
     } finally {
@@ -665,7 +669,7 @@ export function createPluginsPage({
       });
       page.sending = false;
       dialog.close();
-      adopt(answer);
+      adopt(answer, { started: true });
     } catch (error) {
       setInstallFeedback(error.message, true);
     } finally {
@@ -703,7 +707,7 @@ export function createPluginsPage({
     if (visible) {
       void load();
       void appUpdates?.follow(page.server);
-    } else {
+    } else if (!page.following) {
       clearTimeout(page.timer);
       page.timer = null;
     }
