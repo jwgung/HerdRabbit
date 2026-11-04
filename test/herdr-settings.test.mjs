@@ -128,6 +128,43 @@ test("a save checks first, keeps a backup, writes in place and reloads Herdr", a
   assert.notEqual(again.backup, saved.backup);
 });
 
+test("a save keeps the newest backups only, and clears a write left by a crash", async (context) => {
+  const { settings, configPath, folder } = await world(context);
+  const { utimes, symlink: link } = await import("node:fs/promises");
+  // Twelve older backups (one of them a -2 of the same second), and look-alikes that are not ours to touch.
+  const old = Array.from({ length: 11 }, (_, index) => `config.toml.bak-202601${String(index + 10)}-090000`);
+  old.push("config.toml.bak-20260120-090000-2");
+  for (const name of old) await writeFile(join(folder, name), name);
+  await writeFile(join(folder, "config.toml.bak-notes"), "mine");
+  await writeFile(join(folder, "other.toml.bak-20260101-090000"), "other");
+  await mkdir(join(folder, "config.toml.bak-20250101-000000"));
+  await link(configPath, join(folder, "config.toml.bak-20250102-000000"));
+  // A write left by a crash an hour ago goes; one being written now (a minute old) stays.
+  const stale = join(folder, ".config.toml.herdrabbit-0123456789ab");
+  const fresh = join(folder, ".config.toml.herdrabbit-ba9876543210");
+  await writeFile(stale, "x");
+  await writeFile(fresh, "y");
+  const now = Date.UTC(2026, 10, 4, 12, 0, 0) / 1000;
+  await utimes(stale, now - 3600, now - 3600);
+  await utimes(fresh, now - 60, now - 60);
+
+  const saved = await settings.saveConfig("onboarding = false\n", (await settings.readConfig()).version);
+  const names = await readdir(folder);
+  const backups = names.filter((name) => /^config\.toml\.bak-\d{8}-\d{6}(?:-\d+)?$/u.test(name)).sort();
+  assert.equal(backups.length, 12, "ten files, plus the folder and the link that are not files");
+  assert.ok(backups.includes(saved.backup), "the one just made is kept");
+  const files = [];
+  for (const name of backups) if ((await stat(join(folder, name))).isFile() && !name.startsWith("config.toml.bak-2025")) files.push(name);
+  assert.equal(files.length, 10);
+  assert.ok(!files.includes("config.toml.bak-20260110-090000") && !files.includes("config.toml.bak-20260111-090000"), "the oldest go");
+  assert.ok(files.includes("config.toml.bak-20260120-090000-2"));
+  for (const kept of ["config.toml.bak-notes", "other.toml.bak-20260101-090000", "config.toml.bak-20250101-000000", "config.toml.bak-20250102-000000", "config.toml"]) {
+    assert.ok(names.includes(kept), kept);
+  }
+  assert.ok(!names.includes(".config.toml.herdrabbit-0123456789ab"), "a crash's leftover goes");
+  assert.ok(names.includes(".config.toml.herdrabbit-ba9876543210"), "a recent one stays");
+});
+
 test("a config Herdr refuses is not saved, and its diagnostics come back", async (context) => {
   const { settings, fake, configPath, folder } = await world(context);
   const { version } = await settings.readConfig();

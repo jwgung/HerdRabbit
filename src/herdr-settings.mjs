@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { chmod, copyFile, lstat, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { HttpError } from "./http-basics.mjs";
@@ -39,6 +39,9 @@ const MAX_DIAGNOSTICS = 8 * 1024;
 const VERSION = /^(?:none|[A-Za-z0-9_-]{43})$/u;
 const READ_TIMEOUT_MS = 15_000;
 const CHANGE_TIMEOUT_MS = 60_000;
+// Backups of config.toml kept beside it; a write older than this was left by a crash.
+const KEPT_BACKUPS = 10;
+const STALE_TEMP_MS = 10 * 60_000;
 
 const invalid = (code, message) => new HttpError(400, code, message);
 
@@ -394,6 +397,29 @@ export class HerdrSettings {
     }
   }
 
+  // After a save: the newest KEPT_BACKUPS backups of config.toml are kept and
+  // older ones removed, and a write a crash left half done (ten minutes old) goes.
+  // Only plain files named as Herdr names backups; a folder or a link of that
+  // name, and other files, are left alone. A file that cannot go stays.
+  async #tidy(folder, name) {
+    let entries;
+    try { entries = await readdir(folder, { withFileTypes: true }); } catch { return; }
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    const backupName = new RegExp(`^${escaped}\\.bak-\\d{8}-\\d{6}(?:-\\d{1,4})?$`, "u");
+    const tempName = new RegExp(`^\\.${escaped}\\.herdrabbit-[0-9a-f]{12}$`, "u");
+    const backups = entries.filter((entry) => entry.isFile() && backupName.test(entry.name)).map((entry) => entry.name);
+    // By time, then the -N of a second that had several.
+    const order = (value) => value.replace(/-(\d{1,4})$/u, (_, n) => `~${n.padStart(4, "0")}`);
+    backups.sort((a, b) => (order(a) < order(b) ? 1 : order(a) > order(b) ? -1 : 0));
+    for (const old of backups.slice(KEPT_BACKUPS)) await rm(join(folder, old), { force: true }).catch(() => {});
+    for (const entry of entries) {
+      if (!entry.isFile() || !tempName.test(entry.name)) continue;
+      const path = join(folder, entry.name);
+      const info = await lstat(path).catch(() => null);
+      if (info?.isFile() && this.now() - info.mtimeMs > STALE_TEMP_MS) await rm(path, { force: true }).catch(() => {});
+    }
+  }
+
   async saveConfig(value, versionValue) {
     const configText = validateConfigText(value);
     const version = validateConfigVersion(versionValue);
@@ -450,6 +476,7 @@ export class HerdrSettings {
         throw new HttpError(422, "config_invalid", "Herdr found problems in the saved config, so the old one was put back.", { diagnostics: inPlace.diagnostics });
       }
       const reload = await this.run(["server", "reload-config"], { timeout: READ_TIMEOUT_MS });
+      await this.#tidy(folder, basename(resolved));
       return {
         ...(await this.readConfig()),
         backup: backup ? basename(backup) : null,
