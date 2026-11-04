@@ -54,7 +54,7 @@ const herdr = {
     };
   },
   async readPane() { return "$ "; },
-  async sendText() {},
+  async sendText(paneId, text, options) { state.calls.push(["type", paneId, text, options]); },
   async sendKeys() {},
   async listWorktrees(id) {
     state.calls.push(["list", id]);
@@ -87,7 +87,7 @@ const herdr = {
   },
 };
 
-const { server } = createHerdrHttpServer({ herdr, logger: { info() {}, error() {} } });
+const { server } = createHerdrHttpServer({ herdr, logger: { info() {}, error() {} }, installedAgents: { async list() { return ["claude"]; } } });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
 const url = `http://127.0.0.1:${server.address().port}`;
@@ -182,16 +182,27 @@ try {
     assert.equal(await create.isVisible(), true);
     assert.deepEqual(state.calls.filter((call) => call[0] === "create"), []);
     if (mobile) {
-      for (const size of await create.locator("input").evaluateAll((inputs) => inputs.map((input) => [input.getBoundingClientRect().height, parseFloat(getComputedStyle(input).fontSize)]))) {
+      for (const size of await create.locator('input:not([type="radio"])').evaluateAll((inputs) => inputs.map((input) => [input.getBoundingClientRect().height, parseFloat(getComputedStyle(input).fontSize)]))) {
         assert.ok(size[0] >= 44 && size[1] >= 16, `a New worktree box is too small on a phone: ${size}`);
       }
     }
     await page.locator("#worktree-branch").fill("feat/search");
     await page.locator("#worktree-base").fill("main");
+    // An agent of the machine may start in the new workspace; Shell is chosen first.
+    const agentChoices = create.locator("#worktree-agent .agent-choice");
+    await agentChoices.nth(1).waitFor();
+    assert.deepEqual(await agentChoices.evaluateAll((labels) => labels.map((label) => label.dataset.agent)), ["shell", "claude"]);
+    assert.equal(await create.locator('#worktree-agent input[value=""]').isChecked(), true);
+    if (mobile) {
+      const box = await agentChoices.first().boundingBox();
+      assert.ok(box.height >= 44, `${where}: an agent choice is under 44px tall (${box.height})`);
+    }
+    await create.locator('#worktree-agent .agent-choice[data-agent="claude"]').click();
     if (shots) await create.screenshot({ path: join(shots, `new-${where}.png`) });
     await create.locator('button[type="submit"]').click();
     await create.waitFor({ state: "hidden" });
     assert.deepEqual(state.calls.filter((call) => call[0] === "create"), [["create", "w1", { branch: "feat/search", base: "main", label: undefined }]]);
+    assert.deepEqual(state.calls.filter((call) => call[0] === "type"), [["type", "w4:p1", "claude", { submit: true }]]);
     await page.waitForFunction(() => document.querySelector(".pane-button[aria-pressed='true']")?.dataset.paneId === "w4:p1");
     await openSidebar();
     assert.equal(await heading("shop").count(), 2, "the new worktree's workspace is not listed");

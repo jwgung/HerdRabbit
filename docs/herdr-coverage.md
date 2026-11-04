@@ -68,7 +68,7 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 | Command | HerdRabbit | Notes |
 |---|---|---|
 | `list` | Done | Open worktree… lists a repository's checkouts; the branch of each worktree workspace is shown beside its name |
-| `create` | Done | New worktree… on a repository's workspace: branch, optional base and name, never `--path`; opens without taking Herdr's focus |
+| `create` | Done | New worktree… on a repository's workspace: branch (Git's ref rules), optional base, name and agent, never `--path`; opens without taking Herdr's focus |
 | `open` | Done | Open worktree… opens a listed checkout by its folder (`--path`) |
 | `remove` | Done | Remove worktree… on a worktree workspace, after confirmation; `--force` only after a second confirmation when Git refuses a checkout with changes |
 | `--cwd`, `--trust-repository` | Missing | Starting from a folder rather than a workspace, and repositories owned by another user |
@@ -83,8 +83,8 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 | `enable`, `disable`, `update`, `uninstall` | Done | Not for HerdRabbit itself, which Settings → Updates updates instead; plugins with a new version are updated there too (Update all) |
 | update check | Shown | "Update available" when the marketplace's head commit differs from the installed one, only for plugins installed from GitHub without a Ref (the list is read every 10 minutes); Update all runs them one at a time, HerdRabbit last, and stops at the first failure |
 | `link`, `unlink` | Done | Link local folder… (a folder typed or picked with Browse…, checked like the Files tab's, its manifest not HerdRabbit's or a plugin already there); Unlink… for a linked plugin |
-| `action list`, `action invoke` | Done | ⋯ → Actions and panes… → Run, for the pane on show (its workspace, tab and folder as Herdr's context, over the socket), or where Herdr's focus is without one. Not HerdRabbit's own |
-| `pane open` | Done | ⋯ → Actions and panes… → Open, as a new tab of the pane on show's workspace, then shown. Overlay and popup placements are not used: an overlay covers Herdr's own focus wherever it is and a popup is not a pane. Not HerdRabbit's own |
+| `action list`, `action invoke` | Done | ⋯ → Actions and panes… → Run, for the pane on show or the active pane of a workspace chosen in the dialog (its workspace, tab and folder as Herdr's context, over the socket), or where Herdr's focus is without one. Not HerdRabbit's own |
+| `pane open` | Done | ⋯ → Actions and panes… → Open, as a new tab of the workspace chosen (the pane on show's by default), then shown. Overlay and popup placements are not used: an overlay covers Herdr's own focus wherever it is and a popup is not a pane. Not HerdRabbit's own |
 | `pane focus`, `pane close` | Not needed | An opened plugin pane is a normal pane: shown and closed like any other |
 | `log list` | Done | ⋯ → Logs…: the last 20, newest first, output without colours or folders |
 | `config-dir` | Missing | |

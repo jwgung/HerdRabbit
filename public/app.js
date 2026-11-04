@@ -1182,6 +1182,7 @@ const { open: openNewSession } = createSessionDialog({
 });
 const worktreeDialogs = createWorktreeDialogs({
   state,
+  agentMark: (...args) => agentMark(...args),
   api: (...args) => api(...args),
   adoptMutationSnapshot: (...args) => adoptMutationSnapshot(...args),
   closeMobileSidebar: (...args) => closeMobileSidebar(...args),

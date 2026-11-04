@@ -6,13 +6,16 @@ import { HerdrCommandError } from "../src/herdr-client.mjs";
 
 // A herdr whose worktree calls are recorded; `refuse` names a Herdr refusal
 // code for every change.
-function fakeHerdr({ refuse = null } = {}) {
+function fakeHerdr({ refuse = null, namePane = true } = {}) {
   const calls = [];
   const workspaces = [{ workspace_id: "w1", label: "shop" }];
+  const tabs = [];
+  const panes = [];
   const fail = () => { if (refuse) throw new HerdrCommandError(`Herdr said ${refuse}`, { code: refuse }); };
   return {
     calls,
-    async snapshot() { return { workspaces: [...workspaces], tabs: [], panes: [], agents: [] }; },
+    async snapshot() { return { workspaces: [...workspaces], tabs: [...tabs], panes: [...panes], agents: [] }; },
+    async sendText(paneId, text, options) { calls.push(["type", paneId, text, options]); },
     async listWorktrees(id) {
       calls.push(["list", id]);
       if (refuse) fail();
@@ -22,7 +25,11 @@ function fakeHerdr({ refuse = null } = {}) {
       calls.push(["create", id, options]);
       fail();
       workspaces.push({ workspace_id: "w2", label: "cart", worktree: { is_linked_worktree: true, branch: options.branch } });
-      return { workspace_id: "w2", tab_id: "w2:t1", pane_id: "w2:p1", path: "/work/wt/cart", branch: options.branch, already_open: false };
+      tabs.push({ tab_id: "w2:t1", workspace_id: "w2" });
+      panes.push({ pane_id: "w2:p1", tab_id: "w2:t1", workspace_id: "w2" });
+      return namePane
+        ? { workspace_id: "w2", tab_id: "w2:t1", pane_id: "w2:p1", path: "/work/wt/cart", branch: options.branch, already_open: false }
+        : null;
     },
     async openWorktree(id, options) {
       calls.push(["open", id, options]);
@@ -37,8 +44,9 @@ function fakeHerdr({ refuse = null } = {}) {
   };
 }
 
-async function start(context, herdr = fakeHerdr()) {
-  const { server } = createHerdrHttpServer({ herdr, csrfToken: "token", logger: { error() {} } });
+async function start(context, herdr = fakeHerdr(), { agents = ["claude", "codex"] } = {}) {
+  const installedAgents = { async list() { return agents; } };
+  const { server } = createHerdrHttpServer({ herdr, csrfToken: "token", logger: { error() {} }, installedAgents });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   context.after(() => new Promise((resolve) => server.close(resolve)));
@@ -104,4 +112,35 @@ test("a server without worktrees says so", async (context) => {
   const response = await app.get("/api/workspaces/w1/worktrees");
   assert.equal(response.status, 501);
   assert.equal((await response.json()).error.code, "worktrees_unsupported");
+});
+
+test("a new worktree may start an agent in its first pane, the one the create call named", async (context) => {
+  const app = await start(context);
+  const made = await app.post("/api/workspaces/w1/worktrees", { branch: "feat/cart", agent: "claude" });
+  assert.equal(made.status, 201);
+  assert.equal((await made.json()).paneId, "w2:p1");
+  assert.deepEqual(app.herdr.calls, [
+    ["create", "w1", { branch: "feat/cart", base: undefined, label: undefined }],
+    ["type", "w2:p1", "claude", { submit: true }],
+  ]);
+});
+
+test("an unknown or missing agent is refused before a worktree is made", async (context) => {
+  const app = await start(context, fakeHerdr(), { agents: ["codex"] });
+  const unknown = await app.post("/api/workspaces/w1/worktrees", { branch: "feat/cart", agent: "rm -rf" });
+  assert.equal(unknown.status, 400);
+  const missing = await app.post("/api/workspaces/w1/worktrees", { branch: "feat/cart", agent: "claude" });
+  assert.equal(missing.status, 409);
+  assert.equal((await missing.json()).error.code, "agent_not_installed");
+  const gone = await app.post("/api/workspaces/w9/worktrees", { branch: "feat/cart", agent: "codex" });
+  assert.equal(gone.status, 404);
+  assert.deepEqual(app.herdr.calls, []);
+});
+
+test("a worktree made without a named pane is kept, and no agent is typed anywhere", async (context) => {
+  const app = await start(context, fakeHerdr({ namePane: false }));
+  const made = await app.post("/api/workspaces/w1/worktrees", { branch: "feat/cart", agent: "claude" });
+  assert.equal(made.status, 502);
+  assert.equal((await made.json()).error.code, "worktree_pane_missing");
+  assert.deepEqual(app.herdr.calls.map((call) => call[0]), ["create"]);
 });
