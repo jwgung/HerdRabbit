@@ -4,7 +4,7 @@ import {
   updateAllConfirmText, updateAllCount, updateAllPlan, updateAllResultText,
 } from "./plugin-model.js?v=1.4.29";
 import { createPluginBrowse } from "./plugin-browse.js?v=1.4.29";
-import { appVersionText, confirmText as appConfirmText, herdrRunSummary, runSummary } from "../app-update.js?v=1.4.29";
+import { appVersionText, confirmDetails as appConfirmDetails, herdrRunSummary, runSummary } from "../app-update.js?v=1.4.29";
 
 const POLL_MS = 1_500;
 
@@ -285,7 +285,7 @@ export function createPluginsPage({ api, snapshotRecords, sidebarActionMenu, app
     if (count === 0) return;
     const app = appLine();
     const appCheck = appState()?.check;
-    const appDetails = todo.app ? appConfirmText("HerdRabbit", appCheck).split("\n").slice(2).join("\n") : "";
+    const appDetails = todo.app ? appConfirmDetails(appCheck) : "";
     if (!window.confirm(updateAllConfirmText(machineName(), todo, { appLine: app?.text, appDetails }))) return;
     page.updatingAll = { server };
     page.allResult = null;
@@ -544,7 +544,9 @@ export function createPluginsPage({ api, snapshotRecords, sidebarActionMenu, app
     if (visible) {
       void load();
       void appUpdates?.follow(page.server);
-    } else {
+    } else if (!page.updatingAll) {
+      // Update all goes on with Settings closed: it waits for each change
+      // through these looks, so they stop only when nothing is waiting.
       clearTimeout(page.timer);
       page.timer = null;
     }
