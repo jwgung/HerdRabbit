@@ -375,115 +375,127 @@
           </div>
 
           <section class="settings-page" data-page="appearance" aria-labelledby="settings-page-title" hidden>
-            <div class="settings-row">
-              <div class="settings-row-copy">
-                <span id="settings-theme-label" class="settings-row-label">Theme</span>
+            <div class="settings-card">
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <span id="settings-theme-label" class="settings-row-label">Theme</span>
+                </div>
+                <div class="settings-choices" role="group" aria-labelledby="settings-theme-label">
+                  <button type="button" class="settings-choice" data-theme-choice="dark" aria-pressed="false">Dark</button>
+                  <button type="button" class="settings-choice" data-theme-choice="light" aria-pressed="false">Light</button>
+                </div>
               </div>
-              <div class="settings-choices" role="group" aria-labelledby="settings-theme-label">
-                <button type="button" class="settings-choice" data-theme-choice="dark" aria-pressed="false">Dark</button>
-                <button type="button" class="settings-choice" data-theme-choice="light" aria-pressed="false">Light</button>
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <span class="settings-row-label">Text size in a grid</span>
+                  <p id="settings-text-size-hint" class="settings-row-hint" aria-live="polite"></p>
+                </div>
+                <button id="settings-text-size-reset" class="text-button" type="button" aria-describedby="settings-text-size-hint">Reset text size</button>
               </div>
-            </div>
-            <div class="settings-row">
-              <div class="settings-row-copy">
-                <span class="settings-row-label">Text size in a grid</span>
-                <p id="settings-text-size-hint" class="settings-row-hint" aria-live="polite"></p>
-              </div>
-              <button id="settings-text-size-reset" class="secondary-button" type="button" aria-describedby="settings-text-size-hint">Reset text size</button>
             </div>
           </section>
 
           <section class="settings-page" data-page="chat" aria-labelledby="settings-page-title" hidden>
-            <div class="settings-row">
-              <div class="settings-row-copy">
-                <span id="settings-open-in-label" class="settings-row-label">Open panes in</span>
-                <p id="settings-open-in-hint" class="settings-row-hint" aria-live="polite"></p>
+            <div class="settings-card">
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <span id="settings-open-in-label" class="settings-row-label">Open panes in</span>
+                  <p id="settings-open-in-hint" class="settings-row-hint" aria-live="polite"></p>
+                </div>
+                <div class="settings-choices" role="group" aria-labelledby="settings-open-in-label" aria-describedby="settings-open-in-hint">
+                  <button type="button" class="settings-choice" data-open-in="auto" aria-pressed="false">Auto</button>
+                  <button type="button" class="settings-choice" data-open-in="chat" aria-pressed="false">Chat</button>
+                  <button type="button" class="settings-choice" data-open-in="terminal" aria-pressed="false">Terminal</button>
+                </div>
               </div>
-              <div class="settings-choices" role="group" aria-labelledby="settings-open-in-label" aria-describedby="settings-open-in-hint">
-                <button type="button" class="settings-choice" data-open-in="auto" aria-pressed="false">Auto</button>
-                <button type="button" class="settings-choice" data-open-in="chat" aria-pressed="false">Chat</button>
-                <button type="button" class="settings-choice" data-open-in="terminal" aria-pressed="false">Terminal</button>
-              </div>
-            </div>
-            <div class="settings-row">
-              <div class="settings-row-copy">
-                <span id="settings-chat-width-label" class="settings-row-label">Chat width</span>
-                <p class="settings-row-hint">How wide the conversation may grow on a wide window.</p>
-              </div>
-              <div class="settings-choices" role="group" aria-labelledby="settings-chat-width-label">
-                <button type="button" class="settings-choice" data-chat-width="narrow" aria-pressed="false">Narrow</button>
-                <button type="button" class="settings-choice" data-chat-width="default" aria-pressed="false">Default</button>
-                <button type="button" class="settings-choice" data-chat-width="wide" aria-pressed="false">Wide</button>
-                <button type="button" class="settings-choice" data-chat-width="full" aria-pressed="false">Full</button>
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <span id="settings-chat-width-label" class="settings-row-label">Chat width</span>
+                  <p class="settings-row-hint">How wide the conversation may grow on a wide window.</p>
+                </div>
+                <div class="settings-choices" role="group" aria-labelledby="settings-chat-width-label">
+                  <button type="button" class="settings-choice" data-chat-width="narrow" aria-pressed="false">Narrow</button>
+                  <button type="button" class="settings-choice" data-chat-width="default" aria-pressed="false">Default</button>
+                  <button type="button" class="settings-choice" data-chat-width="wide" aria-pressed="false">Wide</button>
+                  <button type="button" class="settings-choice" data-chat-width="full" aria-pressed="false">Full</button>
+                </div>
               </div>
             </div>
           </section>
 
           <section class="settings-page" data-page="terminal" aria-labelledby="settings-page-title" hidden>
-            <div class="settings-row">
-              <div class="settings-row-copy">
-                <span class="settings-row-label">Keys under the terminal</span>
-                <p class="settings-row-hint">Choose the keys and their order. On a touch screen this is also where Enter in the message box is set.</p>
+            <div class="settings-card">
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <span class="settings-row-label">Keys under the terminal</span>
+                  <p class="settings-row-hint">The keys and their order; on a touch screen, also what Enter does.</p>
+                </div>
+                <button id="settings-edit-keys" class="secondary-button" type="button">Edit keys…</button>
               </div>
-              <button id="settings-edit-keys" class="secondary-button" type="button">Edit keys…</button>
-            </div>
-            <div id="settings-grid-fit-row" class="settings-row">
-              <div class="settings-row-copy">
-                <span id="settings-grid-fit-label" class="settings-row-label">Fit panes to this window</span>
-                <p id="settings-grid-fit-hint" class="settings-row-hint" aria-live="polite"></p>
-              </div>
-              <div class="settings-choices" role="group" aria-labelledby="settings-grid-fit-label" aria-describedby="settings-grid-fit-hint">
-                <button type="button" class="settings-choice" data-grid-fit="off" aria-pressed="false">Off</button>
-                <button type="button" class="settings-choice" data-grid-fit="on" aria-pressed="false">On</button>
+              <div id="settings-grid-fit-row" class="settings-row">
+                <div class="settings-row-copy">
+                  <span id="settings-grid-fit-label" class="settings-row-label">Fit panes to this window</span>
+                  <p id="settings-grid-fit-hint" class="settings-row-hint" aria-live="polite"></p>
+                </div>
+                <div class="settings-choices" role="group" aria-labelledby="settings-grid-fit-label" aria-describedby="settings-grid-fit-hint">
+                  <button type="button" class="settings-choice" data-grid-fit="off" aria-pressed="false">Off</button>
+                  <button type="button" class="settings-choice" data-grid-fit="on" aria-pressed="false">On</button>
+                </div>
               </div>
             </div>
           </section>
 
           <section class="settings-page" data-page="notifications" aria-labelledby="settings-page-title" hidden>
-            <div class="settings-row">
-              <div class="settings-row-copy">
-                <span id="settings-notify-label" class="settings-row-label">Notifications in this browser</span>
-                <p id="settings-notify-state" class="settings-row-hint" role="status" aria-live="polite"></p>
-              </div>
-              <div id="settings-notify-choices" class="settings-choices" role="group" aria-labelledby="settings-notify-label" aria-describedby="settings-notify-state">
-                <button type="button" class="settings-choice" data-notify-choice="off" aria-pressed="false">Off</button>
-                <button type="button" class="settings-choice" data-notify-choice="on" aria-pressed="false">On</button>
+            <div class="settings-card">
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <span id="settings-notify-label" class="settings-row-label">Notifications in this browser</span>
+                  <p id="settings-notify-state" class="settings-row-hint" role="status" aria-live="polite"></p>
+                </div>
+                <div id="settings-notify-choices" class="settings-choices" role="group" aria-labelledby="settings-notify-label" aria-describedby="settings-notify-state">
+                  <button type="button" class="settings-choice" data-notify-choice="off" aria-pressed="false">Off</button>
+                  <button type="button" class="settings-choice" data-notify-choice="on" aria-pressed="false">On</button>
+                </div>
               </div>
             </div>
           </section>
 
           <section class="settings-page" data-page="security" aria-labelledby="settings-page-title" hidden>
-            <div class="settings-row">
-              <div class="settings-row-copy">
-                <span class="settings-row-label">Passkeys</span>
-                <p class="settings-row-hint">Passkeys that can sign in to this HerdRabbit.</p>
+            <div class="settings-card">
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <span class="settings-row-label">Passkeys</span>
+                  <p class="settings-row-hint">Passkeys that can sign in to this HerdRabbit.</p>
+                </div>
+                <button id="settings-passkeys" class="secondary-button" type="button">Passkeys…</button>
               </div>
-              <button id="settings-passkeys" class="secondary-button" type="button">Passkeys…</button>
-            </div>
-            <div class="settings-row">
-              <div class="settings-row-copy">
-                <span class="settings-row-label">Signed-in devices</span>
-                <p class="settings-row-hint">Browsers signed in to this HerdRabbit. Sign one out from the list.</p>
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <span class="settings-row-label">Signed-in devices</span>
+                  <p class="settings-row-hint">Browsers signed in to this HerdRabbit.</p>
+                </div>
+                <button id="settings-sessions" class="secondary-button" type="button">Signed-in devices…</button>
               </div>
-              <button id="settings-sessions" class="secondary-button" type="button">Signed-in devices…</button>
             </div>
           </section>
 
           <section class="settings-page" data-page="pcs" aria-labelledby="settings-page-title" hidden>
-            <p class="settings-row-hint">Other PCs running HerdRabbit that this one connects to. Choose one for its details.</p>
-            <ul id="settings-pc-list" class="settings-pc-list" role="list" aria-label="Connected PCs"></ul>
+            <p class="settings-row-hint">Other PCs running HerdRabbit that this one connects to.</p>
+            <ul id="settings-pc-list" class="settings-pc-list settings-card" role="list" aria-label="Connected PCs"></ul>
             <div class="settings-page-actions">
               <button id="settings-connect-pc" class="primary-button" type="button">Connect PC…</button>
             </div>
           </section>
 
           <section class="settings-page" data-page="plugins" aria-labelledby="settings-page-title" hidden>
-            <p class="settings-row-hint">Herdr plugins add actions and panes to Herdr. A plugin runs its own code on its machine. HerdRabbit itself, Herdr and plugins with a new version are updated from Updates.</p>
-            <div id="plugins-machine-row" class="settings-row" hidden>
-              <div class="settings-row-copy">
-                <label for="plugins-machine" class="settings-row-label">Machine</label>
+            <p class="settings-row-hint">Plugins add actions and panes to Herdr and run their own code on their machine. New versions install from Updates.</p>
+            <div class="settings-card">
+              <div id="plugins-machine-row" class="settings-row" hidden>
+                <div class="settings-row-copy">
+                  <label for="plugins-machine" class="settings-row-label">Machine</label>
+                </div>
+                <select id="plugins-machine" class="ui-input plugins-machine"></select>
               </div>
-              <select id="plugins-machine" class="ui-input plugins-machine"></select>
             </div>
             <div class="settings-choices plugins-views" role="group" aria-label="Show">
               <button type="button" class="settings-choice" data-plugins-view="installed" aria-pressed="true">Installed</button>
@@ -493,7 +505,7 @@
               <ul id="plugins-list" class="plugin-rows" role="list" aria-label="Plugins"></ul>
             </div>
             <div id="plugins-browse-view" class="plugins-view" hidden>
-              <p class="plugin-warning">These are the plugins listed in Herdr's plugin marketplace (herdr.dev/plugins): public GitHub repositories tagged herdr-plugin. Nobody reviews them. Install only plugins you trust.</p>
+              <p class="plugin-warning">From Herdr's marketplace (herdr.dev/plugins): public GitHub repositories. Nobody reviews them. Install only plugins you trust.</p>
               <div class="plugins-browse-tools">
                 <input id="plugins-search" class="ui-input plugins-search" type="search" maxlength="100" autocomplete="off"
                   autocapitalize="off" spellcheck="false" enterkeyhint="search" placeholder="Search plugins" aria-label="Search plugins" />
@@ -518,22 +530,24 @@
           </section>
 
           <section class="settings-page" data-page="updates" aria-labelledby="settings-page-title" hidden>
-            <div id="settings-update-row" class="settings-row">
-              <div class="settings-row-copy">
-                <span class="settings-row-label">HerdRabbit and Herdr</span>
-                <p id="settings-update-hint" class="settings-row-hint">Check this PC and each connected PC for a newer HerdRabbit release and a newer Herdr, and update them. The Update window shows each one in full: what changed, and each run's steps and log.</p>
+            <div class="settings-card">
+              <div id="settings-update-row" class="settings-row">
+                <div class="settings-row-copy">
+                  <span class="settings-row-label">HerdRabbit and Herdr</span>
+                  <p id="settings-update-hint" class="settings-row-hint">The Update window: newer HerdRabbit and Herdr for each PC, what changed, and each run's steps and log.</p>
+                </div>
+                <button id="settings-update" class="secondary-button" type="button">Update…</button>
               </div>
-              <button id="settings-update" class="secondary-button" type="button">Update…</button>
             </div>
-            <p id="updates-hint" class="settings-row-hint">Per machine, what has an update. Update all updates them one at a time: plugins first, then Herdr, then HerdRabbit last, as it restarts.</p>
+            <p id="updates-hint" class="settings-row-hint">Update all goes one at a time: plugins, then Herdr, then HerdRabbit, which restarts.</p>
             <div id="updates-list" class="updates-machines"></div>
             <div class="settings-page-actions">
-              <button id="updates-check" class="secondary-button" type="button">Check</button>
+              <button id="updates-check" class="text-button" type="button">Check</button>
             </div>
           </section>
 
           <section class="settings-page" data-page="about" aria-labelledby="settings-page-title" hidden>
-            <dl class="settings-versions">
+            <dl class="settings-versions settings-card">
               <dt>HerdRabbit</dt><dd id="settings-version-app">Unknown</dd>
               <dt>Herdr</dt><dd id="settings-version-herdr">Unknown</dd>
             </dl>
@@ -790,7 +804,7 @@
       <div class="dialog-form">
         <div class="dialog-heading">
           <h2 id="update-title">Update</h2>
-          <p>New versions are HerdRabbit's releases on GitHub. Updating runs update.sh on that PC (or, where HerdRabbit is a Herdr plugin, has Herdr install that release) and restarts HerdRabbit there.</p>
+          <p>New versions are HerdRabbit's GitHub releases. Updating installs one on that PC and restarts HerdRabbit there.</p>
         </div>
         <div id="update-list" class="update-list"></div>
         <p id="update-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>

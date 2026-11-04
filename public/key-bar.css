@@ -144,25 +144,48 @@
 }
 
 /* One look for a choice of a few: the Enter choice and modifiers here, and
-   the choices on the settings screen. */
+   the choices on the settings screen. Neutral, the pick raised with a border
+   and bold text, so the accent stays for the view's primary button. On the
+   settings screen the choices sit in a segmented group (styles.css). */
 .key-bar-mod,
 .settings-choice {
   min-width: 64px;
   min-height: 40px;
   padding: 0 var(--space-3);
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   border-radius: var(--radius-control);
-  background: var(--surface-raised);
+  background: var(--control-surface);
   color: var(--control-text);
   font: inherit;
+  font-size: var(--font-md);
+  font-weight: 500;
   cursor: pointer;
+}
+
+.settings-choice {
+  min-height: 34px;
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+}
+
+.key-bar-mod:not([aria-pressed="true"]):not(:disabled):hover,
+.settings-choice:not([aria-pressed="true"]):not(:disabled):hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
 }
 
 .key-bar-mod[aria-pressed="true"],
 .settings-choice[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-ink);
+  border-color: var(--text);
+  background: var(--segment-selected);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.settings-choice[aria-pressed="true"] {
+  border-color: var(--control-line);
 }
 
 .key-bar-preview {

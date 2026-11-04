@@ -11,9 +11,9 @@ import { createUpdatesPage } from "./updates.js?v=1.4.31";
 
 // What each "Open panes in" choice does, under the choice.
 const OPEN_PANES_IN_HINTS = Object.freeze({
-  auto: "Chat on a phone or touch screen, Terminal on a desktop. A pane you switched yourself keeps its own choice.",
-  chat: "Panes whose agent has a conversation open in Chat. A pane you switched yourself keeps its own choice.",
-  terminal: "Panes open in Terminal. A pane you switched yourself keeps its own choice.",
+  auto: "Chat on a touch screen, Terminal on a desktop. A pane you switched keeps its choice.",
+  chat: "Panes with an agent's conversation open in Chat. A pane you switched keeps its choice.",
+  terminal: "Panes open in Terminal. A pane you switched keeps its choice.",
 });
 
 // The settings screen (⚙ at the foot of the sidebar): what belongs to this
@@ -238,8 +238,8 @@ export function createSettings(deps) {
     const resettable = !deps.paneGrid.fit && deps.paneGrid.manualFont !== null;
     textSizeReset.disabled = !resettable;
     textSizeHint.textContent = resettable
-      ? "A grid's text size was changed by hand: reset it to the largest size that fits."
-      : "Used when a grid's text size was changed by hand (Ctrl+wheel or a pinch over the grid).";
+      ? "Back to the largest size that fits the grid."
+      : "For a grid whose text size you changed (Ctrl+wheel or a pinch).";
 
     const openIn = readOpenPanesIn(panePreferenceStorage);
     pressOnly(openInChoices, "data-open-in", OPEN_PANES_IN.includes(openIn) ? openIn : "auto");
@@ -250,7 +250,7 @@ export function createSettings(deps) {
     gridFitRow.hidden = !desktopMedia.matches;
     pressOnly(gridFitChoices, "data-grid-fit", deps.paneGrid.fit ? "on" : "off");
     gridFitHint.textContent = deps.paneGrid.fit
-      ? "On: a grid sizes each pane to its cell (other screens on those panes see that size while it is open)."
+      ? "On: each pane takes its cell's size; other screens see that size while the grid is open."
       : "Off: a grid keeps each pane at Herdr's size and scales its text to fit.";
 
     const push = settings.push;

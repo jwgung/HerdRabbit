@@ -165,12 +165,12 @@ try {
       assert.deepEqual(await openIn.locator("button").allTextContents(), ["Auto", "Chat", "Terminal"]);
       assert.deepEqual(await pressed(openIn), ["Auto"]);
       const openInHint = () => page.locator("#settings-open-in-hint").textContent();
-      assert.match(await openInHint(), /^Chat on a phone or touch screen, Terminal on a desktop/);
+      assert.match(await openInHint(), /^Chat on a touch screen, Terminal on a desktop/);
       for (const [label, stored] of [["Chat", "chat"], ["Terminal", "terminal"], ["Auto", "auto"]]) {
         await openIn.getByRole("button", { name: label, exact: true }).click();
         assert.deepEqual(await pressed(openIn), [label]);
         assert.equal(await page.evaluate(() => localStorage.getItem("herdrbridge-open-panes-in")), stored);
-        assert.match(await openInHint(), /keeps its own choice/);
+        assert.match(await openInHint(), /A pane you switched keeps its choice/);
       }
       const widths = pageOf("chat").locator('[aria-labelledby="settings-chat-width-label"]');
       assert.deepEqual(await widths.locator("button").allTextContents(), ["Narrow", "Default", "Wide", "Full"]);

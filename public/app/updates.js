@@ -66,7 +66,7 @@ export function createUpdatesPage({ api, snapshotRecords, appUpdates, pluginsSho
 
   // One machine: its rows, Update all, and the line under them.
   function machineSection({ id, name }) {
-    const section = createElement("section", { className: "updates-machine" });
+    const section = createElement("section", { className: "updates-machine settings-card" });
     section.dataset.serverId = id;
     section.append(createElement("strong", { className: "updates-machine-name", text: name }));
     const { check, error, run, herdrRun } = appUpdates.state(id);
