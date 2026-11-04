@@ -215,12 +215,9 @@ const elements = {
   tabFiles: document.querySelector("#tab-files"),
   filePanel: document.querySelector("#file-panel"),
   filePath: document.querySelector("#file-path"),
-  fileSuggestions: document.querySelector("#file-suggestions"),
   fileRefresh: document.querySelector("#file-refresh"),
-  fileUp: document.querySelector("#file-up"),
   fileUploads: document.querySelector("#file-uploads"),
   fileServer: document.querySelector("#file-server"),
-  browseTree: document.querySelector("#file-tree"),
   browseFeedback: document.querySelector("#file-feedback"),
 };
 

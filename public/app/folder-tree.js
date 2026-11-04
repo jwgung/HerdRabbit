@@ -136,7 +136,9 @@ export function createFolderTree(root, {
     return {
       ...listing,
       listed: listing.entries.length,
-      entries: listing.entries.filter((entry) => entry.kind === "directory"),
+      // No files, no broken links, and no folder whose name did not survive
+      // the trip as text (going into it would ask for another path).
+      entries: listing.entries.filter((entry) => entry.kind === "directory" && entry.readable !== false),
     };
   }
 
@@ -524,6 +526,7 @@ export function createFolderTree(root, {
 
   // Forgets every folder: the machine is about to change.
   function clear() {
+    hideSuggestions();
     view.root = null;
     stopDiffTimer();
     view.addedPaths.clear();
