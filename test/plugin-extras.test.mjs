@@ -452,3 +452,35 @@ test("an older connected PC says to update it there for the new parts, and lists
   await assert.rejects(plugins.start("link", { path: "/tmp" }), /too old for linking a plugin folder from here/u);
   await assert.rejects(plugins.start("unlink", { plugin: "local-tool" }), /too old for unlinking a plugin from here/u);
 });
+
+test("a manifest's id is read outside its multi-line strings, and file:// folders are hidden", async () => {
+  const { manifestPluginId, hidePaths } = await import("../src/herdr-plugins.mjs");
+  assert.equal(manifestPluginId('description = """\nid = "fakeplug"\n"""\nid = "herdrabbit"\n'), "herdrabbit");
+  assert.equal(manifestPluginId("description = '''\nid = \"x\"\n'''\nid = \"notes\"\n"), "notes");
+  assert.equal(hidePaths("see file:///home/u/k and /home/u/w/log.txt"), "see …/k and …/log.txt");
+});
+
+test("a link Herdr registers as HerdRabbit, or as another id than the manifest said, is unlinked again", async (context) => {
+  const folder = await pluginFolder(context, 'id = "layout"\n');
+  for (const registered of ["herdrabbit", "other"]) {
+    const fake = fakeHerdr([NOTES, LINKED]);
+    let linked = false;
+    const run = async (args, options) => {
+      if (args[1] === "link") linked = true;
+      if (args[1] === "list" && linked) {
+        const answer = await fake.run(args, options);
+        const parsed = JSON.parse(answer.stdout);
+        parsed.result.plugins.push({ plugin_id: registered, name: registered, enabled: true, source: { kind: "local" } });
+        return { ...answer, stdout: JSON.stringify(parsed) };
+      }
+      return fake.run(args, options);
+    };
+    const manager = new PluginManager({ run });
+    await manager.start("link", { path: folder });
+    await settle();
+    await settle();
+    const { operation } = await manager.list();
+    assert.equal(operation.state, "failed", `${registered}: the link was kept`);
+    assert.deepEqual(ran(fake).at(-1), ["plugin", "unlink", registered], `${registered}: it was not unlinked`);
+  }
+});

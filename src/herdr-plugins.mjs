@@ -201,8 +201,13 @@ function cleanPlugin(raw, selfId = null) {
 
 // Folders in what a plugin printed are this PC's business, not the page's:
 // an absolute or ~ path is shown as its last part. A URL's path is left be.
+// Folders in another program's text, by their last part: absolute and
+// ~ paths and file:// URLs alike, a single part too (`/etc` stays readable
+// as `/etc`; `/home/me/x` becomes `…/x`).
 export function hidePaths(text) {
-  return String(text ?? "").replace(/(?<![\w:/.~-])(?:~?\/)(?:[^\s/'"`]+\/)+([^\s/'"`]+)/gu, "…/$1");
+  return String(text ?? "")
+    .replace(/file:\/\/(?:[^\s'"`]*\/)?([^\s/'"`]+)/gu, "…/$1")
+    .replace(/(?<![\w:/.~-])(?:~?\/)(?:[^\s/'"`]+\/)+([^\s/'"`]+)/gu, "…/$1");
 }
 
 // What a plugin printed, as a log shows it: its last lines, nothing that
@@ -313,9 +318,21 @@ async function readManifestFile(folder) {
 
 // The `id = "…"` at the top of a plugin folder's manifest, before any table:
 // enough to know what a link would register. Null when there is none.
+// Lines inside a multi-line string ("""…""" or '''…''') are text, not keys.
+// Herdr's own answer after the link is the final word (#follow).
 export function manifestPluginId(text) {
+  let open = null;
   for (const raw of String(text ?? "").split(/\r?\n/u)) {
     const line = raw.trim();
+    if (open) {
+      if ((line.split(open).length - 1) % 2 === 1) open = null;
+      continue;
+    }
+    const triple = line.match(/"""|'''/u)?.[0];
+    if (triple && (line.split(triple).length - 1) % 2 === 1) {
+      open = triple;
+      continue;
+    }
     if (line.startsWith("[")) return null;
     const match = line.match(/^id\s*=\s*(?:"([^"\\]*)"|'([^']*)')\s*(?:#.*)?$/u);
     if (match) {
@@ -390,7 +407,7 @@ export class PluginManager {
     this.#starting = true;
     try {
       if (await this.busy()) throw busy();
-      const { args, target, pinned, timeout } = action === "install"
+      const { args, target, pinned, timeout, expect = null } = action === "install"
         ? this.#installCommand(source, ref)
         : action === "link"
           ? await this.#linkCommand(path, enabled)
@@ -400,7 +417,7 @@ export class PluginManager {
         startedAt: new Date(this.now()).toISOString(), finishedAt: null,
       };
       this.#operation = operation;
-      void this.#follow(operation, args, timeout);
+      void this.#follow(operation, args, timeout, expect);
       return { plugins: await this.#plugins().catch(() => []), operation: cleanOperation(operation) };
     } finally {
       this.#starting = false;
@@ -457,7 +474,33 @@ export class PluginManager {
     return {
       args: ["plugin", "link", folder, ...(enabled === false ? ["--disabled"] : [])],
       target: id, pinned: null, timeout: QUICK_TIMEOUT_MS,
+      // What Herdr registers is checked again once it has: see #follow.
+      expect: { id, before: new Map((await this.#plugins()).map((item) => [item.id, item.source?.kind ?? null])) },
     };
+  }
+
+  // After a link: the plugin Herdr registered, as Herdr lists it, must be the
+  // one the manifest was read as, and not HerdRabbit. Anything else it added
+  // is unlinked again. Answers why it was refused, or null.
+  async #linkedAsExpected({ id, before }) {
+    let plugins;
+    try {
+      plugins = await this.#plugins();
+    } catch {
+      return null;
+    }
+    // One already here whose source changed was replaced by the link: said, not undone.
+    const replaced = plugins.filter((item) => before.has(item.id) && before.get(item.id) !== (item.source?.kind ?? null));
+    if (replaced.length > 0) {
+      return `That folder replaced ${replaced.map((item) => item.name).join(", ")} on this PC. Check it in Herdr there.`;
+    }
+    const added = plugins.filter((item) => !before.has(item.id));
+    const wrong = added.filter((item) => item.id !== id || item.protected);
+    for (const item of wrong) await this.run(["plugin", "unlink", item.id], { timeout: QUICK_TIMEOUT_MS }).catch(() => {});
+    if (wrong.length === 0) return null;
+    return wrong.some((item) => item.protected)
+      ? "That folder registered as HerdRabbit's own plugin, so it was unlinked again."
+      : `That folder registered as ${wrong.map((item) => item.id).join(", ")}, not ${id}, so it was unlinked again.`;
   }
 
   // A plugin on this PC that is not HerdRabbit, and is on.
@@ -548,12 +591,16 @@ export class PluginManager {
     return { logs: cleanPluginLogs(logs.filter((log) => log?.plugin_id === undefined || log.plugin_id === id)) };
   }
 
-  async #follow(operation, args, timeout) {
+  async #follow(operation, args, timeout, expect = null) {
     let answer;
     try {
       answer = await this.run(args, { timeout });
     } catch (error) {
       answer = { code: -1, stdout: "", stderr: String(error?.message ?? ""), timedOut: false };
+    }
+    if (answer.code === 0 && expect) {
+      const refused = await this.#linkedAsExpected(expect);
+      if (refused) answer = { code: 1, stdout: "", stderr: refused, timedOut: false };
     }
     operation.finishedAt = new Date(this.now()).toISOString();
     if (answer.code === 0) {
