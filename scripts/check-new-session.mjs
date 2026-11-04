@@ -185,7 +185,7 @@ try {
     assert.ok(madeTab, `${where}: no session was made: ${JSON.stringify(calls)}`);
     const madePane = panes.at(-1).pane_id;
     assert.deepEqual(calls, [
-      ["createTab", "w1"],
+      ["createTab", "w1", ALPHA],
       ["renameTab", madeTab.tab_id, `Review ${where}`],
       ["sendText", madePane, "codex", { submit: true }],
     ], `${where}: the agent was not started as asked`);
@@ -205,7 +205,7 @@ try {
     await choose(dialog, "");
     await dialog.locator('button[type="submit"]').click();
     await dialog.waitFor({ state: "hidden" });
-    assert.deepEqual(calls, [["createTab", "lab:w1"]], `${where}: a plain shell session did more than make a tab`);
+    assert.deepEqual(calls, [["createTab", "lab:w1", "/work/bench"]], `${where}: a plain shell session did more than make a tab`);
 
     // An agent uninstalled while the dialog is open: refused, said, nothing made.
     await (await openDialog("Platform")).item.click();
