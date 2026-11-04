@@ -667,6 +667,12 @@ const {
   showServerDetails: (...args) => showServerDetails(...args),
   openConnectPc: (...args) => openConnectPc(...args),
   sidebarActionMenu: (...args) => sidebarActionMenu(...args),
+  refreshSnapshot: (...args) => refreshSnapshot(...args),
+  // A plugin's pane opened from Settings → Plugins: shown as any other.
+  showPane: (paneId) => {
+    closeMobileSidebar();
+    selectPane(paneId, { view: "solo" });
+  },
 });
 
 // On a Herdr grid whose cells keep their panes' sizes the text size steps the

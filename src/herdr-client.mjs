@@ -11,6 +11,7 @@ import {
   validateBaseRef, validateBranchName, validateForce, validateWorktreePath,
   worktreeList, worktreeOpened, worktreeRemoved,
 } from "./herdr-worktrees.mjs";
+import { PLUGIN_ID } from "./config.mjs";
 
 const execFileAsync = promisify(execFile);
 // Herdr IDs may contain letters (for example wB:p1). Require the exact end
@@ -58,6 +59,36 @@ function validatePaneId(paneId) {
   }
 
   return paneId;
+}
+
+// A plugin and one of its actions or panes, by Herdr's id rules
+// (src/herdr-plugins.mjs checks them first).
+const PLUGIN_ENTRY_ID = /^[A-Za-z0-9:_][A-Za-z0-9:_-]{0,63}$/u;
+function validatePluginEntry(pluginId, entryId) {
+  if (typeof pluginId !== "string" || !PLUGIN_ID.test(pluginId) || typeof entryId !== "string" || !PLUGIN_ENTRY_ID.test(entryId)) {
+    throw new InputValidationError("Invalid plugin action or pane");
+  }
+  return [pluginId, entryId];
+}
+
+// What a plugin action is told about where it runs: the pane chosen on the
+// page, its tab and its workspace, as Herdr's own context names them. Herdr
+// fills in what is not given (the workspace's folder, its worktree) from
+// its own focus.
+function pluginContext(snapshot, pane) {
+  const workspace = (snapshot?.workspaces ?? []).find((item) => item.workspace_id === pane.workspace_id);
+  const tab = (snapshot?.tabs ?? []).find((item) => item.tab_id === pane.tab_id);
+  const text = (value) => (typeof value === "string" && value.length > 0 && value.length <= 300 ? value : undefined);
+  const context = {
+    workspace_id: text(pane.workspace_id),
+    workspace_label: text(workspace?.label),
+    tab_id: text(pane.tab_id),
+    tab_label: text(tab?.label),
+    focused_pane_id: pane.pane_id,
+    focused_pane_cwd: [pane.foreground_cwd, pane.cwd].find(isFolder),
+    focused_pane_agent: text(pane.agent),
+  };
+  return Object.fromEntries(Object.entries(context).filter(([, value]) => value !== undefined));
 }
 
 function validateHerdrSessionName(sessionName) {
@@ -835,6 +866,43 @@ export class HerdrClient {
   async paneProcessInfo(paneId) {
     const safePaneId = validatePaneId(paneId);
     return this.#run(["pane", "process-info", "--pane", safePaneId]);
+  }
+
+  async #openPane(paneId) {
+    const snapshot = await this.snapshot();
+    const pane = (snapshot?.panes ?? []).find((item) => item?.pane_id === paneId);
+    if (!pane) throw new HerdrCommandError("That pane is no longer open", { code: "pane_not_found" });
+    return { snapshot, pane };
+  }
+
+  // Runs a plugin's action for `paneId`: its workspace, tab and folder are the
+  // action's context. Herdr starts the command and answers its log at once.
+  async pluginActionInvoke(paneId, pluginId, actionId) {
+    const safePaneId = validatePaneId(paneId);
+    const [plugin, action] = validatePluginEntry(pluginId, actionId);
+    const { snapshot, pane } = await this.#openPane(safePaneId);
+    const result = await this.#call("plugin.action.invoke", {
+      action_id: action, plugin_id: plugin, context: pluginContext(snapshot, pane),
+    });
+    return result?.log ?? null;
+  }
+
+  // Opens a plugin's pane as a new tab of `paneId`'s workspace. Not Herdr's
+  // overlay (it covers whatever Herdr itself has in focus, wherever that is)
+  // nor a popup (not a pane at all): a tab shows in the sidebar like any
+  // other. Herdr's own screen stays where it is. Answers the new pane's id.
+  async pluginPaneOpen(paneId, pluginId, entrypoint) {
+    const safePaneId = validatePaneId(paneId);
+    const [plugin, entry] = validatePluginEntry(pluginId, entrypoint);
+    const { pane } = await this.#openPane(safePaneId);
+    const result = await this.#call("plugin.pane.open", {
+      plugin_id: plugin, entrypoint: entry, placement: "tab", workspace_id: validateWorkspaceId(pane.workspace_id), focus: false,
+    });
+    const opened = result?.plugin_pane?.pane;
+    return {
+      pane_id: typeof opened?.pane_id === "string" && PANE_ID_PATTERN.test(opened.pane_id) ? opened.pane_id : null,
+      tab_id: typeof opened?.tab_id === "string" ? opened.tab_id : null,
+    };
   }
 
   // Where each pane of this pane's tab sits ({ x, y, width, height } in cells).

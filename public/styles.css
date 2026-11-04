@@ -1252,6 +1252,131 @@ button.plugin-update-badge {
   font-weight: 600;
 }
 
+/* A plugin's actions and panes (⋯ → Actions and panes…): a list each, a
+   title and Run or Open per row, the line above saying where they run. */
+.plugin-details-dialog,
+.plugin-link-dialog {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.plugin-logs-dialog {
+  width: min(640px, calc(100vw - 32px));
+}
+
+.plugin-entries {
+  display: grid;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+
+.plugin-entries[hidden] {
+  display: none;
+}
+
+.plugin-entries-title {
+  margin: 0;
+  font-size: var(--font-md);
+  font-weight: 600;
+}
+
+.plugin-entries .settings-row-hint:empty {
+  display: none;
+}
+
+.plugin-entry-list,
+.plugin-log-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--card-surface);
+  overflow: hidden;
+}
+
+.plugin-log-list:empty {
+  display: none;
+}
+
+.plugin-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--line);
+}
+
+.plugin-entry:first-child,
+.plugin-log:first-child {
+  border-top: 0;
+}
+
+.plugin-entry-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.plugin-entry-run {
+  white-space: nowrap;
+}
+
+/* A log: what ran, how it went and when, then what it printed. */
+.plugin-log {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+
+.plugin-log-summary {
+  font-size: var(--font-md);
+  overflow-wrap: anywhere;
+}
+
+.plugin-log[data-status="failed"] .plugin-log-summary {
+  color: var(--danger);
+}
+
+.plugin-log-output {
+  margin: 0;
+  max-height: 14em;
+  overflow: auto;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--terminal-bg);
+  color: var(--terminal-text);
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.plugin-log-output[data-stream="stderr"] {
+  border-left: 3px solid var(--danger);
+}
+
+.plugin-link-enabled {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-md);
+}
+
+/* A dialog's touch rule makes its inputs a full-width 44px row; a checkbox
+   stays a box beside its words, the whole line taking the tap. */
+.plugin-link-dialog .plugin-link-enabled input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 /* Installed or Browse, and Browse's search, order and listings: a listing
    is a plugin row with its stars, last push, platforms and Herdr version. */
 .plugins-view {
@@ -1438,6 +1563,10 @@ button.plugin-update-badge {
   .plugin-updates-link,
   .market-install,
   .plugins-more,
+  #plugins-link,
+  .plugin-entry-run,
+  .plugin-link-enabled,
+  :is(.plugin-details-dialog, .plugin-logs-dialog, .plugin-link-dialog) .dialog-actions button,
   .plugin-install-dialog :is(.ui-input, .dialog-actions button) {
     min-height: 44px;
   }

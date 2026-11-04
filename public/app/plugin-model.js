@@ -63,6 +63,8 @@ const VERBS = Object.freeze({
   disable: ["Turning off", "Turned off", "turn off"],
   update: ["Updating", "Updated", "update"],
   uninstall: ["Uninstalling", "Uninstalled", "uninstall"],
+  link: ["Linking", "Linked", "link"],
+  unlink: ["Unlinking", "Unlinked", "unlink"],
 });
 
 // The page's status line for the change last started on a machine:
@@ -192,4 +194,48 @@ export function marketplaceSummary(answer, query = "", now = Date.now()) {
   const read = timeAgo(answer.fetchedAt, now);
   if (answer.stale) return `${count}. Herdr's marketplace could not be read just now; this list was read ${read ?? "earlier"}.`;
   return `${count}${listed ? `, listed by Herdr ${listed}` : ""}.`;
+}
+
+// The machine a pane of the page is on: its record's, else its id's
+// `<server>!` part; this PC's otherwise.
+function paneServer(pane, paneId) {
+  if (typeof pane?.server_id === "string" && pane.server_id) return pane.server_id;
+  const separator = paneId.indexOf("!");
+  return separator > 0 ? paneId.slice(0, separator) : "local";
+}
+
+// Where a plugin's actions run and its panes open on `server`: the pane open
+// on the page when it is on that machine, and its workspace's name.
+// { paneId, workspace } or null.
+export function pluginTarget(records, paneId, server) {
+  if (typeof paneId !== "string" || paneId === "") return null;
+  const pane = (records?.panes ?? []).find((item) => item?.pane_id === paneId);
+  if (!pane || paneServer(pane, paneId) !== server) return null;
+  const workspace = (records?.workspaces ?? []).find((item) => item?.workspace_id === pane.workspace_id);
+  return { paneId, workspace: typeof workspace?.label === "string" && workspace.label ? workspace.label : null };
+}
+
+// The lines above a plugin's actions and panes: where they run.
+export function pluginTargetText(target, machine, enabled = true) {
+  if (!enabled) return { actions: "The plugin is off. Turn it on to run its actions.", panes: "The plugin is off. Turn it on to open its panes." };
+  const where = target?.workspace ? `in ${target.workspace}` : "in its workspace";
+  return target
+    ? { actions: `Runs for the pane you have open, ${where}.`, panes: `Opens as a new tab ${where}, beside the pane you have open.` }
+    : {
+      actions: `Runs where Herdr's own focus is on ${machine}: no pane of it is open here.`,
+      panes: `Open a pane on ${machine} first: a plugin's pane opens as a new tab of that pane's workspace.`,
+    };
+}
+
+const LOG_STATES = Object.freeze({ running: "Running", succeeded: "Succeeded", failed: "Failed" });
+
+// A log's one line: what ran (the action's title, a hook's event), how it
+// went and when.
+export function pluginLogSummary(log, plugin = null, now = Date.now()) {
+  const title = log?.action ? (plugin?.actions ?? []).find((item) => item.id === log.action)?.title ?? log.action : null;
+  const what = title ?? (log?.event ? (log.event === "startup" ? "Startup hook" : `Event: ${log.event}`) : "Command");
+  const state = LOG_STATES[log?.status] ?? "Unknown";
+  const exit = log?.status === "failed" && Number.isInteger(log.exitCode) ? ` (exit ${log.exitCode})` : "";
+  const when = timeAgo(log?.startedAt, now);
+  return `${what} · ${state}${exit}${when ? ` · ${when}` : ""}`;
 }

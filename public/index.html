@@ -524,6 +524,7 @@
             </div>
             <p id="plugins-feedback" class="settings-row-hint" role="status" aria-live="polite"></p>
             <div class="settings-page-actions">
+              <button id="plugins-link" class="secondary-button" type="button">Link local folder…</button>
               <button id="plugins-install" class="primary-button" type="button">Install plugin…</button>
             </div>
           </section>
@@ -894,6 +895,91 @@
         <div class="dialog-actions">
           <button id="plugin-install-cancel" class="secondary-button" type="button">Cancel</button>
           <button id="plugin-install-submit" class="primary-button" type="submit">Continue</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="plugin-details-dialog" class="app-dialog plugin-details-dialog" aria-labelledby="plugin-details-title">
+      <div class="dialog-form">
+        <div class="dialog-heading">
+          <h2 id="plugin-details-title">Plugin</h2>
+          <p id="plugin-details-machine">On This PC</p>
+        </div>
+        <section id="plugin-details-actions" class="plugin-entries" aria-labelledby="plugin-details-actions-title">
+          <h3 id="plugin-details-actions-title" class="plugin-entries-title">Actions</h3>
+          <p id="plugin-details-actions-where" class="settings-row-hint"></p>
+          <ul class="plugin-entry-list" role="list"></ul>
+        </section>
+        <section id="plugin-details-panes" class="plugin-entries" aria-labelledby="plugin-details-panes-title">
+          <h3 id="plugin-details-panes-title" class="plugin-entries-title">Panes</h3>
+          <p id="plugin-details-panes-where" class="settings-row-hint"></p>
+          <ul class="plugin-entry-list" role="list"></ul>
+        </section>
+        <p id="plugin-details-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="plugin-details-logs" class="secondary-button" type="button">Logs…</button>
+          <button id="plugin-details-close" class="primary-button" type="button">Close</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="plugin-logs-dialog" class="app-dialog plugin-logs-dialog" aria-labelledby="plugin-logs-title">
+      <div class="dialog-form">
+        <div class="dialog-heading">
+          <h2 id="plugin-logs-title">Logs</h2>
+          <p id="plugin-logs-machine">On This PC</p>
+        </div>
+        <p id="plugin-logs-status" class="settings-row-hint" role="status" aria-live="polite"></p>
+        <ul id="plugin-logs-list" class="plugin-log-list" role="list" aria-label="Command logs"></ul>
+        <div class="dialog-actions">
+          <button id="plugin-logs-refresh" class="secondary-button" type="button">Refresh</button>
+          <button id="plugin-logs-close" class="primary-button" type="button">Close</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="plugin-link-dialog" class="app-dialog plugin-link-dialog" aria-labelledby="plugin-link-title">
+      <form id="plugin-link-form" class="dialog-form" novalidate>
+        <div class="dialog-heading">
+          <h2 id="plugin-link-title">Link local folder</h2>
+          <p id="plugin-link-machine">On This PC</p>
+        </div>
+        <div id="plugin-link-folder-field" class="folder-field">
+          <label for="plugin-link-folder">Plugin folder</label>
+          <div class="folder-row">
+            <input id="plugin-link-folder" name="folder" type="text" maxlength="4096" autocomplete="off" autocapitalize="off" spellcheck="false" />
+            <button class="secondary-button folder-browse" type="button" aria-controls="plugin-link-folder-picker">Browse…</button>
+          </div>
+          <div id="plugin-link-folder-picker" class="folder-picker" role="group" aria-label="Choose a folder" hidden>
+            <div class="browse-tree" aria-label="Folders"></div>
+            <p class="dialog-feedback file-feedback" role="status" aria-live="polite"></p>
+            <div class="file-path-row">
+              <input class="file-path" type="text" spellcheck="false" autocomplete="off"
+                autocapitalize="off" autocorrect="off" aria-label="Folder path"
+                aria-autocomplete="list" aria-expanded="false" aria-controls="plugin-link-folder-suggestions" />
+              <button class="secondary-button file-up" type="button"
+                aria-label="Go to parent folder" title="Parent folder">
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                  <path d="M12 19V6m-6 6 6-6 6 6" />
+                </svg>
+              </button>
+              <ul id="plugin-link-folder-suggestions" class="file-suggestions" role="listbox" hidden></ul>
+            </div>
+            <div class="folder-picker-actions">
+              <button class="secondary-button folder-close" type="button">Close</button>
+              <button class="secondary-button folder-choose" type="button">Use this folder</button>
+            </div>
+          </div>
+        </div>
+        <label class="plugin-link-enabled">
+          <input id="plugin-link-enabled" type="checkbox" checked />
+          <span>Turn it on once linked</span>
+        </label>
+        <p id="plugin-link-warning" class="plugin-warning"></p>
+        <p id="plugin-link-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="plugin-link-cancel" class="secondary-button" type="button">Cancel</button>
+          <button id="plugin-link-submit" class="primary-button" type="submit">Link</button>
         </div>
       </form>
     </dialog>

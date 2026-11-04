@@ -343,6 +343,22 @@ export class HerdrBridgeClient {
     return { pane_id: scopedId(target.sessionName, result.pane_id) };
   }
 
+  // A plugin's action or pane for one of this PC's panes, in that pane's
+  // Herdr session (src/herdr-plugins.mjs decides which may run).
+  async pluginActionInvoke(paneId, pluginId, actionId) {
+    const target = this.#targetForScopedId(paneId, validation.validatePaneId);
+    return this.#clientForSession(target.sessionName).pluginActionInvoke(target.localId, pluginId, actionId);
+  }
+
+  async pluginPaneOpen(paneId, pluginId, entrypoint) {
+    const target = this.#targetForScopedId(paneId, validation.validatePaneId);
+    const result = await this.#clientForSession(target.sessionName).pluginPaneOpen(target.localId, pluginId, entrypoint);
+    return {
+      pane_id: result.pane_id ? scopedId(target.sessionName, result.pane_id) : null,
+      tab_id: result.tab_id ? scopedId(target.sessionName, result.tab_id) : null,
+    };
+  }
+
   async closePane(paneId) {
     const target = this.#targetForScopedId(paneId, validation.validatePaneId);
     return this.#clientForSession(target.sessionName).closePane(target.localId);

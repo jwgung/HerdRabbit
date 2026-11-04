@@ -41,7 +41,8 @@ import { PromptService } from "./prompt/service.mjs";
 import { SlashCommandCatalog } from "./slash-commands.mjs";
 import { runLimiter } from "./app-update.mjs";
 import {
-  HERDRABBIT_ID, cleanPluginState, validatePluginId, validatePluginRef, validatePluginSource,
+  HERDRABBIT_ID, cleanPluginState, validateLogLimit, validatePluginActionId, validatePluginId, validatePluginPaneId,
+  validatePluginRef, validatePluginSource,
 } from "./herdr-plugins.mjs";
 import { marketplaceQuery } from "./plugin-marketplace.mjs";
 import { CONFIG_BODY_BYTES, herdrSettingsRoute } from "./herdr-settings.mjs";
@@ -407,9 +408,11 @@ function directoryReadLimiter(maxConcurrent) {
 // of every URL, and so out of any proxy log sitting in front of the app.
 const LOCAL_SERVER = "local";
 const AI_ACCOUNT_ROUTE = aiAccountRoute("/api/ai-accounts");
-// /api/plugins, /api/plugins/marketplace, /api/plugins/install, /api/plugins/<id>,
-// /api/plugins/<id>/<action>.
-const PLUGIN_ROUTE = /^\/api\/plugins(?:\/([^/]{1,200})(?:\/(enable|disable|update))?)?$/u;
+// /api/plugins, /api/plugins/marketplace, /api/plugins/install, /api/plugins/link,
+// /api/plugins/<id>, /api/plugins/<id>/<action>.
+const PLUGIN_ROUTE = /^\/api\/plugins(?:\/([^/]{1,200})(?:\/(enable|disable|update|unlink|run|open|logs))?)?$/u;
+// What a plugin route does beyond a change: run an action, open a pane, read logs.
+const PLUGIN_USES = new Set(["run", "open", "logs"]);
 // The browser recognises sign-in projects by this prefix and keeps what is
 // typed into them out of its prompt history.
 const AI_LOGIN_LABEL_PREFIX = "AI login: ";
@@ -1054,9 +1057,55 @@ export function createHerdrHttpServer({
           sendJson(response, 200, { ...(await withUpdates(cleanPluginState(await source.list()))), server: serverId });
           return;
         }
+        // A plugin's command logs, HerdRabbit's included: reading changes nothing.
+        if (method === "GET" && action === "logs") {
+          requireSameOrigin(request);
+          const plugin = validatePluginId(decodePaneId(segment));
+          const limit = validateLogLimit(url.searchParams.get("limit") ?? undefined);
+          const { serverId, source } = pluginsSource(url.searchParams.get("server"));
+          if (typeof source.logs !== "function") throw new HttpError(404, "plugins_unavailable", "That PC cannot read plugin logs from here.");
+          sendJson(response, 200, { ...(await source.logs(plugin, { limit })), plugin, server: serverId });
+          return;
+        }
         requireWriteAuthorization(request, csrfToken);
+        // Run one of a plugin's actions, or open one of its panes, for the
+        // pane chosen on the page (on the plugin's machine). Not a change:
+        // Herdr starts it and answers at once.
+        if (method === "POST" && (action === "run" || action === "open")) {
+          const plugin = validatePluginId(decodePaneId(segment));
+          if (plugin === HERDRABBIT_ID) {
+            throw new HttpError(403, "plugin_protected", "HerdRabbit's own actions and panes are not run from here.");
+          }
+          const body = await readJsonBody(request, maxBodyBytes);
+          const { serverId, source } = pluginsSource(body.server);
+          const paneId = paneOnServer(serverId, body.pane);
+          if (action === "run") {
+            const actionId = validatePluginActionId(body.action);
+            if (typeof source.invoke !== "function") throw new HttpError(404, "plugins_unavailable", "That PC cannot run plugin actions from here.");
+            sendJson(response, 200, { ...(await source.invoke(plugin, actionId, { paneId })), plugin, server: serverId });
+          } else {
+            const entrypoint = validatePluginPaneId(body.entrypoint);
+            if (typeof source.openPane !== "function") throw new HttpError(404, "plugins_unavailable", "That PC cannot open plugin panes from here.");
+            const opened = await source.openPane(plugin, entrypoint, { paneId });
+            // The page's id for it: a connected PC's panes carry its server id.
+            const shown = opened.paneId && serverId !== LOCAL_SERVER ? `${serverId}!${opened.paneId}` : opened.paneId;
+            sendJson(response, 200, { ...opened, paneId: shown, plugin, server: serverId });
+          }
+          return;
+        }
+        if (PLUGIN_USES.has(action)) throw new HttpError(405, "method_not_allowed", "Method not allowed");
         let started;
-        if (method === "POST" && segment === "install" && action === undefined) {
+        if (method === "POST" && segment === "link" && action === undefined) {
+          // A folder on the plugin's machine; that machine checks it is one
+          // it would open, and what plugin it holds.
+          const body = await readJsonBody(request, maxBodyBytes);
+          if (!isFolderRequest(body.path)) throw invalidFolder();
+          if (body.enabled !== undefined && typeof body.enabled !== "boolean") {
+            throw new HttpError(400, "invalid_request", "Say whether the plugin starts on or off.");
+          }
+          const { serverId, source } = pluginsSource(body.server);
+          started = { serverId, answer: await source.start("link", { path: body.path, enabled: body.enabled !== false }) };
+        } else if (method === "POST" && segment === "install" && action === undefined) {
           const body = await readJsonBody(request, maxBodyBytes);
           const pluginSource = validatePluginSource(body.source);
           const ref = validatePluginRef(body.ref);
@@ -1786,6 +1835,21 @@ export function createHerdrHttpServer({
     const plugins = typeof marketplace?.updatesFor === "function"
       ? await marketplace.updatesFor(state.plugins).catch(() => null) : null;
     return { ...state, plugins: plugins ?? state.plugins.map((plugin) => ({ ...plugin, updateAvailable: null })) };
+  }
+
+  // The pane a plugin action runs for, or a plugin pane opens beside, by its
+  // id on the plugin's machine: a connected PC's pane is `<server>!<id>` on
+  // this page. None is null (an action then runs where Herdr's focus is).
+  function paneOnServer(serverId, value) {
+    if (value === undefined || value === null || value === "") return null;
+    const wrong = () => new HttpError(400, "invalid_pane", "That pane is not on the plugin's machine.");
+    if (typeof value !== "string" || value.length > 512) throw wrong();
+    if (serverId === LOCAL_SERVER) {
+      if (value.includes("!")) throw wrong();
+      return value;
+    }
+    if (!value.startsWith(`${serverId}!`) || value.length === serverId.length + 1) throw wrong();
+    return value.slice(serverId.length + 1);
   }
 
   // Plugin routes address a machine like account routes: a connected PC runs
