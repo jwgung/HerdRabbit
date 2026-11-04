@@ -579,7 +579,7 @@ export function createFolderTree(root, {
   }
 
   function applySuggestion(value) {
-    pathInput.value = value;
+    pathInput.value = showPath(value);
     hideSuggestions();
     void navigate(value);
   }
@@ -608,7 +608,8 @@ export function createFolderTree(root, {
 
   async function updateCompletion() {
     const typed = pathInput.value;
-    if (!typed.startsWith("/")) {
+    // `~/…` completes too: the server reads `~` as that machine's home.
+    if (!typed.startsWith("/") && !typed.startsWith("~/")) {
       hideSuggestions();
       return;
     }

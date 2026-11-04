@@ -274,6 +274,14 @@ try {
     await pathIs("~");
     // notes.txt is a file and dead a link to nothing: only folders are offered.
     assert.deepEqual(await listed(), ["alpha", "beta"], `${where}: the home folder's folders are not listed, or more than its folders are`);
+    // The path field completes from ~ too, and a pick is written from ~.
+    const pathField = picker.locator(".file-path");
+    await pathField.fill("~/be");
+    await picker.locator(".file-suggestion", { hasText: "beta" }).waitFor({ state: "visible" });
+    await picker.locator(".file-suggestion", { hasText: "beta" }).click();
+    await page.waitForFunction(() => document.querySelector("#session-folder-picker .file-path")?.value === "~/beta");
+    await picker.locator(".file-up").click();
+    await pathIs("~");
     await into("beta");
     await pathIs("~/beta");
     // Escape closes the picker, and the dialog stays.
