@@ -303,3 +303,16 @@ test("checks browse folders for changes without transferring full listings", asy
   assert.deepEqual(checkChanged.changed, [directory]);
 });
 
+
+test("a new tab or workspace does not open in a folder the Files tab will not open", async () => {
+  const { mkdtemp, mkdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { existingFolder } = await import("../src/project-folder.mjs");
+  const home = await mkdtemp(join(tmpdir(), "herdrabbit-protected-"));
+  await mkdir(join(home, ".ssh"));
+  await mkdir(join(home, "work"));
+  const guard = { matcher: async () => (path) => path === join(home, ".ssh") || path.startsWith(`${join(home, ".ssh")}/`) };
+  await assert.rejects(existingFolder("~/.ssh", { home, guard }), { status: 400, code: "protected_folder" });
+  assert.equal(await existingFolder("~/work", { home, guard }), join(home, "work"));
+});

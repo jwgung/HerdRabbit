@@ -33,7 +33,9 @@ export function workspaceFolder(panes, workspaceId) {
 // machine the dialog is for, typed or chosen with Browse…, which lists that
 // machine's folders through the Files tab's own listing (/api/browse). The
 // folder shown is the one sent (`value()`), so what opens is where the dialog
-// said: Herdr's own new_cwd setting does not decide it.
+// said, not where Herdr's new_cwd setting would put it. Only a connected PC
+// too old to open folders, left as the dialog opened (`asOpened()`), makes it
+// as before.
 // `root` holds the input, the Browse… button and an empty picker container.
 export function createFolderField(root, { api }) {
   const input = root.querySelector("input");

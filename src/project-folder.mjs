@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
@@ -31,13 +31,15 @@ export class FolderError extends Error {
   }
 }
 
-export const FOLDER_CODES = new Set(["invalid_folder", "folder_not_found", "not_a_folder"]);
+export const FOLDER_CODES = new Set(["invalid_folder", "folder_not_found", "not_a_folder", "protected_folder"]);
 
 export const invalidFolder = () => new FolderError("invalid_folder", "Enter a folder as a full path, like /home/me/project or ~/project.");
 
 // A folder asked for, on this machine: `~` expanded to `home`, resolved, and
 // an existing directory here. The path answered is absolute (isFolder).
-export async function existingFolder(value, { home = homedir() } = {}) {
+// `guard` is the Files tab's protected paths (src/protected-paths.mjs): a
+// folder the Files tab will not open is not one a new tab opens in either.
+export async function existingFolder(value, { home = homedir(), guard = null } = {}) {
   if (!isFolderRequest(value)) throw invalidFolder();
   const folder = value === "~" || value.startsWith("~/") ? resolve(home, value.slice(2)) : resolve(value);
   if (!isFolder(folder)) throw invalidFolder();
@@ -51,6 +53,9 @@ export async function existingFolder(value, { home = homedir() } = {}) {
     throw error;
   }
   if (!stats.isDirectory()) throw new FolderError("not_a_folder", `${value} is a file, not a folder.`);
+  if (guard && (await guard.matcher())(await realpath(folder))) {
+    throw new FolderError("protected_folder", `${value} holds sign-in keys or HerdRabbit's settings; choose another folder.`);
+  }
   return folder;
 }
 
