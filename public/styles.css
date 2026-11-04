@@ -567,7 +567,7 @@ body.sidebar-collapsed .terminal-panel {
   gap: var(--space-3);
   padding: var(--space-4) var(--space-2-5);
   border-right: 1px solid var(--line);
-  background: var(--hover-surface);
+  background: var(--sunken-surface);
   overflow-y: auto;
 }
 
@@ -606,7 +606,9 @@ body.sidebar-collapsed .terminal-panel {
 }
 
 .settings-page-heading h3 {
-  font-size: var(--font-xl);
+  font-size: var(--font-page-title);
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .settings-page-list,
@@ -623,9 +625,25 @@ body.sidebar-collapsed .terminal-panel {
   color: var(--control-text);
 }
 
+.settings-page-link .ui-nav-copy strong {
+  font-size: var(--font-md);
+  font-weight: 500;
+}
+
+.settings-page-link:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+/* The page shown: a raised row with a bar at its left, so the pick is not
+   told by colour alone. */
 .settings-page-link[aria-current="page"] {
-  background: var(--selected-surface);
+  background: var(--segment-selected);
+  box-shadow: inset 3px 0 0 var(--accent);
   color: var(--text);
+}
+
+.settings-page-link[aria-current="page"] .ui-nav-copy strong {
+  font-weight: 700;
 }
 
 .settings-page-link .ui-nav-copy {
@@ -640,6 +658,7 @@ body.sidebar-collapsed .terminal-panel {
   gap: var(--space-4);
   padding: var(--space-4) var(--space-5) var(--space-5);
   overflow-y: auto;
+  line-height: 1.45;
 }
 
 /* The page list is beside the page on a desktop: one close control, no Back. */
@@ -669,23 +688,55 @@ body.sidebar-collapsed .terminal-panel {
   display: none;
 }
 
+/* A card: one group of rows on a settings page (a section, a machine). */
+.settings-card {
+  min-width: 0;
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--card-surface);
+}
+
+.settings-card[hidden] {
+  display: none;
+}
+
+.settings-card-title {
+  margin: 0;
+  padding: var(--space-3) var(--space-4) 0;
+  font-size: var(--font-section);
+  font-weight: 700;
+}
+
+.settings-card > :is(.settings-row-hint, .settings-page-actions) {
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+.settings-card > .settings-card-title + .settings-row-hint {
+  padding-top: var(--space-1);
+}
+
 .settings-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2) var(--space-4);
-  padding-bottom: var(--space-4);
-  border-bottom: 1px solid var(--line);
+  padding: var(--space-3) var(--space-4);
 }
 
 .settings-row[hidden] {
   display: none;
 }
 
-.settings-row:last-child {
-  padding-bottom: 0;
-  border-bottom: 0;
+/* Rows in a card are parted by a line. */
+.settings-row ~ .settings-row {
+  border-top: 1px solid var(--line);
+}
+
+/* A card whose every row is hidden is hidden too. */
+.settings-card:not(:has(> :not([hidden]))) {
+  display: none;
 }
 
 .settings-row-copy {
@@ -696,7 +747,7 @@ body.sidebar-collapsed .terminal-panel {
 }
 
 .settings-row-label {
-  font-size: var(--font-md);
+  font-size: var(--font-lg);
   font-weight: 600;
 }
 
@@ -704,16 +755,26 @@ body.sidebar-collapsed .terminal-panel {
   margin: 0;
   color: var(--muted);
   font-size: var(--font-sm);
+  line-height: 1.45;
 }
 
 .settings-row-hint[data-error="true"] {
   color: var(--danger);
 }
 
+/* A choice of a few: a segmented control, its pick raised. */
 .settings-choices {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1-5);
+  gap: var(--space-0-5);
+  padding: var(--space-0-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--sunken-surface);
+}
+
+.plugins-views {
+  justify-self: start;
 }
 
 .settings-choices[hidden] {
@@ -722,6 +783,21 @@ body.sidebar-collapsed .terminal-panel {
 
 .settings-pc {
   grid-template-columns: 10px minmax(0, 1fr);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 0;
+}
+
+.settings-pc-list.settings-card {
+  gap: 0;
+  overflow: hidden;
+}
+
+.settings-pc-list > li + li {
+  border-top: 1px solid var(--line);
+}
+
+.settings-pc-list > li.settings-row-hint {
+  padding: var(--space-3) var(--space-4);
 }
 
 .settings-page-actions {
@@ -731,6 +807,7 @@ body.sidebar-collapsed .terminal-panel {
 
 .settings-versions {
   margin: 0;
+  padding: var(--space-3) var(--space-4);
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   gap: var(--space-2) var(--space-4);
@@ -768,6 +845,39 @@ body.sidebar-collapsed .terminal-panel {
     background: var(--surface);
   }
 
+  /* The list fills the screen: one card of rows, each with a line between. */
+  .settings-page-list {
+    gap: 0;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-panel);
+    background: var(--card-surface);
+  }
+
+  .settings-page-list > li + li {
+    border-top: 1px solid var(--line);
+  }
+
+  .settings-page-link {
+    min-height: 48px;
+    padding-inline: var(--space-4);
+    border-radius: 0;
+  }
+
+  .settings-page-link .ui-nav-copy strong {
+    font-size: var(--font-lg);
+  }
+
+  /* No page is beside the list, so none is marked as shown. */
+  .settings-page-link[aria-current="page"] {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .settings-page-link[aria-current="page"] .ui-nav-copy strong {
+    font-weight: 500;
+  }
+
   /* Grid as .icon-button is, so the drawing stays in the middle. */
   .settings-nav .settings-close,
   .settings-back {
@@ -802,7 +912,8 @@ body.sidebar-collapsed .terminal-panel {
   list-style: none;
   display: grid;
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-panel);
+  background: var(--card-surface);
   overflow: hidden;
 }
 
@@ -811,7 +922,7 @@ body.sidebar-collapsed .terminal-panel {
 }
 
 .plugin-rows > .plugin-empty {
-  padding: var(--space-3);
+  padding: var(--space-3) var(--space-4);
 }
 
 .plugin-row {
@@ -819,8 +930,9 @@ body.sidebar-collapsed .terminal-panel {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2) var(--space-3);
-  padding: var(--space-2-5) var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--line);
+  line-height: 1.45;
 }
 
 .plugin-row:first-child {
@@ -830,7 +942,7 @@ body.sidebar-collapsed .terminal-panel {
 .plugin-identity {
   min-width: 0;
   display: grid;
-  gap: var(--space-0-5);
+  gap: 1px;
 }
 
 .plugin-title {
@@ -845,6 +957,7 @@ body.sidebar-collapsed .terminal-panel {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-lg);
+  font-weight: 600;
 }
 
 .plugin-row.is-off .plugin-title strong {
@@ -854,10 +967,12 @@ body.sidebar-collapsed .terminal-panel {
 .plugin-version {
   color: var(--muted);
   font-family: var(--mono);
-  font-size: var(--font-sm);
+  font-size: var(--font-xs);
   white-space: nowrap;
 }
 
+/* The source is a meta line in the UI font, underlined only under the
+   pointer; the version beside the name stays monospaced. */
 .plugin-source {
   justify-self: start;
   max-width: 100%;
@@ -865,17 +980,19 @@ body.sidebar-collapsed .terminal-panel {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted);
-  font-family: var(--mono);
   font-size: var(--font-sm);
+  text-decoration: none;
 }
 
 a.plugin-source:hover {
   color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .plugin-description {
-  color: var(--muted);
-  font-size: var(--font-sm);
+  color: var(--control-text);
+  font-size: var(--font-md);
   overflow-wrap: anywhere;
 }
 
@@ -906,12 +1023,14 @@ button.plugin-update-badge,
 }
 
 button.plugin-update-badge {
-  font-size: var(--font-sm);
+  font-size: var(--font-2xs);
 }
 
 .plugin-updates-link {
   padding: 0;
   background: none;
+  color: var(--muted);
+  font-size: var(--font-sm);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -925,21 +1044,35 @@ button.plugin-update-badge {
    rows' versions and runs read as HerdRabbit's row in Plugins did. */
 .updates-machines {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
+/* A machine is a card: its name, its rows parted by lines, Update all and
+   the line under them. */
 .updates-machine {
-  display: grid;
-  gap: var(--space-2);
+  overflow: hidden;
 }
 
 .updates-machine-name {
-  font-size: var(--font-lg);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-section);
+  font-weight: 700;
+}
+
+.updates-machine .plugin-rows {
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
 }
 
 .updates-empty,
 .updates-status {
   margin: 0;
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+.updates-machine-name + .updates-empty {
+  margin-top: calc(-1 * var(--space-2));
 }
 
 .updates-status:empty {
@@ -953,6 +1086,8 @@ button.plugin-update-badge {
 .updates-actions {
   display: flex;
   justify-content: flex-end;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--line);
 }
 
 .updates-run,
@@ -969,7 +1104,7 @@ button.plugin-update-badge {
 }
 
 .plugin-update-line {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 
 :is(.plugin-update-line, .plugin-update-note, .plugin-update-run)[data-error="true"],
@@ -1082,8 +1217,8 @@ button.plugin-update-badge {
   padding: var(--space-2) var(--space-3);
   border-left: 3px solid var(--warning);
   border-radius: var(--radius-sm);
-  background: var(--hover-surface);
-  font-size: var(--font-md);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  font-size: var(--font-sm);
 }
 
 .plugin-confirm-text {
@@ -1170,11 +1305,13 @@ button.plugin-update-badge {
 }
 
 .plugin-badge {
-  padding: var(--space-0-5) var(--space-2);
+  padding: 0 var(--space-1-5);
   border: 1px solid var(--line);
   border-radius: var(--radius-pill);
   color: var(--muted);
-  font-size: var(--font-sm);
+  font-size: var(--font-2xs);
+  font-weight: 700;
+  line-height: 1.5;
   white-space: nowrap;
 }
 

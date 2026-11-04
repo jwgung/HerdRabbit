@@ -23,7 +23,9 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | `--font-md` | 13px | 사이드바 행 이름, 파일 트리의 이름, 알림 본문 |
 | `--font-lg` | 14px | 채팅 본문(배율 1일 때), 질문 카드, 업로드 목록의 이름, 강조 이름 |
 | `--font-input-touch` | 16px | 터치 기기의 입력칸, 패인 제목, 채팅 마크다운의 `##` 제목, 키 바 편집 단추의 기호 |
+| `--font-section` | 15px | 설정 카드의 제목(기계 이름 등) |
 | `--font-xl` | 18px | 화면 제목(`h1`, 로그인 제목), 대화상자 제목(`h2`), 채팅 마크다운의 `#` 제목 |
+| `--font-page-title` | 20px | 설정 페이지 제목 |
 | `--font-2xl` | 22px | 아이콘 버튼의 기호 |
 | `--font-glyph` | 15px | 사이드바 행의 상태 기호(접은 사이드바에서는 `--font-xs`) |
 | `--font-glyph-lg` | 17px | 상태 기호(`.ui-status`) |
@@ -31,7 +33,21 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 - `rem`은 쓰지 않는다. 사용자 글꼴 설정은 채팅 배율(`--chat-scale`)과 채팅 글자 크기(`--chat-font-size`, 컴포저가 채팅 렌즈에서 따른다), 터미널 글자 크기(`--terminal-font-size`)로만 받는다. 셋 다 앱이 실행 중에 정한다.
 - 채팅 안의 크기는 `calc(<토큰 값> * var(--chat-scale, 1))`로 쓴다. `--chat-scale`은 토큰이 아니라 앱이 채팅 글꼴 설정에 따라 실행 중에 정하는 값이다(계산은 `public/chat-font-preference.js`의 `chatScale`, 적용은 `public/app/chat-lens.js`). 자기 글자 크기에서 비례하는 블록 안의 상대 크기만 `em`을 허용한다: 마크다운 본문(코드, 인용)과 질문 카드(`public/chat/prompt-card.css`).
 - 기호(상태 표식)는 상자에 맞춰 그려서 글자 단계와 따로 `--font-glyph*`를 쓴다.
-- 줄 높이는 UI 1.3, 본문 1.5를 기본으로 한다. 채팅 본문과 터미널 메시지는 1.55, 질문 카드는 1.45다.
+### 글자 단계 (설정 화면)
+
+한 화면에서 글자는 네 단계로 나눈다. 단계마다 크기와 굵기를 둘 다 바꿔, 크기만으로 구별하지 않는다.
+
+| 단계 | 크기 · 굵기 | 예 |
+|---|---|---|
+| 페이지 제목 | `--font-page-title`, 700 | "Updates" |
+| 묶음 제목 | `--font-section`, 700 | 카드의 기계 이름("This PC") |
+| 행 이름 | `--font-lg`, 600 | "Keys under the terminal", 플러그인 이름 |
+| 보조 줄 | `--font-sm`, 400, `--muted` | 도움말, 출처, 상태 줄 |
+
+- 보조 줄은 UI 글꼴이다. 고정폭(`--mono`)은 버전·커밋처럼 글자 하나하나가 뜻을 갖는 토큰에만 쓴다(`.plugin-version`).
+- 설정 페이지 목록의 항목은 `--font-md` 500이고, 보이는 페이지의 항목만 700이다.
+
+- 줄 높이는 UI 1.3, 본문 1.5를 기본으로 한다. 설정 페이지의 글은 1.45다. 채팅 본문과 터미널 메시지는 1.55, 질문 카드는 1.45다.
 
 ## 간격
 
@@ -62,7 +78,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | `--radius-sm` | 6px | 키 바 키, 목록 행(세션·파일·업로드), 메뉴 항목, 행 안의 작은 아이콘 단추, 묶음 안의 단추(찾기·복사·상태 바, 렌즈 전환, 사이드바 탭, 채팅의 복사·링크 단추) |
 | `--radius-control` | 8px | 버튼(주·보조·고스트·아이콘), 입력칸, 선택칸, 떠 있는 바 |
 | `--radius-panel` | 12px | 메뉴, 팝오버, 제안 목록, 패널 |
-| `--radius-card` | 14px | 카드, 대화상자, 채팅 말풍선 |
+| `--radius-card` | 14px | 카드, 대화상자, 채팅 말풍선 (대화상자 안의 카드는 `--radius-panel`) |
 | `--radius-pill` | 999px | 배지, 알약 모양 단추 |
 
 - 테두리 있는 묶음(`--radius-control`) 안에 든 단추는 한 단계 작은 `--radius-sm`을 써서 안쪽 모서리가 겹쳐 보이지 않게 한다.
@@ -113,9 +129,9 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 | 역할 | 토큰 |
 |---|---|
-| 바탕 | `--page`, `--surface`, `--surface-raised`, `--navigator-surface`, `--hover-surface`, `--selected-surface`, `--completion-surface`(완료된 접힌 워크스페이스) |
+| 바탕 | `--page`, `--surface`, `--surface-raised`, `--control-surface`(입력칸·보조 버튼), `--card-surface`(설정 카드), `--sunken-surface`(설정 페이지 목록, 묶음 선택의 바탕), `--segment-selected`(묶음 선택에서 고른 것, 보이는 설정 페이지), `--navigator-surface`, `--hover-surface`, `--selected-surface`, `--completion-surface`(완료된 접힌 워크스페이스) |
 | 글자 | `--text`, `--muted`, `--control-text`, `--workspace-heading`, `--input-text` |
-| 선 | `--line`, `--hover-line`, `--selected-border` |
+| 선 | `--line`, `--hover-line`, `--selected-border`, `--control-line`(입력칸·보조 버튼의 테두리, 바탕과 3:1 이상) |
 | 강조·주 동작 | `--accent`, `--accent-hover`, `--accent-ink`(강조 바탕 위 글자) |
 | 에이전트 상태 | `--working`, `--done`, `--status-ok`, `--status-attention`, `--offline`, `--agent-unknown` |
 | 경고·위험 | `--warning`, `--danger` |
@@ -134,7 +150,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 ## 배지
 
-이름 옆의 작은 알약 하나로 통일한다: `--radius-pill`, `1px var(--space-1-5)` 여백, `--font-xs`, 굵기 600. 색은 세 가지다.
+이름 옆의 작고 조용한 알약 하나로 통일한다: `--radius-pill`, `0 var(--space-1-5)` 여백, `--font-2xs`, 굵기 700. 강조색을 채우지 않는다(강조색으로 채우는 것은 주 버튼뿐이다). 중립은 `--line` 테두리만, 강조·위험은 그 색을 14% 섞은 바탕에 그 색 글자다. 색은 세 가지다.
 
 | 종류 | 클래스 | 쓰는 곳 |
 |---|---|---|
@@ -143,6 +159,29 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | 위험 | `ui-badge is-danger` | 사라진 파일(`removed`) |
 
 앱의 `split-badge`, `transfer-tag`, `update-badge`, 파일 행의 `new`·`removed`는 같은 규칙(`public/ui/components.css`)을 쓴다. 예외는 둘이다: 질문 카드의 태그(`.prompt-card-tag`)는 카드 글자 크기를 따라 `em`으로 커지고, 컴포저 `/` 목록의 출처 표시(`.composer-command-source`)는 배경 없이 테두리만 있는 표시다.
+
+## 버튼
+
+무게에 따라 세 가지다. 같은 일을 하는 버튼은 어디서나 같은 무게다.
+
+| 무게 | 클래스 | 모양 | 쓰는 곳 |
+|---|---|---|---|
+| 주 | `primary-button` | 강조색 바탕, `--accent-ink` 글자, 굵기 700 | 화면(페이지·대화상자)의 주 동작 하나: Connect PC…, Install plugin…, Save, Create |
+| 보조 | `secondary-button` | `--control-surface` 바탕, `--control-line` 테두리 | 그 밖의 동작, 대화상자를 여는 행의 단추(Edit keys…, Passkeys…), 닫기·취소 |
+| 글자 | `text-button` | 테두리·바탕 없음, hover에서만 옅은 바탕 | 작은 동작: 다시 확인(Check), 되돌리기(Reset text size) |
+
+- 한 화면에 주 버튼은 하나다. 예외는 기계마다 따로 하는 동작이다: 기계 카드가 여럿인 Updates 페이지와 Update 창은 카드마다 주 버튼(Update all, Update)이 하나씩이다.
+- 주 버튼이 할 일이 없으면 화면에 주 버튼이 없어도 된다(Appearance). 보조 버튼을 주 버튼처럼 꾸미지 않는다.
+- 버튼 글자는 `--font-md`, 굵기 600(주는 700)이다.
+- 입력칸과 선택칸(`ui-input`)은 보조 버튼과 같은 `--control-surface` 바탕과 `--control-line` 테두리다. 강조색이나 초록 바탕을 쓰지 않는다.
+- 몇 가지 중 하나를 고르는 것(`settings-choice`)은 묶음 선택이다: `--sunken-surface` 바탕의 묶음 안에서 고른 것만 `--segment-selected` 바탕, 테두리, 굵기 700으로 올라온다. 강조색을 쓰지 않는다. 키 바의 수정키(`key-bar-mod`)도 같은 모양이다.
+
+## 카드 (설정 화면)
+
+- 설정 페이지의 한 묶음(한 섹션, 한 기계)은 카드 하나다(`.settings-card`): `--card-surface` 바탕, `1px --line` 테두리, `--radius-panel` 모서리. 카드 안의 행은 `var(--space-3) var(--space-4)` 여백이고 행 사이는 `--line` 한 줄로 나눈다. 카드 사이는 `--space-3`~`--space-4`다.
+- 플러그인 목록, 연결된 PC 목록, 버전 표도 같은 카드 모양이다. 페이지 전체를 설명하는 도움말과 페이지의 주 버튼은 카드 밖에 둔다.
+- 데스크톱에서 페이지 목록은 `--sunken-surface` 바탕으로 내용과 구별한다. 보이는 페이지는 `--segment-selected` 바탕과 왼쪽 `--accent` 막대(`inset 3px 0 0`)로, 색만으로 알리지 않는다. 폰에서는 목록이 화면을 채우는 카드 하나다.
+- 보이는 행이 하나도 없는 카드는 숨는다.
 
 ## 상태 표기
 
@@ -208,6 +247,7 @@ JS에서만 쓰는 기준도 같은 값을 따른다(`public/app.js`): `(min-wid
 - UI 언어는 영어다. 문장형 대소문자(Sentence case)를 쓴다: "Sign out everywhere", "Back to grid".
 - 버튼은 동사로 시작한다. 대화상자를 여는 버튼과 진행 중 문구에는 `…`(U+2026)을 붙인다: "Loading workspaces…".
 - 오류 문구는 무슨 일이 있었는지와 다음에 할 일을 한 문장씩 쓴다. 느낌표를 쓰지 않는다.
+- 설정의 도움말은 한 섹션(행·페이지)에 짧은 1~2줄이다(데스크톱 폭에서 2줄 이내). 사실만 남기고 자세한 설명(순서, 예외, 출처)은 README에 둔다. 버튼 이름이나 선택지가 말하는 것을 되풀이하지 않는다.
 - 같은 개념은 한 단어로 부르고, 이름은 Herdr를 따른다: machine → session → workspace → tab → pane. 에이전트가 이어 쓰는 예전 기록은 conversation이다.
 
 ## 검사

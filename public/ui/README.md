@@ -37,7 +37,7 @@
 
 | 용도 | 클래스 / 상태 |
 | --- | --- |
-| 버튼 | `primary-button`, `secondary-button`, `ghost-button`, `icon-button` |
+| 버튼 | `primary-button`(화면의 주 동작 하나), `secondary-button`(테두리), `text-button`(작은 동작), `ghost-button`, `icon-button` |
 | 입력 | `ui-input` (텍스트 input, select) |
 | 상태 표시 | `ui-status state-idle`, `state-working`, `state-blocked`, `state-done` |
 | 탐색 항목 | `ui-nav-item` 안에 `ui-status`와 `ui-nav-copy`; 제목 strong, 보조 상태 small |

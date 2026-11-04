@@ -8,6 +8,8 @@
   --font-lg: 14px;
   --font-input-touch: 16px;
   --font-xl: 18px;
+  --font-page-title: 20px;
+  --font-section: 15px;
   --font-2xl: 22px;
   --font-glyph: 15px;
   --font-glyph-lg: 17px;
@@ -59,6 +61,13 @@
   --control-text: #dce4e9;
   --hover-line: #485762;
   --hover-surface: #1c242b;
+  /* Neutral controls: inputs and secondary buttons, a border at 3:1 or more. */
+  --control-surface: #0d1216;
+  --control-line: #5c6a75;
+  /* A settings screen: its page list, its cards, a segmented choice's pick. */
+  --sunken-surface: #12181d;
+  --card-surface: #0f151a;
+  --segment-selected: #232c34;
   --offline: #68727a;
   --online-glow: rgb(143 240 186 / 48%);
   --agent-unknown: #5c5c5c;
@@ -124,6 +133,11 @@
   --control-text: #20312a;
   --hover-line: #8ea89b;
   --hover-surface: #ddeae4;
+  --control-surface: #ffffff;
+  --control-line: #768a81;
+  --sunken-surface: #f1f4f2;
+  --card-surface: #ffffff;
+  --segment-selected: #ffffff;
   --offline: #7e8d86;
   --online-glow: rgb(22 116 84 / 28%);
   --agent-unknown: #748079;
