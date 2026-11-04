@@ -326,8 +326,10 @@ export function createPluginsPage({
   const detailsTarget = () => pluginTarget(snapshotRecords(), selectedPaneId(), details.server, details.workspaceId);
 
   // The machine's workspaces to choose from; the one chosen is kept while it
-  // is still there, else the pane on show's, else the first.
-  function renderWorkspaces() {
+  // is still there, else the pane on show's, else the first. The options are
+  // rebuilt only when they change: a snapshot landing while the list is open
+  // on a phone would otherwise close it.
+  function syncWorkspaces() {
     const records = snapshotRecords();
     const choices = pluginWorkspaces(records, details.server);
     if (!choices.some((item) => item.workspaceId === details.workspaceId)) {
@@ -373,7 +375,7 @@ export function createPluginsPage({
       detailsDialog.close();
       return;
     }
-    renderWorkspaces();
+    syncWorkspaces();
     const target = detailsTarget();
     const where = pluginTargetText(target, machineName(details.server), plugin.enabled);
     detailsTitle.textContent = plugin.name;

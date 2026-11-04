@@ -204,7 +204,6 @@ function serverOf(record, id) {
   return separator > 0 ? id.slice(0, separator) : "local";
 }
 
-const paneServer = (pane, paneId) => serverOf(pane, paneId);
 const workspaceName = (workspace) => (typeof workspace?.label === "string" && workspace.label ? workspace.label : workspace.workspace_id);
 
 // The workspaces of `server` an action may run for or a pane open in: those
@@ -234,7 +233,7 @@ export function pluginTarget(records, paneId, server, workspaceId = null) {
   const shown = typeof paneId === "string" && paneId !== ""
     ? (records?.panes ?? []).find((item) => item?.pane_id === paneId) ?? null
     : null;
-  const shownHere = shown && paneServer(shown, paneId) === server ? shown : null;
+  const shownHere = shown && serverOf(shown, paneId) === server ? shown : null;
   const wanted = workspaceId ?? shownHere?.workspace_id;
   if (!wanted) return null;
   const workspace = (records?.workspaces ?? []).find((item) => item?.workspace_id === wanted);
