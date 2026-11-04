@@ -8,8 +8,8 @@ import {
   parentDirectory,
   sortUploads,
   uploadSummary,
-} from "../ui-model.js?v=1.4.31";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "../file-preview.js?v=1.4.31";
+} from "../ui-model.js?v=1.4.32";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "../file-preview.js?v=1.4.32";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -18,9 +18,9 @@ import {
   writeFileServer,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "../browse-preference.js?v=1.4.31";
-import { createSpeechButton, speechSupported } from "../speech-recognition.js?v=1.4.31";
-import { array, createElement, createIcon } from "./dom.js?v=1.4.31";
+} from "../browse-preference.js?v=1.4.32";
+import { createSpeechButton, speechSupported } from "../speech-recognition.js?v=1.4.32";
+import { array, createElement, createIcon } from "./dom.js?v=1.4.32";
 
 // Files in and out of a machine: uploads, downloads and the uploads dialog,
 // the file viewer, voice input, the Files tab's tree and the path completion
