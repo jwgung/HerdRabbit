@@ -229,12 +229,12 @@ try {
     await makeOn("local", `Shop ${where}`, { first: "hs_local", agents: localAgents, cwd: join(home, "projects", "shop"), async folder(dialog) {
       const picker = dialog.locator("#project-folder-picker");
       await dialog.locator("#project-folder-field .folder-browse").click();
-      await pathIs(home);
+      await pathIs("~");
       assert.deepEqual(await picker.locator(".browse-row .transfer-name").allTextContents(), ["projects"], `${where}: the home folder's folders are not listed`);
       await picker.locator(".browse-row", { hasText: "projects" }).click();
-      await pathIs(join(home, "projects"));
+      await pathIs("~/projects");
       await picker.locator(".browse-row", { hasText: "shop" }).click();
-      await pathIs(join(home, "projects", "shop"));
+      await pathIs("~/projects/shop");
       if (mobile) {
         const height = await dialog.locator("#project-folder-field .folder-browse").evaluate((element) =>
           Math.max(element.getBoundingClientRect().height, parseFloat(getComputedStyle(element, "::before").height) || 0));

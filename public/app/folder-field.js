@@ -58,6 +58,7 @@ export function createFolderField(root, { api }) {
     request: (url) => api(url),
     server: () => serverId,
     foldersOnly: true,
+    showPath: (path) => shownFolder(path, homes.get(serverId)),
     onShown: () => {
       if (!picker.contains(document.activeElement)) choose.focus({ preventScroll: true });
     },
@@ -124,6 +125,9 @@ export function createFolderField(root, { api }) {
     rows.replaceChildren();
     const target = input.value.trim() || "~";
     if (!await idle(mine)) return;
+    // the path field writes the home folder as ~ once it is known
+    await homeOf(serverId);
+    if (mine !== opened) return;
     let shown = await tree.open(target);
     if (mine !== opened) return;
     if (!shown && target !== "~") {
