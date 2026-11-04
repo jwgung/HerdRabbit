@@ -2641,7 +2641,8 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 }
 
 /* Folder, in the New workspace and New tab dialogs: the path and Browse…, and
-   under them, once opened, the folders in it to go into or to use. */
+   under them, once opened, the Files tab's tree in folders only, its path field
+   and ↑, and Close and Use this folder. */
 .folder-field { display: grid; gap: var(--space-1-5); min-width: 0; }
 
 .folder-field[hidden],
@@ -2663,51 +2664,21 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   background: var(--surface-raised);
 }
 
-.folder-picker-bar { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
-
-.folder-picker-bar .secondary-button { flex: none; }
-
-.folder-picker-path {
-  min-width: 0;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: var(--font-xs);
-  overflow-wrap: anywhere;
-}
-
-.folder-picker-list {
-  display: grid;
+.folder-picker .browse-tree {
   max-height: min(240px, 35dvh);
-  margin: 0;
-  padding: 0;
   overflow-y: auto;
-  list-style: none;
 }
 
-.folder-picker-item {
-  width: 100%;
-  min-height: 32px;
-  padding: var(--space-1-5) var(--space-2);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text);
-  font-size: var(--font-md);
-  text-align: left;
-  overflow-wrap: anywhere;
-  cursor: pointer;
-}
+.folder-picker .browse-row { cursor: pointer; }
+
+.folder-picker .dialog-feedback { margin: 0; font-size: var(--font-md); }
 
 .folder-picker .dialog-feedback:empty { display: none; }
 
 .folder-picker-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
 
-@media (hover: hover) {
-  .folder-picker-item:hover { background: var(--hover-surface); }
-}
-
 @media (hover: none) {
-  .folder-picker-item { min-height: 44px; }
+  .folder-picker .browse-row { min-height: 44px; }
 }
 
 /* Update: one block per PC, with what changed and, during a run, its log. */
@@ -3776,7 +3747,7 @@ body.is-resizing-sidebar {
   position: relative;
 }
 
-#file-path {
+.file-path-row .file-path {
   flex: 1;
   min-width: 0;
   height: 32px;
@@ -3789,7 +3760,7 @@ body.is-resizing-sidebar {
   font-family: var(--mono);
 }
 
-#file-path:focus-visible { outline: 0; }
+.file-path-row .file-path:focus-visible { outline: 0; }
 
 .file-path-row:focus-within { border-color: var(--accent); }
 
@@ -4721,7 +4692,7 @@ body.is-pane-rearranging * {
     margin: calc((34px - 44px) / 2);
   }
 
-  :is(#file-path, #file-server, #terminal-find-input, #chat-find-input, .workspace-rename-input, #login-password, .prompt-card-custom-input) {
+  :is(.file-path-row .file-path, #file-server, #terminal-find-input, #chat-find-input, .workspace-rename-input, #login-password, .prompt-card-custom-input) {
     min-height: 44px;
     font-size: var(--font-input-touch);
   }

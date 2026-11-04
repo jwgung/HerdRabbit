@@ -1,10 +1,4 @@
-import { createElement } from "./dom.js?v=1.4.32";
-
-function box(tag, className, children) {
-  const node = createElement(tag, { className });
-  node.append(...children);
-  return node;
-}
+import { createFolderTree } from "./folder-tree.js?v=1.4.32";
 
 // Each machine's home folder, as its Files listing of `~` answered, while this
 // page lasts: a folder in it is shown as `~/…`.
@@ -30,49 +24,43 @@ export function workspaceFolder(panes, workspaceId) {
 }
 
 // The Folder row of the New workspace and New tab dialogs: a path on the
-// machine the dialog is for, typed or chosen with Browse…, which lists that
-// machine's folders through the Files tab's own listing (/api/browse). The
-// folder shown is the one sent (`value()`), so what opens is where the dialog
-// said, not where Herdr's new_cwd setting would put it. Only a connected PC
-// too old to open folders, left as the dialog opened (`asOpened()`), makes it
-// as before.
-// `root` holds the input, the Browse… button and an empty picker container.
+// machine the dialog is for, typed or chosen with Browse…, which opens the
+// Files tab's tree (folder-tree.js) for that machine in folders only: a folder
+// is gone into with a click, ↑ and the path field are the Files tab's, and Use
+// this folder takes the one on show. The folder shown is the one sent
+// (`value()`), so what opens is where the dialog said, not where Herdr's
+// new_cwd setting would put it. Only a connected PC too old to open folders,
+// left as the dialog opened (`asOpened()`), makes it as before.
+// `root` holds the input, the Browse… button and the picker's markup (a
+// folder tree's parts, Close and Use this folder).
+const IDLE_POLL_MS = 50;
+
 export function createFolderField(root, { api }) {
-  const input = root.querySelector("input");
+  const input = root.querySelector(".folder-row input");
   const browse = root.querySelector(".folder-browse");
   const picker = root.querySelector(".folder-picker");
-  const up = createElement("button", { className: "secondary-button folder-up", text: "Up" });
-  up.type = "button";
-  up.setAttribute("aria-label", "Up one folder");
-  const where = createElement("span", { className: "folder-picker-path" });
-  where.setAttribute("aria-live", "polite");
-  const list = createElement("ul", { className: "folder-picker-list" });
-  list.setAttribute("aria-label", "Folders here");
-  const note = createElement("p", { className: "dialog-feedback folder-picker-feedback" });
-  const close = createElement("button", { className: "secondary-button", text: "Close" });
-  close.type = "button";
-  const choose = createElement("button", { className: "secondary-button folder-choose", text: "Use this folder" });
-  choose.type = "button";
-  picker.replaceChildren(
-    box("div", "folder-picker-bar", [up, where]),
-    list,
-    note,
-    box("div", "folder-picker-actions", [close, choose]),
-  );
+  const rows = picker.querySelector(".browse-tree");
+  const status = picker.querySelector(".file-feedback");
+  const close = picker.querySelector(".folder-close");
+  const choose = picker.querySelector(".folder-choose");
 
   let serverId = "local";
   // What the input opened with.
   let initial = "";
-  // The folder the picker shows ({ path, parent }), and which listing is the latest.
-  let shown = null;
-  let asked = 0;
+  // Which opening of the picker is the latest.
+  let opened = 0;
 
-  function say(text, error = false) {
-    note.textContent = text;
-    note.dataset.error = String(error);
-  }
-
-  const query = (path) => `/api/browse?server=${encodeURIComponent(serverId)}&path=${encodeURIComponent(path)}`;
+  // Its own tree: the sidebar's folder and machine are not this dialog's. A
+  // folder gone into redraws the rows, the one pressed with them: Use this
+  // folder takes the keys then, so Escape stays the picker's.
+  const tree = createFolderTree(picker, {
+    request: (url) => api(url),
+    server: () => serverId,
+    foldersOnly: true,
+    onShown: () => {
+      if (!picker.contains(document.activeElement)) choose.focus({ preventScroll: true });
+    },
+  });
 
   // This machine's home, asked once; null when it cannot be had.
   async function homeOf(server) {
@@ -93,10 +81,10 @@ export function createFolderField(root, { api }) {
     initial = folder ? shownFolder(folder, home) : "~";
     input.value = initial;
     if (folder && !homes.has(server)) {
-      const opened = initial;
+      const opening = initial;
       void homeOf(server).then((found) => {
         // only while it is still the same dialog and nobody has typed
-        if (serverId !== server || input.value !== opened || initial !== opened) return;
+        if (serverId !== server || input.value !== opening || initial !== opening) return;
         initial = shownFolder(folder, found);
         input.value = initial;
       });
@@ -113,89 +101,66 @@ export function createFolderField(root, { api }) {
     return value() === initial;
   }
 
-  function render(answer) {
-    shown = answer;
-    where.textContent = shownFolder(answer.path, homes.get(serverId));
-    where.title = answer.path;
-    up.disabled = !answer.parent;
-    const folders = (answer.entries ?? []).filter((entry) =>
-      entry.kind === "directory" && entry.readable !== false && !entry.locked);
-    list.replaceChildren(...folders.map((entry) => {
-      const button = createElement("button", { className: "folder-picker-item", text: entry.name });
-      button.type = "button";
-      button.dataset.path = entry.path;
-      return box("li", "", [button]);
-    }));
-    if (folders.length === 0) say("No folders in here.");
-    else say(answer.truncated ? `Showing the first ${answer.entries.length} entries.` : "");
-  }
-
-  // `notice`: why this folder is shown instead of the one asked for.
-  async function load(path, { fallback = true, notice = "" } = {}) {
-    const mine = ++asked;
-    say("Loading folders…");
-    try {
-      const answer = await api(query(path));
-      if (mine !== asked) return;
-      if (path === "~") homes.set(serverId, answer.path);
-      render(answer);
-      if (notice) say(notice, true);
-      // the first folder, else Use this folder, takes the keys
-      (list.querySelector("button") || choose).focus({ preventScroll: true });
-    } catch (error) {
-      if (mine !== asked) return;
-      // A folder that is not there (yet) opens the home folder instead.
-      if (fallback && !shown && path !== "~") {
-        await load("~", { fallback: false, notice: `${error.message} Showing the home folder.` });
-        return;
-      }
-      say(error.message, true);
+  // Waits out a listing still under way from a picker closed a moment ago.
+  async function idle(mine) {
+    while (tree.busy) {
+      await new Promise((resolve) => window.setTimeout(resolve, IDLE_POLL_MS));
+      if (mine !== opened) return false;
     }
+    return true;
   }
 
-  function openPicker() {
+  // The folder in the input, or the home folder when it is not there (yet).
+  async function openPicker() {
     if (!picker.hidden) {
       closePicker();
       return;
     }
-    shown = null;
+    const mine = ++opened;
     picker.hidden = false;
     browse.setAttribute("aria-expanded", "true");
-    list.replaceChildren();
-    where.textContent = "";
-    up.disabled = true;
-    void load(input.value.trim() || "~");
+    tree.clear();
+    rows.replaceChildren();
+    const target = input.value.trim() || "~";
+    if (!await idle(mine)) return;
+    let shown = await tree.open(target);
+    if (mine !== opened) return;
+    if (!shown && target !== "~") {
+      const why = status.textContent;
+      shown = await tree.open("~");
+      if (mine !== opened) return;
+      if (shown) tree.say(`${why} Showing the home folder.`, true);
+    }
   }
 
   function closePicker() {
-    asked += 1;
+    opened += 1;
     picker.hidden = true;
     browse.setAttribute("aria-expanded", "false");
-    shown = null;
-    list.replaceChildren();
-    say("");
+    tree.say("");
   }
 
   browse.setAttribute("aria-expanded", "false");
-  browse.addEventListener("click", openPicker);
-  up.addEventListener("click", () => { if (shown?.parent) void load(shown.parent); });
-  list.addEventListener("click", (event) => {
-    const button = event.target.closest(".folder-picker-item");
-    if (button) void load(button.dataset.path);
-  });
+  browse.addEventListener("click", () => void openPicker());
   close.addEventListener("click", () => {
     closePicker();
     browse.focus();
   });
-  choose.addEventListener("click", () => {
-    if (!shown) return;
-    input.value = shownFolder(shown.path, homes.get(serverId));
+  choose.addEventListener("click", async () => {
+    const folder = tree.root;
+    if (!folder) return;
+    const server = serverId;
+    const mine = opened;
+    const home = await homeOf(server);
+    if (mine !== opened || server !== serverId) return;
+    input.value = shownFolder(folder, home);
     closePicker();
     input.focus();
   });
-  // Escape closes the list, not the dialog around it.
+  // Escape closes the picker, not the dialog around it; one the path field's
+  // list took is left alone.
   picker.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
+    if (event.key !== "Escape" || event.defaultPrevented) return;
     event.preventDefault();
     event.stopPropagation();
     closePicker();
@@ -208,7 +173,7 @@ export function createFolderField(root, { api }) {
     root.hidden = hidden;
   }
 
-  // The input and Browse… while a create is under way; the list closes.
+  // The input and Browse… while a create is under way; the picker closes.
   function setDisabled(disabled) {
     if (disabled) closePicker();
     input.disabled = disabled;
