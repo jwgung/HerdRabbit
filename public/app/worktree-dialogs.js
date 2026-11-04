@@ -1,4 +1,4 @@
-import { createElement } from "./dom.js?v=1.4.33";
+import { createElement } from "./dom.js?v=1.4.34";
 
 // Git worktrees from a workspace's ⋯ menu (Herdr's `herdr worktree`): New
 // worktree… checks a branch out in a new folder of the workspace's repository
