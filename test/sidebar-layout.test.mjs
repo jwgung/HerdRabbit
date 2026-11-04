@@ -42,7 +42,11 @@ test("this machine's dot says whether the page is connected, instead of a footer
   assert.doesNotMatch(styles, /body\.sidebar-collapsed \.navigator-footer \{\s*display: none;/u);
   // The footer's two controls sit at opposite ends: uploads at the start, settings at the end.
   assert.match(styles, /:is\(\.navigator-footer, \.ui-sidebar-footer\) \{[^}]*justify-content: space-between;/u);
-  assert.match(styles, /\.navigator \.navigator-footer \{\s*grid-row: 4;\s*justify-content: space-between;\s*\}/u);
+  assert.match(styles, /\.navigator \.navigator-footer \{\s*grid-row: 4;\s*justify-content: space-between;/u);
+  // It is as tall as the composer's row beside it, with the pane's gap above
+  // and its padding below, so its line and buttons meet the composer's.
+  assert.match(styles, /\.navigator \.navigator-footer \{[^}]*min-height: calc\(var\(--composer-row-height\) \+ var\(--space-3\) \+ var\(--space-4\) \+ 1px\);[^}]*padding-bottom: var\(--space-4\);/u);
+  assert.match(styles, /body \{\s*--composer-font-size: var\(--terminal-font-size\);\s*--composer-row-height: max\(44px, calc\(var\(--composer-font-size\) \* 1\.5 \+ 26px\)\);/u);
 });
 
 test("slides the collapsed sidebar by its own width, not a fixed distance", () => {
