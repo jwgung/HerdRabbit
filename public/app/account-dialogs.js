@@ -1,6 +1,6 @@
-import { herdrVersionText, paneServerId, passkeyDetails } from "../ui-model.js?v=1.4.31";
-import { clearLaunchToken, writeLaunchToken } from "../launch-session.js?v=1.4.31";
-import { array, createElement } from "./dom.js?v=1.4.31";
+import { herdrVersionText, paneServerId, passkeyDetails } from "../ui-model.js?v=1.4.32";
+import { clearLaunchToken, writeLaunchToken } from "../launch-session.js?v=1.4.32";
+import { array, createElement } from "./dom.js?v=1.4.32";
 
 // The machine details dialog, the signed-in devices list and the passkeys
 // dialog. Calling createAccountDialogs looks up the dialogs and adds their

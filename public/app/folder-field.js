@@ -1,4 +1,4 @@
-import { createElement } from "./dom.js?v=1.4.31";
+import { createElement } from "./dom.js?v=1.4.32";
 
 function box(tag, className, children) {
   const node = createElement(tag, { className });
