@@ -1,5 +1,5 @@
 import { Readable, Transform, pipeline } from "node:stream";
-import { HerdrCommandError, TERMINAL_ID, createdProject, createdTab } from "./herdr-client.mjs";
+import { HerdrCommandError, TERMINAL_ID, createdProject, createdTab, validation } from "./herdr-client.mjs";
 import { validSize } from "./pane-attachments.mjs";
 import { FileAccessError, UNKNOWN_SIZE_STREAM_BYTES } from "./file-browser.mjs";
 import { LINK_PROTOCOL, ResponseTooLarge, checkLinkCompatibility, normalizeLinkSnapshot, readLimitedText } from "./link-protocol.mjs";
@@ -14,6 +14,9 @@ import { cleanSessionList } from "./agent-sessions.mjs";
 import { HttpError } from "./http-basics.mjs";
 import { FOLDER_CODES, FolderError } from "./project-folder.mjs";
 import { cleanPluginState, validatePluginId, validatePluginRef, validatePluginSource } from "./herdr-plugins.mjs";
+import {
+  WORKTREE_REFUSAL_CODES, validateBaseRef, validateBranchName, validateForce, validateWorktreePath, worktreeList, worktreeText,
+} from "./herdr-worktrees.mjs";
 
 // fileIdle: how long a file being passed on may go quiet before it fails
 const TIMEOUTS = { hello: 5_000, snapshot: 8_000, read: 6_000, write: 6_000, fileIdle: 60_000 };
@@ -21,6 +24,8 @@ const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 // Listing runs `herdr plugin list` there, and starting a change lists too.
 const PLUGIN_READ_TIMEOUT_MS = 20_000;
 const PLUGIN_WRITE_TIMEOUT_MS = 40_000;
+// A worktree change waits on Git there (src/herdr-client.mjs WORKTREE_TIMEOUT_MS), and a little longer.
+const WORKTREE_WRITE_TIMEOUT_MS = 65_000;
 // A refusal is a short JSON error; nothing a connected PC says about one needs more.
 const MAX_ERROR_BYTES = 64 * 1024;
 
@@ -771,6 +776,58 @@ export class LinkClient {
   async namesNewProjects() {
     await this.#ready();
     return this.#features.has("project_ids");
+  }
+
+  // Git worktrees of a workspace on the PC (`worktrees`); an older PC says it
+  // is too old (501). Names are checked here, and again there; Herdr's
+  // refusals there come back with their codes.
+  async listWorktrees(workspaceId) {
+    await this.#worktreesSupported();
+    const answer = await this.#request(`/api/link/workspaces/${encodeURIComponent(workspaceId)}/worktrees`, {
+      codes: WORKTREE_REFUSAL_CODES,
+    });
+    // The PC's workspace ids are its scoped ones (session~workspace).
+    return worktreeList(answer, { idOf: (id) => (typeof id === "string" && id.length <= 512 ? worktreeText(id) : null) });
+  }
+
+  async createWorktree(workspaceId, { branch, base, label } = {}) {
+    await this.#worktreesSupported();
+    const body = { branch: validateBranchName(branch), ...(base === undefined ? {} : { base: validateBaseRef(base) }), ...(label === undefined ? {} : { label: validation.validateWorkspaceLabel(label) }) };
+    return this.#worktreeOpened(await this.#worktreeChange(workspaceId, "worktrees", body));
+  }
+
+  async openWorktree(workspaceId, { path, label } = {}) {
+    await this.#worktreesSupported();
+    const body = { path: validateWorktreePath(path), ...(label === undefined ? {} : { label: validation.validateWorkspaceLabel(label) }) };
+    return this.#worktreeOpened(await this.#worktreeChange(workspaceId, "worktrees/open", body));
+  }
+
+  async removeWorktree(workspaceId, { force } = {}) {
+    await this.#worktreesSupported();
+    const answer = await this.#worktreeChange(workspaceId, "worktree/remove", { force: validateForce(force) });
+    return {
+      workspace_id: typeof answer?.workspace_id === "string" ? answer.workspace_id : workspaceId,
+      path: worktreeText(answer?.path),
+      forced: answer?.forced === true,
+    };
+  }
+
+  async #worktreesSupported() {
+    await this.#ready();
+    if (!this.#features.has("worktrees")) throw tooOld(this.address, "Git worktrees");
+  }
+
+  #worktreeChange(workspaceId, action, body) {
+    return this.#request(`/api/link/workspaces/${encodeURIComponent(workspaceId)}/${action}`, {
+      method: "POST", body, timeoutMs: WORKTREE_WRITE_TIMEOUT_MS, codes: WORKTREE_REFUSAL_CODES,
+    });
+  }
+
+  // The ids the PC names, and the checkout; null unless all three ids are there.
+  #worktreeOpened(answer) {
+    const made = createdProject(answer?.workspace_id, answer?.tab_id, answer?.pane_id);
+    if (!made) return null;
+    return { ...made, path: worktreeText(answer.path), branch: worktreeText(answer.branch), already_open: answer.already_open === true };
   }
 
   async renameWorkspace(workspaceId, label) {

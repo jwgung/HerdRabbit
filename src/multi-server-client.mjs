@@ -355,6 +355,30 @@ export class MultiServerClient {
     }
     return mapMovedIds(result, (id) => entry.profile.id === "local" ? id : `${entry.profile.id}!${id}`);
   }
+  // Git worktrees on the workspace's machine. Workspace ids in the answer
+  // carry that machine's prefix, like the snapshot's; a connected PC too old
+  // to have them says so (src/link-client.mjs).
+  async listWorktrees(id) {
+    const { entry } = this.target(id);
+    const list = await this.invoke("listWorktrees", id, []);
+    const prefix = this.#prefixFor(entry);
+    return { ...list, worktrees: list.worktrees.map((item) => ({ ...item, open_workspace_id: item.open_workspace_id && prefix(item.open_workspace_id) })) };
+  }
+  createWorktree(id, options) { return this.#worktreeOpened("createWorktree", id, options); }
+  openWorktree(id, options) { return this.#worktreeOpened("openWorktree", id, options); }
+  async #worktreeOpened(method, id, options) {
+    const prefix = this.#prefixFor(this.target(id).entry);
+    const made = await this.invoke(method, id, [options], true);
+    return made && { ...made, workspace_id: prefix(made.workspace_id), tab_id: prefix(made.tab_id), pane_id: prefix(made.pane_id) };
+  }
+  async removeWorktree(id, options) {
+    const prefix = this.#prefixFor(this.target(id).entry);
+    const removed = await this.invoke("removeWorktree", id, [options], true);
+    return { ...removed, workspace_id: prefix(removed.workspace_id) };
+  }
+  #prefixFor(entry) {
+    return (value) => entry.profile.id === "local" ? value : `${entry.profile.id}!${value}`;
+  }
   // The new tab's ids carry its machine's prefix, like the snapshot's.
   async #createTab(workspaceId, { cwd }) {
     const { entry } = this.target(workspaceId);

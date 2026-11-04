@@ -700,6 +700,44 @@
       </form>
     </dialog>
 
+    <dialog id="worktree-dialog" class="app-dialog" aria-labelledby="worktree-dialog-title">
+      <form id="worktree-create-form" class="dialog-form">
+        <div class="dialog-heading">
+          <h2 id="worktree-dialog-title">New worktree</h2>
+          <p id="worktree-dialog-context"></p>
+        </div>
+        <label for="worktree-branch">Branch</label>
+        <input id="worktree-branch" name="branch" type="text" maxlength="200" required autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <label for="worktree-base">Start from</label>
+        <input id="worktree-base" name="base" type="text" maxlength="200" placeholder="HEAD" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <label for="worktree-label">Workspace name</label>
+        <input id="worktree-label" name="label" type="text" maxlength="120" placeholder="Optional" autocomplete="off" />
+        <p id="worktree-dialog-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="worktree-dialog-cancel" class="secondary-button" type="button">Cancel</button>
+          <button class="primary-button" type="submit">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="worktree-open-dialog" class="app-dialog" aria-labelledby="worktree-open-title">
+      <form id="worktree-open-form" class="dialog-form">
+        <div class="dialog-heading">
+          <h2 id="worktree-open-title">Open worktree</h2>
+          <p id="worktree-open-context"></p>
+        </div>
+        <fieldset id="worktree-choices" class="worktree-choices">
+          <legend>Checkout</legend>
+          <div class="worktree-choice-list"></div>
+        </fieldset>
+        <p id="worktree-open-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="worktree-open-cancel" class="secondary-button" type="button">Cancel</button>
+          <button class="primary-button" type="submit">Open</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="legacy-machines-dialog" class="app-dialog" aria-labelledby="legacy-machines-title">
       <div class="dialog-form">
         <div class="dialog-heading"><h2 id="legacy-machines-title">SSH machines were removed</h2></div>

@@ -235,6 +235,41 @@ export class HerdrBridgeClient {
     return this.#clientForSession(target.sessionName).closeWorkspace(target.localId);
   }
 
+  // Git worktrees (src/herdr-worktrees.mjs). Workspace ids in and out carry
+  // their Herdr session, as the snapshot's do.
+  async listWorktrees(workspaceId) {
+    const target = this.#targetForScopedId(workspaceId, validation.validateWorkspaceId);
+    const list = await this.#clientForSession(target.sessionName).listWorktrees(target.localId);
+    return {
+      ...list,
+      worktrees: list.worktrees.map((item) => ({
+        ...item,
+        open_workspace_id: item.open_workspace_id && scopedId(target.sessionName, item.open_workspace_id),
+      })),
+    };
+  }
+
+  async createWorktree(workspaceId, options) {
+    return this.#worktreeOpened("createWorktree", workspaceId, options);
+  }
+
+  async openWorktree(workspaceId, options) {
+    return this.#worktreeOpened("openWorktree", workspaceId, options);
+  }
+
+  async #worktreeOpened(method, workspaceId, options) {
+    const target = this.#targetForScopedId(workspaceId, validation.validateWorkspaceId);
+    const made = await this.#clientForSession(target.sessionName)[method](target.localId, options);
+    const scoped = (id) => scopedId(target.sessionName, id);
+    return made && { ...made, workspace_id: scoped(made.workspace_id), tab_id: scoped(made.tab_id), pane_id: scoped(made.pane_id) };
+  }
+
+  async removeWorktree(workspaceId, options) {
+    const target = this.#targetForScopedId(workspaceId, validation.validateWorkspaceId);
+    const removed = await this.#clientForSession(target.sessionName).removeWorktree(target.localId, options);
+    return { ...removed, workspace_id: scopedId(target.sessionName, removed.workspace_id) };
+  }
+
   async createTab(workspaceId, { cwd } = {}) {
     const target = this.#targetForScopedId(workspaceId, validation.validateWorkspaceId);
     const made = await this.#clientForSession(target.sessionName).createTab(target.localId, { cwd });

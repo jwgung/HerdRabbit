@@ -1360,6 +1360,39 @@ export function createHerdrHttpServer({
         return;
       }
 
+      // A workspace's Git worktrees (src/herdr-worktrees.mjs): the checkouts
+      // of its repository, a new one on a branch, an existing one opened, and
+      // a worktree workspace's checkout removed. The made or opened
+      // workspace's first pane comes back for the page to select.
+      const worktreeMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/(worktrees|worktrees\/open|worktree\/remove)$/u);
+      if (worktreeMatch && (method === "POST" || (method === "GET" && worktreeMatch[2] === "worktrees"))) {
+        const workspaceId = decodePaneId(worktreeMatch[1]);
+        if (typeof herdr.listWorktrees !== "function") {
+          throw new HttpError(501, "worktrees_unsupported", "This server cannot manage Git worktrees.");
+        }
+        if (method === "GET") {
+          requireSameOrigin(request);
+          sendJson(response, 200, await herdr.listWorktrees(workspaceId));
+          return;
+        }
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, maxBodyBytes);
+        if (worktreeMatch[2] === "worktree/remove") {
+          if (body.confirmed !== true) throw new HttpError(400, "confirmation_required", "Remove confirmation is required");
+          const removed = await herdr.removeWorktree(workspaceId, { force: body.force });
+          sendJson(response, 200, { removed, snapshot: await herdr.snapshot().catch(() => null) });
+          return;
+        }
+        const made = worktreeMatch[2] === "worktrees"
+          ? await herdr.createWorktree(workspaceId, { branch: body.branch, base: body.base, label: body.label })
+          : await herdr.openWorktree(workspaceId, { path: body.path, label: body.label });
+        // Made either way: an unreadable snapshot is reloaded by the page.
+        sendJson(response, worktreeMatch[2] === "worktrees" ? 201 : 200, {
+          worktree: made, paneId: made?.pane_id ?? null, snapshot: await herdr.snapshot().catch(() => null),
+        });
+        return;
+      }
+
       const tabRenameMatch = url.pathname.match(/^\/api\/tabs\/([^/]+)\/rename$/);
       if (method === "POST" && tabRenameMatch) {
         requireWriteAuthorization(request, csrfToken);

@@ -58,6 +58,7 @@ const APP_SHELL = [
   "/app/connect-pc.js?v=1.4.33",
   "/app/project-dialog.js?v=1.4.33",
   "/app/session-dialog.js?v=1.4.33",
+  "/app/worktree-dialogs.js?v=1.4.33",
   "/app/agent-picker.js?v=1.4.33",
   "/app/folder-field.js?v=1.4.33",
   "/app/folder-tree.js?v=1.4.33",

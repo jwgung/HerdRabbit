@@ -67,7 +67,11 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 
 | Command | HerdRabbit | Notes |
 |---|---|---|
-| creating, opening and removing Git worktrees | Missing | A workspace per branch, from a workspace's ⋯ menu |
+| `list` | Done | Open worktree… lists a repository's checkouts; the branch of each worktree workspace is shown beside its name |
+| `create` | Done | New worktree… on a repository's workspace: branch, optional base and name, never `--path`; opens without taking Herdr's focus |
+| `open` | Done | Open worktree… opens a listed checkout by its folder (`--path`) |
+| `remove` | Done | Remove worktree… on a worktree workspace, after confirmation; `--force` only after a second confirmation when Git refuses a checkout with changes |
+| `--cwd`, `--trust-repository` | Missing | Starting from a folder rather than a workspace, and repositories owned by another user |
 
 ## Plugins (`herdr plugin`)
 
@@ -98,10 +102,9 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 ## Missing, in a suggested order
 
 1. Resizing panes by dragging a split's divider, and naming a pane.
-2. Git worktrees: a workspace per branch.
-3. Sessions: start another, stop one, delete a stopped one.
-4. Plugins: run a plugin's actions and open its panes from the page.
-5. Herdr's update channel and `config.toml` settings such as `new_cwd`.
-6. Herdr's agent integrations.
-7. Sending one input to several panes (`pane input`).
-8. Local plugin folders (`plugin link`), plugin logs.
+2. Sessions: start another, stop one, delete a stopped one.
+3. Plugins: run a plugin's actions and open its panes from the page.
+4. Herdr's update channel and `config.toml` settings such as `new_cwd`.
+5. Herdr's agent integrations.
+6. Sending one input to several panes (`pane input`).
+7. Local plugin folders (`plugin link`), plugin logs.

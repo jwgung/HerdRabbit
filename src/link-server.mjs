@@ -116,6 +116,8 @@ export function linkRoutes({
         ...(agentSessions ? ["agent_sessions"] : []),
         // Herdr's plugins here (src/herdr-plugins.mjs): listed and changed.
         ...(plugins ? ["plugins"] : []),
+        // Git worktrees of a workspace here: listed, made, opened and removed.
+        ...(typeof client.listWorktrees === "function" ? ["worktrees"] : []),
       ],
     };
   }
@@ -442,6 +444,27 @@ export function linkRoutes({
           ? client.createWorkspace(body.label)
           : client.createWorkspace(body.label, body.herdrSessionId));
       sendJson(response, 201, { ok: true, ...createdProject(made?.workspace_id, made?.tab_id, made?.pane_id) });
+      return true;
+    }
+
+    // A workspace's Git worktrees, run through this PC's own Herdr client,
+    // which checks every name it is given.
+    const worktreeMatch = url.pathname.match(/^\/api\/link\/workspaces\/([^/]+)\/(worktrees|worktrees\/open|worktree\/remove)$/u);
+    if (worktreeMatch && typeof client.listWorktrees === "function" &&
+        (method === "POST" || (method === "GET" && worktreeMatch[2] === "worktrees"))) {
+      const workspaceId = decodePaneId(worktreeMatch[1]);
+      if (method === "GET") {
+        sendJson(response, 200, await client.listWorktrees(workspaceId));
+        return true;
+      }
+      const body = await readJsonBody(request, maxBodyBytes);
+      if (worktreeMatch[2] === "worktrees") {
+        sendJson(response, 201, { ok: true, ...await client.createWorktree(workspaceId, { branch: body.branch, base: body.base, label: body.label }) });
+      } else if (worktreeMatch[2] === "worktrees/open") {
+        sendJson(response, 200, { ok: true, ...await client.openWorktree(workspaceId, { path: body.path, label: body.label }) });
+      } else {
+        sendJson(response, 200, { ok: true, ...await client.removeWorktree(workspaceId, { force: body.force }) });
+      }
       return true;
     }
 
