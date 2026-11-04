@@ -15,8 +15,8 @@
 // Pressing a picture opens the viewer (image-viewer.js) on every picture
 // shown in that chat.
 
-import { previewFor } from "../file-preview.js?v=1.4.30";
-import { trimTrailingSlashes } from "../path-links.js?v=1.4.30";
+import { previewFor } from "../file-preview.js?v=1.4.31";
+import { trimTrailingSlashes } from "../path-links.js?v=1.4.31";
 
 // The ticket the file route issues: the same pattern the server matches.
 const TICKET = /^[A-Za-z0-9_-]{16,86}$/u;

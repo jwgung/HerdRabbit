@@ -1,8 +1,8 @@
-import { createElement } from "./dom.js?v=1.4.30";
+import { createElement } from "./dom.js?v=1.4.31";
 import {
   parsePluginSource, pluginMachines, pluginOperationText, pluginSourceText, pluginSourceUrl, validPluginRef,
-} from "./plugin-model.js?v=1.4.30";
-import { createPluginBrowse } from "./plugin-browse.js?v=1.4.30";
+} from "./plugin-model.js?v=1.4.31";
+import { createPluginBrowse } from "./plugin-browse.js?v=1.4.31";
 
 const POLL_MS = 1_500;
 
