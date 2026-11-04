@@ -29,6 +29,8 @@ import { createElement, createIcon } from "./dom.js?v=1.4.32";
 // - `onNavigate()`: the tree is about to go to another folder because someone
 //   asked it to (a row, ↑, the path field); not called for `open()`.
 // - `onShown(listing)`: a folder is now the one on show (`/api/browse`'s answer).
+// - `showPath(path)`: how the path field writes the folder on show (the picker
+//   writes the home folder as `~`, as its Folder field does).
 //
 // Entries are listed as the server gives them: hidden ones too, a broken link
 // and a sign-in folder (locked) named but not opened. Folders only leaves out
@@ -101,6 +103,7 @@ export function createFolderTree(root, {
   fileActions = () => [],
   onNavigate = () => {},
   onShown = () => {},
+  showPath = (path) => path,
 }) {
   const tree = root.querySelector(".browse-tree");
   const feedback = root.querySelector(".file-feedback");
@@ -280,7 +283,7 @@ export function createFolderTree(root, {
   }
 
   function render() {
-    if (document.activeElement !== pathInput) pathInput.value = view.root || "";
+    if (document.activeElement !== pathInput) pathInput.value = view.root ? showPath(view.root) : "";
     up.disabled = !parentDirectory(view.root);
 
     const rows = flattenTree(view.root, view.loaded, view.expanded);

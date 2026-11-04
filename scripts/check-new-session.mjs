@@ -260,7 +260,7 @@ try {
     await page.waitForFunction(() => document.querySelector("#session-folder").value === "~/alpha");
     await dialog.locator("#session-folder-field .folder-browse").click();
     await picker.waitFor({ state: "visible" });
-    await pathIs(ALPHA);
+    await pathIs("~/alpha");
     assert.deepEqual(await listed(), ["src"], `${where}: ~/alpha's folders are not listed`);
     if (mobile) {
       for (const selector of [".browse-row", ".file-up", ".folder-choose"]) {
@@ -271,22 +271,22 @@ try {
     }
     if (shots) await page.screenshot({ path: join(shots, `folder-picker-${where}.png`) });
     await picker.locator(".file-up").click();
-    await pathIs(home);
+    await pathIs("~");
     // notes.txt is a file and dead a link to nothing: only folders are offered.
     assert.deepEqual(await listed(), ["alpha", "beta"], `${where}: the home folder's folders are not listed, or more than its folders are`);
     await into("beta");
-    await pathIs(join(home, "beta"));
+    await pathIs("~/beta");
     // Escape closes the picker, and the dialog stays.
     await page.keyboard.press("Escape");
     await picker.waitFor({ state: "hidden" });
     assert.ok(await dialog.isVisible(), `${where}: Escape in the folder picker closed the dialog`);
     assert.equal(await folderInput.inputValue(), "~/alpha", `${where}: closing the picker changed the folder`);
     await dialog.locator("#session-folder-field .folder-browse").click();
-    await pathIs(ALPHA);
+    await pathIs("~/alpha");
     await picker.locator(".file-up").click();
-    await pathIs(home);
+    await pathIs("~");
     await into("beta");
-    await pathIs(join(home, "beta"));
+    await pathIs("~/beta");
     await picker.locator(".folder-choose").click();
     await picker.waitFor({ state: "hidden" });
     assert.equal(await folderInput.inputValue(), "~/beta", `${where}: Use this folder did not fill the folder`);
