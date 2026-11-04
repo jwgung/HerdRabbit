@@ -44,6 +44,7 @@ import {
   HERDRABBIT_ID, cleanPluginState, validatePluginId, validatePluginRef, validatePluginSource,
 } from "./herdr-plugins.mjs";
 import { marketplaceQuery } from "./plugin-marketplace.mjs";
+import { CONFIG_BODY_BYTES, herdrSettingsRoute } from "./herdr-settings.mjs";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
 const SIMPLEWEBAUTHN_BROWSER_BUNDLE = fileURLToPath(new URL(
@@ -520,6 +521,9 @@ export function createHerdrHttpServer({
   // Herdr's plugin marketplace (src/plugin-marketplace.mjs), or null: the
   // same public list for every machine, so read here, on the hub.
   marketplace = null,
+  // Herdr's own settings on this PC (src/herdr-settings.mjs), or null. A
+  // connected PC's go over its link.
+  herdrSettings = null,
   attachments = null,
   // How many Herdr SSH machines `herdr machine list` still names; those are
   // not shown any more, and the page says once how to bring those PCs back.
@@ -1073,6 +1077,37 @@ export function createHerdrHttpServer({
         return;
       }
 
+      // Herdr's own settings, on this PC or a connected PC: its update channel,
+      // its agent integrations and its config.toml. Each changes what Herdr
+      // runs on its machine, so these answer only with sign-in on, like Plugins.
+      const settingsRoute = herdrSettingsRoute(url.pathname, "/api/herdr");
+      if (settingsRoute) {
+        if (settingsRoute.kind === "unknown") throw new HttpError(404, "not_found", "Not found");
+        if (!auth.required) {
+          throw new HttpError(409, "password_auth_required", "Herdr's settings can be changed only with sign-in on. Set a password for this HerdRabbit first.");
+        }
+        const { kind } = settingsRoute;
+        if (method === "GET" && ["settings", "config", "default"].includes(kind)) {
+          requireSameOrigin(request);
+          const { serverId, source } = herdrSettingsSource(url.searchParams.get("server"));
+          const answer = kind === "settings" ? await source.state()
+            : kind === "config" ? await source.readConfig() : await source.defaultConfig();
+          sendJson(response, 200, { ...answer, server: serverId });
+          return;
+        }
+        const allowed = (method === "POST" && ["channel", "integration", "check"].includes(kind)) || (method === "PUT" && kind === "config");
+        if (!allowed) throw new HttpError(405, "method_not_allowed", "Method not allowed");
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, kind === "check" || kind === "config" ? CONFIG_BODY_BYTES : maxBodyBytes);
+        const { serverId, source } = herdrSettingsSource(body.server);
+        const answer = kind === "channel" ? await source.setChannel(body.channel)
+          : kind === "integration" ? await source.integration(settingsRoute.action, settingsRoute.name)
+            : kind === "check" ? await source.checkConfig(body.text)
+              : await source.saveConfig(body.text, body.version);
+        sendJson(response, 200, { ...answer, server: serverId });
+        return;
+      }
+
       if (url.pathname.startsWith("/api/browse")) {
         if (method === "GET" && url.pathname === "/api/browse") {
           // Same-origin only. Another site cannot read the reply, but it could
@@ -1269,6 +1304,9 @@ export function createHerdrHttpServer({
           // Whether Settings → Plugins can manage Herdr's plugins here (only
           // with sign-in on, which authRequired says).
           plugins: Boolean(plugins),
+          // Whether Settings → Herdr can change Herdr's settings here (also
+          // only with sign-in on).
+          herdrSettings: Boolean(herdrSettings),
           // Bytes, or null when files may be any size.
           maxTransferBytes: Number.isFinite(maxTransferBytes) ? maxTransferBytes : null,
         });
@@ -1758,6 +1796,18 @@ export function createHerdrHttpServer({
       return { serverId: LOCAL_SERVER, source: plugins };
     }
     const source = typeof value === "string" ? herdr.pluginsClient?.(value) : null;
+    if (!source) throw new HttpError(404, "unknown_server", "That server is no longer configured.");
+    return { serverId: value, source };
+  }
+
+  // Herdr's settings routes address a machine like plugin routes: a connected
+  // PC runs Herdr's commands and writes its own config.toml, over its link.
+  function herdrSettingsSource(value) {
+    if (value === undefined || value === null || value === "" || value === LOCAL_SERVER) {
+      if (!herdrSettings) throw new HttpError(404, "herdr_settings_unavailable", "This PC cannot change Herdr's settings from here.");
+      return { serverId: LOCAL_SERVER, source: herdrSettings };
+    }
+    const source = typeof value === "string" ? herdr.herdrSettingsClient?.(value) : null;
     if (!source) throw new HttpError(404, "unknown_server", "That server is no longer configured.");
     return { serverId: value, source };
   }

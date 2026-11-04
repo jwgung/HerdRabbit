@@ -12,6 +12,7 @@ import { defaultProtectedPaths } from "./protected-paths.mjs";
 import { SlashCommandCatalog, paneCommandTarget } from "./slash-commands.mjs";
 import { agentCommand } from "./agent-launch.mjs";
 import { existingFolder, isFolder } from "./project-folder.mjs";
+import { CONFIG_BODY_BYTES, herdrSettingsRoute } from "./herdr-settings.mjs";
 
 // Undici tears a response down after five idle minutes, and a quiet terminal
 // easily goes that long, so the stream says something well before then.
@@ -81,7 +82,7 @@ async function sendFile(response, file) {
 // `updater` is this PC's own AppUpdater (src/app-update.mjs): a hub checks
 // for and starts an update of this PC through it, never naming anything.
 export function linkRoutes({
-  client, files = null, aiAccounts = null, plugins = null, pluginsAllowed = () => false, installedAgents = null, agentSessions = null, attach = null, conversations = null, slashCommands = null, updater = null, herdrUpdater = null, version, herdrVersion = () => null, serverName = "",
+  client, files = null, aiAccounts = null, plugins = null, pluginsAllowed = () => false, herdrSettings = null, installedAgents = null, agentSessions = null, attach = null, conversations = null, slashCommands = null, updater = null, herdrUpdater = null, version, herdrVersion = () => null, serverName = "",
   maxBodyBytes = 128 * 1024, maxTransferBytes = 50 * 1024 * 1024, protectedPaths = defaultProtectedPaths(),
   maxStatusStreams = MAX_STATUS_STREAMS,
 }) {
@@ -118,6 +119,9 @@ export function linkRoutes({
         ...(plugins ? ["plugins"] : []),
         // Git worktrees of a workspace here: listed, made, opened and removed.
         ...(typeof client.listWorktrees === "function" ? ["worktrees"] : []),
+        // Herdr's own settings here (src/herdr-settings.mjs): its channel,
+        // integrations and config.toml.
+        ...(herdrSettings ? ["herdr_settings"] : []),
       ],
     };
   }
@@ -560,6 +564,34 @@ export function linkRoutes({
         ? await plugins.start("install", { source: body.source, ref: body.ref })
         : await plugins.start(action, { plugin: decodePaneId(segment) });
       sendJson(response, 202, answer);
+      return true;
+    }
+
+    // Herdr's own settings on this PC: read, and changed with this PC's own
+    // sign-in on, as its page would. The text of a config is checked here by
+    // this PC's Herdr before anything is written.
+    const settingsRoute = herdrSettingsRoute(url.pathname, "/api/link/herdr");
+    if (settingsRoute) {
+      if (!herdrSettings) throw new HttpError(501, "herdr_settings_unavailable", "This PC cannot manage Herdr's settings.");
+      if (!pluginsAllowed()) {
+        throw new HttpError(409, "password_auth_required", "Set a sign-in password on this PC to change its Herdr settings from another PC.");
+      }
+      const { kind } = settingsRoute;
+      if (method === "GET" && kind === "settings") sendJson(response, 200, await herdrSettings.state());
+      else if (method === "GET" && kind === "config") sendJson(response, 200, await herdrSettings.readConfig());
+      else if (method === "GET" && kind === "default") sendJson(response, 200, await herdrSettings.defaultConfig());
+      else if (method === "POST" && kind === "channel") {
+        sendJson(response, 200, await herdrSettings.setChannel((await readJsonBody(request, maxBodyBytes)).channel));
+      } else if (method === "POST" && kind === "integration") {
+        await readJsonBody(request, maxBodyBytes);
+        sendJson(response, 200, await herdrSettings.integration(settingsRoute.action, settingsRoute.name));
+      } else if (method === "POST" && kind === "check") {
+        sendJson(response, 200, await herdrSettings.checkConfig((await readJsonBody(request, CONFIG_BODY_BYTES)).text));
+      } else if (method === "PUT" && kind === "config") {
+        const body = await readJsonBody(request, CONFIG_BODY_BYTES);
+        sendJson(response, 200, await herdrSettings.saveConfig(body.text, body.version));
+      } else if (kind === "unknown") throw new HttpError(404, "not_found", "Not found");
+      else throw new HttpError(405, "method_not_allowed", "Method not allowed");
       return true;
     }
 

@@ -9,16 +9,16 @@ import {
 
 test("lists the settings pages in order", () => {
   assert.deepEqual(SETTINGS_PAGES.map((page) => page.id),
-    ["appearance", "chat", "terminal", "notifications", "security", "pcs", "plugins", "updates", "about"]);
+    ["appearance", "chat", "terminal", "notifications", "security", "pcs", "plugins", "herdr", "updates", "about"]);
   assert.deepEqual(SETTINGS_PAGES.map((page) => page.title),
-    ["Appearance", "Chat", "Terminal & keys", "Notifications", "Security", "PCs", "Plugins", "Updates", "About"]);
+    ["Appearance", "Chat", "Terminal & keys", "Notifications", "Security", "PCs", "Plugins", "Herdr", "Updates", "About"]);
   assert.equal(settingsPageTitle("pcs"), "PCs");
   assert.equal(settingsPageTitle("nowhere"), null);
 });
 
 test("Security shows only with sign-in on, PCs only where Connect PC is", () => {
   const ids = (options) => settingsPageList(options).map((page) => page.id);
-  assert.deepEqual(ids({ security: true, pcs: true, plugins: true }), SETTINGS_PAGES.map((page) => page.id));
+  assert.deepEqual(ids({ security: true, pcs: true, plugins: true, herdr: true }), SETTINGS_PAGES.map((page) => page.id));
   assert.deepEqual(ids({ security: true, pcs: true }), ["appearance", "chat", "terminal", "notifications", "security", "pcs", "updates", "about"]);
   assert.deepEqual(ids({ security: false, pcs: true }), ["appearance", "chat", "terminal", "notifications", "pcs", "updates", "about"]);
   assert.deepEqual(ids({ security: true, pcs: false }), ["appearance", "chat", "terminal", "notifications", "security", "updates", "about"]);
@@ -30,6 +30,13 @@ test("Plugins shows only with sign-in on, where this HerdRabbit can manage them"
   assert.ok(ids({ security: true, plugins: true }).includes("plugins"));
   assert.ok(!ids({ security: false, plugins: true }).includes("plugins"));
   assert.ok(!ids({ security: true, plugins: false }).includes("plugins"));
+});
+
+test("Herdr shows only with sign-in on, where this HerdRabbit can change Herdr's settings", () => {
+  const ids = (options) => settingsPageList(options).map((page) => page.id);
+  assert.deepEqual(ids({ security: true, plugins: true, herdr: true }).slice(-4), ["plugins", "herdr", "updates", "about"]);
+  assert.ok(!ids({ security: false, herdr: true }).includes("herdr"));
+  assert.ok(!ids({ security: true, herdr: false }).includes("herdr"));
 });
 
 test("Updates shows always: HerdRabbit's and Herdr's updates need no sign-in", () => {

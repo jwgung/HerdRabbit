@@ -569,6 +569,15 @@ iOS에서 PWA를 독립 실행 모드로 쓰면 내려받은 파일이 저장되
 
 Source, ref, 플러그인 id는 두 머신 모두에서 검사합니다. GitHub의 owner·저장소 이름 규칙, 공백·`..`·맨 앞 `-`가 없는 git ref 이름, 짧은 플러그인 id만 받습니다. Herdr는 셸 없이 인자 목록으로 실행합니다.
 
+### Herdr 설정
+
+**Settings → Herdr**에서 머신마다 Herdr 자체 설정을 바꿉니다(머신이 둘 이상이면 **Machine**에서 고릅니다). Plugins처럼 로그인(비밀번호)을 켰을 때만 보이고, 꺼져 있으면 서버가 모든 요청을 거절합니다. 붙인 PC에서는 명령이 그 PC에서 실행되며, 그 PC에도 로그인 비밀번호가 있어야 합니다. 이전 버전 HerdRabbit PC는 그곳에서 업데이트하라고 알려 줍니다. Herdr 버전과 업데이트는 **Settings → Updates**에 그대로 있습니다(**Open Updates**).
+
+- **Update channel:** **Stable** 또는 **Preview**. `herdr channel show`로 읽고 `herdr channel set <stable|preview>`로 바꿉니다. Herdr는 채널을 `config.toml`(`[update] channel`)에 적고, Updates는 그 채널의 Herdr 업데이트를 확인합니다.
+- **Agent integrations:** `herdr integration status`가 나열하는 통합마다 상태(**Installed**와 버전, **Not installed**, **Outdated**, **Needs repair**, 실험적인 것은 표시)를 보여 줍니다. **Install…** / **Uninstall…**(다시 설치하는 **Update…** / **Repair…**도)은 먼저 묻고 `herdr integration install|uninstall <name>`을 실행합니다. 그 머신의 Herdr가 나열하는 이름만 실행합니다. Herdr가 적는 훅 파일 경로는 보여 주지 않습니다.
+- **config.toml:** 그 머신의 Herdr 설정 파일을 글로 보여 줍니다. 경로는 `herdr --help`가 알려 주는 곳(`HERDR_CONFIG_PATH`가 있으면 그 경로, 없으면 `~/.config/herdr/config.toml`)이고 최대 512 KB입니다. **Check**는 글에 `herdr config check`를 실행해 Herdr의 진단을 보여 줍니다. **Save…**는 먼저 묻고, Herdr가 비공개 임시 파일(`HERDR_CONFIG_PATH`를 그 파일로)에서 글을 검사해 거절한 설정은 절대 쓰지 않습니다. 통과하면 기존 파일을 옆에 `config.toml.bak-<YYYYMMDD-HHMMSS>`(Herdr 자체 백업 이름)로 복사하고, 새 파일을 그 옆에 쓴 뒤 기존 권한으로 바꿔치기(rename)하고, 제자리에서 한 번 더 검사해(실패하면 백업을 되돌림) `herdr server reload-config`를 실행합니다. Herdr 서버가 떠 있지 않으면 그렇다고 알려 주며, 설정은 Herdr가 시작할 때 적용됩니다. 저장은 읽었던 버전을 함께 보내므로 그 사이 바뀐 파일(다른 편집기, 채널 변경)은 덮어쓰지 않고, **Revert**로 다시 읽습니다. 심볼릭 링크인 `config.toml`은 링크로 남고 가리키는 파일에 씁니다. **Herdr's defaults**는 `herdr --default-config`를 읽기 전용으로 보여 줍니다.
+- 한 머신에서 변경은 한 번에 하나이고, HerdRabbit이나 Herdr를 업데이트하는 동안에는 하지 않습니다. Herdr는 셸 없이 인자 목록으로 실행합니다. 백업은 남겨 두므로 오래된 것은 직접 지웁니다.
+
 ### 출력과 이전 기록
 
 터미널의 출력과 이전 기록은 Herdr의 화면 및 스크롤백에서만 가져오며 Claude JSONL 기록, Codex rollout, OpenCode 데이터베이스를 터미널에 섞지 않습니다. 그 기록은 Chat 화면이 따로 읽습니다(Claude 계획·질문 카드의 글도 거기서 가져옵니다). attach된 터미널에서는 휠이나 손가락으로 Herdr의 이전 기록을 스크롤하고, 비춰 보이는 패인은 현재 화면만 보여 줍니다. 설치·업데이트 시 Claude 전역 설정에 `tui: "default"`와 `env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1"`을 적용하고 기존 설정은 백업합니다. 실행 중인 Claude는 재시작 후 적용됩니다. HerdRabbit을 돌리는 머신마다 자기 설치·업데이트에서 적용됩니다.
@@ -586,6 +595,7 @@ Source, ref, 플러그인 id는 두 머신 모두에서 검사합니다. GitHub�
 - **Security**(비밀번호가 설정돼 있을 때 표시): **Passkeys**와 **Signed-in devices**.
 - **PCs**(Connect PC를 쓸 수 있을 때 표시): 붙은 PC 목록(누르면 그 PC의 Details)과 **Connect PC**.
 - **Plugins**(비밀번호가 설정돼 있을 때 표시): 머신별 Herdr 플러그인, [플러그인](#플러그인) 참고.
+- **Herdr**(비밀번호가 설정돼 있을 때 표시): 머신별 Herdr 업데이트 채널, 에이전트 통합, `config.toml`, [Herdr 설정](#herdr-설정) 참고.
 - **Updates:** **Update…**(Update 창: PC마다 HerdRabbit·Herdr 전체)와 머신마다 업데이트가 있는 것, 각각의 **Update**, **Update all**(플러그인, Herdr, 마지막에 HerdRabbit). 항상 표시하며, 플러그인은 Plugins가 보일 때만.
 - **About:** 이 머신의 HerdRabbit·Herdr 버전.
 

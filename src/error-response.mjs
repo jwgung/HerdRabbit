@@ -12,7 +12,10 @@ import { PushValidationError } from "./web-push-service.mjs";
 // the page's server and on the Connect PC port, which shares nothing else.
 export function errorResponse(error) {
   if (error instanceof HttpError) {
-    return { status: error.status, code: error.code, message: error.message };
+    return {
+      status: error.status, code: error.code, message: error.message,
+      ...(error.details === undefined ? {} : { details: error.details }),
+    };
   }
   // File and SFTP failures already carry a status; without this they would
   // surface as 500s from the paths that throw outside a route's own handling.

@@ -17,6 +17,10 @@ import { cleanPluginState, validatePluginId, validatePluginRef, validatePluginSo
 import {
   WORKTREE_REFUSAL_CODES, validateBaseRef, validateBranchName, validateForce, validateWorktreePath, worktreeList, worktreeText,
 } from "./herdr-worktrees.mjs";
+import {
+  cleanConfigCheck, cleanConfigFile, cleanDefaultConfig, cleanDiagnostics, cleanHerdrSettings,
+  validateChannel, validateConfigText, validateConfigVersion, validateIntegrationAction, validateIntegrationName,
+} from "./herdr-settings.mjs";
 
 // fileIdle: how long a file being passed on may go quiet before it fails
 const TIMEOUTS = { hello: 5_000, snapshot: 8_000, read: 6_000, write: 6_000, fileIdle: 60_000 };
@@ -26,6 +30,8 @@ const PLUGIN_READ_TIMEOUT_MS = 20_000;
 const PLUGIN_WRITE_TIMEOUT_MS = 40_000;
 // A worktree change waits on Git there (src/herdr-client.mjs WORKTREE_TIMEOUT_MS), and a little longer.
 const WORKTREE_WRITE_TIMEOUT_MS = 65_000;
+// A save checks the config twice and reloads Herdr there.
+const HERDR_SETTINGS_TIMEOUT_MS = 40_000;
 // A refusal is a short JSON error; nothing a connected PC says about one needs more.
 const MAX_ERROR_BYTES = 64 * 1024;
 
@@ -53,6 +59,15 @@ const UPDATE_CODES = new Set([
 const PLUGIN_CODES = new Set([
   "invalid_plugin_id", "invalid_plugin_source", "invalid_plugin_ref", "plugin_not_found", "plugin_protected",
   "plugin_busy", "plugin_not_updatable", "plugin_list_failed", "plugins_unavailable", "password_auth_required",
+]);
+
+// Why a connected PC would not read or change its Herdr settings, passed on
+// with its status and code; a refused config keeps Herdr's diagnostics.
+const HERDR_SETTINGS_CODES = new Set([
+  "invalid_channel", "invalid_integration", "integration_not_found", "invalid_config", "invalid_config_version",
+  "config_too_large", "config_changed", "config_invalid", "config_write_failed", "herdr_settings_busy",
+  "herdr_settings_failed", "herdr_change_failed", "herdr_config_unknown", "herdr_settings_unavailable",
+  "password_auth_required",
 ]);
 
 // What a connected PC answers about one pane's conversation and this hub
@@ -278,7 +293,7 @@ export class LinkClient {
     this.#verify(await this.#request("/api/link/hello", { timeoutMs: this.timeouts.hello, checked: true }));
   }
 
-  async #request(path, { method = "GET", body, timeoutMs = this.timeouts.read, accountErrors = false, pluginErrors = false, folderErrors = false, checked = false, codes = null } = {}) {
+  async #request(path, { method = "GET", body, timeoutMs = this.timeouts.read, accountErrors = false, pluginErrors = false, settingsErrors = false, folderErrors = false, checked = false, codes = null } = {}) {
     if (!checked) await this.#ready();
     const call = await this.#open(path, {
       method,
@@ -298,6 +313,12 @@ export class LinkClient {
       if (pluginErrors && PLUGIN_CODES.has(refusal?.code)) {
         const status = response.status >= 400 && response.status < 600 ? response.status : 502;
         throw new HttpError(status, refusal.code, readable(refusal.message) || "That PC refused the plugin change.");
+      }
+      if (settingsErrors && HERDR_SETTINGS_CODES.has(refusal?.code)) {
+        const status = response.status >= 400 && response.status < 600 ? response.status : 502;
+        const diagnostics = refusal.code === "config_invalid" && typeof refusal.details?.diagnostics === "string"
+          ? { diagnostics: cleanDiagnostics(refusal.details.diagnostics) } : undefined;
+        throw new HttpError(status, refusal.code, readable(refusal.message) || "That PC refused the change to Herdr.", diagnostics);
       }
       // A folder that PC does not have is the asker's mistake, not a broken link.
       if (folderErrors && response.status === 400 && FOLDER_CODES.has(refusal?.code)) {
@@ -923,6 +944,32 @@ export class LinkClient {
         if (!["enable", "disable", "update", "uninstall"].includes(action)) throw new HttpError(404, "not_found", "Not found");
         return cleanPluginState(await post(`/${encodeURIComponent(validatePluginId(plugin))}/${action}`, {}));
       },
+    };
+  }
+
+  // Herdr's own settings on the connected PC, shaped like the local
+  // HerdrSettings (src/herdr-settings.mjs). What is sent is checked here
+  // first and again there; what comes back is cleaned like this PC's own.
+  herdrSettings() {
+    const supported = async () => {
+      await this.#ready();
+      if (!this.#features.has("herdr_settings")) throw tooOld(this.address, "changing Herdr's settings from here");
+    };
+    const call = async (path, options = {}) => {
+      await supported();
+      return this.#request(`/api/link/herdr${path}`, { timeoutMs: HERDR_SETTINGS_TIMEOUT_MS, settingsErrors: true, ...options });
+    };
+    return {
+      state: async () => cleanHerdrSettings(await call("/settings")),
+      setChannel: async (channel) => cleanHerdrSettings(await call("/channel", { method: "POST", body: { channel: validateChannel(channel) } })),
+      integration: async (action, name) => cleanHerdrSettings(await call(
+        `/integrations/${validateIntegrationName(name)}/${validateIntegrationAction(action)}`, { method: "POST", body: {} })),
+      readConfig: async () => cleanConfigFile(await call("/config")),
+      defaultConfig: async () => cleanDefaultConfig(await call("/config/default")),
+      checkConfig: async (text) => cleanConfigCheck(await call("/config/check", { method: "POST", body: { text: validateConfigText(text) } })),
+      saveConfig: async (text, version) => cleanConfigFile(await call("/config", {
+        method: "PUT", body: { text: validateConfigText(text), version: validateConfigVersion(version) },
+      })),
     };
   }
 

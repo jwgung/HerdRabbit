@@ -7,6 +7,7 @@ import { CHAT_WIDTHS, readChatWidth, writeChatWidth } from "../chat-width-prefer
 import { notificationStateText, settingsPageList, settingsPageTitle } from "../settings-pages.js?v=1.4.33";
 import { herdrVersionText } from "../ui-model.js?v=1.4.33";
 import { createPluginsPage } from "./plugins.js?v=1.4.33";
+import { createHerdrSettingsPage } from "./herdr-settings.js?v=1.4.33";
 import { createUpdatesPage } from "./updates.js?v=1.4.33";
 
 // What each "Open panes in" choice does, under the choice.
@@ -48,7 +49,8 @@ export function createSettings(deps) {
   document.documentElement.dataset.chatWidth = readChatWidth(panePreferenceStorage);
 
   const visiblePages = () => settingsPageList({ security: state.authRequired === true,
-    pcs: state.connectPcAvailable === true, plugins: state.pluginsAvailable === true });
+    pcs: state.connectPcAvailable === true, plugins: state.pluginsAvailable === true,
+    herdr: state.herdrSettingsAvailable === true });
 
   function pressOnly(buttons, attribute, value) {
     for (const button of buttons) button.setAttribute("aria-pressed", String(button.getAttribute(attribute) === value));
@@ -265,6 +267,7 @@ export function createSettings(deps) {
     // On a phone the page is on screen only when it, not the list, is shown.
     const onScreen = (id) => dialog.open && settings.page === id && (desktopMedia.matches || dialog.dataset.view === "page");
     pluginsPage.sync({ visible: onScreen("plugins") });
+    herdrPage.sync({ visible: onScreen("herdr") });
     updatesPage.sync({ visible: onScreen("updates") });
 
     const local = snapshotRecords().servers.find((server) => server.id === "local");
@@ -306,8 +309,12 @@ export function createSettings(deps) {
     api, snapshotRecords, sidebarActionMenu, appUpdates: updatePanel, openUpdates: () => showPage("updates", { focus: true }),
   });
   const updatesPage = createUpdatesPage({ api, snapshotRecords, appUpdates: updatePanel, pluginsShown });
+  // Herdr: its channel, integrations and config.toml, per machine; Herdr's
+  // own update is a link to Updates.
+  const herdrPage = createHerdrSettingsPage({ api, snapshotRecords, openUpdates: () => showPage("updates", { focus: true }) });
   dialog.addEventListener("close", () => {
     pluginsPage.sync({ visible: false });
+    herdrPage.sync({ visible: false });
     updatesPage.sync({ visible: false });
   });
 

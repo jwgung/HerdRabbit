@@ -2,11 +2,14 @@
 // a route module of its own can use them without importing the server.
 
 export class HttpError extends Error {
-  constructor(status, code, message) {
+  // `details` is what a page may read beside the message (Herdr's
+  // diagnostics for a config it refused); most errors have none.
+  constructor(status, code, message, details = undefined) {
     super(message);
     this.name = "HttpError";
     this.status = status;
     this.code = code;
+    if (details !== undefined) this.details = details;
   }
 }
 

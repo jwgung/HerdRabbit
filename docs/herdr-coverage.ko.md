@@ -91,10 +91,11 @@ Herdr 0.9.5(`herdr --help`와 명령 묶음마다의 `--help`)를 기준으로 �
 | 명령 | HerdRabbit | 메모 |
 |---|---|---|
 | `herdr update` | 됨 | Settings → Updates, 모든 머신의 Herdr |
-| `herdr channel` | 일부 | Herdr 채널에 맞는 업데이트를 고를 때 읽음. 없는 것: stable·preview 고르기 |
-| `herdr config`, `herdr server reload-config` | 없음 | Herdr `config.toml` 편집(키, 테마, `new_cwd`) |
+| `herdr channel` | 됨 | Settings → Herdr: 머신마다 Stable·Preview, Updates가 따름 |
+| `herdr config`, `herdr server reload-config` | 됨 | Settings → Herdr: `config.toml`을 글로 편집, 저장 전에 `herdr config check`로 검사하고 저장 뒤 다시 불러옴. `config reset-keys`는 없음 |
 | `herdr notification` | 필요 없음 | HerdRabbit은 자체 Web Push 알림을 보냅니다 |
-| `herdr agent`, `herdr integration` | 없음 | Herdr 내장 에이전트 통합 설치 |
+| `herdr integration` | 됨 | Settings → Herdr: 머신마다 상태, 설치, 제거 |
+| `herdr agent` | 없음 | |
 | `herdr machine` | 필요 없음 | Connect PC로 대체 |
 | `herdr api` | 내부 사용 | 페이지 목록은 `herdr api snapshot`과 Herdr 소켓 API에서 옴 |
 | `herdr status`, `herdr server stop` | 없음 | Herdr 자체 상태 보기, 서버 멈추기 |
@@ -104,7 +105,5 @@ Herdr 0.9.5(`herdr --help`와 명령 묶음마다의 `--help`)를 기준으로 �
 1. 나눈 경계를 끌어 패인 크기 바꾸기, 패인 이름 붙이기.
 2. 세션: 하나 더 시작하기, 멈추기, 멈춘 세션 지우기.
 3. 플러그인: 페이지에서 플러그인 동작 실행, 플러그인 패인 열기.
-4. Herdr 업데이트 채널과 `new_cwd` 같은 `config.toml` 설정.
-5. Herdr 에이전트 통합.
-6. 한 입력을 여러 패인에 보내기(`pane input`).
-7. 로컬 플러그인 폴더(`plugin link`), 플러그인 로그.
+4. 한 입력을 여러 패인에 보내기(`pane input`).
+5. 로컬 플러그인 폴더(`plugin link`), 플러그인 로그.

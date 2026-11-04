@@ -91,10 +91,11 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 | Command | HerdRabbit | Notes |
 |---|---|---|
 | `herdr update` | Done | Settings → Updates, for Herdr on every machine |
-| `herdr channel` | Partly | Read to pick the update for Herdr's channel. Missing: choosing stable or preview |
-| `herdr config`, `herdr server reload-config` | Missing | Editing Herdr's `config.toml` (keys, theme, `new_cwd`) |
+| `herdr channel` | Done | Settings → Herdr: Stable or Preview, per machine; Updates follows it |
+| `herdr config`, `herdr server reload-config` | Done | Settings → Herdr: `config.toml` as text, checked by `herdr config check` before it is saved, then reloaded. `config reset-keys` is not offered |
 | `herdr notification` | Not needed | HerdRabbit sends its own Web Push notifications |
-| `herdr agent`, `herdr integration` | Missing | Installing Herdr's built-in agent integrations |
+| `herdr integration` | Done | Settings → Herdr: status, install and uninstall, per machine |
+| `herdr agent` | Missing | |
 | `herdr machine` | Not needed | Replaced by Connect PC |
 | `herdr api` | Used | The page's lists come from `herdr api snapshot` and Herdr's socket API |
 | `herdr status`, `herdr server stop` | Missing | Herdr's own status and stopping its server |
@@ -104,7 +105,5 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 1. Resizing panes by dragging a split's divider, and naming a pane.
 2. Sessions: start another, stop one, delete a stopped one.
 3. Plugins: run a plugin's actions and open its panes from the page.
-4. Herdr's update channel and `config.toml` settings such as `new_cwd`.
-5. Herdr's agent integrations.
-6. Sending one input to several panes (`pane input`).
-7. Local plugin folders (`plugin link`), plugin logs.
+4. Sending one input to several panes (`pane input`).
+5. Local plugin folders (`plugin link`), plugin logs.
