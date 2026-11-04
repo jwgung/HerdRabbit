@@ -7,8 +7,8 @@
 // The menu opens in the top layer, so the chat's scrolling box cannot cut it
 // off; a scroll anywhere closes it rather than leave it beside nothing.
 
-import { COPY_ICONS, markdownText } from "./markdown.js?v=1.4.32";
-import { placeFloatingMenu } from "../app/dom.js?v=1.4.32";
+import { COPY_ICONS, markdownText } from "./markdown.js?v=1.4.33";
+import { placeFloatingMenu } from "../app/dom.js?v=1.4.33";
 
 // What the menu offers for an answer, in order.
 export function answerCopies(markdown) {
