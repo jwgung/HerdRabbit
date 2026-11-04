@@ -3643,8 +3643,14 @@ body.is-resizing-sidebar {
 .navigator .navigator-footer {
   grid-row: 4;
   justify-content: space-between;
-  min-height: calc(var(--composer-row-height) + var(--space-3) + var(--space-4) + 1px);
-  padding-bottom: var(--space-4);
+}
+
+/* On a phone the sidebar covers the page, with no composer beside it. */
+@media (min-width: 761px) {
+  .navigator .navigator-footer {
+    min-height: calc(var(--composer-row-height) + var(--space-3) + var(--space-4) + 1px);
+    padding-bottom: var(--space-4);
+  }
 }
 
 .navigator-tabs {
