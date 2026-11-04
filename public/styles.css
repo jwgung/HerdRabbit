@@ -2050,10 +2050,21 @@ body.sidebar-collapsed .split-session-button .pane-status {
   gap: var(--space-2);
 }
 
-.input-composer {
-  /* the text size of the lens in view: the terminal's, or the chat's in the Chat lens */
+/* The composer's text size -- the lens in view: the terminal's, or the chat's
+   in the Chat lens -- and its row height. Set on the page, not the composer,
+   so the sidebar's footer can take the same row (.navigator .navigator-footer).
+   The row is the text box's own height: one line, its padding (12px twice)
+   and its border (1px twice), so the buttons beside it are as tall. */
+body {
   --composer-font-size: var(--terminal-font-size);
-  --composer-row-height: max(44px, calc(var(--composer-font-size) * 1.5 + 24px));
+  --composer-row-height: max(44px, calc(var(--composer-font-size) * 1.5 + 26px));
+}
+
+body:has(.terminal-panel[data-lens="chat"]) {
+  --composer-font-size: var(--chat-font-size, var(--terminal-font-size));
+}
+
+.input-composer {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -3625,10 +3636,15 @@ body.is-resizing-sidebar {
 }
 
 /* The footer holds two controls: the uploads folder at the start and the
-   settings button at the far end. */
+   settings button at the far end. It is as tall as the composer's row beside
+   it, with the pane's own room above (its gap) and below (its padding), so its
+   line meets the pane's bottom edge and its buttons sit on the composer's
+   middle, at either text size. */
 .navigator .navigator-footer {
   grid-row: 4;
   justify-content: space-between;
+  min-height: calc(var(--composer-row-height) + var(--space-3) + var(--space-4) + 1px);
+  padding-bottom: var(--space-4);
 }
 
 .navigator-tabs {
@@ -4143,17 +4159,13 @@ body.is-resizing-sidebar {
   display: none;
 }
 
-.terminal-panel[data-lens="chat"] .input-composer {
-  --composer-font-size: var(--chat-font-size, var(--terminal-font-size));
-}
-
 /* A touch browser zooms the page in on a text box set under 16px. */
 @media (hover: none) {
-  .input-composer {
+  body {
     --composer-font-size: max(var(--font-input-touch), var(--terminal-font-size));
   }
 
-  .terminal-panel[data-lens="chat"] .input-composer {
+  body:has(.terminal-panel[data-lens="chat"]) {
     --composer-font-size: max(var(--font-input-touch), var(--chat-font-size, var(--terminal-font-size)));
   }
 }
