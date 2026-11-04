@@ -68,17 +68,20 @@ export function anyUpdate(results) {
 }
 
 export function confirmText(name, check) {
-  const head = [`Update ${name} to ${revisionText(check?.latest)}?`, ""];
+  return [`Update ${name} to ${revisionText(check?.latest)}?`, "", confirmDetails(check)].join("\n");
+}
+
+// What an update does there, without the question: Update all asks once for
+// several updates and lists this under its own.
+export function confirmDetails(check) {
   if (check?.mode === "plugin") {
     return [
-      ...head,
       "Herdr downloads and builds this release of the HerdRabbit plugin, then restarts HerdRabbit there. " +
         "Running sessions keep running; the page loses its connection for a moment while HerdRabbit restarts.",
       "If the download or build fails, the installed version keeps running.",
     ].join("\n");
   }
   return [
-    ...head,
     "update.sh fetches this release, updates Herdr, installs dependencies, runs the checks and restarts HerdRabbit there. " +
       "Running sessions keep running; the page loses its connection for a moment while the service restarts.",
     "If a step fails, update.sh puts the previous version back.",
