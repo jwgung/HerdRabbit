@@ -3,8 +3,8 @@ import {
   pluginMachines, pluginOperationText, updateAllConfirmText, updateAllCount, updateAllPlan, updateAllResultText,
 } from "./plugin-model.js?v=1.4.30";
 import {
-  appVersionText, confirmDetails as appConfirmDetails, herdrBlockedText, herdrConfirmText, herdrErrorText, herdrRunSummary,
-  herdrVersionText, runSummary,
+  appVersionText, confirmDetails as appConfirmDetails, herdrBlockedText, herdrConfirmDetails, herdrErrorText, herdrRunSummary,
+  herdrUpdateText, runSummary,
 } from "../app-update.js?v=1.4.30";
 
 const POLL_MS = 1_500;
@@ -88,7 +88,7 @@ export function createUpdatesPage({ api, snapshotRecords, appUpdates, pluginsSho
     if (herdr?.available || herdrRun?.tracking) {
       rows.push(row({
         kind: "herdr", name: "Herdr",
-        line: herdrVersionText(herdr) ? { text: herdrVersionText(herdr) } : null,
+        line: herdrUpdateText(herdr) ? { text: herdrUpdateText(herdr) } : null,
         note: herdr?.error ? { text: herdrErrorText(herdr.error), error: true }
           : herdr?.blocked ? { text: herdrBlockedText(herdr.blocked), error: true } : null,
         run: herdrRun?.tracking ? herdrRunning : null,
@@ -260,7 +260,7 @@ export function createUpdatesPage({ api, snapshotRecords, appUpdates, pluginsSho
     const name = machineName(id);
     const question = updateAllConfirmText(name, todo, {
       appLine: app?.text, appDetails: todo.app ? appConfirmDetails(appUpdates.state(id).check) : "",
-      herdrLine: herdrVersionText(herdr) ?? "", herdrDetails: todo.herdr ? herdrConfirmText(name, herdr).split("\n").slice(2).join("\n") : "",
+      herdrLine: herdrUpdateText(herdr) ?? "", herdrDetails: todo.herdr ? herdrConfirmDetails() : "",
     });
     if (!window.confirm(question)) return Promise.resolve();
     const names = [...todo.plugins.map((plugin) => plugin.name), ...(todo.herdr ? ["Herdr"] : []), ...(todo.app ? ["HerdRabbit"] : [])];

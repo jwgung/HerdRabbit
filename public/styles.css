@@ -571,7 +571,13 @@ body.sidebar-collapsed .terminal-panel {
   overflow-y: auto;
 }
 
-.settings-nav-heading,
+.settings-nav-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
+}
+
 /* The page's heading stays at the top while the page scrolls under it
    (the body's own top padding is drawn by the heading). */
 .settings-page-heading {
