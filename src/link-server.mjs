@@ -434,7 +434,7 @@ export function linkRoutes({
     if (method === "POST" && url.pathname === "/api/link/workspaces") {
       const body = await readJsonBody(request, maxBodyBytes);
       // A folder asked for is one this PC has: `~` is this PC's home.
-      const cwd = body.cwd === undefined ? undefined : await existingFolder(body.cwd);
+      const cwd = body.cwd === undefined ? undefined : await existingFolder(body.cwd, { guard: protectedPaths });
       // The new project's ids go back, so the hub types only into its pane.
       const made = await (cwd !== undefined
         ? client.createWorkspace(body.label, body.herdrSessionId, { cwd })
@@ -453,7 +453,7 @@ export function linkRoutes({
         // The new tab's ids go back, so the hub types only into this one. A
         // folder asked for is one this PC has (`~` is this PC's home): a shell
         // there could go to it anyway.
-        const cwd = body.cwd === undefined ? undefined : await existingFolder(body.cwd);
+        const cwd = body.cwd === undefined ? undefined : await existingFolder(body.cwd, { guard: protectedPaths });
         const made = await client.createTab(workspaceId, { cwd });
         sendJson(response, 200, { ok: true, ...made });
         return true;

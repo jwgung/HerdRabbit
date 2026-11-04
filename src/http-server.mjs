@@ -1528,7 +1528,7 @@ export function createHerdrHttpServer({
   // the workspace or tab as before rather than being refused. One that opens folders
   // checks one there, `~` being its home, and one that does not is refused.
   async function requestedFolder(value, serverId, { asOpened = false } = {}) {
-    if (serverId === LOCAL_SERVER) return existingFolder(value, { home: homeDirectory });
+    if (serverId === LOCAL_SERVER) return existingFolder(value, { home: homeDirectory, guard: protectedPaths });
     if (!isFolderRequest(value)) throw invalidFolder();
     if (!(await herdr.agentsClient?.(serverId)?.opensFolders?.())) {
       if (asOpened) return null;
