@@ -370,6 +370,10 @@ test("hides Herdr's numeric default tab label but keeps named tabs", () => {
 test("uses Enter by pointer type and supports external keyboards on touch devices", () => {
   assert.equal(inputKeyAction({ key: "Enter" }), "submit");
   assert.equal(inputKeyAction({ key: "Enter", ctrlKey: true }), "newline");
+  // Shift+Enter is a new line on a desktop too, as on a touch device's keyboard.
+  assert.equal(inputKeyAction({ key: "Enter", shiftKey: true }), "default");
+  assert.equal(inputKeyAction({ key: "Enter", shiftKey: true, ctrlKey: true }), "newline");
+  assert.equal(inputKeyAction({ key: "Enter", metaKey: true }), "submit");
   assert.equal(
     inputKeyAction({ key: "Enter", usesTouchInput: true }),
     "default",
@@ -396,8 +400,8 @@ test("decides the composer's Enter by environment, modifier, setting and keyboar
     [{ usesTouchInput: false, enterMode: "newline" }, "submit"],
     [{ usesTouchInput: false, ctrlKey: true }, "newline"],
     [{ usesTouchInput: false, metaKey: true }, "submit"],
-    // The desktop page has always sent on Shift+Enter; it is left as it was.
-    [{ usesTouchInput: false, shiftKey: true }, "submit"],
+    // Shift+Enter is a newline on the desktop too (the textarea's own).
+    [{ usesTouchInput: false, shiftKey: true }, "default"],
     // Touch, auto: an on-screen keyboard's Enter is a newline; once a physical
     // keyboard has typed, Enter sends.
     [{}, "default"],

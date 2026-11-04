@@ -109,8 +109,9 @@ export function detectTouchInput({
 // What Enter in the composer does: "submit", "newline" (inserted by the page,
 // for Ctrl+Enter, which a textarea ignores) or "default" (the textarea's own
 // newline). An input method's Enter (isComposing / keyCode 229) is never a
-// send. On a touch device Shift+Enter is a newline and plain Enter
-// follows `enterMode`: "send", "newline", or "auto", which sends once
+// send. Shift+Enter is a newline everywhere. On a desktop Ctrl+Enter is one
+// too and plain Enter sends; on a touch device Ctrl/Cmd+Enter sends and plain
+// Enter follows `enterMode`: "send", "newline", or "auto", which sends once
 // `physicalKeyboard` has been seen.
 export function inputKeyAction({
   key,
@@ -131,7 +132,8 @@ export function inputKeyAction({
     if (enterMode === "newline") return "default";
     return physicalKeyboard ? "submit" : "default";
   }
-  return ctrlKey ? "newline" : "submit";
+  if (ctrlKey) return "newline";
+  return shiftKey ? "default" : "submit";
 }
 
 export function insertTextAtSelection(value, selectionStart, selectionEnd, text) {

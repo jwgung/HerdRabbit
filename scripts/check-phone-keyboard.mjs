@@ -10,8 +10,8 @@
 // The composer's Enter: on the phone an on-screen keyboard's Enter is a new
 // line, and once a physical keyboard types a letter Enter sends; Shift+Enter
 // is a new line; the Enter setting (new line / send) overrides; an input
-// method's Enter never sends. On the desktop Enter and Shift+Enter send,
-// Ctrl+Enter is a new line, as before. Runs against an in-process fake herdr; nothing
+// method's Enter never sends. On the desktop Enter sends, and Shift+Enter
+// and Ctrl+Enter are new lines. Runs against an in-process fake herdr; nothing
 // reaches a real herdr.
 //
 // PHONE_KEYBOARD_SHOTS=<folder> keeps pictures with the keyboard up and down.
@@ -93,7 +93,7 @@ async function checkEnter(page, mobile) {
     await clearComposer(page);
     assert.deepEqual(await enterDoes(page, async () => { await page.keyboard.type("one"); await page.keyboard.press("Control+Enter"); }), { value: "one\n" }, "desktop Ctrl+Enter");
     assert.deepEqual(await enterDoes(page, async () => { await page.keyboard.type("two"); await page.keyboard.press("Enter"); }), { sent: ["one\ntwo"] }, "desktop Enter");
-    assert.deepEqual(await enterDoes(page, async () => { await page.keyboard.type("three"); await page.keyboard.press("Shift+Enter"); }), { sent: ["three"] }, "desktop Shift+Enter still sends");
+    assert.deepEqual(await enterDoes(page, async () => { await page.keyboard.type("three"); await page.keyboard.press("Shift+Enter"); }), { value: "three\n" }, "desktop Shift+Enter is a new line");
     return;
   }
   const reload = async (mode) => {

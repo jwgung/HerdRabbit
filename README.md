@@ -455,7 +455,7 @@ Over the Chat view the same shortcut and magnifier open **Find in conversation**
 | Action | Key or control |
 | --- | --- |
 | Send input in a mouse-oriented environment | `Enter` |
-| Insert a newline in a mouse-oriented environment | `Ctrl+Enter` |
+| Insert a newline in a mouse-oriented environment | `Shift+Enter` or `Ctrl+Enter` |
 | Insert a newline from the on-screen keyboard of a touch device | `Enter` |
 | Send input in a touch-oriented environment | Arrow send button, or `Ctrl+Enter` / `Cmd+Enter` |
 | Send from a physical keyboard on a touch device | `Enter`, once a letter or digit has been typed on it (see below) |
