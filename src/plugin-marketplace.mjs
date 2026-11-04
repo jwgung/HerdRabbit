@@ -1,6 +1,6 @@
 import { HttpError } from "./http-basics.mjs";
 import { PLUGIN_ID } from "./config.mjs";
-import { cleanText, cleanTime, isHerdRabbitPlugin, validatePluginSource } from "./herdr-plugins.mjs";
+import { cleanText, cleanTime, isHerdRabbitPlugin, validatePluginRef, validatePluginSource } from "./herdr-plugins.mjs";
 
 // Herdr's plugin marketplace (herdr.dev/plugins) for Settings → Plugins →
 // Browse. The list is the index that page itself reads: public GitHub
@@ -25,6 +25,11 @@ const MAX_PLATFORMS = 8;
 const PLATFORM = /^[a-z0-9_-]{1,20}$/u;
 const VERSION = /^\d{1,6}\.\d{1,6}\.\d{1,6}(?:[-+][0-9A-Za-z.-]{1,30})?$/u;
 const MANIFEST = "herdr-plugin.toml";
+// The commit a repository's default branch was at when Herdr read it.
+const HEAD_COMMIT = /^[0-9a-f]{40}$/u;
+// How long the plugin list waits for an index not read yet; after that it
+// answers without "Update available" and the read goes on for the next look.
+const UPDATE_WAIT_MS = 5_000;
 
 // The page's query: words to look for, an order, and a page of the list.
 // The orders are Herdr's own on herdr.dev/plugins; `stars` and `updated`
@@ -59,6 +64,17 @@ function specOf(owner, repo, path) {
   } catch {
     return null;
   }
+}
+
+// What "Update available" needs from a repository entry: the commit its
+// default branch is at, the branch's name when the index gives one (it does
+// not yet), and which plugin ids are in which folder.
+function repositoryHead(raw, entries) {
+  const headCommit = typeof raw.headCommit === "string" && HEAD_COMMIT.test(raw.headCommit) ? raw.headCommit : null;
+  if (!headCommit || entries.length === 0) return null;
+  let defaultBranch = null;
+  try { defaultBranch = validatePluginRef(raw.defaultBranch ?? raw.default_branch ?? null); } catch { defaultBranch = null; }
+  return { headCommit, defaultBranch, manifests: entries.map(({ item }) => ({ id: item.id, subdir: item.subdir })) };
 }
 
 // Every plugin a repository entry names, as the page shows it. A repository
@@ -104,15 +120,43 @@ export function cleanMarketplace(raw) {
   if (!Array.isArray(raw.plugins)) throw unavailable("it has no plugin list");
   const seen = new Set();
   const entries = [];
+  const heads = new Map();
+  const repositories = new Set();
   for (const repository of raw.plugins.slice(0, MAX_REPOSITORIES)) {
-    for (const entry of cleanRepository(repository)) {
+    const listed = cleanRepository(repository);
+    for (const entry of listed) {
       const key = entry.item.spec.toLowerCase();
       if (seen.has(key) || entries.length >= MAX_ITEMS) continue;
       seen.add(key);
       entries.push(entry);
     }
+    // A repository listed twice is taken as it is listed first, as its plugins are.
+    const key = listed.length ? `${listed[0].item.owner}/${listed[0].item.repo}`.toLowerCase() : null;
+    if (!key || repositories.has(key)) continue;
+    repositories.add(key);
+    const head = repositoryHead(repository, listed);
+    if (head) heads.set(key, head);
   }
-  return { generatedAt: cleanTime(raw.generatedAt), entries };
+  return { generatedAt: cleanTime(raw.generatedAt), entries, heads };
+}
+
+// Whether an installed plugin (as cleanPluginState leaves it) is behind its
+// repository in the index: true or false, or null when that cannot be told.
+// Only a plugin installed from GitHub that follows the default branch is
+// compared: no ref asked for, or the default branch by name when the index
+// gives it. A pinned branch, tag or commit, a linked plugin, HerdRabbit
+// (Settings → About updates it) and a plugin the index does not list are null.
+export function pluginUpdateAvailable(plugin, heads) {
+  const source = plugin?.source;
+  if (!heads || plugin?.protected || source?.kind !== "github" || !source.commit) return null;
+  const head = heads.get(`${source.owner}/${source.repo}`.toLowerCase());
+  if (!head) return null;
+  if (source.ref && source.ref !== head.defaultBranch) return null;
+  const subdir = source.subdir ?? null;
+  const listed = head.manifests.some((manifest) => manifest.id === plugin.id) ||
+    head.manifests.some((manifest) => (manifest.subdir ?? null) === subdir);
+  if (!listed) return null;
+  return !head.headCommit.startsWith(source.commit.toLowerCase());
 }
 
 const time = (value) => (value ? Date.parse(value) : 0);
@@ -204,6 +248,18 @@ export class PluginMarketplace {
     };
   }
 
+  // The plugins of a list, each with `updateAvailable` (pluginUpdateAvailable).
+  // Never fails: an index that cannot be read, is only an old copy, or takes
+  // longer than `waitMs` to read leaves every plugin at null.
+  async updatesFor(plugins, { waitMs = UPDATE_WAIT_MS } = {}) {
+    let timer;
+    const reading = this.catalog().then((view) => !view.stale, () => false);
+    const late = new Promise((resolve) => { timer = setTimeout(() => resolve(false), waitMs); });
+    const fresh = await Promise.race([reading, late]).finally(() => clearTimeout(timer));
+    const heads = fresh ? this.#copy?.heads ?? null : null;
+    return plugins.map((plugin) => ({ ...plugin, updateAvailable: pluginUpdateAvailable(plugin, heads) }));
+  }
+
   #view(stale) {
     return { generatedAt: this.#copy.generatedAt, fetchedAt: new Date(this.#copy.fetchedAt).toISOString(), stale };
   }
@@ -220,8 +276,8 @@ export class PluginMarketplace {
 
   async #read() {
     try {
-      const { generatedAt, entries } = cleanMarketplace(await this.#download());
-      this.#copy = { generatedAt, entries, fetchedAt: this.now() };
+      const { generatedAt, entries, heads } = cleanMarketplace(await this.#download());
+      this.#copy = { generatedAt, entries, heads, fetchedAt: this.now() };
       this.#orders = new Map();
       this.#failure = null;
     } catch (error) {

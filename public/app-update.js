@@ -8,6 +8,9 @@
 // Each PC also has a Herdr row: the Herdr it runs against the newest on its
 // channel, and Update Herdr, which runs `herdr update --handoff` there and is
 // followed the same way, without a restart.
+// Settings → Plugins drives the same panel for HerdRabbit's own row (its
+// versions, Update… and the run's progress line): state(), subscribe(),
+// follow() and run() below, so both places start and show one update.
 
 export const BLOCKED_TEXT = {
   running: "An update is already running.",
@@ -171,6 +174,44 @@ export function runFailedText(status) {
 
 export const WAITING_TEXT = "Waiting for HerdRabbit to come back…";
 
+// HerdRabbit's versions on one PC in a line, for Settings → Plugins:
+// { text, error, note, canUpdate }. `installed` is the version Herdr lists
+// when the check does not name one. Null when the PC was not checked or
+// cannot update itself from the page.
+export function appVersionText(check, installed = null) {
+  if (!check || check.supported !== true) return null;
+  const current = check.current?.version ?? installed ?? revisionText(check.current);
+  if (check.error) return { text: errorText(check.error), error: true, note: null, canUpdate: false };
+  if (!check.available) return { text: `${current} · Up to date`, error: false, note: null, canUpdate: false };
+  const latest = check.latest?.version ?? revisionText(check.latest);
+  return {
+    text: `${current} → ${latest} available`, error: false,
+    note: check.blocked ? blockedText(check.blocked) : null, canUpdate: !check.blocked,
+  };
+}
+
+// A HerdRabbit run in a line, as the Update window heads it: its state, then
+// the step it is at. { text, error, running }, or null without a run.
+export function runSummary(run, { local = true } = {}) {
+  const status = run?.status;
+  if (!status) return null;
+  const steps = stepStates(status, { local, waiting: run.waiting, reloading: run.reloading === true });
+  const failed = status.state === "failed" && !run.waiting;
+  const text = runStateText(status, run, steps, failed);
+  const at = steps.findIndex((step) => step.state === "current" || step.state === "failed");
+  const step = at === -1 || failed ? "" : ` Step ${at + 1} of ${steps.length}: ${steps[at].label}.`;
+  return { text: `${text}${step}`.trim(), error: failed, running: run.tracking === true };
+}
+
+// A Herdr run in a line, as its row in the Update window says it.
+export function herdrRunSummary(run) {
+  const status = run?.status;
+  if (!status) return null;
+  const refused = status.state === "failed" && status.reason === "self_update_refused";
+  const text = run.waiting ? "Waiting for an answer…" : refused ? HERDR_RUN_TEXT.refused : HERDR_RUN_TEXT[status.state] ?? "";
+  return { text, error: status.state === "failed" && !run.waiting, running: run.tracking === true };
+}
+
 // The line at the head of a run: its failure, the reload it is about to do,
 // the wait for the restart when there are no steps to say so, else its state.
 function runStateText(status, run, steps, failed) {
@@ -241,6 +282,8 @@ export function createUpdatePanel({
   // Which run of this PC's server the page was loaded from.
   let baseline = null;
   let checking = false;
+  // Settings → Plugins, told whenever anything here changes.
+  const listeners = new Set();
 
   const entry = (id) => {
     if (!entries.has(id)) entries.set(id, { check: null, error: null, run: null, herdrRun: null });
@@ -251,6 +294,7 @@ export function createUpdatePanel({
   function changed() {
     onChange(anyUpdate([...entries.values()].map((item) => item.check)));
     if (dialog.open) render();
+    for (const listener of listeners) listener();
   }
 
   async function checkOne(id, fresh) {
@@ -359,19 +403,25 @@ export function createUpdatePanel({
     changed();
   }
 
-  async function run(id) {
+  // Asks (unless the person already said yes, as Update all does), starts
+  // the run and follows it. Answers how the run ended -- its last status, or
+  // { state: "failed", startFailed: true, detail } when it did not start --
+  // or null when it was not started (declined, nothing newer, already running).
+  async function run(id, { confirmed = false } = {}) {
     const server = servers().find((item) => item.id === id);
     const item = entry(id);
-    if (!server || !item.check?.available || busy(item)) return;
-    if (!confirm(confirmText(server.name, item.check))) return;
+    if (!server || !item.check?.available || busy(item)) return null;
+    if (!confirmed && !confirm(confirmText(server.name, item.check))) return null;
     feedback.textContent = "";
+    let status;
     try {
-      const status = await api("/api/update/run", { method: "POST", body: { server: id } });
-      void track(id, status);
+      status = await api("/api/update/run", { method: "POST", body: { server: id } });
     } catch (error) {
       feedback.textContent = error.message || "Could not start the update.";
       feedback.dataset.error = "true";
+      return { state: "failed", startFailed: true, detail: feedback.textContent };
     }
+    return track(id, status);
   }
 
   // Polls the run until it ends. A server that does not answer is restarting;
@@ -405,7 +455,7 @@ export function createUpdatePanel({
         changed();
         await sleep(reloadDelayMs);
         reload();
-        return;
+        return item.run.status;
       }
       if (next.state === "succeeded") await checkOne(id, true).catch(() => {});
       break;
@@ -413,6 +463,36 @@ export function createUpdatePanel({
     item.run.tracking = false;
     item.run.waiting = false;
     changed();
+    return item.run.status;
+  }
+
+  // A PC's runs started elsewhere (another page, or About on another device)
+  // are followed here too, and a PC not checked yet is checked.
+  async function follow(id) {
+    const item = entry(id);
+    if (!item.check && !item.error) await checkOne(id, false).catch(() => {});
+    for (const [path, kind] of [["/api/update/run", "app"], ["/api/update/herdr/run", "herdr"]]) {
+      try {
+        const status = await api(`${path}?${query(id)}`);
+        if (status.supported === false || status.state !== "running" || busy(item)) continue;
+        if (kind === "app") void track(id, status);
+        else void trackHerdr(id, status);
+      } catch { /* looked at again on the next follow */ }
+    }
+    changed();
+  }
+
+  // What one PC's entry says now, read-only: its check (or why it could not
+  // be checked), its runs, and whether one is being followed.
+  function state(id) {
+    const item = entries.get(id);
+    if (!item) return { check: null, error: null, run: null, herdrRun: null, busy: false };
+    return { check: item.check, error: item.error, run: item.run, herdrRun: item.herdrRun, busy: busy(item) };
+  }
+
+  function subscribe(listener) {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
   }
 
   // A running log is shown as it comes; a finished one is folded away behind
@@ -689,5 +769,8 @@ export function createUpdatePanel({
   // itself, or there are other PCs to look at.
   const visible = () => servers().length > 1 || entries.get("local")?.check?.supported === true;
 
-  return { refresh, resume, open, render, run, runHerdr, visible, hasUpdate: () => anyUpdate([...entries.values()].map((item) => item.check)) };
+  return {
+    refresh, resume, open, render, run, runHerdr, visible, follow, state, subscribe,
+    hasUpdate: () => anyUpdate([...entries.values()].map((item) => item.check)),
+  };
 }

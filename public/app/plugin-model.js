@@ -81,6 +81,46 @@ export function pluginOperationText(operation, plugins = []) {
   return { text: `Couldn't ${verbs[2]} ${what}: ${operation.detail || "Herdr reported an error."}`, error: true, running: false };
 }
 
+// What Update all would update on a machine, in order: each plugin the
+// server marks `updateAvailable` (and could update), then HerdRabbit last
+// when `app` (appVersionText in app-update.js) says it can be updated --
+// its update restarts the server.
+export function updateAllPlan(plugins = [], app = null) {
+  return {
+    plugins: (plugins ?? []).filter((plugin) => plugin.updateAvailable === true && plugin.updatable === true && !plugin.protected),
+    app: app?.canUpdate === true,
+  };
+}
+
+export function updateAllCount(plan) {
+  return plan.plugins.length + (plan.app ? 1 : 0);
+}
+
+// The one question Update all asks: what, where, in which order. `appLine`
+// is HerdRabbit's "1.4.29 → 1.4.30 available" and `appDetails` what its own
+// update's confirm says it does.
+export function updateAllConfirmText(machine, plan, { appLine = "", appDetails = "" } = {}) {
+  const lines = plan.plugins.map((plugin) => `• ${plugin.name}`);
+  if (plan.app) lines.push(`• HerdRabbit${appLine ? ` (${appLine.replace(/ available$/u, "")})` : ""}, last: it restarts`);
+  return [
+    `Update ${updateAllCount(plan) === 1 ? "this" : `these ${updateAllCount(plan)}`} on ${machine}, one at a time?`,
+    ...lines,
+    "",
+    "Update all stops at the first update that fails.",
+    ...(plan.plugins.length ? ["Herdr downloads and builds each plugin's new version, which runs its own code there."] : []),
+    ...(plan.app && appDetails ? [appDetails] : []),
+  ].join("\n");
+}
+
+// The status line once Update all ends: all done, or where it stopped and
+// what was left. `failure` is what the failed update said.
+export function updateAllResultText(done, left, failure = null) {
+  if (!failure) return { text: `Updated ${done.length === 1 ? done[0] : `all ${done.length}`}.`, error: false };
+  const rest = left.length ? ` Not updated: ${left.join(", ")}.` : "";
+  const said = /[.!?…]$/u.test(failure) ? failure : `${failure}.`;
+  return { text: `Update all stopped. ${said}${rest}`, error: true };
+}
+
 // The machines Plugins can manage: this PC, then each connected PC.
 export function pluginMachines(servers = []) {
   const local = servers.find((server) => server.id === "local");

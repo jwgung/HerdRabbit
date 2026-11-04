@@ -1043,7 +1043,7 @@ export function createHerdrHttpServer({
         if (method === "GET" && segment === undefined) {
           requireSameOrigin(request);
           const { serverId, source } = pluginsSource(url.searchParams.get("server"));
-          sendJson(response, 200, { ...cleanPluginState(await source.list()), server: serverId });
+          sendJson(response, 200, { ...(await withUpdates(cleanPluginState(await source.list()))), server: serverId });
           return;
         }
         requireWriteAuthorization(request, csrfToken);
@@ -1065,7 +1065,7 @@ export function createHerdrHttpServer({
         } else {
           throw new HttpError(405, "method_not_allowed", "Method not allowed");
         }
-        sendJson(response, 202, { ...cleanPluginState(started.answer), server: started.serverId });
+        sendJson(response, 202, { ...(await withUpdates(cleanPluginState(started.answer))), server: started.serverId });
         return;
       }
 
@@ -1663,6 +1663,15 @@ export function createHerdrHttpServer({
     const source = typeof value === "string" ? herdr.aiAccountsClient?.(value) : null;
     if (!source) throw new HttpError(404, "unknown_server", "That server is no longer configured.");
     return { serverId: value, source };
+  }
+
+  // A plugin list with each plugin's `updateAvailable`, against the hub's own
+  // copy of Herdr's marketplace (the same for every machine): true, false, or
+  // null when it cannot be told. The marketplace never fails the list.
+  async function withUpdates(state) {
+    const plugins = typeof marketplace?.updatesFor === "function"
+      ? await marketplace.updatesFor(state.plugins).catch(() => null) : null;
+    return { ...state, plugins: plugins ?? state.plugins.map((plugin) => ({ ...plugin, updateAvailable: null })) };
   }
 
   // Plugin routes address a machine like account routes: a connected PC runs

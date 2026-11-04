@@ -11,8 +11,14 @@
 // unreadable, it says so and points to Install plugin…; read, it sorts,
 // searches and reads more, marks what is installed, offers no Install for
 // HerdRabbit, and a listing's Install… fills in Source and goes through the
-// same confirm step. Runs on a desktop and a phone against an in-process fake
-// herdr, fake `herdr plugin` commands and a fake marketplace index.
+// same confirm step. HerdRabbit's row shows About's check ("1.4.27 → 1.4.28
+// available") and its Update… asks About's question and runs About's
+// update (the fake updater), the row following it to "Up to date"; a plugin
+// whose repository moved on in the marketplace carries "Update available";
+// Update all updates those one at a time, then HerdRabbit last, keeps the
+// controls waiting meanwhile, and stops at the first failure saying what was
+// left. Runs on a desktop and a phone against an in-process fake herdr, fake
+// `herdr plugin` commands, a fake updater and a fake marketplace index.
 //
 // PLUGINS_SHOTS=<folder> keeps pictures of the page and the dialog.
 import assert from "node:assert/strict";
@@ -21,6 +27,7 @@ import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { HerdrCommandError } from "../src/herdr-client.mjs";
 import { PluginManager } from "../src/herdr-plugins.mjs";
+import { RUN_STEPS } from "../src/app-update.mjs";
 import { PluginMarketplace } from "../src/plugin-marketplace.mjs";
 import { fakeFetch, marketplaceIndex } from "../test/fixtures/fake-plugin-marketplace.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
@@ -33,6 +40,13 @@ const herdrabbit = () => ({
   plugin_id: "herdrabbit", name: "HerdRabbit", version: "1.4.27", enabled: true, description: "Open your Herdr sessions from a phone.",
   source: { kind: "github", owner: "ultivis-iot", repo: "HerdRabbit", requested_ref: "v1.4.27", resolved_commit: "a074fe0dbe4c3d96ed53fdeb325bd6d6cd1e080e" },
 });
+// Installed from the marketplace's gen/plugin-3 on its default branch, a
+// commit behind; gen/plugin-4 at the commit the index names.
+const HEAD = "ad4614fcee1a9049a08ea9ca421889b9ce6966f8";
+const gen = (index, commit) => ({
+  plugin_id: `gen-${index}`, name: `Gen ${index}`, version: "0.1.0", enabled: true,
+  source: { kind: "github", owner: "gen", repo: `plugin-${index}`, requested_ref: null, resolved_commit: commit },
+});
 const notes = () => ({
   plugin_id: "notes", name: "Notes", version: "0.2.0", enabled: false, description: "Notes beside a pane.",
   source: { kind: "github", owner: "someone", repo: "herdr-notes", requested_ref: "main", resolved_commit: "1234567890abcdef1234567890abcdef12345678" },
@@ -40,12 +54,21 @@ const notes = () => ({
 
 // `herdr plugin …` on one machine: list answers from `plugins`, each change
 // is recorded and applied; an install waits until it is let go.
+// `order` hears each update, plugin or HerdRabbit's, as it starts; an
+// update of `failUpdate` fails.
+const order = [];
 function fakePlugins(initial) {
-  const state = { plugins: initial, ran: [], hold: null };
+  const state = { plugins: initial, ran: [], hold: null, failUpdate: null };
   const run = async (args) => {
     if (args[1] === "list") return { code: 0, stdout: JSON.stringify({ id: "cli:plugin", result: { type: "plugin_list", plugins: state.plugins } }), stderr: "" };
     state.ran.push(args.join(" "));
     const [, action, target] = args;
+    if (action === "update") {
+      order.push(`plugin ${target}`);
+      if (target === state.failUpdate) return { code: 1, stdout: "", stderr: "error: could not fetch gen/plugin-3\n" };
+      const plugin = state.plugins.find((item) => item.plugin_id === target);
+      if (plugin.source.kind === "github") plugin.source.resolved_commit = HEAD;
+    }
     if (action === "install") {
       await new Promise((resolve) => { state.hold = resolve; });
       const [owner, repo] = target.split("/");
@@ -73,6 +96,41 @@ for (let index = 1; index <= 55; index += 1) {
   });
 }
 let market;
+
+// HerdRabbit's own update on this PC (src/app-update.mjs's AppUpdater):
+// 1.4.27 with 1.4.28 out, a plugin run that waits until let go.
+const app = { phase: "available", starts: 0, letGo: false, startedAt: null };
+const appCheck = () => ({
+  checkedAt: new Date().toISOString(), mode: "plugin", blocked: null, error: null, notes: ["Plugin updates"],
+  current: { sha: app.phase === "updated" ? "def5678" : "abc1234", version: app.phase === "updated" ? "1.4.28" : "1.4.27" },
+  latest: { sha: "def5678", version: "1.4.28" }, available: app.phase !== "updated",
+});
+const appRun = (fields) => ({
+  state: "idle", startedAt: null, finishedAt: null, exitCode: null, reason: null, log: "", version: "1.4.27",
+  mode: "plugin", steps: RUN_STEPS.plugin, ...fields,
+});
+const updater = {
+  async check() { return appCheck(); },
+  async runStatus() {
+    if (app.phase !== "running") return appRun({});
+    if (!app.letGo) return appRun({ state: "running", phase: "fetch", startedAt: app.startedAt, log: "  > Installing release v1.4.28" });
+    app.phase = "updated";
+    // the same version and boot as the page's: this fake does not restart, so the page does not reload
+    return appRun({ state: "succeeded", phase: "reload", startedAt: app.startedAt, finishedAt: new Date().toISOString() });
+  },
+  async start() {
+    order.push("herdrabbit");
+    app.starts += 1;
+    app.phase = "running";
+    app.letGo = false;
+    app.startedAt = new Date().toISOString();
+    return appRun({ state: "running", phase: "fetch", startedAt: app.startedAt });
+  },
+};
+// The page's server lets one update a minute through; each run here is
+// taken to be a few minutes after the last.
+let skew = 0;
+
 const herdr = {
   async snapshot() {
     return {
@@ -102,8 +160,10 @@ const herdr = {
 function startServer(required) {
   const { server } = createHerdrHttpServer({
     herdr,
+    updater,
+    now: () => Date.now() + skew,
     plugins: { list: (...args) => local.manager.list(...args), start: (...args) => local.manager.start(...args) },
-    marketplace: { page: (...args) => market.page(...args) },
+    marketplace: { page: (...args) => market.page(...args), updatesFor: (...args) => market.updatesFor(...args) },
     auth: { required, hasValidSession: () => true, hasValidLaunchToken: () => true, onSessionsEnded: () => () => {} },
     logger: { info() {}, error() {} },
   });
@@ -121,7 +181,10 @@ const shots = process.env.PLUGINS_SHOTS;
 try {
   for (const mobile of [false, true]) {
     const where = mobile ? "phone" : "desktop";
-    local = fakePlugins([herdrabbit(), notes()]);
+    local = fakePlugins([herdrabbit(), notes(), gen(3, "1234567890abcdef1234567890abcdef12345678"), gen(4, HEAD)]);
+    market = new PluginMarketplace({ fetch: fakeFetch(marketIndex).fetch });
+    Object.assign(app, { phase: "available", starts: 0, letGo: false });
+    order.length = 0;
     laptop = fakePlugins([{ plugin_id: "far", name: "Far away", version: "3.1.0", enabled: true, source: { kind: "local" } }]);
     const context = await browser.newContext({ serviceWorkers: "block", hasTouch: mobile, isMobile: mobile,
       viewport: { width: mobile ? 390 : 1280, height: 844 } });
@@ -162,6 +225,12 @@ try {
       return page.locator(".sidebar-action-popover:popover-open .sidebar-action-item").allTextContents();
     };
     const idle = () => page.waitForFunction(() => !document.querySelector("#plugins-install").disabled);
+    const herdrabbitRow = rows.filter({ has: page.locator("strong", { hasText: "HerdRabbit" }) });
+    const appLine = herdrabbitRow.locator(".plugin-update-line");
+    const updateAll = page.locator("#plugins-update-all");
+    const ids = () => rows.evaluateAll((items) => items.map((row) => row.dataset.plugin));
+    // About's check reaches the row once the page has made it.
+    await appLine.waitFor({ state: "visible" });
 
     assert.deepEqual(await rows.evaluateAll((items) => items.map((row) => ({
       id: row.dataset.plugin,
@@ -170,14 +239,24 @@ try {
       source: row.querySelector(".plugin-source").textContent,
       href: row.querySelector("a.plugin-source")?.getAttribute("href") ?? null,
       state: row.querySelector(".plugin-state")?.textContent ?? null,
+      badge: row.querySelector(".plugin-update-badge")?.textContent ?? null,
+      line: row.querySelector(".plugin-update-line")?.textContent ?? null,
+      button: row.querySelector(".plugin-app-update")?.textContent ?? null,
       switch: row.querySelector('[role="switch"]')?.getAttribute("aria-checked") ?? null,
       menu: Boolean(row.querySelector(".sidebar-action-menu")),
     }))), [
       { id: "herdrabbit", name: "HerdRabbit", version: "1.4.27", source: "ultivis-iot/HerdRabbit@v1.4.27",
-        href: "https://github.com/ultivis-iot/HerdRabbit", state: "Updated from About", switch: null, menu: false },
+        href: "https://github.com/ultivis-iot/HerdRabbit", state: null, badge: "Update available",
+        line: "1.4.27 → 1.4.28 available", button: "Update…", switch: null, menu: false },
+      // pinned to a branch the index does not name: no badge
       { id: "notes", name: "Notes", version: "0.2.0", source: "someone/herdr-notes@main",
-        href: "https://github.com/someone/herdr-notes", state: null, switch: "false", menu: true },
+        href: "https://github.com/someone/herdr-notes", state: null, badge: null, line: null, button: null, switch: "false", menu: true },
+      { id: "gen-3", name: "Gen 3", version: "0.1.0", source: "gen/plugin-3@1234567",
+        href: "https://github.com/gen/plugin-3", state: null, badge: "Update available", line: null, button: null, switch: "true", menu: true },
+      { id: "gen-4", name: "Gen 4", version: "0.1.0", source: "gen/plugin-4@ad4614f",
+        href: "https://github.com/gen/plugin-4", state: null, badge: null, line: null, button: null, switch: "true", menu: true },
     ], `${where}: the list is wrong`);
+    assert.equal(await updateAll.textContent(), "Update all (2)", `${where}: Update all counts wrong`);
 
     // The picker names each machine.
     const picker = page.locator("#plugins-machine");
@@ -186,7 +265,8 @@ try {
 
     if (mobile) {
       const notesRow = rows.filter({ hasText: "Notes" });
-      for (const target of [notesRow.locator('[role="switch"]'), notesRow.locator(".sidebar-action-menu summary"), picker, page.locator("#plugins-install")]) {
+      for (const target of [notesRow.locator('[role="switch"]'), notesRow.locator(".sidebar-action-menu summary"), picker, page.locator("#plugins-install"),
+        updateAll, herdrabbitRow.locator(".plugin-app-update")]) {
         const box = await target.boundingBox();
         assert.ok(box.height >= 44, `${where}: ${await target.evaluate((node) => node.id || node.className)} is under 44px tall (${box.height})`);
       }
@@ -214,7 +294,7 @@ try {
     await page.locator(".sidebar-action-popover:visible .sidebar-action-item", { hasText: "Uninstall" }).click();
     await page.waitForFunction(() => document.querySelector("#plugins-feedback").textContent === "Uninstalled notes.");
     assert.match(confirms.at(-1), /^Uninstall Notes from This PC \(workstation\)\?/u);
-    assert.deepEqual(await rows.evaluateAll((items) => items.map((row) => row.dataset.plugin)), ["herdrabbit"]);
+    assert.deepEqual(await ids(), ["herdrabbit", "gen-3", "gen-4"]);
     assert.deepEqual(local.state.ran, ["plugin enable notes", "plugin update notes --yes", "plugin uninstall notes"]);
     await idle();
 
@@ -267,7 +347,7 @@ try {
     local.state.hold();
     await page.waitForFunction(() => document.querySelector("#plugins-feedback").textContent === "Installed someone/tool@v1.");
     await idle();
-    assert.deepEqual(await rows.evaluateAll((items) => items.map((row) => row.dataset.plugin)), ["herdrabbit", "tool"]);
+    assert.deepEqual(await ids(), ["herdrabbit", "gen-3", "gen-4", "tool"]);
 
     // Escape closes the dialog; nothing is sent.
     await page.locator("#plugins-install").click();
@@ -298,11 +378,14 @@ try {
     // Browse, on This PC. Unreadable first: it says so and points to Install plugin….
     await picker.selectOption("local");
     await page.waitForFunction(() => document.querySelector('#plugins-list .plugin-row[data-plugin="tool"]'));
+    const readable = market;
     market = new PluginMarketplace({ fetch: fakeFetch({}, { status: 503 }).fetch });
+    assert.equal(await updateAll.isVisible(), true, `${where}: Update all is gone before Browse`);
     const browseButton = pluginsPage.locator('[data-plugins-view="browse"]');
     await browseButton.click();
     assert.equal(await browseButton.getAttribute("aria-pressed"), "true");
     assert.equal(await page.locator("#plugins-installed-view").isVisible(), false, `${where}: Installed still shows in Browse`);
+    assert.equal(await updateAll.isVisible(), false, `${where}: Update all shows in Browse`);
     const browseStatus = page.locator("#plugins-browse-status");
     await page.waitForFunction(() => document.querySelector("#plugins-browse-status").dataset.error === "true");
     assert.match(await browseStatus.textContent(), /could not be read \(it answered HTTP 503\)\. You can still install a plugin by its GitHub owner\/repo with Install plugin…/u);
@@ -311,7 +394,7 @@ try {
     assert.equal(await listings.count(), 0);
 
     // Readable: a new order reads it again, Popular first by stars.
-    market = new PluginMarketplace({ fetch: fakeFetch(marketIndex).fetch });
+    market = readable;
     const sort = page.locator("#plugins-sort");
     const specs = () => listings.evaluateAll((items) => items.map((item) => item.dataset.spec));
     await sort.selectOption("name");
@@ -386,7 +469,81 @@ try {
 
     // Installed again: the new plugin is in its list.
     await pluginsPage.locator('[data-plugins-view="installed"]').click();
-    assert.ok((await page.locator("#plugins-list .plugin-row").evaluateAll((items) => items.map((row) => row.dataset.plugin))).includes("annotate"));
+    assert.ok((await ids()).includes("annotate"));
+    await page.waitForFunction(() => !document.querySelector("#plugins-update-all").disabled);
+
+    // Update all, where the first plugin's update fails: it stops there,
+    // says what was left, and HerdRabbit's update never starts.
+    local.state.failUpdate = "gen-3";
+    order.length = 0;
+    assert.equal(await updateAll.textContent(), "Update all (2)");
+    await updateAll.click();
+    assert.equal(confirms.at(-1).split("\n").slice(0, 3).join("\n"),
+      "Update these 2 on This PC (workstation), one at a time?\n• Gen 3\n• HerdRabbit (1.4.27 → 1.4.28), last: it restarts");
+    assert.match(confirms.at(-1), /stops at the first update that fails[\s\S]*Herdr downloads and builds this release of the HerdRabbit plugin/u);
+    await page.waitForFunction(() => /^Update all stopped\./u.test(document.querySelector("#plugins-feedback").textContent));
+    assert.equal(await feedback.textContent(),
+      "Update all stopped. Couldn't update Gen 3: error: could not fetch gen/plugin-3. Not updated: HerdRabbit.");
+    assert.equal(await feedback.getAttribute("data-error"), "true");
+    assert.deepEqual(order, ["plugin gen-3"], `${where}: Update all went on after a failure`);
+    assert.equal(app.starts, 0);
+    local.state.failUpdate = null;
+    await idle();
+
+    // HerdRabbit's row: Update… asks About's question and runs About's
+    // update; the row and the page follow it, the plugin controls wait.
+    skew += 5 * 60_000;
+    await herdrabbitRow.locator(".plugin-app-update").click();
+    assert.match(confirms.at(-1), /^Update This PC \(workstation\) to 1\.4\.28 \(def5678\)\?\n\nHerdr downloads and builds this release of the HerdRabbit plugin/u);
+    await page.waitForFunction(() => /^Updating… Step 1 of 3: Download and build the new version\.$/u
+      .test(document.querySelector('.plugin-row[data-plugin="herdrabbit"] .plugin-update-run')?.textContent ?? ""));
+    assert.equal(app.starts, 1);
+    await page.waitForFunction(() => document.querySelector("#plugins-feedback").textContent ===
+      "HerdRabbit is updating on This PC (workstation). Plugin changes wait until it finishes.");
+    assert.equal(await rows.filter({ hasText: "Gen 4" }).locator('[role="switch"]').isDisabled(), true, `${where}: a switch works during the update`);
+    assert.equal(await updateAll.isDisabled(), true, `${where}: Update all works during the update`);
+    assert.equal(await page.locator("#plugins-install").isDisabled(), true);
+    assert.equal(await herdrabbitRow.locator(".plugin-app-details").isVisible(), true, `${where}: no Details… while it runs`);
+    if (shots) await page.screenshot({ path: join(shots, `herdrabbit-update-${where}.png`) });
+    app.letGo = true;
+    await page.waitForFunction(() => document.querySelector('.plugin-row[data-plugin="herdrabbit"] .plugin-update-line')?.textContent === "1.4.28 · Up to date");
+    await idle();
+    assert.equal(await herdrabbitRow.locator(".plugin-app-update").count(), 0, `${where}: Update… after updating`);
+    assert.equal(await herdrabbitRow.locator(".plugin-update-badge").count(), 0);
+
+    // Update all once more, both updates out again (Check in About sees
+    // them): Gen 3 first, waited for, then HerdRabbit last.
+    app.phase = "available";
+    skew += 5 * 60_000;
+    if (mobile) await page.locator("#settings-back").click();
+    await settings.locator(".settings-page-link", { hasText: "About" }).click();
+    await page.locator("#settings-update").click();
+    await page.locator("#update-dialog").waitFor({ state: "visible" });
+    await page.locator("#update-check").click();
+    await page.locator('#update-list [data-server-id="local"] .update-run', { hasText: "Update" }).waitFor({ state: "visible" });
+    await page.locator("#update-close").click();
+    if (mobile) await page.locator("#settings-back").click();
+    await settings.locator(".settings-page-link", { hasText: "Plugins" }).click();
+    await page.waitForFunction(() => document.querySelector('.plugin-row[data-plugin="herdrabbit"] .plugin-update-line')?.textContent === "1.4.27 → 1.4.28 available");
+    local.state.plugins.find((item) => item.plugin_id === "gen-3").source.resolved_commit = "1234567890abcdef1234567890abcdef12345678";
+    await picker.selectOption(LAPTOP);
+    await page.waitForFunction(() => document.querySelector('.plugin-row[data-plugin="far"]'));
+    assert.equal(await updateAll.isVisible(), false, `${where}: Update all with nothing to update`);
+    await picker.selectOption("local");
+    await page.waitForFunction(() => document.querySelector("#plugins-update-all").textContent === "Update all (2)");
+    order.length = 0;
+    await updateAll.click();
+    await page.waitForFunction(() => /^Update all: Updating Gen 3…/u.test(document.querySelector("#plugins-feedback").textContent) ||
+      document.querySelector('.plugin-row[data-plugin="herdrabbit"] .plugin-update-run'));
+    assert.equal(await picker.isDisabled(), true, `${where}: the machine can change during Update all`);
+    await page.waitForFunction(() => document.querySelector('.plugin-row[data-plugin="herdrabbit"] .plugin-update-run'));
+    assert.deepEqual(order, ["plugin gen-3", "herdrabbit"], `${where}: Update all's order`);
+    assert.equal(await updateAll.textContent(), "Updating all…");
+    app.letGo = true;
+    await page.waitForFunction(() => document.querySelector("#plugins-feedback").textContent === "Updated all 2.");
+    await page.waitForFunction(() => document.querySelector("#plugins-update-all").hidden);
+    assert.equal(await page.locator(".plugin-update-badge").count(), 0, `${where}: a badge after Update all`);
+    assert.equal(await picker.isDisabled(), false);
 
     assert.deepEqual(errors, [], `${where}: page errors: ${errors.join("; ")}`);
     await context.close();

@@ -478,7 +478,7 @@
           </section>
 
           <section class="settings-page" data-page="plugins" aria-labelledby="settings-page-title" hidden>
-            <p class="settings-row-hint">Herdr plugins add actions and panes to Herdr. A plugin runs its own code on its machine. HerdRabbit itself is listed but is updated from About.</p>
+            <p class="settings-row-hint">Herdr plugins add actions and panes to Herdr. A plugin runs its own code on its machine. HerdRabbit's own row updates it the same way About does.</p>
             <div id="plugins-machine-row" class="settings-row" hidden>
               <div class="settings-row-copy">
                 <label for="plugins-machine" class="settings-row-label">Machine</label>
@@ -513,6 +513,7 @@
             </div>
             <p id="plugins-feedback" class="settings-row-hint" role="status" aria-live="polite"></p>
             <div class="settings-page-actions">
+              <button id="plugins-update-all" class="secondary-button" type="button" hidden>Update all</button>
               <button id="plugins-install" class="primary-button" type="button">Install plugin…</button>
             </div>
           </section>

@@ -877,6 +877,44 @@ a.plugin-source:hover {
   white-space: nowrap;
 }
 
+/* Update all beside Install plugin…, wrapping on a narrow screen. */
+.settings-page[data-page="plugins"] .settings-page-actions {
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* HerdRabbit's row: its versions from About's check, a run in one line,
+   and "Update available" on any row the server marks. */
+.plugin-update-badge {
+  flex: none;
+}
+
+.plugin-update-line,
+.plugin-update-note,
+.plugin-update-run {
+  color: var(--muted);
+  font-size: var(--font-sm);
+  overflow-wrap: anywhere;
+}
+
+.plugin-update-line {
+  font-family: var(--mono);
+}
+
+:is(.plugin-update-line, .plugin-update-note, .plugin-update-run)[data-error="true"],
+.plugin-update-note {
+  color: var(--danger);
+}
+
+.plugin-update-run {
+  color: var(--text);
+}
+
+.plugin-app-update,
+.plugin-app-details {
+  white-space: nowrap;
+}
+
 .plugin-actions .sidebar-action-menu.is-disabled {
   pointer-events: none;
   opacity: 0.5;
@@ -1049,6 +1087,9 @@ a.plugin-source:hover {
   .plugin-actions .workspace-action,
   .plugins-machine,
   #plugins-install,
+  #plugins-update-all,
+  .plugin-app-update,
+  .plugin-app-details,
   .market-install,
   .plugins-more,
   .plugin-install-dialog :is(.ui-input, .dialog-actions button) {
