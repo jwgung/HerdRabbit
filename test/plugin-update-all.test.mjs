@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   herdrCanUpdate, updateAllConfirmText, updateAllCount, updateAllPlan, updateAllResultText,
 } from "../public/app/plugin-model.js";
-import { appVersionText, herdrRunSummary, herdrVersionText, runSummary } from "../public/app-update.js";
+import { appVersionText, herdrRunSummary, herdrUpdateText, runSummary } from "../public/app-update.js";
 import { RUN_STEPS } from "../src/app-update.mjs";
 
 const plugin = (id, fields = {}) => ({ id, name: id.toUpperCase(), updatable: true, protected: false, updateAvailable: true, ...fields });
@@ -39,10 +39,10 @@ test("Update all takes Herdr between the plugins and HerdRabbit when it can be u
     assert.equal(updateAllPlan([], null, herdr(fields)).herdr, false);
   }
   assert.equal(updateAllPlan([], null, null).herdr, false);
-  assert.equal(herdrVersionText(herdr()), "0.9.3 → 0.9.5 available");
-  assert.equal(herdrVersionText(herdr({ available: false })), null);
+  assert.equal(herdrUpdateText(herdr()), "0.9.3 → 0.9.5 available");
+  assert.equal(herdrUpdateText(herdr({ available: false })), null);
   const text = updateAllConfirmText("Laptop", plan, {
-    appLine: "1.4.29 → 1.4.30 available", herdrLine: herdrVersionText(herdr()), herdrDetails: "Panes keep running.",
+    appLine: "1.4.29 → 1.4.30 available", herdrLine: herdrUpdateText(herdr()), herdrDetails: "Panes keep running.",
   });
   assert.deepEqual(text.split("\n").slice(0, 4), [
     "Update these 3 on Laptop, one at a time?", "• A", "• Herdr (0.9.3 → 0.9.5)", "• HerdRabbit (1.4.29 → 1.4.30), last: it restarts",

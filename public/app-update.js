@@ -93,9 +93,14 @@ export function herdrConfirmText(name, herdr) {
   return [
     `Update Herdr on ${name} from ${herdr?.current ?? "unknown"} to ${herdr?.latest ?? "the newest version"}?`,
     "",
-    "herdr update --handoff downloads the new Herdr and hands the running panes over to it live: " +
-      "agents and shells keep running. It can take a moment.",
+    herdrConfirmDetails(),
   ].join("\n");
+}
+
+// What a Herdr update does, without the question: Update all lists it under its own.
+export function herdrConfirmDetails() {
+  return "herdr update --handoff downloads the new Herdr and hands the running panes over to it live: " +
+    "agents and shells keep running. It can take a moment.";
 }
 
 export const RECENT_RUN_MS = 30 * 60_000;
@@ -196,7 +201,7 @@ export function appVersionText(check, installed = null) {
 
 // Herdr's versions on one PC in a line, for Settings → Updates: "0.9.3 →
 // 0.9.5 available", or null when there is nothing newer.
-export function herdrVersionText(herdr) {
+export function herdrUpdateText(herdr) {
   if (herdr?.available !== true) return null;
   return `${herdr.current ?? "unknown"} → ${herdr.latest ?? "unknown"} available`;
 }
