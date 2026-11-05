@@ -1557,7 +1557,11 @@ button.plugin-update-badge {
     min-height: 44px;
   }
 
-  .herdr-config-text {
+  /* The 44px rule for .ui-input in components.css has the specificity of
+     .dialog-form input (0,1,1), which would win over the 280px above. The
+     editor is repeated here with a selector that wins outright (0,2,0). */
+  .herdr-config-body .herdr-config-text {
+    min-height: 280px;
     font-size: var(--font-input-touch);
   }
 }
