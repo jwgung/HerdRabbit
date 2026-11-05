@@ -12,6 +12,8 @@ import { createFolderField, workspaceFolder } from "./folder-field.js?v=1.4.41";
 // conversations of it in the workspace's folder are offered too: picking one
 // resumes it instead of starting new. Titles are shown as text only.
 // Listeners are registered when this is called, not on import.
+const FOLDER_DEBOUNCE_MS = 400;
+
 export function createSessionDialog({ state, api, snapshotRecords, createSession, agentMark }) {
   const dialog = document.querySelector("#session-dialog");
   const form = document.querySelector("#session-create-form");
@@ -21,7 +23,7 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
   const resumeLabel = document.querySelector("#session-resume-label");
   const resumeSelect = document.querySelector("#session-resume");
   const nameInput = document.querySelector("#session-name");
-  const folder = createFolderField(document.querySelector("#session-folder-field"), { api });
+  const folder = createFolderField(document.querySelector("#session-folder-field"), { api, onChange: () => folderChanged() });
   const feedback = document.querySelector("#session-dialog-feedback");
   const cancel = document.querySelector("#session-dialog-cancel");
   const submit = form.querySelector('button[type="submit"]');
@@ -61,10 +63,20 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
 
   const resuming = () => !resumeSelect.hidden && resumeSelect.value !== "";
 
-  // A resumed conversation opens in the workspace's folder, where it was kept.
+  // A resumed conversation opens in the Folder shown, which is also the one
+  // its earlier conversations are listed for, so the row stays on view.
   function showChoice() {
     submit.textContent = resuming() ? "Resume" : "Start";
-    folder.setHidden(resuming());
+  }
+
+  // Typing or choosing another Folder lists that folder's conversations; a
+  // keystroke waits a moment, and an answer for a folder since changed is
+  // dropped (sessionsAsked in loadSessions).
+  let folderTimer = 0;
+  function folderChanged() {
+    window.clearTimeout(folderTimer);
+    if (!target || !agents.value()) return;
+    folderTimer = window.setTimeout(() => { void loadSessions(generation); }, FOLDER_DEBOUNCE_MS);
   }
 
   // The chosen agent's earlier sessions in the project's folder, asked of the
@@ -77,7 +89,10 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     const current = () => asked === sessionsAsked && opened === generation;
     say("Looking for earlier conversations…");
     try {
-      const answer = await api(`/api/workspaces/${encodeURIComponent(target.workspaceId)}/agent-sessions?agent=${encodeURIComponent(agent)}`);
+      // the folder as the dialog opened is the workspace's own: left out, so
+      // its answer is the workspace's, as before
+      const chosen = folder.asOpened() ? "" : `&folder=${encodeURIComponent(folder.value())}`;
+      const answer = await api(`/api/workspaces/${encodeURIComponent(target.workspaceId)}/agent-sessions?agent=${encodeURIComponent(agent)}${chosen}`);
       if (!current()) return;
       const where = answer.folder ? ` in ${answer.folder}` : " here";
       const sessions = Array.isArray(answer.sessions) ? answer.sessions : [];
@@ -160,6 +175,7 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
   dialog.addEventListener("close", () => {
     generation += 1;
     target = null;
+    window.clearTimeout(folderTimer);
     form.reset();
     fillSessions([]);
     folder.close();
@@ -172,7 +188,9 @@ export function createSessionDialog({ state, api, snapshotRecords, createSession
     const agent = agents.value();
     const resume = agent && resuming() ? resumeSelect.value : "";
     const label = nameInput.value.trim();
-    const chosenFolder = resume ? null : folder.value();
+    // a resume in the folder the dialog opened with leaves it to the server,
+    // which then uses the workspace's own folder as before
+    const chosenFolder = resume && folder.asOpened() ? null : folder.value();
     const controls = [agentField, resumeSelect, nameInput, cancel, submit];
     state.mutationBusy = true;
     for (const control of controls) control.disabled = true;

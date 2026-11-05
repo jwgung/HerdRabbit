@@ -1455,7 +1455,7 @@ export function createHerdrHttpServer({
       const workspaceSessionsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/agent-sessions$/u);
       if (method === "GET" && workspaceSessionsMatch) {
         requireSameOrigin(request);
-        sendJson(response, 200, await projectSessions(decodePaneId(workspaceSessionsMatch[1]), url.searchParams.get("agent")));
+        sendJson(response, 200, await projectSessions(decodePaneId(workspaceSessionsMatch[1]), url.searchParams.get("agent"), url.searchParams.get("folder")));
         return;
       }
 
@@ -1683,6 +1683,20 @@ export function createHerdrHttpServer({
     return value;
   }
 
+  // A folder asked for, as an absolute path on `serverId`'s machine, to list
+  // its earlier sessions or to resume one in it. This PC checks its own
+  // folder like a new tab's; a connected PC's `~` is expanded with the home
+  // that PC reports. Null when that PC cannot say its home (a PC from before
+  // that): the caller then answers that the machine cannot list.
+  async function folderOnMachine(value, serverId) {
+    if (serverId === LOCAL_SERVER) return existingFolder(value, { home: homeDirectory, guard: protectedPaths });
+    if (!isFolderRequest(value)) throw invalidFolder();
+    if (!(value === "~" || value.startsWith("~/"))) return resolve(value);
+    const remote = herdr.agentsClient?.(serverId);
+    if (typeof remote?.home !== "function") return null;
+    return resolve(await remote.home(), value.slice(2));
+  }
+
   function projectOf(snapshot, workspaceId) {
     const workspace = (snapshot.workspaces ?? []).find((item) => item.workspace_id === workspaceId);
     if (!workspace) throw new HttpError(404, "unknown_workspace", "That workspace is no longer there.");
@@ -1691,15 +1705,24 @@ export function createHerdrHttpServer({
 
   // { agent, folder, supported, reason, sessions }: `reason` says why a list
   // cannot be had, "agent" (no resume flag known for it) or "machine".
-  async function projectSessions(workspaceId, agent) {
+  // `asked` is the Folder the dialog now shows (optional): sessions are listed
+  // for it, on the project's machine, instead of for the project's own folder.
+  async function projectSessions(workspaceId, agent, asked = null) {
     if (agentCommand(agent) === null) throw new InputValidationError("Unknown agent");
     const snapshot = await herdr.snapshot();
     const workspace = projectOf(snapshot, workspaceId);
-    const folder = projectFolder(snapshot, workspaceId);
+    const serverId = workspace.server_id ?? LOCAL_SERVER;
+    let folder;
+    if (noFolder(asked)) folder = projectFolder(snapshot, workspaceId);
+    else {
+      folder = await folderOnMachine(asked, serverId);
+      // a PC that cannot tell its home cannot be asked about a `~` folder
+      if (folder === null) return { agent, folder: null, supported: false, reason: "machine", sessions: [] };
+    }
     const answer = (sessions, reason = null) => ({ agent, folder, supported: reason === null, reason, sessions });
     if (!canResume(agent)) return answer([], "agent");
     if (folder === null) return answer([]);
-    const sessions = await sessionsOn(workspace.server_id ?? LOCAL_SERVER, agent, folder);
+    const sessions = await sessionsOn(serverId, agent, folder);
     return sessions === null ? answer([], "machine") : answer(sessions);
   }
 
@@ -1806,7 +1829,7 @@ export function createHerdrHttpServer({
 
   // A new session in a project: a shell, optionally named, optionally in a
   // folder asked for, optionally with an agent started in it, or an earlier
-  // session of that agent resumed in the project's folder. Everything that can be refused is refused before Herdr
+  // session of that agent resumed in the folder asked for, or else the project's. Everything that can be refused is refused before Herdr
   // is asked to make anything; the command typed is the agent table's, plus
   // for a resume an id of that agent's shape that the project's machine has
   // just listed for the folder. Nothing of the request is typed as it came.
@@ -1820,7 +1843,6 @@ export function createHerdrHttpServer({
     const label = body.label === undefined || body.label === null || (typeof body.label === "string" && body.label.trim() === "")
       ? null : validation.validateTabLabel(body.label);
     const wantsFolder = !noFolder(body.folder);
-    if (wantsFolder && resume !== null) throw new InputValidationError("A resumed conversation opens in its workspace's folder");
     if (agent === null && label === null && !wantsFolder) {
       await herdr.createTab(workspaceId);
       return { snapshot: await herdr.snapshot() };
@@ -1831,13 +1853,19 @@ export function createHerdrHttpServer({
     if (agent !== null) await requireAgentOn(serverId, agent);
     let folder = wantsFolder ? await requestedFolder(body.folder, serverId, { asOpened: body.folderAsOpened === true }) : null;
     if (resume !== null) {
-      folder = projectFolder(before, workspaceId);
+      // a chosen folder is where it opens, and where the id must be listed;
+      // otherwise the project's own folder
+      if (wantsFolder) {
+        const chosen = await folderOnMachine(body.folder, serverId);
+        if (chosen === null) throw new HttpError(501, "link_unsupported", "That PC is too old to resume conversations in a chosen folder from here; update it there.");
+        folder = chosen;
+      } else folder = projectFolder(before, workspaceId);
       const listed = folder === null ? [] : await sessionsOn(serverId, agent, folder);
       if (listed === null) {
         throw new HttpError(501, "link_unsupported", "That PC is too old to resume conversations from here; update it there.");
       }
       if (!listed.some((session) => session?.id === resume)) {
-        throw new HttpError(409, "session_not_found", "That conversation is no longer in this workspace's folder. Choose another, or start a new one.");
+        throw new HttpError(409, "session_not_found", "That conversation is no longer in that folder. Choose another, or start a new one.");
       }
     }
     const knownTabs = new Set((before.tabs ?? []).map((tab) => tab.tab_id));

@@ -309,9 +309,7 @@ test("a tab's folder that is not a full path, not there, or a file is refused be
     assert.equal(response.status, 400, JSON.stringify(folder));
     assert.equal((await response.json()).error.code, code, JSON.stringify(folder));
   }
-  // a resumed conversation keeps its workspace's folder
-  const resumed = await app.post(tabsOf("w1"), { agent: "claude", resume: "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e", folder: home });
-  assert.equal(resumed.status, 400);
+  // a resumed conversation takes the same folder rules (test/resume-session-api.test.mjs)
   assert.deepEqual(app.herdr.calls, []);
 });
 
