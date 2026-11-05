@@ -158,6 +158,8 @@ try {
       const overflow = await page.locator(".settings-body").evaluate((element) => element.scrollWidth - element.clientWidth);
       assert.ok(overflow <= 1, `${where}: the page is wider than the screen (${overflow}px)`);
       assert.ok(await editor.evaluate((node) => parseFloat(getComputedStyle(node).fontSize)) >= 16, `${where}: the editor zooms on focus`);
+      // A touch rule for 44px inputs must not shrink the editor below its 280px.
+      assert.ok((await editor.boundingBox()).height >= 280, `${where}: config.toml is under 280px tall (${(await editor.boundingBox()).height})`);
     }
     if (shots) await page.screenshot({ path: join(shots, `herdr-${where}.png`), fullPage: true });
 
@@ -211,6 +213,7 @@ try {
     await defaults.waitFor({ state: "visible" });
     await page.waitForFunction(() => document.querySelector("#herdr-config-default").value.startsWith("# herdr configuration"));
     assert.equal(await defaults.getAttribute("readonly"), "");
+    if (mobile) assert.ok((await defaults.boundingBox()).height >= 280, `${where}: Herdr's defaults are under 280px tall`);
     assert.equal(await editor.isVisible(), false);
     await herdrPage.locator('[data-herdr-config-view="edit"]').click();
     await editor.waitFor({ state: "visible" });
