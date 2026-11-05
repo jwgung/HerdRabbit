@@ -46,9 +46,13 @@ let calls = [];
 let localAgents = ["codex", "claude"];
 // Claude's one earlier conversation in Platform's folder, offered to resume.
 const EARLIER = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
+// and one in ~/beta, listed once the Folder is changed to it.
+const IN_BETA = "1d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
 const agentSessions = {
   async list(agent, folder) {
-    return agent === "claude" && folder === ALPHA ? [{ id: EARLIER, title: "Fix login", updatedAt: Date.now() - 60_000 }] : [];
+    if (agent !== "claude") return [];
+    if (folder === ALPHA) return [{ id: EARLIER, title: "Fix login", updatedAt: Date.now() - 60_000 }];
+    return folder === join(home, "beta") ? [{ id: IN_BETA, title: "Beta work", updatedAt: Date.now() - 60_000 }] : [];
   },
 };
 const herdr = {
@@ -235,11 +239,25 @@ try {
     await dialog.locator("#session-resume").waitFor({ state: "visible" });
     assert.match(await dialog.locator("#session-resume").textContent(), /Fix login/u);
     if (shots) await page.screenshot({ path: join(shots, `resume-dialog-${where}.png`) });
-    // Resuming keeps the workspace's folder: there is none to choose meanwhile.
+    // Resuming keeps the Folder on view; changing it lists that folder's conversations.
     await dialog.locator("#session-resume").selectOption(EARLIER);
-    await dialog.locator("#session-folder-field").waitFor({ state: "hidden" });
+    assert.ok(await dialog.locator("#session-folder-field").isVisible(), `${where}: the Folder row was hidden while resuming`);
     await dialog.locator("#session-resume").selectOption("");
-    await dialog.locator("#session-folder-field").waitFor({ state: "visible" });
+    await dialog.locator("#session-folder").fill("~/beta");
+    await page.waitForFunction(() => /Beta work/u.test(document.querySelector("#session-resume").textContent));
+    assert.doesNotMatch(await dialog.locator("#session-resume").textContent(), /Fix login/u, `${where}: the workspace's conversations stayed listed for another folder`);
+    await dialog.locator("#session-resume").selectOption(IN_BETA);
+    calls = [];
+    await dialog.locator('button[type="submit"]').click();
+    await dialog.waitFor({ state: "hidden" });
+    assert.deepEqual(calls.filter(([name]) => name !== "renameTab").map((call) => call.slice(0, 3)),
+      [["createTab", "w1", join(home, "beta")], ["sendText", calls[1][1], `claude --resume ${IN_BETA}`]],
+      `${where}: the conversation was not resumed in the folder chosen`);
+    await (await openDialog("Platform")).item.click();
+    await dialog.waitFor({ state: "visible" });
+    await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
+    await choose(dialog, "claude");
+    await dialog.locator("#session-resume").waitFor({ state: "visible" });
     await choose(dialog, "");
     await dialog.locator("#session-resume").waitFor({ state: "hidden" });
     await dialog.locator("#session-dialog-cancel").click();
@@ -258,6 +276,8 @@ try {
     await dialog.waitFor({ state: "visible" });
     await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
     await page.waitForFunction(() => document.querySelector("#session-folder").value === "~/alpha");
+    // the agent last used (Claude, resumed above) is remembered: these are shell tabs
+    await choose(dialog, "");
     await dialog.locator("#session-folder-field .folder-browse").click();
     await picker.waitFor({ state: "visible" });
     await pathIs("~/alpha");

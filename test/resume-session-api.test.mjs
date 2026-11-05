@@ -215,6 +215,85 @@ test("nothing is made for an id that is malformed, not listed here, or for an ag
   assert.deepEqual(app.herdr.calls.filter(([name]) => name === "listSessions"), [["listSessions", "claude", "/work/alpha"]]);
 });
 
+// A chosen Folder: its folder is on this machine, so these use real directories.
+async function folders(context) {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "herdrabbit-resume-folder-")));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const other = join(root, "other");
+  await mkdir(other);
+  return { root, other };
+}
+
+test("the listing takes a folder and lists that folder's sessions, not the project's", async (context) => {
+  const { root } = await folders(context);
+  // the session was kept in the project's folder only
+  const lister = { async list(agent, cwd) { return cwd === "/work/alpha" ? [{ id: CLAUDE_A, title: "Fix login", updatedAt: 1 }] : []; } };
+  const app = await start(context, { homeDirectory: root, agentSessions: lister });
+  await mkdir(join(root, "elsewhere"));
+  const none = await (await app.get(`${sessionsOf("w1", "claude")}&folder=${encodeURIComponent(join(root, "elsewhere"))}`)).json();
+  assert.deepEqual(none, { agent: "claude", folder: join(root, "elsewhere"), supported: true, reason: null, sessions: [] });
+  // `~` is this machine's home, as the new session endpoint reads it
+  const home = await (await app.get(`${sessionsOf("w1", "claude")}&folder=${encodeURIComponent("~/elsewhere")}`)).json();
+  assert.equal(home.folder, join(root, "elsewhere"));
+
+});
+
+test("the listing refuses a folder that is not valid or not there, as a new session does", async (context) => {
+  const { root } = await folders(context);
+  const app = await start(context, { homeDirectory: root });
+  for (const [folder, code] of [["relative/dir", "invalid_folder"], [join(root, "missing"), "folder_not_found"]]) {
+    const response = await app.get(`${sessionsOf("w1", "claude")}&folder=${encodeURIComponent(folder)}`);
+    assert.equal(response.status, 400, folder);
+    assert.equal((await response.json()).error.code, code);
+  }
+  assert.deepEqual(app.herdr.calls, []);
+});
+
+test("a connected PC lists a chosen folder, `~` taken from that PC's home", async (context) => {
+  const herdr = fakeHerdr();
+  const client = herdr.agentsClient(LAB);
+  client.home = async () => "/home/bench";
+  herdr.agentsClient = (id) => (id === LAB ? client : null);
+  const app = await start(context, { herdr });
+  const answer = await (await app.get(`${sessionsOf(`${LAB}!hs~w1`, "opencode")}&folder=${encodeURIComponent("~/lab")}`)).json();
+  assert.equal(answer.folder, "/home/bench/lab");
+  assert.deepEqual(herdr.calls, [["remoteSessions", LAB, "opencode", "/home/bench/lab"]]);
+  // a PC that cannot tell its home cannot be asked about a `~` folder: the answer says so
+  const old = fakeHerdr();
+  const oldApp = await start(context, { herdr: old });
+  assert.deepEqual(await (await oldApp.get(`${sessionsOf(`${OLD}!hs~w1`, "claude")}&folder=${encodeURIComponent("~/x")}`)).json(),
+    { agent: "claude", folder: null, supported: false, reason: "machine", sessions: [] });
+});
+
+test("a conversation is resumed in a chosen folder when that folder lists it", async (context) => {
+  const { root } = await folders(context);
+  const chosen = join(root, "other");
+  // this machine's lister knows the session in the chosen folder only; record which folder was asked
+  const asked = [];
+  const lister = { async list(agent, cwd) { asked.push(cwd); return cwd === chosen ? [{ id: CLAUDE_A, title: "x", updatedAt: 1 }] : []; } };
+  const app = await start(context, { homeDirectory: root, agentSessions: lister });
+  const response = await app.post(tabsOf("w1"), { agent: "claude", resume: CLAUDE_A, folder: chosen });
+  assert.equal(response.status, 201);
+  assert.deepEqual(asked, [chosen]);
+  assert.deepEqual(app.herdr.calls, [
+    ["createTab", "w1", { cwd: chosen }],
+    ["sendText", "w1:p2", `claude --resume ${CLAUDE_A}`, { submit: true }],
+  ]);
+});
+
+test("a resume id that the chosen folder does not list is refused, even if the project's folder has it", async (context) => {
+  const { root, other } = await folders(context);
+  const lister = { async list(agent, cwd) { return cwd === "/work/alpha" ? [{ id: CLAUDE_A, title: "x", updatedAt: 1 }] : []; } };
+  const app = await start(context, { homeDirectory: root, agentSessions: lister });
+  const response = await app.post(tabsOf("w1"), { agent: "claude", resume: CLAUDE_A, folder: other });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error.code, "session_not_found");
+  // and a folder that is not valid is refused as a new session refuses it
+  const bad = await app.post(tabsOf("w1"), { agent: "claude", resume: CLAUDE_A, folder: join(root, "missing") });
+  assert.equal(bad.status, 400);
+  assert.deepEqual(app.herdr.calls.filter(([name]) => ["createTab", "sendText"].includes(name)), []);
+});
+
 test("a plain new session with an agent still opens where Herdr puts it", async (context) => {
   const app = await start(context);
   assert.equal((await app.post(tabsOf("w1"), { agent: "codex", resume: "" })).status, 201);

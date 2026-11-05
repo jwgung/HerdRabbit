@@ -184,7 +184,7 @@ try {
     calls = [];
     await submit.click();
     await page.waitForFunction(() => document.querySelector("#session-dialog-feedback").dataset.error === "true");
-    assert.match(await feedback.textContent(), /no longer in this workspace's folder/u);
+    assert.match(await feedback.textContent(), /no longer in that folder/u);
     assert.deepEqual(calls, [["listSessions", "claude", "/work/alpha"]], `${where}: a session was made for one that is gone`);
     await dialog.locator("#session-dialog-cancel").click();
     await dialog.waitFor({ state: "hidden" });

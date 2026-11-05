@@ -33,10 +33,12 @@ export function workspaceFolder(panes, workspaceId) {
 // (`value()`), so what opens is where the dialog said, not where Herdr's
 // new_cwd setting would put it. Only a connected PC too old to open folders,
 // left as the dialog opened (`asOpened()`), makes it as before.
+// `onChange` is told when the folder shown changes by typing or by Use this
+// folder (not by `reset`), for a dialog that depends on it.
 // `root` holds the input, the Browse… button and the picker's markup (a
 // folder tree's parts, Close and Use this folder).
 
-export function createFolderField(root, { api }) {
+export function createFolderField(root, { api, onChange = () => {} }) {
   const input = root.querySelector(".folder-row input");
   const browse = root.querySelector(".folder-browse");
   const picker = root.querySelector(".folder-picker");
@@ -161,7 +163,9 @@ export function createFolderField(root, { api }) {
     input.value = shownFolder(folder, home);
     closePicker();
     input.focus();
+    onChange();
   });
+  input.addEventListener("input", () => onChange());
   // Escape closes the picker, not the dialog around it; one the path field's
   // list took is left alone.
   picker.addEventListener("keydown", (event) => {
