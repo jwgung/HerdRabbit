@@ -1,3 +1,4 @@
+import { integrationIcon } from "./agent-icons.js?v=1.4.41";
 import { createElement } from "./dom.js?v=1.4.41";
 import { pluginMachines } from "./plugin-model.js?v=1.4.41";
 import { integrationAction, integrationConfirmText, integrationStateText } from "./herdr-settings-model.js?v=1.4.41";
@@ -68,7 +69,8 @@ export function createHerdrSettingsPage({ api, snapshotRecords, openUpdates = ()
     row.dataset.integration = item.name;
     const identity = createElement("div", { className: "plugin-identity" });
     const title = createElement("div", { className: "plugin-title" });
-    title.append(createElement("strong", { text: item.name }));
+    // The program's own mark (a monogram when it has none); plugin rows have no icon.
+    title.append(integrationIcon(item.name), createElement("strong", { text: item.name }));
     if (item.experimental) title.append(createElement("span", { className: "ui-badge", text: "experimental" }));
     identity.append(title, createElement("small", { className: "plugin-source", text: integrationStateText(item) }));
     const { action, label } = integrationAction(item);

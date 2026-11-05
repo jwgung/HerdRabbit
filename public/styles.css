@@ -1547,6 +1547,25 @@ button.plugin-update-badge {
   white-space: nowrap;
 }
 
+/* An integration's mark sits before its name, centred on the line. */
+.herdr-integration .plugin-title {
+  align-items: center;
+}
+
+/* A program with no mark of its own: its first letters on a quiet tile. */
+.agent-monogram {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  line-height: 1;
+}
+
 /* Touch: the controls are 44px targets, the editor's text 16px. */
 @media (hover: none), (pointer: coarse) {
   .herdr-integration-action,
