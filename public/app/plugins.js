@@ -1,10 +1,10 @@
-import { createElement } from "./dom.js?v=1.4.37";
+import { createElement } from "./dom.js?v=1.4.38";
 import {
   parsePluginSource, pluginLogSummary, pluginMachines, pluginOperationText, pluginSourceText, pluginSourceUrl, pluginTarget,
   pluginTargetText, pluginWorkspaces, validPluginRef,
-} from "./plugin-model.js?v=1.4.37";
-import { createPluginBrowse } from "./plugin-browse.js?v=1.4.37";
-import { createFolderField } from "./folder-field.js?v=1.4.37";
+} from "./plugin-model.js?v=1.4.38";
+import { createPluginBrowse } from "./plugin-browse.js?v=1.4.38";
+import { createFolderField } from "./folder-field.js?v=1.4.38";
 
 const POLL_MS = 1_500;
 
