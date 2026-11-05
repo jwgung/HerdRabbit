@@ -1,10 +1,12 @@
 // Browser check of in-app update, against a fake updater and fake connected
 // PCs (nothing is fetched, run or restarted). The page checks when it opens:
-// a newer version puts a dot on the ⚙ button and an "Update available" item
-// in its menu. Settings → Updates lists this PC's HerdRabbit with what changed
-// (folded away), a connected PC whose update is blocked with the reason, and a
-// connected PC too old to be updated from here; the Update window is Herdr's.
-// HerdRabbit's Update asks first, then follows the run step by step under its row
+// a newer version puts a dot on the ⚙ button and a count beside Plugins.
+// HerdRabbit's row in Settings → Plugins (sign-in on) shows, per machine,
+// this PC's HerdRabbit with what changed (folded away), a connected PC whose
+// update is blocked with the reason, and a connected PC too old to be updated
+// from here; there is no Updates page. With sign-in off About carries this
+// PC's HerdRabbit update and the Update window's Update…, Herdr's. HerdRabbit's
+// Update asks first, then follows the run step by step under its row
 // (Step n of N, the time it has taken, the log folded under "Log") through a
 // restart (the server not answering for a while: "Waiting for HerdRabbit to
 // come back…"), shows the reload as the last step and reloads once a new
@@ -122,13 +124,20 @@ const herdr = {
   },
 };
 
+// Plugins with sign-in on: no plugins on any machine, so HerdRabbit's row is
+// the update's whole list.
+const noPlugins = { async list() { return { plugins: [], operation: null }; }, async start() { throw new Error("not expected"); } };
+const signedIn = { required: true, hasValidSession: () => true, hasValidLaunchToken: () => true, onSessionsEnded: () => () => {} };
+herdr.pluginsClient = (id) => (id === LINK || id === OLD ? noPlugins : null);
+
 const browser = await chromium.launch({ args: ["--no-sandbox"] });
 
 try {
+  await checkAbout();
   for (const outcome of ["succeeded", "failed", "restart_failed"]) {
     Object.assign(world, { phase: "available", outcome, polls: 0, starts: 0 });
     // A server per run: the page's server lets one update a minute through.
-    const { server } = createHerdrHttpServer({ herdr, updater, logger: { info() {}, error() {} } });
+    const { server } = createHerdrHttpServer({ herdr, updater, plugins: noPlugins, auth: signedIn, logger: { info() {}, error() {} } });
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
     const url = `http://127.0.0.1:${server.address().port}`;
@@ -149,43 +158,45 @@ try {
     await page.waitForSelector(".settings-button.has-update");
     assert.equal(await button.getAttribute("aria-label"), "Settings (update available)");
     await button.click();
-    // Settings → Updates carries the news too, beside its name and on its Update button.
-    const updates = page.locator("#settings-dialog .settings-page-link", { hasText: "Updates" });
-    await updates.click();
-    assert.equal((await updates.locator(".ui-badge").textContent()).trim(), "Update");
+    // Plugins carries the news too: a count beside its name (this PC and
+    // devbox), and HerdRabbit's row with its Update; Update all for it.
+    const plugins = page.locator('#settings-dialog .settings-page-link[data-page="plugins"]');
+    await page.waitForFunction(() => document.querySelector('.settings-page-link[data-page="plugins"] .ui-badge')?.textContent === "2");
+    assert.ok(!(await page.locator("#settings-dialog .settings-page-link").allTextContents()).includes("Updates"), "Updates is still listed");
     assert.equal(await page.locator("#settings-dialog .settings-page-link", { hasText: "About" }).locator(".ui-badge").count(), 0);
-    // Its list: this PC's HerdRabbit with its Update; Update all for it.
-    const localUpdates = page.locator('#updates-list .updates-machine[data-server-id="local"]');
-    await localUpdates.locator('[data-update="app"]').waitFor({ state: "visible" });
-    assert.equal((await localUpdates.locator('[data-update="app"] .plugin-update-line').textContent()).trim(), "2.0.0 → 2.0.1 available");
-    assert.equal((await localUpdates.locator(".updates-all").textContent()).trim(), "Update all (1)");
-    // About shows the versions alone.
-    assert.equal(await page.locator('.settings-page[data-page="about"] button').count(), 0, "About has update controls");
-    // The Update window is Herdr's: nothing newer for Herdr here, so it does not say so.
-    const item = page.locator("#settings-update");
-    await item.waitFor({ state: "visible" });
-    assert.equal((await item.textContent()).trim(), "Update…");
-    assert.equal((await page.locator("#settings-update-row .settings-row-label").textContent()).trim(), "Herdr");
+    await plugins.click();
+    const machine = page.locator("#plugins-machine");
+    const local = page.locator('#plugins-list [data-update="app"]');
+    await local.waitFor({ state: "visible" });
+    assert.equal((await local.locator(".plugin-update-line").textContent()).trim(), "2.0.0 → 2.0.1 · restarts HerdRabbit when done");
+    assert.deepEqual(await local.locator(".plugin-title .ui-badge").allTextContents(), ["this app", "Update"]);
+    assert.equal((await page.locator("#plugins-update-all").textContent()).trim(), "Update all (1)");
+    // About shows the versions alone where Plugins and Herdr are there.
+    assert.equal(await page.locator('.settings-page[data-page="about"] button:visible').count(), 0, "About has update controls");
+    assert.equal(await page.locator("#settings-about-updates").isHidden(), true);
 
     // HerdRabbit's row: what changed folded under it.
-    const local = localUpdates.locator('[data-update="app"]');
     assert.deepEqual(await local.locator(".update-notes li").allTextContents(),
       ["Update HerdRabbit from the settings menu", "Fix the sidebar"]);
     assert.equal(await local.locator("details.update-notes-fold").evaluate((node) => node.open), false, "what changed is folded away");
 
     // A connected PC whose update would stop says why, with no button.
-    const remote = page.locator(`#updates-list .updates-machine[data-server-id="${LINK}"] [data-update="app"]`);
-    assert.match(await remote.locator(".plugin-update-note").textContent(), /local changes/u);
-    assert.equal(await remote.locator(".updates-run").count(), 0);
+    await machine.selectOption(LINK);
+    await page.waitForFunction(() => /local changes/u.test(document.querySelector('#plugins-list [data-update="app"] .plugin-update-note')?.textContent ?? ""));
+    const remote = page.locator('#plugins-list [data-update="app"]');
+    assert.equal(await remote.locator(".plugin-app-update").count(), 0);
     assert.deepEqual(await remote.locator(".update-notes li").allTextContents(), ["Remote change"]);
+    assert.equal(await page.locator("#plugins-update-all").isHidden(), true, "Update all with nothing it can update");
     // One too old to know about this is updated there.
-    assert.equal((await page.locator(`#updates-list .updates-machine[data-server-id="${OLD}"] .updates-empty`).textContent()).trim(),
-      "Update it there (older version).");
+    await machine.selectOption(OLD);
+    await page.waitForFunction(() => document.querySelector('#plugins-list [data-update="app"] .plugin-update-line')?.textContent === "Update it there (older version).");
+    await machine.selectOption("local");
+    await local.locator(".plugin-app-update").waitFor({ state: "visible" });
 
-    // Check asks again.
+    // Check for updates asks again.
     let asked = 0;
     page.on("request", (request) => { if (request.url().includes("/api/update?") && request.url().includes("fresh=1")) asked += 1; });
-    await page.locator("#updates-check").click();
+    await page.locator("#plugins-check").click();
     for (let attempt = 0; attempt < 50 && asked < 3; attempt += 1) await page.waitForTimeout(100);
     assert.equal(asked, 3, "every PC is checked again");
 
@@ -201,7 +212,7 @@ try {
       }
       await route.continue();
     });
-    await local.locator(".updates-run").click();
+    await local.locator(".plugin-app-update").click();
     assert.equal(dialogs.length, 1);
     assert.match(dialogs[0], /^Update This PC \(testbox\) to 2\.0\.1 \(def5678\)\?/u);
     assert.match(dialogs[0], /restarts HerdRabbit/u);
@@ -212,9 +223,9 @@ try {
     } else {
       assert.match(dialogs[0], /previous version back/u);
     }
-    await page.waitForFunction(() => /Updating/u.test(document.querySelector("#updates-list .update-run-state")?.textContent ?? ""));
+    await page.waitForFunction(() => /Updating/u.test(document.querySelector("#plugins-list .update-run-state")?.textContent ?? ""));
     assert.equal(world.starts, 1);
-    assert.equal(await local.locator(".updates-run").count(), 0, "one run at a time");
+    assert.equal(await local.locator(".plugin-app-update").count(), 0, "one run at a time");
 
     // The steps under the row, the one in progress with its time, and the log folded away.
     const step = (id) => local.locator(`.update-step[data-step="${id}"]`);
@@ -249,13 +260,13 @@ try {
 
     if (outcome === "succeeded") {
       await page.waitForFunction(() => /Waiting for HerdRabbit to come back/u.test(
-        document.querySelector('#updates-list .update-step[data-step="restart"] .update-step-note')?.textContent ?? ""));
+        document.querySelector('#plugins-list .update-step[data-step="restart"] .update-step-note')?.textContent ?? ""));
       assert.equal(await stepState("restart"), "current");
       assert.equal(await stepState("verify"), "done");
       assert.equal((await local.locator(".update-step-count").textContent()).trim(), "Step 5 of 6");
       await shot(page, "succeeded-waiting");
       // Back, with a new version: the reload is the step left, then the page goes.
-      await page.waitForFunction(() => document.querySelector('#updates-list .update-step[data-step="reload"]')?.dataset.state === "current", null, { timeout: 20_000 });
+      await page.waitForFunction(() => document.querySelector('#plugins-list .update-step[data-step="reload"]')?.dataset.state === "current", null, { timeout: 20_000 });
       assert.match(await local.locator(".update-run-state").textContent(), /Reloading this page/u);
       assert.equal(await stepState("restart"), "done");
       await shot(page, "succeeded-reload");
@@ -263,9 +274,10 @@ try {
       // date now; the dot stays for devbox, which still has an update.
       await page.waitForFunction(() => window.beforeUpdate !== true, null, { timeout: 20_000 });
       await page.locator(".settings-button").waitFor({ state: "visible" });
-      await openUpdates(page);
-      const after = page.locator('#updates-list .updates-machine[data-server-id="local"] [data-update="app"]');
+      await openPlugins(page);
+      const after = page.locator('#plugins-list [data-update="app"]');
       await after.waitFor({ state: "visible" });
+      await page.waitForFunction(() => document.querySelector('#plugins-list [data-update="app"] .plugin-update-line')?.textContent === "2.0.1 · Up to date");
       assert.equal((await after.locator(".plugin-update-line").textContent()).trim(), "2.0.1 · Up to date");
       assert.match(await after.locator(".update-log").textContent(), /Updated to def5678/u, "the finished run is still shown");
       assert.equal((await after.locator(".update-run-state").textContent()).trim(), "Updated.");
@@ -274,15 +286,15 @@ try {
       assert.equal(await after.locator(".update-step-count").count(), 0);
       assert.equal(await after.locator("details.update-log-fold").evaluate((node) => node.open), false, "a finished run's log is folded away");
       assert.equal((await after.locator("details.update-log-fold > summary").textContent()).trim(), "Log");
-      assert.equal(await after.locator(".updates-run").count(), 0);
+      assert.equal(await after.locator(".plugin-app-update").count(), 0);
       // seen once: after leaving the page, the finished run does not come back
       await page.keyboard.press("Escape");
       await page.locator("#settings-dialog").waitFor({ state: "hidden" });
-      await openUpdates(page);
-      await page.locator('#updates-list .updates-machine[data-server-id="local"]').waitFor({ state: "visible" });
-      assert.equal(await page.locator('#updates-list .updates-machine[data-server-id="local"] .update-progress').count(), 0, "a finished run seen once is gone");
+      await openPlugins(page);
+      await page.locator('#plugins-list [data-update="app"]').waitFor({ state: "visible" });
+      assert.equal(await page.locator('#plugins-list [data-update="app"] .update-progress').count(), 0, "a finished run seen once is gone");
     } else if (outcome === "failed") {
-      await page.waitForFunction(() => /update failed/u.test(document.querySelector("#updates-list .update-run-state")?.textContent ?? ""), null, { timeout: 20_000 });
+      await page.waitForFunction(() => /update failed/u.test(document.querySelector("#plugins-list .update-run-state")?.textContent ?? ""), null, { timeout: 20_000 });
       assert.equal(await local.locator(".update-run-state").getAttribute("data-error"), "true");
       assert.match(await local.locator(".update-run-state").textContent(), /update\.sh put the previous version back/u);
       assert.equal(await stepState("verify"), "failed");
@@ -295,7 +307,7 @@ try {
       assert.equal(await page.evaluate(() => window.beforeUpdate), true, "a failed run does not reload");
       await shot(page, "failed");
     } else {
-      await page.waitForFunction(() => document.querySelector('#updates-list .update-step[data-step="restart"]')?.dataset.state === "failed", null, { timeout: 20_000 });
+      await page.waitForFunction(() => document.querySelector('#plugins-list .update-step[data-step="restart"]')?.dataset.state === "failed", null, { timeout: 20_000 });
       const said = await local.locator(".update-run-state").textContent();
       assert.match(said, /new version is installed, but HerdRabbit could not restart/u);
       assert.match(said, /herdr plugin action invoke herdrabbit\.restart/u);
@@ -320,22 +332,57 @@ try {
   await browser.close();
 }
 
-// Settings → Updates.
-async function openUpdates(page) {
+// Settings → Plugins.
+async function openPlugins(page) {
   if (!(await page.locator("#settings-dialog").isVisible())) {
     await page.locator(".settings-button").click();
   }
-  await page.locator("#settings-dialog .settings-page-link", { hasText: "Updates" }).click();
+  await page.locator('#settings-dialog .settings-page-link[data-page="plugins"]').click();
 }
 
-// The Update window, from Settings → Updates (the screen stays under it, so a
-// second opening goes straight to its button).
-async function openUpdateWindow(page) {
+// Settings → About, which carries this PC's updates with sign-in off.
+async function openAbout(page) {
   if (!(await page.locator("#settings-dialog").isVisible())) {
     await page.locator(".settings-button").click();
-    await page.locator("#settings-dialog .settings-page-link", { hasText: "Updates" }).click();
   }
+  await page.locator('#settings-dialog .settings-page-link[data-page="about"]').click();
+}
+
+// The Update window, from About with sign-in off (the screen stays under it,
+// so a second opening goes straight to its button).
+async function openUpdateWindow(page) {
+  if (!(await page.locator("#settings-dialog").isVisible())) await openAbout(page);
   await page.locator("#settings-update").click();
+}
+
+// Sign-in off, so no Plugins or Herdr page: About carries this PC's
+// HerdRabbit update (its line, what changed, Update) and the Update window's
+// Update…, Herdr's.
+async function checkAbout() {
+  Object.assign(world, { phase: "available", outcome: "succeeded", polls: 0, starts: 0 });
+  const { server } = createHerdrHttpServer({ herdr, updater, logger: { info() {}, error() {} } });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(`http://127.0.0.1:${server.address().port}/?pane=${encodeURIComponent("w1:p1")}`);
+  await page.waitForSelector(".settings-button.has-update");
+  await openAbout(page);
+  const links = await page.locator("#settings-dialog .settings-page-link strong").allTextContents();
+  assert.ok(!links.includes("Plugins") && !links.includes("Updates"), `About is not the place for updates here (${links})`);
+  await page.locator("#settings-about-updates").waitFor({ state: "visible" });
+  assert.equal((await page.locator("#settings-app-update-line").textContent()).trim(), "2.0.0 → 2.0.1 available");
+  assert.equal(await page.locator("#settings-app-update").isVisible(), true);
+  assert.deepEqual(await page.locator("#settings-app-update-details .update-notes li").allTextContents(),
+    ["Update HerdRabbit from the settings menu", "Fix the sidebar"]);
+  assert.equal(await page.locator("#settings-update").isVisible(), true);
+  assert.equal((await page.locator("#settings-update-row .settings-row-label").textContent()).trim(), "Herdr update");
+  assert.deepEqual(errors, []);
+  await context.close();
+  server.closeAllConnections();
+  server.close();
 }
 
 async function waitForStep(scope, id, state) {
@@ -425,8 +472,10 @@ async function checkHerdr() {
     // HerdRabbit is up to date everywhere: the dot is Herdr's, and so is the
     // Update window's button.
     await page.waitForSelector(".settings-button.has-update");
-    await openUpdates(page);
+    await openAbout(page);
     await page.waitForFunction(() => document.querySelector("#settings-update")?.textContent.trim() === "Update available…");
+    assert.equal((await page.locator("#settings-app-update-line").textContent()).trim(), "2.0.0 · Up to date");
+    assert.equal(await page.locator("#settings-app-update").isHidden(), true);
     await openUpdateWindow(page);
     const dialog = page.locator("#update-dialog");
     await dialog.waitFor({ state: "visible" });

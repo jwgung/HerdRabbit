@@ -41,8 +41,8 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 | 단계 | 크기 · 굵기 | 예 |
 |---|---|---|
-| 페이지 제목 | `--font-page-title`, 700 | "Updates" |
-| 묶음 제목 | `--font-section`, 700 | 카드의 기계 이름("This PC") |
+| 페이지 제목 | `--font-page-title`, 700 | "Plugins" |
+| 묶음 제목 | `--font-section`, 700 | Update 창 카드의 기계 이름("This PC") |
 | 행 이름 | `--font-lg`, 600 | "Keys under the terminal", 플러그인 이름 |
 | 보조 줄 | `--font-sm`, 400, `--muted` | 도움말, 출처, 상태 줄 |
 
@@ -170,7 +170,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 | 보조 | `secondary-button` | `--control-surface` 바탕, `--control-line` 테두리 | 그 밖의 동작, 대화상자를 여는 행의 단추(Edit keys…, Passkeys…), 닫기·취소 |
 | 글자 | `text-button` | 테두리·바탕 없음, hover에서만 옅은 바탕 | 작은 동작: 다시 확인(Check), 되돌리기(Reset text size) |
 
-- 한 화면에 주 버튼은 하나다. 예외는 기계마다 따로 하는 동작이다: 기계 카드가 여럿인 Updates 페이지와 Update 창은 카드마다 주 버튼(Update all, Update)이 하나씩이다.
+- 한 화면에 주 버튼은 하나다. 예외는 두 가지다. 기계마다 따로 하는 동작: 기계 카드가 여럿인 Update 창은 카드마다 주 버튼(Update)이 하나씩이다. 새 버전이 나와 있을 때의 업데이트: Plugins의 **Update all (N)**과 Herdr 줄의 **Update…**는 할 업데이트가 있는 동안만 주 버튼이고(없으면 숨기거나 보조 버튼), 페이지 자신의 주 버튼(Install plugin…, Save…)과 함께 있어도 된다. 업데이트 전용 페이지는 두지 않는다: 업데이트는 그것이 속한 페이지(Plugins, Herdr)의 한 줄이다.
 - 주 버튼이 할 일이 없으면 화면에 주 버튼이 없어도 된다(Appearance). 보조 버튼을 주 버튼처럼 꾸미지 않는다.
 - 버튼 글자는 `--font-md`, 굵기 600(주는 700)이다.
 - 입력칸과 선택칸(`ui-input`)은 보조 버튼과 같은 `--control-surface` 바탕과 `--control-line` 테두리다. 강조색이나 초록 바탕을 쓰지 않는다.

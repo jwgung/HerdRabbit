@@ -1,4 +1,4 @@
-// In-app update: the Update window (⚙ Settings → Updates). Each PC -- this one and every PC
+// In-app update: the Update window (⚙ Settings → Herdr → Update…). Each PC -- this one and every PC
 // connected with Connect PC -- is checked when the app opens and when Check is
 // pressed, never on a timer, for a release newer than the version it runs. Update runs update.sh on that PC (the server
 // starts it outside its own service), and this page follows the run: through
@@ -8,10 +8,10 @@
 // Each PC also has a Herdr row: the Herdr it runs against the newest on its
 // channel, and Update Herdr, which runs `herdr update --handoff` there and is
 // followed the same way, without a restart.
-// Settings → Updates drives the same panel for its list and Update all (the
-// versions, Update and the run's progress line): state(), subscribe(),
-// follow(), run() and runHerdr() below, so both places start and show one
-// update. Settings → Plugins reads state() to wait while one runs.
+// Settings → Plugins drives the same panel for HerdRabbit's row and Update
+// all, and Settings → Herdr for Herdr's row: state(), subscribe(), follow(),
+// run() and appDetails() below, so every place starts and shows one update.
+// Plugins also reads state() to wait while one runs.
 
 export const BLOCKED_TEXT = {
   running: "An update is already running.",
@@ -183,7 +183,7 @@ export function runFailedText(status) {
 
 export const WAITING_TEXT = "Waiting for HerdRabbit to come back…";
 
-// HerdRabbit's versions on one PC in a line, for Settings → Updates:
+// HerdRabbit's versions on one PC in a line, for its row in Settings → Plugins:
 // { text, error, note, canUpdate }. `installed` is the version Herdr lists
 // when the check does not name one. Null when the PC was not checked or
 // cannot update itself from the page.
@@ -199,8 +199,8 @@ export function appVersionText(check, installed = null) {
   };
 }
 
-// Herdr's versions on one PC in a line, for Settings → Updates: "0.9.3 →
-// 0.9.5 available", or null when there is nothing newer.
+// Herdr's versions on one PC in a line: "0.9.3 → 0.9.5 available", or null
+// when there is nothing newer.
 export function herdrUpdateText(herdr) {
   if (herdr?.available !== true) return null;
   return `${herdr.current ?? "unknown"} → ${herdr.latest ?? "unknown"} available`;
@@ -299,7 +299,7 @@ export function createUpdatePanel({
   // Which run of this PC's server the page was loaded from.
   let baseline = null;
   let checking = false;
-  // Settings → Updates and Plugins, told whenever anything here changes.
+  // Settings → Plugins and Herdr, told whenever anything here changes.
   const listeners = new Set();
 
   const entry = (id) => {
@@ -433,10 +433,12 @@ export function createUpdatePanel({
   }
 
   // Asks (unless the person already said yes, as Update all does), starts
-  // the run and follows it. Answers how the run ended -- its last status, or
+  // the run and follows it. `path` is where it is started: /api/update/run,
+  // or HerdRabbit's Update in Plugins (/api/plugins/herdrabbit/update), which
+  // the server starts the same way. Answers how the run ended -- its last status, or
   // { state: "failed", startFailed: true, detail } when it did not start --
   // or null when it was not started (declined, nothing newer, already running).
-  async function run(id, { confirmed = false } = {}) {
+  async function run(id, { confirmed = false, path = "/api/update/run" } = {}) {
     const server = servers().find((item) => item.id === id);
     const item = entry(id);
     if (!server || !item.check?.available || busy(item)) return null;
@@ -444,7 +446,7 @@ export function createUpdatePanel({
     feedback.textContent = "";
     let status;
     try {
-      status = await api("/api/update/run", { method: "POST", body: { server: id } });
+      status = await api(path, { method: "POST", body: { server: id } });
     } catch (error) {
       feedback.textContent = error.message || "Could not start the update.";
       feedback.dataset.error = "true";
@@ -495,7 +497,7 @@ export function createUpdatePanel({
     return item.run.status;
   }
 
-  // A PC's runs started elsewhere (another page, or Updates on another device)
+  // A PC's runs started elsewhere (another page, or Settings on another device)
   // are followed here too, and a PC not checked yet is checked.
   async function follow(id) {
     const item = entry(id);
@@ -544,8 +546,8 @@ export function createUpdatePanel({
   }
 
   // The Update window is Herdr's: one block per PC, its Herdr versions, what
-  // is new, Update Herdr and its run. HerdRabbit's own update is a row of
-  // Settings → Updates, as a plugin's is, with appDetails below for its notes
+  // is new, Update Herdr and its run. HerdRabbit's own update is its row in
+  // Settings → Plugins, as a plugin's is, with appDetails below for its notes
   // and run.
   function renderServer(server) {
     const item = entry(server.id);
@@ -567,7 +569,7 @@ export function createUpdatePanel({
     return section;
   }
 
-  // What Settings → Updates shows under a PC's HerdRabbit row: what changed
+  // What Settings shows under a PC's HerdRabbit row: what changed
   // in the new version (folded away), and its run, step by step with the
   // time taken and the log. Null when there is neither. `onScreen` says the
   // row is in view, so a finished run seen there is not shown again later.
@@ -617,7 +619,7 @@ export function createUpdatePanel({
     return box.childElementCount > 0 ? box : null;
   }
 
-  // A finished HerdRabbit run seen in Settings → Updates goes once the page is left.
+  // A finished HerdRabbit run seen in Settings goes once its page is left.
   function putAwayApp() {
     for (const [id, item] of entries) {
       if (isFinished(item.run?.status) && !item.run.tracking) {

@@ -71,7 +71,6 @@ const APP_SHELL = [
   "/app/settings.js?v=1.4.41",
   "/app/plugins.js?v=1.4.41",
   "/app/plugin-model.js?v=1.4.41",
-  "/app/updates.js?v=1.4.41",
   "/app/plugin-browse.js?v=1.4.41",
   "/app/herdr-settings.js?v=1.4.41",
   "/app/pc-access.js?v=1.4.41",

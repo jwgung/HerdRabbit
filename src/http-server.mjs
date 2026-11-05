@@ -893,21 +893,7 @@ export function createHerdrHttpServer({
         if (method === "POST" && run) {
           requireWriteAuthorization(request, csrfToken);
           const body = await readJsonBody(request, maxBodyBytes);
-          const { serverId, remote } = updateSource(body.server);
-          if (!remote && !updater) throw new HttpError(404, "update_unavailable", "This PC cannot update itself from here.");
-          if (remote && typeof remote.updateRun !== "function") {
-            throw new HttpError(501, "link_unsupported", "That PC is too old to be updated from here; update it there.");
-          }
-          // The slot is taken for the attempt and given back when nothing started.
-          updateRuns(serverId);
-          let status;
-          try {
-            status = remote ? await remote.updateRun() : await updater.start();
-          } catch (error) {
-            updateRuns.release(serverId);
-            throw error;
-          }
-          sendJson(response, 202, { ...status, server: serverId, supported: true });
+          sendJson(response, 202, await startAppUpdate(body.server));
           return;
         }
         throw new HttpError(405, "method_not_allowed", "Method not allowed");
@@ -1116,8 +1102,16 @@ export function createHerdrHttpServer({
           started = { serverId, answer: await source.start("install", { source: pluginSource.spec, ref }) };
         } else if ((method === "POST" && action !== undefined) || (method === "DELETE" && segment !== undefined && action === undefined)) {
           const plugin = validatePluginId(decodePaneId(segment));
+          // HerdRabbit's row in Plugins has Update, and only that: it is
+          // HerdRabbit's own update (update.sh, or Herdr's plugin update as
+          // src/app-update.mjs runs it), the same run /api/update/run starts,
+          // never this route's `herdr plugin update`. Its answer is that run.
+          if (plugin === HERDRABBIT_ID && method === "POST" && action === "update") {
+            sendJson(response, 202, await startAppUpdate((await readJsonBody(request, maxBodyBytes)).server));
+            return;
+          }
           if (plugin === HERDRABBIT_ID) {
-            throw new HttpError(403, "plugin_protected", "HerdRabbit's own plugin is left alone here; update it from Settings → Updates.");
+            throw new HttpError(403, "plugin_protected", "HerdRabbit's own plugin is only updated here; it cannot be turned off, unlinked or uninstalled.");
           }
           const server = method === "DELETE" ? url.searchParams.get("server") : (await readJsonBody(request, maxBodyBytes)).server;
           const { serverId, source } = pluginsSource(server);
@@ -1613,6 +1607,27 @@ export function createHerdrHttpServer({
     const source = herdr.fileClient?.(value);
     if (!source) throw new HttpError(404, "unknown_server", "That server is no longer configured.");
     return { serverId: value, source };
+  }
+
+  // Starts HerdRabbit's own update on this PC or a connected PC, for
+  // /api/update/run and HerdRabbit's Update in Plugins alike: the request
+  // names a PC and nothing else. One start a minute per PC, the slot given
+  // back when nothing started. Answers the run as it began.
+  async function startAppUpdate(value) {
+    const { serverId, remote } = updateSource(value);
+    if (!remote && !updater) throw new HttpError(404, "update_unavailable", "This PC cannot update itself from here.");
+    if (remote && typeof remote.updateRun !== "function") {
+      throw new HttpError(501, "link_unsupported", "That PC is too old to be updated from here; update it there.");
+    }
+    updateRuns(serverId);
+    let status;
+    try {
+      status = remote ? await remote.updateRun() : await updater.start();
+    } catch (error) {
+      updateRuns.release(serverId);
+      throw error;
+    }
+    return { ...status, server: serverId, supported: true };
   }
 
   function updateSource(value) {

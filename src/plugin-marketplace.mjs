@@ -145,7 +145,7 @@ export function cleanMarketplace(raw) {
 // Only a plugin installed from GitHub that follows the default branch is
 // compared: no ref asked for, or the default branch by name when the index
 // gives it. A pinned branch, tag or commit, a linked plugin, HerdRabbit
-// (Settings → Updates updates it) and a plugin the index does not list are null.
+// (its own update, from its row in Plugins) and a plugin the index does not list are null.
 export function pluginUpdateAvailable(plugin, heads) {
   const source = plugin?.source;
   if (!heads || plugin?.protected || source?.kind !== "github" || !source.commit) return null;

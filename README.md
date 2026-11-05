@@ -47,7 +47,7 @@ It is one-way: B shows up on A's page, and B keeps its own page. More in the gui
 
 ## Update
 
-**⚙ Settings → Updates** on the page updates HerdRabbit and Herdr on every PC, and plugins too when a password is set. It checks each time the page opens, or when you press **Check**.
+With a password set, **⚙ Settings → Plugins** updates HerdRabbit (its own row, or **Update all** with the plugins, HerdRabbit last) and **⚙ Settings → Herdr** updates Herdr, on every PC; without one, **⚙ Settings → About** updates this PC's HerdRabbit and opens Herdr's Update window. It checks each time the page opens, or when you press **Check for updates**.
 
 ## Settings
 
