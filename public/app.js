@@ -1,4 +1,5 @@
 import { browserSessionStorage, browserStorage } from "./app/dom.js?v=1.4.41";
+import { enhanceSelects } from "./app/select-popover.js?v=1.4.41";
 import { createSnapshotModel } from "./app/snapshot.js?v=1.4.41";
 import { createNotifications } from "./app/notifications.js?v=1.4.41";
 import { createSettings } from "./app/settings.js?v=1.4.41";
@@ -1501,6 +1502,9 @@ elements.passkeyRegister.addEventListener("click", async () => {
     renderLoginMethods();
   }
 });
+
+// Every select gets the app's own list on a desktop (touch keeps the OS picker).
+enhanceSelects();
 
 async function initializeApplication() {
   const bootstrap = await api("/api/bootstrap");

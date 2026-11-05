@@ -184,8 +184,12 @@
   font-weight: 700;
 }
 
+/* A settings choice keeps that raised, bordered, bold shape but takes the
+   accent's colours, so the pick reads at a glance in both themes. */
 .settings-choice[aria-pressed="true"] {
-  border-color: var(--control-line);
+  border-color: var(--selected-border);
+  background: var(--selected-surface);
+  color: var(--accent);
 }
 
 .key-bar-preview {
@@ -209,7 +213,7 @@
 
 @media (hover: none) {
   .settings-choice {
-    min-height: 44px;
+    min-height: var(--control-h-touch);
   }
 }
 
