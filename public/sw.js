@@ -65,6 +65,7 @@ const APP_SHELL = [
   "/app/key-bar-editor.js?v=1.4.41",
   "/app/account-dialogs.js?v=1.4.41",
   "/app/ai-accounts.js?v=1.4.41",
+  "/app/tab-strip.js?v=1.4.41",
   "/app/settings.js?v=1.4.41",
   "/app/plugins.js?v=1.4.41",
   "/app/plugin-model.js?v=1.4.41",

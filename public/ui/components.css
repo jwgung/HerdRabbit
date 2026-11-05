@@ -477,3 +477,114 @@
     font-size: var(--font-input-touch);
   }
 }
+
+/* Tab strip: a single row of tabs, never wrapped. Too many tabs scroll
+   sideways with the scrollbar hidden; a side that has more tabs past it fades
+   out and shows a ‹ or › button, so nothing is hidden without a sign that it
+   is there. A tab is an icon and a name, with an optional count badge or dot;
+   the chosen one is drawn in the text colour over a 2px accent underline.
+   The script (public/app/tab-strip.js) sets data-overflow-start and
+   data-overflow-end on the strip and un-hides the arrows. */
+.ui-tab-strip {
+  position: relative;
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.ui-tab-strip-scroller {
+  display: flex;
+  gap: var(--space-0-5);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.ui-tab-strip-scroller::-webkit-scrollbar { display: none; }
+
+/* The fade is a mask on the row, so it follows whatever is behind the strip. */
+.ui-tab-strip[data-overflow-start] .ui-tab-strip-scroller {
+  mask-image: linear-gradient(to right, transparent, black var(--space-6));
+}
+
+.ui-tab-strip[data-overflow-end] .ui-tab-strip-scroller {
+  mask-image: linear-gradient(to left, transparent, black var(--space-6));
+}
+
+.ui-tab-strip[data-overflow-start][data-overflow-end] .ui-tab-strip-scroller {
+  mask-image: linear-gradient(to right, transparent, black var(--space-6), black calc(100% - var(--space-6)), transparent);
+}
+
+.ui-tab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-height: 36px;
+  margin-bottom: -1px;
+  padding: var(--space-1-5) var(--space-2-5);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--font-md);
+  white-space: nowrap;
+  scroll-snap-align: nearest;
+  cursor: pointer;
+}
+
+/* Drawn inside the tab so the scroller's clipping does not cut it. */
+.ui-tab:focus-visible { outline-offset: -2px; }
+
+@media (hover: hover) {
+  .ui-tab:not(:disabled):hover { background: var(--hover-surface); color: var(--text); }
+}
+
+.ui-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.ui-tab > svg { flex: none; }
+
+/* A dot beside the name: this tab has something in use; say it in words too. */
+.ui-tab-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.ui-tab-strip-arrow {
+  position: absolute;
+  top: 0;
+  bottom: 1px;
+  display: grid;
+  place-items: center;
+  width: var(--space-6);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-2xl);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ui-tab-strip-arrow[hidden] { display: none; }
+.ui-tab-strip-arrow.is-start { left: 0; }
+.ui-tab-strip-arrow.is-end { right: 0; }
+
+@media (hover: hover) {
+  .ui-tab-strip-arrow:hover { color: var(--accent); }
+}
+
+/* Touch: tabs are 44px tall boxes. */
+@media (hover: none) {
+  .ui-tab, .ui-tab-strip-arrow { min-height: 44px; }
+}

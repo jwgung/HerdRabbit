@@ -134,9 +134,9 @@ try {
       selected: item.getAttribute("aria-selected"),
       tabindex: item.getAttribute("tabindex"),
       mark: item.querySelector("svg.agent-icon")?.getAttribute("class") ?? null,
-      name: item.querySelector(".ai-accounts-tab-name")?.textContent,
-      count: item.querySelector(".ai-accounts-tab-count")?.textContent ?? null,
-      inUse: Boolean(item.querySelector(".ai-accounts-tab-in-use")),
+      name: item.querySelector(".ui-tab-name")?.textContent,
+      count: item.querySelector(".ui-tab-count")?.textContent ?? null,
+      inUse: Boolean(item.querySelector(".ui-tab-dot")),
       label: item.getAttribute("aria-label"),
       controls: item.getAttribute("aria-controls"),
     })));
@@ -166,14 +166,15 @@ try {
     assert.equal(await visiblePanel().locator(".ai-account-row.is-active .ai-account-state").textContent(), "In use");
     assert.equal(await visiblePanel().locator(".sidebar-action-menu").count(), 1, `${where}: the other account has no ⋯ menu`);
 
-    // On a phone: each tab is a 44px target, and tabs that do not fit wrap, all in view.
+    // On a phone: each tab is a 44px target, and tabs that do not fit stay in one row that scrolls.
     if (mobile) {
       for (const box of await tabList.locator('[role="tab"]').evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height))) {
         assert.ok(box >= 44, `${where}: a tab is under 44px tall (${box})`);
       }
       const fit = await dialog.evaluate((element) => ({ dialog: element.scrollWidth - element.clientWidth }));
       assert.ok(fit.dialog <= 1, `${where}: the tabs widen the dialog (${fit.dialog}px)`);
-      assert.equal(await tabList.evaluate((element) => getComputedStyle(element).flexWrap), "wrap", `${where}: the tabs do not wrap`);
+      const tops = await tabList.locator('[role="tab"]').evaluateAll((items) => new Set(items.map((item) => item.getBoundingClientRect().top)).size);
+      assert.equal(tops, 1, `${where}: the tabs wrap onto more than one row`);
     }
     if (shots) await page.screenshot({ path: join(shots, `claude-${where}.png`) });
 
@@ -248,14 +249,21 @@ try {
     await tabList.locator('[data-cli="agy"]').click();
     assert.match(await visiblePanel().locator(".ai-cli-reason").textContent(), /keyring/u);
     if (mobile) {
-      // Every tab is inside the dialog's width, none cut off at the side.
-      const outside = await tabList.evaluate((element) => {
+      // Four tabs do not fit a phone: the row scrolls, the chosen tab is in view, and
+      // an arrow on the side with more tabs says so.
+      const strip = await tabList.evaluate((element) => {
         const row = element.getBoundingClientRect();
-        return [...element.querySelectorAll('[role="tab"]')]
-          .filter((tab) => { const box = tab.getBoundingClientRect(); return box.left < row.left - 1 || box.right > row.right + 1; })
-          .map((tab) => tab.dataset.cli);
+        const tab = element.querySelector('[data-cli="agy"]').getBoundingClientRect();
+        const bar = element.closest(".ui-tab-strip");
+        return {
+          scrolls: element.scrollWidth > element.clientWidth,
+          chosenInView: tab.left >= row.left - 1 && tab.right <= row.right + 1,
+          arrows: [...bar.querySelectorAll(".ui-tab-strip-arrow")].filter((arrow) => !arrow.hidden).length,
+        };
       });
-      assert.deepEqual(outside, [], `${where}: tabs are cut off at the side`);
+      assert.ok(strip.scrolls, `${where}: four tabs fit a phone, so there is nothing to scroll`);
+      assert.ok(strip.chosenInView, `${where}: the chosen tab is out of view`);
+      assert.ok(strip.arrows >= 1, `${where}: no arrow shows that more tabs are out of view`);
       if (shots) await page.screenshot({ path: join(shots, `four-tabs-${where}.png`) });
     }
     await closeDialog();

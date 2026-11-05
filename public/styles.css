@@ -2695,58 +2695,6 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 /* minmax(0, …) so a row of tabs never widens the dialog. */
 .ai-accounts-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 
-/* Tabs that do not fit wrap onto another line: a row that scrolled sideways
-   hid the last ones with nothing saying they were there. */
-.ai-accounts-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-0-5);
-  border-bottom: 1px solid var(--line);
-}
-
-.ai-accounts-tab {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1-5);
-  min-height: 36px;
-  margin-bottom: -1px;
-  padding: var(--space-1-5) var(--space-2-5);
-  border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: var(--font-md);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-/* Drawn inside the tab so it does not run over the tab beside or below. */
-.ai-accounts-tab:focus-visible { outline-offset: -2px; }
-
-@media (hover: hover) {
-  .ai-accounts-tab:not(:disabled):hover { background: var(--hover-surface); color: var(--text); }
-}
-
-.ai-accounts-tab[aria-selected="true"] {
-  border-bottom-color: var(--accent);
-  color: var(--text);
-  font-weight: 600;
-}
-
-.ai-accounts-tab .agent-icon { flex: none; }
-
-/* A CLI with an account in use: a dot beside its name; the tab's label says it in words. */
-.ai-accounts-tab-in-use {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
 .ai-cli { display: grid; gap: var(--space-1-5); }
 
 .ai-cli[hidden] { display: none; }
@@ -2841,10 +2789,11 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .ai-account-identity strong { font-size: var(--font-lg); }
 
-/* Touch: the tabs and + Add account are 44px tall boxes; a hit area drawn
-   outside them would be clipped by the list's border. */
+/* Touch: + Add account is a 44px tall box (the tabs are too, in
+   components.css); a hit area drawn outside it would be clipped by the list's
+   border. */
 @media (hover: none) {
-  .ai-accounts-tab, .ai-account-add { min-height: 44px; }
+  .ai-account-add { min-height: 44px; }
 }
 
 /* New session and New project: the Agent is a set of choices, each with its
