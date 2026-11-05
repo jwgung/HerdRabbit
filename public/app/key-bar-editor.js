@@ -1,4 +1,4 @@
-import { createElement } from "./dom.js?v=1.4.38";
+import { createElement } from "./dom.js?v=1.4.39";
 import {
   DEFAULT_KEY_BAR_ITEMS,
   KEY_BAR_ITEMS_MAX,
@@ -12,8 +12,8 @@ import {
   removeKeyBarItem,
   resetKeyBarItems,
   writeKeyBarItems,
-} from "../key-bar-preference.js?v=1.4.38";
-import { ENTER_KEY_MODES, enterKeyModeHint, writeEnterKeyMode } from "../enter-key-preference.js?v=1.4.38";
+} from "../key-bar-preference.js?v=1.4.39";
+import { ENTER_KEY_MODES, enterKeyModeHint, writeEnterKeyMode } from "../enter-key-preference.js?v=1.4.39";
 
 // The key bar's layout and the composer's Enter mode are app.js's own `let`s
 // (the bar and the composer read them), so this reads and assigns them through
