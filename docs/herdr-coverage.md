@@ -80,7 +80,7 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 | `list` | Shown | Settings → Plugins, per machine |
 | `install` | Done | From a GitHub `owner/repo`, after confirmation; sign-in must be on |
 | marketplace ([herdr.dev/plugins](https://herdr.dev/plugins/)) | Shown | Settings → Plugins → Browse: search, Herdr's sort orders, Installed badge, Install… into the same confirm step |
-| `enable`, `disable`, `update`, `uninstall` | Done | Not for HerdRabbit itself, which Settings → Updates updates instead; plugins with a new version are updated there too (Update all) |
+| `enable`, `disable`, `update`, `uninstall` | Done | HerdRabbit itself is only updated, from its row in Settings → Plugins, with its own updater, never `herdr plugin update`; plugins with a new version have their own Update and Update all there |
 | update check | Shown | "Update available" when the marketplace's head commit differs from the installed one, only for plugins installed from GitHub without a Ref (the list is read every 10 minutes); Update all runs them one at a time, HerdRabbit last, and stops at the first failure |
 | `link`, `unlink` | Done | Link local folder… (a folder typed or picked with Browse…, checked like the Files tab's, its manifest not HerdRabbit's or a plugin already there); Unlink… for a linked plugin |
 | `action list`, `action invoke` | Done | ⋯ → Actions and panes… → Run, for the pane on show or the active pane of a workspace chosen in the dialog (its workspace, tab and folder as Herdr's context, over the socket), or where Herdr's focus is without one. Not HerdRabbit's own |
@@ -93,7 +93,7 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 
 | Command | HerdRabbit | Notes |
 |---|---|---|
-| `herdr update` | Done | Settings → Updates, for Herdr on every machine |
+| `herdr update` | Done | Settings → Herdr (Update… opens the Update window), for Herdr on every machine |
 | `herdr channel` | Done | Settings → Herdr: Stable or Preview, per machine; Updates follows it |
 | `herdr config`, `herdr server reload-config` | Done | Settings → Herdr: `config.toml` as text, checked by `herdr config check` before it is saved, then reloaded. `config reset-keys` is not offered |
 | `herdr notification` | Not needed | HerdRabbit sends its own Web Push notifications |
