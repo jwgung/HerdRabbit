@@ -3198,6 +3198,23 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .update-actions { display: flex; justify-content: flex-end; }
 
+/* Settings → Updates: HerdRabbit's row carries what changed and its run under
+   its name and Update, across the row. */
+.updates-row-details {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.update-notes-fold > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: var(--font-sm);
+}
+
+.update-notes-fold[open] > summary { margin-bottom: var(--space-1-5); }
+
 /* A PC's block has two parts split by a rule: HerdRabbit (versions, notes,
    its button and its run) and below it Herdr (the same, folded notes). */
 .update-part {

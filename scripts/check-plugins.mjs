@@ -737,8 +737,13 @@ try {
     skew += 5 * 60_000;
     await updateRows.filter({ hasText: "HerdRabbit" }).locator(".updates-run").click();
     assert.match(confirms.at(-1), /^Update This PC \(workstation\) to 1\.4\.28 \(def5678\)\?\n\nHerdr downloads and builds this release of the HerdRabbit plugin/u);
-    await page.waitForFunction(() => /^Updating… Step 1 of 3: Download and build the new version\.$/u
-      .test(document.querySelector('.updates-machine[data-server-id="local"] [data-update="app"] .plugin-update-run')?.textContent ?? ""));
+    // The run, step by step, under HerdRabbit's row.
+    await page.waitForFunction(() => {
+      const row = document.querySelector('.updates-machine[data-server-id="local"] [data-update="app"]');
+      return /^Updating/u.test(row?.querySelector(".update-run-state")?.textContent ?? "") &&
+        row.querySelector(".update-step-count")?.textContent === "Step 1 of 3" &&
+        row.querySelector('.update-step[aria-current="step"] .update-step-label')?.textContent === "In progress: Download and build the new version";
+    });
     assert.equal(app.starts, 1);
     assert.equal(await updateAll.isDisabled(), true, `${where}: Update all works during the update`);
     if (mobile) await page.locator("#settings-back").click();
@@ -762,7 +767,7 @@ try {
     await page.waitForFunction(() => document.querySelector('.updates-machine[data-server-id="local"] .updates-all')?.textContent === "Update all (3)");
     order.length = 0;
     await updateAll.click();
-    await page.waitForFunction(() => document.querySelector('.updates-machine[data-server-id="local"] [data-update="app"] .plugin-update-run'));
+    await page.waitForFunction(() => document.querySelector('.updates-machine[data-server-id="local"] [data-update="app"] .update-progress'));
     assert.deepEqual(order, ["plugin gen-3", "herdr", "herdrabbit"], `${where}: Update all's order`);
     assert.equal(await updateAll.textContent(), "Updating all…");
     assert.equal(await status.textContent(), "Update all: Updating HerdRabbit…");

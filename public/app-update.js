@@ -295,6 +295,7 @@ export function createUpdatePanel({
   // Per PC: { check, error, run, herdrRun }, a run being
   // { status, tracking, waiting }.
   const entries = new Map();
+  let ticker = null;
   // Which run of this PC's server the page was loaded from.
   let baseline = null;
   let checking = false;
@@ -311,6 +312,13 @@ export function createUpdatePanel({
     onChange(anyUpdate([...entries.values()].map((item) => item.check)));
     if (dialog.open) render();
     for (const listener of listeners) listener();
+    // The time beside a step in progress moves on wherever it is shown.
+    const following = [...entries.values()].some((item) => busy(item));
+    if (following || dialog.open) ticker ??= window.setInterval(tick, 1_000);
+    else if (ticker !== null) {
+      window.clearInterval(ticker);
+      ticker = null;
+    }
   }
 
   async function checkOne(id, fresh) {
@@ -355,7 +363,7 @@ export function createUpdatePanel({
         // A run that ended lately is still shown, so the page that reloaded
         // into the new version can say how it went.
         else if (showFinishedRun(status, { serverId: "local", kind: "app", storage })) {
-          entry("local").run = { status, tracking: false, waiting: false };
+          entry("local").run = { status, tracking: false, waiting: false, resumed: true };
         }
       }
     } catch { /* checked again with the rest */ }
@@ -519,11 +527,11 @@ export function createUpdatePanel({
   // A running log is shown as it comes; a finished one is folded away behind
   // "Log" unless the run failed, where it explains why. With steps to show,
   // the log is folded away while it runs too.
-  function logBlock(run, status, className, kind, serverId, { folded = false } = {}) {
+  function logBlock(run, status, className, kind, serverId, { folded = false, seen = dialog.open } = {}) {
     const pre = element("pre", className, status.log);
     if (!folded && (status.state === "running" || run.waiting)) return pre;
-    // seen while the dialog is open: it will not come back on a later opening
-    if (dialog.open && isFinished(status)) dismissRun(storage, serverId, kind, status.finishedAt);
+    // seen where it is shown: it will not come back on a later opening
+    if (seen && isFinished(status)) dismissRun(storage, serverId, kind, status.finishedAt);
     const details = element("details", "update-log-fold");
     details.open = status.state === "failed" || run.logOpen === true;
     details.append(element("summary", "", "Log"), pre);
@@ -535,6 +543,10 @@ export function createUpdatePanel({
     if (dialog.open && isFinished(run?.status)) dismissRun(storage, serverId, kind, run.status.finishedAt);
   }
 
+  // The Update window is Herdr's: one block per PC, its Herdr versions, what
+  // is new, Update Herdr and its run. HerdRabbit's own update is a row of
+  // Settings → Updates, as a plugin's is, with appDetails below for its notes
+  // and run.
   function renderServer(server) {
     const item = entry(server.id);
     const section = element("section", "update-server");
@@ -542,69 +554,46 @@ export function createUpdatePanel({
     const heading = element("div", "update-server-heading");
     heading.append(element("strong", "", server.name));
     section.append(heading);
-
-    // Two parts, each with its own heading, versions, button and run, split
-    // by a rule: HerdRabbit above, Herdr below. A run is drawn in the part it
-    // belongs to, never under the other one.
     const check = item.check;
-    const app = element("div", "update-part update-app");
-    const appHeading = element("div", "update-part-heading");
-    appHeading.append(element("strong", "", "HerdRabbit"));
-    if (check?.supported && check.available) appHeading.append(element("span", "update-badge", "Update available"));
-    app.append(appHeading);
-    section.append(app);
-
-    const status = element("p", "update-status");
-    app.append(status);
-    if (item.error) {
-      status.textContent = item.error;
-      status.dataset.error = "true";
-    } else if (!check) {
-      status.textContent = "Not checked yet.";
-    } else if (check.supported === false) {
-      status.textContent = server.id === "local"
-        ? "This HerdRabbit cannot update itself from the page."
-        : "Update it there (older version).";
-    } else {
-      app.append(element("p", "update-versions",
-        `Running ${revisionText(check.current)} · Latest ${check.latest ? revisionText(check.latest) : "unknown"}`));
-      app.append(status);
-      if (check.error) {
-        status.textContent = errorText(check.error);
-        status.dataset.error = "true";
-      } else if (!check.available) {
-        status.textContent = "Up to date.";
-      } else if (check.blocked) {
-        status.textContent = blockedText(check.blocked);
-        status.dataset.error = "true";
-      } else {
-        status.textContent = "A new version is ready to install.";
-      }
-      if (check.available && Array.isArray(check.notes) && check.notes.length > 0) {
-        const notes = element("ul", "update-notes");
-        notes.setAttribute("aria-label", "What changed");
-        for (const note of check.notes) notes.append(element("li", "", note));
-        app.append(notes);
-      }
-      if (check.available && !check.blocked && !check.error) {
-        const button = element("button", "primary-button update-run", "Update");
-        button.type = "button";
-        button.disabled = busy(item);
-        button.addEventListener("click", () => void run(server.id));
-        const actions = element("div", "update-actions");
-        actions.append(button);
-        app.append(actions);
-      }
+    if (check?.supported && "herdr" in check) {
+      section.append(renderHerdr(server, item));
+      return section;
     }
+    const status = element("p", "update-status");
+    status.textContent = item.error ?? (!check ? "Not checked yet."
+      : server.id === "local" ? "Herdr cannot be updated from this page here." : "Update it there (older version).");
+    if (item.error) status.dataset.error = "true";
+    section.append(status);
+    return section;
+  }
 
-    const runStatus = item.run?.status;
-    if (item.run && runStatus) {
+  // What Settings → Updates shows under a PC's HerdRabbit row: what changed
+  // in the new version (folded away), and its run, step by step with the
+  // time taken and the log. Null when there is neither. `onScreen` says the
+  // row is in view, so a finished run seen there is not shown again later.
+  function appDetails(serverId, { onScreen = false } = {}) {
+    const item = entries.get(serverId);
+    if (!item) return null;
+    const check = item.check;
+    const box = element("div", "update-app");
+    // A run while it goes, one that failed, and the one this page reloaded after.
+    const run = item.run?.status && (item.run.tracking || item.run.status.state === "failed" || item.run.resumed) ? item.run : null;
+    if (check?.supported && check.available && !run && Array.isArray(check.notes) && check.notes.length > 0) {
+      const fold = element("details", "update-notes-fold");
+      fold.append(element("summary", "", "What changed"));
+      const notes = element("ul", "update-notes");
+      notes.setAttribute("aria-label", "What changed");
+      for (const note of check.notes) notes.append(element("li", "", note));
+      fold.append(notes);
+      box.append(fold);
+    }
+    const runStatus = run?.status;
+    if (run) {
       const progress = element("div", "update-progress");
-      const steps = stepStates(runStatus, {
-        local: server.id === "local", waiting: item.run.waiting, reloading: item.run.reloading === true,
-      });
-      const failed = runStatus.state === "failed" && !item.run.waiting;
-      const text = runStateText(runStatus, item.run, steps, failed);
+      const local = serverId === "local";
+      const steps = stepStates(runStatus, { local, waiting: run.waiting, reloading: run.reloading === true });
+      const failed = runStatus.state === "failed" && !run.waiting;
+      const text = runStateText(runStatus, run, steps, failed);
       const head = element("div", "update-run-head");
       const state = element("p", "update-run-state", text);
       state.setAttribute("role", "status");
@@ -613,20 +602,29 @@ export function createUpdatePanel({
       const position = steps.findIndex((step) => step.state === "current" || step.state === "failed");
       if (position !== -1) head.append(element("p", "update-step-count", `Step ${position + 1} of ${steps.length}`));
       progress.append(head);
-      if (steps.length > 0) progress.append(stepList(steps, runStatus, item.run));
+      if (steps.length > 0) progress.append(stepList(steps, runStatus, run));
       if (failed && runStatus.detail) progress.append(element("p", "update-detail", runStatus.detail));
       // A run that ended well but could not tell whether its restart ran
       // says so quietly (while the page waits for the restart, too); the
       // page's own wait for the new version decides.
       if (runStatus.state !== "failed" && runStatus.detail) progress.append(element("p", "update-run-note", runStatus.detail));
       if (runStatus.log) {
-        progress.append(logBlock(item.run, runStatus, "update-log", "app", server.id, { folded: steps.length > 0 }));
+        progress.append(logBlock(run, runStatus, "update-log", "app", serverId, { folded: steps.length > 0, seen: onScreen }));
       }
-      noteSeen(item.run, "app", server.id);
-      app.append(progress);
+      if (onScreen && isFinished(runStatus)) dismissRun(storage, serverId, "app", runStatus.finishedAt);
+      box.append(progress);
     }
-    if (check?.supported && "herdr" in check) section.append(renderHerdr(server, item));
-    return section;
+    return box.childElementCount > 0 ? box : null;
+  }
+
+  // A finished HerdRabbit run seen in Settings → Updates goes once the page is left.
+  function putAwayApp() {
+    for (const [id, item] of entries) {
+      if (isFinished(item.run?.status) && !item.run.tracking) {
+        dismissRun(storage, id, "app", item.run.status.finishedAt);
+        item.run = null;
+      }
+    }
   }
 
   // When the run began, for the time shown beside the step in progress; a
@@ -668,9 +666,8 @@ export function createUpdatePanel({
   }
 
   // The time beside a step in progress moves on by itself between answers.
-  let ticker = null;
   function tick() {
-    for (const node of list.querySelectorAll(".update-elapsed[data-since]")) {
+    for (const node of document.querySelectorAll(".update-elapsed[data-since]")) {
       node.textContent = elapsedText(Number(node.dataset.since));
     }
   }
@@ -772,13 +769,11 @@ export function createUpdatePanel({
   // A finished run was on screen while the dialog was open: closing it puts
   // it away, so the next opening starts clean.
   dialog.addEventListener("close", () => {
-    if (ticker !== null) window.clearInterval(ticker);
-    ticker = null;
+    if (ticker !== null && ![...entries.values()].some((item) => busy(item))) {
+      window.clearInterval(ticker);
+      ticker = null;
+    }
     for (const [id, item] of entries) {
-      if (isFinished(item.run?.status) && !item.run.tracking) {
-        dismissRun(storage, id, "app", item.run.status.finishedAt);
-        item.run = null;
-      }
       if (isFinished(item.herdrRun?.status) && !item.herdrRun.tracking) {
         dismissRun(storage, id, "herdr", item.herdrRun.status.finishedAt);
         item.herdrRun = null;
@@ -791,7 +786,9 @@ export function createUpdatePanel({
   const visible = () => servers().length > 1 || entries.get("local")?.check?.supported === true;
 
   return {
-    refresh, resume, open, render, run, runHerdr, visible, follow, state, subscribe,
+    refresh, resume, open, render, run, runHerdr, visible, follow, state, subscribe, appDetails, putAwayApp,
     hasUpdate: () => anyUpdate([...entries.values()].map((item) => item.check)),
+    // Whether some PC has a newer Herdr: what the Update window is for.
+    hasHerdrUpdate: () => [...entries.values()].some((item) => item.check?.supported === true && item.check.herdr?.available === true),
   };
 }
