@@ -1,6 +1,6 @@
-import { createElement } from "./dom.js?v=1.4.40";
-import { pluginMachines } from "./plugin-model.js?v=1.4.40";
-import { integrationAction, integrationConfirmText, integrationStateText } from "./herdr-settings-model.js?v=1.4.40";
+import { createElement } from "./dom.js?v=1.4.41";
+import { pluginMachines } from "./plugin-model.js?v=1.4.41";
+import { integrationAction, integrationConfirmText, integrationStateText } from "./herdr-settings-model.js?v=1.4.41";
 
 // Settings → Herdr: Herdr's own settings on one machine at a time. The server
 // runs Herdr's commands and writes config.toml (src/herdr-settings.mjs); this
