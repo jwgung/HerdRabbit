@@ -102,7 +102,8 @@ Herdr 영구 세션명 변경, 분할 경계를 끌어 크기를 바꾸는 기�
 
 **붙을 PC(B)에서:** Connect PC 포트를 열고 붙을 수 있는 PC를 정합니다. 열기 전까지 포트는 닫혀 있습니다.
 
-- **Herdr 플러그인으로 설치한 경우**(빠른 설치): 플러그인의 `.env`(`herdr plugin config-dir herdrabbit`이 폴더를 알려 줍니다)에 설정을 넣고 다시 시작합니다.
+- **페이지에서**(Herdr 플러그인으로 설치하고 비밀번호를 정한 경우): **⚙ Settings → PCs → Let other PCs connect → Choose PCs…**가 tailnet의 기기 목록을 보여 줍니다. 붙을 수 있게 할 PC를 체크하고 비밀번호를 넣어 **Save**를 누르면, HerdRabbit이 플러그인 `.env`에 `HERDR_WEB_PEER_HOST`(이 PC의 tailnet 주소)와 `HERDR_WEB_PEER_ADDRESSES`를 쓰고(다른 줄은 그대로) Herdr를 통해 다시 시작합니다. 아무것도 체크하지 않으면 둘 다 지우고 포트를 닫습니다. 직접 넣은 `HERDR_WEB_PEER_PORT`, `HERDR_WEB_PEER_LOGINS`는 그대로 둡니다. 쓰기 전에 서버가 읽는 방식대로 설정을 검사하고, 링크인 `.env`는 바꾸지 않습니다.
+- **Herdr 플러그인으로 설치한 경우, 터미널에서:** 플러그인의 `.env`(`herdr plugin config-dir herdrabbit`이 폴더를 알려 줍니다)에 설정을 넣고 다시 시작합니다.
 
   ```bash
   cd "$(herdr plugin config-dir herdrabbit)"
@@ -613,7 +614,7 @@ Source, ref, 플러그인 id는 두 머신 모두에서 검사합니다. GitHub�
 - **Terminal & keys:** **Edit keys**(터치 기기에서는 **Enter in the message box** 포함)와 **Fit panes to this window**(넓은 화면).
 - **Notifications:** **Off** / **On** 선택과 그 상태.
 - **Security**(비밀번호가 설정돼 있을 때 표시): **Passkeys**와 **Signed-in devices**.
-- **PCs**(Connect PC를 쓸 수 있을 때 표시): 붙은 PC 목록(누르면 그 PC의 Details)과 **Connect PC**.
+- **PCs**(Connect PC를 쓸 수 있을 때 표시): 붙은 PC 목록(누르면 그 PC의 Details)과 **Connect PC**. 로그인이 켜져 있으면 그 위의 **Let other PCs connect**가 이 PC의 Connect PC 포트가 열렸는지, 누구에게 열렸는지 보여 주고 **Choose PCs…**로 바꿉니다([Connect PC](#herdrabbit이-도는-다른-pc-connect-pc)).
 - **Plugins**(비밀번호가 설정돼 있을 때 표시): 머신별 Herdr 플러그인, [플러그인](#플러그인) 참고.
 - **Herdr**(비밀번호가 설정돼 있을 때 표시): 머신별 Herdr 업데이트 채널, 에이전트 통합, `config.toml`, [Herdr 설정](#herdr-설정) 참고.
 - **Updates:** **Update…**(Update 창: PC마다 HerdRabbit·Herdr 전체)와 머신마다 업데이트가 있는 것, 각각의 **Update**, **Update all**(플러그인, Herdr, 마지막에 HerdRabbit). 항상 표시하며, 플러그인은 Plugins가 보일 때만.

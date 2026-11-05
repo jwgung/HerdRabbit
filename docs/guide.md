@@ -93,7 +93,8 @@ Every PC runs the same HerdRabbit: its own page and login, on `127.0.0.1` behind
 
 **On the PC being connected to (B):** open its Connect PC port and say which PCs may use it. The port is closed until you do.
 
-- **Installed as a Herdr plugin** (the quick install): add the settings to the plugin's `.env` (`herdr plugin config-dir herdrabbit` prints its folder), then restart:
+- **From the page** (installed as a Herdr plugin, with a password set): **⚙ Settings → PCs → Let other PCs connect → Choose PCs…** lists the devices on your tailnet. Tick the PCs that may connect, enter the password and **Save**: HerdRabbit writes `HERDR_WEB_PEER_HOST` (this PC's tailnet address) and `HERDR_WEB_PEER_ADDRESSES` into the plugin's `.env`, keeping its other lines, and restarts through Herdr. Ticking none removes both and closes the port. `HERDR_WEB_PEER_PORT` and `HERDR_WEB_PEER_LOGINS` set by hand stay as they are. The settings are checked as the server reads them before anything is written; a `.env` that is a link is not changed.
+- **Installed as a Herdr plugin, from a terminal:** add the settings to the plugin's `.env` (`herdr plugin config-dir herdrabbit` prints its folder), then restart:
 
   ```bash
   cd "$(herdr plugin config-dir herdrabbit)"
@@ -580,7 +581,7 @@ The ⚙ button at the foot of the sidebar opens the settings screen. On a deskto
 - **Terminal & keys:** **Edit keys** (with **Enter in the message box** on a touch device) and **Fit panes to this window** (wide screens).
 - **Notifications:** the **Off** / **On** choice and its state.
 - **Security** (shown when a password is set): **Passkeys** and **Signed-in devices**.
-- **PCs** (shown where Connect PC is available): the connected PCs, each opening its Details, and **Connect PC**.
+- **PCs** (shown where Connect PC is available): the connected PCs, each opening its Details, and **Connect PC**. With sign-in on, **Let other PCs connect** above them says whether this PC's Connect PC port is open and to whom; **Choose PCs…** changes it ([Connect PC](#other-pcs-running-herdrabbit-connect-pc)).
 - **Plugins** (shown when a password is set): Herdr's plugins on each machine, see [Plugins](#plugins).
 - **Herdr** (shown when a password is set): Herdr's update channel, agent integrations and `config.toml` on each machine, see [Herdr settings](#herdr-settings).
 - **Updates:** **Update…** (the Update window: HerdRabbit and Herdr on each PC in full) and, per machine, what has an update, each with **Update**, and **Update all** (plugins, then Herdr, then HerdRabbit last). Shown always; plugins only where Plugins shows.
