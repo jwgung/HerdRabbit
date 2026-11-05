@@ -625,7 +625,7 @@ body.sidebar-collapsed .workspace-branch {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 34px;
+  min-height: var(--control-h-md);
   margin: calc(-1 * var(--space-4)) 0 calc(-1 * var(--space-2));
   padding: var(--space-4) 0 var(--space-2);
   background: var(--surface);
@@ -1403,7 +1403,7 @@ button.plugin-update-badge {
    scroll. */
 .plugins-browse-tools {
   position: sticky;
-  top: calc(34px + var(--space-2));
+  top: calc(var(--control-h-md) + var(--space-2));
   z-index: var(--layer-raised);
   display: flex;
   flex-wrap: wrap;
@@ -1587,6 +1587,11 @@ button.plugin-update-badge {
 
 /* Touch: the switch, the ⋯ menu and the machine picker are 44px targets. */
 @media (hover: none), (pointer: coarse) {
+  /* The heading's Back button is drawn 44px here, so the tools stick below that. */
+  .plugins-browse-tools {
+    top: calc(var(--control-h-touch) + var(--space-2));
+  }
+
   .plugin-switch,
   .plugin-actions .workspace-action,
   .plugins-machine,
@@ -4495,18 +4500,10 @@ body.is-resizing-sidebar {
   width: min(520px, calc(100vw - 32px));
 }
 
+/* Its look (height, surface, border, chevron) is the shared select in ui/components.css. */
 #file-server {
   min-width: 0;
   flex: 1;
-  height: 32px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-control);
-  background: var(--surface-raised);
-  color: var(--input-text);
-  font-size: var(--font-md);
-  min-height: 30px;
-  padding: var(--space-0-5) var(--space-1-5);
 }
 
 #file-server[hidden] {

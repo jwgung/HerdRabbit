@@ -1,8 +1,8 @@
 /* Shared by HerdRabbit and standalone HTML pages. Legacy names are aliases. */
 .icon-button {
-  width: 34px;
-  min-width: 34px;
-  height: 34px;
+  width: var(--control-h-md);
+  min-width: var(--control-h-md);
+  height: var(--control-h-md);
   display: inline-grid;
   place-items: center;
   border: 1px solid var(--line);
@@ -202,7 +202,7 @@
 .secondary-button,
 .primary-button,
 .text-button {
-  min-height: 34px;
+  min-height: var(--control-h-md);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   padding: var(--space-1-5) var(--space-3);
@@ -230,16 +230,17 @@
   border-color: transparent;
   padding-inline: var(--space-2);
   background: transparent;
+  color: var(--accent);
 }
 
 .text-button:hover {
-  background: color-mix(in srgb, var(--text) 7%, transparent);
-  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent-hover);
 }
 
 .ghost-button {
   flex: 0 0 auto;
-  min-height: 30px;
+  min-height: var(--control-h-sm);
   padding: var(--space-1) var(--space-2);
   background: transparent;
   font-size: var(--font-sm);
@@ -247,6 +248,8 @@
 }
 
 .quick-keys button {
+  /* The key bar stays compact: its keys sit in a row that scrolls. */
+  min-height: 34px;
   border-radius: var(--radius-sm);
 }
 
@@ -314,6 +317,45 @@
 .dialog-form select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* One look for every select: no browser arrow, the control surface and line,
+   the button height and our own chevron. On a desktop, public/app/select-popover.js
+   swaps the OS list for an app popover; on touch the OS picker stays. */
+select,
+select.ui-input,
+.dialog-form select {
+  appearance: none;
+  height: var(--control-h-md);
+  padding: var(--space-1) calc(var(--space-6) + var(--space-1)) var(--space-1) var(--space-2-5);
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius-control);
+  background-color: var(--control-surface);
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right var(--space-2-5) center;
+  background-size: 16px 16px;
+  color: var(--input-text);
+  font: inherit;
+  font-size: var(--font-md);
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+select:not(:disabled):hover {
+  border-color: var(--text);
+}
+
+select:focus-visible,
+select[aria-expanded="true"] {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+select:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .dialog-feedback {
@@ -470,6 +512,24 @@
     min-height: 44px;
   }
 
+  /* The visible size is 44px too, not only the hit area: a button, an icon
+     button and a select are drawn at the touch height. A compact control that
+     sets its own size in styles.css still wins (that file loads later). */
+  :is(.ghost-button, .secondary-button, .primary-button, .text-button) {
+    min-height: var(--control-h-touch);
+  }
+
+  .icon-button {
+    width: var(--control-h-touch);
+    min-width: var(--control-h-touch);
+    height: var(--control-h-touch);
+  }
+
+  select {
+    min-height: var(--control-h-touch);
+    font-size: var(--font-input-touch);
+  }
+
   /* A text box under 16px makes a touch browser zoom in on it. The app's own
      boxes repeat this at the end of styles.css, after their own sizes. */
   :is(.ui-input, .dialog-form input, .dialog-form select) {
@@ -587,4 +647,97 @@
 /* Touch: tabs are 44px tall boxes. */
 @media (hover: none) {
   .ui-tab, .ui-tab-strip-arrow { min-height: 44px; }
+}
+
+/* The desktop select popover (public/app/select-popover.js): fixed to the
+   viewport under its select, a group header, a status dot, a check on the
+   chosen option. */
+.ui-select-popover {
+  position: fixed;
+  z-index: var(--layer-popover);
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: var(--space-0-5);
+  padding: var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: var(--shadow-popover);
+  outline: none;
+}
+
+.ui-select-group {
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  color: var(--muted);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ui-select-option {
+  min-height: var(--control-h-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--control-text);
+  font-size: var(--font-md);
+  cursor: pointer;
+}
+
+.ui-select-option.is-active {
+  background: var(--hover-surface);
+}
+
+.ui-select-option[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.ui-select-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-select-description {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--font-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-select-check {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.ui-select-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-pill);
+  background: var(--offline);
+}
+
+.ui-select-dot[data-status="online"] {
+  background: var(--status-ok);
+}
+
+.ui-select-dot[data-status="attention"] {
+  background: var(--status-attention);
 }

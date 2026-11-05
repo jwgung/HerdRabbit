@@ -54,6 +54,7 @@ const APP_SHELL = [
   "/theme.js?v=1.4.41",
   "/app.js?v=1.4.41",
   "/app/dom.js?v=1.4.41",
+  "/app/select-popover.js?v=1.4.41",
   "/app/snapshot.js?v=1.4.41",
   "/app/connect-pc.js?v=1.4.41",
   "/app/project-dialog.js?v=1.4.41",
