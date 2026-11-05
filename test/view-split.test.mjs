@@ -159,6 +159,20 @@ test("a split session, another machine's or the pane's own is no drop", () => {
   assert.equal(paneDropKind(snapshot, { tabId: "w1:t1", targetPaneId: "w1:p1" }, { screen: "solo", ...allowed }), null);
 });
 
+test("a connected PC that lays out its panes merges a drop there, never with another machine's", () => {
+  const laptopPanes = {
+    ...snapshot,
+    servers: [{ id: "local", pane_layout: true }, { id: "laptop", pane_layout: true }],
+    tabs: [...snapshot.tabs, { tab_id: "laptop!w1:t2", workspace_id: "laptop!w1", ...laptop }],
+    panes: [...snapshot.panes, { pane_id: "laptop!w1:p2", tab_id: "laptop!w1:t2", ...laptop }],
+  };
+  assert.equal(paneDropKind(laptopPanes, { tabId: "laptop!w1:t2", targetPaneId: "laptop!w1:p1" }, { screen: "solo", ...allowed }), "move");
+  assert.equal(paneDropKind(laptopPanes, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen: "solo", ...allowed }), null);
+  assert.equal(paneDropKind(laptopPanes, { tabId: "w2:t1", targetPaneId: "laptop!w1:p1" }, { screen: "solo", ...allowed }), null);
+  const older = { ...laptopPanes, servers: [{ id: "laptop", pane_layout: false }] };
+  assert.equal(paneDropKind(older, { tabId: "laptop!w1:t2", targetPaneId: "laptop!w1:p1" }, { screen: "solo", ...allowed }), null);
+});
+
 test("two tiles trade places and nothing else moves", () => {
   const three = addTile(addTile(null, "a", "b", "right"), "b", "c", "down");
   assert.deepEqual(swapTiles(three, "a", "c"), { dir: "right", first: "c", second: { dir: "down", first: "b", second: "a", ratio: 0.5 }, ratio: 0.5 });

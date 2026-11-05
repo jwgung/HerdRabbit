@@ -10,6 +10,7 @@ import {
   movedTabSnapshot,
   movedWorkspaceSnapshot,
   paneMoveRequest,
+  laysOutPanes,
   tabMoveRequest,
   workspaceMoveRequest,
 } from "../public/sidebar-drag.js";
@@ -194,4 +195,21 @@ test("a connected PC's sessions do not join its panes from here", () => {
     panes: [{ pane_id: "rp1", tab_id: "rt1", ...remote }, { pane_id: "rp2", tab_id: "rt2", ...remote }],
   };
   assert.equal(paneMoveRequest(snap, { tabId: "rt1", targetPaneId: "rp2", side: "right" }), null);
+  // One that lays out its own split tabs joins them there, never across machines.
+  const able = { ...snap, servers: [{ id: "local", pane_layout: true }, { id: "laptop", pane_layout: true }] };
+  assert.deepEqual(paneMoveRequest(able, { tabId: "rt1", targetPaneId: "rp2", side: "right" }),
+    { paneId: "rp1", body: { targetPaneId: "rp2", side: "right" } });
+  const older = { ...snap, servers: [{ id: "laptop", pane_layout: false }] };
+  assert.equal(paneMoveRequest(older, { tabId: "rt1", targetPaneId: "rp2", side: "right" }), null);
+});
+
+test("a machine lays out its panes from here when it is this one or says it can", () => {
+  const snap = { servers: [{ id: "local", pane_layout: true }, { id: "laptop", pane_layout: true }, { id: "old", pane_layout: false }, { id: "older" }] };
+  assert.equal(laysOutPanes(snap, { server_id: "local" }), true);
+  assert.equal(laysOutPanes(snap, {}), true, "no server id is this machine");
+  assert.equal(laysOutPanes({}, { server_id: "local" }), true, "this machine with no server list");
+  assert.equal(laysOutPanes(snap, { server_id: "laptop" }), true);
+  assert.equal(laysOutPanes(snap, { server_id: "old" }), false);
+  assert.equal(laysOutPanes(snap, { server_id: "older" }), false);
+  assert.equal(laysOutPanes(snap, { server_id: "gone" }), false);
 });

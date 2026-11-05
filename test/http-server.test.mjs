@@ -1404,34 +1404,85 @@ test("pane split routes need write authorization and pass what they validate to 
   ]);
 });
 
-test("a connected PC's pane layout is refused like its split, close, zoom and move", async (context) => {
+test("a connected PC's split tab is laid out on that PC, under this page's ids; an older PC says it cannot", async (context) => {
   const linkId = "link_11111111-1111-1111-1111-111111111111";
-  const layouts = [];
+  const oldId = "link_22222222-2222-2222-2222-222222222222";
+  const calls = [];
   const local = {
     async snapshot() { return { herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }; },
-    async paneLayout(id) { layouts.push(id); return { layout: { panes: [] } }; },
+    async paneLayout(id) { calls.push(["local", "paneLayout", id]); return { layout: { panes: [] } }; },
+    async evenLayout(id) { calls.push(["local", "evenLayout", id]); return { pane_id: id, changed: false, steps: 0, even: true }; },
+  };
+  const remote = {
+    async paneLayout(id) {
+      calls.push(["paneLayout", id]);
+      return { layout: { workspace_id: "hs_x~wB", tab_id: "hs_x~wB:t1", focused_pane_id: "hs_x~wB:p1", zoomed: false, panes: [{ pane_id: "hs_x~wB:p1", x: 0 }, { pane_id: "hs_x~wB:p2", x: 40 }] } };
+    },
+    async splitPane(id, direction) { calls.push(["splitPane", id, direction]); return { pane_id: "hs_x~wB:p3" }; },
+    async zoomPane(id) { calls.push(["zoomPane", id]); return { ok: true }; },
+    async closePane(id) { calls.push(["closePane", id]); return { ok: true }; },
+    async movePaneOut(id) { calls.push(["movePaneOut", id]); return { pane_id: "hs_x~wB:p2", tab_id: "hs_x~wB:t4" }; },
+    async movePaneSplit(id, target, side) { calls.push(["movePaneSplit", id, target, side]); return { pane_id: "hs_x~wB:p9" }; },
+    async swapPanes(id, target) { calls.push(["swapPanes", id, target]); return { pane_id: id }; },
+    async relocatePane(id, target, side) { calls.push(["relocatePane", id, target, side]); return { pane_id: id, tab_id: "hs_x~wB:t1" }; },
+    async evenLayout(id) { calls.push(["evenLayout", id]); return { pane_id: id, changed: true, steps: 2, even: true }; },
+    close() {},
   };
   const herdr = new MultiServerClient({
     local,
-    profiles: { list: () => [{ id: linkId, name: "Dev box", transport: "link", address: "http://127.0.0.1:1" }] },
-    remoteFactory: () => ({ async paneLayout() { throw new Error("never asked"); }, close() {} }),
+    profiles: { list: () => [
+      { id: linkId, name: "Dev box", transport: "link", address: "http://127.0.0.1:1" },
+      { id: oldId, name: "Old box", transport: "link", address: "http://127.0.0.1:2" },
+    ] },
+    remoteFactory: (profile) => (profile.id === linkId ? remote : { close() {} }),
   });
   const app = await startServer(herdr);
   context.after(() => closeServer(app.server));
-  const pane = encodeURIComponent(`${linkId}!hs_x~wB:p1`);
-  const refused = await fetch(`${app.baseUrl}/api/panes/${pane}/layout`);
-  assert.equal(refused.status, 501);
-  assert.equal((await refused.json()).error.code, "link_unsupported");
-  const split = await fetch(`${app.baseUrl}/api/panes/${pane}/split`, {
-    method: "POST", headers: { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl },
-    body: JSON.stringify({ direction: "right" }),
-  });
-  assert.equal(split.status, 501);
-  assert.equal((await split.json()).error.code, "link_unsupported");
-  // This machine's panes are still laid out.
-  const mine = await fetch(`${app.baseUrl}/api/panes/w1%3Ap1/layout`);
-  assert.equal(mine.status, 200);
-  assert.deepEqual(layouts, ["w1:p1"]);
+  const headers = { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl };
+  const at = (id) => `${linkId}!${id}`;
+  const pane = encodeURIComponent(at("hs_x~wB:p1"));
+  const post = (path, body = {}) => fetch(`${app.baseUrl}/api/panes/${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+
+  const layout = await (await fetch(`${app.baseUrl}/api/panes/${pane}/layout`)).json();
+  assert.equal(layout.layout.tab_id, at("hs_x~wB:t1"));
+  assert.deepEqual(layout.layout.panes.map((item) => item.pane_id), [at("hs_x~wB:p1"), at("hs_x~wB:p2")]);
+  assert.deepEqual(await (await post(`${pane}/split`, { direction: "right" })).json(), { pane_id: at("hs_x~wB:p3") });
+  assert.equal((await post(`${pane}/zoom`, { mode: "toggle" })).status, 200);
+  assert.equal((await post(`${pane}/close`, { confirmed: true })).status, 200);
+  assert.deepEqual(await (await post(`${encodeURIComponent(at("hs_x~wB:p2"))}/move-out`)).json(), { pane_id: at("hs_x~wB:p2"), tab_id: at("hs_x~wB:t4") });
+  assert.deepEqual(await (await post(`${pane}/move`, { targetPaneId: at("hs_x~wB:p5"), side: "up" })).json(), { pane_id: at("hs_x~wB:p9") });
+  assert.equal((await post(`${pane}/swap`, { targetPaneId: at("hs_x~wB:p2") })).status, 200);
+  assert.deepEqual(await (await post(`${pane}/relocate`, { targetPaneId: at("hs_x~wB:p2"), side: "left" })).json(), { pane_id: at("hs_x~wB:p1"), tab_id: at("hs_x~wB:t1") });
+  assert.equal((await (await post(`${pane}/even-layout`)).json()).steps, 2);
+  assert.deepEqual(calls, [
+    ["paneLayout", "hs_x~wB:p1"],
+    ["splitPane", "hs_x~wB:p1", "right"],
+    ["zoomPane", "hs_x~wB:p1"],
+    ["closePane", "hs_x~wB:p1"],
+    ["movePaneOut", "hs_x~wB:p2"],
+    ["movePaneSplit", "hs_x~wB:p1", "hs_x~wB:p5", "up"],
+    ["swapPanes", "hs_x~wB:p1", "hs_x~wB:p2"],
+    ["relocatePane", "hs_x~wB:p1", "hs_x~wB:p2", "left"],
+    ["evenLayout", "hs_x~wB:p1"],
+  ]);
+
+  // Never across machines.
+  assert.equal((await post(`${pane}/swap`, { targetPaneId: "w1:p2" })).status, 400);
+  // A PC from before this says it cannot; this PC's own panes are laid out as ever.
+  const old = encodeURIComponent(`${oldId}!hs_y~wC:p1`);
+  for (const [path, body] of [["layout", null], ["split", { direction: "right" }], ["move-out", {}], ["even-layout", {}], ["swap", { targetPaneId: `${oldId}!hs_y~wC:p2` }]]) {
+    const refused = body === null ? await fetch(`${app.baseUrl}/api/panes/${old}/layout`) : await post(`${old}/${path}`, body);
+    assert.equal(refused.status, 501, path);
+    assert.equal((await refused.json()).error.code, "link_unsupported", path);
+  }
+  assert.equal((await fetch(`${app.baseUrl}/api/panes/w1%3Ap1/layout`)).status, 200);
+  assert.equal((await post("w1%3Ap1/even-layout")).status, 200);
+  assert.deepEqual(calls.filter((call) => call[0] === "local"), [["local", "paneLayout", "w1:p1"], ["local", "evenLayout", "w1:p1"]]);
+  // A herdr that cannot rearrange at all (an older client) is refused the same way.
+  const bare = await startServer({ async snapshot() { return { workspaces: [], tabs: [], panes: [] }; } });
+  context.after(() => closeServer(bare.server));
+  assert.equal((await fetch(`${bare.baseUrl}/api/panes/w1%3Ap1/swap`, { method: "POST", headers: { ...headers, Origin: bare.baseUrl }, body: JSON.stringify({ targetPaneId: "w1:p2" }) })).status, 501);
+  assert.equal((await fetch(`${bare.baseUrl}/api/panes/w1%3Ap1/even-layout`, { method: "POST", headers: { ...headers, Origin: bare.baseUrl } })).status, 501);
 });
 
 test("pane swap and relocate routes need write authorization, a target, and pass both to Herdr", async (context) => {
@@ -1482,35 +1533,6 @@ test("pane swap and relocate routes need write authorization, a target, and pass
   ]);
 });
 
-test("a connected PC's panes are not swapped or relocated, and a herdr without them says so", async (context) => {
-  const linkId = "link_11111111-1111-1111-1111-111111111111";
-  const local = {
-    async snapshot() { return { herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }; },
-    async swapPanes() { throw new Error("never asked"); },
-    async relocatePane() { throw new Error("never asked"); },
-  };
-  const herdr = new MultiServerClient({
-    local,
-    profiles: { list: () => [{ id: linkId, name: "Dev box", transport: "link", address: "http://127.0.0.1:1" }] },
-    remoteFactory: () => ({ async swapPanes() { throw new Error("never asked"); }, close() {} }),
-  });
-  const app = await startServer(herdr);
-  context.after(() => closeServer(app.server));
-  const headers = { "Content-Type": "application/json", "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl };
-  const pane = encodeURIComponent(`${linkId}!hs_x~wB:p1`);
-  for (const [action, body] of [["swap", { targetPaneId: `${linkId}!hs_x~wB:p2` }], ["relocate", { targetPaneId: `${linkId}!hs_x~wB:p2`, side: "left" }]]) {
-    const refused = await fetch(`${app.baseUrl}/api/panes/${pane}/${action}`, { method: "POST", headers, body: JSON.stringify(body) });
-    assert.equal(refused.status, 501, action);
-    assert.equal((await refused.json()).error.code, "link_unsupported");
-  }
-  // A herdr that cannot rearrange (an older client) is refused the same way.
-  const bare = await startServer({ async snapshot() { return { workspaces: [], tabs: [], panes: [] }; } });
-  context.after(() => closeServer(bare.server));
-  const old = await fetch(`${bare.baseUrl}/api/panes/w1%3Ap1/swap`, { method: "POST",
-    headers: { ...headers, Origin: bare.baseUrl }, body: JSON.stringify({ targetPaneId: "w1:p2" }) });
-  assert.equal(old.status, 501);
-});
-
 test("a pane moves out of its split session with write authorization, with or without a body", async (context) => {
   const calls = [];
   const herdr = {
@@ -1539,31 +1561,6 @@ test("a pane moves out of its split session with write authorization, with or wi
   assert.equal((await alone.json()).error.code, "split_session");
   assert.equal((await fetch(`${app.baseUrl}/api/panes/w1%3Ap2/move-out`)).status, 404, "a GET is no move");
   assert.deepEqual(calls, ["w1:p2", "w1:p2", "w1:p9"]);
-});
-
-test("a connected PC's pane is not moved out: only this machine's are", async (context) => {
-  const linkId = "link_11111111-1111-1111-1111-111111111111";
-  const moved = [];
-  const local = {
-    async snapshot() { return { herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }; },
-    async movePaneOut(id) { moved.push(id); return { pane_id: id, tab_id: "w1:t3" }; },
-  };
-  const herdr = new MultiServerClient({
-    local,
-    profiles: { list: () => [{ id: linkId, name: "Dev box", transport: "link", address: "http://127.0.0.1:1" }] },
-    remoteFactory: () => ({ async movePaneOut() { throw new Error("never asked"); }, close() {} }),
-  });
-  const app = await startServer(herdr);
-  context.after(() => closeServer(app.server));
-  const post = (pane) => fetch(`${app.baseUrl}/api/panes/${pane}/move-out`, {
-    method: "POST", headers: { "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl },
-  });
-  const refused = await post(encodeURIComponent(`${linkId}!hs_x~wB:p1`));
-  assert.equal(refused.status, 501);
-  assert.equal((await refused.json()).error.code, "link_unsupported");
-  const mine = await post("w1%3Ap1");
-  assert.equal(mine.status, 200);
-  assert.deepEqual(moved, ["w1:p1"]);
 });
 
 test("a split tab is evened out with write authorization, a layout it cannot even out still answering", async (context) => {
@@ -1597,28 +1594,3 @@ test("a split tab is evened out with write authorization, a layout it cannot eve
   assert.deepEqual(calls, ["w1:p2", "w1:p3", "w1:p9"]);
 });
 
-test("a connected PC's split tab is not evened out, and a herdr without it says so", async (context) => {
-  const linkId = "link_11111111-1111-1111-1111-111111111111";
-  const evened = [];
-  const local = {
-    async snapshot() { return { herdr_sessions: [], workspaces: [], tabs: [], panes: [], agents: [] }; },
-    async evenLayout(id) { evened.push(id); return { pane_id: id, changed: false, steps: 0, even: true }; },
-  };
-  const herdr = new MultiServerClient({
-    local,
-    profiles: { list: () => [{ id: linkId, name: "Dev box", transport: "link", address: "http://127.0.0.1:1" }] },
-    remoteFactory: () => ({ async evenLayout() { throw new Error("never asked"); }, close() {} }),
-  });
-  const app = await startServer(herdr);
-  context.after(() => closeServer(app.server));
-  const headers = { "X-Herdr-CSRF": "fixed-test-token", Origin: app.baseUrl };
-  const refused = await fetch(`${app.baseUrl}/api/panes/${encodeURIComponent(`${linkId}!hs_x~wB:p1`)}/even-layout`, { method: "POST", headers });
-  assert.equal(refused.status, 501);
-  assert.equal((await refused.json()).error.code, "link_unsupported");
-  assert.equal((await fetch(`${app.baseUrl}/api/panes/w1%3Ap1/even-layout`, { method: "POST", headers })).status, 200);
-  assert.deepEqual(evened, ["w1:p1"]);
-  const bare = await startServer({ async snapshot() { return { workspaces: [], tabs: [], panes: [] }; } });
-  context.after(() => closeServer(bare.server));
-  const old = await fetch(`${bare.baseUrl}/api/panes/w1%3Ap1/even-layout`, { method: "POST", headers: { ...headers, Origin: bare.baseUrl } });
-  assert.equal(old.status, 501);
-});

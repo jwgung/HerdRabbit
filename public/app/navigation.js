@@ -23,7 +23,7 @@ export function createNavigation(deps) {
     api, refreshSnapshot, setFeedback, snapshotRecords, selectedRecords, renderPaneHeading,
     agentForPane, visibleStatusForPane, adoptMutationSnapshot, saveComposerDraft, setViewSplit,
     showServerDetails, showAiAccounts, openConnectPc, openNewProject, herdrSessionForServer, sidebarActionMenu, renameForm, serverRenameForm, attachGroupCollapse,
-    workspaceHeading, paneButton, closeSession, isLocalRecord, splitSessionName, splitPaneRow,
+    workspaceHeading, paneButton, closeSession, canLayOut, splitSessionName, splitPaneRow,
     splitDisclosureButton, splitSessionButton, evenOutLayout, separateSplitSession,
   } = deps;
 
@@ -273,7 +273,7 @@ export function createNavigation(deps) {
           tabGroup.classList.toggle("is-expanded", !paneList.hidden);
           // Each pane says its own name: the session's name is on the row. On
           // this machine each has its own ⋯ with the grid cell's actions.
-          const local = isLocalRecord(tabPanes[0]);
+          const local = canLayOut(tabPanes[0]);
           for (const pane of tabPanes) paneList.append(splitPaneRow(pane, tab, workspace, local));
           sessionRow.classList.add("split-session-row");
           if (editingTab) {
@@ -324,7 +324,7 @@ export function createNavigation(deps) {
             // Gives the panes equal shares of the session, and undoes the
             // split: each pane but the first becomes a session of its own.
             // This machine's only, as the grid's actions are.
-            ...(split && isLocalRecord(tabPanes[0]) ? [{
+            ...(split && canLayOut(tabPanes[0]) ? [{
               key: "even-layout",
               label: "Even out layout",
               paths: deps.EVEN_ICON,
