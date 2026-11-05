@@ -31,6 +31,12 @@ import { createElement, createIcon } from "./dom.js?v=1.4.41";
 // - `onShown(listing)`: a folder is now the one on show (`/api/browse`'s answer).
 // - `showPath(path)`: how the path field writes the folder on show (the picker
 //   writes the home folder as `~`, as its Folder field does).
+// - `pathField`: false leaves out the path field and ↑ (`root` need not hold
+//   them): the folder picker's own Folder input is the one path on show, and
+//   completes as this one would (`attachPathCompletion`).
+// - `onPick(path)`: with folders only, a click on a folder's row chooses it
+//   (the row is marked selected and this is called) instead of going into
+//   it; its arrow still opens it in place. The folder picker of a dialog.
 //
 // Entries are listed as the server gives them: hidden ones too, a broken link
 // and a sign-in folder (locked) named but not opened. Folders only leaves out
@@ -104,12 +110,15 @@ export function createFolderTree(root, {
   onNavigate = () => {},
   onShown = () => {},
   showPath = (path) => path,
+  pathField = true,
+  onPick = null,
 }) {
   const tree = root.querySelector(".browse-tree");
   const feedback = root.querySelector(".file-feedback");
-  const pathInput = root.querySelector(".file-path");
-  const up = root.querySelector(".file-up");
-  const suggestions = root.querySelector(".file-suggestions");
+  const pathInput = pathField ? root.querySelector(".file-path") : null;
+  const up = pathField ? root.querySelector(".file-up") : null;
+  const suggestions = pathField ? root.querySelector(".file-suggestions") : null;
+  const picks = foldersOnly && typeof onPick === "function";
 
   // Only folders that were opened have been fetched, so the tree keeps a
   // listing per visited path rather than one nested structure.
@@ -223,7 +232,7 @@ export function createFolderTree(root, {
     if (!entry.removed) {
       // Expanding shows a folder in place; this re-roots the tree there, so a deep
       // path stops costing a column of indentation. In folders only, a click on
-      // the row already does that.
+      // the row already does that (or chooses it, for a picker).
       if (isOpenableFolder(entry) && !foldersOnly) {
         actions.append(actionButton({
           label: `Open ${entry.name} as the root`,
@@ -239,13 +248,17 @@ export function createFolderTree(root, {
       // editor sidebar behaves, rather than making people hit the small chevron.
       element.dataset.selected = String(view.selected === entry.path);
       element.addEventListener("click", () => {
-        if (foldersOnly && isOpenableFolder(entry)) {
+        if (foldersOnly && !picks && isOpenableFolder(entry)) {
           void navigate(entry.path);
           return;
         }
         view.selected = entry.path;
         for (const other of tree.querySelectorAll(".browse-row")) other.dataset.selected = "false";
         element.dataset.selected = "true";
+        if (picks) {
+          if (isOpenableFolder(entry)) onPick(entry.path);
+          return;
+        }
         if (isOpenableFolder(entry)) void toggleBrowseFolder(entry.path);
       });
     }
@@ -283,8 +296,8 @@ export function createFolderTree(root, {
   }
 
   function render() {
-    if (document.activeElement !== pathInput) pathInput.value = view.root ? showPath(view.root) : "";
-    up.disabled = !parentDirectory(view.root);
+    if (pathInput && document.activeElement !== pathInput) pathInput.value = view.root ? showPath(view.root) : "";
+    if (up) up.disabled = !parentDirectory(view.root);
 
     const rows = flattenTree(view.root, view.loaded, view.expanded);
     tree.replaceChildren();
@@ -529,13 +542,13 @@ export function createFolderTree(root, {
 
   // Forgets every folder: the machine is about to change.
   function clear() {
-    hideSuggestions();
+    completion?.reset();
     view.root = null;
+    view.selected = null;
     stopDiffTimer();
     view.addedPaths.clear();
     view.loaded.clear();
     view.expanded.clear();
-    completion.entries = [];
   }
 
   // The root's entry called `name`, or null. A folder listed only in part may
@@ -552,40 +565,72 @@ export function createFolderTree(root, {
     return entry ?? null;
   }
 
-  // Selects the row at `path`, scrolled into view and focused; null selects none.
-  function select(path) {
+  // Selects the row at `path`, scrolled into view and focused (unless `focus`
+  // is false: a picker leaves the keys in its Folder input); null selects none.
+  function select(path, { focus = true } = {}) {
     view.selected = path;
     render();
     if (!path) return;
     const element = rowElement(path);
-    element?.scrollIntoView({ block: "center" });
-    element?.focus({ preventScroll: true });
+    element?.scrollIntoView({ block: focus ? "center" : "nearest" });
+    if (focus) element?.focus({ preventScroll: true });
   }
 
-  up.addEventListener("click", () => {
+  up?.addEventListener("click", () => {
     const parent = parentDirectory(view.root);
     if (parent) void navigate(parent);
   });
 
+  // The path field completes from the folder typed so far, and a pick or
+  // Enter goes there.
+  const completion = pathInput ? attachPathCompletion(pathInput, suggestions, {
+    suggest: async (folder, prefix) => (await fetchListing(folder, prefix)).entries,
+    showPath,
+    onPick: (path) => void navigate(path),
+    onEnter: (typed) => void navigate(typed),
+  }) : null;
+
+
+  return {
+    open,
+    refresh,
+    clear,
+    locate,
+    select,
+    say,
+    get root() { return view.root; },
+    get busy() { return view.busy; },
+  };
+}
+
+// A path field's completion: typing `/…` or `~/…` lists the folders in the
+// folder typed so far that start with the rest, under the field (`list`, a
+// listbox), to pick with a click, or the arrows and Enter. `suggest(folder,
+// prefix)` resolves with that folder's entries (the server does the prefix
+// match); `onPick(path)` is told the folder picked, already written in the
+// field with `showPath`; `onEnter(typed)`, when given, is told an Enter with
+// nothing picked, which it then owns (else Enter is left to the form).
+// The Files tab's path field and a folder picker's Folder input both use it.
+export function attachPathCompletion(input, list, { suggest, showPath = (path) => path, onPick = () => {}, onEnter = null }) {
   const completion = { entries: [], active: -1, timer: null };
 
   function hideSuggestions() {
     // Cancel the pending lookup too, or it reopens the list a moment later.
     window.clearTimeout(completion.timer);
     completion.active = -1;
-    suggestions.hidden = true;
-    suggestions.replaceChildren();
-    pathInput.setAttribute("aria-expanded", "false");
+    list.hidden = true;
+    list.replaceChildren();
+    input.setAttribute("aria-expanded", "false");
   }
 
   function applySuggestion(value) {
-    pathInput.value = showPath(value);
+    input.value = showPath(value);
     hideSuggestions();
-    void navigate(value);
+    onPick(value);
   }
 
   function renderSuggestions(matches) {
-    suggestions.replaceChildren();
+    list.replaceChildren();
     if (matches.length === 0) {
       hideSuggestions();
       return;
@@ -600,14 +645,14 @@ export function createFolderTree(root, {
         event.preventDefault();
         applySuggestion(entry.path);
       });
-      suggestions.append(item);
+      list.append(item);
     });
-    suggestions.hidden = false;
-    pathInput.setAttribute("aria-expanded", "true");
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
   }
 
   async function updateCompletion() {
-    const typed = pathInput.value;
+    const typed = input.value;
     // `~/…` completes too: the server reads `~` as that machine's home.
     if (!typed.startsWith("/") && !typed.startsWith("~/")) {
       hideSuggestions();
@@ -620,28 +665,34 @@ export function createFolderTree(root, {
     // The server does the prefix match: a folder like /tmp can hold thousands of
     // entries, and filtering here would only see whatever survived the limit.
     try {
-      const listing = await fetchListing(folder, prefix);
+      const entries = await suggest(folder, prefix);
       // Typing moves on while the request is in flight; a reply the caret has
       // already left behind would otherwise replace the newer list.
-      if (pathInput.value !== typed) return;
-      completion.entries = listing.entries.filter((entry) => entry.kind === "directory");
+      if (input.value !== typed) return;
+      completion.entries = entries.filter((entry) => entry.kind === "directory");
     } catch {
-      if (pathInput.value !== typed) return;
+      if (input.value !== typed) return;
       completion.entries = [];
     }
     completion.active = -1;
+    // A field left while the listing was on its way does not open a list
+    // over whatever was pressed next.
+    if (document.activeElement !== input) {
+      hideSuggestions();
+      return;
+    }
     renderSuggestions(completion.entries.slice(0, 12));
   }
 
-  pathInput.addEventListener("input", () => {
+  input.addEventListener("input", () => {
     // A short wait keeps a fast typist from firing one listing per keystroke.
     window.clearTimeout(completion.timer);
     completion.timer = window.setTimeout(() => void updateCompletion(), 150);
   });
 
-  pathInput.addEventListener("keydown", (event) => {
-    const items = [...suggestions.children];
-    if (event.key === "Escape" && !suggestions.hidden) {
+  input.addEventListener("keydown", (event) => {
+    const items = [...list.children];
+    if (event.key === "Escape" && !list.hidden) {
       // Handled: whatever is around the field (a picker) leaves this Escape be.
       event.preventDefault();
       hideSuggestions();
@@ -655,28 +706,28 @@ export function createFolderTree(root, {
       return;
     }
     if (event.key === "Enter") {
-      event.preventDefault();
       const chosen = items[completion.active];
       if (chosen) {
+        event.preventDefault();
         const match = completion.entries.find((entry) => entry.name === chosen.textContent);
-        applySuggestion(match ? match.path : pathInput.value);
+        applySuggestion(match ? match.path : input.value);
         return;
       }
       hideSuggestions();
-      void navigate(pathInput.value);
+      if (onEnter) {
+        event.preventDefault();
+        onEnter(input.value);
+      }
     }
   });
 
-  pathInput.addEventListener("blur", () => window.setTimeout(hideSuggestions, 120));
+  input.addEventListener("blur", () => window.setTimeout(hideSuggestions, 120));
 
   return {
-    open,
-    refresh,
-    clear,
-    locate,
-    select,
-    say,
-    get root() { return view.root; },
-    get busy() { return view.busy; },
+    // Forgets what was listed: the machine is about to change.
+    reset() {
+      hideSuggestions();
+      completion.entries = [];
+    },
   };
 }

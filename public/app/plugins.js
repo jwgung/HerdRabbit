@@ -26,7 +26,7 @@ const POLL_MS = 1_500;
 // of that pane's workspace, then shown), Logs… (its last command logs) and,
 // for a plugin linked from a folder, Unlink… in place of Uninstall….
 // Link local folder… links a plugin folder on the machine, picked with the
-// Folder field's Browse… (folder-field.js). HerdRabbit's own actions and
+// Folder field (folder-field.js): typed, or chosen from its tree. HerdRabbit's own actions and
 // panes are not offered (the server neither lists nor runs them).
 export function createPluginsPage({
   api, snapshotRecords, sidebarActionMenu, appUpdates = null, openUpdates = () => {},

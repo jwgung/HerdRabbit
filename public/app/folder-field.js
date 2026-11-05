@@ -1,4 +1,5 @@
-import { browseUrl, createFolderTree } from "./folder-tree.js?v=1.4.41";
+import { parentDirectory } from "../ui-model.js?v=1.4.41";
+import { attachPathCompletion, browseUrl, createFolderTree } from "./folder-tree.js?v=1.4.41";
 
 const IDLE_POLL_MS = 50;
 
@@ -14,6 +15,14 @@ export function shownFolder(path, home) {
   return path.startsWith(prefix) ? `~/${path.slice(prefix.length)}` : path;
 }
 
+// The full path of a folder written from `~`, once the home is known; any
+// other is returned as it is.
+export function fullFolder(path, home) {
+  if (typeof path !== "string" || !home) return path;
+  if (path === "~") return home;
+  return path.startsWith("~/") ? `${home.endsWith("/") ? home.slice(0, -1) : home}/${path.slice(2)}` : path;
+}
+
 // The first of a workspace's panes, in Herdr's order, that is in a folder: the
 // same rule the server's projectFolder uses (src/project-folder.mjs).
 export function workspaceFolder(panes, workspaceId) {
@@ -25,27 +34,31 @@ export function workspaceFolder(panes, workspaceId) {
   return null;
 }
 
-// The Folder row of the New workspace and New tab dialogs: a path on the
-// machine the dialog is for, typed or chosen with Browse…, which opens the
-// Files tab's tree (folder-tree.js) for that machine in folders only: a folder
-// is gone into with a click, ↑ and the path field are the Files tab's, and Use
-// this folder takes the one on show. The folder shown is the one sent
-// (`value()`), so what opens is where the dialog said, not where Herdr's
-// new_cwd setting would put it. Only a connected PC too old to open folders,
-// left as the dialog opened (`asOpened()`), makes it as before.
-// `onChange` is told when the folder shown changes by typing or by Use this
-// folder (not by `reset`), for a dialog that depends on it.
-// `root` holds the input, the Browse… button and the picker's markup (a
-// folder tree's parts, Close and Use this folder).
+// The Folder row of the New workspace, New tab and Link local folder dialogs:
+// a path on the machine the dialog is for, typed (it completes as the Files
+// tab's path field does) or chosen from the tree that ▾ opens under it. The
+// tree is the Files tab's (folder-tree.js) for that machine, in folders only
+// and without its own path field and ↑: the Folder input is the one path on
+// show. It opens on the folder's parent with the folder marked, so its
+// neighbours are a click away too. A click on a folder's row chooses it (the
+// Folder input takes it, and `onChange` is told); its arrow opens it in place
+// to go deeper. ▾ again, Escape, or a click anywhere outside the row and the
+// tree closes it.
+// The folder shown is the one sent (`value()`), so what opens is where the
+// dialog said, not where Herdr's new_cwd setting would put it. Only a
+// connected PC too old to open folders, left as the dialog opened
+// (`asOpened()`), makes it as before.
+// `onChange` is told when the folder shown changes by typing or by a choice
+// (not by `reset`), for a dialog that depends on it.
+// `root` holds the input, the ▾ button, the input's completion list and the
+// picker's markup (a folder tree's rows and status line).
 
 export function createFolderField(root, { api, onChange = () => {} }) {
   const input = root.querySelector(".folder-row input");
   const browse = root.querySelector(".folder-browse");
+  const suggestions = root.querySelector(".folder-row .file-suggestions");
   const picker = root.querySelector(".folder-picker");
   const rows = picker.querySelector(".browse-tree");
-  const status = picker.querySelector(".file-feedback");
-  const close = picker.querySelector(".folder-close");
-  const choose = picker.querySelector(".folder-choose");
 
   let serverId = "local";
   // What the input opened with.
@@ -53,16 +66,33 @@ export function createFolderField(root, { api, onChange = () => {} }) {
   // Which opening of the picker is the latest.
   let opened = 0;
 
-  // Its own tree: the sidebar's folder and machine are not this dialog's. A
-  // folder gone into redraws the rows, the one pressed with them: Use this
-  // folder takes the keys then, so Escape stays the picker's.
+  // A folder written in the input, as the person reads it.
+  async function take(folder) {
+    const server = serverId;
+    const mine = opened;
+    const home = await homeOf(server);
+    if (mine !== opened || server !== serverId) return;
+    input.value = shownFolder(folder, home);
+    onChange();
+  }
+
+  // Its own tree: the sidebar's folder and machine are not this dialog's.
   const tree = createFolderTree(picker, {
     request: (url) => api(url),
     server: () => serverId,
     foldersOnly: true,
+    pathField: false,
+    onPick: (folder) => void take(folder),
+  });
+
+  // The input completes from the folder typed so far; a pick is the folder
+  // chosen, and the tree, when open, moves to it.
+  const completion = attachPathCompletion(input, suggestions, {
+    suggest: async (folder, prefix) => (await api(browseUrl(serverId, folder, prefix))).entries ?? [],
     showPath: (path) => shownFolder(path, homes.get(serverId)),
-    onShown: () => {
-      if (!picker.contains(document.activeElement)) choose.focus({ preventScroll: true });
+    onPick: (folder) => {
+      onChange();
+      if (!picker.hidden) void showIn(++opened, folder);
     },
   });
 
@@ -81,6 +111,7 @@ export function createFolderField(root, { api, onChange = () => {} }) {
   function reset({ serverId: server = "local", folder = null } = {}) {
     serverId = server;
     closePicker();
+    completion.reset();
     const home = homes.get(server);
     initial = folder ? shownFolder(folder, home) : "~";
     input.value = initial;
@@ -114,8 +145,38 @@ export function createFolderField(root, { api, onChange = () => {} }) {
     return true;
   }
 
-  // The folder in the input, or the home folder when it is not there (yet).
-  async function openPicker() {
+  // The tree on `folder`'s parent with `folder` marked; the home folder (or a
+  // folder with no parent) is shown itself. A folder that is not there shows
+  // the home folder, and says so.
+  async function showIn(mine, folder) {
+    tree.clear();
+    rows.replaceChildren();
+    if (!await idle(mine)) return;
+    const home = await homeOf(serverId);
+    if (mine !== opened) return;
+    const full = fullFolder(folder, home);
+    const parent = full !== home ? parentDirectory(full) : null;
+    let shown = await tree.open(parent ?? full);
+    if (mine !== opened) return;
+    if (shown && parent) {
+      const name = full.replace(/\/+$/u, "").slice(parent.length).replace(/^\//u, "");
+      const entry = await tree.locate(name);
+      if (mine !== opened) return;
+      if (entry) tree.select(entry.path, { focus: false });
+      else {
+        // the parent is there and the folder is not
+        shown = false;
+        tree.say(`There is no folder ${shownFolder(full, home)}.`, true);
+      }
+    }
+    if (mine !== opened) return;
+    if (!shown && folder !== "~") {
+      const why = picker.querySelector(".file-feedback").textContent;
+      if (await tree.open("~") && mine === opened) tree.say(`${why} Showing the home folder.`, true);
+    }
+  }
+
+  function openPicker() {
     if (!picker.hidden) {
       closePicker();
       return;
@@ -123,21 +184,7 @@ export function createFolderField(root, { api, onChange = () => {} }) {
     const mine = ++opened;
     picker.hidden = false;
     browse.setAttribute("aria-expanded", "true");
-    tree.clear();
-    rows.replaceChildren();
-    const target = input.value.trim() || "~";
-    if (!await idle(mine)) return;
-    // the path field writes the home folder as ~ once it is known
-    await homeOf(serverId);
-    if (mine !== opened) return;
-    let shown = await tree.open(target);
-    if (mine !== opened) return;
-    if (!shown && target !== "~") {
-      const why = status.textContent;
-      shown = await tree.open("~");
-      if (mine !== opened) return;
-      if (shown) tree.say(`${why} Showing the home folder.`, true);
-    }
+    void showIn(mine, input.value.trim() || "~");
   }
 
   function closePicker() {
@@ -148,46 +195,35 @@ export function createFolderField(root, { api, onChange = () => {} }) {
   }
 
   browse.setAttribute("aria-expanded", "false");
-  browse.addEventListener("click", () => void openPicker());
-  close.addEventListener("click", () => {
-    closePicker();
-    browse.focus();
-  });
-  choose.addEventListener("click", async () => {
-    const folder = tree.root;
-    if (!folder) return;
-    const server = serverId;
-    const mine = opened;
-    const home = await homeOf(server);
-    if (mine !== opened || server !== serverId) return;
-    input.value = shownFolder(folder, home);
-    closePicker();
-    input.focus();
-    onChange();
-  });
+  browse.addEventListener("click", () => openPicker());
   input.addEventListener("input", () => onChange());
-  // Escape closes the picker, not the dialog around it; one the path field's
+  // A click anywhere but the row and the tree closes the tree. On the click,
+  // not the press: closing it moves what is under it up, and a press that did
+  // so would see its click land on whatever moved there (Start, say).
+  root.ownerDocument.addEventListener("click", (event) => {
+    if (!picker.hidden && !root.contains(event.target)) closePicker();
+  });
+  // Escape closes the picker, not the dialog around it; one the completion
   // list took is left alone.
-  picker.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || event.defaultPrevented) return;
+  root.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented || picker.hidden) return;
     event.preventDefault();
     event.stopPropagation();
     closePicker();
     browse.focus();
   });
 
-  // Whether the whole row is shown (a resumed conversation keeps its folder).
-  function setHidden(hidden) {
-    if (hidden) closePicker();
-    root.hidden = hidden;
-  }
-
-  // The input and Browse… while a create is under way; the picker closes.
+  // The input and ▾ while a create is under way; the picker closes.
   function setDisabled(disabled) {
     if (disabled) closePicker();
     input.disabled = disabled;
     browse.disabled = disabled;
   }
 
-  return { reset, value, asOpened, setHidden, setDisabled, close: closePicker };
+  // A full path on this machine as the Folder input would write it.
+  function show(path) {
+    return shownFolder(path, homes.get(serverId));
+  }
+
+  return { reset, value, asOpened, show, setDisabled, close: closePicker };
 }

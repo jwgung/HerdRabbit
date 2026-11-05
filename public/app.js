@@ -1181,7 +1181,14 @@ const { open: openNewSession } = createSessionDialog({
   snapshotRecords: (...args) => snapshotRecords(...args),
   createSession,
   agentMark: (...args) => agentMark(...args),
+  herdrSessionForServer: (...args) => herdrSessionForServer(...args),
+  adoptMutationSnapshot: (...args) => adoptMutationSnapshot(...args),
+  closeMobileSidebar: (...args) => closeMobileSidebar(...args),
+  refreshSnapshot: (...args) => refreshSnapshot(...args),
+  setFeedback: (...args) => setFeedback(...args),
 });
+// The + at the top of the sidebar: New tab where the person is looking.
+document.querySelector("#new-tab-open").addEventListener("click", () => openNewSession());
 const worktreeDialogs = createWorktreeDialogs({
   state,
   agentMark: (...args) => agentMark(...args),
