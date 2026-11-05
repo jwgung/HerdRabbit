@@ -39,15 +39,7 @@ To set or change the password: `herdr plugin pane open --plugin herdrabbit --ent
 
 With HerdRabbit on several PCs, one PC's page can show the others' sessions too. If PC **A** should show PC **B**:
 
-**On B**, open its Connect PC port to A (it is closed until you do):
-
-```bash
-cd "$(herdr plugin config-dir herdrabbit)"
-printf '\n%s\n' "HERDR_WEB_PEER_HOST=$(tailscale ip -4)" "HERDR_WEB_PEER_ADDRESSES=<A's tailnet address>" >> .env
-herdr plugin action invoke herdrabbit.restart
-```
-
-A's tailnet address is what `tailscale ip -4` prints on A, or A's row in `tailscale status`. Allow more PCs by separating their addresses with commas.
+**On B**, let A in: on B's page open **⚙ Settings → PCs → Let other PCs connect → Choose PCs…**, tick A, enter B's password and **Save**. HerdRabbit restarts on B to open its Connect PC port. This needs a password set on B; without one, or from a terminal, see [the guide](docs/guide.md#other-pcs-running-herdrabbit-connect-pc).
 
 **On A**, open the `⋯` menu of this PC's row in the sidebar, choose **Connect PC…**, pick B (marked **Ready**), **Test connection**, then **Save**.
 
@@ -65,7 +57,7 @@ HerdRabbit's settings live in the plugin's `.env` file: `herdr plugin config-dir
 
 - **The page does not open:** check `tailscale serve status` and `herdr plugin action invoke herdrabbit.status`. See [Troubleshooting](docs/guide.md#troubleshooting).
 - **Forgot the password:** set a new one with the password pane above.
-- **B is not in Connect PC's list, only counted under "other PCs with nothing to connect to":** B's Connect PC port is not open. Do the B step above.
+- **B is not in Connect PC's list, only counted under "other PCs with nothing to connect to":** B's Connect PC port is not open. Do the B step above. If B is listed as not allowing this PC, tick A there.
 
 ## More
 

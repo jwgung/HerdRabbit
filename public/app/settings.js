@@ -9,6 +9,7 @@ import { herdrVersionText } from "../ui-model.js?v=1.4.37";
 import { createPluginsPage } from "./plugins.js?v=1.4.37";
 import { createHerdrSettingsPage } from "./herdr-settings.js?v=1.4.37";
 import { createUpdatesPage } from "./updates.js?v=1.4.37";
+import { createPcAccess } from "./pc-access.js?v=1.4.37";
 
 // What each "Open panes in" choice does, under the choice.
 const OPEN_PANES_IN_HINTS = Object.freeze({
@@ -270,6 +271,7 @@ export function createSettings(deps) {
     pluginsPage.sync({ visible: onScreen("plugins") });
     herdrPage.sync({ visible: onScreen("herdr") });
     updatesPage.sync({ visible: onScreen("updates") });
+    pcAccess.sync({ visible: onScreen("pcs") });
 
     const local = snapshotRecords().servers.find((server) => server.id === "local");
     appVersion.textContent = local?.version || "Unknown";
@@ -318,6 +320,8 @@ export function createSettings(deps) {
     },
   });
   const updatesPage = createUpdatesPage({ api, snapshotRecords, appUpdates: updatePanel, pluginsShown });
+  // PCs: whether other PCs may connect to this one, with sign-in on.
+  const pcAccess = createPcAccess({ api, shown: () => state.connectPcAccessAvailable === true && state.authRequired === true });
   // Herdr: its channel, integrations and config.toml, per machine; Herdr's
   // own update is a link to Updates.
   const herdrPage = createHerdrSettingsPage({ api, snapshotRecords, openUpdates: () => showPage("updates", { focus: true }) });
@@ -325,6 +329,7 @@ export function createSettings(deps) {
     pluginsPage.sync({ visible: false });
     herdrPage.sync({ visible: false });
     updatesPage.sync({ visible: false });
+    pcAccess.sync({ visible: false });
   });
 
   function supportsPushNotifications() {

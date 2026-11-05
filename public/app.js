@@ -280,6 +280,7 @@ const state = {
   pluginsAvailable: false,
   // Whether Settings → Herdr can change Herdr's settings (with sign-in on).
   herdrSettingsAvailable: false,
+  connectPcAccessAvailable: false,
   // Split tabs shown as a grid of their panes (tab id -> "grid"); any other
   // tab shows its selected pane alone.
   paneViews: new Map(),
@@ -1512,6 +1513,7 @@ async function initializeApplication() {
   state.connectPcAvailable = bootstrap.servers === true;
   state.pluginsAvailable = bootstrap.plugins === true;
   state.herdrSettingsAvailable = bootstrap.herdrSettings === true;
+  state.connectPcAccessAvailable = bootstrap.connectPcAccess === true;
   syncSettings();
   state.connectPc = bootstrap.connectPc && typeof bootstrap.connectPc.address === "string" ? bootstrap.connectPc : null;
   showApplication();

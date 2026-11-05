@@ -480,6 +480,15 @@
           </section>
 
           <section class="settings-page" data-page="pcs" aria-labelledby="settings-page-title" hidden>
+            <div id="settings-pc-access" class="settings-card" hidden>
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <span class="settings-row-label">Let other PCs connect</span>
+                  <p id="settings-pc-access-hint" class="settings-row-hint"></p>
+                </div>
+                <button id="settings-pc-access-change" class="secondary-button" type="button">Choose PCs…</button>
+              </div>
+            </div>
             <p class="settings-row-hint">Other PCs running HerdRabbit that this one connects to.</p>
             <ul id="settings-pc-list" class="settings-pc-list settings-card" role="list" aria-label="Connected PCs"></ul>
             <div class="settings-page-actions">
@@ -1054,6 +1063,28 @@
           <button id="update-check" class="secondary-button" type="button">Check</button>
         </div>
       </div>
+    </dialog>
+
+    <dialog id="pc-access-dialog" class="app-dialog pc-access-dialog" aria-labelledby="pc-access-title">
+      <form id="pc-access-form" class="dialog-form">
+        <div class="dialog-heading">
+          <h2 id="pc-access-title">Let other PCs connect</h2>
+          <p>The PCs you tick can show this PC's sessions on their own HerdRabbit page, without this PC's password. Tick none to close the port. HerdRabbit restarts to take it up.</p>
+        </div>
+        <fieldset class="pc-access-choices">
+          <legend>Devices on your tailnet</legend>
+          <ul id="pc-access-list" class="pc-access-list" role="list"></ul>
+        </fieldset>
+        <div class="server-field">
+          <label for="pc-access-password">Password</label>
+          <input id="pc-access-password" type="password" maxlength="256" autocomplete="current-password" required />
+        </div>
+        <p id="pc-access-feedback" class="dialog-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="pc-access-cancel" class="secondary-button" type="button">Cancel</button>
+          <button id="pc-access-save" class="primary-button" type="submit">Save</button>
+        </div>
+      </form>
     </dialog>
 
     <dialog id="passkey-password-dialog" class="app-dialog" aria-labelledby="passkey-password-title">

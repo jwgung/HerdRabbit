@@ -6,7 +6,9 @@ import { createHerdrHttpServer } from "./http-server.mjs";
 import { loadPasswordAuth } from "./password-auth.mjs";
 import { PasskeyAuth } from "./passkey-auth.mjs";
 import { loadWebPushService } from "./web-push-service.mjs";
-import { hostname } from "node:os";
+import { spawn } from "node:child_process";
+import { homedir, hostname } from "node:os";
+import { join } from "node:path";
 import { readAppVersion } from "./app-version.mjs";
 import { serveLocked } from "./locked-server.mjs";
 import { FileStore } from "./file-store.mjs";
@@ -34,6 +36,8 @@ import { HerdrUpdater } from "./herdr-update.mjs";
 import { PluginManager } from "./herdr-plugins.mjs";
 import { PluginMarketplace } from "./plugin-marketplace.mjs";
 import { HerdrSettings } from "./herdr-settings.mjs";
+import { ConnectPcAccess } from "./connect-pc-access.mjs";
+import { HttpError } from "./http-basics.mjs";
 
 const config = readConfig();
 const leafWarning = legacyLeafWarning(config);
@@ -192,6 +196,23 @@ const attachments = new PaneAttachments({
   },
   spawnPty: routedSpawner(localPty),
 });
+// Settings → PCs → "Let other PCs connect": installed as a Herdr plugin, the
+// plugin's .env is changed and Herdr restarts the plugin to take it up. The
+// restart is handed to Herdr in a session of its own: it stops this server,
+// whose shutdown lets the answer already on its way finish first.
+const connectPcAccess = new ConnectPcAccess({
+  envFile: config.pluginId && config.pluginConfigDir ? join(config.pluginConfigDir, ".env") : null,
+  pagePort: config.port,
+  current: { host: config.peerHost, port: config.peerPort, addresses: config.peerAddresses, logins: config.peerLogins },
+  readTailnet: () => readTailnetPeers(),
+  restart: () => new Promise((resolve, reject) => {
+    const child = spawn(config.herdrBin, ["plugin", "action", "invoke", `${config.pluginId}.restart`], {
+      cwd: homedir(), detached: true, stdio: "ignore",
+    });
+    child.once("spawn", () => { child.unref(); resolve(); });
+    child.once("error", (error) => reject(new HttpError(502, "connect_pc_restart_failed", `Saved, but Herdr could not restart HerdRabbit (${error.code ?? error.message}). Run: herdr plugin action invoke ${config.pluginId}.restart`)));
+  }),
+});
 // Shown in this PC's Details: where other PCs connect, and how many may.
 const connectPc = config.peerHost
   ? { address: `http://${hostPort(config.peerHost, config.peerPort)}`, allowed: config.peerAddresses.length + config.peerLogins.length }
@@ -231,6 +252,7 @@ const { server } = createHerdrHttpServer({
   plugins,
   marketplace,
   herdrSettings,
+  connectPcAccess,
   installedAgents,
   agentSessions,
   maxBodyBytes: config.maxBodyBytes,

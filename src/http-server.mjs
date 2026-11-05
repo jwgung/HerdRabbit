@@ -527,6 +527,9 @@ export function createHerdrHttpServer({
   // Herdr's own settings on this PC (src/herdr-settings.mjs), or null. A
   // connected PC's go over its link.
   herdrSettings = null,
+  // This PC's Connect PC port as Settings → PCs opens and closes it
+  // (src/connect-pc-access.mjs), or null.
+  connectPcAccess = null,
   attachments = null,
   // How many Herdr SSH machines `herdr machine list` still names; those are
   // not shown any more, and the page says once how to bring those PCs back.
@@ -1157,6 +1160,28 @@ export function createHerdrHttpServer({
         return;
       }
 
+      // Settings → PCs → "Let other PCs connect": which tailnet devices may use
+      // this PC's Connect PC port. That port reaches this PC's sessions without
+      // a password, so this answers only with sign-in on, and a change asks
+      // for the password again, as adding a passkey does.
+      if (url.pathname === "/api/connect-pc/access") {
+        if (!connectPcAccess) throw new HttpError(404, "connect_pc_access_unavailable", "This PC cannot open its Connect PC port from here.");
+        if (!auth.required) {
+          throw new HttpError(409, "password_auth_required", "Other PCs can be let in only with sign-in on. Set a password for this HerdRabbit first.");
+        }
+        if (method === "GET") {
+          requireSameOrigin(request);
+          sendJson(response, 200, await connectPcAccess.state());
+          return;
+        }
+        if (method !== "POST") throw new HttpError(405, "method_not_allowed", "Method not allowed");
+        requireWriteAuthorization(request, csrfToken);
+        const body = await readJsonBody(request, maxBodyBytes);
+        await requirePasswordAgain(request, response, body.password);
+        sendJson(response, 200, await connectPcAccess.save({ open: body.open, addresses: body.addresses }));
+        return;
+      }
+
       if (url.pathname.startsWith("/api/browse")) {
         if (method === "GET" && url.pathname === "/api/browse") {
           // Same-origin only. Another site cannot read the reply, but it could
@@ -1356,6 +1381,7 @@ export function createHerdrHttpServer({
           // Whether Settings → Herdr can change Herdr's settings here (also
           // only with sign-in on).
           herdrSettings: Boolean(herdrSettings),
+          connectPcAccess: Boolean(connectPcAccess),
           // Bytes, or null when files may be any size.
           maxTransferBytes: Number.isFinite(maxTransferBytes) ? maxTransferBytes : null,
         });

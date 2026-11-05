@@ -2981,6 +2981,75 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   .worktree-choice:not(:has(input:checked, input:disabled)):hover { background: var(--hover-surface); }
 }
 
+/* Let other PCs connect: one row per tailnet device, its checkbox, its name
+   over its address, and Offline when it is. */
+.pc-access-dialog { width: min(480px, calc(100vw - 32px)); }
+
+.pc-access-choices { display: grid; min-width: 0; margin: 0; padding: 0; border: 0; }
+
+.pc-access-choices legend {
+  margin-bottom: var(--space-1-5);
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--font-sm);
+}
+
+.pc-access-list {
+  display: grid;
+  gap: var(--space-1-5);
+  max-height: min(320px, 45vh);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.dialog-form .pc-access-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  min-height: 44px;
+  padding: var(--space-1-5) var(--space-2-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.dialog-form .pc-access-choice input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.pc-access-choice-text { display: grid; min-width: 0; flex: 1 1 auto; gap: 1px; }
+
+.pc-access-choice-text strong,
+.pc-access-choice-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pc-access-choice-text strong { font-size: var(--font-md); }
+
+.pc-access-choice-text small { color: var(--muted); font-size: var(--font-xs); }
+
+.pc-access-choice:has(input:checked) {
+  border-color: var(--selected-border);
+  background: var(--selected-surface);
+}
+
+.pc-access-choice:has(input:disabled) { opacity: 0.6; cursor: default; }
+
+#settings-pc-access[hidden] { display: none; }
+
+#settings-pc-access-hint[data-error="true"] { color: var(--danger); }
+
 /* Folder, in the New workspace and New tab dialogs: the path and Browse…, and
    under them, once opened, the Files tab's tree in folders only, its path field
    and ↑, and Close and Use this folder. */
