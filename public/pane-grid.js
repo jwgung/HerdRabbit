@@ -225,7 +225,8 @@ function icon(path) {
 // as long as the grid is open (other screens on those panes see that size).
 // Without it a cell attaches with keepSize: it shows the pane at Herdr's size
 // and never resizes it, and the cells share the font their board fits.
-// `panes` given to show() are { paneId, label, status, statusIcon, statusText };
+// `panes` given to show() are { paneId, label, status, statusIcon, statusText }
+// (and `offline` for a pane whose machine is away: its cell attaches no terminal);
 // its `layout` is undefined while not read yet (the cells wait, unattached, so
 // none attaches only to let go once Herdr's sizes are known) and null when it
 // could not be read (the cells share an even grid and attach).
@@ -641,6 +642,16 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     const tiny = !roomy && !cell.focused;
     cell.node.classList.toggle("is-tiny", tiny);
     cell.roomy = roomy;
+    // A pane whose machine is away has no terminal to open: the cell says so
+    // and the rest of the grid carries on. It attaches again once the machine is back.
+    cell.node.classList.toggle("is-offline", cell.offline === true);
+    if (cell.offline === true) {
+      detach(cell);
+      cell.note.textContent = "This machine is offline. The pane returns when it reconnects.";
+      cell.note.hidden = false;
+      return;
+    }
+    if (cell.note.textContent.startsWith("This machine is offline")) cell.note.hidden = true;
     if (root.classList.contains("is-waiting") || cell.node.hidden || tiny) detach(cell);
     else attach(cell);
   }
@@ -797,7 +808,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
           more.setAttribute("aria-label", `More actions for ${pane.label}`);
           more.title = `More actions for ${pane.label}`;
         }
-        Object.assign(cell, { place, zoomed, focused });
+        Object.assign(cell, { place, zoomed, focused, offline: pane.offline === true });
         settle(cell);
       }
       board.append(...leaving);

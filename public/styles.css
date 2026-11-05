@@ -625,7 +625,7 @@ body.sidebar-collapsed .workspace-branch {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 34px;
+  min-height: var(--control-h-md);
   margin: calc(-1 * var(--space-4)) 0 calc(-1 * var(--space-2));
   padding: var(--space-4) 0 var(--space-2);
   background: var(--surface);
@@ -1036,90 +1036,39 @@ a.plugin-source:hover {
   white-space: nowrap;
 }
 
-/* "Update available" on a row the server marks, and HerdRabbit's "Updated
-   from Updates": each opens Settings → Updates. */
-.plugin-update-badge {
+/* "Update" beside a plugin the server marks behind, and beside HerdRabbit
+   when a newer release is out; "this app" beside HerdRabbit. */
+.plugin-update-badge,
+.plugin-app-badge {
   flex: none;
 }
 
-button.plugin-update-badge,
-.plugin-updates-link {
-  border: 0;
-  font: inherit;
-  cursor: pointer;
-}
-
-button.plugin-update-badge {
-  font-size: var(--font-2xs);
-}
-
-.plugin-updates-link {
-  padding: 0;
-  background: none;
-  color: var(--muted);
-  font-size: var(--font-sm);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.plugin-updates-link:hover {
-  color: var(--text);
-}
-
-/* Settings → Updates (public/app/updates.js): per machine, its name, a row
-   per update (as a plugin row), Update all and the line under them. The
-   rows' versions and runs read as HerdRabbit's row in Plugins did. */
-.updates-machines {
-  display: grid;
-  gap: var(--space-3);
-}
-
-/* A machine is a card: its name, its rows parted by lines, Update all and
-   the line under them. */
-.updates-machine {
-  overflow: hidden;
-}
-
-.updates-machine-name {
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--font-section);
-  font-weight: 700;
-}
-
-.updates-machine .plugin-rows {
-  border: 0;
-  border-top: 1px solid var(--line);
-  border-radius: 0;
-}
-
-.updates-empty,
-.updates-status {
-  margin: 0;
-  padding: 0 var(--space-4) var(--space-3);
-}
-
-.updates-machine-name + .updates-empty {
-  margin-top: calc(-1 * var(--space-2));
-}
-
-.updates-status:empty {
-  display: none;
-}
-
-.updates-status[data-error="true"] {
-  color: var(--danger);
-}
-
-.updates-actions {
-  display: flex;
-  justify-content: flex-end;
-  padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--line);
-}
-
-.updates-run,
-.updates-all {
+/* A row's own Update (a marked plugin, HerdRabbit) and Update all. */
+.plugin-update,
+.plugin-app-update,
+.plugins-update-all {
   white-space: nowrap;
+}
+
+/* On a narrow screen a plugin row with its own Update puts its controls
+   under its name, so the name is not cut down to a letter. */
+@media (max-width: 520px) {
+  .plugin-row:has(.plugin-update) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .plugin-row:has(.plugin-update) > .plugin-actions {
+    justify-self: end;
+  }
+}
+
+/* Installed or Browse on the left, Update all on the right. */
+.plugins-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
 }
 
 .plugin-update-line,
@@ -1403,7 +1352,7 @@ button.plugin-update-badge {
    scroll. */
 .plugins-browse-tools {
   position: sticky;
-  top: calc(34px + var(--space-2));
+  top: calc(var(--control-h-md) + var(--space-2));
   z-index: var(--layer-raised);
   display: flex;
   flex-wrap: wrap;
@@ -1547,32 +1496,91 @@ button.plugin-update-badge {
   white-space: nowrap;
 }
 
+/* An integration's mark sits before its name, centred on the line. */
+.herdr-integration .plugin-title {
+  align-items: center;
+}
+
+/* A program with no mark of its own: its first letters on a quiet tile. */
+.agent-monogram {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Settings → Herdr: Herdr's own row, its versions (or its run) under its
+   name, what is new folded below, and Update… which opens the Update window. */
+.herdr-update-line {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.herdr-update-notes > summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: var(--font-sm);
+}
+
+.herdr-update-notes-text {
+  margin: var(--space-1) 0 0;
+  color: var(--muted);
+  font-size: var(--font-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.herdr-update-actions {
+  display: flex;
+  flex: none;
+  gap: var(--space-2);
+}
+
+.herdr-update-actions button {
+  white-space: nowrap;
+}
+
 /* Touch: the controls are 44px targets, the editor's text 16px. */
 @media (hover: none), (pointer: coarse) {
   .herdr-integration-action,
   .herdr-config-actions button,
   [data-herdr-channel],
   [data-herdr-config-view],
-  #herdr-open-updates {
+  .herdr-update-actions button {
     min-height: 44px;
   }
 
-  .herdr-config-text {
+  /* The 44px rule for .ui-input in components.css has the specificity of
+     .dialog-form input (0,1,1), which would win over the 280px above. The
+     editor is repeated here with a selector that wins outright (0,2,0). */
+  .herdr-config-body .herdr-config-text {
+    min-height: 280px;
     font-size: var(--font-input-touch);
   }
 }
 
 /* Touch: the switch, the ⋯ menu and the machine picker are 44px targets. */
 @media (hover: none), (pointer: coarse) {
+  /* The heading's Back button is drawn 44px here, so the tools stick below that. */
+  .plugins-browse-tools {
+    top: calc(var(--control-h-touch) + var(--space-2));
+  }
+
   .plugin-switch,
   .plugin-actions .workspace-action,
   .plugins-machine,
   #plugin-details-workspace,
   #plugins-install,
-  .updates-run,
-  .updates-all,
-  #updates-check,
-  .plugin-updates-link,
+  .plugin-update,
+  .plugin-app-update,
+  .plugins-update-all,
+  #plugins-check,
   .market-install,
   .plugins-more,
   #plugins-link,
@@ -2312,15 +2320,23 @@ body.sidebar-collapsed .split-session-button .pane-status {
 /* The composer's text size -- the lens in view: the terminal's, or the chat's
    in the Chat lens -- and its row height. Set on the page, not the composer,
    so the sidebar's footer can take the same row (.navigator .navigator-footer).
-   The row is the text box's own height: one line, its padding (12px twice)
-   and its border (1px twice), so the buttons beside it are as tall. */
+   The row is the text box's one-line height: the buttons' 44px whatever the
+   text size, the line centred in it, so a larger text only takes room from
+   the padding. A line too tall for that (with 2px above and below) grows it. */
 body {
   --composer-font-size: var(--terminal-font-size);
-  --composer-row-height: max(44px, calc(var(--composer-font-size) * 1.5 + 26px));
+  --composer-row-height: max(44px, calc(var(--composer-font-size) * 1.5 + 6px));
 }
 
 body:has(.terminal-panel[data-lens="chat"]) {
   --composer-font-size: var(--chat-font-size, var(--terminal-font-size));
+  /* The chat's last answer gets a little more room above the composer than
+     the panel's own gap; the sidebar's footer grows by the same. */
+  --composer-gap: var(--space-5);
+}
+
+.terminal-panel[data-lens="chat"] > .input-form {
+  margin-top: calc(var(--composer-gap) - var(--space-3));
 }
 
 .input-composer {
@@ -2381,7 +2397,9 @@ body:has(.terminal-panel[data-lens="chat"]) {
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
-  padding: var(--space-3) var(--space-3);
+  /* One line is 44px tall at any text size, like the buttons beside it (see
+     --composer-row-height): the padding gives way as the letters grow. */
+  padding: max(var(--space-0-5), calc((44px - 2px - var(--composer-font-size) * 1.5) / 2)) var(--space-3);
   background: var(--surface);
   color: var(--input-text);
   font-size: var(--composer-font-size);
@@ -2422,13 +2440,16 @@ body:has(.terminal-panel[data-lens="chat"]) {
   color: var(--danger);
 }
 
+/* One size whatever the text size: the text box grows with its letters, and
+   the buttons stay a 44px square at its bottom edge (.input-composer aligns to
+   the end), as they do once it grows to several lines. */
 .send-button,
 .attach-button,
 .dictate-button {
-  width: 44px;
-  min-width: 44px;
-  height: var(--composer-row-height);
-  min-height: var(--composer-row-height);
+  width: var(--control-h-touch);
+  min-width: var(--control-h-touch);
+  height: var(--control-h-touch);
+  min-height: var(--control-h-touch);
   display: inline-grid;
   flex: 0 0 44px;
   place-items: center;
@@ -2695,58 +2716,6 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 /* minmax(0, …) so a row of tabs never widens the dialog. */
 .ai-accounts-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 
-/* Tabs that do not fit wrap onto another line: a row that scrolled sideways
-   hid the last ones with nothing saying they were there. */
-.ai-accounts-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-0-5);
-  border-bottom: 1px solid var(--line);
-}
-
-.ai-accounts-tab {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1-5);
-  min-height: 36px;
-  margin-bottom: -1px;
-  padding: var(--space-1-5) var(--space-2-5);
-  border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: var(--font-md);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-/* Drawn inside the tab so it does not run over the tab beside or below. */
-.ai-accounts-tab:focus-visible { outline-offset: -2px; }
-
-@media (hover: hover) {
-  .ai-accounts-tab:not(:disabled):hover { background: var(--hover-surface); color: var(--text); }
-}
-
-.ai-accounts-tab[aria-selected="true"] {
-  border-bottom-color: var(--accent);
-  color: var(--text);
-  font-weight: 600;
-}
-
-.ai-accounts-tab .agent-icon { flex: none; }
-
-/* A CLI with an account in use: a dot beside its name; the tab's label says it in words. */
-.ai-accounts-tab-in-use {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
 .ai-cli { display: grid; gap: var(--space-1-5); }
 
 .ai-cli[hidden] { display: none; }
@@ -2841,16 +2810,16 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .ai-account-identity strong { font-size: var(--font-lg); }
 
-/* Touch: the tabs and + Add account are 44px tall boxes; a hit area drawn
-   outside them would be clipped by the list's border. */
+/* Touch: + Add account is a 44px tall box (the tabs are too, in
+   components.css); a hit area drawn outside it would be clipped by the list's
+   border. */
 @media (hover: none) {
-  .ai-accounts-tab, .ai-account-add { min-height: 44px; }
+  .ai-account-add { min-height: 44px; }
 }
 
-/* New session and New project: the Agent is a set of choices, each with its
-   program's mark. The radio button itself is invisible and covers its choice,
-   so a click or a tap anywhere on it chooses, and the keys move as in any
-   radio group. */
+/* New tab, New workspace and New worktree: the Agent is a one-row tab strip
+   (.ui-tab-strip, public/app/agent-picker.js), each tab its program's mark
+   and name; too many scroll sideways rather than wrap. */
 .agent-picker { display: grid; min-width: 0; margin: 0; padding: 0; border: 0; }
 
 .agent-picker legend {
@@ -2860,24 +2829,68 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   font-size: var(--font-sm);
 }
 
-.agent-choices { display: flex; flex-wrap: wrap; gap: var(--space-1-5); }
+.agent-choices { min-width: 0; }
 
-.dialog-form .agent-choice {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1-5);
-  min-height: 36px;
-  padding: var(--space-1-5) var(--space-2-5);
+.agent-choices .agent-icon { flex: none; }
+
+.agent-picker:disabled .ui-tab { opacity: 0.6; cursor: default; }
+
+/* New tab: wider than other dialogs, so more of the agent strip shows. */
+#session-dialog { width: min(480px, calc(100vw - 32px)); }
+
+/* Machine and Workspace side by side, each half the row. */
+.session-place {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.session-place-field,
+.session-new-workspace { display: grid; gap: var(--space-1-5); min-width: 0; }
+
+.session-new-workspace[hidden] { display: none; }
+
+.dialog-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-sm);
+}
+
+.dialog-hint:empty { display: none; }
+
+.dialog-hint[data-error="true"] { color: var(--danger); }
+
+/* The chosen agent's earlier conversations, under its tab: one card of radio
+   rows, Start new conversation first. The radio button itself is invisible
+   and covers its row, so a click or a tap anywhere on it chooses; a drawn
+   circle shows the choice, and the chosen row has the selection surface. */
+.conversation-panel { display: grid; gap: var(--space-1-5); min-width: 0; margin-top: calc(var(--space-1) * -1); }
+
+.conversation-list {
+  display: grid;
+  max-height: min(240px, 35dvh);
+  overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
-  background: var(--surface-raised);
+}
+
+.conversation-list[hidden] { display: none; }
+
+.dialog-form .conversation-choice {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  min-height: 40px;
+  padding: var(--space-1-5) var(--space-3);
   color: var(--text);
   font-size: var(--font-md);
   cursor: pointer;
 }
 
-.dialog-form .agent-choice input {
+.conversation-choice + .conversation-choice { border-top: 1px solid var(--line); }
+
+.dialog-form .conversation-choice input {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -2890,25 +2903,59 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   cursor: inherit;
 }
 
-.agent-choice .agent-icon { flex: none; }
-
-.agent-choice:has(input:checked) {
-  border-color: var(--selected-border);
-  background: var(--selected-surface);
-  font-weight: 600;
+.conversation-radio {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--muted);
+  border-radius: 50%;
 }
 
-.agent-choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.conversation-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-.agent-choice:has(input:disabled) { opacity: 0.6; cursor: default; }
+.conversation-when { flex: none; color: var(--muted); font-size: var(--font-sm); }
+
+.conversation-choice:has(input:checked) {
+  background: var(--selected-surface);
+}
+
+.conversation-choice:has(input:checked) .conversation-radio {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 3px var(--selected-surface);
+}
+
+.conversation-choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.conversation-choice:has(input:disabled) { opacity: 0.6; cursor: default; }
 
 @media (hover: hover) {
-  .agent-choice:not(:has(input:checked, input:disabled)):hover { background: var(--hover-surface); }
+  .conversation-choice:not(:has(input:checked, input:disabled)):hover { background: var(--hover-surface); }
 }
 
 @media (hover: none) {
-  .dialog-form .agent-choice { min-height: 44px; }
+  .dialog-form .conversation-choice { min-height: 44px; }
 }
+
+/* The + at the top of the sidebar, opposite the logo: New tab. */
+.new-tab-open { flex: none; padding: 0; }
+
+.new-tab-open svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+body.sidebar-collapsed .new-tab-open { display: none; }
 
 /* Open worktree: one row per checkout of the repository, its branch over its
    folder, chosen as an agent is (the radio covers the row). */
@@ -3087,26 +3134,89 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 #settings-pc-access-hint[data-error="true"] { color: var(--danger); }
 
-/* Folder, in the New workspace and New tab dialogs: the path and Browse…, and
-   under them, once opened, the Files tab's tree in folders only, its path field
-   and ↑, and Close and Use this folder. */
+/* Folder, in the New workspace, New tab and Link local folder dialogs: one
+   path box, a folder mark at its start and ▾ at its end, completing as the
+   Files path field does (its list drops down under it); ▾ opens the Files
+   tab's tree in folders only under the box, without the tree's own path
+   field and ↑. A row's click chooses that folder, its arrow opens it. */
 .folder-field { display: grid; gap: var(--space-1-5); min-width: 0; }
 
 .folder-field[hidden],
 .folder-picker[hidden] { display: none; }
 
-.folder-row { display: flex; gap: var(--space-2); min-width: 0; }
+.folder-row { position: relative; min-width: 0; }
 
-.folder-row input { flex: 1 1 auto; }
+.folder-row-icon {
+  position: absolute;
+  top: 50%;
+  left: var(--space-2-5);
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  fill: none;
+  stroke: var(--muted);
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+  pointer-events: none;
+}
 
-.folder-row .secondary-button { flex: none; }
+.dialog-form .folder-row input {
+  padding-left: calc(var(--space-2-5) + 18px + var(--space-2));
+  padding-right: calc(var(--control-h-md) + var(--space-1));
+  font-family: var(--mono);
+}
+
+.folder-browse {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--control-h-md);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.folder-browse svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  transition: transform var(--motion-fast) ease;
+}
+
+.folder-browse[aria-expanded="true"] { color: var(--accent); }
+
+.folder-browse[aria-expanded="true"] svg { transform: rotate(180deg); }
+
+.folder-browse:disabled { opacity: 0.6; cursor: default; }
+
+@media (hover: hover) {
+  .folder-browse:not(:disabled):hover { background: var(--hover-surface); color: var(--text); }
+}
+
+.folder-row .file-suggestions {
+  top: calc(100% + 4px);
+  bottom: auto;
+  z-index: var(--layer-popover);
+  box-shadow: var(--shadow-popover);
+}
 
 .folder-picker {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
-  padding: var(--space-2);
-  border: 1px solid var(--line);
+  margin-top: calc(var(--space-1) * -1);
+  padding: var(--space-1-5);
+  border: 1px solid var(--selected-border);
   border-radius: var(--radius-control);
   background: var(--surface-raised);
 }
@@ -3122,10 +3232,12 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .folder-picker .dialog-feedback:empty { display: none; }
 
-.folder-picker-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
-
 @media (hover: none) {
   .folder-picker .browse-row { min-height: 44px; }
+
+  .folder-browse { width: var(--control-h-touch); }
+
+  .dialog-form .folder-row input { padding-right: calc(var(--control-h-touch) + var(--space-1)); }
 }
 
 /* Update: one block per PC, with what changed and, during a run, its log. */
@@ -3198,9 +3310,9 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .update-actions { display: flex; justify-content: flex-end; }
 
-/* Settings → Updates: HerdRabbit's row carries what changed and its run under
+/* Settings → Plugins: HerdRabbit's row carries what changed and its run under
    its name and Update, across the row. */
-.updates-row-details {
+.plugin-row-details {
   display: grid;
   grid-column: 1 / -1;
   gap: var(--space-2);
@@ -4101,8 +4213,14 @@ body.is-resizing-sidebar {
 /* On a phone the sidebar covers the page, with no composer beside it. */
 @media (min-width: 761px) {
   .navigator .navigator-footer {
-    min-height: calc(var(--composer-row-height) + var(--space-3) + var(--space-4) + 1px);
+    min-height: calc(var(--composer-row-height) + var(--composer-gap, var(--space-3)) + var(--space-4) + 1px);
     padding-bottom: var(--space-4);
+  }
+
+  /* The Chat lens's wider gap above the composer (--composer-gap), above the
+     footer's buttons too, so they stay on the composer's middle. */
+  body:has(.terminal-panel[data-lens="chat"]) .navigator .navigator-footer {
+    padding-top: var(--space-5);
   }
 }
 
@@ -4158,6 +4276,11 @@ body.is-resizing-sidebar {
      in; the tree is how a folder is usually reached, so it sits right under the
      machine and the path waits at the foot. Hidden files are always listed. */
   grid-template-rows: auto minmax(0, 1fr) auto auto;
+  /* One column exactly as wide as the panel. An auto column grows to the widest
+     row's minimum content, so a path input or a machine select could push the
+     rows out of a narrow sidebar and clip the parent-folder button; this column
+     shrinks instead, and the rows inside give way. */
+  grid-template-columns: minmax(0, 1fr);
 }
 
 /* Both footer controls are the same square and look alike: the settings button
@@ -4487,6 +4610,28 @@ body.is-resizing-sidebar {
   touch-action: pan-x pan-y;
 }
 
+/* A picture's box zooms it (app/viewer-zoom.js): the browser's own pinch and
+   double-tap would zoom the page instead, so the box takes every gesture. */
+.viewer-zoom {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-height: var(--viewer-content-height);
+  overflow: hidden;
+  touch-action: none;
+  cursor: zoom-in;
+}
+
+.viewer-zoom[data-zoomed="true"] { cursor: grab; }
+
+.viewer-zoom[data-zoomed="true"]:active { cursor: grabbing; }
+
+.viewer-zoom .viewer-image {
+  transform-origin: center;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
 /* Markup draws itself at whatever size it likes, so the frame is the one that
    decides how much room that gets. */
 .viewer-document {
@@ -4510,6 +4655,7 @@ body.is-resizing-sidebar {
   padding: var(--space-3);
   overflow: auto;
   font-family: var(--mono);
+  /* app/viewer-zoom.js scales this when the text is pinched or Ctrl+wheeled. */
   font-size: var(--font-sm);
   line-height: 1.5;
   white-space: pre;
@@ -4523,18 +4669,10 @@ body.is-resizing-sidebar {
   width: min(520px, calc(100vw - 32px));
 }
 
+/* Its look (height, surface, border, chevron) is the shared select in ui/components.css. */
 #file-server {
   min-width: 0;
   flex: 1;
-  height: 32px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-control);
-  background: var(--surface-raised);
-  color: var(--input-text);
-  font-size: var(--font-md);
-  min-height: 30px;
-  padding: var(--space-0-5) var(--space-1-5);
 }
 
 #file-server[hidden] {
@@ -5161,6 +5299,19 @@ body.is-pane-rearranging * {
     flex-basis: 44px;
     /* -5px all round: the 34px box grown to 44px about its own centre */
     margin: calc((34px - 44px) / 2);
+  }
+
+  /* The sidebar's bottom controls are drawn at the touch size too, like the
+     composer's buttons on the page beside it: the footer's two, and the path
+     row's buttons beside its 44px input. */
+  .uploads-button,
+  .settings-button,
+  .file-path-row button {
+    width: var(--control-h-touch);
+    min-width: var(--control-h-touch);
+    height: var(--control-h-touch);
+    min-height: var(--control-h-touch);
+    flex-basis: var(--control-h-touch);
   }
 
   :is(.file-path-row .file-path, #file-server, #terminal-find-input, #chat-find-input, .workspace-rename-input, #login-password, .prompt-card-custom-input) {

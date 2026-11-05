@@ -194,20 +194,23 @@ const idOf = (record, key) => (typeof record?.[key] === "string" ? record[key] :
 // Answers "move" (Herdr's own merge into the target's tab: same project),
 // "view" (a tile of this window's view split: another project, or anything
 // dropped on a view split) or null (no drop). Only a session of one pane is
-// dropped, never on its own pane, and only on a pane of the same machine,
-// one that lays its panes out from here (this one, or a connected PC that
-// says it can); `paneMoveAllowed` says whether Herdr may merge the two.
+// dropped, never on its own pane.
+// "move" is Herdr's, and Herdr is one per machine: both panes on one machine
+// that lays its panes out from here (this one, or a connected PC that says it
+// can). "view" is this window's alone: each tile opens its own terminal on its
+// pane's own machine, so tiles may come from different machines, and whether a
+// machine lays out Herdr's split tabs from here is no concern of a tile.
+// `paneMoveAllowed` says whether Herdr may merge the two.
 export function paneDropKind(snapshot, { tabId, targetPaneId }, { screen, tileIds = [], paneMoveAllowed = () => false }) {
   const tabs = Array.isArray(snapshot?.tabs) ? snapshot.tabs : [];
   const panes = Array.isArray(snapshot?.panes) ? snapshot.panes : [];
   const moving = panes.filter((item) => idOf(item, "tab_id") === tabId);
   const target = panes.find((item) => idOf(item, "pane_id") === targetPaneId);
   if (moving.length !== 1 || !target || idOf(target, "tab_id") === tabId) return null;
-  // Both on one machine that lays its panes out from here: never across machines.
   const machine = (record) => record?.server_id ?? "local";
   const tab = tabs.find((item) => idOf(item, "tab_id") === tabId);
   const targetTab = tabs.find((item) => idOf(item, "tab_id") === idOf(target, "tab_id"));
-  if (!tab || !targetTab || !laysOutPanes(snapshot, tab) || new Set([tab, targetTab, moving[0], target].map(machine)).size !== 1) return null;
+  if (!tab || !targetTab) return null;
   const paneId = idOf(moving[0], "pane_id");
   if (screen === "tiles") {
     if (!tileIds.includes(targetPaneId) || tileIds.includes(paneId) || tileIds.length >= MAX_TILES) return null;
@@ -215,6 +218,9 @@ export function paneDropKind(snapshot, { tabId, targetPaneId }, { screen, tileId
   }
   const sameProject = idOf(tab, "workspace_id") === idOf(targetTab, "workspace_id") &&
     (tab.herdr_session_id ?? null) === (targetTab.herdr_session_id ?? null);
-  if (sameProject) return paneMoveAllowed() ? "move" : null;
+  if (sameProject) {
+    const oneMachine = new Set([tab, targetTab, moving[0], target].map(machine)).size === 1;
+    return oneMachine && laysOutPanes(snapshot, tab) && paneMoveAllowed() ? "move" : null;
+  }
   return screen === "solo" ? "view" : null;
 }

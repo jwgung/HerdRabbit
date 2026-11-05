@@ -47,7 +47,7 @@ herdr plugin install jwgung/HerdRabbit
 
 ## 업데이트
 
-페이지의 **⚙ Settings → Updates**에서 모든 PC의 HerdRabbit과 Herdr를 업데이트합니다. 비밀번호를 정해 두면 플러그인도 함께 합니다. 페이지를 열 때마다, 또는 **Check**를 누르면 확인합니다.
+비밀번호를 정해 두면 **⚙ Settings → Plugins**에서 모든 PC의 HerdRabbit을(자신의 줄, 또는 플러그인과 함께 **Update all**로, HerdRabbit은 마지막), **⚙ Settings → Herdr**에서 Herdr를 업데이트합니다. 비밀번호가 없으면 **⚙ Settings → About**에서 이 PC의 HerdRabbit을 업데이트하고 Herdr의 Update 창을 엽니다. 페이지를 열 때마다, 또는 **Check for updates**를 누르면 확인합니다.
 
 ## 설정
 

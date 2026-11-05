@@ -1,4 +1,5 @@
 import { browserSessionStorage, browserStorage } from "./app/dom.js?v=1.4.41";
+import { enhanceSelects } from "./app/select-popover.js?v=1.4.41";
 import { createSnapshotModel } from "./app/snapshot.js?v=1.4.41";
 import { createNotifications } from "./app/notifications.js?v=1.4.41";
 import { createSettings } from "./app/settings.js?v=1.4.41";
@@ -1180,7 +1181,14 @@ const { open: openNewSession } = createSessionDialog({
   snapshotRecords: (...args) => snapshotRecords(...args),
   createSession,
   agentMark: (...args) => agentMark(...args),
+  herdrSessionForServer: (...args) => herdrSessionForServer(...args),
+  adoptMutationSnapshot: (...args) => adoptMutationSnapshot(...args),
+  closeMobileSidebar: (...args) => closeMobileSidebar(...args),
+  refreshSnapshot: (...args) => refreshSnapshot(...args),
+  setFeedback: (...args) => setFeedback(...args),
 });
+// The + at the top of the sidebar: New tab where the person is looking.
+document.querySelector("#new-tab-open").addEventListener("click", () => openNewSession());
 const worktreeDialogs = createWorktreeDialogs({
   state,
   agentMark: (...args) => agentMark(...args),
@@ -1501,6 +1509,9 @@ elements.passkeyRegister.addEventListener("click", async () => {
     renderLoginMethods();
   }
 });
+
+// Every select gets the app's own list on a desktop (touch keeps the OS picker).
+enhanceSelects();
 
 async function initializeApplication() {
   const bootstrap = await api("/api/bootstrap");

@@ -1,14 +1,13 @@
 import { createElement } from "./dom.js?v=1.4.41";
-import { createUpdatePanel } from "../app-update.js?v=1.4.41";
+import { appVersionText, createUpdatePanel, runSummary } from "../app-update.js?v=1.4.41";
 import { writeGridFit } from "../terminal-preference.js?v=1.4.41";
 import { applicationServerKeyBytes, pushButtonPresentation } from "../push-notifications.js?v=1.4.41";
 import { OPEN_PANES_IN, readOpenPanesIn, writeOpenPanesIn } from "../lens-preference.js?v=1.4.41";
 import { CHAT_WIDTHS, readChatWidth, writeChatWidth } from "../chat-width-preference.js?v=1.4.41";
-import { notificationStateText, settingsPageList, settingsPageTitle } from "../settings-pages.js?v=1.4.41";
+import { notificationStateText, settingsPageList, settingsPageTitle, updateBadges } from "../settings-pages.js?v=1.4.41";
 import { herdrVersionText } from "../ui-model.js?v=1.4.41";
 import { createPluginsPage } from "./plugins.js?v=1.4.41";
 import { createHerdrSettingsPage } from "./herdr-settings.js?v=1.4.41";
-import { createUpdatesPage } from "./updates.js?v=1.4.41";
 import { createPcAccess } from "./pc-access.js?v=1.4.41";
 
 // What each "Open panes in" choice does, under the choice.
@@ -43,7 +42,7 @@ export function createSettings(deps) {
     page: "appearance",
     push: null,
     // In-app update: whether Update… shows, and whether some PC has a newer
-    // version (a dot on the ⚙ button and on Updates).
+    // version (a dot on the ⚙ button; counts beside Plugins and Herdr).
     update: { visible: false, available: false, herdr: false },
   };
 
@@ -58,8 +57,17 @@ export function createSettings(deps) {
     for (const button of buttons) button.setAttribute("aria-pressed", String(button.getAttribute(attribute) === value));
   }
 
+  // The counts beside Plugins (HerdRabbit and plugins with a new version)
+  // and Herdr (a newer Herdr), over every PC checked.
+  function badges() {
+    return updateBadges(updateServers().map((server) => updatePanel.state(server.id).check), pluginsPage.updateCounts());
+  }
+  let shownBadges = "";
+
   function renderPageList() {
     const shown = visiblePages();
+    const counts = badges();
+    shownBadges = JSON.stringify(counts);
     if (!shown.some((page) => page.id === settings.page)) settings.page = shown[0].id;
     pageList.replaceChildren(...shown.map((page) => {
       const button = createElement("button", { className: "ui-nav-item settings-page-link" });
@@ -67,8 +75,11 @@ export function createSettings(deps) {
       button.dataset.page = page.id;
       const copy = createElement("span", { className: "ui-nav-copy" });
       copy.append(createElement("strong", { text: page.title }));
-      if (page.id === "updates" && settings.update.available) {
-        copy.append(createElement("span", { className: "ui-badge is-accent", text: "Update" }));
+      const count = counts[page.id] ?? 0;
+      if (count > 0) {
+        const badge = createElement("span", { className: "ui-badge is-accent settings-page-badge", text: String(count) });
+        badge.setAttribute("aria-label", `${count} update${count === 1 ? "" : "s"}`);
+        copy.append(badge);
       }
       button.append(copy);
       button.addEventListener("click", () => showPage(page.id, { focus: true }));
@@ -222,20 +233,44 @@ export function createSettings(deps) {
     }));
   }
 
-  // About: the versions this machine runs. Updates: the Update window's
-  // Update… and each machine's updates.
+  // About: the versions this machine runs. Where Plugins and Herdr are not
+  // shown (sign-in off), it carries their updates for this PC instead:
+  // HerdRabbit's line, Update and run, and the Update window's Update… for Herdr.
   const appVersion = document.querySelector("#settings-version-app");
   const herdrVersion = document.querySelector("#settings-version-herdr");
+  const aboutUpdates = document.querySelector("#settings-about-updates");
+  const appUpdateRow = document.querySelector("#settings-app-update-row");
+  const appUpdateLine = document.querySelector("#settings-app-update-line");
+  const appUpdateDetails = document.querySelector("#settings-app-update-details");
+  const appUpdateButton = document.querySelector("#settings-app-update");
   const updateRow = document.querySelector("#settings-update-row");
   const updateButton = document.querySelector("#settings-update");
   updateButton.addEventListener("click", () => updatePanel.open());
+  appUpdateButton.addEventListener("click", () => void updatePanel.run("local"));
+
+  function renderAboutUpdates(onScreen) {
+    const shown = visiblePages();
+    const { check, error, run } = updatePanel.state("local");
+    const app = appVersionText(check);
+    const appRun = run?.tracking || run?.status?.state === "failed" || run?.resumed ? runSummary(run) : null;
+    appUpdateRow.hidden = shown.some((page) => page.id === "plugins") || (!app && !error);
+    // Its versions; the run itself is told step by step under them.
+    const said = app ? { text: [app.text, app.note].filter(Boolean).join(" "), error: app.error || Boolean(app.note) }
+      : { text: error ?? "", error: true };
+    appUpdateLine.textContent = said.text;
+    appUpdateLine.dataset.error = String(said.error === true);
+    appUpdateButton.hidden = !app?.canUpdate || appRun?.running === true;
+    appUpdateButton.disabled = updatePanel.state("local").busy;
+    appUpdateDetails.replaceChildren(...(appUpdateRow.hidden ? [] : [updatePanel.appDetails("local", { onScreen })].filter(Boolean)));
+    updateRow.hidden = shown.some((page) => page.id === "herdr") || !settings.update.visible;
+    aboutUpdates.hidden = appUpdateRow.hidden && updateRow.hidden;
+  }
 
   function syncSettings() {
     // ⚙ itself: its dot, whether the dialog is open or not.
     openButton.classList.toggle("has-update", settings.update.available);
     openButton.setAttribute("aria-label", settings.update.available ? "Settings (update available)" : "Settings");
-    if (pageList.childElementCount !== visiblePages().length ||
-        Boolean(pageList.querySelector(".ui-badge")) !== settings.update.available) renderPageList();
+    if (pageList.childElementCount !== visiblePages().length || JSON.stringify(badges()) !== shownBadges) renderPageList();
     else syncCurrentPage();
 
     pressOnly(themeChoices, "data-theme-choice", window.herdrTheme?.current() || "dark");
@@ -270,34 +305,34 @@ export function createSettings(deps) {
     const onScreen = (id) => dialog.open && settings.page === id && (desktopMedia.matches || dialog.dataset.view === "page");
     pluginsPage.sync({ visible: onScreen("plugins") });
     herdrPage.sync({ visible: onScreen("herdr") });
-    updatesPage.sync({ visible: onScreen("updates") });
     pcAccess.sync({ visible: onScreen("pcs") });
 
     const local = snapshotRecords().servers.find((server) => server.id === "local");
     appVersion.textContent = local?.version || "Unknown";
     herdrVersion.textContent = herdrVersionText(local);
-    updateRow.hidden = !settings.update.visible;
-    // The Update window is Herdr's; HerdRabbit's update is a row below.
+    renderAboutUpdates(onScreen("about"));
+    // The Update window is Herdr's; HerdRabbit's update is its row in Plugins.
     const herdrAvailable = settings.update.herdr === true;
     updateButton.textContent = herdrAvailable ? "Update available…" : "Update…";
     updateButton.classList.toggle("has-update", herdrAvailable);
   }
 
   // The PCs the Update window lists: this one, then each connected PC.
+  function updateServers() {
+    const listed = snapshotRecords().servers;
+    const local = listed.find((server) => server.id === "local");
+    return [
+      { id: "local", name: local?.machine ? `This PC (${local.machine})` : "This PC" },
+      ...listed.filter((server) => server.transport === "link").map((server) => ({ id: server.id, name: server.name || server.id })),
+    ];
+  }
   const updatePanel = createUpdatePanel({
     api,
     dialog: document.querySelector("#update-dialog"),
     list: document.querySelector("#update-list"),
     feedback: document.querySelector("#update-feedback"),
     checkButton: document.querySelector("#update-check"),
-    servers: () => {
-      const listed = snapshotRecords().servers;
-      const local = listed.find((server) => server.id === "local");
-      return [
-        { id: "local", name: local?.machine ? `This PC (${local.machine})` : "This PC" },
-        ...listed.filter((server) => server.transport === "link").map((server) => ({ id: server.id, name: server.name || server.id })),
-      ];
-    },
+    servers: updateServers,
     onChange: (available) => {
       settings.update = { visible: updatePanel.visible(), available, herdr: updatePanel.hasHerdrUpdate() };
       syncSettings();
@@ -305,13 +340,12 @@ export function createSettings(deps) {
   });
   document.querySelector("#update-close").addEventListener("click", () => document.querySelector("#update-dialog").close());
 
-  // Plugins: read when the page comes into view, per machine; its update
-  // badges and HerdRabbit's row open Updates. Updates drives the Update
-  // window's panel, so both start and show the same update; its plugin
-  // part only where Plugins shows.
-  const pluginsShown = () => visiblePages().some((page) => page.id === "plugins");
+  // Plugins: read when the page comes into view, per machine. HerdRabbit's
+  // row and Update all drive the Update window's panel, so every place
+  // starts and shows the same update; a machine read with plugins behind
+  // changes the count beside Plugins.
   const pluginsPage = createPluginsPage({
-    api, snapshotRecords, sidebarActionMenu, appUpdates: updatePanel, openUpdates: () => showPage("updates", { focus: true }),
+    api, snapshotRecords, sidebarActionMenu, appUpdates: updatePanel, onUpdatesChange: () => syncSettings(),
     // A plugin's action runs, and its pane opens, for the pane on show; the
     // pane opened is shown once the sidebar has it, Settings closed.
     selectedPaneId: () => state.selectedPaneId,
@@ -321,16 +355,16 @@ export function createSettings(deps) {
       showPane(paneId);
     },
   });
-  const updatesPage = createUpdatesPage({ api, snapshotRecords, appUpdates: updatePanel, pluginsShown });
   // PCs: whether other PCs may connect to this one, with sign-in on.
   const pcAccess = createPcAccess({ api, shown: () => state.connectPcAccessAvailable === true && state.authRequired === true });
-  // Herdr: its channel, integrations and config.toml, per machine; Herdr's
-  // own update is a link to Updates.
-  const herdrPage = createHerdrSettingsPage({ api, snapshotRecords, openUpdates: () => showPage("updates", { focus: true }) });
+  // Herdr: its update, channel, integrations and config.toml, per machine;
+  // its Update… opens the Update window.
+  const herdrPage = createHerdrSettingsPage({ api, snapshotRecords, appUpdates: updatePanel, openUpdate: () => updatePanel.open() });
   dialog.addEventListener("close", () => {
     pluginsPage.sync({ visible: false });
     herdrPage.sync({ visible: false });
-    updatesPage.sync({ visible: false });
+    // A finished HerdRabbit run seen in Settings goes once it is closed.
+    updatePanel.putAwayApp();
     pcAccess.sync({ visible: false });
   });
 

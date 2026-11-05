@@ -43,10 +43,13 @@ test("this machine's dot says whether the page is connected, instead of a footer
   // The footer's two controls sit at opposite ends: uploads at the start, settings at the end.
   assert.match(styles, /:is\(\.navigator-footer, \.ui-sidebar-footer\) \{[^}]*justify-content: space-between;/u);
   assert.match(styles, /\.navigator \.navigator-footer \{\s*grid-row: 4;\s*justify-content: space-between;/u);
-  // It is as tall as the composer's row beside it, with the pane's gap above
-  // and its padding below, so its line and buttons meet the composer's.
-  assert.match(styles, /\.navigator \.navigator-footer \{[^}]*min-height: calc\(var\(--composer-row-height\) \+ 12px \+ 16px \+ 1px\);[^}]*padding-bottom: 16px;/u);
-  assert.match(styles, /body \{\s*--composer-font-size: var\(--terminal-font-size\);\s*--composer-row-height: max\(44px, calc\(var\(--composer-font-size\) \* 1\.5 \+ 26px\)\);/u);
+  // It is as tall as the composer's row beside it, with the composer's gap
+  // above (wider in the Chat lens) and the pane's padding below, so its line
+  // and buttons meet the composer's.
+  assert.match(styles, /\.navigator \.navigator-footer \{[^}]*min-height: calc\(var\(--composer-row-height\) \+ var\(--composer-gap, 12px\) \+ 16px \+ 1px\);\s*padding-bottom: 16px;/u);
+  assert.match(styles, /body:has\(\.terminal-panel\[data-lens="chat"\]\) \.navigator \.navigator-footer \{\s*padding-top: 20px;/u);
+  assert.match(styles, /body:has\(\.terminal-panel\[data-lens="chat"\]\) \{[^}]*--composer-gap: 20px;/u);
+  assert.match(styles, /body \{\s*--composer-font-size: var\(--terminal-font-size\);\s*--composer-row-height: max\(44px, calc\(var\(--composer-font-size\) \* 1\.5 \+ 6px\)\);/u);
 });
 
 test("slides the collapsed sidebar by its own width, not a fixed distance", () => {

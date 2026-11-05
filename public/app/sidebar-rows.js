@@ -1,4 +1,5 @@
 import { createElement, createIcon, placeFloatingMenu, workspaceActionButton } from "./dom.js?v=1.4.41";
+import { agentMark } from "./agent-icons.js?v=1.4.41";
 import { idOf } from "./snapshot.js?v=1.4.41";
 import {
   agentStatusIcon,
@@ -413,70 +414,6 @@ export function createSidebarRows(deps) {
       }));
     }
     return heading;
-  }
-
-  // Small marks drawn here for each kind of program a row can run: simple
-  // shapes that suggest the program, not its published artwork.
-  const AGENT_MARKS = Object.freeze({
-    claude: { box: "#d9774f", strokes: ["M12 5v14M5 12h14M7.1 7.1l9.8 9.8M16.9 7.1l-9.8 9.8"], color: "#ffffff", width: 1.9 },
-    // six rounded petals turned 60 degrees apart, overlapping into a knot
-    codex: { strokes: ["M12 2.6c2.3 0 3.6 2.3 3.6 4.7S14.2 12 12 12s-3.6-2.3-3.6-4.7S9.7 2.6 12 2.6z"], turns: 6, width: 1.4 },
-    agy: { strokes: ["M6.5 19.5L12 5l5.5 14.5", "M3.5 14c4-2.4 13-2.4 17 0"], width: 1.8 },
-    // OpenCode's mark: a pixelated "O" — outer ring with an inner block,
-    // the same shape as the published favicon
-    opencode: { box: "#131010", fills: [{ d: "M6 4.5h12v15H6V4.5ZM9 7.5v9h6v-9H9Z", color: "#ffffff" }, { d: "M9 10.5h6v6H9v-6Z", color: "#5A5858" }] },
-    // Cursor's mark: a text caret on a dark field, the terminal cursor it is named for
-    cursor: { box: "#111111", strokes: ["M9 5h6M9 19h6M12 5v14"], color: "#ffffff", width: 1.9 },
-    // Kiro's Ghostie mark on its brand violet (from ovis / devswha, MIT)
-    kiro: { box: "#9046FF", fills: [
-      { d: "M8 16.4c-1.7 3.6 1.8 4.5 4.4 2.4.8 2.4 3.6.6 4.6-1.2 2.3-4.1 1.4-8.3 1.2-9.2-1.6-5.8-9.6-5.8-11 0q-.4 1.7-.5 3.5l-.4 1.7-.6 1.2c-.5.9-.3 2.5 2 1.7z", color: "#ffffff" },
-      { d: "M12.7 11c-.6 0-.7-.8-.7-1.3q0-.6.2-1l.5-.2q.5 0 .6.3l.2 1q0 1.1-.8 1.2m2.7 0c-.6 0-.7-.8-.7-1.3q0-.6.2-1l.5-.2q.5 0 .6.3.3.3.2 1 0 1.1-.8 1.2", color: "#9046FF" },
-    ] },
-    other: { strokes: ["M12 3c.7 5 2 6.3 7 7-5 .7-6.3 2-7 7-.7-5-2-6.3-7-7 5-.7 6.3-2 7-7z", "M19 17v4M17 19h4"], width: 1.6 },
-    shell: { strokes: ["M5 8l5 4-5 4", "M13 17h6"], width: 1.9 },
-  });
-
-  function agentMark(kind) {
-    // Own keys only: "constructor" and the like are not marks.
-    const known = Object.hasOwn(AGENT_MARKS, kind);
-    const mark = known ? AGENT_MARKS[kind] : AGENT_MARKS.shell;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("aria-hidden", "true");
-    svg.setAttribute("focusable", "false");
-    svg.setAttribute("class", `agent-icon agent-icon-${known ? kind : "shell"}`);
-    if (mark.box) {
-      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      rect.setAttribute("x", "1");
-      rect.setAttribute("y", "1");
-      rect.setAttribute("width", "22");
-      rect.setAttribute("height", "22");
-      rect.setAttribute("rx", "6");
-      rect.setAttribute("fill", mark.box);
-      svg.append(rect);
-    }
-    if (mark.fills) {
-      for (const { d, color } of mark.fills) {
-        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        path.setAttribute("d", d);
-        path.setAttribute("fill", color || "currentColor");
-        path.setAttribute("fill-rule", "evenodd");
-        svg.append(path);
-      }
-      return svg;
-    }
-    for (const d of mark.strokes) for (let turn = 0; turn < (mark.turns || 1); turn += 1) {
-      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      path.setAttribute("d", d);
-      if (turn > 0) path.setAttribute("transform", `rotate(${(360 / mark.turns) * turn} 12 12)`);
-      path.setAttribute("fill", "none");
-      path.setAttribute("stroke", mark.color || "currentColor");
-      path.setAttribute("stroke-width", String(mark.width));
-      path.setAttribute("stroke-linecap", "round");
-      path.setAttribute("stroke-linejoin", "round");
-      svg.append(path);
-    }
-    return svg;
   }
 
   function paneButton(pane, tab, workspace, { namesSession = false } = {}) {

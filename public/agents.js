@@ -17,7 +17,7 @@
 //
 // The order is the order these are listed in. The mark a pane wears when the
 // names it carries disagree is MARK_PRIORITY's, not this order's. The drawing
-// of a mark is in app/sidebar-rows.js (AGENT_MARKS); an agent with none is drawn as "other".
+// of a mark is in app/agent-icons.js; an agent with none is drawn as "other".
 // The server has its own table of what it can read (src/conversation/service.mjs,
 // src/prompt/service.mjs).
 export const AGENTS = Object.freeze([
@@ -68,11 +68,12 @@ export function sessionAgentChoices(installed) {
   ];
 }
 
-// How an earlier session reads in the New session dialog: its title (or
-// "Untitled session") and how long ago it was last used.
-export function sessionChoiceLabel({ title, updatedAt } = {}, now = Date.now()) {
+// How an earlier conversation reads in the New tab dialog: its title (or
+// "Untitled conversation") and, apart, how long ago it was last used ("" when
+// that is not known). The row shows the two at either end.
+export function sessionChoiceParts({ title, updatedAt } = {}, now = Date.now()) {
   const name = typeof title === "string" && title ? title : "Untitled conversation";
-  if (!Number.isFinite(updatedAt)) return name;
+  if (!Number.isFinite(updatedAt)) return { title: name, ago: "" };
   const minutes = Math.floor((now - updatedAt) / 60_000);
   let ago;
   if (minutes < 1) ago = "just now";
@@ -85,5 +86,11 @@ export function sessionChoiceLabel({ title, updatedAt } = {}, now = Date.now()) 
       month: "short", day: "numeric", ...(day.getFullYear() === new Date(now).getFullYear() ? {} : { year: "numeric" }),
     });
   }
-  return `${name} · ${ago}`;
+  return { title: name, ago };
+}
+
+// The same in one line, "title · ago": a row's tooltip.
+export function sessionChoiceLabel(session, now = Date.now()) {
+  const { title, ago } = sessionChoiceParts(session, now);
+  return ago ? `${title} · ${ago}` : title;
 }

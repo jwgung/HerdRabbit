@@ -1,6 +1,6 @@
 // Browser check of resuming an agent's earlier conversation from New tab. Once
-// an agent is chosen, the dialog offers "Start new" and that agent's earlier
-// conversations in the workspace's folder, by title and time, as text only. Picking
+// an agent is chosen, the dialog lists "Start new conversation" and that agent's earlier
+// conversations in the workspace's folder as radio rows, by title and time, as text only. Picking
 // one makes the tab in that folder and types the agent's resume command. A
 // connected PC from before this says it cannot list them, and a new conversation
 // still starts; a conversation gone by the time Resume is pressed is refused and
@@ -106,8 +106,11 @@ try {
       }
     };
     const dialog = page.locator("#session-dialog");
-    const resume = dialog.locator("#session-resume");
+    // The earlier conversations: radio rows under the agent's tab, and a note.
+    const resume = dialog.locator("#session-conversations .conversation-list");
     const feedback = dialog.locator("#session-dialog-feedback");
+    const note = dialog.locator("#session-conversations-note");
+    const pick = (id) => resume.locator(`.conversation-choice:has(input[value="${id}"])`).click();
     const submit = dialog.locator('button[type="submit"]');
     const openDialog = async (project) => {
       await openSidebar();
@@ -117,10 +120,11 @@ try {
       await page.waitForFunction(() => !document.querySelector("#session-agent").disabled);
     };
     const choose = async (agent) => {
-      await dialog.locator(`#session-agent .agent-choice[data-agent="${agent || "shell"}"]`).click();
-      await page.waitForFunction(() => !/Looking for/u.test(document.querySelector("#session-dialog-feedback").textContent));
+      await dialog.locator(`#session-agent [role="tab"][data-agent="${agent || "shell"}"]`).click();
+      await page.waitForFunction(() => !/Looking for/u.test(document.querySelector("#session-dialog-feedback").textContent + document.querySelector("#session-conversations-note").textContent));
     };
-    const offered = () => resume.locator("option").evaluateAll((options) => options.map((option) => [option.value, option.textContent]));
+    const offered = () => resume.locator(".conversation-choice").evaluateAll((rows) => rows.map((row) =>
+      [row.querySelector("input").value, [row.querySelector(".conversation-title").textContent, row.querySelector(".conversation-when")?.textContent].filter(Boolean).join(" · ")]));
 
     // A shell offers no earlier conversations.
     await openDialog("Platform");
@@ -131,35 +135,35 @@ try {
     await choose("claude");
     await resume.waitFor({ state: "visible" });
     assert.deepEqual(await offered(), [
-      ["", "Start new"],
+      ["", "Start new conversation"],
       [CLAUDE_A, `${MARKUP} · 5 min ago`],
       [CLAUDE_B, "Untitled conversation · 3 h ago"],
     ], `${where}: the earlier conversations are not offered as listed`);
     assert.equal(await dialog.locator("img").count(), 0, `${where}: a title was rendered as markup`);
     assert.equal(await page.evaluate(() => window.__injected ?? null), null, `${where}: a title ran as markup`);
-    assert.match(await feedback.textContent(), /Earlier conversations in \/work\/alpha\./u);
+    assert.match(await note.textContent(), /Earlier conversations in \/work\/alpha\./u);
     assert.equal(await submit.textContent(), "Start");
     assert.deepEqual(calls, [["listSessions", "claude", "/work/alpha"]]);
     if (mobile) {
-      const look = await resume.evaluate((element) => ({
-        height: element.getBoundingClientRect().height, font: parseFloat(getComputedStyle(element).fontSize),
-      }));
-      assert.ok(look.height >= 44, `${where}: the session choice is under 44px tall (${look.height})`);
-      assert.ok(look.font >= 16, `${where}: the session choice text is under 16px`);
+      for (const height of await resume.locator(".conversation-choice").evaluateAll((rows) => rows.map((row) => row.getBoundingClientRect().height))) {
+        assert.ok(height >= 44, `${where}: a conversation row is under 44px tall (${height})`);
+      }
     }
     if (shots) await page.screenshot({ path: join(shots, `resume-${where}.png`) });
 
-    // An agent with no earlier conversations here says so; one that cannot resume says nothing.
+    // An agent with no earlier conversations here says so; one that cannot resume says that.
     await choose("codex");
     assert.equal(await resume.isVisible(), false, `${where}: an empty list is shown`);
-    assert.match(await feedback.textContent(), /No earlier conversations in \/work\/alpha\./u);
+    assert.match(await note.textContent(), /No earlier conversations in \/work\/alpha\./u);
     await choose("agy");
     assert.equal(await resume.isVisible(), false, `${where}: agy offers earlier conversations`);
+    assert.match(await note.textContent(), /cannot be resumed from here/u);
     assert.equal(await feedback.textContent(), "");
 
     // Resume one: made in the folder, named, the resume command typed, selected.
     await choose("claude");
-    await resume.selectOption(CLAUDE_A);
+    await resume.waitFor({ state: "visible" });
+    await pick(CLAUDE_A);
     assert.equal(await submit.textContent(), "Resume");
     await dialog.locator("#session-name").fill(`Login ${where}`);
     calls = [];
@@ -179,12 +183,13 @@ try {
     // A session gone before Resume is pressed: refused, said, nothing made.
     await openDialog("Platform");
     await choose("claude");
-    await resume.selectOption(CLAUDE_B);
+    await resume.waitFor({ state: "visible" });
+    await pick(CLAUDE_B);
     claudeSessions = claudeSessions.filter((session) => session.id !== CLAUDE_B);
     calls = [];
     await submit.click();
     await page.waitForFunction(() => document.querySelector("#session-dialog-feedback").dataset.error === "true");
-    assert.match(await feedback.textContent(), /no longer in this workspace's folder/u);
+    assert.match(await feedback.textContent(), /no longer in that folder/u);
     assert.deepEqual(calls, [["listSessions", "claude", "/work/alpha"]], `${where}: a session was made for one that is gone`);
     await dialog.locator("#session-dialog-cancel").click();
     await dialog.waitFor({ state: "hidden" });
@@ -195,7 +200,7 @@ try {
     await openDialog("Bench");
     await choose("opencode");
     assert.equal(await resume.isVisible(), false, `${where}: an older PC's sessions are offered`);
-    assert.match(await feedback.textContent(), /cannot list earlier conversations/u);
+    assert.match(await note.textContent(), /cannot list earlier conversations/u);
     calls = [];
     await submit.click();
     await dialog.waitFor({ state: "hidden" });

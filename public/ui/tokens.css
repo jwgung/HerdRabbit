@@ -22,6 +22,11 @@
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
+  /* Control heights: ghost (compact) buttons, every other button, select and
+     icon button, and what any of them is on a touch screen. */
+  --control-h-sm: 32px;
+  --control-h-md: 36px;
+  --control-h-touch: 44px;
   --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-control: 8px;
@@ -65,6 +70,9 @@
   --control-surface: #0d1216;
   --control-line: #5c6a75;
   /* A settings screen: its page list, its cards, a segmented choice's pick. */
+  /* A select's chevron, drawn in the control text colour of its theme (a
+     data URI cannot read currentColor, so each theme names its own). */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23dce4e9' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
   --sunken-surface: #12181d;
   --card-surface: #0f151a;
   --segment-selected: #232c34;
@@ -135,6 +143,8 @@
   --hover-surface: #ddeae4;
   --control-surface: #ffffff;
   --control-line: #768a81;
+  /* A select's chevron, drawn in the control text colour of its theme. */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2320312a' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
   --sunken-surface: #f1f4f2;
   --card-surface: #ffffff;
   --segment-selected: #ffffff;

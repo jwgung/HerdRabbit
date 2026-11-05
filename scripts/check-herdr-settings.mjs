@@ -1,12 +1,14 @@
 // Browser check of Settings → Herdr: with sign-in on the page sits between
-// Plugins and Updates and shows, per machine, Herdr's update channel
+// Plugins and About and shows, per machine, Herdr itself (the version it
+// runs → the newer one and its channel, "Update" beside its name and in the
+// settings list, What's new folded, Update… opening the Update window), its
+// update channel
 // (Stable / Preview), its agent integrations with their state and one action
 // each (Install…, Uninstall…, Update…, Repair…, confirmed first), and its
 // config.toml as text. Check shows Herdr's diagnostics; Save… asks first,
 // refuses a config Herdr rejects (the file stays as it was, the diagnostics
 // show) and saves one it accepts, keeping a backup and reloading Herdr.
-// Herdr's defaults show read-only. Open Updates opens Settings → Updates. A
-// machine picker shows with more than one machine, and a PC on an older
+// Herdr's defaults show read-only. A machine picker shows with more than one machine, and a PC on an older
 // HerdRabbit says to update it there. With sign-in off there is no Herdr
 // page. On a phone the controls are 44px targets and nothing is wider than
 // the screen. Runs on a desktop and a phone against an in-process fake herdr
@@ -62,9 +64,26 @@ const herdr = {
   async sendKeys() {},
 };
 
+// The update check of this PC: HerdRabbit up to date, a newer Herdr.
+const IDLE = { state: "idle", startedAt: null, finishedAt: null, exitCode: null, reason: null, detail: null, log: "" };
+const updater = {
+  async check() {
+    return {
+      checkedAt: "2026-11-01T00:00:00.000Z", current: { version: "1.4.41", sha: "abc1234" }, latest: { version: "1.4.41", sha: "abc1234" },
+      available: false, notes: [], blocked: null, error: null, mode: "script",
+      herdr: { current: "0.9.12", latest: "0.9.14", channel: "stable", available: true, blocked: null, error: null, notes: "Faster handoff." },
+    };
+  },
+  async runStatus() { return { ...IDLE, version: "1.4.41" }; },
+  async start() { throw new Error("not in this check"); },
+};
+const herdrUpdater = { async runStatus() { return IDLE; }, async start() { throw new Error("not in this check"); } };
+
 function startServer(required) {
   const { server } = createHerdrHttpServer({
     herdr,
+    updater,
+    herdrUpdater,
     // Read through on each call: each run starts a fresh fake.
     herdrSettings: new Proxy({}, { get: (_, name) => (...args) => settings[name](...args) }),
     auth: { required, hasValidSession: () => true, hasValidLaunchToken: () => true, onSessionsEnded: () => () => {} },
@@ -116,11 +135,16 @@ try {
     await openSettings();
     assert.ok(!(await dialog.locator(".settings-page-link").allTextContents()).includes("Herdr"), `${where}: Herdr shows with sign-in off`);
 
-    // Sign-in on: between Plugins and Updates (Plugins is not offered here).
+    // Sign-in on: before About (Plugins is not offered here), no Updates,
+    // and the count of PCs with a newer Herdr beside it.
     await ready(signedIn);
     await openSettings();
-    const links = await dialog.locator(".settings-page-link").allTextContents();
-    assert.equal(links[links.indexOf("Herdr") + 1], "Updates", `${where}: Herdr is not before Updates (${links})`);
+    const herdrLink = dialog.locator(".settings-page-link", { hasText: "Herdr" });
+    await herdrLink.locator(".ui-badge").waitFor({ state: "visible" });
+    assert.equal((await herdrLink.locator(".ui-badge").textContent()).trim(), "1");
+    const links = await dialog.locator(".settings-page-link strong").allTextContents();
+    assert.equal(links[links.indexOf("Herdr") + 1], "About", `${where}: Herdr is not before About (${links})`);
+    assert.ok(!links.includes("Updates"), `${where}: Updates is still listed`);
     await dialog.locator(".settings-page-link", { hasText: "Herdr" }).click();
     const herdrPage = dialog.locator('.settings-page[data-page="herdr"]');
     await herdrPage.waitFor({ state: "visible" });
@@ -146,11 +170,20 @@ try {
     assert.equal(await editor.inputValue(), INITIAL);
     assert.equal(await page.locator("#herdr-config-path").textContent(), "~/.config/herdr/config.toml");
     assert.equal(await page.locator("#herdr-config-save").isDisabled(), true, `${where}: Save without edits`);
-    assert.equal(await herdrPage.locator(".primary-button").count(), 1, `${where}: more than one primary button`);
+    // Herdr's row: its versions and channel, What's new, and Update… as the
+    // page's other primary button while a newer Herdr is out.
+    await page.waitForFunction(() => document.querySelector("#herdr-update-line").textContent === "0.9.12 → 0.9.14 · Stable");
+    assert.equal(await page.locator("#herdr-update-badge").isVisible(), true);
+    assert.equal(await page.locator("#herdr-update-notes-title").textContent(), "What's new in Herdr 0.9.14");
+    await page.locator("#herdr-update-notes-title").click();
+    assert.equal(await page.locator("#herdr-update-notes-text").textContent(), "Faster handoff.");
+    assert.equal(await herdrPage.locator(".primary-button").count(), 2, `${where}: Update… and Save… are not the primary buttons`);
+    assert.equal(await page.locator("#herdr-update-open").getAttribute("class"), "primary-button");
+    assert.equal(await page.locator("#herdr-open-updates").count(), 0, `${where}: Open Updates is still there`);
     assert.deepEqual(await page.locator("#herdr-machine option").allTextContents(), ["This PC (workstation)", "Old box"]);
 
     if (mobile) {
-      for (const target of ['[data-herdr-channel="preview"]', "#herdr-machine", "#herdr-open-updates", "#herdr-config-save",
+      for (const target of ['[data-herdr-channel="preview"]', "#herdr-machine", "#herdr-update-open", "#herdr-config-save",
         "#herdr-config-check", '.herdr-integration[data-integration="pi"] button']) {
         const box = await page.locator(target).boundingBox();
         assert.ok(box.height >= 44, `${where}: ${target} is under 44px tall (${box.height})`);
@@ -158,6 +191,8 @@ try {
       const overflow = await page.locator(".settings-body").evaluate((element) => element.scrollWidth - element.clientWidth);
       assert.ok(overflow <= 1, `${where}: the page is wider than the screen (${overflow}px)`);
       assert.ok(await editor.evaluate((node) => parseFloat(getComputedStyle(node).fontSize)) >= 16, `${where}: the editor zooms on focus`);
+      // A touch rule for 44px inputs must not shrink the editor below its 280px.
+      assert.ok((await editor.boundingBox()).height >= 280, `${where}: config.toml is under 280px tall (${(await editor.boundingBox()).height})`);
     }
     if (shots) await page.screenshot({ path: join(shots, `herdr-${where}.png`), fullPage: true });
 
@@ -211,6 +246,7 @@ try {
     await defaults.waitFor({ state: "visible" });
     await page.waitForFunction(() => document.querySelector("#herdr-config-default").value.startsWith("# herdr configuration"));
     assert.equal(await defaults.getAttribute("readonly"), "");
+    if (mobile) assert.ok((await defaults.boundingBox()).height >= 280, `${where}: Herdr's defaults are under 280px tall`);
     assert.equal(await editor.isVisible(), false);
     await herdrPage.locator('[data-herdr-config-view="edit"]').click();
     await editor.waitFor({ state: "visible" });
@@ -221,9 +257,12 @@ try {
     await page.locator("#herdr-machine").selectOption("local");
     await rows.first().waitFor({ state: "visible" });
 
-    // Open Updates goes to Settings → Updates.
-    await page.locator("#herdr-open-updates").click();
-    await dialog.locator('.settings-page[data-page="updates"]').waitFor({ state: "visible" });
+    // Update… opens the Update window, Herdr's, over Settings.
+    await page.locator("#herdr-update-open").click();
+    await page.locator("#update-dialog").waitFor({ state: "visible" });
+    await page.locator('#update-list .update-server[data-server-id="local"] .update-herdr-run').waitFor({ state: "visible" });
+    await page.locator("#update-close").click();
+    await page.locator("#update-dialog").waitFor({ state: "hidden" });
 
     assert.deepEqual(errors, [], `${where}: page errors`);
     await context.close();

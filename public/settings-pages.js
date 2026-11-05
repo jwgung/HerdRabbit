@@ -10,14 +10,13 @@ export const SETTINGS_PAGES = Object.freeze([
   // Only where this HerdRabbit can connect to other PCs.
   { id: "pcs", title: "PCs" },
   // Herdr's plugins, per machine: only with sign-in on, as a plugin runs code.
+  // HerdRabbit's own update is its row there, and Update all.
   { id: "plugins", title: "Plugins" },
-  // Herdr's own settings, per machine (channel, integrations, config.toml):
-  // only with sign-in on, as each changes what Herdr runs.
+  // Herdr's own settings, per machine (its update, channel, integrations,
+  // config.toml): only with sign-in on, as each changes what Herdr runs.
   { id: "herdr", title: "Herdr" },
-  // HerdRabbit's and Herdr's updates on every machine (no sign-in needed),
-  // and the plugins' where Plugins shows.
-  { id: "updates", title: "Updates" },
-  // The versions this machine runs.
+  // The versions this machine runs, and, where Plugins and Herdr are not
+  // shown, this PC's HerdRabbit and Herdr updates.
   { id: "about", title: "About" },
 ].map((page) => Object.freeze(page)));
 
@@ -38,4 +37,17 @@ export function notificationStateText(presentation) {
   if (presentation.state === "enabled") return "On: this browser is told when an agent needs you or is done.";
   if (presentation.state === "denied") return "Blocked: allow notifications for this site in your browser settings.";
   return "Off.";
+}
+
+// The counts beside Plugins and Herdr in the list: per PC checked (the
+// Update window panel's checks), a newer HerdRabbit counts for Plugins and
+// a newer Herdr for Herdr; `pluginUpdates` adds each machine's plugins with
+// a new version that Plugins has read.
+export function updateBadges(checks = [], pluginUpdates = []) {
+  const usable = [...checks].filter((check) => check?.supported === true);
+  return {
+    plugins: usable.filter((check) => check.available === true).length +
+      [...pluginUpdates].reduce((sum, count) => sum + (Number.isInteger(count) && count > 0 ? count : 0), 0),
+    herdr: usable.filter((check) => check.herdr?.available === true).length,
+  };
 }

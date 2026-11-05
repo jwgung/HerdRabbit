@@ -11,16 +11,29 @@ import { fakeFetch } from "./fixtures/fake-plugin-marketplace.mjs";
 const LINK = "link_11111111-1111-1111-1111-111111111111";
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-async function fixture(context, { required = true, plugins = undefined, remote = null, marketplace = undefined } = {}) {
+const IDLE_RUN = { state: "idle", startedAt: null, finishedAt: null, exitCode: null, reason: null, log: "", version: "2.0.0" };
+
+async function fixture(context, {
+  required = true, plugins = undefined, remote = null, marketplace = undefined, updater = undefined, remoteUpdate = undefined,
+} = {}) {
   const local = fakeHerdr();
   const remoteCalls = [];
   const remoteSource = remote ?? {
     async list() { remoteCalls.push(["list"]); return { plugins: [{ plugin_id: "far", name: "Far", enabled: true }], operation: null }; },
     async start(action, input) { remoteCalls.push([action, input]); return { plugins: [], operation: null }; },
   };
+  // HerdRabbit's own update (src/app-update.mjs), here and over a link.
+  const updates = [];
+  const appUpdater = updater === undefined
+    ? { async start() { updates.push(["local"]); return { ...IDLE_RUN, state: "running" }; } }
+    : updater;
+  const remoteUpdater = remoteUpdate === undefined
+    ? { async updateRun() { updates.push([LINK]); return { ...IDLE_RUN, state: "running" }; } }
+    : remoteUpdate;
   const herdr = {
     async snapshot() { return { workspaces: [], tabs: [], panes: [], agents: [] }; },
     pluginsClient: (id) => (id === LINK ? remoteSource : null),
+    updateClient: (id) => (id === LINK ? remoteUpdater : null),
   };
   const app = createHerdrHttpServer({
     herdr,
@@ -34,6 +47,7 @@ async function fixture(context, { required = true, plugins = undefined, remote =
     },
     plugins: plugins === undefined ? new PluginManager({ run: local.run }) : plugins,
     marketplace: marketplace === undefined ? new PluginMarketplace({ fetch: fakeFetch().fetch }) : marketplace,
+    updater: appUpdater,
   });
   app.server.listen(0, "127.0.0.1");
   await once(app.server, "listening");
@@ -47,7 +61,7 @@ async function fixture(context, { required = true, plugins = undefined, remote =
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const ran = () => local.calls.filter((call) => call.args[1] !== "list").map((call) => call.args);
-  return { origin, get, send, ran, remoteCalls, local };
+  return { origin, get, send, ran, remoteCalls, local, updates };
 }
 
 test("the plugin routes sit behind the sign-in and the write token", async (context) => {
@@ -130,7 +144,6 @@ test("bad ids, sources and refs, HerdRabbit, and unknown PCs are refused before 
     ["POST", "/api/plugins/%2Drf/enable", {}, 400, "invalid_plugin_id"],
     ["POST", "/api/plugins/a%20b/enable", {}, 400, "invalid_plugin_id"],
     ["POST", "/api/plugins/herdrabbit/disable", {}, 403, "plugin_protected"],
-    ["POST", "/api/plugins/herdrabbit/update", {}, 403, "plugin_protected"],
     ["DELETE", "/api/plugins/herdrabbit", undefined, 403, "plugin_protected"],
     ["POST", "/api/plugins/missing/enable", {}, 404, "plugin_not_found"],
     ["POST", "/api/plugins/notes/enable", { server: "link_99999999-9999-9999-9999-999999999999" }, 404, "unknown_server"],
@@ -143,6 +156,70 @@ test("bad ids, sources and refs, HerdRabbit, and unknown PCs are refused before 
     assert.equal((await response.json()).error.code, code, `${method} ${path}`);
   }
   assert.deepEqual(ran(), []);
+});
+
+test("HerdRabbit's Update is HerdRabbit's own update, never herdr plugin update", async (context) => {
+  const { send, ran, remoteCalls, updates } = await fixture(context);
+  let response = await send("POST", "/api/plugins/herdrabbit/update", { server: "local" });
+  assert.equal(response.status, 202);
+  assert.deepEqual(await response.json(), { ...IDLE_RUN, state: "running", server: "local", supported: true });
+  // A connected PC's goes to its own updater over the link, by id alone.
+  response = await send("POST", "/api/plugins/herdrabbit/update", { server: LINK, path: "/etc", ref: "evil" });
+  assert.equal(response.status, 202);
+  assert.equal((await response.json()).server, LINK);
+  assert.deepEqual(updates, [["local"], [LINK]]);
+  // One a minute per PC, as Settings' own update allows.
+  response = await send("POST", "/api/plugins/herdrabbit/update", {});
+  assert.equal(response.status, 429);
+  assert.deepEqual(updates, [["local"], [LINK]]);
+  assert.deepEqual(ran(), [], "Herdr's plugin commands are not run for HerdRabbit");
+  assert.deepEqual(remoteCalls, [], "a connected PC's plugin commands are not asked for HerdRabbit");
+});
+
+test("HerdRabbit's Update needs sign-in, the write token and the page's own origin", async (context) => {
+  const { origin, send, updates } = await fixture(context);
+  const refused = [
+    [() => fetch(`${origin}/api/plugins/herdrabbit/update`, { method: "POST", headers: { "Content-Type": "application/json", "X-Herdr-CSRF": "csrf", Origin: origin }, body: "{}" }), 401],
+    [() => send("POST", "/api/plugins/herdrabbit/update", {}, { "X-Herdr-CSRF": "wrong" }), 403],
+    [() => send("POST", "/api/plugins/herdrabbit/update", {}, { Origin: "https://evil.example" }), 403],
+    [() => send("POST", "/api/plugins/herdrabbit/update", {}, { "Sec-Fetch-Site": "cross-site" }), 403],
+    [() => send("POST", "/api/plugins/herdrabbit/update", { server: "link_99999999-9999-9999-9999-999999999999" }), 404],
+  ];
+  for (const [request, status] of refused) assert.equal((await request()).status, status);
+  assert.deepEqual(updates, []);
+  const off = await fixture(context, { required: false });
+  const response = await fetch(`${off.origin}/api/plugins/herdrabbit/update`, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Herdr-CSRF": "csrf", Origin: off.origin }, body: "{}",
+  });
+  assert.equal(response.status, 409);
+  assert.deepEqual(off.updates, []);
+});
+
+test("HerdRabbit stays protected from everything but its Update", async (context) => {
+  const { send, ran, updates } = await fixture(context);
+  for (const [method, path, body] of [
+    ["POST", "/api/plugins/herdrabbit/disable", {}],
+    ["POST", "/api/plugins/herdrabbit/enable", {}],
+    ["POST", "/api/plugins/herdrabbit/unlink", {}],
+    ["DELETE", "/api/plugins/herdrabbit", undefined],
+    ["POST", "/api/plugins/herdrabbit/run", { action: "restart" }],
+    ["POST", "/api/plugins/herdrabbit/open", { entrypoint: "connect" }],
+  ]) {
+    const response = await send(method, path, body);
+    assert.equal(response.status, 403, `${method} ${path}`);
+    assert.equal((await response.json()).error.code, "plugin_protected", `${method} ${path}`);
+  }
+  assert.deepEqual([ran(), updates], [[], []]);
+});
+
+test("HerdRabbit's Update says so where this PC cannot update itself, or that PC is too old", async (context) => {
+  const { send } = await fixture(context, { updater: null, remoteUpdate: { async updateCheck() { return null; } } });
+  let response = await send("POST", "/api/plugins/herdrabbit/update", {});
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).error.code, "update_unavailable");
+  response = await send("POST", "/api/plugins/herdrabbit/update", { server: LINK });
+  assert.equal(response.status, 501);
+  assert.equal((await response.json()).error.code, "link_unsupported");
 });
 
 test("a second change while one runs is refused", async (context) => {

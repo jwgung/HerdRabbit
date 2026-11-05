@@ -78,12 +78,14 @@ const sent = [];
 let refuseNext = false;
 let unplaceNext = false;
 const calls = [];
+// Whether the connected PC answers: the snapshot lists it unavailable when not.
+let laptopAvailable = true;
 const herdr = {
   async snapshot() {
     return structuredClone({
       servers: [
         { id: "local", name: "workstation", available: true, status: "Connected" },
-        { id: "laptop", name: "laptop", available: true, status: "Connected", transport: "link" },
+        { id: "laptop", name: "laptop", available: laptopAvailable, status: laptopAvailable ? "Connected" : "Unreachable", transport: "link" },
       ],
       herdr_sessions: [
         { session_id: "hs_x", name: "default", running: true, available: true, server_id: "local" },
@@ -507,8 +509,8 @@ try {
       await openAlone("w1:p3");
     }
 
-    // 2. Another machine's session, the pane's own, or a split session: no zones.
-    for (const row of [tabRow("laptop!w1:p1"), tabRow("w1:p3"), `${tabRow("w1:p5")} .split-session-button`]) {
+    // 2. The pane's own, or a split session: no zones.
+    for (const row of [tabRow("w1:p3"), `${tabRow("w1:p5")} .split-session-button`]) {
       const source = await box(page, row);
       const stage = await box(page, ".terminal-stage");
       const during = await mouseDrag(page, at(source, 0.3, 0.5), at(stage, ...zone.left));
@@ -748,6 +750,92 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
+  // A view split across machines: a connected PC's pane beside this PC's.
+  {
+    reset();
+    calls.length = 0;
+    ptys.length = 0;
+    laptopAvailable = true;
+    const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 860 }, colorScheme: "dark" });
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const moveRequests = [];
+    page.on("request", (request) => {
+      const path = new URL(request.url()).pathname;
+      if (request.method() === "POST" && /^\/api\/(panes|tabs|workspaces)\//u.test(path)) moveRequests.push(path);
+    });
+    const herdrBefore = JSON.stringify(herdrState);
+    const tileCount = (count) => page.waitForFunction((wanted) =>
+      document.querySelectorAll(".pane-grid.is-view:not([hidden]) .pane-grid-cell").length === wanted, count);
+    const context_ = (paneId) => page.locator(`${tile(paneId)} .pane-grid-context`).textContent();
+    const typed = async (paneId, text) => {
+      const until = Date.now() + 3000;
+      while (!text.test(ptyOf(paneId)?.written ?? "") && Date.now() < until) await page.waitForTimeout(100);
+    };
+    await page.goto(`${url}/?pane=${encodeURIComponent("w1:p3")}`);
+    await page.locator("#terminal-xterm .xterm").waitFor({ state: "visible" });
+
+    // 1. A connected PC's session dropped on the pane alone is a tile beside it.
+    let source = await box(page, tabRow("laptop!w1:p1"));
+    let stage = await box(page, ".terminal-stage");
+    let during = await mouseDrag(page, at(source, 0.3, 0.5), at(stage, ...zone.right));
+    assert.equal(during.preview?.side, "right", "another machine's session may be a tile");
+    await tileCount(2);
+    await page.waitForFunction(() => document.querySelectorAll(".pane-grid.is-view .pane-grid-cell .xterm").length === 2);
+    assert.deepEqual(moveRequests, [], "Herdr was sent no move");
+    assert.deepEqual(calls, [], "Herdr was asked nothing");
+    // Each tile's terminal is on its pane's own machine (the laptop's pane id carries it).
+    assert.ok(ptyOf("laptop!w1:p1"), "the laptop's pane has a terminal of its own");
+    assert.ok(ptyOf("w1:p3"), "this PC's pane has one too");
+    // The header names the machine, as the split mixes two.
+    assert.equal(await context_("laptop!w1:p1"), "laptop \u00b7 Laptop work");
+    assert.equal(await context_("w1:p3"), "workstation \u00b7 Platform");
+    // Typing goes to the pane it is for, on either machine.
+    await page.locator(`${tile("laptop!w1:p1")} .xterm`).click();
+    await page.keyboard.type("hello laptop");
+    await typed("laptop!w1:p1", /hello laptop/u);
+    assert.match(ptyOf("laptop!w1:p1").written, /hello laptop/u);
+    assert.doesNotMatch(ptyOf("w1:p3").written, /hello laptop/u);
+
+    // 2. This PC's session dropped on a laptop tile is a tile too (a third, one machine twice).
+    source = await box(page, tabRow("w2:p1"));
+    let target = await box(page, tile("laptop!w1:p1"));
+    during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.down));
+    assert.equal(during.preview?.side, "down");
+    await tileCount(3);
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll(".pane-grid.is-view .pane-grid-cell")].map((node) => node.dataset.paneId).sort()),
+      ["laptop!w1:p1", "w1:p3", "w2:p1"]);
+
+    // 3. A reload brings the mixed split back, each tile on its own machine.
+    await page.reload();
+    await tileCount(3);
+    await page.waitForFunction(() => document.querySelectorAll(".pane-grid.is-view .pane-grid-cell .xterm").length === 3);
+    assert.equal(await context_("laptop!w1:p1"), "laptop \u00b7 Laptop work");
+
+    // 4. The laptop goes away: its tile says so, the split and the other tiles carry on.
+    laptopAvailable = false;
+    await page.waitForFunction(() => document.querySelector('.pane-grid.is-view .pane-grid-cell[data-pane-id="laptop!w1:p1"]')?.classList.contains("is-offline"), null, { timeout: 15000 });
+    assert.match(await page.locator(`${tile("laptop!w1:p1")} .pane-grid-note`).textContent(), /offline/iu);
+    assert.equal(await page.locator(`${tile("laptop!w1:p1")} .pane-grid-note`).isVisible(), true);
+    assert.equal(await page.locator(".pane-grid.is-view").isVisible(), true, "the split stays");
+    await tileCount(3);
+    assert.equal(await page.locator(`${tile("w1:p3")} .xterm`).count(), 1, "the other tiles keep their terminals");
+    // ... and comes back with it.
+    laptopAvailable = true;
+    await page.waitForFunction(() => !document.querySelector('.pane-grid.is-view .pane-grid-cell[data-pane-id="laptop!w1:p1"]')?.classList.contains("is-offline"), null, { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelector('.pane-grid.is-view .pane-grid-cell[data-pane-id="laptop!w1:p1"] .pane-grid-note')?.hidden === true);
+
+    // 5. Taking the laptop's tile out leaves one machine: the headers name only the project.
+    await page.locator(`${tile("laptop!w1:p1")} .pane-grid-remove`).click();
+    await tileCount(2);
+    assert.equal(await context_("w1:p3"), "Platform", "one machine: no machine name");
+    assert.deepEqual(moveRequests, []);
+    assert.deepEqual(calls, []);
+    assert.equal(JSON.stringify(herdrState), herdrBefore, "Herdr's sessions are as they were");
+    assert.deepEqual(errors, []);
+    await context.close();
+  }
   // A narrow screen: the sidebar is a drawer over the terminal and nothing splits.
   {
     reset();
@@ -768,7 +856,7 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log("Pane drop (tiles swapped and moved by their headers, kept on reload, nothing sent; four sides, middle no-op, pane alone, reorder kept, split/other machine/self/connected PC/other project over a grid no zones, refusal said, unplaced swap said; another project on the pane alone a view split: four sides, Herdr untouched, typing, sidebar, back, reload, pruned, removed; narrow screen none): passed");
+  console.log("Pane drop (tiles swapped and moved by their headers, kept on reload, nothing sent; four sides, middle no-op, pane alone, reorder kept, split/self/connected PC/other project over a grid no zones, refusal said, unplaced swap said; another project on the pane alone a view split (and another machine's session: a two-machine split with the machine named, typing, reload, offline tile and back): four sides, Herdr untouched, typing, sidebar, back, reload, pruned, removed; narrow screen none): passed");
 } finally {
   await browser.close();
   await new Promise((resolve) => server.close(resolve));

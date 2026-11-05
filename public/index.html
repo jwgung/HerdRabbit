@@ -41,6 +41,19 @@
               <path d="M17 30C12 21 12 6 20 6c7 0 9 13 9 22a13 13 0 0 1 6 0c0-9 2-22 9-22 8 0 8 15 3 24 7 5 8 14 4 21-4 6-11 8-19 8s-15-2-19-8c-4-7-3-16 4-21Z" />
             </svg>
           </button>
+          <button
+            id="new-tab-open"
+            class="icon-button new-tab-open"
+            type="button"
+            aria-haspopup="dialog"
+            aria-controls="session-dialog"
+            aria-label="New tab"
+            title="New tab"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
         </div>
 
         <div class="navigator-tabs" role="tablist" aria-label="Sidebar sections">
@@ -497,7 +510,7 @@
           </section>
 
           <section class="settings-page" data-page="plugins" aria-labelledby="settings-page-title" hidden>
-            <p class="settings-row-hint">Plugins add actions and panes to Herdr and run their own code on their machine. New versions install from Updates.</p>
+            <p class="settings-row-hint">Plugins add actions and panes to Herdr and run their own code on their machine. HerdRabbit's own update is its row here.</p>
             <div class="settings-card">
               <div id="plugins-machine-row" class="settings-row" hidden>
                 <div class="settings-row-copy">
@@ -506,9 +519,12 @@
                 <select id="plugins-machine" class="ui-input plugins-machine"></select>
               </div>
             </div>
-            <div class="settings-choices plugins-views" role="group" aria-label="Show">
-              <button type="button" class="settings-choice" data-plugins-view="installed" aria-pressed="true">Installed</button>
-              <button type="button" class="settings-choice" data-plugins-view="browse" aria-pressed="false">Browse</button>
+            <div class="plugins-toolbar">
+              <div class="settings-choices plugins-views" role="group" aria-label="Show">
+                <button type="button" class="settings-choice" data-plugins-view="installed" aria-pressed="true">Installed</button>
+                <button type="button" class="settings-choice" data-plugins-view="browse" aria-pressed="false">Browse</button>
+              </div>
+              <button id="plugins-update-all" class="primary-button plugins-update-all" type="button" hidden>Update all</button>
             </div>
             <div id="plugins-installed-view" class="plugins-view">
               <ul id="plugins-list" class="plugin-rows" role="list" aria-label="Plugins"></ul>
@@ -533,6 +549,7 @@
             </div>
             <p id="plugins-feedback" class="settings-row-hint" role="status" aria-live="polite"></p>
             <div class="settings-page-actions">
+              <button id="plugins-check" class="text-button" type="button">Check for updates</button>
               <button id="plugins-link" class="secondary-button" type="button">Link local folder…</button>
               <button id="plugins-install" class="primary-button" type="button">Install plugin…</button>
             </div>
@@ -547,6 +564,22 @@
                 </div>
                 <select id="herdr-machine" class="ui-input plugins-machine"></select>
               </div>
+              <div id="herdr-update-row" class="settings-row herdr-update-row">
+                <div class="settings-row-copy">
+                  <div class="plugin-title">
+                    <span class="settings-row-label">Herdr</span>
+                    <span id="herdr-update-badge" class="ui-badge is-accent" hidden>Update</span>
+                  </div>
+                  <p id="herdr-update-line" class="settings-row-hint herdr-update-line" role="status"></p>
+                  <details id="herdr-update-notes" class="herdr-update-notes" hidden>
+                    <summary id="herdr-update-notes-title">What's new</summary>
+                    <p id="herdr-update-notes-text" class="herdr-update-notes-text"></p>
+                  </details>
+                </div>
+                <div class="herdr-update-actions">
+                  <button id="herdr-update-open" class="secondary-button" type="button">Update…</button>
+                </div>
+              </div>
               <div class="settings-row">
                 <div class="settings-row-copy">
                   <span id="herdr-channel-label" class="settings-row-label">Update channel</span>
@@ -556,13 +589,6 @@
                   <button type="button" class="settings-choice" data-herdr-channel="stable" aria-pressed="false">Stable</button>
                   <button type="button" class="settings-choice" data-herdr-channel="preview" aria-pressed="false">Preview</button>
                 </div>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-copy">
-                  <span class="settings-row-label">Herdr update</span>
-                  <p class="settings-row-hint">The version and its update are in Updates.</p>
-                </div>
-                <button id="herdr-open-updates" class="text-button" type="button">Open Updates</button>
               </div>
             </div>
             <h4 class="herdr-settings-heading">Agent integrations</h4>
@@ -594,28 +620,30 @@
             </div>
           </section>
 
-          <section class="settings-page" data-page="updates" aria-labelledby="settings-page-title" hidden>
-            <div class="settings-card">
-              <div id="settings-update-row" class="settings-row">
-                <div class="settings-row-copy">
-                  <span class="settings-row-label">Herdr</span>
-                  <p id="settings-update-hint" class="settings-row-hint">The Update window: Herdr on each PC, what is new, and each run's log.</p>
-                </div>
-                <button id="settings-update" class="secondary-button" type="button">Update…</button>
-              </div>
-            </div>
-            <p id="updates-hint" class="settings-row-hint">Update all goes one at a time: plugins, then Herdr, then HerdRabbit, which restarts.</p>
-            <div id="updates-list" class="updates-machines"></div>
-            <div class="settings-page-actions">
-              <button id="updates-check" class="text-button" type="button">Check</button>
-            </div>
-          </section>
-
           <section class="settings-page" data-page="about" aria-labelledby="settings-page-title" hidden>
             <dl class="settings-versions settings-card">
               <dt>HerdRabbit</dt><dd id="settings-version-app">Unknown</dd>
               <dt>Herdr</dt><dd id="settings-version-herdr">Unknown</dd>
             </dl>
+            <!-- Only where Plugins and Herdr are not shown (sign-in off): this
+                 PC's HerdRabbit update, and the Update window for Herdr. -->
+            <div id="settings-about-updates" class="settings-card" hidden>
+              <div id="settings-app-update-row" class="settings-row settings-app-update-row">
+                <div class="settings-row-copy">
+                  <span class="settings-row-label">HerdRabbit update</span>
+                  <p id="settings-app-update-line" class="settings-row-hint plugin-update-line"></p>
+                  <div id="settings-app-update-details" class="plugin-row-details"></div>
+                </div>
+                <button id="settings-app-update" class="secondary-button plugin-app-update" type="button" hidden>Update</button>
+              </div>
+              <div id="settings-update-row" class="settings-row">
+                <div class="settings-row-copy">
+                  <span class="settings-row-label">Herdr update</span>
+                  <p id="settings-update-hint" class="settings-row-hint">The Update window: Herdr on each PC, what is new, and each run's log.</p>
+                </div>
+                <button id="settings-update" class="secondary-button" type="button">Update…</button>
+              </div>
+            </div>
           </section>
         </div>
       </div>
@@ -681,28 +709,19 @@
         <div id="project-folder-field" class="folder-field">
           <label for="project-folder">Folder</label>
           <div class="folder-row">
-            <input id="project-folder" name="folder" type="text" maxlength="4096" autocomplete="off" autocapitalize="off" spellcheck="false" />
-            <button class="secondary-button folder-browse" type="button" aria-controls="project-folder-picker">Browse…</button>
+            <svg class="folder-row-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+              <path d="M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" />
+            </svg>
+            <input id="project-folder" name="folder" type="text" maxlength="4096" autocomplete="off" autocapitalize="off" spellcheck="false"
+              role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="project-folder-suggestions" />
+            <button class="folder-browse" type="button" aria-controls="project-folder-picker" aria-label="Browse folders" title="Browse folders">
+              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="m6 9 6 6 6-6" /></svg>
+            </button>
+            <ul id="project-folder-suggestions" class="file-suggestions" role="listbox" hidden></ul>
           </div>
           <div id="project-folder-picker" class="folder-picker" role="group" aria-label="Choose a folder" hidden>
             <div class="browse-tree" aria-label="Folders"></div>
             <p class="dialog-feedback file-feedback" role="status" aria-live="polite"></p>
-            <div class="file-path-row">
-              <input class="file-path" type="text" spellcheck="false" autocomplete="off"
-                autocapitalize="off" autocorrect="off" aria-label="Folder path"
-                aria-autocomplete="list" aria-expanded="false" aria-controls="project-folder-suggestions" />
-              <button class="secondary-button file-up" type="button"
-                aria-label="Go to parent folder" title="Parent folder">
-                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-                  <path d="M12 19V6m-6 6 6-6 6 6" />
-                </svg>
-              </button>
-              <ul id="project-folder-suggestions" class="file-suggestions" role="listbox" hidden></ul>
-            </div>
-            <div class="folder-picker-actions">
-              <button class="secondary-button folder-close" type="button">Close</button>
-              <button class="secondary-button folder-choose" type="button">Use this folder</button>
-            </div>
           </div>
         </div>
         <fieldset id="project-agent" class="agent-picker">
@@ -721,40 +740,47 @@
       <form id="session-create-form" class="dialog-form">
         <div class="dialog-heading">
           <h2 id="session-dialog-title">New tab</h2>
-          <p id="session-dialog-context"></p>
+        </div>
+        <div class="session-place">
+          <div class="session-place-field">
+            <label for="session-machine">Machine</label>
+            <select id="session-machine"></select>
+          </div>
+          <div class="session-place-field">
+            <label for="session-workspace">Workspace</label>
+            <select id="session-workspace"></select>
+          </div>
+        </div>
+        <div id="session-new-workspace" class="session-new-workspace" hidden>
+          <label for="session-workspace-name">Workspace name</label>
+          <input id="session-workspace-name" type="text" maxlength="120" autocomplete="off" />
+          <p class="dialog-hint">The workspace opens in the Folder below, with the agent chosen as its first tab.</p>
+        </div>
+        <div id="session-folder-field" class="folder-field">
+          <label for="session-folder">Folder</label>
+          <div class="folder-row">
+            <svg class="folder-row-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+              <path d="M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" />
+            </svg>
+            <input id="session-folder" name="folder" type="text" maxlength="4096" autocomplete="off" autocapitalize="off" spellcheck="false"
+              role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="session-folder-suggestions" />
+            <button class="folder-browse" type="button" aria-controls="session-folder-picker" aria-label="Browse folders" title="Browse folders">
+              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="m6 9 6 6 6-6" /></svg>
+            </button>
+            <ul id="session-folder-suggestions" class="file-suggestions" role="listbox" hidden></ul>
+          </div>
+          <div id="session-folder-picker" class="folder-picker" role="group" aria-label="Choose a folder" hidden>
+            <div class="browse-tree" aria-label="Folders"></div>
+            <p class="dialog-feedback file-feedback" role="status" aria-live="polite"></p>
+          </div>
         </div>
         <fieldset id="session-agent" class="agent-picker">
           <legend>Agent</legend>
           <div class="agent-choices"></div>
         </fieldset>
-        <label id="session-resume-label" for="session-resume" hidden>Conversation</label>
-        <select id="session-resume" hidden></select>
-        <div id="session-folder-field" class="folder-field">
-          <label for="session-folder">Folder</label>
-          <div class="folder-row">
-            <input id="session-folder" name="folder" type="text" maxlength="4096" autocomplete="off" autocapitalize="off" spellcheck="false" />
-            <button class="secondary-button folder-browse" type="button" aria-controls="session-folder-picker">Browse…</button>
-          </div>
-          <div id="session-folder-picker" class="folder-picker" role="group" aria-label="Choose a folder" hidden>
-            <div class="browse-tree" aria-label="Folders"></div>
-            <p class="dialog-feedback file-feedback" role="status" aria-live="polite"></p>
-            <div class="file-path-row">
-              <input class="file-path" type="text" spellcheck="false" autocomplete="off"
-                autocapitalize="off" autocorrect="off" aria-label="Folder path"
-                aria-autocomplete="list" aria-expanded="false" aria-controls="session-folder-suggestions" />
-              <button class="secondary-button file-up" type="button"
-                aria-label="Go to parent folder" title="Parent folder">
-                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-                  <path d="M12 19V6m-6 6 6-6 6 6" />
-                </svg>
-              </button>
-              <ul id="session-folder-suggestions" class="file-suggestions" role="listbox" hidden></ul>
-            </div>
-            <div class="folder-picker-actions">
-              <button class="secondary-button folder-close" type="button">Close</button>
-              <button class="secondary-button folder-choose" type="button">Use this folder</button>
-            </div>
-          </div>
+        <div id="session-conversations" class="conversation-panel" role="tabpanel" aria-label="Earlier conversations">
+          <div class="conversation-list" role="radiogroup" aria-label="Conversation" hidden></div>
+          <p id="session-conversations-note" class="dialog-hint" aria-live="polite"></p>
         </div>
         <label for="session-name">Tab name</label>
         <input id="session-name" name="label" type="text" maxlength="120" placeholder="Optional" autocomplete="off" />
@@ -964,28 +990,19 @@
         <div id="plugin-link-folder-field" class="folder-field">
           <label for="plugin-link-folder">Plugin folder</label>
           <div class="folder-row">
-            <input id="plugin-link-folder" name="folder" type="text" maxlength="4096" autocomplete="off" autocapitalize="off" spellcheck="false" />
-            <button class="secondary-button folder-browse" type="button" aria-controls="plugin-link-folder-picker">Browse…</button>
+            <svg class="folder-row-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+              <path d="M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" />
+            </svg>
+            <input id="plugin-link-folder" name="folder" type="text" maxlength="4096" autocomplete="off" autocapitalize="off" spellcheck="false"
+              role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="plugin-link-folder-suggestions" />
+            <button class="folder-browse" type="button" aria-controls="plugin-link-folder-picker" aria-label="Browse folders" title="Browse folders">
+              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="m6 9 6 6 6-6" /></svg>
+            </button>
+            <ul id="plugin-link-folder-suggestions" class="file-suggestions" role="listbox" hidden></ul>
           </div>
           <div id="plugin-link-folder-picker" class="folder-picker" role="group" aria-label="Choose a folder" hidden>
             <div class="browse-tree" aria-label="Folders"></div>
             <p class="dialog-feedback file-feedback" role="status" aria-live="polite"></p>
-            <div class="file-path-row">
-              <input class="file-path" type="text" spellcheck="false" autocomplete="off"
-                autocapitalize="off" autocorrect="off" aria-label="Folder path"
-                aria-autocomplete="list" aria-expanded="false" aria-controls="plugin-link-folder-suggestions" />
-              <button class="secondary-button file-up" type="button"
-                aria-label="Go to parent folder" title="Parent folder">
-                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-                  <path d="M12 19V6m-6 6 6-6 6 6" />
-                </svg>
-              </button>
-              <ul id="plugin-link-folder-suggestions" class="file-suggestions" role="listbox" hidden></ul>
-            </div>
-            <div class="folder-picker-actions">
-              <button class="secondary-button folder-close" type="button">Close</button>
-              <button class="secondary-button folder-choose" type="button">Use this folder</button>
-            </div>
           </div>
         </div>
         <label class="plugin-link-enabled">

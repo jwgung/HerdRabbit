@@ -121,7 +121,10 @@ function assertOneRow(layout, where) {
   assert.ok(attach.right <= text.left + 1, `${where}: Files left of the text ${JSON.stringify(layout)}`);
   assert.ok(send.left >= text.right - 1, `${where}: Send right of the text ${JSON.stringify(layout)}`);
   assert.ok(near(send.bottom, text.bottom) && near(attach.bottom, text.bottom), `${where}: same row ${JSON.stringify(layout)}`);
-  assert.ok(near(send.top, text.top), `${where}: one row high ${JSON.stringify(layout)}`);
+  // one line of text high; the buttons keep their 44px square whatever the
+  // text size, so on a taller line they sit at its bottom edge
+  assert.ok(text.height < layout.lineHeight * 2 + 26, `${where}: one row high ${JSON.stringify(layout)}`);
+  assert.ok(near(send.height, 44) && near(attach.height, 44), `${where}: 44px buttons ${JSON.stringify(layout)}`);
   if (dictate) assert.ok(dictate.left >= text.right - 1 && dictate.right <= send.left + 1, `${where}: the mic between the text and Send`);
 }
 

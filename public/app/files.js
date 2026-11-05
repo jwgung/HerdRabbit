@@ -5,7 +5,10 @@ import {
   sortUploads,
   uploadSummary,
 } from "../ui-model.js?v=1.4.41";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "../file-preview.js?v=1.4.41";
+import { MAX_TEXT_PREVIEW_BYTES, looksLikeText, previewFor } from "../file-preview.js?v=1.4.41";
+import { zoomablePicture, zoomableText } from "./viewer-zoom.js?v=1.4.41";
+import { createImageViewer } from "../chat/image-viewer.js?v=1.4.41";
+import { ticketUrl } from "../chat/chat-images.js?v=1.4.41";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -140,17 +143,21 @@ export function createFiles({
   // Text and HTML both arrive this way: as the same opaque bytes a download
   // gets, never as a type the server named. What is done with them afterwards is
   // this side's business, and neither route lets the file pick.
-  async function readFileText(filePath, server) {
+  // A name that was only a guess (preview.probe) is checked by its bytes first,
+  // so a program without an extension is not drawn as a page of noise.
+  async function readFileText(filePath, server, probe = false) {
     const ticket = await viewTicket(filePath, server, false);
     const response = await fetch(`/api/browse/download/${ticket}`);
     if (!response.ok) throw new Error(`Could not read the file (${response.status}).`);
-    const text = await response.text();
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (probe && !looksLikeText(bytes)) throw new Error("This file is not text. Download it to open it.");
+    const text = new TextDecoder().decode(bytes);
     if (text.length > MAX_TEXT_PREVIEW_BYTES) throw new Error("That file is too long to show here.");
     return text;
   }
 
   function viewerText(text) {
-    return createElement("pre", { className: "viewer-text", text });
+    return zoomableText(createElement("pre", { className: "viewer-text", text }));
   }
 
   // The sandbox is on the response, not on this element. Putting it here as well
@@ -176,7 +183,7 @@ export function createFiles({
     }
     element.addEventListener("error", () => setViewerFeedback("This file could not be shown here.", true));
     element.src = `/api/browse/download/${ticket}`;
-    return element;
+    return kind === "image" ? zoomablePicture(element) : element;
   }
 
   function canView(name, size) {
@@ -226,6 +233,8 @@ export function createFiles({
     })();
   });
 
+  let imageViewer = null;
+
   async function viewFile(filePath, name, server, size = null) {
     const preview = previewFor(name, size);
     if (!preview) return;
@@ -233,6 +242,20 @@ export function createFiles({
     if (preview.kind === "pdf") {
       try {
         openInTab(`/api/browse/download/${await viewTicket(filePath, server, true)}`);
+      } catch (error) {
+        setBrowseFeedback(error.message, true);
+      }
+      return;
+    }
+    // A picture opens full screen in the chat's own picture viewer: zoom to 8x
+    // with buttons, wheel or pinch, pan, copy and download, the same in both
+    // places. An SVG stays in the dialog below, which can also show its source.
+    if (preview.kind === "image" && !preview.source) {
+      try {
+        const url = ticketUrl(await viewTicket(filePath, server, true));
+        if (url === null) throw new Error("This file could not be shown here.");
+        imageViewer ??= createImageViewer({ viewTicket });
+        imageViewer.open([{ url, path: filePath, server, name }]);
       } catch (error) {
         setBrowseFeedback(error.message, true);
       }
@@ -249,7 +272,7 @@ export function createFiles({
     viewerDialog.showModal();
     try {
       const element = preview.kind === "text"
-        ? viewerText(await readFileText(filePath, server))
+        ? viewerText(await readFileText(filePath, server, preview.probe))
         : viewerMedia(preview.kind, preview.type, name, await viewTicket(filePath, server, true));
       viewerBody.replaceChildren(element);
       // Markup is worth both readings, and which one is wanted is not ours to

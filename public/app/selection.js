@@ -112,8 +112,12 @@ export function createSelection(deps) {
     return `${trimTrailingSlashes(base)}/${raw.replace(/^\.\//u, "")}`;
   }
 
-  // Whether the viewer can show a file of this name.
-  const hasPreview = (name) => previewFor(name) !== null;
+  // Whether the viewer is sure it can show a file of this name. A name it would
+  // only try as text does not count, or any word in a terminal would be a link.
+  const hasPreview = (name) => {
+    const preview = previewFor(name);
+    return preview !== null && !preview.probe;
+  };
 
   function isLinkableTerminalPath(raw) {
     const name = raw.split("/").pop();

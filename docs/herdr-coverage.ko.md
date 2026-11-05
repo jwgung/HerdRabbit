@@ -80,7 +80,7 @@ Herdr 0.9.5(`herdr --help`와 명령 묶음마다의 `--help`)를 기준으로 �
 | `list` | 표시 | Settings → Plugins, 머신마다 |
 | `install` | 됨 | GitHub `owner/repo`에서, 확인 뒤. 로그인이 켜져 있어야 합니다 |
 | 마켓플레이스([herdr.dev/plugins](https://herdr.dev/plugins/)) | 표시 | Settings → Plugins → Browse: 검색, Herdr와 같은 정렬, Installed 표시, Install…은 같은 확인 단계로 |
-| `enable`, `disable`, `update`, `uninstall` | 됨 | HerdRabbit 자신은 제외(Settings → Updates에서 업데이트). 새 버전이 있는 플러그인도 그곳에서 업데이트(Update all) |
+| `enable`, `disable`, `update`, `uninstall` | 됨 | HerdRabbit 자신은 업데이트만 Settings → Plugins의 자기 줄에서 자체 업데이터로(`herdr plugin update` 아님). 새 버전이 있는 플러그인은 그곳의 Update와 Update all |
 | 업데이트 확인 | 표시 | Ref 없이 GitHub에서 설치한 플러그인만, 마켓플레이스의 head commit이 설치된 커밋과 다르면 "Update available"(목록은 10분마다 다시 읽음). Update all은 하나씩, HerdRabbit은 마지막, 처음 실패에서 멈춤 |
 | `link`, `unlink` | 됨 | Link local folder…(입력하거나 Browse…로 고른 폴더, Files 탭과 같은 검사, 매니페스트가 HerdRabbit이나 이미 있는 플러그인이 아닐 것). 링크한 플러그인은 Unlink… |
 | `action list`, `action invoke` | 됨 | ⋯ → Actions and panes… → Run. 보고 있는 패인이나 대화상자에서 고른 워크스페이스의 활성 패인을 위해(그 워크스페이스·탭·폴더를 Herdr 컨텍스트로, 소켓으로), 없으면 Herdr 포커스가 있는 곳에서. HerdRabbit 자신의 것은 제외 |
@@ -93,8 +93,8 @@ Herdr 0.9.5(`herdr --help`와 명령 묶음마다의 `--help`)를 기준으로 �
 
 | 명령 | HerdRabbit | 메모 |
 |---|---|---|
-| `herdr update` | 됨 | Settings → Updates, 모든 머신의 Herdr |
-| `herdr channel` | 됨 | Settings → Herdr: 머신마다 Stable·Preview, Updates가 따름 |
+| `herdr update` | 됨 | Settings → Herdr(Update…가 Update 창을 엶), 모든 머신의 Herdr |
+| `herdr channel` | 됨 | Settings → Herdr: 머신마다 Stable·Preview, Herdr 페이지의 업데이트 확인이 따름 |
 | `herdr config`, `herdr server reload-config` | 됨 | Settings → Herdr: `config.toml`을 글로 편집, 저장 전에 `herdr config check`로 검사하고 저장 뒤 다시 불러옴. `config reset-keys`는 없음 |
 | `herdr notification` | 필요 없음 | HerdRabbit은 자체 Web Push 알림을 보냅니다 |
 | `herdr integration` | 됨 | Settings → Herdr: 머신마다 상태, 설치, 제거 |

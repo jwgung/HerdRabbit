@@ -196,6 +196,35 @@ try {
       assert.ok(Math.abs(look.buttonMiddle - look.composerMiddle) <= 2,
         `the sidebar footer's buttons are off the composer's row: ${JSON.stringify(look)}`);
     }
+    // One line of the composer is the buttons' 44px whatever the text size:
+    // larger letters (up to the chat's 24px) take room from the padding, the
+    // buttons stay a 44px square, and only a line too tall for 44px grows it.
+    {
+      const sizes = await page.evaluate(async () => {
+        const measure = () => ({
+          buttons: [".send-button", ".attach-button", ".dictate-button"]
+            .map((selector) => document.querySelector(`.input-composer ${selector}`))
+            .filter((button) => button && button.offsetParent)
+            .map((button) => [Math.round(button.getBoundingClientRect().width), Math.round(button.getBoundingClientRect().height)]),
+          text: Math.round(document.querySelector(".input-composer textarea").getBoundingClientRect().height),
+        });
+        const at = async (size) => {
+          document.body.style.setProperty("--composer-font-size", size);
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          return measure();
+        };
+        const result = { normal: measure(), large: await at("24px"), huge: await at("32px") };
+        document.body.style.removeProperty("--composer-font-size");
+        return result;
+      });
+      assert.ok(sizes.normal.buttons.length > 0, "the composer shows its buttons");
+      for (const { buttons } of Object.values(sizes)) {
+        for (const size of buttons) assert.deepEqual(size, [44, 44], `a composer button is a 44px square at any text size: ${JSON.stringify(sizes)}`);
+      }
+      assert.equal(sizes.normal.text, 44, `one line of the composer is 44px: ${JSON.stringify(sizes)}`);
+      assert.equal(sizes.large.text, 44, `24px letters still fit one 44px line: ${JSON.stringify(sizes)}`);
+      assert.ok(sizes.huge.text > 44, `a line too tall for 44px grows the box: ${JSON.stringify(sizes)}`);
+    }
     if (process.env.CHAT_LENS_SCREENSHOTS) {
       for (const theme of ["dark", "light"]) {
         await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);

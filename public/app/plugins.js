@@ -1,24 +1,36 @@
 import { createElement } from "./dom.js?v=1.4.41";
 import {
   parsePluginSource, pluginLogSummary, pluginMachines, pluginOperationText, pluginSourceText, pluginSourceUrl, pluginTarget,
-  pluginTargetText, pluginWorkspaces, validPluginRef,
+  pluginTargetText, pluginWorkspaces, updateAllConfirmText, updateAllCount, updateAllPlan, updateAllResultText, validPluginRef,
 } from "./plugin-model.js?v=1.4.41";
+import { appVersionText, confirmDetails as appConfirmDetails, runSummary } from "../app-update.js?v=1.4.41";
 import { createPluginBrowse } from "./plugin-browse.js?v=1.4.41";
 import { createFolderField } from "./folder-field.js?v=1.4.41";
 
 const POLL_MS = 1_500;
+const GIVE_UP_MS = 15 * 60_000;
+const sleep = (ms) => new Promise((resolve) => { window.setTimeout(resolve, ms); });
+// Where HerdRabbit's row starts its update: the server runs HerdRabbit's
+// own update for it (src/http-server.mjs), never `herdr plugin update`.
+const APP_UPDATE_PATH = "/api/plugins/herdrabbit/update";
 
 // Settings → Plugins: Herdr's plugins on one machine at a time. The server
 // runs Herdr's own commands (src/herdr-plugins.mjs) and says how a change
 // goes; this page lists, starts a change and follows it until it ends.
-// HerdRabbit's own plugin has no switch or menu: its row shows its version
-// and "Updated from Updates", which opens Settings → Updates (`openUpdates`),
-// where HerdRabbit, Herdr and plugins are updated. Another plugin the server
-// marks `updateAvailable` (its repository moved on in Herdr's marketplace)
-// carries an "Update available" badge that opens Updates too; ⋯ → Update
-// still updates any plugin Herdr can update, marked or not. While HerdRabbit
-// or Herdr updates on the machine (`appUpdates`, the Update window's panel
-// in app-update.js), the controls wait. Browse lists Herdr's plugin
+// HerdRabbit's row comes first, "this app", with no switch or menu: its
+// versions from the machine's update check (`appUpdates`, the Update
+// window's panel in app-update.js), Update when a newer release is out (the
+// panel's confirm and run, started through APP_UPDATE_PATH), and under it
+// what changed and the run step by step (appDetails). It shows even where
+// Herdr does not list HerdRabbit as a plugin (update.sh installs). Another
+// plugin the server marks `updateAvailable` (its repository moved on in
+// Herdr's marketplace) carries "Update" and its own Update button; ⋯ →
+// Update still updates any plugin Herdr can update, marked or not. Update
+// all (beside Installed and Browse) updates the marked plugins one at a
+// time, then HerdRabbit last as it restarts, and stops at the first that
+// fails. Check for updates asks every PC again. While HerdRabbit or Herdr
+// updates on the machine the controls wait. `onUpdatesChange` hears that the count of marked plugins read on a
+// machine changed (Settings' badge beside Plugins). Browse lists Herdr's plugin
 // marketplace (plugin-browse.js) and installs through the same dialog. Only
 // shown with sign-in on (settings.js decides).
 // A plugin's ⋯ also holds Actions and panes… (Run an action for the pane on
@@ -26,10 +38,10 @@ const POLL_MS = 1_500;
 // of that pane's workspace, then shown), Logs… (its last command logs) and,
 // for a plugin linked from a folder, Unlink… in place of Uninstall….
 // Link local folder… links a plugin folder on the machine, picked with the
-// Folder field's Browse… (folder-field.js). HerdRabbit's own actions and
+// Folder field (folder-field.js): typed, or chosen from its tree. HerdRabbit's own actions and
 // panes are not offered (the server neither lists nor runs them).
 export function createPluginsPage({
-  api, snapshotRecords, sidebarActionMenu, appUpdates = null, openUpdates = () => {},
+  api, snapshotRecords, sidebarActionMenu, appUpdates = null, onUpdatesChange = () => {},
   selectedPaneId = () => null, refreshSnapshot = async () => {}, showPane = () => {},
 }) {
   const machineRow = document.querySelector("#plugins-machine-row");
@@ -41,6 +53,8 @@ export function createPluginsPage({
   const viewButtons = [...document.querySelectorAll("[data-plugins-view]")];
   const installedView = document.querySelector("#plugins-installed-view");
   const browseView = document.querySelector("#plugins-browse-view");
+  const updateAllButton = document.querySelector("#plugins-update-all");
+  const checkButton = document.querySelector("#plugins-check");
 
   const dialog = document.querySelector("#plugin-install-dialog");
   const form = document.querySelector("#plugin-install-form");
@@ -60,6 +74,9 @@ export function createPluginsPage({
     visible: false, server: "local", machines: [], plugins: [], operation: null,
     loaded: false, loading: false, sending: false, timer: null, generation: 0,
     pending: null, view: "installed", opener: null, appBusy: false,
+    // Update all on a machine while it runs, its last word, and per machine
+    // how many plugins its last read marked behind.
+    updatingAll: null, said: null, updates: new Map(),
   };
 
   const browse = createPluginBrowse({
@@ -67,7 +84,6 @@ export function createPluginsPage({
     installed: () => ({ plugins: page.plugins, loaded: page.loaded }),
     locked: () => locked(),
     install: (source, opener) => openInstall(source, opener),
-    openUpdates: () => openUpdates(),
   });
 
   const machineName = (id = page.server) => page.machines.find((item) => item.id === id)?.name ?? "this machine";
@@ -76,7 +92,7 @@ export function createPluginsPage({
   // Update window's panel. The server refuses plugin changes meanwhile too.
   const appState = () => appUpdates?.state(page.server) ?? null;
   const updateRunning = () => appState()?.busy === true;
-  const changing = () => page.sending || running() || updateRunning();
+  const changing = () => page.sending || running() || updateRunning() || page.updatingAll !== null;
   const locked = () => changing() || !page.loaded;
 
   function setFeedback(text, isError = false) {
@@ -132,7 +148,8 @@ export function createPluginsPage({
     const title = createElement("div", { className: "plugin-title" });
     title.append(createElement("strong", { text: plugin.name }));
     if (plugin.version) title.append(createElement("span", { className: "plugin-version", text: plugin.version }));
-    if (!plugin.protected && plugin.updateAvailable === true) title.append(updatesLink("ui-badge is-accent plugin-update-badge", "Update available"));
+    const behind = plugin.updateAvailable === true && plugin.updatable === true;
+    if (behind) title.append(createElement("span", { className: "ui-badge is-accent plugin-update-badge", text: "Update" }));
     identity.append(title);
     const sourceText = pluginSourceText(plugin);
     const url = pluginSourceUrl(plugin);
@@ -147,60 +164,114 @@ export function createPluginsPage({
     }
     if (plugin.description) identity.append(createElement("small", { className: "plugin-description", text: plugin.description }));
     const actions = createElement("div", { className: "plugin-actions" });
-    if (plugin.protected) {
-      actions.append(updatesLink("plugin-state plugin-updates-link", "Updated from Updates"));
-    } else {
-      actions.append(pluginSwitch(plugin));
-      const menu = sidebarActionMenu({
-        id: `plugin-${page.server}-${plugin.id}`,
-        label: `Actions for ${plugin.name}`,
-        escapesOverflow: true,
-        actions: [
-          ...(hasEntries(plugin) ? [{
-            label: "Actions and panes…", key: "details", paths: ["M8 5v14l11-7z"],
-            onSelect: () => openDetails(plugin),
-          }] : []),
-          {
-            label: "Logs…", key: "logs", paths: ["M5 4h14v16H5z", "M8 9h8", "M8 13h8", "M8 17h5"],
-            onSelect: () => openLogs(plugin),
-          },
-          ...(plugin.updatable ? [{
-            label: "Update", key: "update", paths: ["M12 4v11", "M7 10l5 5 5-5", "M5 20h14"],
-            onSelect: () => void change("update", plugin),
-          }] : []),
-          linked(plugin) ? {
-            label: "Unlink…", key: "unlink", danger: true, paths: ["M9 15l6-6", "M10 6l1-1a4 4 0 0 1 6 6l-1 1", "M14 18l-1 1a4 4 0 0 1-6-6l1-1"],
-            onSelect: () => unlink(plugin),
-          } : {
-            label: "Uninstall…", key: "uninstall", danger: true, paths: ["M6 6l12 12M18 6 6 18"],
-            onSelect: () => uninstall(plugin),
-          },
-        ],
-      });
-      const summary = menu.querySelector("summary");
-      if (locked()) {
-        menu.classList.add("is-disabled");
-        summary.setAttribute("aria-disabled", "true");
-        summary.tabIndex = -1;
-      }
-      actions.append(menu);
+    if (behind) {
+      const button = createElement("button", { className: "secondary-button plugin-update", text: "Update" });
+      button.type = "button";
+      button.setAttribute("aria-label", `Update ${plugin.name}`);
+      button.disabled = locked();
+      button.addEventListener("click", () => void change("update", plugin));
+      actions.append(button);
     }
+    actions.append(pluginSwitch(plugin));
+    const menu = sidebarActionMenu({
+      id: `plugin-${page.server}-${plugin.id}`,
+      label: `Actions for ${plugin.name}`,
+      escapesOverflow: true,
+      actions: [
+        ...(hasEntries(plugin) ? [{
+          label: "Actions and panes…", key: "details", paths: ["M8 5v14l11-7z"],
+          onSelect: () => openDetails(plugin),
+        }] : []),
+        {
+          label: "Logs…", key: "logs", paths: ["M5 4h14v16H5z", "M8 9h8", "M8 13h8", "M8 17h5"],
+          onSelect: () => openLogs(plugin),
+        },
+        ...(plugin.updatable ? [{
+          label: "Update", key: "update", paths: ["M12 4v11", "M7 10l5 5 5-5", "M5 20h14"],
+          onSelect: () => void change("update", plugin),
+        }] : []),
+        linked(plugin) ? {
+          label: "Unlink…", key: "unlink", danger: true, paths: ["M9 15l6-6", "M10 6l1-1a4 4 0 0 1 6 6l-1 1", "M14 18l-1 1a4 4 0 0 1-6-6l1-1"],
+          onSelect: () => unlink(plugin),
+        } : {
+          label: "Uninstall…", key: "uninstall", danger: true, paths: ["M6 6l12 12M18 6 6 18"],
+          onSelect: () => uninstall(plugin),
+        },
+      ],
+    });
+    const summary = menu.querySelector("summary");
+    if (locked()) {
+      menu.classList.add("is-disabled");
+      summary.setAttribute("aria-disabled", "true");
+      summary.tabIndex = -1;
+    }
+    actions.append(menu);
     row.append(identity, actions);
     return row;
   }
 
-  // Opens Settings → Updates, where the update is.
-  function updatesLink(className, text) {
-    const button = createElement("button", { className, text });
-    button.type = "button";
-    button.title = "Open Updates";
-    button.addEventListener("click", () => openUpdates());
-    return button;
+  // HerdRabbit's row: "this app", its versions on the machine and Update,
+  // and under them what changed and its run step by step. `plugin` is its
+  // row in Herdr's list, when Herdr runs it as a plugin there.
+  function appRow(plugin) {
+    const { check, error, run } = appState() ?? {};
+    const app = appVersionText(check, plugin?.version);
+    // a run while it goes, one that failed, and the one this page reloaded
+    // after (it says how it went), until this page is left
+    const appRun = run?.tracking || run?.status?.state === "failed" || run?.resumed
+      ? runSummary(run, { local: page.server === "local" }) : null;
+    const row = createElement("li", { className: "plugin-row plugin-app-row" });
+    row.dataset.plugin = plugin?.id ?? "herdrabbit";
+    row.dataset.update = "app";
+    const identity = createElement("div", { className: "plugin-identity" });
+    const title = createElement("div", { className: "plugin-title" });
+    title.append(createElement("strong", { text: "HerdRabbit" }),
+      createElement("span", { className: "ui-badge plugin-app-badge", text: "this app" }));
+    if (check?.supported === true && check.available === true && !check.error) {
+      title.append(createElement("span", { className: "ui-badge is-accent plugin-update-badge", text: "Update" }));
+    }
+    identity.append(title);
+    // Its versions; the run itself is told step by step under the row.
+    const line = app
+      ? { text: app.canUpdate ? `${app.text.replace(/ available$/u, "")} · restarts HerdRabbit when done` : app.text, error: app.error }
+      : { text: [plugin?.version, error ?? (!check ? "Not checked yet."
+        : page.server === "local" ? "This HerdRabbit cannot update itself from the page." : "Update it there (older version).")]
+        .filter(Boolean).join(" · "), error: Boolean(error) };
+    for (const [said, className] of [[line, "plugin-update-line"], [app?.note ? { text: app.note, error: true } : null, "plugin-update-note"]]) {
+      if (!said?.text) continue;
+      const node = createElement("small", { className, text: said.text });
+      node.dataset.error = String(said.error === true);
+      identity.append(node);
+    }
+    const actions = createElement("div", { className: "plugin-actions" });
+    if (app?.canUpdate && !appRun?.running) {
+      const button = createElement("button", { className: "secondary-button plugin-app-update", text: "Update" });
+      button.type = "button";
+      button.setAttribute("aria-label", "Update HerdRabbit");
+      button.disabled = locked();
+      button.addEventListener("click", () => void updateApp());
+      actions.append(button);
+    }
+    row.append(identity, actions);
+    // What changed, and the run step by step with its log.
+    const details = appUpdates?.appDetails?.(page.server, { onScreen: page.visible }) ?? null;
+    if (details) {
+      details.classList.add("plugin-row-details");
+      row.append(details);
+    }
+    return row;
   }
+
+  // HerdRabbit's row shows where Herdr lists it, or once the machine has
+  // answered its update check (an older PC's says to update it there).
+  const appShown = (plugin) => Boolean(plugin) || Boolean(appState()?.check);
+  const appLine = () => appVersionText(appState()?.check, page.plugins.find((item) => item.protected)?.version);
+  const plan = () => updateAllPlan(page.plugins, appLine());
 
   // The line under the list: an update of HerdRabbit or Herdr on this
   // machine first (plugin changes wait for it), then the change last started.
   function statusLine() {
+    if (page.said?.server === page.server) return page.said;
     const { run, herdrRun } = appState() ?? {};
     if (run?.tracking) return { text: `HerdRabbit is updating on ${machineName()}. Plugin changes wait until it finishes.`, error: false };
     if (herdrRun?.tracking) return { text: `Herdr is updating on ${machineName()}. Plugin changes wait until it finishes.`, error: false };
@@ -210,18 +281,40 @@ export function createPluginsPage({
   function render() {
     installButton.disabled = locked();
     linkButton.disabled = locked();
+    machineSelect.disabled = page.updatingAll !== null;
     browse.render();
+    renderUpdateAll();
     if (!page.loaded) return;
-    if (page.plugins.length === 0) {
-      list.replaceChildren(createElement("li", { className: "settings-row-hint plugin-empty", text: `No plugins are installed on ${machineName()}.` }));
-    } else {
-      list.replaceChildren(...page.plugins.map(pluginRow));
+    const self = page.plugins.find((item) => item.protected) ?? null;
+    const others = page.plugins.filter((item) => !item.protected);
+    const rows = [...(appShown(self) ? [appRow(self)] : []), ...others.map(pluginRow)];
+    if (others.length === 0) {
+      rows.push(createElement("li", { className: "settings-row-hint plugin-empty", text: `No plugins are installed on ${machineName()}.` }));
     }
+    list.replaceChildren(...rows);
     const status = statusLine();
     if (status) setFeedback(status.text, status.error);
   }
 
-  function adopt(answer, { started = false } = {}) {
+  // Update all, beside Installed and Browse: how many, while it runs too.
+  function renderUpdateAll() {
+    const count = page.loaded ? updateAllCount(plan()) : 0;
+    const mine = page.updatingAll === page.server;
+    updateAllButton.hidden = page.view !== "installed" || (count === 0 && !mine);
+    updateAllButton.textContent = mine ? "Updating all…" : `Update all (${count})`;
+    updateAllButton.disabled = locked();
+  }
+
+  // How many plugins a machine's read marks behind, for Settings' badge.
+  function countUpdates(server, plugins) {
+    const count = updateAllPlan(plugins, null).plugins.length;
+    if (page.updates.get(server) === count) return;
+    page.updates.set(server, count);
+    onUpdatesChange();
+  }
+
+  function adopt(answer, { started = false, follow = true } = {}) {
+    if (Array.isArray(answer?.plugins) && typeof answer.server === "string") countUpdates(answer.server, answer.plugins);
     if (answer.server !== page.server) return;
     if (started) page.following = true;
     page.plugins = Array.isArray(answer.plugins) ? answer.plugins : [];
@@ -229,7 +322,7 @@ export function createPluginsPage({
     page.loaded = true;
     render();
     renderDetails();
-    schedule();
+    if (follow) schedule();
   }
 
   // Follows a change while the page is on screen.
@@ -273,6 +366,7 @@ export function createPluginsPage({
   // Starts one change. Answers { ok, error }.
   async function send(path, options) {
     if (locked()) return { ok: false, error: "Another change is running." };
+    page.said = null;
     page.sending = true;
     render();
     try {
@@ -292,6 +386,100 @@ export function createPluginsPage({
       method: "POST", body: { server: page.server },
     });
   }
+
+  // HerdRabbit's Update: the Update window panel's own confirm and run,
+  // started through HerdRabbit's row (APP_UPDATE_PATH).
+  async function updateApp() {
+    if (locked()) return;
+    page.said = null;
+    const ended = await appUpdates?.run(page.server, { path: APP_UPDATE_PATH });
+    if (ended?.startFailed) setFeedback(ended.detail, true);
+    render();
+  }
+
+  // One plugin's update on `server` for Update all, followed until it ends:
+  // { ok, text }. Its answers update the list while that machine is shown.
+  async function pluginUpdate(server, plugin) {
+    let operation;
+    let plugins = [];
+    const take = (answer) => {
+      plugins = Array.isArray(answer.plugins) ? answer.plugins : plugins;
+      operation = answer.operation ?? null;
+      adopt(answer, { follow: false });
+    };
+    try {
+      take(await api(`/api/plugins/${encodeURIComponent(plugin.id)}/update`, { method: "POST", body: { server } }));
+    } catch (error) {
+      return { ok: false, text: `Couldn't update ${plugin.name}: ${error.message}` };
+    }
+    const started = Date.now();
+    while (operation?.state === "running" && Date.now() - started < GIVE_UP_MS) {
+      await sleep(POLL_MS);
+      try {
+        take(await api(`/api/plugins?server=${encodeURIComponent(server)}`));
+      } catch { /* asked again on the next tick */ }
+    }
+    const said = pluginOperationText(operation, plugins);
+    return { ok: operation?.state === "succeeded", text: said?.text ?? `Couldn't update ${plugin.name}.` };
+  }
+
+  // How HerdRabbit's run ended, as Update all's failure: null when it succeeded.
+  function appFailure(server, ended) {
+    if (ended?.state === "succeeded") return null;
+    if (ended?.startFailed) return `Couldn't update HerdRabbit: ${ended.detail}`;
+    if (!ended) return "HerdRabbit's update did not start.";
+    return runSummary({ status: ended }, { local: server === "local" })?.text ?? "The HerdRabbit update failed.";
+  }
+
+  // Update all on the machine shown: one question first, for all of them,
+  // then each update waited for before the next, HerdRabbit last. The
+  // machine stays chosen until it ends.
+  async function updateAll() {
+    const todo = plan();
+    if (locked() || updateAllCount(todo) === 0) return;
+    const server = page.server;
+    const app = appLine();
+    const question = updateAllConfirmText(machineName(server), todo, {
+      appLine: app?.text, appDetails: todo.app ? appConfirmDetails(appState()?.check) : "",
+    });
+    if (!window.confirm(question)) return;
+    const names = [...todo.plugins.map((plugin) => plugin.name), ...(todo.app ? ["HerdRabbit"] : [])];
+    const done = [];
+    let failure = null;
+    const say = (text, error = false) => {
+      page.said = { text, error, server };
+      render();
+    };
+    page.updatingAll = server;
+    try {
+      for (const plugin of todo.plugins) {
+        say(`Update all: Updating ${plugin.name}…`);
+        const result = await pluginUpdate(server, plugin);
+        if (!result.ok) {
+          failure = result.text;
+          break;
+        }
+        done.push(plugin.name);
+      }
+      if (!failure && todo.app) {
+        say("Update all: Updating HerdRabbit…");
+        failure = appFailure(server, await appUpdates?.run(server, { confirmed: true, path: APP_UPDATE_PATH }));
+        if (!failure) done.push("HerdRabbit");
+      }
+    } finally {
+      page.updatingAll = null;
+      const result = updateAllResultText(done, names.slice(done.length + (failure ? 1 : 0)), failure);
+      say(result.text, result.error);
+      if (server === page.server) void load({ quiet: true });
+    }
+  }
+  updateAllButton.addEventListener("click", () => void updateAll());
+  // Check for updates: every PC's HerdRabbit and Herdr asked afresh, and
+  // this machine's plugins read again (the server marks those behind).
+  checkButton.addEventListener("click", () => {
+    void appUpdates?.refresh({ fresh: true });
+    if (!changing()) void load({ quiet: true });
+  });
 
   function uninstall(plugin) {
     if (!window.confirm(`Uninstall ${plugin.name} from ${machineName()}? Herdr removes it and its actions and panes.`)) return;
@@ -589,6 +777,7 @@ export function createPluginsPage({
 
   machineSelect.addEventListener("change", () => {
     page.server = machineSelect.value;
+    page.said = null;
     void load();
     void appUpdates?.follow(page.server);
   });
@@ -744,11 +933,16 @@ export function createPluginsPage({
     if (visible) {
       void load();
       void appUpdates?.follow(page.server);
-    } else if (!page.following) {
+      return;
+    }
+    // A finished HerdRabbit run seen in its row goes once the page is left.
+    appUpdates?.putAwayApp?.();
+    if (!page.following) {
       clearTimeout(page.timer);
       page.timer = null;
     }
   }
 
-  return { sync };
+  // Per machine read, how many plugins are marked behind (Settings' badge).
+  return { sync, updateCounts: () => [...page.updates.values()] };
 }
