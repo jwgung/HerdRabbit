@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   MAX_TEXT_PREVIEW_BYTES,
   inlineTypeFor,
+  looksLikeText,
   parseByteRange,
   previewFor,
 } from "../public/file-preview.js";
@@ -52,14 +53,36 @@ test("shows ordinary text as characters", () => {
   assert.equal(previewFor("Dockerfile").kind, "text");
 });
 
-test("offers nothing for a file it has no name for", () => {
+test("offers nothing for a file that is surely not text", () => {
   assert.equal(previewFor("archive.zip"), null);
-  assert.equal(previewFor("herdr"), null);
+  assert.equal(previewFor("report.docx"), null);
+  assert.equal(previewFor("lib.so"), null);
   assert.equal(previewFor(""), null);
   assert.equal(previewFor(null), null);
   // The last dot decides, so a name that ends in a known one still counts.
   assert.equal(previewFor("release.tar.gz"), null);
   assert.equal(previewFor("photo.tar.png").kind, "image");
+});
+
+test("tries any other name as text, and says it is only a try", () => {
+  // Plenty of text has an extension nobody listed (a unit file, a LICENSE, a
+  // .mdc rule). Text never reaches the browser as a type of its own -- bytes in,
+  // characters out -- so trying costs nothing but a read, and the viewer looks
+  // at the bytes before it shows them.
+  for (const name of ["herdr.service", "LICENSE", "rules.mdc", "herdr", "notes.org"]) {
+    assert.deepEqual(previewFor(name), { kind: "text", type: null, probe: true }, name);
+  }
+  // A name on the list is text for sure.
+  assert.equal(previewFor("server.log").probe, undefined);
+  // A try is still held to the text length.
+  assert.equal(previewFor("LICENSE", MAX_TEXT_PREVIEW_BYTES + 1), null);
+});
+
+test("tells text from binary by its bytes", () => {
+  const bytes = (text) => new TextEncoder().encode(text);
+  assert.equal(looksLikeText(bytes("[Unit]\nDescription=한글도 텍스트\n")), true);
+  assert.equal(looksLikeText(new Uint8Array(0)), true);
+  assert.equal(looksLikeText(new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x00, 0x00])), false);
 });
 
 test("keeps a text view from swallowing a file the tab cannot render", () => {

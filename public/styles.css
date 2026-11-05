@@ -4594,6 +4594,28 @@ body.is-resizing-sidebar {
   touch-action: pan-x pan-y;
 }
 
+/* A picture's box zooms it (app/viewer-zoom.js): the browser's own pinch and
+   double-tap would zoom the page instead, so the box takes every gesture. */
+.viewer-zoom {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-height: var(--viewer-content-height);
+  overflow: hidden;
+  touch-action: none;
+  cursor: zoom-in;
+}
+
+.viewer-zoom[data-zoomed="true"] { cursor: grab; }
+
+.viewer-zoom[data-zoomed="true"]:active { cursor: grabbing; }
+
+.viewer-zoom .viewer-image {
+  transform-origin: center;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
 /* Markup draws itself at whatever size it likes, so the frame is the one that
    decides how much room that gets. */
 .viewer-document {
@@ -4617,6 +4639,7 @@ body.is-resizing-sidebar {
   padding: var(--space-3);
   overflow: auto;
   font-family: var(--mono);
+  /* app/viewer-zoom.js scales this when the text is pinched or Ctrl+wheeled. */
   font-size: var(--font-sm);
   line-height: 1.5;
   white-space: pre;

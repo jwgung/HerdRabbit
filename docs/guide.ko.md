@@ -531,6 +531,8 @@ Chat 화면에서는 같은 단축키와 돋보기가 **채팅 안 찾기**를 �
 
 탐색은 사이드바에서 따로 합니다. 사이드바에는 탭이 두 개 있습니다. **Workspaces**는 워크스페이스 목록이고, **Files**는 머신 파일시스템의 트리입니다. 폴더는 이름이나 옆의 화살표를 누르면 그 자리에서 펼쳐지고, 폴더 행의 버튼을 누르면 그 폴더가 트리의 뿌리가 되어 깊은 경로에서 들여쓰기를 되돌릴 수 있습니다. 탭 맨 아래 경로 입력칸으로 폴더에 바로 가고 옆의 ↑ 버튼으로 상위 폴더에 가며, 점으로 시작하는 파일도 늘 함께 보입니다. 어느 파일이든 그 행에서 현재 기기로 내려받을 수 있습니다.
 
+파일 행의 **View**(눈 모양)는 그 자리에서 파일을 엽니다. 그림은 채팅과 같은 그림 뷰어로 전체 화면에 열립니다(단추·휠·핀치로 8배까지 확대, 이동, 복사, 내려받기). SVG·HTML·Markdown은 뷰어 창에서 그린 모습과 **Source**를 오가며 보고, 그 창의 SVG는 핀치·두 번 탭·`Ctrl`/`Cmd`+휠로 확대하고 확대한 뒤에는 끌어서 옮깁니다. 텍스트는 글자로 열리고, 그 위에서 핀치나 `Ctrl`/`Cmd`+휠로 글자 크기를 0.6배에서 4배까지 바꿉니다. 페이지 자체는 확대되지 않습니다. 뷰어 목록에 없는 확장자(`.service` 유닛, `LICENSE`, `.mdc` 규칙 등)도 2 MB까지는 텍스트로 열어 봅니다. 처음 8 KB 안에 NUL 바이트가 있으면 바이너리로 보고 내려받으라고 알려 줍니다. 압축 파일·실행 파일·오피스 문서·글꼴·데이터베이스는 열어 보지 않습니다.
+
 탭 맨 아래 경로 입력칸으로 어디든 바로 갈 수 있습니다. 입력하면 이름이 맞는 폴더가 후보로 나오고, 방향키로 옮겨 `Enter`로 엽니다. 탭을 다시 열면 마지막으로 보던 폴더에서 시작하며, 처음 열 때는 업로드 폴더에서 시작합니다.
 
 로그인 키와 HerdRabbit 자체 설정은 열지 않습니다. `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.azure`, `~/.kube`, `~/.password-store`, `~/.local/share/keyrings`, `~/.config/gh`, `~/.config/gcloud`, `~/.config/rclone`, `~/.netrc`, `~/.git-credentials`, `~/.docker/config.json`, `~/.npmrc`, `~/.pypirc`, `~/.cargo/credentials(.toml)`, AI CLI 로그인 파일(`~/.claude/.credentials.json`, `~/.claude.json`, `~/.codex/auth.json`, `~/.gemini/antigravity-cli/antigravity-oauth-token`, `~/.local/share/kiro-cli/data.sqlite3`, `~/.config/claude*`, 그리고 `CLAUDE_CONFIG_DIR`·`CODEX_HOME`·`XDG_DATA_HOME`이 옮긴 같은 파일), HerdRabbit 설정 폴더는 트리에 이름만 **locked**로 보이고 펼치거나 미리 보거나 내려받을 수 없습니다. 심볼릭 링크를 거쳐도, Connect PC로 붙은 PC에서도 같습니다.

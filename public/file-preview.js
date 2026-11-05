@@ -97,6 +97,18 @@ const TEXT = new Set([
   "diff", "patch", "gitignore", "dockerfile", "makefile", "lock", "gradle", "tf", "proto", "graphql",
 ]);
 
+// Formats that are never text, so not worth even trying: archives, programs,
+// office files, fonts, databases, disk images and media no browser plays.
+const BINARY = new Set([
+  "zip", "gz", "tgz", "bz2", "xz", "zst", "7z", "rar", "tar", "jar", "war", "apk", "aab", "ipa",
+  "exe", "dll", "so", "dylib", "a", "o", "obj", "lib", "class", "pyc", "pyo", "wasm", "bin", "dat",
+  "db", "sqlite", "sqlite3", "iso", "img", "dmg", "deb", "rpm", "msi", "pkg",
+  "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "hwp", "hwpx", "pages", "key", "numbers",
+  "psd", "ai", "sketch", "fig", "xcf", "ttf", "otf", "woff", "woff2", "eot",
+  "mkv", "avi", "wmv", "flv", "heic", "heif", "tif", "tiff", "raw", "cr2", "nef", "dng", "wma", "aiff",
+  "pdb", "pt", "pth", "onnx", "safetensors", "gguf", "npy", "npz", "pkl", "parquet",
+]);
+
 // A text view holds the whole file in the page, so the ceiling is what a tab
 // can render without locking up rather than what the disk can hand over.
 export const MAX_TEXT_PREVIEW_BYTES = 2 * 1024 * 1024;
@@ -134,9 +146,22 @@ export function previewFor(name, size = null) {
     };
   }
   if (inline) return { kind: inline[0], type: inline[1] };
-  if (!TEXT.has(extension)) return null;
+  if (!extension || BINARY.has(extension)) return null;
   if (Number.isFinite(size) && size > MAX_TEXT_PREVIEW_BYTES) return null;
-  return { kind: "text", type: null };
+  if (TEXT.has(extension)) return { kind: "text", type: null };
+  // Any other name is tried as text: plenty of text has an extension nobody
+  // listed. That is safe for the reason rule 3 gives -- text is characters
+  // written into the page, never a type the browser acts on -- and the viewer
+  // checks the bytes (looksLikeText) before it shows them. `probe` says so,
+  // for a caller that wants only names it is sure of (a path in a terminal).
+  return { kind: "text", type: null, probe: true };
+}
+
+// Whether bytes read as text: a NUL in the first few kilobytes is what text
+// never has and nearly every binary format does (git and grep decide the same way).
+export function looksLikeText(bytes) {
+  const head = bytes.subarray(0, 8192);
+  return !head.includes(0);
 }
 
 // Only the media kinds are ever served with a type of their own; text is read
