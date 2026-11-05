@@ -2330,6 +2330,13 @@ body {
 
 body:has(.terminal-panel[data-lens="chat"]) {
   --composer-font-size: var(--chat-font-size, var(--terminal-font-size));
+  /* The chat's last answer gets a little more room above the composer than
+     the panel's own gap; the sidebar's footer grows by the same. */
+  --composer-gap: var(--space-5);
+}
+
+.terminal-panel[data-lens="chat"] > .input-form {
+  margin-top: calc(var(--composer-gap) - var(--space-3));
 }
 
 .input-composer {
@@ -4206,8 +4213,14 @@ body.is-resizing-sidebar {
 /* On a phone the sidebar covers the page, with no composer beside it. */
 @media (min-width: 761px) {
   .navigator .navigator-footer {
-    min-height: calc(var(--composer-row-height) + var(--space-3) + var(--space-4) + 1px);
+    min-height: calc(var(--composer-row-height) + var(--composer-gap, var(--space-3)) + var(--space-4) + 1px);
     padding-bottom: var(--space-4);
+  }
+
+  /* The Chat lens's wider gap above the composer (--composer-gap), above the
+     footer's buttons too, so they stay on the composer's middle. */
+  body:has(.terminal-panel[data-lens="chat"]) .navigator .navigator-footer {
+    padding-top: var(--space-5);
   }
 }
 
