@@ -110,6 +110,9 @@ test("looks up the tailnet account of an address, and says nothing when it canno
   assert.deepEqual(calls[0], ["tailscale", "whois", "--json", "100.64.0.2"]);
   assert.equal(await tailnetLoginOf("100.64.0.2", async () => { throw new Error("not on the tailnet"); }), null);
   assert.equal(await tailnetLoginOf("100.64.0.2", async () => ({ stdout: "{}" })), null);
+  // A tagged device is its tags', whoever set it up.
+  assert.equal(await tailnetLoginOf("100.64.0.2", async () => ({ stdout: JSON.stringify({ Node: { Tags: ["tag:server"] }, UserProfile: { LoginName: "owner@example.com" } }) })), null);
+  assert.equal(await tailnetLoginOf("100.64.0.2", async () => ({ stdout: JSON.stringify({ Node: { Tags: [] }, UserProfile: { LoginName: "owner@example.com" } }) })), "owner@example.com");
 });
 
 test("reports plainly when there is no tailnet to read", async () => {

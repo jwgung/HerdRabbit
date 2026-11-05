@@ -102,7 +102,7 @@ Herdr 영구 세션명 변경, 분할 경계를 끌어 크기를 바꾸는 기�
 
 **붙을 PC(B)에서:** Connect PC 포트를 열고 붙을 수 있는 PC를 정합니다. 열기 전까지 포트는 닫혀 있습니다.
 
-- **페이지에서**(Herdr 플러그인으로 설치하고 비밀번호를 정한 경우): **⚙ Settings → PCs → Let other PCs connect → Choose PCs…**가 tailnet의 기기 목록을 보여 줍니다. 붙을 수 있게 할 PC를 체크하고 비밀번호를 넣어 **Save**를 누르면, HerdRabbit이 플러그인 `.env`에 `HERDR_WEB_PEER_HOST`(이 PC의 tailnet 주소)와 `HERDR_WEB_PEER_ADDRESSES`를 쓰고(다른 줄은 그대로) Herdr를 통해 다시 시작합니다. 아무것도 체크하지 않으면 둘 다 지우고 포트를 닫습니다. 직접 넣은 `HERDR_WEB_PEER_PORT`, `HERDR_WEB_PEER_LOGINS`는 그대로 둡니다. 쓰기 전에 서버가 읽는 방식대로 설정을 검사하고, 링크인 `.env`는 바꾸지 않습니다.
+- **페이지에서**(Herdr 플러그인으로 설치하고 비밀번호를 정한 경우): **⚙ Settings → PCs → Let other PCs connect → Choose PCs…**가 **All my PCs**(이 PC의 Tailscale 계정으로 로그인한 모든 기기, 닫힌 포트에서는 이것이 먼저 골라져 있음), **Only these**(tailnet 기기를 하나씩 체크), **No other PC** 중에서 고릅니다. 비밀번호를 넣어 **Save**를 누르면 HerdRabbit이 플러그인 `.env`에 `HERDR_WEB_PEER_HOST`(이 PC의 tailnet 주소)와 함께 `HERDR_WEB_PEER_LOGINS`(이 PC의 계정)나 `HERDR_WEB_PEER_ADDRESSES`(기기) 중 하나만 씁니다. 둘 다 있으면 둘 다 맞아야 들어올 수 있기 때문입니다. 다른 줄은 그대로 두고 Herdr를 통해 다시 시작합니다. No other PC는 그 줄들을 지우고 포트를 닫습니다. 이 세 줄은 페이지가 관리하므로 직접 넣은 값은 바뀝니다. `HERDR_WEB_PEER_PORT`는 그대로 둡니다. 태그가 붙은 기기(태그가 주인인 기기)는 내 기기로 치지 않습니다. 쓰기 전에 서버가 읽는 방식대로 설정을 검사하고, 링크인 `.env`는 바꾸지 않습니다.
 - **Herdr 플러그인으로 설치한 경우, 터미널에서:** 플러그인의 `.env`(`herdr plugin config-dir herdrabbit`이 폴더를 알려 줍니다)에 설정을 넣고 다시 시작합니다.
 
   ```bash

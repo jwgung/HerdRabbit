@@ -52,7 +52,10 @@ export async function readTailnetPeers(execute = run) {
 export async function tailnetLoginOf(address, execute = run) {
   try {
     const { stdout } = await execute("tailscale", ["whois", "--json", String(address)], { timeout: 3_000 });
-    const login = JSON.parse(stdout)?.UserProfile?.LoginName;
+    const answer = JSON.parse(stdout);
+    // A tagged device belongs to its tags, not to the account that set it up.
+    if (Array.isArray(answer?.Node?.Tags) && answer.Node.Tags.length > 0) return null;
+    const login = answer?.UserProfile?.LoginName;
     return typeof login === "string" && login !== "" ? login.toLowerCase() : null;
   } catch {
     return null;

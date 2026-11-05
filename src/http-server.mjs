@@ -1178,7 +1178,7 @@ export function createHerdrHttpServer({
         requireWriteAuthorization(request, csrfToken);
         const body = await readJsonBody(request, maxBodyBytes);
         await requirePasswordAgain(request, response, body.password);
-        sendJson(response, 200, await connectPcAccess.save({ open: body.open, addresses: body.addresses }));
+        sendJson(response, 200, await connectPcAccess.save({ open: body.open, addresses: body.addresses, mine: body.mine }));
         return;
       }
 
