@@ -75,4 +75,4 @@ Hermes Agent, Qoder, Qwen, Mastra and Grok (`public/app/agent-icons.js`) are the
 `@lobehub/icons-static-svg` 1.102.0, https://github.com/lobehub/lobe-icons, copied as path data and brand colours.
 The logos themselves are trademarks of their owners and are shown only to name the program they stand for.
 
-MIT License. Copyright (c) LobeHub. Same permission notice and warranty disclaimer as above.
+MIT License. Copyright (c) 2023 LobeHub. Same permission notice and warranty disclaimer as above.
