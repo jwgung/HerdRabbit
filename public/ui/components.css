@@ -628,7 +628,9 @@ select:disabled {
   width: var(--space-6);
   padding: 0;
   border: 0;
-  background: none;
+  /* Opaque in the dialog's own colour, so the arrow never draws over the icon
+     of the tab under it. */
+  background: var(--surface);
   color: var(--text);
   font: inherit;
   font-size: var(--font-2xl);
