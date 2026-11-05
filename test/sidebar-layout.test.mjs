@@ -46,7 +46,7 @@ test("this machine's dot says whether the page is connected, instead of a footer
   // It is as tall as the composer's row beside it, with the pane's gap above
   // and its padding below, so its line and buttons meet the composer's.
   assert.match(styles, /\.navigator \.navigator-footer \{[^}]*min-height: calc\(var\(--composer-row-height\) \+ 12px \+ 16px \+ 1px\);[^}]*padding-bottom: 16px;/u);
-  assert.match(styles, /body \{\s*--composer-font-size: var\(--terminal-font-size\);\s*--composer-row-height: max\(44px, calc\(var\(--composer-font-size\) \* 1\.5 \+ 26px\)\);/u);
+  assert.match(styles, /body \{\s*--composer-font-size: var\(--terminal-font-size\);\s*--composer-row-height: max\(44px, calc\(var\(--composer-font-size\) \* 1\.5 \+ 6px\)\);/u);
 });
 
 test("slides the collapsed sidebar by its own width, not a fixed distance", () => {
