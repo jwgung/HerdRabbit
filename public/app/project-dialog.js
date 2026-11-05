@@ -3,11 +3,45 @@ import { idOf } from "./snapshot.js?v=1.4.41";
 import { createAgentPicker } from "./agent-picker.js?v=1.4.41";
 import { createFolderField } from "./folder-field.js?v=1.4.41";
 
+// A new workspace in a Herdr session (`herdrSessionId`, or the default when
+// null), with a shell or an installed agent started in its first pane, in
+// `folder` when one is given (`folderAsOpened`: still the folder the dialog
+// opened with, see folder-field.js). The answer's snapshot is taken in and its
+// first pane selected; that pane's id is returned, or null when the answer
+// did not name one and nothing new could be told apart. The New workspace
+// dialog and the New tab dialog's "New workspace…" both make one with this.
+// Errors are the caller's to show; a `project_pane_missing` one means the
+// workspace is there and only its agent did not start.
+export async function createWorkspace({ api, state, snapshotRecords, adoptMutationSnapshot }, {
+  label, herdrSessionId = null, agent = "", folder = "", folderAsOpened = false,
+}) {
+  const previousPaneIds = new Set(
+    snapshotRecords().panes.map((pane) => idOf(pane, "pane_id", "id")),
+  );
+  const payload = await api("/api/workspaces", {
+    method: "POST",
+    body: {
+      label,
+      ...(herdrSessionId ? { herdrSessionId } : {}),
+      ...(agent ? { agent } : {}),
+      ...(folder ? { folder, ...(folderAsOpened ? { folderAsOpened: true } : {}) } : {}),
+    },
+  });
+  state.snapshot = payload.snapshot || {};
+  const newPane = snapshotRecords().panes.find(
+    (pane) => !previousPaneIds.has(idOf(pane, "pane_id", "id")) &&
+      (!herdrSessionId || pane.herdr_session_id === herdrSessionId),
+  );
+  const paneId = payload.paneId || (newPane ? idOf(newPane, "pane_id", "id") : null);
+  adoptMutationSnapshot(state.snapshot, paneId);
+  return paneId;
+}
+
 // The "New workspace" dialog: a machine's ⋯ menu opens it for that machine. The
 // form creates the workspace in one of the machine's running sessions
 // (a choice only when it has more than one), with a shell or with an agent
-// installed there started in its first pane, each agent shown with its mark,
-// in the machine's home folder or a folder typed or chosen with Browse….
+// installed there started in its first pane, each agent a tab with its mark,
+// in the machine's home folder or a folder typed or chosen from the folder tree.
 // Which agents are installed is asked of the machine when the dialog opens.
 // Listeners are registered when this is called, not on import.
 export function createProjectDialog({
@@ -126,30 +160,14 @@ export function createProjectDialog({
     for (const control of controls) control.disabled = true;
     folder.setDisabled(true);
     say(agent ? "Creating workspace and starting the agent…" : "Creating workspace…");
-    const previousPaneIds = new Set(
-      snapshotRecords().panes.map((pane) => idOf(pane, "pane_id", "id")),
-    );
     try {
-      const payload = await api("/api/workspaces", {
-        method: "POST",
-        body: {
-          label,
-          ...(state.createProjectSessionId
-            ? { herdrSessionId: state.createProjectSessionId }
-            : {}),
-          ...(agent ? { agent } : {}),
-          ...(chosenFolder ? { folder: chosenFolder, ...(folder.asOpened() ? { folderAsOpened: true } : {}) } : {}),
-        },
+      await createWorkspace({ api, state, snapshotRecords, adoptMutationSnapshot }, {
+        label,
+        herdrSessionId: state.createProjectSessionId,
+        agent,
+        folder: chosenFolder,
+        folderAsOpened: folder.asOpened(),
       });
-      state.snapshot = payload.snapshot || {};
-      const newPane = snapshotRecords().panes.find(
-        (pane) => !previousPaneIds.has(idOf(pane, "pane_id", "id")) &&
-          (!state.createProjectSessionId || pane.herdr_session_id === state.createProjectSessionId),
-      );
-      adoptMutationSnapshot(
-        state.snapshot,
-        payload.paneId || (newPane ? idOf(newPane, "pane_id", "id") : null),
-      );
       elements.projectDialog.close();
       closeMobileSidebar();
     } catch (error) {

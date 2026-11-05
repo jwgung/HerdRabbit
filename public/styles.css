@@ -2804,10 +2804,9 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   .ai-account-add { min-height: 44px; }
 }
 
-/* New session and New project: the Agent is a set of choices, each with its
-   program's mark. The radio button itself is invisible and covers its choice,
-   so a click or a tap anywhere on it chooses, and the keys move as in any
-   radio group. */
+/* New tab, New workspace and New worktree: the Agent is a one-row tab strip
+   (.ui-tab-strip, public/app/agent-picker.js), each tab its program's mark
+   and name; too many scroll sideways rather than wrap. */
 .agent-picker { display: grid; min-width: 0; margin: 0; padding: 0; border: 0; }
 
 .agent-picker legend {
@@ -2817,24 +2816,70 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   font-size: var(--font-sm);
 }
 
-.agent-choices { display: flex; flex-wrap: wrap; gap: var(--space-1-5); }
+.agent-choices { min-width: 0; }
 
-.dialog-form .agent-choice {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1-5);
-  min-height: 36px;
-  padding: var(--space-1-5) var(--space-2-5);
+.agent-choices .agent-icon { flex: none; }
+
+.agent-picker:disabled .ui-tab { opacity: 0.6; cursor: default; }
+
+/* New tab: wider than other dialogs, so more of the agent strip shows. */
+#session-dialog { width: min(480px, calc(100vw - 32px)); }
+
+/* Machine and Workspace side by side, each half the row. */
+.session-place {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.session-place-field,
+.session-new-workspace { display: grid; gap: var(--space-1-5); min-width: 0; }
+
+.session-new-workspace[hidden] { display: none; }
+
+.dialog-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-sm);
+}
+
+.dialog-hint:empty { display: none; }
+
+.dialog-hint[data-error="true"] { color: var(--danger); }
+
+/* The chosen agent's earlier conversations, under its tab: one card of radio
+   rows, Start new conversation first. The radio button itself is invisible
+   and covers its row, so a click or a tap anywhere on it chooses; a drawn
+   circle shows the choice, and the chosen row has the selection surface and
+   an accent edge. */
+.conversation-panel { display: grid; gap: var(--space-1-5); min-width: 0; margin-top: calc(var(--space-1) * -1); }
+
+.conversation-list {
+  display: grid;
+  max-height: min(240px, 35dvh);
+  overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
-  background: var(--surface-raised);
+}
+
+.conversation-list[hidden] { display: none; }
+
+.dialog-form .conversation-choice {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  min-height: 40px;
+  padding: var(--space-1-5) var(--space-3);
+  border-left: 3px solid transparent;
   color: var(--text);
   font-size: var(--font-md);
   cursor: pointer;
 }
 
-.dialog-form .agent-choice input {
+.conversation-choice + .conversation-choice { border-top: 1px solid var(--line); }
+
+.dialog-form .conversation-choice input {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -2847,25 +2892,60 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
   cursor: inherit;
 }
 
-.agent-choice .agent-icon { flex: none; }
-
-.agent-choice:has(input:checked) {
-  border-color: var(--selected-border);
-  background: var(--selected-surface);
-  font-weight: 600;
+.conversation-radio {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--muted);
+  border-radius: 50%;
 }
 
-.agent-choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.conversation-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-.agent-choice:has(input:disabled) { opacity: 0.6; cursor: default; }
+.conversation-when { flex: none; color: var(--muted); font-size: var(--font-sm); }
+
+.conversation-choice:has(input:checked) {
+  border-left-color: var(--accent);
+  background: var(--selected-surface);
+}
+
+.conversation-choice:has(input:checked) .conversation-radio {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 3px var(--selected-surface);
+}
+
+.conversation-choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.conversation-choice:has(input:disabled) { opacity: 0.6; cursor: default; }
 
 @media (hover: hover) {
-  .agent-choice:not(:has(input:checked, input:disabled)):hover { background: var(--hover-surface); }
+  .conversation-choice:not(:has(input:checked, input:disabled)):hover { background: var(--hover-surface); }
 }
 
 @media (hover: none) {
-  .dialog-form .agent-choice { min-height: 44px; }
+  .dialog-form .conversation-choice { min-height: 44px; }
 }
+
+/* The + at the top of the sidebar, opposite the logo: New tab. */
+.new-tab-open { flex: none; padding: 0; }
+
+.new-tab-open svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+body.sidebar-collapsed .new-tab-open { display: none; }
 
 /* Open worktree: one row per checkout of the repository, its branch over its
    folder, chosen as an agent is (the radio covers the row). */
@@ -3044,26 +3124,89 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 #settings-pc-access-hint[data-error="true"] { color: var(--danger); }
 
-/* Folder, in the New workspace and New tab dialogs: the path and Browse…, and
-   under them, once opened, the Files tab's tree in folders only, its path field
-   and ↑, and Close and Use this folder. */
+/* Folder, in the New workspace, New tab and Link local folder dialogs: one
+   path box, a folder mark at its start and ▾ at its end, completing as the
+   Files path field does (its list drops down under it); ▾ opens the Files
+   tab's tree in folders only under the box, without the tree's own path
+   field and ↑. A row's click chooses that folder, its arrow opens it. */
 .folder-field { display: grid; gap: var(--space-1-5); min-width: 0; }
 
 .folder-field[hidden],
 .folder-picker[hidden] { display: none; }
 
-.folder-row { display: flex; gap: var(--space-2); min-width: 0; }
+.folder-row { position: relative; min-width: 0; }
 
-.folder-row input { flex: 1 1 auto; }
+.folder-row-icon {
+  position: absolute;
+  top: 50%;
+  left: var(--space-2-5);
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  fill: none;
+  stroke: var(--muted);
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+  pointer-events: none;
+}
 
-.folder-row .secondary-button { flex: none; }
+.dialog-form .folder-row input {
+  padding-left: calc(var(--space-2-5) + 18px + var(--space-2));
+  padding-right: calc(var(--control-h-md) + var(--space-1));
+  font-family: var(--mono);
+}
+
+.folder-browse {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--control-h-md);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.folder-browse svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  transition: transform var(--motion-fast) ease;
+}
+
+.folder-browse[aria-expanded="true"] { color: var(--accent); }
+
+.folder-browse[aria-expanded="true"] svg { transform: rotate(180deg); }
+
+.folder-browse:disabled { opacity: 0.6; cursor: default; }
+
+@media (hover: hover) {
+  .folder-browse:not(:disabled):hover { background: var(--hover-surface); color: var(--text); }
+}
+
+.folder-row .file-suggestions {
+  top: calc(100% + 4px);
+  bottom: auto;
+  z-index: var(--layer-popover);
+  box-shadow: var(--shadow-popover);
+}
 
 .folder-picker {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
-  padding: var(--space-2);
-  border: 1px solid var(--line);
+  margin-top: calc(var(--space-1) * -1);
+  padding: var(--space-1-5);
+  border: 1px solid var(--selected-border);
   border-radius: var(--radius-control);
   background: var(--surface-raised);
 }
@@ -3079,10 +3222,12 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .folder-picker .dialog-feedback:empty { display: none; }
 
-.folder-picker-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
-
 @media (hover: none) {
   .folder-picker .browse-row { min-height: 44px; }
+
+  .folder-browse { width: var(--control-h-touch); }
+
+  .dialog-form .folder-row input { padding-right: calc(var(--control-h-touch) + var(--space-1)); }
 }
 
 /* Update: one block per PC, with what changed and, during a run, its log. */

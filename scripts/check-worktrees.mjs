@@ -189,15 +189,15 @@ try {
     await page.locator("#worktree-branch").fill("feat/search");
     await page.locator("#worktree-base").fill("main");
     // An agent of the machine may start in the new workspace; Shell is chosen first.
-    const agentChoices = create.locator("#worktree-agent .agent-choice");
+    const agentChoices = create.locator('#worktree-agent [role="tab"]');
     await agentChoices.nth(1).waitFor();
     assert.deepEqual(await agentChoices.evaluateAll((labels) => labels.map((label) => label.dataset.agent)), ["shell", "claude"]);
-    assert.equal(await create.locator('#worktree-agent input[value=""]').isChecked(), true);
+    assert.equal(await create.locator('#worktree-agent [role="tab"][data-agent="shell"]').getAttribute("aria-selected"), "true");
     if (mobile) {
       const box = await agentChoices.first().boundingBox();
       assert.ok(box.height >= 44, `${where}: an agent choice is under 44px tall (${box.height})`);
     }
-    await create.locator('#worktree-agent .agent-choice[data-agent="claude"]').click();
+    await create.locator('#worktree-agent [role="tab"][data-agent="claude"]').click();
     if (shots) await create.screenshot({ path: join(shots, `new-${where}.png`) });
     await create.locator('button[type="submit"]').click();
     await create.waitFor({ state: "hidden" });

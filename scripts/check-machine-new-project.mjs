@@ -1,14 +1,15 @@
-// Browser check of where a workspace is made and of the sidebar footer. There is
-// no + at the top of the sidebar: a machine's ⋯ menu offers New workspace…, as a
+// Browser check of where a workspace is made and of the sidebar footer. A
+// machine's ⋯ menu offers New workspace…, as a
 // popover beside its button, and only while a Herdr session runs there. The
 // dialog makes the workspace on that machine, in the selected pane's session
 // when that is there, else the machine's default; a machine with more than one
 // running session lets another be picked, one with a single session shows no
-// picker. Its Agent choices are that machine's installed agents, each with its
+// picker. Its Agent tabs are that machine's installed agents, each with its
 // program's mark, and one chosen is started in the new workspace's first pane.
-// Its Folder opens as ~ (the machine's home, sent as the folder);
-// Browse… opens the Files tab's tree for this machine in folders only, and
-// the folder gone into and used is where the workspace opens, and a folder typed for a connected PC goes to that PC.
+// Its Folder opens as ~ (the machine's home, sent as the folder); ▾ opens the
+// Files tab's tree for this machine in folders only, a row's click chooses
+// that folder and its arrow opens it, and the folder chosen is where the
+// workspace opens; a folder typed for a connected PC goes to that PC.
 // The footer's uploads and settings buttons look alike, their icons centred.
 // Runs on a desktop and a phone against an in-process fake herdr.
 //
@@ -191,17 +192,17 @@ try {
       // The Agent choices are the machine's agents, each with its mark.
       await page.waitForFunction((wanted) => {
         const field = document.querySelector("#project-agent");
-        const seen = [...field.querySelectorAll(".agent-choice")].map((choice) =>
-          [choice.querySelector("input").value, choice.querySelector("span").textContent, Boolean(choice.querySelector("svg.agent-icon"))]);
+        const seen = [...field.querySelectorAll('[role="tab"]')].map((tab) =>
+          [tab.dataset.agent === "shell" ? "" : tab.dataset.agent, tab.querySelector(".ui-tab-name").textContent, Boolean(tab.querySelector("svg.agent-icon"))]);
         return !field.disabled && JSON.stringify(seen) === wanted;
       }, JSON.stringify(agents.map(([value, name]) => [value, name, true])));
       if (mobile) {
-        for (const height of await dialog.locator(".agent-choice").evaluateAll((items) => items.map((choice) => choice.getBoundingClientRect().height))) {
+        for (const height of await dialog.locator('#project-agent [role="tab"]').evaluateAll((items) => items.map((choice) => choice.getBoundingClientRect().height))) {
           assert.ok(height >= 44, `an Agent choice is under 44px on a phone (${height})`);
         }
       }
       if (shots) await page.screenshot({ path: join(shots, `project-dialog-${serverId}-${where}.png`) });
-      if (agent) await dialog.locator(`.agent-choice[data-agent="${agent}"]`).click();
+      if (agent) await dialog.locator(`#project-agent [role="tab"][data-agent="${agent}"]`).click();
       assert.equal(await page.locator("#project-folder").inputValue(), "~", `${label}: the folder does not open as the home folder`);
       if (folder) await folder(dialog);
       await page.locator("#project-name").fill(label);
@@ -223,25 +224,26 @@ try {
     // The page opened on w1:p1, this machine's pane.
     await makeOn("local", `Local ${where}`, { first: "hs_local", agents: localAgents });
     await makeOn("local", `Codex ${where}`, { first: "hs_local", agent: "codex", agents: localAgents });
-    // Browse… from ~ into projects/shop: the workspace opens there.
-    const pathIs = (text) => page.waitForFunction((wanted) =>
-      document.querySelector("#project-folder-picker .file-path")?.value === wanted, text);
+    // ▾ opens the tree on ~; a row's click chooses its folder, its arrow
+    // opens it: projects, then shop inside it. The workspace opens there.
+    const pathIs = (text) => page.waitForFunction((wanted) => document.querySelector("#project-folder")?.value === wanted, text);
     await makeOn("local", `Shop ${where}`, { first: "hs_local", agents: localAgents, cwd: join(home, "projects", "shop"), async folder(dialog) {
       const picker = dialog.locator("#project-folder-picker");
       await dialog.locator("#project-folder-field .folder-browse").click();
-      await pathIs("~");
+      await picker.locator(".browse-row").first().waitFor({ state: "visible" });
       assert.deepEqual(await picker.locator(".browse-row .transfer-name").allTextContents(), ["projects"], `${where}: the home folder's folders are not listed`);
       await picker.locator(".browse-row", { hasText: "projects" }).click();
       await pathIs("~/projects");
+      await picker.locator(".browse-row", { hasText: "projects" }).locator(".browse-twisty").click();
       await picker.locator(".browse-row", { hasText: "shop" }).click();
       await pathIs("~/projects/shop");
       if (mobile) {
         const height = await dialog.locator("#project-folder-field .folder-browse").evaluate((element) =>
           Math.max(element.getBoundingClientRect().height, parseFloat(getComputedStyle(element, "::before").height) || 0));
-        assert.ok(height >= 44, `${where}: Browse… is under 44px tall (${height})`);
+        assert.ok(height >= 44, `${where}: ▾ is under 44px tall (${height})`);
       }
       if (shots) await page.screenshot({ path: join(shots, `project-folder-${where}.png`) });
-      await picker.locator(".folder-choose").click();
+      await dialog.locator("#project-folder-field .folder-browse").click();
       await picker.waitFor({ state: "hidden" });
       assert.equal(await dialog.locator("#project-folder").inputValue(), "~/projects/shop");
     } });

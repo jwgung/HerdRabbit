@@ -517,7 +517,7 @@ try {
     await pluginsPage.waitFor({ state: "visible" });
     await rows.filter({ hasText: "Gen 4" }).waitFor({ state: "visible" });
 
-    // Link local folder…: the machine, what it runs, a folder picked with Browse….
+    // Link local folder…: the machine, what it runs, a folder typed and shown in the tree ▾ opens.
     const linkDialog = page.locator("#plugin-link-dialog");
     await page.locator("#plugins-link").click();
     await linkDialog.waitFor({ state: "visible" });
@@ -527,8 +527,9 @@ try {
     await page.locator("#plugin-link-folder").fill(pluginDir);
     await linkDialog.locator(".folder-browse").click();
     await linkDialog.locator(".folder-picker").waitFor({ state: "visible" });
-    await page.waitForFunction((dir) => document.querySelector("#plugin-link-folder-picker .file-path")?.value === dir, pluginDir);
-    await linkDialog.locator(".folder-choose").click();
+    // the tree opens on the folder's parent with the folder marked; ▾ closes it
+    await page.waitForFunction((dir) => document.querySelector('#plugin-link-folder-picker .browse-row[data-selected="true"]')?.dataset.path === dir, pluginDir);
+    await linkDialog.locator(".folder-browse").click();
     await linkDialog.locator(".folder-picker").waitFor({ state: "hidden" });
     assert.equal(await page.locator("#plugin-link-folder").inputValue(), pluginDir);
     if (mobile) {
