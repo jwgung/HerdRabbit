@@ -13,8 +13,10 @@ import { existingFolder } from "./project-folder.mjs";
 // and enable, disable, update, uninstall or install one. A plugin runs code on
 // this PC, so every name that reaches the command line is checked here first,
 // and the command runs from argv, never a shell. HerdRabbit itself is listed
-// but left alone: its update is Settings → Updates (src/app-update.mjs), and
-// its own actions and panes are neither shown nor run from here.
+// but left alone here: its row's Update is HerdRabbit's own update
+// (src/app-update.mjs, started by src/http-server.mjs before a change reaches
+// this file), never `herdr plugin update`, and its own actions and panes are
+// neither shown nor run from here.
 //
 // Beyond a change (one at a time): a plugin's action is run and its pane
 // opened for the pane chosen on the page, through Herdr's socket
@@ -178,7 +180,8 @@ function cleanEntries(raw, kind) {
 }
 
 // One plugin as the page shows it. `protected` is HerdRabbit: listed, never
-// acted on here, its actions and panes not shown. An answer that already
+// acted on here (its Update is HerdRabbit's own, src/http-server.mjs), its
+// actions and panes not shown. An answer that already
 // says protected stays protected.
 function cleanPlugin(raw, selfId = null) {
   const id = raw?.plugin_id ?? raw?.id;
@@ -428,7 +431,7 @@ export class PluginManager {
     const source = validatePluginSource(sourceValue);
     const ref = validatePluginRef(refValue);
     if (isHerdRabbitPlugin(null, { kind: "github", owner: source.owner, repo: source.repo })) {
-      throw new HttpError(403, "plugin_protected", "HerdRabbit itself is updated from Settings → Updates, not installed here.");
+      throw new HttpError(403, "plugin_protected", "HerdRabbit itself is not installed here; its row in Plugins updates it.");
     }
     return {
       args: ["plugin", "install", source.spec, ...(ref ? ["--ref", ref] : []), "--yes"],
@@ -441,7 +444,7 @@ export class PluginManager {
     const found = (await this.#plugins()).find((item) => item.id === id);
     if (!found) throw new HttpError(404, "plugin_not_found", "That plugin is not installed on this PC.");
     if (found.protected) {
-      throw new HttpError(403, "plugin_protected", "HerdRabbit's own plugin is left alone here; update it from Settings → Updates.");
+      throw new HttpError(403, "plugin_protected", "HerdRabbit's own plugin is left alone here; its row in Plugins updates it with HerdRabbit's own update.");
     }
     if (action === "update" && !found.updatable) {
       throw new HttpError(409, "plugin_not_updatable", "Only a plugin installed from GitHub can be updated.");
@@ -466,7 +469,7 @@ export class PluginManager {
     const id = manifestPluginId(text);
     if (!id) throw new HttpError(400, "plugin_manifest_missing", `That folder's ${MANIFEST} names no plugin id.`);
     if (isHerdRabbitPlugin(id, null, this.selfId)) {
-      throw new HttpError(403, "plugin_protected", "That folder is HerdRabbit's own plugin; HerdRabbit is updated from Settings → Updates.");
+      throw new HttpError(403, "plugin_protected", "That folder is HerdRabbit's own plugin; its row in Plugins updates HerdRabbit.");
     }
     if ((await this.#plugins()).some((item) => item.id === id)) {
       throw new HttpError(409, "plugin_exists", `A plugin called ${id} is already on this PC. Unlink or uninstall it first.`);
