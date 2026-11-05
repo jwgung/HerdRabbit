@@ -146,6 +146,8 @@ export class MultiServerClient {
         machine: this.machineName(profile) ?? null,
         version: profile.id === "local" ? this.hubVersion : client?.info?.().version ?? null,
         link_protocol: profile.id === "local" ? LINK_PROTOCOL : client?.info?.().protocol ?? null,
+        // Whether its split tabs are laid out from here (a PC from before this cannot).
+        pane_layout: profile.id === "local" || client?.supportsPaneLayout?.() === true,
         ...this.herdrFields(profile.id === "local" ? this.herdrVersion() : client?.info?.().herdrVersion ?? null),
       })),
     };
@@ -266,44 +268,69 @@ export class MultiServerClient {
   }
 
   readPane(id, options) { return this.invoke("readPane", id, [options]); }
-  // This machine's panes only: a connected PC has no layout call yet, refused
-  // like its split.
+  // A split tab's panes, on the machine they are on: a connected PC lays its
+  // own out (src/link-server.mjs, `pane_layout`), one too old says so. Ids in
+  // the answers carry the machine's prefix, as the snapshot's do.
   async paneLayout(id) {
-    const pane = this.#localPane(id);
-    if (typeof pane.client.paneLayout !== "function") {
-      throw new HerdrCommandError("That is not available for this PC yet.", { code: "link_unsupported" });
-    }
-    return pane.client.paneLayout(pane.id);
+    const { prefix } = this.#paneMachine(id);
+    const result = await this.invoke("paneLayout", id, []);
+    const layout = result?.layout;
+    if (!layout || typeof layout !== "object") return result;
+    const scope = (value) => (typeof value === "string" && value.length > 0 ? prefix(value) : value);
+    return {
+      ...result,
+      layout: {
+        ...layout,
+        workspace_id: scope(layout.workspace_id),
+        tab_id: scope(layout.tab_id),
+        focused_pane_id: scope(layout.focused_pane_id),
+        panes: Array.isArray(layout.panes) ? layout.panes.map((pane) => ({ ...pane, pane_id: scope(pane.pane_id) })) : layout.panes,
+      },
+    };
   }
-  // This machine's panes only: a connected PC cannot split, close, zoom or drop panes yet.
-  #localPane(id) {
-    const { entry, id: localId } = this.target(id);
-    if (entry.profile.id !== "local") {
-      throw new HerdrCommandError("Splitting panes is not supported on a connected PC", { code: "link_unsupported" });
-    }
-    return { client: entry.client, id: localId };
+  // The machine a pane is on, and how its ids are written here.
+  #paneMachine(id) {
+    const { entry } = this.target(id);
+    return { entry, prefix: this.#prefixFor(entry) };
   }
-  splitPane(id, direction) { const pane = this.#localPane(id); return pane.client.splitPane(pane.id, direction); }
-  closePane(id) { const pane = this.#localPane(id); return pane.client.closePane(pane.id); }
-  zoomPane(id) { const pane = this.#localPane(id); return pane.client.zoomPane(pane.id); }
-  movePaneOut(id) { const pane = this.#localPane(id); return pane.client.movePaneOut(pane.id); }
+  // Two panes of one machine: a pane cannot cross to another one.
+  #samePc(id, targetId) {
+    if (this.target(id).entry !== this.target(targetId).entry) {
+      throw new InputValidationError("Those panes are on different PCs");
+    }
+  }
+  // A change to a split tab: run on its machine, a connected PC read again
+  // after, and the pane and tab ids answered put under this page's names.
+  async #paneChange(method, id, args) {
+    const { prefix } = this.#paneMachine(id);
+    const result = await this.invoke(method, id, args, true);
+    if (!result || typeof result !== "object") return result;
+    const scope = (value) => (typeof value === "string" && value.length > 0 ? prefix(value) : value);
+    return {
+      ...result,
+      ...("pane_id" in result ? { pane_id: scope(result.pane_id) } : {}),
+      ...("tab_id" in result ? { tab_id: scope(result.tab_id) } : {}),
+    };
+  }
+  #targetLocalId(targetId) { return this.target(targetId).id; }
+  splitPane(id, direction) { return this.#paneChange("splitPane", id, [direction]); }
+  closePane(id) { return this.#paneChange("closePane", id, []); }
+  zoomPane(id) { return this.#paneChange("zoomPane", id, []); }
+  movePaneOut(id) { return this.#paneChange("movePaneOut", id, []); }
   movePaneSplit(id, targetId, side) {
-    const pane = this.#localPane(id);
-    const target = this.#localPane(targetId);
-    return pane.client.movePaneSplit(pane.id, target.id, side);
+    this.#samePc(id, targetId);
+    return this.#paneChange("movePaneSplit", id, [this.#targetLocalId(targetId), side]);
   }
-  // Rearranging a split tab's panes: this machine's only, like its split.
+  // Rearranging a split tab's panes, on the machine both are on.
   swapPanes(id, targetId) {
-    const pane = this.#localPane(id);
-    const target = this.#localPane(targetId);
-    return pane.client.swapPanes(pane.id, target.id);
+    this.#samePc(id, targetId);
+    return this.#paneChange("swapPanes", id, [this.#targetLocalId(targetId)]);
   }
   relocatePane(id, targetId, side) {
-    const pane = this.#localPane(id);
-    const target = this.#localPane(targetId);
-    return pane.client.relocatePane(pane.id, target.id, side);
+    this.#samePc(id, targetId);
+    return this.#paneChange("relocatePane", id, [this.#targetLocalId(targetId), side]);
   }
-  evenLayout(id) { const pane = this.#localPane(id); return pane.client.evenLayout(pane.id); }
+  evenLayout(id) { return this.#paneChange("evenLayout", id, []); }
   // This machine's panes only: a connected PC's processes are not this one's to look into.
   async paneProcessInfo(id) {
     const { entry, id: localId } = this.target(id);

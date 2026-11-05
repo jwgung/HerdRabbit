@@ -7,6 +7,8 @@
 // top) taking `ratio` of the box. A view split has 2 to MAX_TILES leaves; a
 // tree of fewer is no view split at all (null).
 
+import { laysOutPanes } from "./sidebar-drag.js?v=1.4.39";
+
 export const MAX_TILES = 6;
 export const VIEW_SPLIT_STORAGE_KEY = "herdrbridge-view-split";
 
@@ -191,19 +193,21 @@ const idOf = (record, key) => (typeof record?.[key] === "string" ? record[key] :
 // grid) or "tiles" (this window's view split, whose panes are `tileIds`).
 // Answers "move" (Herdr's own merge into the target's tab: same project),
 // "view" (a tile of this window's view split: another project, or anything
-// dropped on a view split) or null (no drop). Only a session of one pane of
-// this machine is dropped, never on its own pane, and only on this machine's
-// panes; `paneMoveAllowed` says whether Herdr may merge the two.
+// dropped on a view split) or null (no drop). Only a session of one pane is
+// dropped, never on its own pane, and only on a pane of the same machine,
+// one that lays its panes out from here (this one, or a connected PC that
+// says it can); `paneMoveAllowed` says whether Herdr may merge the two.
 export function paneDropKind(snapshot, { tabId, targetPaneId }, { screen, tileIds = [], paneMoveAllowed = () => false }) {
   const tabs = Array.isArray(snapshot?.tabs) ? snapshot.tabs : [];
   const panes = Array.isArray(snapshot?.panes) ? snapshot.panes : [];
   const moving = panes.filter((item) => idOf(item, "tab_id") === tabId);
   const target = panes.find((item) => idOf(item, "pane_id") === targetPaneId);
   if (moving.length !== 1 || !target || idOf(target, "tab_id") === tabId) return null;
-  const local = (record) => (record?.server_id ?? "local") === "local";
+  // Both on one machine that lays its panes out from here: never across machines.
+  const machine = (record) => record?.server_id ?? "local";
   const tab = tabs.find((item) => idOf(item, "tab_id") === tabId);
   const targetTab = tabs.find((item) => idOf(item, "tab_id") === idOf(target, "tab_id"));
-  if (!tab || !targetTab || !local(tab) || !local(targetTab) || !local(moving[0]) || !local(target)) return null;
+  if (!tab || !targetTab || !laysOutPanes(snapshot, tab) || new Set([tab, targetTab, moving[0], target].map(machine)).size !== 1) return null;
   const paneId = idOf(moving[0], "pane_id");
   if (screen === "tiles") {
     if (!tileIds.includes(targetPaneId) || tileIds.includes(paneId) || tileIds.length >= MAX_TILES) return null;

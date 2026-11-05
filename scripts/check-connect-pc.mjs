@@ -59,6 +59,22 @@ function machine(label, tabs) {
     },
     async sendText(...args) { calls.push(["sendText", ...args]); },
     async sendKeys(...args) { calls.push(["sendKeys", ...args]); },
+    // Its split tabs, laid out by this machine: a new pane joins its tab, side by side.
+    async splitPane(paneId, direction) {
+      calls.push(["splitPane", paneId, direction]);
+      const pane = state.panes.find((item) => item.pane_id === paneId);
+      const made = { ...pane, pane_id: id(`w1:p${state.panes.length + 1}`), agent: undefined, agent_session: undefined };
+      state.panes.push(made);
+      return { pane_id: made.pane_id };
+    },
+    async paneLayout(paneId) {
+      calls.push(["paneLayout", paneId]);
+      const tabId = state.panes.find((item) => item.pane_id === paneId)?.tab_id;
+      const panes = state.panes.filter((item) => item.tab_id === tabId);
+      const width = Math.floor(100 / panes.length);
+      return { layout: { tab_id: tabId, focused_pane_id: paneId, zoomed: false, area: { x: 0, y: 0, width: 100, height: 30 },
+        panes: panes.map((item, index) => ({ pane_id: item.pane_id, x: index * width, y: 0, width, height: 30 })) } };
+    },
     async moveTab(tabId, insertIndex) {
       calls.push(["moveTab", tabId, insertIndex]);
       const tab = state.tabs.find((item) => item.tab_id === tabId);
@@ -277,6 +293,23 @@ try {
   for (let attempt = 0; attempt < 30 && !desk.calls.some(([name]) => name === "moveTab"); attempt += 1) await page.waitForTimeout(100);
   assert.deepEqual(desk.calls.find(([name]) => name === "moveTab"), ["moveTab", id("w1:t2"), 0]);
 
+  // Its split tab is laid out there, as one here is: a grid of its panes, and
+  // a cell's Split down splits on desk, under desk's own ids.
+  const logsPane = deskPane.replace("w1:p1", "w1:p2");
+  await herdr.splitPane(logsPane, "right");
+  const logsTab = `${deskPane.split("!")[0]}!${id("w1:t2")}`;
+  await page.locator(`.split-session-button[data-tab-id="${logsTab}"]`).waitFor();
+  await page.locator(`.split-session-button[data-tab-id="${logsTab}"]`).click();
+  await page.waitForFunction(() => document.querySelectorAll(".pane-grid:not([hidden]) .pane-grid-cell").length === 2);
+  const cellOf = `.pane-grid-cell[data-pane-id="${logsPane}"]`;
+  await page.locator(`${cellOf} .pane-grid-menu > summary`).click();
+  await page.locator(`${cellOf} [data-action="split-down"]`).click();
+  for (let attempt = 0; attempt < 30 && desk.calls.filter(([name]) => name === "splitPane").length < 2; attempt += 1) await page.waitForTimeout(100);
+  assert.deepEqual(desk.calls.filter(([name]) => name === "splitPane"), [["splitPane", id("w1:p2"), "right"], ["splitPane", id("w1:p2"), "down"]]);
+  assert.ok(desk.calls.some(([name, paneId]) => name === "paneLayout" && paneId.startsWith(SESSION)), "the layout is asked of desk");
+  await page.waitForFunction(() => document.querySelectorAll(".pane-grid:not([hidden]) .pane-grid-cell").length === 3);
+  if (shots) await page.screenshot({ path: join(shots, "connect-pc-grid.png") });
+
   // Rename, then a PC on another protocol: offline, both versions, Find new address.
   await page.locator(`${heading("desk")} .server-action-menu summary`).click();
   await page.getByRole("menuitem", { name: "Rename" }).click();
@@ -301,7 +334,7 @@ try {
   if (shots) await page.screenshot({ path: join(shots, "connect-pc-sidebar.png") });
 
   assert.deepEqual(errors, []);
-  console.log("Connect PC (dialog, test and save, typed address, Details, attach, chat, drag, rename, other protocol, disconnect): passed");
+  console.log("Connect PC (dialog, test and save, typed address, Details, attach, chat, drag, split grid, rename, other protocol, disconnect): passed");
 } finally {
   await browser.close();
   herdr.stopped = true;

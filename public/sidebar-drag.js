@@ -37,6 +37,16 @@ export function dropScope(record) {
 
 const serverOf = (record) => record?.server_id ?? "local";
 
+// Whether `record`'s machine has its split tabs laid out from this page: this
+// one always, a connected PC when it says it can (its server row's
+// pane_layout; one from before this cannot).
+export function laysOutPanes(snapshot, record) {
+  const server = serverOf(record);
+  if (server === "local") return true;
+  const servers = Array.isArray(snapshot?.servers) ? snapshot.servers : [];
+  return servers.some((item) => item?.id === server && item.pane_layout === true);
+}
+
 const idOf = (record, key) => (typeof record?.[key] === "string" ? record[key] : null);
 
 // What to ask the server for a session dropped at `gap` among the sessions of
@@ -147,8 +157,8 @@ export function dropPreview(box, side) {
 
 // What to ask the server for session `tabId` dropped on `targetPaneId`'s
 // `side`, or null: only a session of one pane joins another, and only one of
-// the same Herdr session of this machine (a connected PC's panes are not
-// split from here), and not its own.
+// the same Herdr session of one machine that lays its panes out from here
+// (laysOutPanes), and not its own.
 export function paneMoveRequest(snapshot, { tabId, targetPaneId, side }) {
   if (!PANE_SIDES.includes(side)) return null;
   const tabs = Array.isArray(snapshot?.tabs) ? snapshot.tabs : [];
@@ -162,7 +172,7 @@ export function paneMoveRequest(snapshot, { tabId, targetPaneId, side }) {
     return tab ? workspaces.find((item) => idOf(item, "workspace_id") === idOf(tab, "workspace_id")) ?? tab : null;
   };
   const [owner, targetOwner] = [ownerOf(tabId), ownerOf(idOf(target, "tab_id"))];
-  if (!owner || !targetOwner || serverOf(owner) !== "local" || dropScope(owner) !== dropScope(targetOwner)) return null;
+  if (!owner || !targetOwner || !laysOutPanes(snapshot, owner) || dropScope(owner) !== dropScope(targetOwner)) return null;
   const paneId = idOf(moving[0], "pane_id");
   return paneId ? { paneId, body: { targetPaneId, side } } : null;
 }

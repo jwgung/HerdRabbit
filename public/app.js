@@ -833,7 +833,7 @@ const {
   workspaceHeading: (...args) => workspaceHeading(...args),
   paneButton: (...args) => paneButton(...args),
   closeSession: (...args) => closeSession(...args),
-  isLocalRecord: (...args) => isLocalRecord(...args),
+  canLayOut: (...args) => canLayOut(...args),
   splitSessionName: (...args) => splitSessionName(...args),
   splitPaneRow: (...args) => splitPaneRow(...args),
   splitDisclosureButton: (...args) => splitDisclosureButton(...args),
@@ -983,7 +983,7 @@ let shownPaneView = null;
 
 const {
   SEPARATE_ICON, EVEN_ICON,
-  paneTabId, isLocalRecord, paneGrid, viewGrid, shownGrid, setViewSplit, pruneViewSplit,
+  paneTabId, canLayOut, paneGrid, viewGrid, shownGrid, setViewSplit, pruneViewSplit,
   dropOnPane, paneDropTargets, renderPaneViews, selectPane,
   splitSessionName, splitSessionButton, splitDisclosureButton, splitPaneRow,
   evenOutLayout, separateSplitSession,

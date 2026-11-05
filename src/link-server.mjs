@@ -126,6 +126,9 @@ export function linkRoutes({
         // ... and their actions run, their panes opened, their logs read, a
         // local folder linked and a linked plugin unlinked.
         ...(plugins ? ["plugin_extras"] : []),
+        // A split tab's panes laid out here as on this PC's own page: read,
+        // split, zoomed, closed, moved out, dropped, swapped and evened out.
+        ...(typeof client.splitPane === "function" ? ["pane_layout"] : []),
       ],
     };
   }
@@ -364,6 +367,36 @@ export function linkRoutes({
         sendJson(response, 200, { ok: true });
         return true;
       }
+    }
+
+    // A pane's split tab, laid out as this PC's own page does it. Ids are this
+    // PC's own; the hub puts its prefix on what comes back.
+    const layoutMatch = url.pathname.match(/^\/api\/link\/panes\/([^/]+)\/(layout|split|zoom|close|move-out|move-split|swap|relocate|even)$/u);
+    if (layoutMatch && typeof client.splitPane === "function") {
+      const paneId = decodePaneId(layoutMatch[1]);
+      const action = layoutMatch[2];
+      if (method === "GET" && action === "layout") {
+        sendJson(response, 200, await client.paneLayout(paneId));
+        return true;
+      }
+      if (method !== "POST" || action === "layout") throw new HttpError(405, "method_not_allowed", "Method not allowed");
+      const body = await readJsonBody(request, maxBodyBytes);
+      // A close is asked about on the page first; this PC wants that said too.
+      if (action === "close" && body.confirmed !== true) throw new HttpError(400, "confirmation_required", "Close confirmation is required");
+      const target = () => {
+        if (typeof body.targetPaneId !== "string") throw new HttpError(400, "invalid_input", "Invalid target pane id");
+        return body.targetPaneId;
+      };
+      const answer = action === "split" ? await client.splitPane(paneId, body.direction)
+        : action === "zoom" ? await client.zoomPane(paneId)
+          : action === "close" ? await client.closePane(paneId)
+            : action === "move-out" ? await client.movePaneOut(paneId)
+              : action === "move-split" ? await client.movePaneSplit(paneId, target(), body.side)
+                : action === "swap" ? await client.swapPanes(paneId, target())
+                  : action === "relocate" ? await client.relocatePane(paneId, target(), body.side)
+                    : await client.evenLayout(paneId);
+      sendJson(response, 200, answer && typeof answer === "object" ? answer : { ok: true });
+      return true;
     }
 
     // Files are answered by this machine's own browser, the same one a person

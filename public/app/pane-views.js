@@ -17,7 +17,7 @@ import * as xterm from "../vendor/xterm.mjs?v=1.4.39";
 import { writePanePreference } from "../pane-preference.js?v=1.4.39";
 import { writeExpandedSplitTabIds } from "../workspace-preference.js?v=1.4.39";
 import { readGridFit, readGridFont, writeGridFont } from "../terminal-preference.js?v=1.4.39";
-import { paneMoveRequest } from "../sidebar-drag.js?v=1.4.39";
+import { laysOutPanes, paneMoveRequest } from "../sidebar-drag.js?v=1.4.39";
 import {
   addTile,
   layoutRects,
@@ -66,17 +66,18 @@ export function createPaneViews(deps) {
     return snapshotRecords().panes.filter((pane) => idOf(pane, "tab_id", "tabId") === tabId);
   }
 
-  // Only this machine's panes are split, closed, zoomed or laid out from here:
-  // a connected PC's split tab opens one pane at a time, with no grid or map.
-  function isLocalRecord(record) {
-    return (record?.server_id || "local") === "local";
+  // A machine whose split tabs are split, closed, zoomed and laid out from
+  // here: this one, and a connected PC that says it can. An older connected
+  // PC's split tab opens one pane at a time, with no grid or map.
+  function canLayOut(record) {
+    return laysOutPanes(state.snapshot, record);
   }
 
   // The selected pane's tab when it has more than one pane, on this machine, else null.
   function selectedSplitTabId() {
     const tabId = paneTabId(state.selectedPaneId);
     const tabPanes = tabId ? panesOfTab(tabId) : [];
-    return tabPanes.length > 1 && isLocalRecord(tabPanes[0]) ? tabId : null;
+    return tabPanes.length > 1 && canLayOut(tabPanes[0]) ? tabId : null;
   }
 
   // The tab drawn as a grid now: a split tab chosen as one, on a wide screen.
@@ -466,12 +467,12 @@ export function createPaneViews(deps) {
   }
 
   // A split session's row: the grid on a wide screen; on a phone, which has no
-  // grid, its focus pane alone with the pane map over it. A connected PC's
-  // split tab has no grid here, so it opens that pane alone too.
+  // grid, its focus pane alone with the pane map over it. An older connected
+  // PC's split tab has no grid here, so it opens that pane alone too.
   function openSplitSession(tabId) {
     const tabPanes = panesOfTab(tabId);
     if (tabPanes.length === 0) return;
-    if (desktopMedia.matches && isLocalRecord(tabPanes[0])) {
+    if (desktopMedia.matches && canLayOut(tabPanes[0])) {
       openPaneGrid(tabId);
       return;
     }
@@ -862,7 +863,7 @@ export function createPaneViews(deps) {
 
   return {
     SEPARATE_ICON, EVEN_ICON,
-    paneTabId, isLocalRecord, paneLayout, paneGrid, viewGrid, shownGrid, setViewSplit, pruneViewSplit,
+    paneTabId, canLayOut, paneLayout, paneGrid, viewGrid, shownGrid, setViewSplit, pruneViewSplit,
     dropOnPane, paneDropTargets, renderPaneViews, selectPane,
     splitSessionName, splitSessionButton, splitDisclosureButton, splitPaneRow,
     evenOutLayout, separateSplitSession,

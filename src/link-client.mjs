@@ -34,6 +34,10 @@ const PLUGIN_READ_TIMEOUT_MS = 20_000;
 const PLUGIN_WRITE_TIMEOUT_MS = 40_000;
 // A worktree change waits on Git there (src/herdr-client.mjs WORKTREE_TIMEOUT_MS), and a little longer.
 const WORKTREE_WRITE_TIMEOUT_MS = 65_000;
+// Evening a layout out is a few resizes in a row on that PC.
+const PANE_LAYOUT_TIMEOUT_MS = 30_000;
+// A pane change that PC refused for a reason the page shows as it would its own.
+const PANE_LAYOUT_CODES = new Set(["split_session", "pane_split_failed", "pane_not_found", "invalid_input"]);
 // A save checks the config twice and reloads Herdr there.
 const HERDR_SETTINGS_TIMEOUT_MS = 40_000;
 // A refusal is a short JSON error; nothing a connected PC says about one needs more.
@@ -839,6 +843,31 @@ export class LinkClient {
       forced: answer?.forced === true,
     };
   }
+
+  // A split tab's panes on the PC (`pane_layout`); an older PC says it cannot.
+  // Ids go and come back as the PC names them.
+  supportsPaneLayout() {
+    return this.#features.has("pane_layout");
+  }
+
+  async #paneLayoutCall(paneId, action, body) {
+    await this.#ready();
+    if (!this.#features.has("pane_layout")) throw tooOld(this.address, "laying out split panes");
+    return this.#request(`/api/link/panes/${encodeURIComponent(paneId)}/${action}`, {
+      ...(body === undefined ? {} : { method: "POST", body, timeoutMs: PANE_LAYOUT_TIMEOUT_MS }), codes: PANE_LAYOUT_CODES, checked: true,
+    });
+  }
+
+  paneLayout(paneId) { return this.#paneLayoutCall(paneId, "layout"); }
+  splitPane(paneId, direction) { return this.#paneLayoutCall(paneId, "split", { direction }); }
+  zoomPane(paneId) { return this.#paneLayoutCall(paneId, "zoom", {}); }
+  // Only called once the page has asked (src/pane-routes.mjs).
+  closePane(paneId) { return this.#paneLayoutCall(paneId, "close", { confirmed: true }); }
+  movePaneOut(paneId) { return this.#paneLayoutCall(paneId, "move-out", {}); }
+  movePaneSplit(paneId, targetPaneId, side) { return this.#paneLayoutCall(paneId, "move-split", { targetPaneId, side }); }
+  swapPanes(paneId, targetPaneId) { return this.#paneLayoutCall(paneId, "swap", { targetPaneId }); }
+  relocatePane(paneId, targetPaneId, side) { return this.#paneLayoutCall(paneId, "relocate", { targetPaneId, side }); }
+  evenLayout(paneId) { return this.#paneLayoutCall(paneId, "even", {}); }
 
   async #worktreesSupported() {
     await this.#ready();
