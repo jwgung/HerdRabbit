@@ -1,5 +1,5 @@
-import { legacyMachinesNotice } from "../ui-model.js?v=1.4.36";
-import { array, createElement } from "./dom.js?v=1.4.36";
+import { legacyMachinesNotice } from "../ui-model.js?v=1.4.37";
+import { array, createElement } from "./dom.js?v=1.4.37";
 
 // The Connect PC dialogs: the one-time notice about Herdr SSH machines and the
 // dialog that finds, tests and saves another PC. Nothing here runs until

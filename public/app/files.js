@@ -4,8 +4,8 @@ import {
   paneServerId,
   sortUploads,
   uploadSummary,
-} from "../ui-model.js?v=1.4.36";
-import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "../file-preview.js?v=1.4.36";
+} from "../ui-model.js?v=1.4.37";
+import { MAX_TEXT_PREVIEW_BYTES, previewFor } from "../file-preview.js?v=1.4.37";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -14,10 +14,10 @@ import {
   writeFileServer,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "../browse-preference.js?v=1.4.36";
-import { createSpeechButton, speechSupported } from "../speech-recognition.js?v=1.4.36";
-import { array, createElement } from "./dom.js?v=1.4.36";
-import { browseUrl, createFolderTree, isOpenableFolder } from "./folder-tree.js?v=1.4.36";
+} from "../browse-preference.js?v=1.4.37";
+import { createSpeechButton, speechSupported } from "../speech-recognition.js?v=1.4.37";
+import { array, createElement } from "./dom.js?v=1.4.37";
+import { browseUrl, createFolderTree, isOpenableFolder } from "./folder-tree.js?v=1.4.37";
 
 // Files in and out of a machine: uploads, downloads and the uploads dialog,
 // the file viewer, voice input, and the Files tab around its tree

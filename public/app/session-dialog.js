@@ -1,7 +1,7 @@
-import { createElement } from "./dom.js?v=1.4.36";
-import { sessionChoiceLabel } from "../agents.js?v=1.4.36";
-import { createAgentPicker } from "./agent-picker.js?v=1.4.36";
-import { createFolderField, workspaceFolder } from "./folder-field.js?v=1.4.36";
+import { createElement } from "./dom.js?v=1.4.37";
+import { sessionChoiceLabel } from "../agents.js?v=1.4.37";
+import { createAgentPicker } from "./agent-picker.js?v=1.4.37";
+import { createFolderField, workspaceFolder } from "./folder-field.js?v=1.4.37";
 
 // The "New tab" dialog: a workspace's ⋯ menu opens it for that workspace.
 // The form makes a tab in the workspace with a shell or an installed agent,
