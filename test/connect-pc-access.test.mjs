@@ -41,7 +41,8 @@ test("says whether the port is open, to whom, and offers this PC's tailnet devic
   assert.equal(state.supported, true);
   assert.equal(state.open, true);
   assert.equal(state.address, "http://100.96.0.2:38788");
-  assert.deepEqual(state.self, { name: "mini", address: "100.96.0.2" });
+  assert.deepEqual(state.self, { name: "mini", address: "100.96.0.2", login: "me@example.com" });
+  assert.equal(state.mine, false);
   assert.deepEqual(state.peers.map((peer) => [peer.name, peer.address, peer.online, peer.allowed]), [
     ["laptop", "100.101.0.3", true, true],
     ["phone", "100.110.0.4", false, false],
@@ -62,20 +63,20 @@ test("opening writes this PC's tailnet address and the PCs chosen into .env, kee
   assert.equal(restarts(), 1);
 });
 
-test("a second save replaces the lines, closing removes them, and hand-set logins stay", async (context) => {
-  const env = `HERDR_WEB_PORT=38787\nHERDR_WEB_PEER_HOST=100.96.0.2\nexport HERDR_WEB_PEER_ADDRESSES="100.101.0.9"\nHERDR_WEB_PEER_LOGINS=me@example.com\n`;
-  const { access, envFile } = await world(context, { env });
+test("a second save replaces the lines, and closing removes them, the page's lines only", async (context) => {
+  const env = `HERDR_WEB_PORT=38787\nHERDR_WEB_PEER_HOST=100.96.0.2\nexport HERDR_WEB_PEER_ADDRESSES="100.101.0.9"\nHERDR_WEB_PEER_LOGINS=other@example.com\n`;
+  const { access, envFile } = await world(context, { env, current: { host: "100.96.0.2", addresses: ["100.101.0.9"], logins: ["other@example.com"] } });
   await access.save({ open: true, addresses: ["100.101.0.3", "100.110.0.4"] });
   let values = parseEnvFile(await readFile(envFile, "utf8"));
   assert.equal(values.HERDR_WEB_PEER_ADDRESSES, "100.101.0.3,100.110.0.4");
-  assert.equal(values.HERDR_WEB_PEER_LOGINS, "me@example.com");
+  assert.equal(values.HERDR_WEB_PEER_LOGINS, undefined, "a device list alone: accounts beside it would narrow it");
   assert.equal((await readFile(envFile, "utf8")).match(/HERDR_WEB_PEER_ADDRESSES=/gu).length, 1);
   await access.save({ open: false });
   const text = await readFile(envFile, "utf8");
   values = parseEnvFile(text);
   assert.equal(values.HERDR_WEB_PEER_HOST, undefined);
   assert.equal(values.HERDR_WEB_PEER_ADDRESSES, undefined);
-  assert.equal(values.HERDR_WEB_PEER_LOGINS, "me@example.com");
+  assert.equal(values.HERDR_WEB_PEER_LOGINS, undefined);
   assert.equal(values.HERDR_WEB_PORT, "38787");
 });
 
@@ -92,7 +93,7 @@ test("only devices of this tailnet may be allowed, and nothing is written for a 
 
 test("without Tailscale, outside the plugin, or with the page on the peer port, it says so and writes nothing", async (context) => {
   const off = await world(context, { tailnet: { available: false, self: null, peers: [] } });
-  await assert.rejects(off.access.save({ open: true, addresses: [] }), { status: 409, code: "tailscale_unavailable" });
+  await assert.rejects(off.access.save({ open: true, mine: true }), { status: 409, code: "tailscale_unavailable" });
   assert.equal((await off.access.state()).tailnet, false);
 
   const clash = await world(context);
@@ -101,7 +102,7 @@ test("without Tailscale, outside the plugin, or with the page on the peer port, 
 
   const service = new ConnectPcAccess({ envFile: null, pagePort: 38787, current: { host: null, port: 38788, addresses: [], logins: [] }, readTailnet: async () => TAILNET, restart: async () => {} });
   assert.equal((await service.state()).supported, false);
-  await assert.rejects(service.save({ open: true, addresses: [] }), { status: 409, code: "connect_pc_not_plugin" });
+  await assert.rejects(service.save({ open: true, mine: true }), { status: 409, code: "connect_pc_not_plugin" });
 });
 
 test("a missing .env is made from the template; a linked .env is refused", async (context) => {
@@ -115,14 +116,43 @@ test("a missing .env is made from the template; a linked .env is refused", async
   await rm(linked.envFile);
   await writeFile(`${linked.envFile}.real`, "HERDR_WEB_PORT=38787\n");
   await symlink(`${linked.envFile}.real`, linked.envFile);
-  await assert.rejects(linked.access.save({ open: true, addresses: [] }), { status: 409, code: "connect_pc_env_link" });
+  await assert.rejects(linked.access.save({ open: true, addresses: ["100.101.0.3"] }), { status: 409, code: "connect_pc_env_link" });
 });
 
 test("peerEnvText drops only the live peer lines", () => {
-  const text = "# HERDR_WEB_PEER_HOST=100.64.0.2\nHERDR_WEB_PEER_HOST = 100.1.1.1\nHERDR_WEB_PEER_PORT=38790\nHERDR_WEB_PEER_ADDRESSES=x\nOTHER=1";
-  assert.equal(peerEnvText(text, null), "# HERDR_WEB_PEER_HOST=100.64.0.2\nHERDR_WEB_PEER_PORT=38790\nOTHER=1\n");
+  const text = "# HERDR_WEB_PEER_HOST=100.64.0.2\nHERDR_WEB_PEER_HOST = 100.1.1.1\nHERDR_WEB_PEER_PORT=38790\nHERDR_WEB_PEER_ADDRESSES=x\nHERDR_WEB_PEER_LOGINS=y\nOTHER=1";
+  assert.equal(peerEnvText(text, {}), "# HERDR_WEB_PEER_HOST=100.64.0.2\nHERDR_WEB_PEER_PORT=38790\nOTHER=1\n");
   assert.equal(peerEnvText(text, { host: "100.96.0.2", addresses: ["100.101.0.3"] }),
     "# HERDR_WEB_PEER_HOST=100.64.0.2\nHERDR_WEB_PEER_PORT=38790\nOTHER=1\n\n# Connect PC, set from Settings → PCs\nHERDR_WEB_PEER_HOST=100.96.0.2\nHERDR_WEB_PEER_ADDRESSES=100.101.0.3\n");
+  assert.equal(peerEnvText(text, { host: "100.96.0.2", logins: ["me@example.com"] }),
+    "# HERDR_WEB_PEER_HOST=100.64.0.2\nHERDR_WEB_PEER_PORT=38790\nOTHER=1\n\n# Connect PC, set from Settings → PCs\nHERDR_WEB_PEER_HOST=100.96.0.2\nHERDR_WEB_PEER_LOGINS=me@example.com\n");
+});
+
+test("all my PCs lets in every device of this PC's tailnet account, without a device list, and is undone", async (context) => {
+  const env = "HERDR_WEB_PORT=38787\nHERDR_WEB_PEER_HOST=100.96.0.2\nHERDR_WEB_PEER_ADDRESSES=100.101.0.3\nHERDR_WEB_PEER_LOGINS=other@example.com\n";
+  const { access, envFile } = await world(context, { env, current: { host: "100.96.0.2", addresses: ["100.101.0.3"], logins: ["other@example.com"] } });
+  const saved = await access.save({ open: true, mine: true });
+  assert.equal(saved.mine, true);
+  let values = parseEnvFile(await readFile(envFile, "utf8"));
+  assert.equal(values.HERDR_WEB_PEER_HOST, "100.96.0.2");
+  assert.equal(values.HERDR_WEB_PEER_LOGINS, "me@example.com");
+  assert.equal(values.HERDR_WEB_PEER_ADDRESSES, undefined, "a device list beside the accounts would narrow them");
+
+  // As the restarted server reads it, then back to one device.
+  access.current = { host: "100.96.0.2", port: 38788, addresses: [], logins: ["me@example.com"] };
+  assert.equal((await access.state()).mine, true);
+  await access.save({ open: true, addresses: ["100.101.0.3"] });
+  values = parseEnvFile(await readFile(envFile, "utf8"));
+  assert.equal(values.HERDR_WEB_PEER_LOGINS, undefined);
+  assert.equal(values.HERDR_WEB_PEER_ADDRESSES, "100.101.0.3");
+
+  await assert.rejects(access.save({ open: true, mine: true, addresses: ["100.101.0.3"] }), { status: 400 });
+  await assert.rejects(access.save({ open: true, mine: "yes" }), { status: 400 });
+  await assert.rejects(access.save({ open: true, addresses: [] }), { status: 400 });
+  const anonymous = await world(context, { tailnet: { ...TAILNET, self: { ...TAILNET.self, login: "" } } });
+  await assert.rejects(anonymous.access.save({ open: true, mine: true }), { status: 409, code: "tailscale_account_unknown" });
+  const tagged = await world(context, { tailnet: { ...TAILNET, self: { ...TAILNET.self, login: "tagged-devices" } } });
+  await assert.rejects(tagged.access.save({ open: true, mine: true }), { status: 409, code: "tailscale_account_unknown" });
 });
 
 async function app(context, { required = true, access } = {}) {
@@ -168,7 +198,7 @@ test("the route needs sign-in, the same origin, the write token and the password
   assert.deepEqual(saves, []);
   const saved = await post({ open: true, addresses: ["100.101.0.3"], password: "secret", extra: 1 });
   assert.equal(saved.status, 200);
-  assert.deepEqual(saves, [{ open: true, addresses: ["100.101.0.3"] }]);
+  assert.deepEqual(saves, [{ open: true, addresses: ["100.101.0.3"], mine: undefined }]);
   const bootstrap = await (await fetch(`${origin}/api/bootstrap`, { headers: { Cookie: "session=valid", "X-Herdr-Launch-Token": "launch" } })).json();
   assert.equal(bootstrap.connectPcAccess, true);
 });

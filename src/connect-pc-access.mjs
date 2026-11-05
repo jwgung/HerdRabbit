@@ -1,10 +1,13 @@
 // Settings → PCs → "Let other PCs connect": this PC's Connect PC port, opened
-// to the tailnet devices chosen on the page, or closed. Installed as a Herdr
-// plugin, HerdRabbit reads its settings from the plugin's .env
-// (src/plugin-runner.mjs), so that is what is written: HERDR_WEB_PEER_HOST
-// (this PC's own tailnet address, which opens the port) and
-// HERDR_WEB_PEER_ADDRESSES (who may use it). The port, a list of tailnet
-// logins and every other line are left as they are. The new settings are
+// to every device of this PC's own tailnet account, or to the tailnet devices
+// chosen on the page, or closed. Installed as a Herdr plugin, HerdRabbit reads
+// its settings from the plugin's .env (src/plugin-runner.mjs), so that is what
+// is written: HERDR_WEB_PEER_HOST (this PC's own tailnet address, which opens
+// the port) and who may use it, HERDR_WEB_PEER_LOGINS (this PC's account) or
+// HERDR_WEB_PEER_ADDRESSES (the devices). Both set would mean a caller has to
+// match both (src/peer-identity.mjs), so one is written, never the two. The
+// page keeps these three lines; the port and every other line are left as
+// they are. The new settings are
 // checked as the server will read them before anything is written, and
 // HerdRabbit restarts through Herdr to take them up. A systemd install keeps
 // its settings in its unit; the page then says to run the installer there.
@@ -18,17 +21,21 @@ import { hostPort, parsePeerAddresses, readConfig } from "./config.mjs";
 import { ENV_TEMPLATE, parseEnvFile } from "./plugin-runner.mjs";
 
 const MAX_ALLOWED = 32;
-const LIVE_PEER_LINE = /^\s*(?:export\s+)?HERDR_WEB_PEER_(?:HOST|ADDRESSES)\s*=/u;
+const LIVE_PEER_LINE = /^\s*(?:export\s+)?HERDR_WEB_PEER_(?:HOST|ADDRESSES|LOGINS)\s*=/u;
 const MARK = "# Connect PC, set from Settings → PCs";
 
-// `text` without its live HERDR_WEB_PEER_HOST and HERDR_WEB_PEER_ADDRESSES
-// lines (comments stay), and with `peer`'s at the end when it is given.
-export function peerEnvText(text, peer) {
+// `text` without its live HERDR_WEB_PEER_HOST, _ADDRESSES and _LOGINS lines
+// (comments stay), and with `peer`'s at the end: { host, addresses, logins },
+// the host left out when it is null, an empty list left out.
+export function peerEnvText(text, { host = null, addresses = [], logins = [] } = {}) {
   const lines = String(text).split(/\r?\n/u).filter((line) => !LIVE_PEER_LINE.test(line) && line.trim() !== MARK);
   while (lines.length > 0 && lines.at(-1).trim() === "") lines.pop();
-  if (peer) {
-    lines.push("", MARK, `HERDR_WEB_PEER_HOST=${peer.host}`, `HERDR_WEB_PEER_ADDRESSES=${peer.addresses.join(",")}`);
-  }
+  const add = [
+    ...(host ? [`HERDR_WEB_PEER_HOST=${host}`] : []),
+    ...(addresses.length ? [`HERDR_WEB_PEER_ADDRESSES=${addresses.join(",")}`] : []),
+    ...(logins.length ? [`HERDR_WEB_PEER_LOGINS=${logins.join(",")}`] : []),
+  ];
+  if (add.length) lines.push("", MARK, ...add);
   return `${lines.join("\n")}\n`;
 }
 
@@ -93,8 +100,9 @@ export class ConnectPcAccess {
       tailnet: tailnet.available === true,
       open: this.current.host !== null,
       address: this.current.host ? `http://${hostPort(this.current.host, this.current.port)}` : null,
-      logins: this.current.logins.length,
-      self: tailnet.self ? { name: tailnet.self.name, address: tailnet.self.address } : null,
+      // Every device signed in to Tailscale as this PC's own account may connect.
+      mine: Boolean(tailnet.self?.login) && this.current.logins.includes(tailnet.self.login),
+      self: tailnet.self ? { name: tailnet.self.name, address: tailnet.self.address, login: tailnet.self.login || null } : null,
       peers: (tailnet.peers ?? []).map((peer) => ({ name: peer.name, address: peer.address, online: peer.online === true, allowed: allowed.has(peer.address) })),
     };
   }
@@ -115,15 +123,22 @@ export class ConnectPcAccess {
     }
   }
 
-  async #save({ open, addresses }) {
-    let peer = null;
+  async #save({ open, addresses = [], mine = false }) {
+    if (typeof mine !== "boolean") throw invalid("Say whether all your PCs may connect.");
+    const tailnet = await this.readTailnet();
+    const own = tailnet.self?.login || null;
+    let peer = {};
     if (open) {
       if (!Array.isArray(addresses) || addresses.length > MAX_ALLOWED || addresses.some((item) => typeof item !== "string" || item.includes(","))) {
         throw invalid(`Choose up to ${MAX_ALLOWED} PCs from the list.`);
       }
-      const tailnet = await this.readTailnet();
       if (!tailnet.available || !tailnet.self?.address) {
         throw new HttpError(409, "tailscale_unavailable", "Tailscale is not running on this PC, so it has no tailnet address to open the port on.");
+      }
+      if (mine && addresses.length > 0) throw invalid("Choose all your PCs or some devices, not both.");
+      if (!mine && addresses.length === 0) throw invalid("Choose who may connect.");
+      if (mine && !(own && own.length <= 320 && /^[^\s,@]+@[^\s,@]+$/u.test(own))) {
+        throw new HttpError(409, "tailscale_account_unknown", "Tailscale did not name an account this PC is signed in as, so all your PCs cannot be told apart. Choose the devices instead.");
       }
       let chosen;
       try {
@@ -137,7 +152,8 @@ export class ConnectPcAccess {
       if (this.current.port === this.pagePort) {
         throw new HttpError(409, "connect_pc_port_taken", `The Connect PC port ${this.current.port} is this page's own port. Set HERDR_WEB_PEER_PORT to another port in the plugin's .env.`);
       }
-      peer = { host: tailnet.self.address, addresses: chosen };
+      // A list of devices with accounts beside it would let in only devices of those accounts.
+      peer = mine ? { host: tailnet.self.address, logins: [own] } : { host: tailnet.self.address, addresses: chosen };
     }
 
     const before = (await readEnv(this.envFile)) ?? ENV_TEMPLATE;
@@ -173,9 +189,10 @@ export class ConnectPcAccess {
     await this.restart();
     return {
       restarting: true,
-      open: peer !== null,
-      address: peer ? `http://${hostPort(peer.host, next.peerPort)}` : null,
-      addresses: peer?.addresses ?? [],
+      open: Boolean(peer.host),
+      address: peer.host ? `http://${hostPort(peer.host, next.peerPort)}` : null,
+      addresses: peer.addresses ?? [],
+      mine: Boolean(own) && (peer.logins ?? []).includes(own),
     };
   }
 }

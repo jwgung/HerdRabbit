@@ -1,9 +1,9 @@
 // Browser check of Settings → PCs → "Let other PCs connect": with sign-in on,
-// the PCs page says whether this PC's Connect PC port is open and to whom;
-// Choose PCs… lists the tailnet's devices (name over address, Offline marked)
-// with the allowed ones ticked; Save asks for the password, writes the
-// plugin's .env (a temporary one here) and restarts, and the row says so until
-// the server answers again. Ticking none closes the port. A wrong password
+// the PCs page says whether this PC's Connect PC port is open and to whom.
+// Choose PCs… offers All my PCs (chosen first on a closed port), Only these
+// (the tailnet's devices, name over address, Offline marked) and No other PC.
+// Save asks for the password, writes the plugin's .env (a temporary one here)
+// and restarts, and the row says so until the server answers again. A wrong password
 // writes nothing. With sign-in off the row is not shown. On a phone the
 // choices are 44px rows and nothing is wider than the screen. Runs against an
 // in-process fake herdr; Tailscale and the restart are stand-ins.
@@ -43,7 +43,8 @@ async function reload() {
     pagePort: 38787,
     current: {
       host: values.HERDR_WEB_PEER_HOST || null, port: 38788,
-      addresses: values.HERDR_WEB_PEER_ADDRESSES ? values.HERDR_WEB_PEER_ADDRESSES.split(",") : [], logins: [],
+      addresses: values.HERDR_WEB_PEER_ADDRESSES ? values.HERDR_WEB_PEER_ADDRESSES.split(",") : [],
+      logins: values.HERDR_WEB_PEER_LOGINS ? values.HERDR_WEB_PEER_LOGINS.split(",") : [],
     },
     readTailnet: async () => TAILNET,
     // the tailnet address is a stand-in, so the port is taken to open there
@@ -121,62 +122,78 @@ try {
     await openPcs(signedOut);
     assert.equal(await page.locator("#settings-pc-access").isVisible(), false, `${where}: shown with sign-in off`);
 
-    // Closed, then opened to the laptop.
+    // Closed; Choose PCs… starts on All my PCs.
     await openPcs(signedIn);
     await page.locator("#settings-pc-access").waitFor({ state: "visible" });
     await page.waitForFunction(() => document.querySelector("#settings-pc-access-hint").textContent.startsWith("Closed"));
-    await page.locator("#settings-pc-access-change").click();
     const choose = page.locator("#pc-access-dialog");
-    await choose.waitFor({ state: "visible" });
-    const rows = choose.locator(".pc-access-choice");
-    assert.deepEqual(await rows.evaluateAll((items) => items.map((row) => [
-      row.querySelector("strong").textContent, row.querySelector("small").textContent,
-      row.querySelector("input").checked, Boolean(row.querySelector(".ui-badge")),
-    ])), [["laptop", "100.101.0.3", false, false], ["phone", "100.110.0.4", false, true]]);
+    const pick = async (value) => {
+      await page.locator("#settings-pc-access-change").click();
+      await choose.waitFor({ state: "visible" });
+      if (value) await choose.locator(`.pc-access-mode:has(input[value="${value}"])`).click();
+    };
+    const save = async (password = "secret") => {
+      await page.locator("#pc-access-password").fill(password);
+      await page.locator("#pc-access-save").click();
+    };
+    const env = async () => parseEnvFile(await readFile(envFile, "utf8"));
+    await pick(null);
+    assert.equal(await choose.locator('input[value="mine"]').isChecked(), true);
+    assert.equal(await page.locator("#pc-access-mine-hint").textContent(), "Every device signed in to Tailscale as me@example.com, those added later too");
+    assert.equal(await page.locator("#pc-access-choices").isVisible(), false, `${where}: the device list shows for All my PCs`);
     if (mobile) {
-      for (const box of await rows.evaluateAll((items) => items.map((row) => row.getBoundingClientRect().height))) {
+      for (const box of await choose.locator(".pc-access-mode").evaluateAll((items) => items.map((row) => row.getBoundingClientRect().height))) {
         assert.ok(box >= 44, `${where}: a choice is under 44px (${box})`);
       }
       const overflow = await choose.evaluate((element) => element.scrollWidth - element.clientWidth);
       assert.ok(overflow <= 1, `${where}: the dialog is wider than the screen (${overflow}px)`);
     }
-    await rows.first().click();
-    if (shots) await page.screenshot({ path: join(shots, `choose-${where}.png`) });
+    if (shots) await page.screenshot({ path: join(shots, `mine-${where}.png`) });
 
     // A wrong password writes nothing.
-    await page.locator("#pc-access-password").fill("nope");
-    await page.locator("#pc-access-save").click();
+    await save("nope");
     await page.locator("#pc-access-feedback", { hasText: "incorrect" }).waitFor();
-    assert.equal(parseEnvFile(await readFile(envFile, "utf8")).HERDR_WEB_PEER_HOST, undefined);
+    assert.equal((await env()).HERDR_WEB_PEER_HOST, undefined);
     assert.equal(restarts, 0);
 
-    await page.locator("#pc-access-password").fill("secret");
-    await page.locator("#pc-access-save").click();
+    await save();
     await choose.waitFor({ state: "hidden" });
-    const values = parseEnvFile(await readFile(envFile, "utf8"));
-    assert.equal(values.HERDR_WEB_PEER_HOST, "100.96.0.2");
-    assert.equal(values.HERDR_WEB_PEER_ADDRESSES, "100.101.0.3");
-    assert.equal(values.HERDR_WEB_PORT, "38787");
+    assert.equal((await env()).HERDR_WEB_PEER_HOST, "100.96.0.2");
+    assert.equal((await env()).HERDR_WEB_PEER_LOGINS, "me@example.com");
+    assert.equal((await env()).HERDR_WEB_PEER_ADDRESSES, undefined);
+    assert.equal((await env()).HERDR_WEB_PORT, "38787");
     assert.equal(restarts, 1);
-    await page.waitForFunction(() => document.querySelector("#settings-pc-access-hint").textContent === "Open at http://100.96.0.2:38788 to laptop.");
-    if (shots) await page.screenshot({ path: join(shots, `open-${where}.png`) });
+    await page.waitForFunction(() => document.querySelector("#settings-pc-access-hint").textContent === "Open at http://100.96.0.2:38788 to all your PCs (me@example.com).");
 
-    // Ticking none closes it.
-    await page.locator("#settings-pc-access-change").click();
-    await choose.waitFor({ state: "visible" });
-    assert.equal(await rows.first().locator("input").isChecked(), true);
+    // Only these: the device list, the laptop ticked.
+    await pick("some");
+    const rows = choose.locator(".pc-access-choice");
+    assert.deepEqual(await rows.evaluateAll((items) => items.map((row) => [
+      row.querySelector("strong").textContent, row.querySelector("small").textContent,
+      row.querySelector("input").checked, Boolean(row.querySelector(".ui-badge")),
+    ])), [["laptop", "100.101.0.3", false, false], ["phone", "100.110.0.4", false, true]]);
+    await save();
+    await page.locator("#pc-access-feedback", { hasText: "Tick the devices" }).waitFor();
     await rows.first().click();
-    await page.locator("#pc-access-password").fill("secret");
-    await page.locator("#pc-access-save").click();
+    if (shots) await page.screenshot({ path: join(shots, `some-${where}.png`) });
+    await save();
+    await choose.waitFor({ state: "hidden" });
+    assert.equal((await env()).HERDR_WEB_PEER_ADDRESSES, "100.101.0.3");
+    assert.equal((await env()).HERDR_WEB_PEER_LOGINS, undefined);
+    await page.waitForFunction(() => document.querySelector("#settings-pc-access-hint").textContent === "Open at http://100.96.0.2:38788 to laptop.");
+
+    // No other PC closes it.
+    await pick("none");
+    await save();
     await choose.waitFor({ state: "hidden" });
     await page.waitForFunction(() => document.querySelector("#settings-pc-access-hint").textContent.startsWith("Closed"));
-    assert.equal(parseEnvFile(await readFile(envFile, "utf8")).HERDR_WEB_PEER_HOST, undefined);
+    assert.equal((await env()).HERDR_WEB_PEER_HOST, undefined);
     assert.equal(await hint.getAttribute("data-error"), "false");
 
     assert.deepEqual(errors, [], `${where}: page errors`);
     await context.close();
   }
-  console.log("PC access OK: closed, opened to one PC, closed again, wrong password, sign-in off, desktop and phone");
+  console.log("PC access OK: all my PCs, only these, closed, wrong password, sign-in off, desktop and phone");
 } finally {
   await browser.close();
   signedIn.close();

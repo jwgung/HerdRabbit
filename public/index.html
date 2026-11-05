@@ -1069,9 +1069,14 @@
       <form id="pc-access-form" class="dialog-form">
         <div class="dialog-heading">
           <h2 id="pc-access-title">Let other PCs connect</h2>
-          <p>The PCs you tick can show this PC's sessions on their own HerdRabbit page, without this PC's password. Tick none to close the port. HerdRabbit restarts to take it up.</p>
+          <p>The PCs let in can show this PC's sessions on their own HerdRabbit page, without this PC's password. HerdRabbit restarts to take it up.</p>
         </div>
-        <fieldset class="pc-access-choices">
+        <fieldset class="pc-access-modes" role="radiogroup" aria-label="Who may connect">
+          <label class="pc-access-mode"><input type="radio" name="pc-access-mode" value="mine" /><span><strong>All my PCs</strong><small id="pc-access-mine-hint">Every device signed in to Tailscale as you, those added later too</small></span></label>
+          <label class="pc-access-mode"><input type="radio" name="pc-access-mode" value="some" /><span><strong>Only these</strong><small>The devices ticked below</small></span></label>
+          <label class="pc-access-mode"><input type="radio" name="pc-access-mode" value="none" /><span><strong>No other PC</strong><small>The port is closed</small></span></label>
+        </fieldset>
+        <fieldset id="pc-access-choices" class="pc-access-choices">
           <legend>Devices on your tailnet</legend>
           <ul id="pc-access-list" class="pc-access-list" role="list"></ul>
         </fieldset>
