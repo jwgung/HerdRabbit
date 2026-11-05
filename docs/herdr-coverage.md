@@ -94,7 +94,7 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 | Command | HerdRabbit | Notes |
 |---|---|---|
 | `herdr update` | Done | Settings → Herdr (Update… opens the Update window), for Herdr on every machine |
-| `herdr channel` | Done | Settings → Herdr: Stable or Preview, per machine; Updates follows it |
+| `herdr channel` | Done | Settings → Herdr: Stable or Preview, per machine; the Herdr page's update check follows it |
 | `herdr config`, `herdr server reload-config` | Done | Settings → Herdr: `config.toml` as text, checked by `herdr config check` before it is saved, then reloaded. `config reset-keys` is not offered |
 | `herdr notification` | Not needed | HerdRabbit sends its own Web Push notifications |
 | `herdr integration` | Done | Settings → Herdr: status, install and uninstall, per machine |

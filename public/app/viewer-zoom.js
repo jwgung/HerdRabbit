@@ -9,11 +9,22 @@
 //   - Text grows its letters instead, so it still wraps and scrolls as text:
 //     pinch or Ctrl+wheel.
 
+// A picture here is an SVG, which stays in the viewer dialog for its Source
+// button; every other picture opens in the chat's picture viewer
+// (chat/image-viewer.js). This zoom is that one's in miniature, with its limits.
+import { MAX_SCALE, TOGGLE_SCALE as DOUBLE_TAP_SCALE } from "../chat/image-viewer.js?v=1.4.41";
+
+export { MAX_SCALE, DOUBLE_TAP_SCALE };
 export const MIN_SCALE = 1;
-export const MAX_SCALE = 8;
-export const DOUBLE_TAP_SCALE = 2.5;
 export const MIN_TEXT_SCALE = 0.6;
 export const MAX_TEXT_SCALE = 4;
+// a press that moved more than this is a drag, not a tap
+const TAP_PX = 6;
+// two taps this close in time and place are a double tap
+const DOUBLE_TAP_MS = 320;
+const DOUBLE_TAP_PX = 30;
+// Ctrl+wheel (or a trackpad pinch) zoom per pixel scrolled
+const WHEEL_ZOOM_PER_PIXEL = 0.004;
 
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 
@@ -90,7 +101,7 @@ export function zoomablePicture(picture) {
     } else if (drag) {
       const dx = event.clientX - drag.x;
       const dy = event.clientY - drag.y;
-      if (Math.hypot(dx, dy) > 6) drag.moved = true;
+      if (Math.hypot(dx, dy) > TAP_PX) drag.moved = true;
       if (view.scale > 1) {
         view = clampPan({ scale: view.scale, x: drag.view.x + dx, y: drag.view.y + dy }, size());
         draw();
@@ -110,7 +121,7 @@ export function zoomablePicture(picture) {
     drag = null;
     if (!tap) return;
     const now = performance.now();
-    if (lastTap && now - lastTap.at < 320 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 30) {
+    if (lastTap && now - lastTap.at < DOUBLE_TAP_MS && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < DOUBLE_TAP_PX) {
       lastTap = null;
       toggleAt(event.clientX, event.clientY);
     } else {
@@ -125,7 +136,7 @@ export function zoomablePicture(picture) {
     // does not swallow a scroll meant for it.
     if (!event.ctrlKey && view.scale === 1) return;
     event.preventDefault();
-    if (event.ctrlKey) zoomTo(view.scale * Math.exp(-event.deltaY * 0.004), event.clientX, event.clientY);
+    if (event.ctrlKey) zoomTo(view.scale * Math.exp(-event.deltaY * WHEEL_ZOOM_PER_PIXEL), event.clientX, event.clientY);
     else {
       view = clampPan({ scale: view.scale, x: view.x - event.deltaX, y: view.y - event.deltaY }, size());
       draw();
@@ -159,7 +170,7 @@ export function zoomableText(text) {
   text.addEventListener("wheel", (event) => {
     if (!event.ctrlKey) return;
     event.preventDefault();
-    setScale(scale * Math.exp(-event.deltaY * 0.004));
+    setScale(scale * Math.exp(-event.deltaY * WHEEL_ZOOM_PER_PIXEL));
   }, { passive: false });
   return text;
 }

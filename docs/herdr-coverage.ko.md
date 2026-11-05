@@ -94,7 +94,7 @@ Herdr 0.9.5(`herdr --help`와 명령 묶음마다의 `--help`)를 기준으로 �
 | 명령 | HerdRabbit | 메모 |
 |---|---|---|
 | `herdr update` | 됨 | Settings → Herdr(Update…가 Update 창을 엶), 모든 머신의 Herdr |
-| `herdr channel` | 됨 | Settings → Herdr: 머신마다 Stable·Preview, Updates가 따름 |
+| `herdr channel` | 됨 | Settings → Herdr: 머신마다 Stable·Preview, Herdr 페이지의 업데이트 확인이 따름 |
 | `herdr config`, `herdr server reload-config` | 됨 | Settings → Herdr: `config.toml`을 글로 편집, 저장 전에 `herdr config check`로 검사하고 저장 뒤 다시 불러옴. `config reset-keys`는 없음 |
 | `herdr notification` | 필요 없음 | HerdRabbit은 자체 Web Push 알림을 보냅니다 |
 | `herdr integration` | 됨 | Settings → Herdr: 머신마다 상태, 설치, 제거 |

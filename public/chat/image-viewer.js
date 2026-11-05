@@ -19,8 +19,9 @@
 import { ticketUrl } from "./chat-images.js?v=1.4.41";
 
 export const FIT = Object.freeze({ scale: 1, x: 0, y: 0 });
-const MAX_SCALE = 8;
-const TOGGLE_SCALE = 2.5;
+// exported so the Files viewer's own zoom (app/viewer-zoom.js) keeps the same limits
+export const MAX_SCALE = 8;
+export const TOGGLE_SCALE = 2.5;
 const BUTTON_ZOOM = 1.5;
 const PAN_STEP = 48;
 const SWIPE_PX = 50;
