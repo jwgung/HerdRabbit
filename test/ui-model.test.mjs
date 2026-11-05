@@ -38,6 +38,8 @@ import {
   sortUploads,
   waitsForRemotePane,
   keepsVanishedRemotePane,
+  holdsRemotePane,
+  paneMachineOffline,
   legacyMachinesNotice,
 } from "../public/ui-model.js";
 
@@ -801,6 +803,22 @@ test("the pane on screen stays while its server comes back", () => {
   assert.equal(keepsVanishedRemotePane(pane, [], with_({ available: true })), false, "connected, and the pane is gone");
   assert.equal(keepsVanishedRemotePane(pane, [{ pane_id: pane }], with_({ available: false })), false, "still listed");
   assert.equal(keepsVanishedRemotePane("hs_x~w1:p1", [], []), false, "a local pane");
+});
+
+test("a view tile of another machine's pane is held while that machine is away, and says when it is", () => {
+  const id = "link_4c139ff5-0dfb-4a6e-9d1c-2b3a4c5d6e7f";
+  const pane = `${id}!hs_x~w1:p1`;
+  const servers = (fields) => [{ id: "local", available: true }, { id, ...fields }];
+  assert.equal(holdsRemotePane(pane, [], servers({ available: false, connecting: true })), true, "not reached yet");
+  assert.equal(holdsRemotePane(pane, [], servers({ available: false, connecting: false })), true, "unreachable");
+  assert.equal(holdsRemotePane(pane, [], servers({ available: true })), false, "connected and the pane is gone");
+  assert.equal(holdsRemotePane(pane, [{ pane_id: pane }], servers({ available: false })), false, "still listed");
+  assert.equal(holdsRemotePane(pane, [], [{ id: "local", available: true }]), false, "machine removed");
+  assert.equal(holdsRemotePane("hs_x~w1:p1", [], servers({ available: false })), false, "a local pane");
+  assert.equal(paneMachineOffline(pane, servers({ available: false })), true);
+  assert.equal(paneMachineOffline(pane, servers({ available: true })), false);
+  assert.equal(paneMachineOffline("hs_x~w1:p1", servers({ available: false })), false, "this machine");
+  assert.equal(paneMachineOffline(pane, []), false, "no server list");
 });
 
 test("says once that Herdr SSH machines are gone and how to bring those PCs back", () => {

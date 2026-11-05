@@ -8,7 +8,10 @@ import {
   displayTabLabel,
   mostUrgentStatus,
   paneAgentKind,
+  holdsRemotePane,
   paneDisplayTitle,
+  paneMachineOffline,
+  paneServerId,
   paneRowLine,
   paneSubtitle,
 } from "../ui-model.js?v=1.4.41";
@@ -243,22 +246,43 @@ export function createPaneViews(deps) {
     return viewSplit.shown && desktopMedia.matches && viewTiles(viewSplit.tree).includes(state.selectedPaneId);
   }
 
-  // What each tile says of its pane: as a grid cell, with its project.
+  // What each tile says of its pane: as a grid cell, with its project, and the
+  // machine's name too when the split mixes machines. A pane of a machine that
+  // is away may be missing from the snapshot: its tile stays, offline, and
+  // reconnects when the machine is back.
   function viewTilePanes() {
-    const { panes } = snapshotRecords();
-    return viewTiles(viewSplit.tree).flatMap((paneId) => {
+    const { panes, servers } = snapshotRecords();
+    const ids = viewTiles(viewSplit.tree);
+    const machines = new Set(ids.map((paneId) => paneServerId(paneId) || "local"));
+    const machineName = (paneId) => {
+      const id = paneServerId(paneId) || "local";
+      const server = servers.find((item) => item?.id === id);
+      return server?.name || (id === "local" ? "This PC" : id);
+    };
+    const withMachine = (paneId, context) => (machines.size > 1
+      ? [machineName(paneId), context].filter(Boolean).join(" \u00b7 ")
+      : context);
+    return ids.flatMap((paneId) => {
       const pane = panes.find((item) => idOf(item, "pane_id", "id") === paneId);
-      if (!pane) return [];
+      const offline = paneMachineOffline(paneId, servers);
+      if (!pane) {
+        if (!offline) return [];
+        return [{
+          paneId, label: "Terminal", context: withMachine(paneId, ""), offline,
+          status: "unknown", statusIcon: agentStatusIcon("unknown"), statusText: "Machine offline",
+        }];
+      }
       const agent = agentForPane(paneId);
       const status = visibleStatusForPane(paneId, agent, pane);
       const records = selectedRecordsFor(paneId);
       return [{
         paneId,
         label: paneDisplayTitle(displayTabLabel(records.tab), pane, "Terminal", agent),
-        context: displayRecordLabel(records.workspace, "Workspace"),
+        context: withMachine(paneId, displayRecordLabel(records.workspace, "Workspace")),
+        offline,
         status,
         statusIcon: agentStatusIcon(status),
-        statusText: agentStatusLabel(status),
+        statusText: offline ? "Machine offline" : agentStatusLabel(status),
       }];
     });
   }
@@ -321,8 +345,12 @@ export function createPaneViews(deps) {
 
   // Tiles whose panes are gone leave the view; with fewer than two left it is
   // over. The selected pane, gone with its tile, gives way to another tile.
-  function pruneViewSplit(paneIds) {
-    if (!viewSplit.tree || paneIds.length === 0) return;
+  // A tile of a machine that is connecting or away stays even with its pane
+  // missing from the snapshot: the pane comes back with the machine.
+  function pruneViewSplit(listed) {
+    if (!viewSplit.tree || listed.length === 0) return;
+    const { panes, servers } = snapshotRecords();
+    const paneIds = [...listed, ...viewTiles(viewSplit.tree).filter((id) => holdsRemotePane(id, panes, servers))];
     const before = viewTiles(viewSplit.tree);
     const next = pruneViewTiles(viewSplit.tree, paneIds);
     const after = viewTiles(next);

@@ -496,6 +496,23 @@ export function keepsVanishedRemotePane(paneId, panes, servers) {
   return array(servers).some((server) => server?.id === serverId && !server.available);
 }
 
+// A view tile's pane on another server that the snapshot does not list: kept
+// (not pruned) while that server is connecting or unreachable, since its panes
+// come back with it. A server no longer listed has nothing to come back.
+export function holdsRemotePane(paneId, panes, servers) {
+  if (!paneId?.includes("!")) return false;
+  if (array(panes).some((pane) => idOf(pane, "pane_id", "id") === paneId)) return false;
+  const serverId = paneId.split("!")[0];
+  return array(servers).some((server) => server?.id === serverId && server.available !== true);
+}
+
+// Whether the machine a remote pane lives on is listed and not reachable now.
+export function paneMachineOffline(paneId, servers) {
+  if (!paneId?.includes("!")) return false;
+  const serverId = paneId.split("!")[0];
+  return array(servers).some((server) => server?.id === serverId && server.available !== true);
+}
+
 export function selectedPaneIdForSnapshot(
   panes,
   currentPaneId,

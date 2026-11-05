@@ -152,11 +152,26 @@ test("on a view split anything not a tile yet becomes one, its own project too",
   assert.equal(paneDropKind(snapshot, { tabId: "w1:t2", targetPaneId: "w1:p1" }, { screen: "tiles", tileIds: full, ...allowed }), null);
 });
 
-test("a split session, another machine's or the pane's own is no drop", () => {
+test("a split session or the pane's own is no drop", () => {
   assert.equal(paneDropKind(snapshot, { tabId: "w1:t3", targetPaneId: "w2:p1" }, { screen: "solo", ...allowed }), null);
-  assert.equal(paneDropKind(snapshot, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen: "solo", ...allowed }), null);
-  assert.equal(paneDropKind(snapshot, { tabId: "w2:t1", targetPaneId: "laptop!w1:p1" }, { screen: "solo", ...allowed }), null);
   assert.equal(paneDropKind(snapshot, { tabId: "w1:t1", targetPaneId: "w1:p1" }, { screen: "solo", ...allowed }), null);
+});
+
+test("a view split may hold panes of different machines; Herdr's merge never crosses one", () => {
+  // Alone: another machine's pane is another project, so a tile beside it.
+  assert.equal(paneDropKind(snapshot, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen: "solo", ...allowed }), "view");
+  assert.equal(paneDropKind(snapshot, { tabId: "w2:t1", targetPaneId: "laptop!w1:p1" }, { screen: "solo", ...allowed }), "view");
+  // Herdr being unable to merge is no reason against a tile.
+  assert.equal(paneDropKind(snapshot, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen: "solo" }), "view");
+  // A grid is Herdr's: no view tile, no merge.
+  assert.equal(paneDropKind(snapshot, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen: "grid", ...allowed }), null);
+  // On a view split any machine's session joins, whatever it can lay out.
+  const tileIds = ["w1:p1", "w2:p1"];
+  assert.equal(paneDropKind(snapshot, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen: "tiles", tileIds, ...allowed }), "view");
+  assert.equal(paneDropKind(snapshot, { tabId: "w1:t2", targetPaneId: "laptop!w1:p1" }, { screen: "tiles", tileIds: ["laptop!w1:p1", "w2:p1"], ...allowed }), "view");
+  const older = { ...snapshot, servers: [{ id: "laptop", pane_layout: false }] };
+  assert.equal(paneDropKind(older, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen: "tiles", tileIds, ...allowed }), "view",
+    "a tile is this window's, so a PC that cannot lay out its panes still gives one");
 });
 
 test("a connected PC that lays out its panes merges a drop there, never with another machine's", () => {
@@ -167,8 +182,6 @@ test("a connected PC that lays out its panes merges a drop there, never with ano
     panes: [...snapshot.panes, { pane_id: "laptop!w1:p2", tab_id: "laptop!w1:t2", ...laptop }],
   };
   assert.equal(paneDropKind(laptopPanes, { tabId: "laptop!w1:t2", targetPaneId: "laptop!w1:p1" }, { screen: "solo", ...allowed }), "move");
-  assert.equal(paneDropKind(laptopPanes, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen: "solo", ...allowed }), null);
-  assert.equal(paneDropKind(laptopPanes, { tabId: "w2:t1", targetPaneId: "laptop!w1:p1" }, { screen: "solo", ...allowed }), null);
   const older = { ...laptopPanes, servers: [{ id: "laptop", pane_layout: false }] };
   assert.equal(paneDropKind(older, { tabId: "laptop!w1:t2", targetPaneId: "laptop!w1:p1" }, { screen: "solo", ...allowed }), null);
 });
