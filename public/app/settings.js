@@ -44,7 +44,7 @@ export function createSettings(deps) {
     push: null,
     // In-app update: whether Update… shows, and whether some PC has a newer
     // version (a dot on the ⚙ button and on Updates).
-    update: { visible: false, available: false },
+    update: { visible: false, available: false, herdr: false },
   };
 
   // The chat column's width is the root's, so it holds before any chat is drawn.
@@ -277,8 +277,10 @@ export function createSettings(deps) {
     appVersion.textContent = local?.version || "Unknown";
     herdrVersion.textContent = herdrVersionText(local);
     updateRow.hidden = !settings.update.visible;
-    updateButton.textContent = settings.update.available ? "Update available…" : "Update…";
-    updateButton.classList.toggle("has-update", settings.update.available);
+    // The Update window is Herdr's; HerdRabbit's update is a row below.
+    const herdrAvailable = settings.update.herdr === true;
+    updateButton.textContent = herdrAvailable ? "Update available…" : "Update…";
+    updateButton.classList.toggle("has-update", herdrAvailable);
   }
 
   // The PCs the Update window lists: this one, then each connected PC.
@@ -297,7 +299,7 @@ export function createSettings(deps) {
       ];
     },
     onChange: (available) => {
-      settings.update = { visible: updatePanel.visible(), available };
+      settings.update = { visible: updatePanel.visible(), available, herdr: updatePanel.hasHerdrUpdate() };
       syncSettings();
     },
   });

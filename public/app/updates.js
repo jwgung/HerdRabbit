@@ -12,7 +12,8 @@ const GIVE_UP_MS = 15 * 60_000;
 const sleep = (ms) => new Promise((resolve) => { window.setTimeout(resolve, ms); });
 
 // Settings → Updates: per machine, what has an update -- HerdRabbit and Herdr
-// from the Update window's panel (`appUpdates`, app-update.js), and, where
+// from the update panel (`appUpdates`, app-update.js; HerdRabbit's notes and
+// run step by step under its row, Herdr's in full in the Update window), and, where
 // Plugins shows (`pluginsShown`), each plugin the server marks
 // `updateAvailable` -- each with its own Update, and Update all, which runs
 // them one at a time: plugins, then Herdr, then HerdRabbit last (it restarts),
@@ -37,7 +38,7 @@ export function createUpdatesPage({ api, snapshotRecords, appUpdates, pluginsSho
   const plan = (id) => updateAllPlan(pluginsOf(id), appLine(id), herdrCheck(id));
   const locked = (id) => page.busy.has(id) || appUpdates.state(id).busy || page.plugins.get(id)?.operation?.state === "running";
 
-  function row({ name, line = null, note = null, run = null, button = null, kind }) {
+  function row({ name, line = null, note = null, run = null, button = null, details = null, kind }) {
     const item = createElement("li", { className: "plugin-row updates-row" });
     item.dataset.update = kind;
     const identity = createElement("div", { className: "plugin-identity" });
@@ -53,6 +54,10 @@ export function createUpdatesPage({ api, snapshotRecords, appUpdates, pluginsSho
     const actions = createElement("div", { className: "plugin-actions" });
     if (button) actions.append(button);
     item.append(identity, actions);
+    if (details) {
+      details.classList.add("updates-row-details");
+      item.append(details);
+    }
     return item;
   }
 
@@ -97,15 +102,17 @@ export function createUpdatesPage({ api, snapshotRecords, appUpdates, pluginsSho
     }
 
     const app = appLine(id);
-    // a run while it goes, and one that failed (until the Update window puts it away)
-    const appRun = run?.tracking || run?.status?.state === "failed" ? runSummary(run, { local: id === "local" }) : null;
+    // a run while it goes, one that failed, and the one this page reloaded
+    // after (it says how it went), until this page is left
+    const appRun = run?.tracking || run?.status?.state === "failed" || run?.resumed ? runSummary(run, { local: id === "local" }) : null;
     if (check?.available || appRun) {
       rows.push(row({
         kind: "app", name: "HerdRabbit",
         line: app ? { text: app.text, error: app.error } : null,
         note: app?.note ? { text: app.note, error: true } : null,
-        run: appRun,
         button: app?.canUpdate && !appRun?.running ? updateButton(id, () => updateApp(id)) : null,
+        // What changed, and the run step by step with its log.
+        details: appUpdates.appDetails?.(id, { onScreen: page.visible }) ?? null,
       }));
     }
 
@@ -312,7 +319,10 @@ export function createUpdatesPage({ api, snapshotRecords, appUpdates, pluginsSho
       return;
     }
     page.visible = visible;
-    if (!visible) return;
+    if (!visible) {
+      appUpdates.putAwayApp?.();
+      return;
+    }
     render();
     for (const { id } of machines()) void appUpdates.follow(id);
     void loadPlugins();
