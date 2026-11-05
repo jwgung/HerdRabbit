@@ -4135,6 +4135,11 @@ body.is-resizing-sidebar {
      in; the tree is how a folder is usually reached, so it sits right under the
      machine and the path waits at the foot. Hidden files are always listed. */
   grid-template-rows: auto minmax(0, 1fr) auto auto;
+  /* One column exactly as wide as the panel. An auto column grows to the widest
+     row's minimum content, so a path input or a machine select could push the
+     rows out of a narrow sidebar and clip the parent-folder button; this column
+     shrinks instead, and the rows inside give way. */
+  grid-template-columns: minmax(0, 1fr);
 }
 
 /* Both footer controls are the same square and look alike: the settings button

@@ -461,6 +461,31 @@ try {
       const heights = await page.locator(`${menuOf("w1:t9")} .sidebar-action-item:visible`).evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height));
       assert.ok(heights.length >= 2 && Math.max(...heights) - Math.min(...heights) < 4, `menu labels stay on one line: ${heights}`);
       await page.keyboard.press("Escape");
+      // The Files panel fits the narrowest sidebar too: each of its rows (the
+      // machine select, the tree, the feedback, the path row) is no wider than
+      // the panel, and the parent-folder button is inside it. The panel's one
+      // column once grew to the widest row's minimum width, so the rows spilled
+      // out of the sidebar and hid that button.
+      await page.locator("#tab-files").click();
+      await page.locator("#file-panel").waitFor({ state: "visible" });
+      // Larger text makes the path input wider on its own (its width comes from
+      // its font), which is the case that overflowed; set on the panel only.
+      await page.evaluate(() => document.querySelector("#file-panel").style.setProperty("--font-md", "22px"));
+      await page.waitForTimeout(200);
+      const filePanel = await page.locator("#file-panel").evaluate((panel) => {
+        const panelBox = panel.getBoundingClientRect();
+        const up = document.querySelector("#file-up").getBoundingClientRect();
+        return {
+          panelWidth: panelBox.width,
+          rows: [...panel.children].filter((child) => getComputedStyle(child).display !== "none")
+            .map((child) => [child.id || child.className, child.getBoundingClientRect().width]),
+          upInside: up.width > 0 && up.right <= panelBox.right + 0.5,
+        };
+      });
+      for (const [name, width] of filePanel.rows) {
+        assert.ok(width <= filePanel.panelWidth + 0.5, `#${name} (${width}px) fits the Files panel (${filePanel.panelWidth}px) at the narrowest sidebar`);
+      }
+      assert.equal(filePanel.upInside, true, "the parent-folder button stays inside the Files panel at the narrowest sidebar");
       await page.evaluate(() => document.documentElement.style.removeProperty("--navigator-width"));
       await page.waitForTimeout(200);
       // Folded to the rail with the Files tab chosen, the rail still lists the
