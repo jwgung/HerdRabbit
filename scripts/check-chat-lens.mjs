@@ -196,6 +196,26 @@ try {
       assert.ok(Math.abs(look.buttonMiddle - look.composerMiddle) <= 2,
         `the sidebar footer's buttons are off the composer's row: ${JSON.stringify(look)}`);
     }
+    // The composer's buttons keep one size whatever the text size: larger
+    // letters grow the text box, and the buttons stay a 44px square.
+    {
+      const sizes = await page.evaluate(async () => {
+        const measure = () => [".send-button", ".attach-button", ".dictate-button"]
+          .map((selector) => document.querySelector(`.input-composer ${selector}`))
+          .filter((button) => button && button.offsetParent)
+          .map((button) => [Math.round(button.getBoundingClientRect().width), Math.round(button.getBoundingClientRect().height)]);
+        const before = measure();
+        document.body.style.setProperty("--composer-font-size", "28px");
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const after = measure();
+        document.body.style.removeProperty("--composer-font-size");
+        return { before, after };
+      });
+      assert.ok(sizes.before.length > 0, "the composer shows its buttons");
+      for (const size of [...sizes.before, ...sizes.after]) {
+        assert.deepEqual(size, [44, 44], `a composer button is a 44px square at any text size: ${JSON.stringify(sizes)}`);
+      }
+    }
     if (process.env.CHAT_LENS_SCREENSHOTS) {
       for (const theme of ["dark", "light"]) {
         await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
