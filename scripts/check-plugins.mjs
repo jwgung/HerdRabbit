@@ -1,7 +1,7 @@
 // Browser check of Settings → Plugins: with sign-in on the page lists each
-// machine's Herdr plugins (name, version, owner/repo@ref), HerdRabbit with no
-// controls, the others with an enabled switch and a ⋯ menu holding Update and
-// Uninstall… (confirmed). A machine picker shows with more than one machine,
+// machine's Herdr plugins (name, version, owner/repo@ref), HerdRabbit first
+// ("this app", its versions, Update, no switch or menu), the others with an
+// enabled switch and a ⋯ menu holding Update and Uninstall… (confirmed). A machine picker shows with more than one machine,
 // and a PC on an older HerdRabbit says to update it there. Install plugin…
 // shows the GitHub address a source names and a warning naming the machine,
 // refuses a bad ref, then asks to confirm before installing; while a change
@@ -12,14 +12,16 @@
 // searches and reads more, marks what is installed, offers no Install for
 // HerdRabbit, and a listing's Install… fills in Source and goes through the
 // same confirm step; Browse's search and order stay under the page's heading
-// as the listings scroll. HerdRabbit's row says "Updated from Updates"; a
-// plugin whose repository moved on in the marketplace carries "Update
-// available", which opens Settings → Updates. There, per machine, that
-// plugin, Herdr and HerdRabbit ("1.4.27 → 1.4.28 available") each have an
-// Update; HerdRabbit's asks the Update window's question and runs its update
-// (the fake updater) while Plugins' controls wait; Update all updates them
-// one at a time -- plugins, then Herdr, then HerdRabbit last -- and stops at
-// the first failure saying what was left. Runs on a desktop and a phone
+// as the listings scroll. A plugin whose repository moved on in the
+// marketplace carries "Update" and an Update button; HerdRabbit's row says
+// "1.4.27 → 1.4.28 · restarts HerdRabbit when done", its Update asks the
+// Update window's question and runs HerdRabbit's own update through
+// /api/plugins/herdrabbit/update (the fake updater, never `herdr plugin
+// update`), its run step by step under the row, while the controls wait.
+// The settings list counts the updates beside Plugins. Update all (N) beside
+// Installed and Browse updates them one at a time -- plugins, then HerdRabbit
+// last -- and stops at the first failure saying what was left; Check for
+// updates sees a newer HerdRabbit again. There is no Updates page. Runs on a desktop and a phone
 // against an in-process fake herdr, fake `herdr plugin` commands, fake
 // updaters and a fake marketplace index.
 // A plugin's ⋯ → Actions and panes… runs an action for the pane on show and
@@ -311,30 +313,38 @@ try {
     const idle = () => page.waitForFunction(() => !document.querySelector("#plugins-install").disabled);
     const herdrabbitRow = rows.filter({ has: page.locator("strong", { hasText: "HerdRabbit" }) });
     const ids = () => rows.evaluateAll((items) => items.map((row) => row.dataset.plugin));
-    await page.locator(".plugin-update-badge").first().waitFor({ state: "visible" });
+    await page.locator(".plugin-app-row .plugin-update-badge").waitFor({ state: "visible" });
+    await page.locator('.plugin-row[data-plugin="gen-3"] .plugin-update-badge').waitFor({ state: "visible" });
 
     assert.deepEqual(await rows.evaluateAll((items) => items.map((row) => ({
       id: row.dataset.plugin,
       name: row.querySelector("strong").textContent,
       version: row.querySelector(".plugin-version")?.textContent ?? null,
-      source: row.querySelector(".plugin-source").textContent,
+      source: row.querySelector(".plugin-source")?.textContent ?? null,
       href: row.querySelector("a.plugin-source")?.getAttribute("href") ?? null,
-      state: row.querySelector(".plugin-state")?.textContent ?? null,
-      badge: row.querySelector(".plugin-update-badge")?.textContent ?? null,
+      badges: [...row.querySelectorAll(".plugin-title .ui-badge")].map((badge) => badge.textContent),
+      line: row.querySelector(".plugin-update-line")?.textContent ?? null,
+      button: row.querySelector(".plugin-update, .plugin-app-update")?.textContent ?? null,
       switch: row.querySelector('[role="switch"]')?.getAttribute("aria-checked") ?? null,
       menu: Boolean(row.querySelector(".sidebar-action-menu")),
     }))), [
-      { id: "herdrabbit", name: "HerdRabbit", version: "1.4.27", source: "ultivis-iot/HerdRabbit@v1.4.27",
-        href: "https://github.com/ultivis-iot/HerdRabbit", state: "Updated from Updates", badge: null, switch: null, menu: false },
+      { id: "herdrabbit", name: "HerdRabbit", version: null, source: null, href: null, badges: ["this app", "Update"],
+        line: "1.4.27 → 1.4.28 · restarts HerdRabbit when done", button: "Update", switch: null, menu: false },
       // pinned to a branch the index does not name: no badge
       { id: "notes", name: "Notes", version: "0.2.0", source: "someone/herdr-notes@main",
-        href: "https://github.com/someone/herdr-notes", state: null, badge: null, switch: "false", menu: true },
+        href: "https://github.com/someone/herdr-notes", badges: [], line: null, button: null, switch: "false", menu: true },
       { id: "gen-3", name: "Gen 3", version: "0.1.0", source: "gen/plugin-3@1234567",
-        href: "https://github.com/gen/plugin-3", state: null, badge: "Update available", switch: "true", menu: true },
+        href: "https://github.com/gen/plugin-3", badges: ["Update"], line: null, button: "Update", switch: "true", menu: true },
       { id: "gen-4", name: "Gen 4", version: "0.1.0", source: "gen/plugin-4@ad4614f",
-        href: "https://github.com/gen/plugin-4", state: null, badge: null, switch: "true", menu: true },
+        href: "https://github.com/gen/plugin-4", badges: [], line: null, button: null, switch: "true", menu: true },
     ], `${where}: the list is wrong`);
-    assert.equal(await page.locator("#plugins-update-all, .plugin-app-update").count(), 0, `${where}: Plugins still updates HerdRabbit or all`);
+    // Update all beside Installed and Browse; the count beside Plugins in the
+    // list (HerdRabbit and Gen 3); no Updates page.
+    const updateAll = page.locator("#plugins-update-all");
+    assert.equal(await updateAll.textContent(), "Update all (2)");
+    assert.equal(await updateAll.isVisible(), true);
+    await page.waitForFunction(() => document.querySelector('.settings-page-link[data-page="plugins"] .ui-badge')?.textContent === "2");
+    assert.ok(!(await settings.locator(".settings-page-link").allTextContents()).includes("Updates"), `${where}: Updates is still listed`);
 
     // The picker names each machine.
     const picker = page.locator("#plugins-machine");
@@ -344,7 +354,7 @@ try {
     if (mobile) {
       const notesRow = rows.filter({ hasText: "Notes" });
       for (const target of [notesRow.locator('[role="switch"]'), notesRow.locator(".sidebar-action-menu summary"), picker, page.locator("#plugins-install"),
-        herdrabbitRow.locator(".plugin-updates-link")]) {
+        herdrabbitRow.locator(".plugin-app-update"), rows.filter({ hasText: "Gen 3" }).locator(".plugin-update"), updateAll, page.locator("#plugins-check")]) {
         const box = await target.boundingBox();
         assert.ok(box.height >= 44, `${where}: ${await target.evaluate((node) => node.id || node.className)} is under 44px tall (${box.height})`);
       }
@@ -605,7 +615,7 @@ try {
     // HerdRabbit: listed, never installable here.
     const herdrabbitListing = listings.filter({ has: page.locator("strong", { hasText: "HerdRabbit" }) });
     assert.equal(await herdrabbitListing.locator(".market-install").count(), 0, `${where}: HerdRabbit can be installed`);
-    assert.equal(await herdrabbitListing.locator(".plugin-state").textContent(), "Updated from Updates");
+    assert.equal(await herdrabbitListing.locator(".plugin-badge").textContent(), "This app");
     // Scrolled down the listings, the page's heading and Browse's search and
     // order stay at the top.
     const sticky = await page.evaluate(() => {
@@ -678,104 +688,68 @@ try {
     assert.ok((await ids()).includes("annotate"));
     await idle();
 
-    // Gen 3's "Update available" opens Updates: per machine, Gen 3, Herdr
-    // and HerdRabbit, in Update all's order, each with Update.
-    await rows.filter({ hasText: "Gen 3" }).locator(".plugin-update-badge").click();
-    const updatesPage = settings.locator('.settings-page[data-page="updates"]');
-    await updatesPage.waitFor({ state: "visible" });
-    assert.equal(await page.locator("#settings-page-title").textContent(), "Updates");
-    const localUpdates = updatesPage.locator('.updates-machine[data-server-id="local"]');
-    const updateRows = localUpdates.locator(".updates-row");
-    const updateAll = localUpdates.locator(".updates-all");
-    const status = localUpdates.locator(".updates-status");
-    await page.waitForFunction(() => document.querySelectorAll('.updates-machine[data-server-id="local"] .updates-row').length === 3);
-    assert.deepEqual(await updateRows.evaluateAll((items) => items.map((row) => ({
-      kind: row.dataset.update, name: row.querySelector("strong").textContent,
-      line: row.querySelector(".plugin-update-line")?.textContent ?? null,
-      button: row.querySelector(".updates-run")?.textContent ?? null,
-    }))), [
-      { kind: "plugin", name: "Gen 3", line: "0.1.0 · Update available", button: "Update" },
-      { kind: "herdr", name: "Herdr", line: "0.9.3 → 0.9.5 available", button: "Update" },
-      { kind: "app", name: "HerdRabbit", line: "1.4.27 → 1.4.28 available", button: "Update" },
-    ], `${where}: Updates lists the wrong things`);
-    assert.equal(await updateAll.textContent(), "Update all (3)");
-    assert.equal(await updatesPage.locator(`.updates-machine[data-server-id="${LAPTOP}"] .updates-all`).count(), 0,
-      `${where}: Update all on a machine with nothing to update`);
-    if (mobile) {
-      for (const target of [updateAll, updateRows.first().locator(".updates-run"), page.locator("#updates-check")]) {
-        const box = await target.boundingBox();
-        assert.ok(box.height >= 44, `${where}: ${await target.evaluate((node) => node.id || node.className)} is under 44px tall (${box.height})`);
-      }
-      const overflow = await page.locator(".settings-body").evaluate((element) => element.scrollWidth - element.clientWidth);
-      assert.ok(overflow <= 1, `${where}: Updates is wider than the screen (${overflow}px)`);
-    }
-    if (shots) await page.screenshot({ path: join(shots, `updates-${where}.png`) });
-    const updatesIdle = () => page.waitForFunction(() => {
-      const all = document.querySelector('.updates-machine[data-server-id="local"] .updates-all');
-      return !all || !all.disabled;
-    });
-
     // Update all, where the first plugin's update fails: it stops there,
-    // says what was left, and neither Herdr's nor HerdRabbit's update starts.
+    // says what was left, and HerdRabbit's update does not start.
+    await page.waitForFunction(() => document.querySelector("#plugins-update-all")?.textContent === "Update all (2)");
     local.state.failUpdate = "gen-3";
     order.length = 0;
     await updateAll.click();
-    assert.equal(confirms.at(-1).split("\n").slice(0, 4).join("\n"),
-      "Update these 3 on This PC (workstation), one at a time?\n• Gen 3\n• Herdr (0.9.3 → 0.9.5)\n• HerdRabbit (1.4.27 → 1.4.28), last: it restarts");
-    assert.match(confirms.at(-1), /stops at the first update that fails[\s\S]*hands the running panes over[\s\S]*Herdr downloads and builds this release of the HerdRabbit plugin/u);
-    await page.waitForFunction(() => /^Update all stopped\./u.test(document.querySelector('.updates-machine[data-server-id="local"] .updates-status')?.textContent ?? ""));
-    assert.equal(await status.textContent(),
-      "Update all stopped. Couldn't update Gen 3: error: could not fetch gen/plugin-3. Not updated: Herdr, HerdRabbit.");
-    assert.equal(await status.getAttribute("data-error"), "true");
+    assert.equal(confirms.at(-1).split("\n").slice(0, 3).join("\n"),
+      "Update these 2 on This PC (workstation), one at a time?\n• Gen 3\n• HerdRabbit (1.4.27 → 1.4.28), last: it restarts");
+    assert.match(confirms.at(-1), /stops at the first update that fails[\s\S]*Herdr downloads and builds this release of the HerdRabbit plugin/u);
+    assert.doesNotMatch(confirms.at(-1), /Herdr \(0\.9/u, `${where}: Update all still updates Herdr`);
+    await page.waitForFunction(() => /^Update all stopped\./u.test(document.querySelector("#plugins-feedback").textContent));
+    assert.equal(await feedback.textContent(), "Update all stopped. Couldn't update Gen 3: error: could not fetch gen/plugin-3. Not updated: HerdRabbit.");
+    assert.equal(await feedback.getAttribute("data-error"), "true");
     assert.deepEqual(order, ["plugin gen-3"], `${where}: Update all went on after a failure`);
     assert.equal(app.starts, 0);
     local.state.failUpdate = null;
-    await updatesIdle();
+    await idle();
+    if (shots) await page.screenshot({ path: join(shots, `updates-${where}.png`) });
 
-    // HerdRabbit's Update asks the Update window's question and runs its
-    // update; the row follows it, and Plugins' controls wait meanwhile.
+    // HerdRabbit's Update asks the Update window's question and runs
+    // HerdRabbit's own update; its row follows it, and the controls wait.
     skew += 5 * 60_000;
-    await updateRows.filter({ hasText: "HerdRabbit" }).locator(".updates-run").click();
+    await herdrabbitRow.locator(".plugin-app-update").click();
     assert.match(confirms.at(-1), /^Update This PC \(workstation\) to 1\.4\.28 \(def5678\)\?\n\nHerdr downloads and builds this release of the HerdRabbit plugin/u);
     // The run, step by step, under HerdRabbit's row.
     await page.waitForFunction(() => {
-      const row = document.querySelector('.updates-machine[data-server-id="local"] [data-update="app"]');
+      const row = document.querySelector('#plugins-list [data-update="app"]');
       return /^Updating/u.test(row?.querySelector(".update-run-state")?.textContent ?? "") &&
         row.querySelector(".update-step-count")?.textContent === "Step 1 of 3" &&
         row.querySelector('.update-step[aria-current="step"] .update-step-label')?.textContent === "In progress: Download and build the new version";
     });
     assert.equal(app.starts, 1);
-    assert.equal(await updateAll.isDisabled(), true, `${where}: Update all works during the update`);
-    if (mobile) await page.locator("#settings-back").click();
-    await settings.locator(".settings-page-link", { hasText: "Plugins" }).click();
+    assert.ok(!local.state.ran.some((line) => /^plugin (?:update|install) .*herdrabbit/iu.test(line)), `${where}: Herdr's plugin command ran for HerdRabbit: ${local.state.ran}`);
     await page.waitForFunction(() => document.querySelector("#plugins-feedback").textContent ===
       "HerdRabbit is updating on This PC (workstation). Plugin changes wait until it finishes.");
+    assert.equal(await updateAll.isDisabled(), true, `${where}: Update all works during the update`);
     assert.equal(await rows.filter({ hasText: "Gen 4" }).locator('[role="switch"]').isDisabled(), true, `${where}: a switch works during the update`);
     assert.equal(await page.locator("#plugins-install").isDisabled(), true);
     app.letGo = true;
     await idle();
-    await herdrabbitRow.locator(".plugin-updates-link").click();
-    await updatesPage.waitFor({ state: "visible" });
-    await page.waitForFunction(() => !document.querySelector('.updates-machine[data-server-id="local"] [data-update="app"]'));
+    await page.waitForFunction(() => document.querySelector('#plugins-list [data-update="app"] .plugin-update-line')?.textContent === "1.4.28 · Up to date");
+    assert.equal(await herdrabbitRow.locator(".plugin-app-update").count(), 0, `${where}: Update after HerdRabbit is up to date`);
 
-    // Update all once more, HerdRabbit's update out again (Check sees it):
-    // Gen 3 first, waited for, then Herdr, then HerdRabbit last.
+    // Update all once more, HerdRabbit's update out again (Check for
+    // updates sees it): Gen 3 first, waited for, then HerdRabbit last.
     app.phase = "available";
     skew += 5 * 60_000;
     local.state.plugins.find((item) => item.plugin_id === "gen-3").source.resolved_commit = "1234567890abcdef1234567890abcdef12345678";
-    await page.locator("#updates-check").click();
-    await page.waitForFunction(() => document.querySelector('.updates-machine[data-server-id="local"] .updates-all')?.textContent === "Update all (3)");
+    await page.locator("#plugins-check").click();
+    await page.waitForFunction(() => document.querySelector("#plugins-update-all")?.textContent === "Update all (2)" &&
+      !document.querySelector("#plugins-update-all").hidden);
     order.length = 0;
     await updateAll.click();
-    await page.waitForFunction(() => document.querySelector('.updates-machine[data-server-id="local"] [data-update="app"] .update-progress'));
-    assert.deepEqual(order, ["plugin gen-3", "herdr", "herdrabbit"], `${where}: Update all's order`);
+    await page.waitForFunction(() => document.querySelector('#plugins-list [data-update="app"] .update-progress'));
+    assert.deepEqual(order, ["plugin gen-3", "herdrabbit"], `${where}: Update all's order`);
     assert.equal(await updateAll.textContent(), "Updating all…");
-    assert.equal(await status.textContent(), "Update all: Updating HerdRabbit…");
+    assert.equal(await feedback.textContent(), "Update all: Updating HerdRabbit…");
     app.letGo = true;
-    await page.waitForFunction(() => document.querySelector('.updates-machine[data-server-id="local"] .updates-status')?.textContent === "Updated all 3.");
-    await page.waitForFunction(() => !document.querySelector('.updates-machine[data-server-id="local"] .updates-all'));
-    assert.equal(await updateRows.count(), 0, `${where}: an update left after Update all`);
-    assert.equal(await localUpdates.locator(".updates-empty").textContent(), "Everything is up to date.");
+    await page.waitForFunction(() => document.querySelector("#plugins-feedback").textContent === "Updated all 2.");
+    await page.waitForFunction(() => document.querySelector("#plugins-update-all").hidden);
+    assert.equal(await pluginsPage.locator(".plugin-update, .plugin-app-update").count(), 0, `${where}: an update left after Update all`);
+    await page.waitForFunction(() => !document.querySelector('.settings-page-link[data-page="plugins"] .ui-badge'));
 
     assert.deepEqual(errors, [], `${where}: page errors: ${errors.join("; ")}`);
     await context.close();

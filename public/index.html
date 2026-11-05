@@ -497,7 +497,7 @@
           </section>
 
           <section class="settings-page" data-page="plugins" aria-labelledby="settings-page-title" hidden>
-            <p class="settings-row-hint">Plugins add actions and panes to Herdr and run their own code on their machine. New versions install from Updates.</p>
+            <p class="settings-row-hint">Plugins add actions and panes to Herdr and run their own code on their machine. HerdRabbit's own update is its row here.</p>
             <div class="settings-card">
               <div id="plugins-machine-row" class="settings-row" hidden>
                 <div class="settings-row-copy">
@@ -506,9 +506,12 @@
                 <select id="plugins-machine" class="ui-input plugins-machine"></select>
               </div>
             </div>
-            <div class="settings-choices plugins-views" role="group" aria-label="Show">
-              <button type="button" class="settings-choice" data-plugins-view="installed" aria-pressed="true">Installed</button>
-              <button type="button" class="settings-choice" data-plugins-view="browse" aria-pressed="false">Browse</button>
+            <div class="plugins-toolbar">
+              <div class="settings-choices plugins-views" role="group" aria-label="Show">
+                <button type="button" class="settings-choice" data-plugins-view="installed" aria-pressed="true">Installed</button>
+                <button type="button" class="settings-choice" data-plugins-view="browse" aria-pressed="false">Browse</button>
+              </div>
+              <button id="plugins-update-all" class="primary-button plugins-update-all" type="button" hidden>Update all</button>
             </div>
             <div id="plugins-installed-view" class="plugins-view">
               <ul id="plugins-list" class="plugin-rows" role="list" aria-label="Plugins"></ul>
@@ -533,6 +536,7 @@
             </div>
             <p id="plugins-feedback" class="settings-row-hint" role="status" aria-live="polite"></p>
             <div class="settings-page-actions">
+              <button id="plugins-check" class="text-button" type="button">Check for updates</button>
               <button id="plugins-link" class="secondary-button" type="button">Link local folder…</button>
               <button id="plugins-install" class="primary-button" type="button">Install plugin…</button>
             </div>
@@ -547,6 +551,22 @@
                 </div>
                 <select id="herdr-machine" class="ui-input plugins-machine"></select>
               </div>
+              <div id="herdr-update-row" class="settings-row herdr-update-row">
+                <div class="settings-row-copy">
+                  <div class="plugin-title">
+                    <span class="settings-row-label">Herdr</span>
+                    <span id="herdr-update-badge" class="ui-badge is-accent" hidden>Update</span>
+                  </div>
+                  <p id="herdr-update-line" class="settings-row-hint herdr-update-line" role="status"></p>
+                  <details id="herdr-update-notes" class="herdr-update-notes" hidden>
+                    <summary id="herdr-update-notes-title">What's new</summary>
+                    <p id="herdr-update-notes-text" class="herdr-update-notes-text"></p>
+                  </details>
+                </div>
+                <div class="herdr-update-actions">
+                  <button id="herdr-update-open" class="secondary-button" type="button">Update…</button>
+                </div>
+              </div>
               <div class="settings-row">
                 <div class="settings-row-copy">
                   <span id="herdr-channel-label" class="settings-row-label">Update channel</span>
@@ -556,13 +576,6 @@
                   <button type="button" class="settings-choice" data-herdr-channel="stable" aria-pressed="false">Stable</button>
                   <button type="button" class="settings-choice" data-herdr-channel="preview" aria-pressed="false">Preview</button>
                 </div>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-copy">
-                  <span class="settings-row-label">Herdr update</span>
-                  <p class="settings-row-hint">The version and its update are in Updates.</p>
-                </div>
-                <button id="herdr-open-updates" class="text-button" type="button">Open Updates</button>
               </div>
             </div>
             <h4 class="herdr-settings-heading">Agent integrations</h4>
@@ -594,28 +607,30 @@
             </div>
           </section>
 
-          <section class="settings-page" data-page="updates" aria-labelledby="settings-page-title" hidden>
-            <div class="settings-card">
-              <div id="settings-update-row" class="settings-row">
-                <div class="settings-row-copy">
-                  <span class="settings-row-label">Herdr</span>
-                  <p id="settings-update-hint" class="settings-row-hint">The Update window: Herdr on each PC, what is new, and each run's log.</p>
-                </div>
-                <button id="settings-update" class="secondary-button" type="button">Update…</button>
-              </div>
-            </div>
-            <p id="updates-hint" class="settings-row-hint">Update all goes one at a time: plugins, then Herdr, then HerdRabbit, which restarts.</p>
-            <div id="updates-list" class="updates-machines"></div>
-            <div class="settings-page-actions">
-              <button id="updates-check" class="text-button" type="button">Check</button>
-            </div>
-          </section>
-
           <section class="settings-page" data-page="about" aria-labelledby="settings-page-title" hidden>
             <dl class="settings-versions settings-card">
               <dt>HerdRabbit</dt><dd id="settings-version-app">Unknown</dd>
               <dt>Herdr</dt><dd id="settings-version-herdr">Unknown</dd>
             </dl>
+            <!-- Only where Plugins and Herdr are not shown (sign-in off): this
+                 PC's HerdRabbit update, and the Update window for Herdr. -->
+            <div id="settings-about-updates" class="settings-card" hidden>
+              <div id="settings-app-update-row" class="settings-row settings-app-update-row">
+                <div class="settings-row-copy">
+                  <span class="settings-row-label">HerdRabbit update</span>
+                  <p id="settings-app-update-line" class="settings-row-hint plugin-update-line"></p>
+                  <div id="settings-app-update-details" class="plugin-row-details"></div>
+                </div>
+                <button id="settings-app-update" class="secondary-button plugin-app-update" type="button" hidden>Update</button>
+              </div>
+              <div id="settings-update-row" class="settings-row">
+                <div class="settings-row-copy">
+                  <span class="settings-row-label">Herdr update</span>
+                  <p id="settings-update-hint" class="settings-row-hint">The Update window: Herdr on each PC, what is new, and each run's log.</p>
+                </div>
+                <button id="settings-update" class="secondary-button" type="button">Update…</button>
+              </div>
+            </div>
           </section>
         </div>
       </div>

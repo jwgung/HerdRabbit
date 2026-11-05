@@ -1,14 +1,17 @@
 import { createElement } from "./dom.js?v=1.4.41";
 import { pluginMachines } from "./plugin-model.js?v=1.4.41";
-import { integrationAction, integrationConfirmText, integrationStateText } from "./herdr-settings-model.js?v=1.4.41";
+import { herdrUpdateLine, integrationAction, integrationConfirmText, integrationStateText } from "./herdr-settings-model.js?v=1.4.41";
 
 // Settings → Herdr: Herdr's own settings on one machine at a time. The server
 // runs Herdr's commands and writes config.toml (src/herdr-settings.mjs); this
 // page shows the update channel, the agent integrations and config.toml, and
-// asks before an integration changes or config.toml is saved. Herdr's own
-// update is in Settings → Updates (`openUpdates`). Only shown with sign-in on
+// asks before an integration changes or config.toml is saved. Its first row
+// is Herdr itself on the machine: the version it runs and the newer one
+// (from the machine's update check in `appUpdates`, the Update window's
+// panel in app-update.js), what is new, and Update…, which opens that window
+// (`openUpdate`) to confirm and follow the run. Only shown with sign-in on
 // (settings.js decides).
-export function createHerdrSettingsPage({ api, snapshotRecords, openUpdates = () => {} }) {
+export function createHerdrSettingsPage({ api, snapshotRecords, appUpdates = null, openUpdate = () => {} }) {
   const machineRow = document.querySelector("#herdr-machine-row");
   const machineSelect = document.querySelector("#herdr-machine");
   const channelButtons = [...document.querySelectorAll("[data-herdr-channel]")];
@@ -22,7 +25,13 @@ export function createHerdrSettingsPage({ api, snapshotRecords, openUpdates = ()
   const checkButton = document.querySelector("#herdr-config-check");
   const revertButton = document.querySelector("#herdr-config-revert");
   const saveButton = document.querySelector("#herdr-config-save");
-  document.querySelector("#herdr-open-updates").addEventListener("click", () => openUpdates());
+  const updateBadge = document.querySelector("#herdr-update-badge");
+  const updateLine = document.querySelector("#herdr-update-line");
+  const updateNotes = document.querySelector("#herdr-update-notes");
+  const updateNotesTitle = document.querySelector("#herdr-update-notes-title");
+  const updateNotesText = document.querySelector("#herdr-update-notes-text");
+  const updateButton = document.querySelector("#herdr-update-open");
+  updateButton.addEventListener("click", () => openUpdate());
 
   const page = {
     visible: false, server: "local", machines: [], settings: null, config: null, defaults: null,
@@ -63,6 +72,23 @@ export function createHerdrSettingsPage({ api, snapshotRecords, openUpdates = ()
     machineSelect.value = page.server;
   }
 
+  // Herdr's row: its versions on the machine, or how its update goes.
+  function renderUpdate() {
+    const state = appUpdates?.state(page.server) ?? null;
+    const line = herdrUpdateLine(state?.check ?? null, { run: state?.herdrRun ?? null, error: state?.error ?? null });
+    updateLine.textContent = line.text;
+    updateLine.dataset.error = String(line.error);
+    updateBadge.hidden = !line.available;
+    updateNotes.hidden = !line.notes;
+    if (line.notes) {
+      updateNotesTitle.textContent = `What's new in Herdr ${line.latest}`;
+      updateNotesText.textContent = line.notes;
+    }
+    updateButton.textContent = "Update…";
+    updateButton.classList.toggle("primary-button", line.canUpdate);
+    updateButton.classList.toggle("secondary-button", !line.canUpdate);
+  }
+
   function integrationRow(item) {
     const row = createElement("li", { className: "plugin-row herdr-integration" });
     row.dataset.integration = item.name;
@@ -85,6 +111,7 @@ export function createHerdrSettingsPage({ api, snapshotRecords, openUpdates = ()
   }
 
   function render() {
+    renderUpdate();
     for (const button of channelButtons) {
       button.setAttribute("aria-pressed", String(page.settings?.channel === button.dataset.herdrChannel));
       button.disabled = locked();
@@ -160,7 +187,7 @@ export function createHerdrSettingsPage({ api, snapshotRecords, openUpdates = ()
     if (locked() || page.settings?.channel === channel) return;
     void send(async () => {
       page.settings = await api("/api/herdr/channel", { method: "POST", body: { server: page.server, channel } });
-      setFeedback(`Herdr on ${machineName()} follows ${channel === "preview" ? "Preview" : "Stable"} now. Updates checks against it.`);
+      setFeedback(`Herdr on ${machineName()} follows ${channel === "preview" ? "Preview" : "Stable"} now. Its update check follows it.`);
       // Herdr keeps the channel in config.toml: unedited, it is read again.
       if (!dirty()) adoptConfig(await api(`/api/herdr/config?${query()}`));
     });
@@ -255,7 +282,11 @@ export function createHerdrSettingsPage({ api, snapshotRecords, openUpdates = ()
     }
     page.server = machineSelect.value;
     void load();
+    void appUpdates?.follow(page.server);
   });
+
+  // Herdr's update on the machine moved on (checked, or a run going): its row follows.
+  appUpdates?.subscribe(() => { if (page.visible) renderUpdate(); });
 
   // Settings tells the page whether it is on screen; it reads Herdr's
   // settings each time it comes into view, unless edits are waiting.
@@ -263,7 +294,10 @@ export function createHerdrSettingsPage({ api, snapshotRecords, openUpdates = ()
     renderMachines();
     if (visible === page.visible) return;
     page.visible = visible;
-    if (visible && !dirty()) void load();
+    if (!visible) return;
+    renderUpdate();
+    void appUpdates?.follow(page.server);
+    if (!dirty()) void load();
   }
 
   return { sync, dirty };

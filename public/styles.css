@@ -1036,90 +1036,39 @@ a.plugin-source:hover {
   white-space: nowrap;
 }
 
-/* "Update available" on a row the server marks, and HerdRabbit's "Updated
-   from Updates": each opens Settings → Updates. */
-.plugin-update-badge {
+/* "Update" beside a plugin the server marks behind, and beside HerdRabbit
+   when a newer release is out; "this app" beside HerdRabbit. */
+.plugin-update-badge,
+.plugin-app-badge {
   flex: none;
 }
 
-button.plugin-update-badge,
-.plugin-updates-link {
-  border: 0;
-  font: inherit;
-  cursor: pointer;
-}
-
-button.plugin-update-badge {
-  font-size: var(--font-2xs);
-}
-
-.plugin-updates-link {
-  padding: 0;
-  background: none;
-  color: var(--muted);
-  font-size: var(--font-sm);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.plugin-updates-link:hover {
-  color: var(--text);
-}
-
-/* Settings → Updates (public/app/updates.js): per machine, its name, a row
-   per update (as a plugin row), Update all and the line under them. The
-   rows' versions and runs read as HerdRabbit's row in Plugins did. */
-.updates-machines {
-  display: grid;
-  gap: var(--space-3);
-}
-
-/* A machine is a card: its name, its rows parted by lines, Update all and
-   the line under them. */
-.updates-machine {
-  overflow: hidden;
-}
-
-.updates-machine-name {
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--font-section);
-  font-weight: 700;
-}
-
-.updates-machine .plugin-rows {
-  border: 0;
-  border-top: 1px solid var(--line);
-  border-radius: 0;
-}
-
-.updates-empty,
-.updates-status {
-  margin: 0;
-  padding: 0 var(--space-4) var(--space-3);
-}
-
-.updates-machine-name + .updates-empty {
-  margin-top: calc(-1 * var(--space-2));
-}
-
-.updates-status:empty {
-  display: none;
-}
-
-.updates-status[data-error="true"] {
-  color: var(--danger);
-}
-
-.updates-actions {
-  display: flex;
-  justify-content: flex-end;
-  padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--line);
-}
-
-.updates-run,
-.updates-all {
+/* A row's own Update (a marked plugin, HerdRabbit) and Update all. */
+.plugin-update,
+.plugin-app-update,
+.plugins-update-all {
   white-space: nowrap;
+}
+
+/* On a narrow screen a plugin row with its own Update puts its controls
+   under its name, so the name is not cut down to a letter. */
+@media (max-width: 520px) {
+  .plugin-row:has(.plugin-update) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .plugin-row:has(.plugin-update) > .plugin-actions {
+    justify-self: end;
+  }
+}
+
+/* Installed or Browse on the left, Update all on the right. */
+.plugins-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
 }
 
 .plugin-update-line,
@@ -1547,13 +1496,44 @@ button.plugin-update-badge {
   white-space: nowrap;
 }
 
+/* Settings → Herdr: Herdr's own row, its versions (or its run) under its
+   name, what is new folded below, and Update… which opens the Update window. */
+.herdr-update-line {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.herdr-update-notes > summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: var(--font-sm);
+}
+
+.herdr-update-notes-text {
+  margin: var(--space-1) 0 0;
+  color: var(--muted);
+  font-size: var(--font-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.herdr-update-actions {
+  display: flex;
+  flex: none;
+  gap: var(--space-2);
+}
+
+.herdr-update-actions button {
+  white-space: nowrap;
+}
+
 /* Touch: the controls are 44px targets, the editor's text 16px. */
 @media (hover: none), (pointer: coarse) {
   .herdr-integration-action,
   .herdr-config-actions button,
   [data-herdr-channel],
   [data-herdr-config-view],
-  #herdr-open-updates {
+  .herdr-update-actions button {
     min-height: 44px;
   }
 
@@ -1569,10 +1549,10 @@ button.plugin-update-badge {
   .plugins-machine,
   #plugin-details-workspace,
   #plugins-install,
-  .updates-run,
-  .updates-all,
-  #updates-check,
-  .plugin-updates-link,
+  .plugin-update,
+  .plugin-app-update,
+  .plugins-update-all,
+  #plugins-check,
   .market-install,
   .plugins-more,
   #plugins-link,
@@ -3198,9 +3178,9 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .update-actions { display: flex; justify-content: flex-end; }
 
-/* Settings → Updates: HerdRabbit's row carries what changed and its run under
+/* Settings → Plugins: HerdRabbit's row carries what changed and its run under
    its name and Update, across the row. */
-.updates-row-details {
+.plugin-row-details {
   display: grid;
   grid-column: 1 / -1;
   gap: var(--space-2);
