@@ -32,7 +32,7 @@ export const ENV_TEMPLATE = `# HerdRabbit settings for the Herdr plugin.
 
 # Connect PC: let other PCs running HerdRabbit connect to this one. Set
 # this PC's tailnet address to open the port, and name the PCs (tailnet
-# addresses) or tailnet logins allowed in. See "Connect PC" in the README.
+# addresses) or tailnet logins allowed in. See "Connect another PC" in the README.
 # HERDR_WEB_PEER_HOST=100.64.0.2
 # HERDR_WEB_PEER_PORT=38788
 # HERDR_WEB_PEER_ADDRESSES=100.64.0.3
