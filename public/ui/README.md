@@ -43,6 +43,7 @@
 | 탐색 항목 | `ui-nav-item` 안에 `ui-status`와 `ui-nav-copy`; 제목 strong, 보조 상태 small |
 | 배지 | `ui-badge`(중립), `ui-badge is-accent`(새것·할 일), `ui-badge is-danger`(사라짐) |
 | 선택·강조 | `aria-pressed="true"` (배경만 강조) |
+| 탭 스트립 | `div.ui-tab-strip` → `.ui-tab-strip-scroller[role=tablist]` → `button.ui-tab[role=tab]`(`.ui-tab-name`, 선택적 `ui-tab-count` 배지·`ui-tab-dot`); 넘치는 쪽은 `data-overflow-start`/`data-overflow-end`와 `.ui-tab-strip-arrow`. 동작은 `app/tab-strip.js`의 `createTabStrip` |
 | 메뉴 | `details.ui-menu` → summary → `.ui-menu-panel` → button.ui-menu-item |
 | 위험 작업 | 메뉴 항목에 `is-danger` |
 | 사이드바 | `ui-sidebar` 안에 `ui-sidebar-heading`, `ui-sidebar-content`, `ui-sidebar-footer` |

@@ -40,3 +40,10 @@ for (const button of document.querySelectorAll('.ui-menu-item')) button.addEvent
   button.closest('details').open = false;
   feedback.textContent = `${button.textContent.trim()} 작업을 선택했습니다. 실제 데이터는 변경하지 않습니다.`;
 });
+// Demo: choosing a tab. The roving tabindex, arrow keys and edge arrows of a real strip are app/tab-strip.js.
+for (const tab of document.querySelectorAll('[data-example="tabs"] .ui-tab')) tab.addEventListener('click', () => {
+  for (const other of document.querySelectorAll('[data-example="tabs"] .ui-tab')) {
+    other.setAttribute('aria-selected', String(other === tab));
+    other.tabIndex = other === tab ? 0 : -1;
+  }
+});

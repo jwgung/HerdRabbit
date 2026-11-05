@@ -13,6 +13,7 @@ import {
   writeAiAccountsTab,
 } from "../ui-model.js?v=1.4.41";
 import { array, createElement } from "./dom.js?v=1.4.41";
+import { createTabStrip } from "./tab-strip.js?v=1.4.41";
 
 // What the sign-in wait says beyond "waiting", for a CLI that needs more.
 const AI_LOGIN_HINTS = Object.freeze({
@@ -119,8 +120,8 @@ export function createAiAccounts({
   }
 
   // One tab per CLI, each wearing its program's mark, over the list of the one
-  // chosen. A tab is a WAI-ARIA tab: arrow keys, Home and End move between
-  // them and choose as they go, and only the chosen one is in the Tab order.
+  // chosen. The tabs are a tab strip (app/tab-strip.js): one row that scrolls
+  // instead of wrapping, with the WAI-ARIA tab keys.
   function renderAiAccounts(clis, installed) {
     const tabs = aiAccountTabs(clis, { installed });
     aiAccountsList.replaceChildren();
@@ -137,55 +138,32 @@ export function createAiAccounts({
         remembered: readAiAccountsTab(localStorageOrNull()),
       });
     }
-    const tablist = createElement("div", { className: "ai-accounts-tabs" });
-    tablist.setAttribute("role", "tablist");
-    tablist.setAttribute("aria-label", "AI CLIs");
-    const buttons = [];
-    const panels = [];
-    const choose = (id, { focus = false } = {}) => {
+    const panels = new Map(tabs.map((tab) => [tab.id, aiAccountsPanel(tab)]));
+    const showPanel = (id) => {
       aiAccounts.tab = id;
-      buttons.forEach((button, index) => {
-        const chosen = tabs[index].id === id;
-        button.setAttribute("aria-selected", String(chosen));
-        button.tabIndex = chosen ? 0 : -1;
-        panels[index].hidden = !chosen;
-        if (chosen) {
-          if (focus) button.focus();
-          button.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-        }
-      });
+      for (const [panelId, panel] of panels) panel.hidden = panelId !== id;
     };
-    for (const tab of tabs) {
-      const button = createElement("button", { className: "ai-accounts-tab" });
-      button.type = "button";
-      button.id = `ai-accounts-tab-${tab.id}`;
-      button.dataset.cli = tab.id;
-      button.setAttribute("role", "tab");
-      button.setAttribute("aria-controls", `ai-accounts-panel-${tab.id}`);
-      button.setAttribute("aria-label", aiAccountTabLabel(tab));
-      button.append(agentMark(tab.id), createElement("span", { className: "ai-accounts-tab-name", text: tab.label }));
-      if (tab.count > 0) button.append(createElement("span", { className: "ui-badge ai-accounts-tab-count", text: String(tab.count) }));
-      if (tab.inUse) button.append(createElement("span", { className: "ai-accounts-tab-in-use" }));
-      button.addEventListener("click", () => {
-        choose(tab.id);
-        writeAiAccountsTab(localStorageOrNull(), tab.id);
-      });
-      buttons.push(button);
-      panels.push(aiAccountsPanel(tab));
-    }
-    tablist.addEventListener("keydown", (event) => {
-      const at = buttons.indexOf(event.target);
-      if (at < 0) return;
-      const last = buttons.length - 1;
-      const to = { ArrowRight: at === last ? 0 : at + 1, ArrowLeft: at === 0 ? last : at - 1, Home: 0, End: last }[event.key];
-      if (to === undefined) return;
-      event.preventDefault();
-      choose(tabs[to].id, { focus: true });
-      writeAiAccountsTab(localStorageOrNull(), tabs[to].id);
+    const strip = createTabStrip({
+      label: "AI CLIs",
+      selected: aiAccounts.tab,
+      tabs: tabs.map((tab) => ({
+        id: tab.id,
+        label: tab.label,
+        icon: agentMark(tab.id),
+        count: tab.count,
+        dot: tab.inUse,
+        ariaLabel: aiAccountTabLabel(tab),
+        domId: `ai-accounts-tab-${tab.id}`,
+        controls: `ai-accounts-panel-${tab.id}`,
+        data: { cli: tab.id },
+      })),
+      onSelect: (id) => {
+        showPanel(id);
+        writeAiAccountsTab(localStorageOrNull(), id);
+      },
     });
-    tablist.append(...buttons);
-    aiAccountsList.append(tablist, ...panels);
-    choose(aiAccounts.tab);
+    aiAccountsList.append(strip.element, ...panels.values());
+    showPanel(strip.selected);
   }
 
   // A CLI's tab panel: why it cannot be switched, when it cannot, then its
