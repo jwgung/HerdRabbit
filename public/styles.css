@@ -5259,6 +5259,19 @@ body.is-pane-rearranging * {
     margin: calc((34px - 44px) / 2);
   }
 
+  /* The sidebar's bottom controls are drawn at the touch size too, like the
+     composer's buttons on the page beside it: the footer's two, and the path
+     row's buttons beside its 44px input. */
+  .uploads-button,
+  .settings-button,
+  .file-path-row button {
+    width: var(--control-h-touch);
+    min-width: var(--control-h-touch);
+    height: var(--control-h-touch);
+    min-height: var(--control-h-touch);
+    flex-basis: var(--control-h-touch);
+  }
+
   :is(.file-path-row .file-path, #file-server, #terminal-find-input, #chat-find-input, .workspace-rename-input, #login-password, .prompt-card-custom-input) {
     min-height: 44px;
     font-size: var(--font-input-touch);

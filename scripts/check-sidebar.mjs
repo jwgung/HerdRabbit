@@ -123,6 +123,19 @@ try {
     if (mobile) await page.locator("#mobile-sidebar-open").click();
     await page.locator(".pane-button").first().waitFor({ state: "visible" });
     await page.waitForTimeout(600); // the sidebar finishes sliding in
+    if (mobile) {
+      // On a phone the sidebar's bottom controls are drawn at the touch size,
+      // like every other button there: the footer's two, and the Files path
+      // row's refresh and parent-folder buttons beside its 44px input.
+      const sizes = await page.evaluate(() => ["#file-uploads", ".navigator-footer .settings-button", "#file-refresh", "#file-up"]
+        .map((selector) => {
+          const style = getComputedStyle(document.querySelector(selector));
+          return [selector, parseFloat(style.width), parseFloat(style.height)];
+        }));
+      for (const [selector, width, height] of sizes) {
+        assert.ok(width >= 44 && height >= 44, `${selector} is drawn at 44px on a phone: ${width}x${height}`);
+      }
+    }
 
     // One synchronous read of the whole sidebar: the page redraws it every two
     // seconds, and a locator held across that redraw points at a removed node.
