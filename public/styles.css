@@ -4867,21 +4867,33 @@ body.is-sidebar-dragging * {
    and the small map of the same layout above one pane (phones). --------- */
 
 /* The grid takes the terminal's place; the single pane's own pieces step
-   aside, and the key bar stays for the focused cell in either lens. */
+   aside (the find bars stay, for the focused cell). The panel's lens is the
+   focused cell's: a Chat cell hides the key bar, a Terminal cell shows it.
+   The grid keeps its size whichever cell is focused, though: its cells size
+   their panes (Fit panes to this window, a view split's tiles), and a press
+   on another cell must not resize every pane. So over a Chat cell the key
+   bar keeps its room, unseen, and the composer keeps its place. */
 .terminal-panel.is-grid {
   grid-template-rows: auto minmax(0, 1fr) auto auto;
 }
 
-.terminal-panel.is-grid .terminal-stage > :not(.pane-grid),
+.terminal-panel.is-grid[data-lens="chat"] .quick-keys {
+  display: grid;
+  visibility: hidden;
+}
+
+.terminal-panel.is-grid[data-lens="chat"] > .input-form {
+  margin-top: 0;
+}
+
+body:has(.terminal-panel.is-grid[data-lens="chat"]) {
+  --composer-gap: var(--space-3);
+}
+
+.terminal-panel.is-grid .terminal-stage > :not(.pane-grid, .terminal-find),
 .terminal-panel.is-grid .lens-switch,
 .terminal-panel.is-grid .terminal-find-open {
   display: none !important;
-}
-
-/* The Chat lens hides the key bar; the grid shows it again as the grid it is
-   (a flex row here made its buttons shrink to their text). */
-.terminal-panel.is-grid .quick-keys {
-  display: grid;
 }
 
 .pane-grid {
@@ -4914,14 +4926,12 @@ body.is-sidebar-dragging * {
   padding: 0 var(--space-3);
 }
 
+/* The cells are cards of their own, apart: the board has no frame. */
 .pane-grid-board {
   position: relative;
   min-height: 0;
   flex: 1 1 auto;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  background: var(--terminal-bg);
 }
 
 /* A Herdr grid's board is the tab's own shape in the cells' font, so no cell
@@ -4944,14 +4954,32 @@ body.is-sidebar-dragging * {
   pointer-events: none;
 }
 
+/* Each cell is a rounded card. Its own transparent edge, half the gap on
+   every side, keeps the cards --space-1-5 apart wherever Herdr puts them;
+   its line and focus ring are drawn over it all (::after), so neither the
+   header, the terminal nor a neighbour's line covers or breaks them. */
 .pane-grid-cell {
   position: absolute;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: calc(var(--space-1-5) / 2) solid transparent;
+  /* The card's corner is the line's (--radius-control, 8px) plus the 3px
+     transparent edge around it: 11px. */
+  border-radius: calc(var(--radius-control) * 11 / 8);
   background: var(--terminal-bg);
+  background-clip: padding-box;
+}
+
+.pane-grid-cell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: calc(var(--layer-pane-overlay) + 1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  pointer-events: none;
 }
 
 .pane-grid-cell[hidden] {
@@ -4961,22 +4989,23 @@ body.is-sidebar-dragging * {
 /* The focused cell is the selected pane: typing, the composer and the key bar go there. */
 .pane-grid-cell.is-focused {
   z-index: var(--layer-raised);
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.pane-grid-cell.is-focused::after {
+  border: 2px solid var(--accent);
 }
 
 .pane-grid-cell-header {
-  height: 24px;
-  flex: 0 0 24px;
+  height: var(--control-h-md);
+  flex: 0 0 var(--control-h-md);
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: 0 var(--space-0-5) 0 var(--space-1-5);
+  gap: var(--space-1-5);
+  padding: 0 var(--space-1) 0 var(--space-2-5);
   border-bottom: 1px solid var(--line);
   background: var(--surface);
   color: var(--muted);
-  font-family: var(--mono);
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
   cursor: default;
   user-select: none;
 }
@@ -5002,8 +5031,8 @@ body.is-pane-rearranging * {
   opacity: 0.45;
 }
 
-.pane-grid-cell.is-swap-target {
-  border-color: var(--accent);
+.pane-grid-cell.is-swap-target::after {
+  border: 2px solid var(--accent);
 }
 
 /* The dashed preview eases between the places it shows rather than jumping. */
@@ -5083,6 +5112,8 @@ body.is-pane-rearranging * {
 .pane-grid-label {
   min-width: 0;
   flex: 1 1 auto;
+  color: var(--text);
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5109,10 +5140,10 @@ body.is-pane-rearranging * {
 .pane-grid-expand,
 .pane-grid-remove,
 .pane-grid-menu > summary {
-  width: 22px;
-  min-width: 22px;
-  height: 22px;
-  flex: 0 0 22px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   display: inline-grid;
   place-items: center;
   padding: 0;
@@ -5132,8 +5163,8 @@ body.is-pane-rearranging * {
 
 .pane-grid-expand svg,
 .pane-grid-remove svg {
-  width: 13px;
-  height: 13px;
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -5143,6 +5174,125 @@ body.is-pane-rearranging * {
 
 .pane-grid-menu-slot {
   display: inline-flex;
+}
+
+/* Chat or Terminal for this cell alone: the pane header's switch, as icons. */
+.pane-grid-lens {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: var(--space-0-5);
+  padding: var(--space-0-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
+.pane-grid-lens button {
+  width: 30px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pane-grid-lens button:hover {
+  background: var(--hover-surface);
+  color: var(--text);
+}
+
+.pane-grid-lens button[aria-pressed="true"] {
+  background: var(--selected-surface);
+  color: var(--accent);
+}
+
+/* No chat for this pane, or no room for one: dimmed, its title says why. */
+.pane-grid-lens button[aria-disabled="true"] {
+  background: transparent;
+  color: var(--muted);
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.pane-grid-lens .lens-icon {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.5;
+}
+
+/* A Chat cell: the conversation over the cell's terminal, which stays laid
+   out (and attached) under it at the cell's size, only not seen. */
+.pane-grid-cell[data-lens="chat"] .pane-grid-terminal {
+  visibility: hidden;
+}
+
+.pane-grid-chat {
+  position: absolute;
+  top: var(--control-h-md);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+
+.pane-grid-chat[hidden] {
+  display: none;
+}
+
+.pane-grid-chat .chat-pane {
+  border: 0;
+  border-radius: 0;
+}
+
+.pane-grid-chat .chat-pane[hidden] {
+  display: none;
+}
+
+/* The pane's prompt card, under its chat; the chat gives way to it. */
+.pane-grid-dock {
+  max-height: 62%;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 var(--space-2) var(--space-2);
+}
+
+.pane-grid-dock:not(:has(> .prompt-dock:not([hidden]))) {
+  display: none;
+}
+
+.pane-grid-dock > .prompt-dock[data-mode] {
+  min-height: 0;
+  max-height: none;
+  flex: 1 1 auto;
+}
+
+/* A chat the cell is too small for: the terminal shows and the cell says why. */
+.pane-grid-hint {
+  position: absolute;
+  top: calc(var(--control-h-md) + var(--space-2));
+  right: var(--space-2);
+  left: var(--space-2);
+  z-index: var(--layer-raised);
+  margin: 0;
+  padding: var(--space-1-5) var(--space-2);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-size: var(--font-xs);
+  pointer-events: none;
+}
+
+.pane-grid-hint[hidden] {
+  display: none;
 }
 
 /* The pane sized to the cell, or (Fit panes to this window off) at Herdr's
@@ -5189,7 +5339,9 @@ body.is-pane-rearranging * {
 }
 
 .pane-grid-cell.is-tiny .pane-grid-expand,
-.pane-grid-cell.is-tiny .pane-grid-menu-slot {
+.pane-grid-cell.is-tiny .pane-grid-menu-slot,
+.pane-grid-cell.is-tiny .pane-grid-lens,
+.pane-grid-cell.is-tiny .pane-grid-hint {
   display: none;
 }
 

@@ -13,7 +13,7 @@
 // it, a pane the layout does not have yet is still counted and tappable, and
 // a tap on the map switches pane. A connected PC's split tab is one row too,
 // but opens a pane alone: no grid, no map. Behind a password, a grid is not redrawn while
-// nothing changed, has no terminal find, completes a notification for its
+// nothing changed, finds in the focused cell's terminal, completes a notification for its
 // pane once that pane's cell is on screen (not zoomed out), and its cells
 // reconnect after a hidden page or a sign-out and sign-in. A cell carried by
 // its header onto another's middle swaps the two, onto an edge goes beside it
@@ -657,11 +657,14 @@ try {
     const findHidden = () => page.locator("#terminal-find").evaluate((node) => node.hidden);
     await page.waitForTimeout(300);
     assert.equal(await findHidden(), true, "the grid closes the terminal find");
-    assert.equal(await page.locator("#terminal-find-open").evaluate((node) => node.hidden), true, "no find button over the grid");
+    assert.equal(await page.locator("#terminal-find-open").isVisible(), false, "no find button over the grid");
+    // Ctrl+F finds in the focused cell's terminal (its lens is Terminal).
     await page.locator("#pane-title").click();
     await page.keyboard.press("Control+f");
+    await page.locator("#terminal-find").waitFor({ state: "visible" });
+    await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
-    assert.equal(await findHidden(), true, "Ctrl+F opens no terminal find over the grid");
+    assert.equal(await findHidden(), true, "Escape closes the focused cell's find");
 
     // Polls with nothing changed leave the cells as they are.
     await page.waitForTimeout(800);

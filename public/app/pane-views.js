@@ -21,6 +21,7 @@ import { writePanePreference } from "../pane-preference.js?v=1.4.42";
 import { writeExpandedSplitTabIds } from "../workspace-preference.js?v=1.4.42";
 import { readGridFit, readGridFont, writeGridFont } from "../terminal-preference.js?v=1.4.42";
 import { laysOutPanes, paneMoveRequest } from "../sidebar-drag.js?v=1.4.42";
+import { chatAgent } from "../lens-preference.js?v=1.4.42";
 import {
   addTile,
   layoutRects,
@@ -43,7 +44,9 @@ import {
 // `shownGridTabId` and `shownPaneView` stay app.js's own `let`s, which other
 // parts of the page read; they are read and set here through accessors on
 // `deps`, and so is `snapshotSettled`, which the snapshot refresh reassigns.
-// `viewSplit` is app.js's object, changed in place.
+// `viewSplit` is app.js's object, changed in place. The Chat lens is made
+// after this and read through a getter on `deps` (`chatLens`): each cell of a
+// grid shows its own pane in Chat or Terminal.
 export function createPaneViews(deps) {
   const {
     state, elements, desktopMedia, panePreferenceStorage, viewSplit, viewSplitStorage,
@@ -89,8 +92,18 @@ export function createPaneViews(deps) {
     return tabId && desktopMedia.matches && state.paneViews.get(tabId) === "grid" ? tabId : null;
   }
 
+  // A cell's lens: the one its pane opens in alone, whether it has a chat and
+  // what its Chat button says, and the agent the chat reads. A phone's map has
+  // no cells to show a chat in.
+  function cellLensFields(paneId, pane, agent, { withChat = true } = {}) {
+    if (!withChat || !deps.chatLens) return {};
+    const reads = pane ? chatAgent(pane, agent) : null;
+    const { lens, chatAvailable, chatTitle } = deps.chatLens.cellState(paneId, reads);
+    return { lens, chatAvailable, chatTitle, chatAgent: reads };
+  }
+
   // What a cell or a map box says of each pane of `tabId`.
-  function splitTabPanes(tabId) {
+  function splitTabPanes(tabId, { withChat = true } = {}) {
     return panesOfTab(tabId).map((pane) => {
       const paneId = idOf(pane, "pane_id", "id");
       const agent = agentForPane(paneId);
@@ -101,6 +114,7 @@ export function createPaneViews(deps) {
         status,
         statusIcon: agentStatusIcon(status),
         statusText: agentStatusLabel(status),
+        ...cellLensFields(paneId, pane, agent, { withChat }),
       };
     });
   }
@@ -171,6 +185,8 @@ export function createPaneViews(deps) {
       focusComposer();
     },
     onUnzoom: (paneId) => void paneGridAction(paneId, "zoom", { mode: "toggle" }),
+    onLens: (paneId, lens) => deps.chatLens?.setCellLens(paneId, lens),
+    onCellLens: () => syncCellChats(),
     onRearrange: (drop) => void rearrangeGridPanes(drop),
     canRearrange: () => !state.mutationBusy,
     onAuthenticationRequired: () => showLogin(),
@@ -203,6 +219,8 @@ export function createPaneViews(deps) {
       focusComposer();
     },
     onRearrange: (drop) => rearrangeViewTiles(drop),
+    onLens: (paneId, lens) => deps.chatLens?.setCellLens(paneId, lens),
+    onCellLens: () => syncCellChats(),
     onAuthenticationRequired: () => showLogin(),
     terminalOptions: {
       isLinkablePath: isLinkableTerminalPath,
@@ -270,6 +288,7 @@ export function createPaneViews(deps) {
         return [{
           paneId, label: "Terminal", context: withMachine(paneId, ""), offline,
           status: "unknown", statusIcon: agentStatusIcon("unknown"), statusText: "Machine offline",
+          ...cellLensFields(paneId, null, null),
         }];
       }
       const agent = agentForPane(paneId);
@@ -283,6 +302,7 @@ export function createPaneViews(deps) {
         status,
         statusIcon: agentStatusIcon(status),
         statusText: offline ? "Machine offline" : agentStatusLabel(status),
+        ...cellLensFields(paneId, pane, agent),
       }];
     });
   }
@@ -406,7 +426,7 @@ export function createPaneViews(deps) {
     const showMap = Boolean(splitTabId) && !desktopMedia.matches;
     // Read only for a grid or a map on screen: a pane shown alone needs none.
     const layout = gridTab || showMap ? paneLayoutFor(splitTabId) : undefined;
-    const panes = splitTabId ? splitTabPanes(splitTabId) : [];
+    const panes = splitTabId ? splitTabPanes(splitTabId, { withChat: Boolean(gridTab) }) : [];
     elements.paneMap.hidden = !showMap;
     if (showMap) {
       const key = JSON.stringify([state.selectedPaneId, layout, panes]);
@@ -440,7 +460,15 @@ export function createPaneViews(deps) {
     // read shows that cell.
     if ((gridTab || tilesShown) && state.renderedGrid && notificationNavigation.relayTarget) void completeNotificationRelay();
     setShownPaneView(gridTab ?? (tilesShown ? "view" : null));
+    syncCellChats();
     return getShownPaneView();
+  }
+
+  // The Chat lens hears the cells on screen (or that none are): each Chat
+  // cell shows its pane's chat, and the composer follows the focused cell's lens.
+  function syncCellChats() {
+    const grid = shownGrid();
+    deps.chatLens?.setCells(grid ? grid.lensCells() : null);
   }
 
   // Makes `paneId` the selected pane: the sidebar, the heading, the composer and

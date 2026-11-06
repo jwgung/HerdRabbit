@@ -1028,6 +1028,10 @@ const {
   sidebarActionMenu: (...args) => sidebarActionMenu(...args),
   paneButton: (...args) => paneButton(...args),
   agentMark: (...args) => agentMark(...args),
+  // Made below; read once the page draws a grid.
+  get chatLens() {
+    try { return chatPanel.chatLens; } catch { return null; }
+  },
 });
 
 let phoneKeyboardOpen = false;
@@ -1083,6 +1087,8 @@ const chatPanel = createChatPanel({
   refreshAfterSubmission: (...args) => refreshAfterSubmission(...args),
   selectedRecordsFor: (...args) => selectedRecordsFor(...args),
   viewTicket: (...args) => viewTicket(...args),
+  renderPaneViews: (...args) => renderPaneViews(...args),
+  shownGrid: (...args) => shownGrid(...args),
 });
 const { chatLens, syncTerminalFind, applyChatFontSize, overChat, showTerminalView } = chatPanel;
 promptDock = chatPanel.promptDock;
@@ -1325,7 +1331,9 @@ function activateLensShortcut(event) {
       event.key.toLowerCase() !== "j" || document.querySelector("dialog[open]")) return false;
   const mac = /Mac|iPhone|iPad/u.test(navigator.platform);
   if (mac ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey) return false;
-  if (!mac && elements.terminalXterm.contains(document.activeElement) && chatLens.lens === "terminal") return false;
+  const inTerminal = elements.terminalXterm.contains(document.activeElement) ||
+    Boolean(document.activeElement?.closest?.(".pane-grid-terminal"));
+  if (!mac && inTerminal && chatLens.lens === "terminal") return false;
   if (!chatLens.paneId) return false;
   event.preventDefault();
   event.stopPropagation();
