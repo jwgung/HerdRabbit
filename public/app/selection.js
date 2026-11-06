@@ -11,13 +11,13 @@ import {
   paneServerId,
   reconcileLiveStatus,
   seenCompletions,
-} from "../ui-model.js?v=1.4.43";
-import { chatAgent } from "../lens-preference.js?v=1.4.43";
-import { previewFor } from "../file-preview.js?v=1.4.43";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "../path-links.js?v=1.4.43";
-import { writePanePreference } from "../pane-preference.js?v=1.4.43";
-import { createElement } from "./dom.js?v=1.4.43";
-import { idOf } from "./snapshot.js?v=1.4.43";
+} from "../ui-model.js?v=1.4.44";
+import { chatAgent } from "../lens-preference.js?v=1.4.44";
+import { previewFor } from "../file-preview.js?v=1.4.44";
+import { isFileName, isFolderPath, trimTrailingSlashes } from "../path-links.js?v=1.4.44";
+import { writePanePreference } from "../pane-preference.js?v=1.4.44";
+import { createElement } from "./dom.js?v=1.4.44";
+import { idOf } from "./snapshot.js?v=1.4.44";
 
 // The selected pane: its heading, the file names in its terminal that open as
 // links, choosing which pane to show after a snapshot, the live agent statuses,
