@@ -11,7 +11,7 @@ import { createNavigation } from "./app/navigation.js?v=1.4.42";
 import { createSelection } from "./app/selection.js?v=1.4.42";
 import { createPaneViews } from "./app/pane-views.js?v=1.4.42";
 import { createTerminalStatus } from "./app/terminal-status.js?v=1.4.42";
-import { createChatPanel } from "./app/chat-lens.js?v=1.4.42";
+import { createChatPanel, inTerminal } from "./app/chat-lens.js?v=1.4.42";
 import { createKeyBar } from "./app/key-bar.js?v=1.4.42";
 import { createKeyBarEditor } from "./app/key-bar-editor.js?v=1.4.42";
 import { createProjectDialog } from "./app/project-dialog.js?v=1.4.42";
@@ -982,6 +982,10 @@ const attachedTerminal = createAttachedTerminal({
 let shownGridTabId = null;
 let shownPaneView = null;
 
+// The chat panel is made after the pane views that read it; they reach it
+// through this once it exists.
+let lateChatLens = null;
+
 const {
   SEPARATE_ICON, EVEN_ICON,
   paneTabId, canLayOut, paneGrid, viewGrid, shownGrid, setViewSplit, pruneViewSplit,
@@ -1028,10 +1032,8 @@ const {
   sidebarActionMenu: (...args) => sidebarActionMenu(...args),
   paneButton: (...args) => paneButton(...args),
   agentMark: (...args) => agentMark(...args),
-  // Made below; read once the page draws a grid.
-  get chatLens() {
-    try { return chatPanel.chatLens; } catch { return null; }
-  },
+  // Made below (lateChatLens); read once the page draws a grid.
+  get chatLens() { return lateChatLens; },
 });
 
 let phoneKeyboardOpen = false;
@@ -1091,6 +1093,7 @@ const chatPanel = createChatPanel({
   shownGrid: (...args) => shownGrid(...args),
 });
 const { chatLens, syncTerminalFind, applyChatFontSize, overChat, showTerminalView } = chatPanel;
+lateChatLens = chatLens;
 promptDock = chatPanel.promptDock;
 terminalFind = chatPanel.terminalFind;
 chatFind = chatPanel.chatFind;
@@ -1331,9 +1334,7 @@ function activateLensShortcut(event) {
       event.key.toLowerCase() !== "j" || document.querySelector("dialog[open]")) return false;
   const mac = /Mac|iPhone|iPad/u.test(navigator.platform);
   if (mac ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey) return false;
-  const inTerminal = elements.terminalXterm.contains(document.activeElement) ||
-    Boolean(document.activeElement?.closest?.(".pane-grid-terminal"));
-  if (!mac && inTerminal && chatLens.lens === "terminal") return false;
+  if (!mac && inTerminal(document.activeElement, elements.terminalXterm) && chatLens.lens === "terminal") return false;
   if (!chatLens.paneId) return false;
   event.preventDefault();
   event.stopPropagation();

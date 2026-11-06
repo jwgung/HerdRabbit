@@ -17,6 +17,11 @@ import {
 // are called through, so they may be defined further down app.js than this is
 // called. app.js keeps its own `promptDock`, `terminalFind` and `chatFind` and
 // sets them from what this returns; `chatFontSize` is read through a getter.
+// Whether the keyboard is in a terminal: the single pane's, or a grid cell's.
+export function inTerminal(node, singleTerminal) {
+  return Boolean(node) && (singleTerminal.contains(node) || Boolean(node.closest?.(".pane-grid-terminal")));
+}
+
 export function createChatPanel(deps) {
   const {
     state, elements, panePreferenceStorage, desktopMedia, terminalStream, attachedTerminal, paneCalls,
@@ -94,8 +99,7 @@ export function createChatPanel(deps) {
       if (lens === "terminal") window.requestAnimationFrame(() => attachedTerminal.refit());
       // Typing must not go on into a terminal that is no longer on screen
       // (the single one, or a cell's under its chat).
-      if (lens === "chat" && (elements.terminalXterm.contains(document.activeElement) ||
-          Boolean(document.activeElement?.closest?.(".pane-grid-terminal")))) {
+      if (lens === "chat" && inTerminal(document.activeElement, elements.terminalXterm)) {
         if (usesTouchInputEnvironment()) document.activeElement.blur();
         else elements.terminalInput.focus({ preventScroll: true });
       }
@@ -108,23 +112,28 @@ export function createChatPanel(deps) {
 
   // A blocked pane's prompt card: at the bottom of the Chat lens, and as a
   // banner over the Terminal lens (src/prompt/, public/chat/prompt-card.js).
-  promptDock = createPromptDock({
-    dock: elements.promptDock,
+  // What every prompt card shares: the requests, what an answer refreshes,
+  // and the conversation a card reads its words from.
+  const makeDock = (dock, extra) => createPromptDock({
+    dock,
     connection: prompts,
     getJson: (path) => api(path),
     postJson: (path, body) => api(path, { method: "POST", body }),
-    showChat: () => chatLens.showChat(),
     onAnswered: (paneId, summary) => {
       chatLens.answered(paneId, summary);
       refreshAfterSubmission();
     },
+    conversation: (paneId) => chatLens.chatFor(paneId)?.agentText ?? "",
+    ...extra,
+  });
+  promptDock = makeDock(elements.promptDock, {
+    showChat: () => chatLens.showChat(),
     // the composer says which numbers answer the card
     onCardChange: (card) => {
       elements.terminalInput.placeholder = composerPlaceholder(card);
       // the key bar's composer side looks again at a number already typed
       elements.terminalInput.dispatchEvent(new Event("promptcardchange"));
     },
-    conversation: (paneId) => chatLens.chatFor(paneId)?.agentText ?? "",
   });
   promptDock.setLens(chatLens.lens);
   elements.terminalPanel.dataset.lens = chatLens.lens;
@@ -154,18 +163,7 @@ export function createChatPanel(deps) {
         element.dataset.mode = "hidden";
         element.hidden = true;
         cell.dockSlot.append(element);
-        const dock = createPromptDock({
-          dock: element,
-          connection: prompts,
-          getJson: (path) => api(path),
-          postJson: (path, body) => api(path, { method: "POST", body }),
-          showChat: () => true,
-          onAnswered: (answeredPaneId, summary) => {
-            chatLens.answered(answeredPaneId, summary);
-            refreshAfterSubmission();
-          },
-          conversation: (cardPaneId) => chatLens.chatFor(cardPaneId)?.agentText ?? "",
-        });
+        const dock = makeDock(element, { showChat: () => true });
         dock.setLens("chat");
         card = { dock, element, slot: cell.dockSlot };
         cellCards.set(id, card);
@@ -313,9 +311,9 @@ export function createChatPanel(deps) {
     if (!isFindShortcut(event, FIND_SHORTCUT_MAC) || !state.authenticated) return;
     if (document.querySelector("dialog[open]")) return;
     const active = document.activeElement;
-    const inTerminal = elements.terminalXterm.contains(active) || Boolean(active?.closest?.(".pane-grid-terminal"));
+    const typing = inTerminal(active, elements.terminalXterm);
     const inFind = terminalFindForm.contains(active) || chatFindForm.contains(active);
-    if (!inTerminal && !inFind && active instanceof HTMLElement &&
+    if (!typing && !inFind && active instanceof HTMLElement &&
         (active.isContentEditable || active.matches("input, textarea, select"))) return;
     if (chatLens.lens === "chat") {
       if (!chatLens.chatFor(chatLens.paneId)) return;
