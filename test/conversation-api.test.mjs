@@ -193,14 +193,14 @@ test("a watched conversation announces an append over the terminal socket; unwat
   assert.equal(app.conversationMonitor.running, false);
 });
 
-test("a socket watches at most four conversations", async (context) => {
+test("a socket watches at most eight conversations: a split's every Chat cell, and two to spare", async (context) => {
   const { origin } = await fixture(context);
   const client = await socket(origin);
   context.after(() => client.ws.terminate());
   await client.wait((message) => message.type === "ready");
-  for (const pane of ["a", "b", "c", "d", "e"]) client.send({ type: "watch-conversation", paneId: pane });
+  for (const pane of ["a", "b", "c", "d", "e", "f", "g", "h", "i"]) client.send({ type: "watch-conversation", paneId: pane });
   const refused = await client.wait((message) => message.type === "conversation-unavailable");
-  assert.deepEqual(refused, { type: "conversation-unavailable", pane_id: "e", code: "busy" });
+  assert.deepEqual(refused, { type: "conversation-unavailable", pane_id: "i", code: "busy" });
 });
 
 test("the monitor stats remote files more slowly, reports unavailability, and runs no timer unwatched", async () => {

@@ -3,10 +3,14 @@ import { WebSocketServer } from "ws";
 const MAX_PENDING_ATTACHES = 4;
 // A page shows one attached pane at a time; a few more cover switching.
 const MAX_ATTACHED_PANES = 4;
-// Conversations one socket may watch for changes, for the same reason.
-const MAX_WATCHED_CONVERSATIONS = 4;
-// Panes whose prompt card one socket hears of: the selected one, and a few more.
-const MAX_WATCHED_PROMPTS = 4;
+// Conversations one socket may watch for changes, and panes whose prompt card
+// it hears of. Each watch holds a file or screen watcher on the server, so a
+// socket keeps only a few: a page watches the pane it shows, and in a split
+// every Chat cell's (a view split has up to 6 tiles), with two to spare for
+// the moment the focus moves between cells. Past this a watch is refused
+// ("busy") and the page reads on its own now and then instead.
+export const MAX_WATCHED_CONVERSATIONS = 8;
+export const MAX_WATCHED_PROMPTS = 8;
 
 // Authentication stays with the HTTP server. No launch token is put in a URL.
 export function attachTerminalWebSocket({ server, authorizeUpgrade, authorizeMessage,
