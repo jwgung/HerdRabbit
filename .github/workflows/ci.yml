@@ -50,8 +50,9 @@ jobs:
 
   # Every merge to main is released once CI has passed: the next patch version
   # is committed as "release: x.y.z" (scripts/release.mjs) and tagged, and the
-  # tag gets its GitHub release. "[skip release]" in the merged commit's
-  # message leaves it for the next release. A "release: x.y.z" commit pushed by
+  # tag gets its GitHub release. A line that is "[skip release]" alone in the
+  # merged commit's message leaves it for the next release (alone, so a message
+  # that only mentions it, like this workflow's own, is still released). A "release: x.y.z" commit pushed by
   # hand is tagged as it is. The bot's push starts no new run (pushes made with
   # the workflow's token never do), so the release commit is checked here: it
   # changes the version strings only, and the release test holds them to one.
@@ -84,7 +85,7 @@ jobs:
             echo "The pushed commit is a release; it is tagged below."
             exit 0
           fi
-          if printf '%s' "$MESSAGE" | grep -qF '[skip release]'; then
+          if printf '%s' "$MESSAGE" | grep -qxF '[skip release]'; then
             echo "[skip release]: no release for this merge."
             exit 0
           fi
