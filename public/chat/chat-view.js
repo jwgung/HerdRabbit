@@ -887,23 +887,59 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
 }
 
 // ---------------------------------------------------------------------------
-// The lens switch for the selected pane.
+// The lens switch for the selected pane, and each cell's lens in a split.
+
+// The panes whose conversation is watched now are `current`; `wanted` the ones
+// on screen in Chat. Answers what to ask for and what to let go.
+export function watchChanges(current, wanted) {
+  const next = new Set(wanted);
+  return { add: [...next].filter((id) => !current.has(id)), remove: [...current].filter((id) => !next.has(id)) };
+}
+
+// Which kept chats go, oldest first (`order` as a Map keeps them), so at most
+// `keep` stay. A chat on screen or of a cell on screen (`kept`) never goes,
+// however many cells there are.
+export function chatsToDrop(order, { keep, kept }) {
+  let extra = order.length - keep;
+  const drop = [];
+  for (const id of order) {
+    if (extra <= 0) break;
+    if (kept.has(id)) continue;
+    drop.push(id);
+    extra -= 1;
+  }
+  return drop;
+}
 
 // `connection` is the page's terminal socket (watchConversation /
 // unwatchConversation / onConversation). `fetchJson(path, { etag })` answers
 // { payload, etag } or { notModified: true }, and throws errors with status,
 // code and details. `layout()` answers { compact, touch }.
+// In a split, setCells() hands in the cells on screen: each shows its own
+// pane's chat in its own host when its lens is Chat, and `lens` is the
+// focused cell's (the selected pane's). `onCellsChange()` asks for the cells
+// to be drawn again (a pane's chat became available or not, a lens chosen),
+// which hands them in again; `onCells(cells, paneId)` hears the cells after
+// each change (null without a split).
 export function createChatLens({ document = globalThis.document, stage, host, chatButton, terminalButton, group,
   storage, layout, connection, fetchJson, isLinkablePath = () => false, onOpenPath = () => {}, onCopy = () => {},
-  onLensChange = () => {}, onChatDrawn = () => {}, images = null }) {
+  onLensChange = () => {}, onChatDrawn = () => {}, onCellsChange = () => {}, onCells = () => {}, images = null }) {
   const chats = new Map();
   // paneId -> { state: "checking" | "available" | "unavailable", reason, checkedAt }
   const availability = new Map();
   let paneId = null;
-  // the agent whose conversation the pane shown has ("claude", "codex"), or null
+  // the agent whose conversation each pane has ("claude", "codex"), when the
+  // chat reads that agent; the selected pane's is `agentName`
+  const agents = new Map();
   let agentName = null;
   let lens = "terminal";
-  let watched = null;
+  // The conversations watched now.
+  const watched = new Set();
+  // The split's cells on screen, by pane: { lens, roomy, host, agent, status },
+  // or null without a split. `gridPanes` are the panes a split asked about
+  // (cellState): their chats are kept while it shows.
+  let cells = null;
+  const gridPanes = new Set();
   // The lens and pane last told to onLensChange.
   let reported = { lens: "terminal", paneId: null };
   // Lenses chosen on this page, ahead of storage (which may refuse to keep them).
@@ -919,21 +955,23 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
     }
     chat = createPaneChat({
       paneId: id, document, fetchJson, isLinkablePath, onOpenPath, onCopy, images,
-      onViewInTerminal: () => setLens("terminal"),
+      onViewInTerminal: () => setLensFor(id, "terminal"),
       onDrawn: (drawn) => onChatDrawn(chat, drawn),
       onAvailability: ({ available, reason = null }) => {
         const before = availability.get(id);
         availability.set(id, available ? { state: "available", reason: null, checkedAt: Date.now() }
           : { state: "unavailable", reason, checkedAt: Date.now() });
-        if (before?.state !== availability.get(id).state || before?.reason !== reason) apply();
+        if (before?.state === availability.get(id).state && before?.reason === reason) return;
+        // a cell's Chat button follows: the split is drawn again
+        if (cells !== null && gridPanes.has(id)) onCellsChange();
+        else apply();
       },
     });
     host.append(chat.root);
     chats.set(id, chat);
-    while (chats.size > KEPT_CHATS) {
-      const [oldest, dropped] = chats.entries().next().value;
-      if (oldest === paneId) break;
-      dropped.destroy();
+    const kept = new Set([paneId, ...gridPanes, ...(cells?.keys() ?? [])]);
+    for (const oldest of chatsToDrop([...chats.keys()], { keep: KEPT_CHATS, kept })) {
+      chats.get(oldest).destroy();
       chats.delete(oldest);
       // read afresh if it is shown again
       availability.delete(oldest);
@@ -946,39 +984,93 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
     return known?.state === "available" || known?.state === "checking";
   }
 
+  const agentOf = (id) => (id === paneId ? agentName : agents.get(id) ?? null);
+  const hasChat = (id) => id !== null && agentOf(id) !== null && chatAvailable(id);
+
   function unavailableReason(id) {
-    if (!agentName) return "not_supported_agent";
+    if (!agentOf(id)) return "not_supported_agent";
     return availability.get(id)?.reason ?? null;
   }
 
-  function watch(id) {
-    if (watched === id) return;
-    if (watched !== null) connection.unwatchConversation(watched);
-    watched = id;
-    if (id !== null) connection.watchConversation(id);
+  // Reads a pane's conversation once to learn whether it has a chat, and again
+  // after a while when the reason may pass (no session yet).
+  function check(id, agent) {
+    const known = availability.get(id);
+    const stale = known?.state === "unavailable" && chatMayBecomeAvailable(known.reason) && Date.now() - known.checkedAt > RECHECK_MS;
+    const chat = chatFor(id);
+    chat.setAgent(agent);
+    if (!known || stale) {
+      if (!known) availability.set(id, { state: "checking", reason: null, checkedAt: Date.now() });
+      else known.checkedAt = Date.now();
+      chat.refresh({ now: true });
+    }
+    return chat;
+  }
+
+  function watchOnly(ids) {
+    const { add, remove } = watchChanges(watched, ids);
+    for (const id of remove) { watched.delete(id); connection.unwatchConversation(id); }
+    for (const id of add) { watched.add(id); connection.watchConversation(id); }
+  }
+
+  // A chat taken to another place is hidden first, while its place can still
+  // be read: it keeps its scroll, and show() puts it back.
+  function place(chat, parent, { first = false } = {}) {
+    if (chat.root.parentElement === parent) return;
+    chat.hide();
+    if (first) parent.prepend(chat.root);
+    else parent.append(chat.root);
+  }
+
+  // The lens one pane would open in on its own (the choice kept for it, else
+  // "Open panes in").
+  function wantedLens(id, available) {
+    const { compact, touch } = layout();
+    return chooseLens({
+      stored: chosen.get(id) ?? readPaneLens(storage, id), chatAvailable: available,
+      preference: readOpenPanesIn(storage), compact, touch,
+    });
   }
 
   function apply() {
-    const available = paneId !== null && agentName !== null && chatAvailable(paneId);
-    const { compact, touch } = layout();
+    const available = hasChat(paneId);
     const next = paneId === null ? "terminal"
-      : chooseLens({
-        stored: chosen.get(paneId) ?? readPaneLens(storage, paneId), chatAvailable: available,
-        preference: readOpenPanesIn(storage), compact, touch,
-      });
+      : cells !== null ? cells.get(paneId)?.lens ?? "terminal"
+        : wantedLens(paneId, available);
     const changed = next !== reported.lens || paneId !== reported.paneId;
     lens = next;
+    const shown = cells !== null
+      ? [...cells].filter(([, cell]) => cell.lens === "chat").map(([id]) => id)
+      : lens === "chat" && paneId !== null ? [paneId] : [];
     // hidden first, while its place is still read: a hidden chat keeps its scroll
-    for (const [id, chat] of chats) if (id !== paneId || lens !== "chat") chat.hide();
+    for (const [id, chat] of chats) {
+      if (shown.includes(id)) continue;
+      chat.hide();
+      // back in the stage, out of a cell that may be gone
+      place(chat, host);
+    }
     stage.dataset.lens = lens;
-    if (lens === "chat") chats.get(paneId)?.show();
+    if (cells !== null) {
+      for (const id of shown) {
+        const cell = cells.get(id);
+        const chat = chatFor(id);
+        place(chat, cell.host, { first: true });
+        if (cell.agent) chat.setAgent(cell.agent);
+        chat.setStatus(cell.status ?? null);
+        chat.show();
+      }
+    } else if (lens === "chat") {
+      const chat = chats.get(paneId);
+      if (chat) { place(chat, host); chat.show(); }
+    }
     chatButton.setAttribute("aria-pressed", String(lens === "chat"));
     terminalButton.setAttribute("aria-pressed", String(lens === "terminal"));
     chatButton.setAttribute("aria-disabled", String(!available));
     chatButton.title = available ? `Show the conversation (${shortcut})` : chatUnavailableText(unavailableReason(paneId));
     terminalButton.title = `Show the terminal (${shortcut})`;
     group.hidden = paneId === null;
-    watch(lens === "chat" ? paneId : null);
+    watchOnly(shown);
+    onCells(cells === null ? null : [...cells].map(([id, cell]) => ({ paneId: id, ...cell })), paneId);
     if (changed) {
       const previous = reported;
       reported = { lens, paneId };
@@ -986,13 +1078,20 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
     }
   }
 
-  function setLens(next) {
-    if (paneId === null) return;
-    if (next === "chat" && !(agentName !== null && chatAvailable(paneId))) return;
-    chosen.set(paneId, next);
-    writePaneLens(storage, paneId, next);
-    apply();
+  // Keeps `next` as the lens of `id`. In a split, the cells are drawn again
+  // with it (which hands them in again); a chat the pane does not have, or one
+  // its cell has no room for, is not chosen.
+  function setLensFor(id, next) {
+    if (id === null) return;
+    if (next === "chat" && !hasChat(id)) return;
+    const cell = cells?.get(id);
+    if (next === "chat" && cell && cell.roomy === false) return;
+    chosen.set(id, next);
+    writePaneLens(storage, id, next);
+    if (cell) onCellsChange();
+    else apply();
   }
+  const setLens = (next) => setLensFor(paneId, next);
 
   chatButton.addEventListener("click", () => {
     if (chatButton.getAttribute("aria-disabled") === "true") return;
@@ -1008,8 +1107,8 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
     // pane falls back to its terminal.
     chat.refresh();
   });
-  // A new socket watches nothing: the chat reads what changed meanwhile.
-  connection.onReconnect(() => { if (watched !== null) chats.get(watched)?.refresh(); });
+  // A new socket watches nothing: each chat on screen reads what changed meanwhile.
+  connection.onReconnect(() => { for (const id of watched) chats.get(id)?.refresh(); });
 
   return {
     // A pane carried to another project has a new id: its lens choice follows.
@@ -1021,7 +1120,9 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
         const old = chats.get(from);
         if (old) { old.destroy(); chats.delete(from); }
         availability.delete(from);
-        if (watched === from) { connection.unwatchConversation(from); watched = null; }
+        if (agents.has(from)) { agents.set(to, agents.get(from)); agents.delete(from); }
+        if (gridPanes.delete(from)) gridPanes.add(to);
+        if (watched.has(from)) { connection.unwatchConversation(from); watched.delete(from); }
         if (reported.paneId === from) reported = { ...reported, paneId: to };
         if (paneId === from) paneId = to;
       }
@@ -1031,32 +1132,46 @@ export function createChatLens({ document = globalThis.document, stage, host, ch
     select(nextPaneId, { agent = null, claude = false, status = null } = {}) {
       paneId = nextPaneId ?? null;
       agentName = typeof agent === "string" && agent ? agent : claude ? "claude" : null;
-      if (paneId !== null && agentName !== null) {
-        const known = availability.get(paneId);
-        const stale = known?.state === "unavailable" && chatMayBecomeAvailable(known.reason) && Date.now() - known.checkedAt > RECHECK_MS;
-        const chat = chatFor(paneId);
-        chat.setAgent(agentName);
-        chat.setStatus(status);
-        if (!known || stale) {
-          if (!known) availability.set(paneId, { state: "checking", reason: null, checkedAt: Date.now() });
-          else known.checkedAt = Date.now();
-          chat.refresh({ now: true });
-        }
-      }
+      if (paneId !== null) agents.set(paneId, agentName);
+      if (paneId !== null && agentName !== null) check(paneId, agentName).setStatus(status);
+      apply();
+    },
+    // What a split's cell of `id` shows, for its agent (the snapshot's, when
+    // the chat reads it, else null): the lens the pane would open in alone,
+    // whether it has a chat, and what its Chat button says.
+    cellState(id, agent = null) {
+      agents.set(id, typeof agent === "string" && agent ? agent : null);
+      if (id === paneId) agentName = agents.get(id);
+      gridPanes.add(id);
+      if (agents.get(id)) check(id, agents.get(id));
+      const available = hasChat(id);
+      return {
+        lens: wantedLens(id, available),
+        chatAvailable: available,
+        chatTitle: available ? `Show the conversation (${shortcut})` : chatUnavailableText(unavailableReason(id)),
+      };
+    },
+    // The split's cells on screen ([{ paneId, lens, roomy, host, agent, status }]),
+    // or null when no split is: each Chat cell shows its pane's chat in its host.
+    setCells(list) {
+      cells = list ? new Map(list.map(({ paneId: id, ...cell }) => [id, cell])) : null;
+      if (cells === null) gridPanes.clear();
       apply();
     },
     setStatus(id, status) { chats.get(id)?.setStatus(status); },
     // "Open panes in" changed: a pane never chosen for follows it now.
-    reapply() { apply(); },
+    reapply() { if (cells !== null) onCellsChange(); else apply(); },
     toggle() { setLens(lens === "chat" ? "terminal" : "chat"); },
     showTerminal() { setLens("terminal"); },
     // Switches to the Chat lens; false when this pane has none.
     showChat() {
-      if (paneId === null || !(agentName !== null && chatAvailable(paneId))) return false;
+      if (!hasChat(paneId)) return false;
       setLens("chat");
       return lens === "chat";
     },
-    get chatAvailable() { return paneId !== null && agentName !== null && chatAvailable(paneId); },
+    // A cell's Chat or Terminal button.
+    setCellLens(id, next) { setLensFor(id, next); },
+    get chatAvailable() { return hasChat(paneId); },
     // A message went out from the composer: the chat shows it on its way and
     // goes to the end, following what comes, wherever the reader had scrolled.
     sent(id, text) {

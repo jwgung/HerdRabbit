@@ -54,7 +54,7 @@ test("switching lenses only hides one: the terminal stays attached and xterm fit
   assert.match(styles, /\.terminal-stage\[data-lens="chat"\] \.chat-host \{\s*display: flex;/u);
   assert.doesNotMatch(view, /attachedTerminal|\.detach\(/u, "the chat never touches the terminal's attachment");
   // a hidden chat keeps its scroll: it is hidden while its place can still be read
-  assert.match(view, /if \(id !== paneId \|\| lens !== "chat"\) chat\.hide\(\);\s*stage\.dataset\.lens = lens;/u);
+  assert.match(view, /if \(shown\.includes\(id\)\) continue;\s*chat\.hide\(\);[\s\S]*?\}\s*stage\.dataset\.lens = lens;/u);
   assert.match(view, /savedScrollTop = scroller\.scrollTop;/u);
 });
 
@@ -75,8 +75,10 @@ test("the page wires the lens: selection, sending, Mod+J, and reads through the 
   assert.match(app, /if \(lens === "terminal" && state\.terminalParked\) \{\s*state\.terminalParked = null;\s*void refreshTerminal\(\);/u);
 });
 
-test("the chat is watched over the socket only while it is on screen", () => {
-  assert.match(view, /watch\(lens === "chat" \? paneId : null\);/u);
+test("the chat is watched over the socket only while it is on screen, alone or in a split's Chat cells", () => {
+  assert.match(view, /: lens === "chat" && paneId !== null \? \[paneId\] : \[\];/u);
+  assert.match(view, /\[\.\.\.cells\]\.filter\(\(\[, cell\]\) => cell\.lens === "chat"\)/u);
+  assert.match(view, /watchOnly\(shown\);/u);
 });
 
 test("a dropped chat lets go of its resize observer, and any conversation message re-reads the chat", () => {

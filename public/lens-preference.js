@@ -156,3 +156,31 @@ export function chatReadBusy(reason) {
 export function chatMayBecomeAvailable(reason) {
   return reason !== "not_claude" && reason !== "not_supported_agent";
 }
+
+// --- a grid cell's lens -------------------------------------------------------
+// In a split (a Herdr grid or this window's view split) every cell shows its
+// own pane in Chat or Terminal, by the same choice kept per pane above. A
+// cell smaller than this has no room to read a conversation: it shows the
+// terminal, and the pane opened alone shows its chat.
+export const CHAT_CELL_MIN_WIDTH = 320;
+export const CHAT_CELL_MIN_HEIGHT = 220;
+export const CHAT_CELL_TOO_SMALL = "Too small for the chat. Open alone";
+
+// Whether a cell of `width` by `height` px has room for its pane's chat.
+export function chatCellRoomy({ width, height } = {}) {
+  return width >= CHAT_CELL_MIN_WIDTH && height >= CHAT_CELL_MIN_HEIGHT;
+}
+
+// What a cell shows: `wanted` is the pane's lens (chooseLens, which already
+// gives "terminal" to a pane with no chat), `chatAvailable` whether it has a
+// chat, `roomy` whether the cell has room for one. `chatEnabled` is whether
+// its Chat button can be pressed; `tooSmall` that the chat it wants does not
+// fit (the cell says so).
+export function cellLens({ wanted = "terminal", chatAvailable = false, roomy = true } = {}) {
+  const wantsChat = wanted === "chat" && chatAvailable === true;
+  return {
+    lens: wantsChat && roomy ? "chat" : "terminal",
+    chatEnabled: chatAvailable === true && roomy,
+    tooSmall: wantsChat && !roomy,
+  };
+}
