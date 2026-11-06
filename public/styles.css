@@ -196,7 +196,9 @@ body.sidebar-collapsed .sidebar-toggle:hover {
   z-index: var(--layer-screen);
   display: grid;
   place-items: center;
-  padding: var(--space-5);
+  /* It covers the whole screen outside the shell, so it keeps out of a
+     phone's notch and gesture bar itself. */
+  padding: max(var(--space-5), env(safe-area-inset-top, 0px)) max(var(--space-5), env(safe-area-inset-right, 0px)) max(var(--space-5), env(safe-area-inset-bottom, 0px)) max(var(--space-5), env(safe-area-inset-left, 0px));
   background: var(--page);
 }
 

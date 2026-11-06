@@ -213,11 +213,13 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 | 조건 | 뜻 |
 |---|---|
-| `max-width: 760px` | 폰 배치: 사이드바가 서랍이 되고, Chat/Terminal 전환이 아이콘만 보인다 |
+| `max-width: 760px` | 폰 배치: 사이드바가 서랍이 되고, Chat/Terminal 전환이 아이콘만 보인다. 채팅 패널 여백은 위 12px, 좌우·아래 16px |
 | `max-width: 520px` | 좁은 폰: 키 바 편집 대화상자 폭, 터미널 패널 간격 |
 | `min-width: 521px` | 전송 목록 행을 두 열로(`max-width: 520px`와 겹치지 않게 521px) |
 | `(pointer: coarse)` / `(hover: none)` | 터치 크기와 입력 규칙 |
 | `(hover: hover) and (pointer: fine)` | 마우스에서 파일 목록 행을 더 촘촘하게 |
+
+페이지는 화면 끝까지 그린다(`viewport-fit=cover`). 노치·둥근 모서리·제스처 바는 `env(safe-area-inset-*)`로 피한다. `.shell`이 네 방향을 비우고, `.shell` 밖에 고정된 화면(폰의 사이드바 서랍, 로그인 화면, 알림)은 각자 비운다. 그런 것이 없는 화면에서는 값이 0이다.
 
 JS에서만 쓰는 기준도 같은 값을 따른다(`public/app.js`): `(min-width: 761px)`은 760px의 반대(데스크톱 배치), `(max-width: 1024px)`은 입력 방식이 좁은 화면용인지, `(pointer: coarse) and (hover: none)`·`(any-pointer: coarse)`·`(any-hover: hover)`는 터치 판별이다.
 
