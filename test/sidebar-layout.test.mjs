@@ -47,8 +47,8 @@ test("this machine's dot says whether the page is connected, instead of a footer
   // above (wider in the Chat lens) and the pane's padding below, so its line
   // and buttons meet the composer's.
   assert.match(styles, /\.navigator \.navigator-footer \{[^}]*min-height: calc\(var\(--composer-row-height\) \+ var\(--composer-gap, 12px\) \+ 16px \+ 1px\);\s*padding-bottom: 16px;/u);
-  assert.match(styles, /body:has\(\.terminal-panel\[data-lens="chat"\]\) \.navigator \.navigator-footer \{\s*padding-top: 20px;/u);
-  assert.match(styles, /body:has\(\.terminal-panel\[data-lens="chat"\]\) \{[^}]*--composer-gap: 20px;/u);
+  assert.match(styles, /body:has\(\.terminal-panel\[data-lens="chat"\]\) \.navigator \.navigator-footer \{\s*padding-top: 16px;/u);
+  assert.match(styles, /body:has\(\.terminal-panel\[data-lens="chat"\]\) \{[^}]*--composer-gap: 16px;/u);
   assert.match(styles, /body \{\s*--composer-font-size: var\(--terminal-font-size\);\s*--composer-row-height: max\(44px, calc\(var\(--composer-font-size\) \* 1\.5 \+ 6px\)\);/u);
 });
 
@@ -262,4 +262,14 @@ test("machine rows show a monitor, a Host label for this PC and a connection dot
   assert.match(app, /className: "server-role", text: "Host"/u);
   assert.match(app, /className: "server-dot"/u);
   assert.match(styles, /\.server-heading\.is-online \.server-dot \{ background: var\(--status-ok\); \}/u);
+});
+
+test("a phone's notch, rounded corners and gesture bar never cover the app", () => {
+  // The page reaches the screen's edges (viewport-fit=cover) and the shell and
+  // the phone's sidebar drawer keep their content inside the safe area.
+  assert.match(page, /name="viewport" content="[^"]*viewport-fit=cover/u);
+  assert.match(styles, /\.shell \{[^}]*padding: env\(safe-area-inset-top, 0px\) env\(safe-area-inset-right, 0px\) env\(safe-area-inset-bottom, 0px\) env\(safe-area-inset-left, 0px\);/u);
+  assert.match(styles, /\.navigator \{[^}]*position: fixed;[^}]*padding: env\(safe-area-inset-top, 0px\) 0 env\(safe-area-inset-bottom, 0px\) env\(safe-area-inset-left, 0px\);/u);
+  // On a phone the chat keeps 16px from the screen's sides and bottom.
+  assert.match(styles, /\.terminal-panel \{\s*height: 100%;\s*min-height: 0;\s*padding: 12px 16px 16px;/u);
 });

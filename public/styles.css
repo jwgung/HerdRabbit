@@ -9,11 +9,15 @@ body {
   --sidebar-rail: 64px;
 }
 
+/* The page reaches under a phone's notch, rounded corners and gesture bar
+   (viewport-fit=cover), so the shell keeps its content inside the safe area;
+   on a screen without those the insets are 0. */
 .shell {
   height: 100vh;
   height: var(--app-height, 100dvh);
   min-height: 0;
   overflow: hidden;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   display: grid;
   grid-template-columns: var(--navigator-width, 310px) minmax(0, 1fr);
 }
@@ -192,7 +196,9 @@ body.sidebar-collapsed .sidebar-toggle:hover {
   z-index: var(--layer-screen);
   display: grid;
   place-items: center;
-  padding: var(--space-5);
+  /* It covers the whole screen outside the shell, so it keeps out of a
+     phone's notch and gesture bar itself. */
+  padding: max(var(--space-5), env(safe-area-inset-top, 0px)) max(var(--space-5), env(safe-area-inset-right, 0px)) max(var(--space-5), env(safe-area-inset-bottom, 0px)) max(var(--space-5), env(safe-area-inset-left, 0px));
   background: var(--page);
 }
 
@@ -2330,9 +2336,9 @@ body {
 
 body:has(.terminal-panel[data-lens="chat"]) {
   --composer-font-size: var(--chat-font-size, var(--terminal-font-size));
-  /* The chat's last answer gets a little more room above the composer than
-     the panel's own gap; the sidebar's footer grows by the same. */
-  --composer-gap: var(--space-5);
+  /* The chat's last answer gets as much room above the composer as the panel
+     leaves below it; the sidebar's footer grows by the same. */
+  --composer-gap: var(--space-4);
 }
 
 .terminal-panel[data-lens="chat"] > .input-form {
@@ -3557,11 +3563,14 @@ body.sidebar-collapsed .new-tab-open { display: none; }
     display: block;
   }
 
+  /* The drawer sits outside the shell, so it keeps out of the notch and the
+     gesture bar itself. */
   .navigator {
     position: fixed;
     inset: 0 auto 0 0;
     z-index: var(--layer-drawer);
     width: min(86vw, 310px);
+    padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
     border-right: 1px solid var(--line);
     box-shadow: var(--shadow-drawer);
     transform: translateX(-102%);
@@ -3616,11 +3625,12 @@ body.sidebar-collapsed .new-tab-open { display: none; }
     display: none;
   }
 
+  /* A phone's edges are often rounded or covered by a case lip: 16px keeps
+     the buttons clear of them (the shell adds any safe-area inset on top). */
   .terminal-panel {
-    height: 100vh;
-    height: var(--app-height, 100dvh);
+    height: 100%;
     min-height: 0;
-    padding: var(--space-2) var(--space-3) var(--space-3);
+    padding: var(--space-3) var(--space-4) var(--space-4);
     grid-template-rows: auto minmax(0, 1fr) auto auto;
   }
 
@@ -4220,7 +4230,7 @@ body.is-resizing-sidebar {
   /* The Chat lens's wider gap above the composer (--composer-gap), above the
      footer's buttons too, so they stay on the composer's middle. */
   body:has(.terminal-panel[data-lens="chat"]) .navigator .navigator-footer {
-    padding-top: var(--space-5);
+    padding-top: var(--space-4);
   }
 }
 
