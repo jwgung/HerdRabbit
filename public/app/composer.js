@@ -1,4 +1,4 @@
-import { writeInputHistories } from "../input-history-preference.js?v=1.4.42";
+import { writeInputHistories } from "../input-history-preference.js?v=1.4.43";
 
 // The composer's box: its height and its one-row or card layout, each pane's
 // unsent draft, and the sent-message history. The draft's pane and save timer,
