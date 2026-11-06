@@ -4,8 +4,9 @@ import { once } from "node:events";
 import WebSocket from "ws";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { PaneAttachments } from "../src/pane-attachments.mjs";
+import { MAX_WATCHED_CONVERSATIONS, MAX_WATCHED_PROMPTS } from "../src/terminal-websocket.mjs";
 
-async function fixture(context, overrides = {}, { attachments = null } = {}) {
+async function fixture(context, overrides = {}, { attachments = null, prompts = null } = {}) {
   let output = "prompt";
   let authenticated = true;
   const endedListeners = new Set();
@@ -31,6 +32,7 @@ async function fixture(context, overrides = {}, { attachments = null } = {}) {
     notificationMonitor: { recordRequest(...args) { requests.push(args); } },
     logger: { error() {} },
     attachments,
+    prompts,
   });
   app.server.listen(0, "127.0.0.1");
   await once(app.server, "listening");
@@ -331,4 +333,35 @@ test("one socket keeps only a few panes attached at once", async context => {
   client.send({ type: "detach", paneId: "w1:p1" });
   client.send({ type: "attach", paneId: "w1:p5", cols: 80, rows: 24 });
   await client.wait(message => message.type === "pane-geometry" && message.pane_id === "w1:p5");
+});
+
+test("one socket watches the prompt cards and conversations of a split's every Chat cell, and refuses past a few more", async context => {
+  // a view split shows at most 6 tiles (public/view-split.js, MAX_TILES)
+  assert.ok(MAX_WATCHED_PROMPTS >= 6 && MAX_WATCHED_CONVERSATIONS >= 6);
+  const watching = new Set();
+  const prompts = {
+    watch(paneId) { watching.add(paneId); return () => watching.delete(paneId); },
+    nudge() {},
+    stop() {},
+  };
+  const app = await fixture(context, { async snapshot() { return { workspaces: [], tabs: [], panes: [], agents: [] }; } }, { prompts });
+  const client = await app.connect();
+  await client.wait(message => message.type === "ready");
+  const panes = Array.from({ length: MAX_WATCHED_PROMPTS + 1 }, (_, n) => `w1:p${n + 1}`);
+  for (const pane of panes) client.send({ type: "watch-prompt", paneId: pane });
+  const last = panes.at(-1);
+  assert.deepEqual(await client.wait(message => message.type === "prompt-unavailable"), { type: "prompt-unavailable", pane_id: last, code: "busy" });
+  assert.equal(watching.size, MAX_WATCHED_PROMPTS);
+  // one let go makes room
+  client.send({ type: "unwatch-prompt", paneId: "w1:p1" });
+  client.send({ type: "watch-prompt", paneId: last });
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.ok(watching.has(last));
+  assert.equal(client.messages.filter(message => message.type === "prompt-unavailable").length, 1);
+
+  for (const pane of panes) client.send({ type: "watch-conversation", paneId: pane });
+  assert.deepEqual(await client.wait(message => message.type === "conversation-unavailable"),
+    { type: "conversation-unavailable", pane_id: last, code: "busy" });
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(client.messages.filter(message => message.type === "conversation-unavailable").length, 1);
 });

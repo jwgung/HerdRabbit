@@ -3,7 +3,7 @@ import { createChatLens } from "../chat/chat-view.js?v=1.4.42";
 import { createChatImages } from "../chat/chat-images.js?v=1.4.42";
 import { createImageViewer } from "../chat/image-viewer.js?v=1.4.42";
 import { createChatFind } from "../chat/chat-find.js?v=1.4.42";
-import { composerPlaceholder, createPromptDock } from "../chat/prompt-card.js?v=1.4.42";
+import { composerPlaceholder, createPromptDock, sharedPromptWatch } from "../chat/prompt-card.js?v=1.4.42";
 import { paneServerId } from "../ui-model.js?v=1.4.42";
 import {
   chatScale,
@@ -17,16 +17,29 @@ import {
 // are called through, so they may be defined further down app.js than this is
 // called. app.js keeps its own `promptDock`, `terminalFind` and `chatFind` and
 // sets them from what this returns; `chatFontSize` is read through a getter.
+// Whether the keyboard is in a terminal: the single pane's, or a grid cell's.
+export function inTerminal(node, singleTerminal) {
+  return Boolean(node) && (singleTerminal.contains(node) || Boolean(node.closest?.(".pane-grid-terminal")));
+}
+
 export function createChatPanel(deps) {
   const {
     state, elements, panePreferenceStorage, desktopMedia, terminalStream, attachedTerminal, paneCalls,
     conversationRequest, api, usesTouchInputEnvironment, isLinkableTerminalPath, openTerminalPath, setFeedback,
     showNewestTerminalOutput, scheduleTerminalPark, syncComposerExpanded, resizeTerminalInput, syncSendButton,
-    refreshTerminal, refreshAfterSubmission, selectedRecordsFor, viewTicket,
+    refreshTerminal, refreshAfterSubmission, selectedRecordsFor, viewTicket, renderPaneViews, shownGrid,
   } = deps;
   let promptDock = null;
   let terminalFind = null;
   let chatFind = null;
+  // Whether a grid (a Herdr tab's or this window's view split) is on screen:
+  // its focused cell is the selected pane, in that cell's lens.
+  const gridShown = () => elements.terminalPanel.classList.contains("is-grid");
+  // The prompt cards' watches: the selected pane's dock and each Chat cell's
+  // may watch the same pane while the focus moves between them.
+  const prompts = sharedPromptWatch(terminalStream);
+  // The terminal whose find marks show now (see findTerminal).
+  let marked = null;
 
   const chatLens = createChatLens({
     stage: elements.terminalStage,
@@ -56,11 +69,20 @@ export function createChatPanel(deps) {
       chatFind?.redrawn(chat, drawn);
       // a question card's context goes once the chat shows that message
       promptDock?.conversationChanged();
+      cellCards.get(chat.paneId)?.dock.conversationChanged();
     },
+    // A split's cells: a pane's chat became available or not, or a lens was
+    // chosen in one. They are drawn again, which hands them back here.
+    onCellsChange: () => renderPaneViews(),
+    onCells: (cells, paneId) => placePromptCards(cells, paneId),
     onLensChange: (lens, paneId, previous) => {
-      // `previous` follows a pane renamed under it (a move to another workspace)
-      if (lens === "terminal" && previous?.lens === "chat" && previous.paneId === paneId) showNewestTerminalOutput(paneId);
-      scheduleTerminalPark(lens, paneId);
+      const grid = gridShown();
+      // `previous` follows a pane renamed under it (a move to another workspace).
+      // A grid cell's terminal is its own, not the single one, and Herdr's view
+      // of the pane is left as it is.
+      if (!grid && lens === "terminal" && previous?.lens === "chat" && previous.paneId === paneId) showNewestTerminalOutput(paneId);
+      // The single terminal is not on screen under a grid: nothing to park.
+      scheduleTerminalPark(grid ? "terminal" : lens, paneId);
       // The key bar drives the terminal: the Chat lens hides it, and the
       // terminal fits again once it is back.
       elements.terminalPanel.dataset.lens = lens;
@@ -75,8 +97,9 @@ export function createChatPanel(deps) {
       if (lens !== "chat" || chatFind?.paneId !== paneId) chatFind?.close();
       if (terminalFind) syncTerminalFind();
       if (lens === "terminal") window.requestAnimationFrame(() => attachedTerminal.refit());
-      // Typing must not go on into a terminal that is no longer on screen.
-      if (lens === "chat" && elements.terminalXterm.contains(document.activeElement)) {
+      // Typing must not go on into a terminal that is no longer on screen
+      // (the single one, or a cell's under its chat).
+      if (lens === "chat" && inTerminal(document.activeElement, elements.terminalXterm)) {
         if (usesTouchInputEnvironment()) document.activeElement.blur();
         else elements.terminalInput.focus({ preventScroll: true });
       }
@@ -89,26 +112,65 @@ export function createChatPanel(deps) {
 
   // A blocked pane's prompt card: at the bottom of the Chat lens, and as a
   // banner over the Terminal lens (src/prompt/, public/chat/prompt-card.js).
-  promptDock = createPromptDock({
-    dock: elements.promptDock,
-    connection: terminalStream,
+  // What every prompt card shares: the requests, what an answer refreshes,
+  // and the conversation a card reads its words from.
+  const makeDock = (dock, extra) => createPromptDock({
+    dock,
+    connection: prompts,
     getJson: (path) => api(path),
     postJson: (path, body) => api(path, { method: "POST", body }),
-    showChat: () => chatLens.showChat(),
     onAnswered: (paneId, summary) => {
       chatLens.answered(paneId, summary);
       refreshAfterSubmission();
     },
+    conversation: (paneId) => chatLens.chatFor(paneId)?.agentText ?? "",
+    ...extra,
+  });
+  promptDock = makeDock(elements.promptDock, {
+    showChat: () => chatLens.showChat(),
     // the composer says which numbers answer the card
     onCardChange: (card) => {
       elements.terminalInput.placeholder = composerPlaceholder(card);
       // the key bar's composer side looks again at a number already typed
       elements.terminalInput.dispatchEvent(new Event("promptcardchange"));
     },
-    conversation: (paneId) => chatLens.chatFor(paneId)?.agentText ?? "",
   });
   promptDock.setLens(chatLens.lens);
   elements.terminalPanel.dataset.lens = chatLens.lens;
+
+  // In a split, each Chat cell shows its own pane's prompt card under its
+  // chat. The focused cell's is the selected pane's dock itself, moved into
+  // the cell, so the composer answers the card it shows (numbers, preview);
+  // every other Chat cell has a card of its own, made while it shows its
+  // chat. A Terminal cell's pane says it waits in the cell's header status.
+  const cellCards = new Map();
+  function placePromptCards(cells, paneId) {
+    const focused = cells?.find((cell) => cell.paneId === paneId && cell.lens === "chat") ?? null;
+    const home = focused ? focused.dockSlot : elements.terminalStage;
+    if (elements.promptDock.parentElement !== home) home.append(elements.promptDock);
+    const wanted = new Map((cells ?? []).filter((cell) => cell.lens === "chat" && cell.paneId !== paneId).map((cell) => [cell.paneId, cell]));
+    for (const [id, card] of cellCards) {
+      if (wanted.get(id)?.dockSlot === card.slot) continue;
+      card.dock.dispose();
+      card.element.remove();
+      cellCards.delete(id);
+    }
+    for (const [id, cell] of wanted) {
+      let card = cellCards.get(id);
+      if (!card) {
+        const element = document.createElement("div");
+        element.className = "prompt-dock";
+        element.dataset.mode = "hidden";
+        element.hidden = true;
+        cell.dockSlot.append(element);
+        const dock = makeDock(element, { showChat: () => true });
+        dock.setLens("chat");
+        card = { dock, element, slot: cell.dockSlot };
+        cellCards.set(id, card);
+      }
+      card.dock.select(id, { agent: cell.agent, status: cell.status });
+    }
+  }
 
   // Find in the terminal: searches the pane's whole history on the server and
   // herdr scrolls the pane's view to each match. Ctrl+F (Cmd+F on a Mac) opens
@@ -131,25 +193,45 @@ export function createChatPanel(deps) {
     // How many terminal rows the bar lies over, measured, so a match is
     // scrolled clear of it whatever the bar's size.
     coverRows: () => {
-      const row = document.querySelector("#terminal-xterm .xterm-rows > div")?.getBoundingClientRect();
-      const screen = document.querySelector("#terminal-xterm .xterm-screen")?.getBoundingClientRect();
+      const xterm = state.renderedGrid ? ".pane-grid-cell.is-focused .pane-grid-terminal" : "#terminal-xterm";
+      const row = document.querySelector(`${xterm} .xterm-rows > div`)?.getBoundingClientRect();
+      const screen = document.querySelector(`${xterm} .xterm-screen`)?.getBoundingClientRect();
       const bar = terminalFindForm.getBoundingClientRect();
       if (!row || !screen || row.height <= 0 || terminalFindForm.hidden) return undefined;
       return Math.max(0, Math.min(20, Math.ceil((bar.bottom - screen.top) / row.height)));
     },
-    onHighlight: (marks) => attachedTerminal.setFind(marks),
+    onHighlight: (marks) => {
+      // in a grid, the focused cell's own terminal; the one marked before lets its marks go
+      const target = findTerminal();
+      if (marked && marked !== target) marked.setFind(null);
+      marked = marks ? target : null;
+      target?.setFind(marks);
+    },
     onOpen: () => syncTerminalFind(),
     onClose: () => {
       syncTerminalFind();
-      if (!usesTouchInputEnvironment() && chatLens.lens === "terminal" && !state.renderedGrid) attachedTerminal.focus();
+      if (!usesTouchInputEnvironment() && chatLens.lens === "terminal") findTerminal()?.focus();
     },
     onError: (message) => setFeedback(message, true),
   });
 
-  // The pane find can work on now, or why not.
-  // None over a grid: its cells have no find, and the single terminal is not on screen.
+  // The terminal find marks: the single terminal, or over a grid the focused
+  // cell's own (`marked` is the one that has marks now).
+  function findTerminal() {
+    if (!state.renderedGrid) return attachedTerminal;
+    return state.selectedPaneId ? shownGrid()?.terminalOf(state.selectedPaneId) ?? null : null;
+  }
+
+  // The pane find can work on now, or why not. Over a grid, the focused cell
+  // while it shows its live terminal (a cell's terminal is never a mirror).
   function terminalFindTarget() {
-    const paneId = !state.renderedGrid && state.selectedPaneId && state.renderedPaneId === state.selectedPaneId
+    if (state.renderedGrid) {
+      const grid = shownGrid();
+      const paneId = state.selectedPaneId && grid?.lensOf(state.selectedPaneId) === "terminal" && grid.terminalOf(state.selectedPaneId)
+        ? state.selectedPaneId : null;
+      return { paneId, mirrored: false };
+    }
+    const paneId = state.selectedPaneId && state.renderedPaneId === state.selectedPaneId
       ? state.selectedPaneId : null;
     return { paneId, mirrored: Boolean(paneId && state.mirrored?.paneId === paneId) };
   }
@@ -229,9 +311,9 @@ export function createChatPanel(deps) {
     if (!isFindShortcut(event, FIND_SHORTCUT_MAC) || !state.authenticated) return;
     if (document.querySelector("dialog[open]")) return;
     const active = document.activeElement;
-    const inTerminal = elements.terminalXterm.contains(active);
+    const typing = inTerminal(active, elements.terminalXterm);
     const inFind = terminalFindForm.contains(active) || chatFindForm.contains(active);
-    if (!inTerminal && !inFind && active instanceof HTMLElement &&
+    if (!typing && !inFind && active instanceof HTMLElement &&
         (active.isContentEditable || active.matches("input, textarea, select"))) return;
     if (chatLens.lens === "chat") {
       if (!chatLens.chatFor(chatLens.paneId)) return;
@@ -269,7 +351,8 @@ export function createChatPanel(deps) {
 
   function overChat(target) {
     return chatLens.lens === "chat" && target instanceof Node &&
-      (elements.chatHost.contains(target) || elements.promptDock.contains(target));
+      (elements.chatHost.contains(target) || elements.promptDock.contains(target) ||
+        Boolean(target instanceof Element && target.closest(".pane-grid-chat")));
   }
 
   // Two fingers on the chat pinch its text size; one finger still scrolls it.

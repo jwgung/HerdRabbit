@@ -13,7 +13,7 @@
 // it, a pane the layout does not have yet is still counted and tappable, and
 // a tap on the map switches pane. A connected PC's split tab is one row too,
 // but opens a pane alone: no grid, no map. Behind a password, a grid is not redrawn while
-// nothing changed, has no terminal find, completes a notification for its
+// nothing changed, finds in the focused cell's terminal, completes a notification for its
 // pane once that pane's cell is on screen (not zoomed out), and its cells
 // reconnect after a hidden page or a sign-out and sign-in. A cell carried by
 // its header onto another's middle swaps the two, onto an edge goes beside it
@@ -657,11 +657,14 @@ try {
     const findHidden = () => page.locator("#terminal-find").evaluate((node) => node.hidden);
     await page.waitForTimeout(300);
     assert.equal(await findHidden(), true, "the grid closes the terminal find");
-    assert.equal(await page.locator("#terminal-find-open").evaluate((node) => node.hidden), true, "no find button over the grid");
+    assert.equal(await page.locator("#terminal-find-open").isVisible(), false, "no find button over the grid");
+    // Ctrl+F finds in the focused cell's terminal (its lens is Terminal).
     await page.locator("#pane-title").click();
     await page.keyboard.press("Control+f");
+    await page.locator("#terminal-find").waitFor({ state: "visible" });
+    await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
-    assert.equal(await findHidden(), true, "Ctrl+F opens no terminal find over the grid");
+    assert.equal(await findHidden(), true, "Escape closes the focused cell's find");
 
     // Polls with nothing changed leave the cells as they are.
     await page.waitForTimeout(800);
@@ -1136,7 +1139,13 @@ try {
       const { context, page, errors } = await open(count);
       const seen = await filled(page, `${count} cells`);
       console.log(`  ${count} cells at 1280x844: board ${seen.board} in stage ${seen.stage}, font ${seen.cells[0].font}`);
-      assert.ok(seen.gapLeft > 1 || seen.boardTop > 1 || Math.abs(seen.aspect - seen.stageAspect) < 0.02, `${count} cells: the board is letterboxed`);
+      // The tab's shape, not the stage's: the board is not stretched to the
+      // stage both ways (room is left beside it or under it), or by chance the
+      // tab has the stage's own shape. Which way the room is left depends on
+      // the font's metrics, so either counts.
+      const spare = [seen.stage[0] - seen.board[0], seen.stage[1] - seen.board[1]];
+      assert.ok(spare[0] > 1 || spare[1] > 1 || Math.abs(seen.aspect - seen.stageAspect) < 0.02,
+        `${count} cells: the board is letterboxed (${seen.board} in ${seen.stage})`);
       await page.setViewportSize({ width: 1100, height: 700 });
       await filled(page, `${count} cells, a smaller window`);
       await page.locator("#sidebar-toggle").click();

@@ -222,6 +222,50 @@ function renderCard(document, card, view) {
   return section;
 }
 
+// The page's prompt watches shared by several cards: the selected pane's
+// dock and one per Chat cell of a split may watch the same pane while the
+// focus moves between them. Each pane is asked for once and let go when the
+// last card lets go of it; a card that joins hears the card last pushed for
+// it, as the first one did when the server began watching. A pane the server
+// could not watch is let go at once (every card hears why, and asks again
+// later). `onPrompt` answers a function that stops that listener.
+export function sharedPromptWatch(connection) {
+  const counts = new Map();
+  const pushed = new Map();
+  const listeners = new Set();
+  const tell = (message) => { for (const listener of [...listeners]) listener(message); };
+  connection.onPrompt((message) => {
+    if (message.type === "prompt-unavailable" && counts.has(message.pane_id)) {
+      counts.delete(message.pane_id);
+      pushed.delete(message.pane_id);
+      connection.unwatchPrompt(message.pane_id);
+    }
+    if (message.type === "prompt" && counts.has(message.pane_id)) pushed.set(message.pane_id, message);
+    tell(message);
+  });
+  return {
+    watchPrompt(paneId) {
+      const count = counts.get(paneId) ?? 0;
+      counts.set(paneId, count + 1);
+      if (count === 0) { connection.watchPrompt(paneId); return; }
+      const known = pushed.get(paneId);
+      if (known) queueMicrotask(() => { if (pushed.get(paneId) === known) tell(known); });
+    },
+    unwatchPrompt(paneId) {
+      const count = counts.get(paneId) ?? 0;
+      if (count === 0) return;
+      if (count > 1) { counts.set(paneId, count - 1); return; }
+      counts.delete(paneId);
+      pushed.delete(paneId);
+      connection.unwatchPrompt(paneId);
+    },
+    onPrompt(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
 // `dock` is the element in the pane's stage. `connection` is the page's
 // terminal socket (watchPrompt / unwatchPrompt / onPrompt / onReconnect).
 // `getJson(path)` and `postJson(path, body)` answer the payload or throw
@@ -450,7 +494,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
   // ask to watch it again in a while, as long as it is still the one wanted.
   const REWATCH_MS = 5_000;
   let rewatchTimer = null;
-  connection.onPrompt((message) => {
+  const stopListening = connection.onPrompt((message) => {
     if (message.pane_id !== paneId) return;
     if (message.type === "prompt") { setCard(message.card ?? null); return; }
     void refresh();
@@ -502,5 +546,14 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     get card() { return card; },
     get paneId() { return paneId; },
     get mode() { return dock.dataset.mode ?? "hidden"; },
+    // A Chat cell's card that leaves: its pane is let go and nothing is heard.
+    dispose() {
+      clearTimeout(rewatchTimer);
+      rewatchTimer = null;
+      answering = null;
+      paneId = null;
+      watch(null);
+      if (typeof stopListening === "function") stopListening();
+    },
   };
 }

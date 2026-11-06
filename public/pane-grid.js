@@ -6,6 +6,7 @@ import { createAttachedTerminal } from "./xterm-terminal.js?v=1.4.42";
 import { terminalConnection } from "./terminal-connection.js?v=1.4.42";
 import { MOUSE_DRAG_SLOP, dropPreview, dropSide } from "./sidebar-drag.js?v=1.4.42";
 import { adjustedGridFont, normalizedGridFont } from "./terminal-preference.js?v=1.4.42";
+import { CHAT_CELL_TOO_SMALL, cellLens, chatCellRoomy } from "./lens-preference.js?v=1.4.42";
 
 // A cell smaller than this (in Herdr's cells, or for a cell that sizes its
 // pane, in its own at the terminal font) is too small to read: it shows the
@@ -14,10 +15,11 @@ import { adjustedGridFont, normalizedGridFont } from "./terminal-preference.js?v
 export const MIN_ATTACH_COLS = 10;
 export const MIN_ATTACH_ROWS = 3;
 
-// What a cell takes around its terminal's screen, in px: its border and
-// header, and the terminal's padding (styles.css, .pane-grid-cell).
+// What a cell takes around its terminal's screen, in px, inside its frame:
+// its border, its header (--control-h-md) and the terminal's padding
+// (styles.css, .pane-grid-cell).
 const CELL_CHROME_X = 2 + 8;
-const CELL_CHROME_Y = 2 + 24 + 6;
+const CELL_CHROME_Y = 2 + 36 + 6;
 
 // How many columns and rows a cell of `width` by `height` px (its frame)
 // holds for a font whose character is `charWidth` by `charHeight`.
@@ -198,6 +200,10 @@ export const GRID_MAX_FONT = 32;
 export const LAYOUT_MOTION_MS = 200;
 const LAYOUT_EASING = "cubic-bezier(0.2, 0, 0, 1)";
 
+// A cell's header buttons: a press on them neither picks the cell up nor
+// moves the typing.
+const HEADER_CONTROLS = ".pane-grid-menu-slot, .pane-grid-expand, .pane-grid-lens";
+
 function element(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -206,15 +212,23 @@ function element(tag, className, text) {
 }
 
 const EXPAND_ICON = "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5";
+// The pane header's Chat and Terminal icons (index.html, #lens-chat and
+// #lens-terminal), drawn on a 20px box.
+const CHAT_ICON = [["path", { d: "M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 13V6A1.5 1.5 0 0 1 4 4.5Z" }],
+  ["path", { d: "M6.5 8.5h7M6.5 11h4.5" }]];
+const TERMINAL_ICON = [["rect", { x: "2.5", y: "3.5", width: "15", height: "13", rx: "1.5" }], ["path", { d: "m6 8 2.5 2L6 12M10.5 12.5h3.5" }]];
 
-function icon(path) {
+function icon(path, { box = "0 0 24 24", className = null } = {}) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("viewBox", box);
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("focusable", "false");
-  const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  shape.setAttribute("d", path);
-  svg.append(shape);
+  if (className) svg.setAttribute("class", className);
+  for (const [tag, attributes] of Array.isArray(path) ? path : [["path", { d: path }]]) {
+    const shape = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [name, value] of Object.entries(attributes)) shape.setAttribute(name, value);
+    svg.append(shape);
+  }
   return svg;
 }
 
@@ -226,7 +240,14 @@ function icon(path) {
 // Without it a cell attaches with keepSize: it shows the pane at Herdr's size
 // and never resizes it, and the cells share the font their board fits.
 // `panes` given to show() are { paneId, label, status, statusIcon, statusText }
-// (and `offline` for a pane whose machine is away: its cell attaches no terminal);
+// (and `offline` for a pane whose machine is away: its cell attaches no terminal),
+// with the lens the pane opens in (`lens`, "chat" or "terminal"), whether it
+// has a chat (`chatAvailable`), what its Chat button says (`chatTitle`) and
+// the agent the chat reads (`chatAgent`). A cell shows its pane's chat in its
+// own host when it has room (cellLens); its terminal stays attached under it,
+// hidden, and keeps sizing the pane as before. `onLens(paneId, lens)` hears a
+// cell's Chat or Terminal button, `onCellLens()` a cell's lens changed by its
+// size alone (lensCells() answers them all);
 // its `layout` is undefined while not read yet (the cells wait, unattached, so
 // none attaches only to let go once Herdr's sizes are known) and null when it
 // could not be read (the cells share an even grid and attach).
@@ -248,7 +269,8 @@ function icon(path) {
 // with fewer than two cells, or while `canRearrange()` says no.
 export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, onSelect, onExpand, onUnzoom = () => {},
   onAuthenticationRequired = () => {}, terminalOptions = {}, mode = "herdr",
-  onRearrange = null, canRearrange = () => true, manualFont = null, onFontChange = () => {}, fit = false }) {
+  onRearrange = null, canRearrange = () => true, manualFont = null, onFontChange = () => {}, fit = false,
+  onLens = () => {}, onCellLens = () => {} }) {
   const view = mode === "view";
   // Whether the cells size their panes to themselves: a view split's tiles
   // always do (they have no layout of Herdr's to keep).
@@ -304,6 +326,20 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
   let fitWaiting = false;
   const sizeWatch = typeof ResizeObserver === "function" ? new ResizeObserver(() => scheduleBoardFit()) : null;
   sizeWatch?.observe(root);
+  // A cell grown or shrunk past the chat's room switches lens: looked at once
+  // a frame, whatever made the stage change size.
+  let lensFrame = null;
+  const lensWatch = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
+    if (lensFrame !== null || root.hidden) return;
+    lensFrame = requestAnimationFrame(() => {
+      lensFrame = null;
+      if (root.hidden) return;
+      let changed = false;
+      for (const cell of cells.values()) if (showLens(cell)) changed = true;
+      if (changed) onCellLens();
+    });
+  }) : null;
+  lensWatch?.observe(root);
   // A font that arrives late measures anew.
   document.fonts?.addEventListener?.("loadingdone", () => { metrics = null; scheduleBoardFit(); });
 
@@ -343,7 +379,13 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       unfitBoard();
       boardFont = null;
       // The stage or the font changed: a cell may have room for a terminal now, or not any more.
-      if (!root.hidden) for (const cell of cells.values()) settle(cell);
+      if (root.hidden) return;
+      let changed = false;
+      for (const cell of cells.values()) {
+        settle(cell);
+        if (showLens(cell)) changed = true;
+      }
+      if (changed) onCellLens();
       return;
     }
     if (view || root.hidden || root.classList.contains("is-waiting")) { unfitBoard(); return; }
@@ -656,6 +698,35 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     else attach(cell);
   }
 
+  // Shows the cell's lens as its pane wants and its size allows (cellLens):
+  // the chat over the terminal, which stays attached and laid out under it
+  // (so it keeps its size, and the pane's), or the terminal. Answers whether
+  // the lens changed.
+  function showLens(cell) {
+    const pane = cell.pane;
+    if (!pane) return false;
+    // a cell hidden behind another pane's zoom keeps what it last had
+    const roomy = cell.node.hidden ? cell.chatRoomy : chatCellRoomy({ width: cell.node.clientWidth, height: cell.node.clientHeight });
+    const available = pane.chatAvailable === true && pane.offline !== true;
+    const shown = cellLens({ wanted: pane.lens, chatAvailable: available, roomy });
+    const lens = cell.node.classList.contains("is-tiny") ? "terminal" : shown.lens;
+    const changed = lens !== cell.lens || roomy !== cell.chatRoomy;
+    cell.lens = lens;
+    cell.chatRoomy = roomy;
+    cell.node.dataset.lens = lens;
+    cell.chat.hidden = lens !== "chat";
+    cell.hint.hidden = !shown.tooSmall;
+    cell.lensSwitch.setAttribute("aria-label", `View of ${pane.label}`);
+    cell.chatButton.setAttribute("aria-pressed", String(lens === "chat"));
+    cell.terminalButton.setAttribute("aria-pressed", String(lens === "terminal"));
+    cell.chatButton.setAttribute("aria-disabled", String(!shown.chatEnabled));
+    cell.chatButton.setAttribute("aria-label", `Show the conversation of ${pane.label}`);
+    cell.terminalButton.setAttribute("aria-label", `Show the terminal of ${pane.label}`);
+    cell.chatButton.title = !available ? pane.chatTitle ?? "Chat is unavailable for this pane."
+      : !roomy ? CHAT_CELL_TOO_SMALL : pane.chatTitle ?? "Show the conversation";
+    return changed;
+  }
+
   function createCell(paneId) {
     const node = element("div", "pane-grid-cell");
     node.dataset.paneId = paneId;
@@ -665,26 +736,52 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     const label = element("span", "pane-grid-label");
     const context = element("small", "pane-grid-context");
     context.hidden = true;
+    // Chat or Terminal for this cell alone (the pane header's switch, as icons).
+    const lensSwitch = element("span", "pane-grid-lens");
+    lensSwitch.setAttribute("role", "group");
+    const chatButton = element("button", "pane-grid-lens-chat");
+    chatButton.type = "button";
+    chatButton.append(icon(CHAT_ICON, { box: "0 0 20 20", className: "lens-icon" }));
+    const terminalButton = element("button", "pane-grid-lens-terminal");
+    terminalButton.type = "button";
+    terminalButton.title = "Show the terminal";
+    terminalButton.append(icon(TERMINAL_ICON, { box: "0 0 20 20", className: "lens-icon" }));
+    lensSwitch.append(chatButton, terminalButton);
     const expand = element("button", "pane-grid-expand");
     expand.type = "button";
     expand.append(icon(EXPAND_ICON));
     const menuSlot = element("span", "pane-grid-menu-slot");
-    header.append(status, context, label, expand, menuSlot);
+    header.append(status, context, label, lensSwitch, expand, menuSlot);
     const body = element("div", "pane-grid-terminal");
     body.hidden = true;
+    // The pane's chat, over its terminal (chat-view.js puts it here), and its
+    // prompt card under it (prompt-card.js).
+    const chat = element("div", "pane-grid-chat");
+    chat.hidden = true;
+    const dockSlot = element("div", "pane-grid-dock");
+    chat.append(dockSlot);
+    const hint = element("p", "pane-grid-hint", CHAT_CELL_TOO_SMALL);
+    hint.hidden = true;
     const note = element("p", "pane-grid-note");
     note.hidden = true;
-    node.append(header, body, note);
+    node.append(header, body, chat, hint, note);
     // Reachable by Tab; focus arriving in the cell (the cell itself, its
     // terminal's textarea) selects it like a press does.
     node.tabIndex = 0;
     node.setAttribute("role", "group");
-    const cell = { paneId, node, header, status, context, label, expand, body, note, menuSlot, menuKey: null, terminal: null, connection: null, attached: false,
-      box: null, place: null, zoomed: false, focused: false, roomy: false, font: null, watched: null };
+    const cell = { paneId, node, header, status, context, label, lensSwitch, chatButton, terminalButton, expand, body, chat, dockSlot, hint, note,
+      menuSlot, menuKey: null, terminal: null, connection: null, attached: false,
+      box: null, place: null, zoomed: false, focused: false, roomy: false, font: null, watched: null,
+      pane: null, lens: "terminal", chatRoomy: true };
+    chatButton.addEventListener("click", () => {
+      if (chatButton.getAttribute("aria-disabled") === "true") return;
+      onLens(paneId, "chat");
+    });
+    terminalButton.addEventListener("click", () => onLens(paneId, "terminal"));
     // A mouse held on the header (not on its buttons) may pick the cell up.
     header.addEventListener("pointerdown", (event) => {
       if (!event.isPrimary || event.pointerType === "touch" || event.button !== 0 || drag || press) return;
-      if (event.target.closest(".pane-grid-menu-slot, .pane-grid-expand") || !rearrangeable()) return;
+      if (event.target.closest(HEADER_CONTROLS) || !rearrangeable()) return;
       press = { cell, pointerId: event.pointerId, x: event.clientX, y: event.clientY };
     });
     header.addEventListener("lostpointercapture", (event) => {
@@ -703,14 +800,16 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       if (event.target !== node || (event.key !== "Enter" && event.key !== " ")) return;
       event.preventDefault();
       if (selected !== paneId) onSelect(paneId);
-      if (cell.attached) cell.terminal.focus();
+      if (cell.attached && cell.lens === "terminal") cell.terminal.focus();
     });
+    // A press on a Terminal cell leaves the typing in its terminal; a Chat
+    // cell's terminal is hidden, so the typing goes to the composer instead.
     node.addEventListener("click", (event) => {
-      if (event.target.closest(".pane-grid-menu-slot, .pane-grid-expand")) return;
-      if (cell.attached && !event.target.closest(".pane-grid-terminal")) cell.terminal.focus();
+      if (event.target.closest(HEADER_CONTROLS)) return;
+      if (cell.attached && cell.lens === "terminal" && !event.target.closest(".pane-grid-terminal")) cell.terminal.focus();
     });
     header.addEventListener("dblclick", (event) => {
-      if (event.target.closest(".pane-grid-menu-slot, .pane-grid-expand")) return;
+      if (event.target.closest(HEADER_CONTROLS)) return;
       onExpand(paneId);
     });
     expand.addEventListener("click", () => onExpand(paneId));
@@ -761,6 +860,8 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
           ghost.dataset.leavingPaneId = paneId;
           delete ghost.dataset.paneId;
           ghost.removeAttribute("tabindex");
+          // A Chat cell's copy carries its chat and its card: no id of the page's twice.
+          for (const named of ghost.querySelectorAll("[id]")) named.removeAttribute("id");
           ghost.setAttribute("aria-hidden", "true");
           ghost.inert = true;
           leaving.push(ghost);
@@ -808,14 +909,35 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
           more.setAttribute("aria-label", `More actions for ${pane.label}`);
           more.title = `More actions for ${pane.label}`;
         }
-        Object.assign(cell, { place, zoomed, focused, offline: pane.offline === true });
+        Object.assign(cell, { place, zoomed, focused, offline: pane.offline === true, pane });
         settle(cell);
       }
       board.append(...leaving);
       // The board takes its new shape before the cells slide into it.
       if (boardFrame !== null) { cancelAnimationFrame(boardFrame); boardFrame = null; }
       fitBoard();
+      // Each cell's lens, at the size it has now.
+      for (const cell of cells.values()) showLens(cell);
       slide(waiting ? null : before, leaving);
+    },
+    // Every cell on screen: its pane, its lens, whether it has room for a chat,
+    // the host its chat goes in and the slot for its prompt card.
+    lensCells() {
+      if (root.hidden || root.classList.contains("is-waiting")) return [];
+      return visibleCells().map((cell) => ({
+        paneId: cell.paneId, lens: cell.lens, roomy: cell.chatRoomy, host: cell.chat, dockSlot: cell.dockSlot,
+        agent: cell.pane?.chatAgent ?? null, status: cell.pane?.status ?? null,
+      }));
+    },
+    // The lens `paneId`'s cell shows, or null when it has no cell on screen.
+    lensOf(paneId) {
+      const cell = cells.get(paneId);
+      return cell && !root.hidden && !cell.node.hidden ? cell.lens : null;
+    },
+    // The live terminal of `paneId`'s cell (find in it), or null.
+    terminalOf(paneId) {
+      const cell = cells.get(paneId);
+      return cell?.attached && !root.hidden && !cell.node.hidden ? cell.terminal : null;
     },
     // Moves the focus ring and the typing to `paneId`'s cell.
     focus(paneId, { terminal = true } = {}) {
@@ -823,7 +945,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       drawnKey = null;
       for (const cell of cells.values()) cell.node.classList.toggle("is-focused", cell.paneId === paneId);
       const cell = cells.get(paneId);
-      if (terminal && cell?.attached) cell.terminal.focus();
+      if (terminal && cell?.attached && cell.lens === "terminal") cell.terminal.focus();
     },
     // The terminal font size cells that size their panes read at. Cells that
     // keep their panes' sizes take the font their board fits instead (up to
