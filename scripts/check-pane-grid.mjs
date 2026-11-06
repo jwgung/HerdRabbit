@@ -1139,7 +1139,13 @@ try {
       const { context, page, errors } = await open(count);
       const seen = await filled(page, `${count} cells`);
       console.log(`  ${count} cells at 1280x844: board ${seen.board} in stage ${seen.stage}, font ${seen.cells[0].font}`);
-      assert.ok(seen.gapLeft > 1 || seen.boardTop > 1 || Math.abs(seen.aspect - seen.stageAspect) < 0.02, `${count} cells: the board is letterboxed`);
+      // The tab's shape, not the stage's: the board is not stretched to the
+      // stage both ways (room is left beside it or under it), or by chance the
+      // tab has the stage's own shape. Which way the room is left depends on
+      // the font's metrics, so either counts.
+      const spare = [seen.stage[0] - seen.board[0], seen.stage[1] - seen.board[1]];
+      assert.ok(spare[0] > 1 || spare[1] > 1 || Math.abs(seen.aspect - seen.stageAspect) < 0.02,
+        `${count} cells: the board is letterboxed (${seen.board} in ${seen.stage})`);
       await page.setViewportSize({ width: 1100, height: 700 });
       await filled(page, `${count} cells, a smaller window`);
       await page.locator("#sidebar-toggle").click();
