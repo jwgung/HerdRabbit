@@ -232,11 +232,11 @@ try {
     assert.equal(ptys.length, spawned, "no pane attached again");
     assert.deepEqual(frames.slice(framesBefore).filter((frame) => ["attach", "detach", "resize"].includes(frame.type)), [],
       "no attach, detach or resize went out");
-    // The pressed cell is focused: the panel takes its lens (no key bar, Stop or Send for the chat).
+    // The pressed cell is focused: the panel takes its lens (Stop or Send for the chat).
+    // The key bar stays in a grid, so selecting a cell resizes nothing; its keys go to the cell's pane.
     assert.equal(await cell("w1:p1").evaluate((node) => node.classList.contains("is-focused")), true);
     assert.equal(await panelLens(), "chat");
-    assert.equal(await keyBarShown(), false, "a Chat cell hides the key bar");
-    assert.equal(await page.locator("#quick-keys").evaluate((node) => node.getBoundingClientRect().height > 0), true, "and keeps its room");
+    assert.equal(await keyBarShown(), true, "a Chat cell keeps the key bar in a grid");
     for (const id of ["w1:p2", "w1:p3", "w1:p4"]) assert.equal(await cell(id).locator(".chat-pane").count(), 0, `${id} shows no chat`);
 
     // The composer follows the pressed cell: alpha (chat) then gamma (terminal).
@@ -246,7 +246,7 @@ try {
     assert.deepEqual(sentTexts.at(-1), { paneId: "w1:p1", text: "to alpha" });
     await cell("w1:p3").locator(".pane-grid-label").click();
     await page.waitForFunction(() => document.querySelector(".terminal-panel").dataset.lens === "terminal");
-    assert.equal(await keyBarShown(), true, "a Terminal cell shows the key bar");
+    assert.equal(await keyBarShown(), true, "a Terminal cell shows the key bar too");
     await page.locator("#terminal-input").fill("to gamma");
     await page.locator(".send-button").click();
     await page.waitForFunction(() => document.querySelector("#terminal-input").value === "");

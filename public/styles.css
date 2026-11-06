@@ -4868,18 +4868,17 @@ body.is-sidebar-dragging * {
 
 /* The grid takes the terminal's place; the single pane's own pieces step
    aside (the find bars stay, for the focused cell). The panel's lens is the
-   focused cell's: a Chat cell hides the key bar, a Terminal cell shows it.
+   focused cell's (Stop, the composer's text size, find).
    The grid keeps its size whichever cell is focused, though: its cells size
    their panes (Fit panes to this window, a view split's tiles), and a press
-   on another cell must not resize every pane. So over a Chat cell the key
-   bar keeps its room, unseen, and the composer keeps its place. */
+   on another cell must not resize every pane. So in a grid the key bar stays
+   over a Chat cell too; its keys still go to that cell's pane. */
 .terminal-panel.is-grid {
   grid-template-rows: auto minmax(0, 1fr) auto auto;
 }
 
 .terminal-panel.is-grid[data-lens="chat"] .quick-keys {
   display: grid;
-  visibility: hidden;
 }
 
 .terminal-panel.is-grid[data-lens="chat"] > .input-form {
