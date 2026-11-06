@@ -88,9 +88,10 @@ jobs:
             echo "[skip release]: no release for this merge."
             exit 0
           fi
-          # a newer push is on main: its own run releases both
+          # a newer push is on main: this merge goes out with the next release
+          # (the newer push's own, once its checks pass and it is not skipped)
           if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
-            echo "main moved past $GITHUB_SHA; the newer run releases it."
+            echo "main moved past $GITHUB_SHA; the next release carries it."
             exit 0
           fi
           git checkout -B main "$GITHUB_SHA"
@@ -98,7 +99,7 @@ jobs:
           node --test test/release-version.test.mjs test/release-script.test.mjs
           git commit -am "release: $version"
           if ! git push origin main; then
-            echo "main moved while releasing; the newer run releases it."
+            echo "main moved while releasing; the next release carries it."
             exit 0
           fi
           echo "pushed=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"

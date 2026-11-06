@@ -25,22 +25,33 @@ export function nextPatch(version) {
 }
 
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+// 1.4.43 as a regular expression spells it: 1\.4\.43
+const spelled = (version) => version.replace(/\./gu, "\\.");
 
-// `from` as it is written and as a regular expression spells it (1\.4\.43,
-// in the release test), and only where no other digit continues it.
+// `from` as it is written and as a regular expression spells it (in the
+// release test), and only where no other digit or dotted part continues it.
 export function releasedText(text, from, to) {
-  const plain = new RegExp(`(?<![\\d.])${escape(from)}(?![\\d])`, "gu");
-  const spelled = escape(from).replace(/\\\./gu, "\\\\.");
-  const asPattern = new RegExp(`(?<![\\d.])${spelled}(?![\\d])`, "gu");
-  return text.replace(asPattern, to.replace(/\./gu, "\\.")).replace(plain, to);
+  const edge = (pattern) => new RegExp(`(?<![\\d.\\\\])${pattern}(?!\\.?\\d|\\\\\\.\\d)`, "gu");
+  return text
+    .replace(edge(escape(spelled(from))), spelled(to))
+    .replace(edge(escape(from)), to);
 }
 
-// Where the version lives: the package, the lock file's own entry, the plugin
-// manifest, the web app, and the test that holds them to one version.
+// Where the version lives as text: the package, the plugin manifest, the web
+// app, and the test that holds them to one version. The lock file is set as
+// JSON instead (releasedLock), so a dependency that shares the number keeps it.
 export function releaseFiles(tracked) {
   return tracked.filter((path) =>
-    ["package.json", "package-lock.json", "herdr-plugin.toml", "test/release-version.test.mjs"].includes(path) ||
+    ["package.json", "herdr-plugin.toml", "test/release-version.test.mjs"].includes(path) ||
     path.startsWith("public/"));
+}
+
+// package-lock.json with the package's own version (its top and its "" entry) set.
+export function releasedLock(text, to) {
+  const lock = JSON.parse(text);
+  lock.version = to;
+  if (lock.packages?.[""]) lock.packages[""].version = to;
+  return `${JSON.stringify(lock, null, 2)}\n`;
 }
 
 function release(root, wanted) {
@@ -50,20 +61,17 @@ function release(root, wanted) {
   if (!VERSION.test(to)) throw new Error(`A release version is x.y.z, not "${to}".`);
   if (to === from) throw new Error(`The version is ${from} already.`);
   const tracked = execFileSync("git", ["ls-files"], { cwd: fileURLToPath(root), encoding: "utf8" }).split("\n").filter(Boolean);
-  for (const path of releaseFiles(tracked)) {
+  const files = releaseFiles(tracked);
+  for (const path of files) {
     const text = read(path);
-    if (!text.includes(from) && !text.includes(escape(from))) continue;
     const next = releasedText(text, from, to);
     if (next !== text) writeFileSync(new URL(path, root), next);
   }
-  // The lock file's own version is the package's; a dependency that happens
-  // to share the number is not touched above (only the root entries carry it
-  // in practice), and this says so if that ever changes.
-  const lock = JSON.parse(read("package-lock.json"));
-  if (lock.version !== to || lock.packages?.[""]?.version !== to) {
-    throw new Error("package-lock.json's own version did not change; look at it by hand.");
-  }
-  const left = releaseFiles(tracked).filter((path) => read(path).includes(from));
+  writeFileSync(new URL("package-lock.json", root), releasedLock(read("package-lock.json"), to));
+  const left = files.filter((path) => {
+    const text = read(path);
+    return text.includes(from) || text.includes(spelled(from));
+  });
   if (left.length > 0) throw new Error(`Still at ${from}: ${left.join(", ")}`);
   return to;
 }
