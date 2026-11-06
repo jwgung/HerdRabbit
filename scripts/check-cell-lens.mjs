@@ -177,7 +177,8 @@ try {
     await gridSettled(page);
 
     // The cell's look: a 36px header in the app's font with a 28px ⤢, the
-    // switch before it, and cards 6px apart.
+    // switch before it (square buttons, the group as tall as ⤢), and cards
+    // 6px apart.
     const look = await page.evaluate(() => {
       const one = document.querySelector('.pane-grid-cell[data-pane-id="w1:p1"]');
       const two = document.querySelector('.pane-grid-cell[data-pane-id="w1:p2"]');
@@ -192,6 +193,11 @@ try {
         font: getComputedStyle(header).fontFamily === getComputedStyle(document.body).fontFamily,
         expand: expand.getBoundingClientRect().width,
         lensBeforeExpand: lens.nextElementSibling === expand,
+        lensHeight: lens.getBoundingClientRect().height,
+        lensButton: [...lens.querySelectorAll("button")].map((button) => {
+          const box = button.getBoundingClientRect();
+          return [box.width, box.height];
+        }),
         cardGap,
         ring: getComputedStyle(one, "::after").borderTopWidth,
       };
@@ -200,6 +206,8 @@ try {
     assert.ok(look.font, "the cell header uses the app's font, not the terminal's");
     assert.equal(look.expand, 28);
     assert.ok(look.lensBeforeExpand, "the switch sits before ⤢");
+    assert.equal(look.lensHeight, 28, "the switch is as tall as ⤢");
+    assert.deepEqual(look.lensButton, [[26, 26], [26, 26]], "the switch's buttons are square");
     assert.ok(Math.abs(look.cardGap - 6) <= 1, `cards are 6px apart: ${look.cardGap}`);
 
     // Desktop default: every cell in Terminal, the panel's lens is the focused cell's.

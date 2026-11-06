@@ -5176,19 +5176,19 @@ body.is-pane-rearranging * {
 }
 
 /* Chat or Terminal for this cell alone: the pane header's switch, as icons. */
+/* Square buttons with no inner padding: the group is as tall (28px) as the
+   expand and close buttons beside it. */
 .pane-grid-lens {
   flex: 0 0 auto;
   display: inline-flex;
-  gap: var(--space-0-5);
-  padding: var(--space-0-5);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: var(--surface);
 }
 
 .pane-grid-lens button {
-  width: 30px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   display: inline-grid;
   place-items: center;
   padding: 0;
@@ -5218,8 +5218,8 @@ body.is-pane-rearranging * {
 }
 
 .pane-grid-lens .lens-icon {
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
   stroke-width: 1.5;
 }
 
