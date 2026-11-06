@@ -48,26 +48,66 @@ jobs:
         run: npx playwright install-deps chromium
       - run: npm run check:browser
 
-  # A "release: x.y.z" commit on main becomes the v<x.y.z> tag, once CI has passed.
-  tag:
+  # Every merge to main is released once CI has passed: the next patch version
+  # is committed as "release: x.y.z" (scripts/release.mjs) and tagged, and the
+  # tag gets its GitHub release. "[skip release]" in the merged commit's
+  # message leaves it for the next release. A "release: x.y.z" commit pushed by
+  # hand is tagged as it is. The bot's push starts no new run (pushes made with
+  # the workflow's token never do), so the release commit is checked here: it
+  # changes the version strings only, and the release test holds them to one.
+  release:
     needs: [verify, browser]
-    # every push to main: the newest release commit gets its tag and release
-    # once, even when the push that brought it did not (a failed run, or a
-    # later commit pushed with it)
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # one release at a time; a run behind a newer one finds main moved and stops
+    concurrency:
+      group: release-main
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Commit the release
+        id: bump
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          subject="$(git log -1 --format=%s "$GITHUB_SHA")"
+          if printf '%s' "$subject" | grep -qP '^release: v?[\d.]+$'; then
+            echo "The pushed commit is a release; it is tagged below."
+            exit 0
+          fi
+          if printf '%s' "$MESSAGE" | grep -qF '[skip release]'; then
+            echo "[skip release]: no release for this merge."
+            exit 0
+          fi
+          # a newer push is on main: this merge goes out with the next release
+          # (the newer push's own, once its checks pass and it is not skipped)
+          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
+            echo "main moved past $GITHUB_SHA; the next release carries it."
+            exit 0
+          fi
+          git checkout -B main "$GITHUB_SHA"
+          version="$(node scripts/release.mjs)"
+          node --test test/release-version.test.mjs test/release-script.test.mjs
+          git commit -am "release: $version"
+          if ! git push origin main; then
+            echo "main moved while releasing; the next release carries it."
+            exit 0
+          fi
+          echo "pushed=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Tag the newest release commit
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # an annotated tag is made by someone: the Actions bot
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main --tags
           commit="$(git log origin/main --format='%H %s' -20 | grep -P '^[0-9a-f]{40} release: v?[\d.]+$' | head -n1)"
           if [ -z "$commit" ]; then
             echo "No release commit in the recent main history; nothing to tag."
@@ -79,8 +119,9 @@ jobs:
           if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
             echo "Tag v$version already exists; skipping."
           else
-            # the tag names the release commit itself, not what came after it
+            # an annotated tag is made by someone: the Actions bot; it names the
+            # release commit itself, not what came after it
             git tag -a "v$version" "$sha" -m "HerdRabbit $version"
             git push origin "v$version"
-            gh release create "v$version" --verify-tag --title "HerdRabbit $version" --latest
+            gh release create "v$version" --verify-tag --title "HerdRabbit $version" --latest --generate-notes
           fi
