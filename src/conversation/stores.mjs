@@ -16,7 +16,7 @@ import { open, readFile, readdir, readlink, realpath, stat } from "node:fs/promi
 import { homedir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 import { JOB_SHORT_ID, SESSION_ID } from "./claude.mjs";
-import { THREAD_ID } from "./codex.mjs";
+import { MAX_TITLE_LENGTH, THREAD_ID } from "./codex.mjs";
 import { SESSION_ID as KIRO_SESSION_ID } from "./kiro.mjs";
 import { defaultAgyDataDir, localAgyStore } from "./agy.mjs";
 import { defaultOpencodeDb, localOpencodeStore } from "./opencode.mjs";
@@ -198,6 +198,10 @@ const MAX_DAY_FOLDERS = 400;
 const MISSED_SCAN_MS = 15_000;
 // Threads of one directory a screen match compares, at most.
 const MAX_CWD_THREADS = 8;
+// The pane's folders a title's thread name is looked for in, at most, and the
+// threads of that name read: more than one tells nothing, a few show that.
+const MAX_TITLE_FOLDERS = 4;
+const MAX_NAMED_THREADS = 4;
 // Open files of one process looked at, at most.
 const MAX_DESCRIPTORS = 512;
 
@@ -252,6 +256,27 @@ export function localCodexFiles(home) {
       try { db?.close(); } catch { /* already unusable */ }
       return null;
     }
+  }
+
+  // The index's conditions for a thread a TUI shows, by the columns this index
+  // has: subagents and `codex exec` runs share the directory but are never the
+  // TUI's conversation, and an archived thread is not open.
+  function interactiveThreads(columns) {
+    const where = [];
+    if (columns.has("archived")) where.push("archived = 0");
+    if (columns.has("agent_role")) where.push("agent_role IS NULL");
+    if (columns.has("source")) where.push("source IN ('cli', 'vscode')");
+    return where;
+  }
+
+  // The rollouts of index rows that are still in the store, in their order.
+  async function rolloutsOf(rows) {
+    const paths = [];
+    for (const row of rows) {
+      const path = typeof row.rollout_path === "string" ? await rollout(row.rollout_path) : null;
+      if (path !== null) paths.push(path);
+    }
+    return paths;
   }
 
   async function byName(thread) {
@@ -311,25 +336,15 @@ export function localCodexFiles(home) {
     // (the name its TUI titles the pane with), by Codex's index; none without
     // one, or an index with no names.
     async threadsNamed(cwds, name) {
-      const folders = (Array.isArray(cwds) ? cwds : []).filter((cwd) => typeof cwd === "string" && isAbsolute(cwd)).slice(0, 4);
-      if (folders.length === 0 || typeof name !== "string" || !name || name.length > 1024) return [];
+      const folders = (Array.isArray(cwds) ? cwds : []).filter((cwd) => typeof cwd === "string" && isAbsolute(cwd)).slice(0, MAX_TITLE_FOLDERS);
+      if (folders.length === 0 || typeof name !== "string" || !name || name.length > MAX_TITLE_LENGTH) return [];
       const index = await threadIndex();
       if (index === null) return [];
       try {
         const { db, columns } = index;
         if (!columns.has("cwd") || !columns.has("name")) return [];
-        const where = [`cwd IN (${folders.map(() => "?").join(", ")})`, "name = ?"];
-        if (columns.has("archived")) where.push("archived = 0");
-        if (columns.has("agent_role")) where.push("agent_role IS NULL");
-        if (columns.has("source")) where.push("source IN ('cli', 'vscode')");
-        // more than one tells nothing: a few are enough to see that
-        const rows = db.prepare(`SELECT rollout_path FROM threads WHERE ${where.join(" AND ")} LIMIT 4`).all(...folders, name);
-        const paths = [];
-        for (const row of rows) {
-          const path = typeof row.rollout_path === "string" ? await rollout(row.rollout_path) : null;
-          if (path !== null) paths.push(path);
-        }
-        return paths;
+        const where = [`cwd IN (${folders.map(() => "?").join(", ")})`, "name = ?", ...interactiveThreads(columns)];
+        return await rolloutsOf(db.prepare(`SELECT rollout_path FROM threads WHERE ${where.join(" AND ")} LIMIT ${MAX_NAMED_THREADS}`).all(...folders, name));
       } catch {
         return [];
       } finally {
@@ -344,19 +359,9 @@ export function localCodexFiles(home) {
       try {
         const { db, columns } = index;
         if (!columns.has("cwd")) return [];
-        const where = ["cwd = ?"];
-        if (columns.has("archived")) where.push("archived = 0");
-        // subagents and `codex exec` runs share the directory but are never the TUI's conversation
-        if (columns.has("agent_role")) where.push("agent_role IS NULL");
-        if (columns.has("source")) where.push("source IN ('cli', 'vscode')");
+        const where = ["cwd = ?", ...interactiveThreads(columns)];
         const order = columns.has("updated_at") ? " ORDER BY updated_at DESC" : "";
-        const rows = db.prepare(`SELECT rollout_path FROM threads WHERE ${where.join(" AND ")}${order} LIMIT ${MAX_CWD_THREADS}`).all(cwd);
-        const paths = [];
-        for (const row of rows) {
-          const path = typeof row.rollout_path === "string" ? await rollout(row.rollout_path) : null;
-          if (path !== null) paths.push(path);
-        }
-        return paths;
+        return await rolloutsOf(db.prepare(`SELECT rollout_path FROM threads WHERE ${where.join(" AND ")}${order} LIMIT ${MAX_CWD_THREADS}`).all(cwd));
       } catch {
         return [];
       } finally {
@@ -374,10 +379,7 @@ export function localCodexFiles(home) {
       try {
         const { db, columns } = index;
         if (!columns.has("cwd")) return [];
-        const where = ["cwd = ?"];
-        if (columns.has("archived")) where.push("archived = 0");
-        if (columns.has("agent_role")) where.push("agent_role IS NULL");
-        if (columns.has("source")) where.push("source IN ('cli', 'vscode')");
+        const where = ["cwd = ?", ...interactiveThreads(columns)];
         // the columns named here are fixed; which of them this index has decides the select
         const time = columns.has("updated_at_ms") ? "updated_at_ms" : columns.has("updated_at") ? "updated_at * 1000" : "NULL";
         const titles = ["title", "first_user_message"].filter((column) => columns.has(column));

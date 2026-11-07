@@ -505,15 +505,18 @@ function answerAnchor(text) {
   return null;
 }
 
+const TITLE_SPINNER = /^(?:[\u2800-\u28ff]\s*)+/u;
+const TITLE_SEPARATOR = " | ";
+export const MAX_TITLE_LENGTH = 1024;
+// a thread name Codex gave holds no control characters
+const CONTROL_CHARACTER = /\p{Cc}/u;
+
 // The thread name Codex's TUI shows in its own pane's title, "<thread name> |
 // <folder>" (spinner frames first while it works), or null when the title
 // names none: before the first answer, Codex titles the pane with the folder
 // alone, and a title whose last part is no folder of the pane's is not this
 // form. The title is drawn by the pane's own Codex, so unlike herdr's report
 // (bound by a hook in Codex's shared daemon) it cannot be another pane's.
-const TITLE_SPINNER = /^(?:[\u2800-\u28ff]\s*)+/u;
-const TITLE_SEPARATOR = " | ";
-const MAX_TITLE_LENGTH = 1024;
 export function codexTitleThreadName(title, cwd) {
   if (typeof title !== "string" || title.length > MAX_TITLE_LENGTH || typeof cwd !== "string" || !cwd.startsWith("/")) return null;
   const text = title.replace(TITLE_SPINNER, "").trim();
@@ -521,8 +524,9 @@ export function codexTitleThreadName(title, cwd) {
   if (at <= 0) return null;
   const name = text.slice(0, at).trim();
   const folder = text.slice(at + TITLE_SEPARATOR.length).trim();
+  if (!name || CONTROL_CHARACTER.test(name)) return null;
   // the folder is the pane's, or one it works under (its repository)
-  if (!name || !folder || !cwd.split("/").includes(folder)) return null;
+  if (!folder || !cwd.split("/").includes(folder)) return null;
   return name;
 }
 

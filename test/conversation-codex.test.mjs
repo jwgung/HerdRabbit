@@ -534,6 +534,9 @@ test("reads the thread name a Codex pane's title shows, and nothing from a title
   assert.equal(codexTitleThreadName("", cwd), null);
   assert.equal(codexTitleThreadName(null, cwd), null);
   assert.equal(codexTitleThreadName("Write about owls | app", null), null);
+  // a name with control characters is no name Codex gave
+  assert.equal(codexTitleThreadName("Owls\u0000x | app", cwd), null);
+  assert.equal(codexTitleThreadName("Owls\u001b[31m | app", cwd), null);
 });
 
 test("a Codex pane's thread is the one its title names, before a report herdr may have bound from another pane", async (context) => {
