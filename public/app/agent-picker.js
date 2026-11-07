@@ -1,5 +1,5 @@
-import { sessionAgentChoices } from "../agents.js?v=1.4.44";
-import { createTabStrip } from "./tab-strip.js?v=1.4.44";
+import { sessionAgentChoices } from "../agents.js?v=1.4.45";
+import { createTabStrip } from "./tab-strip.js?v=1.4.45";
 
 // The Agent choice of the New tab, New workspace and New worktree dialogs: a
 // one-row tab strip (tab-strip.js), Shell first and then each installed

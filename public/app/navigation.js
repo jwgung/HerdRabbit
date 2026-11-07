@@ -1,13 +1,13 @@
-import { clearedTabLabel, displayRecordLabel, displayTabLabel, navigationModel, openRenames } from "../ui-model.js?v=1.4.44";
-import { writePanePreference } from "../pane-preference.js?v=1.4.44";
-import { writeAcknowledgedCompletions } from "../completion-preference.js?v=1.4.44";
-import { dropScope, followMovedPane } from "../sidebar-drag.js?v=1.4.44";
-import { renameTiles } from "../view-split.js?v=1.4.44";
-import { renamePaneKeys } from "../pane-rename.js?v=1.4.44";
-import { renamePaneLenses } from "../lens-preference.js?v=1.4.44";
-import { writeInputHistories } from "../input-history-preference.js?v=1.4.44";
-import { array, createElement, createIcon } from "./dom.js?v=1.4.44";
-import { idOf } from "./snapshot.js?v=1.4.44";
+import { clearedTabLabel, displayRecordLabel, displayTabLabel, navigationModel, openRenames } from "../ui-model.js?v=1.4.45";
+import { writePanePreference } from "../pane-preference.js?v=1.4.45";
+import { writeAcknowledgedCompletions } from "../completion-preference.js?v=1.4.45";
+import { dropScope, followMovedPane } from "../sidebar-drag.js?v=1.4.45";
+import { renameTiles } from "../view-split.js?v=1.4.45";
+import { renamePaneKeys } from "../pane-rename.js?v=1.4.45";
+import { renamePaneLenses } from "../lens-preference.js?v=1.4.45";
+import { writeInputHistories } from "../input-history-preference.js?v=1.4.45";
+import { array, createElement, createIcon } from "./dom.js?v=1.4.45";
+import { idOf } from "./snapshot.js?v=1.4.45";
 
 // The sidebar's tree of machines, projects and sessions, its per-machine and
 // per-session menus, renaming a session, and moving a row with what the page

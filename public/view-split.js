@@ -7,7 +7,7 @@
 // top) taking `ratio` of the box. A view split has 2 to MAX_TILES leaves; a
 // tree of fewer is no view split at all (null).
 
-import { laysOutPanes } from "./sidebar-drag.js?v=1.4.44";
+import { laysOutPanes } from "./sidebar-drag.js?v=1.4.45";
 
 export const MAX_TILES = 6;
 export const VIEW_SPLIT_STORAGE_KEY = "herdrbridge-view-split";
