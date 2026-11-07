@@ -384,6 +384,10 @@ test("matches a pane by a substantial answer on its screen, and only a unique on
   assert.equal(matchCodexTranscript("Different pane", candidates), null);
   assert.equal(matchCodexTranscript(answer, [...candidates, { ...candidates[0], path: "copy" }]), null);
   assert.equal(matchCodexTranscript("Done", [{ path: "short", text: jsonl(message("assistant", "Done")) }]), null);
+  // only what follows the screen's last Codex header counts: an answer an earlier
+  // run left above a restart or /new is no evidence of the conversation shown now
+  assert.equal(matchCodexTranscript(`>_ OpenAI Codex (v0.160.1)\n• ${answer}\n>_ OpenAI Codex (v0.162.1)\n› Ask Codex to do anything\n`, candidates), null);
+  assert.equal(matchCodexTranscript(`>_ OpenAI Codex (v0.160.1)\n>_ OpenAI Codex (v0.162.1)\n• ${answer}\n`, candidates), "correct");
 
   // through the store: the directory's threads are read, the screen decides
   const home = await temp(context);
