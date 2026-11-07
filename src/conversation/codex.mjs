@@ -505,6 +505,27 @@ function answerAnchor(text) {
   return null;
 }
 
+// The thread name Codex's TUI shows in its own pane's title, "<thread name> |
+// <folder>" (spinner frames first while it works), or null when the title
+// names none: before the first answer, Codex titles the pane with the folder
+// alone, and a title whose last part is no folder of the pane's is not this
+// form. The title is drawn by the pane's own Codex, so unlike herdr's report
+// (bound by a hook in Codex's shared daemon) it cannot be another pane's.
+const TITLE_SPINNER = /^(?:[\u2800-\u28ff]\s*)+/u;
+const TITLE_SEPARATOR = " | ";
+const MAX_TITLE_LENGTH = 1024;
+export function codexTitleThreadName(title, cwd) {
+  if (typeof title !== "string" || title.length > MAX_TITLE_LENGTH || typeof cwd !== "string" || !cwd.startsWith("/")) return null;
+  const text = title.replace(TITLE_SPINNER, "").trim();
+  const at = text.lastIndexOf(TITLE_SEPARATOR);
+  if (at <= 0) return null;
+  const name = text.slice(0, at).trim();
+  const folder = text.slice(at + TITLE_SEPARATOR.length).trim();
+  // the folder is the pane's, or one it works under (its repository)
+  if (!name || !folder || !cwd.split("/").includes(folder)) return null;
+  return name;
+}
+
 // The last resort: the rollout one of whose recent, substantial answers the
 // pane's screen shows, when exactly one does. Recency of a file alone is never
 // evidence: several panes can share a directory.
@@ -528,22 +549,31 @@ const MATCH_TAIL_BYTES = 1024 * 1024;
 
 // The rollout a pane's Codex writes, or null when nothing tells. In order:
 //  1. the one rollout the pane's own Codex processes hold open (`pids`);
-//  2. the rollout herdr reports for the pane (agent_session kind "path"),
+//  2. the one thread of the pane's folders (`cwds`) whose name the pane's
+//     title shows (`threadName`, codexTitleThreadName), by Codex's index;
+//  3. the rollout herdr reports for the pane (agent_session kind "path"),
 //     kept only when it lies in the store's sessions and opens as an
 //     interactive session;
-//  3. the thread herdr reports (agent_session kind "id"), found through
+//  4. the thread herdr reports (agent_session kind "id"), found through
 //     Codex's thread index (state_*.sqlite) or by its file name;
-//  4. the screen: one recent rollout of the pane's directory whose answer the
+//  5. the screen: one recent rollout of the pane's directory whose answer the
 //     pane shows (`readScreen`), and only one.
-// `store.codex` answers rollout(path), thread(id), openBy(pids) and
-// threadsIn(cwd); a store without one of them skips that step.
-export async function locateCodexRollout(store, { session = null, cwd = null, pids = [], readScreen = null } = {}) {
+// `store.codex` answers rollout(path), thread(id), openBy(pids),
+// threadsNamed(cwds, name) and threadsIn(cwd); a store without one of them
+// skips that step.
+export async function locateCodexRollout(store, { session = null, cwd = null, cwds = null, threadName = null, pids = [], readScreen = null } = {}) {
   const codex = store.codex ?? {};
   const kept = async (path) => (path !== null && await rolloutIsInteractive(store, path) ? path : null);
   const open = new Set();
   if (pids.length > 0 && codex.openBy) {
     for (const path of await codex.openBy(pids)) if (await kept(path) !== null) open.add(path);
     if (open.size === 1) return [...open][0];
+  }
+  // the title is the pane's own: it wins over a report herdr may have bound from another pane
+  if (typeof threadName === "string" && threadName && codex.threadsNamed) {
+    const named = new Set();
+    for (const path of await codex.threadsNamed(cwds ?? (cwd ? [cwd] : []), threadName)) if (await kept(path) !== null) named.add(path);
+    if (named.size === 1) return [...named][0];
   }
   // herdr's report can name the rollout left behind by a /fork or /resume; the one the process holds open wins
   if (session?.kind === "path" && typeof session.value === "string") {

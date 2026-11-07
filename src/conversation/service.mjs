@@ -7,7 +7,7 @@
 // pending plan or question are asked of it over its link, never read here.
 import { createHash, randomUUID } from "node:crypto";
 import { CLAUDE_TRANSCRIPT, SESSION_ID, locateClaudeTranscript, pendingClaudeAsk, readTail } from "./claude.mjs";
-import { CODEX_TRANSCRIPT, THREAD_ID, isCodexProcess, locateCodexRollout } from "./codex.mjs";
+import { CODEX_TRANSCRIPT, THREAD_ID, codexTitleThreadName, isCodexProcess, locateCodexRollout } from "./codex.mjs";
 import { KIRO_TRANSCRIPT, SESSION_ID as KIRO_SESSION_ID, kiroWorkspaceHash } from "./kiro.mjs";
 import { AGY_TRANSCRIPT, isAgyProcess } from "./agy.mjs";
 import { OPENCODE_SESSION, OPENCODE_SESSION_ID } from "./opencode.mjs";
@@ -265,7 +265,7 @@ export class ConversationService {
     if (agent === "opencode") return this.#resolveOpencode(paneId, { serverId, agent, format, own, pane, panes: snapshot?.panes ?? [] });
     if (agent === "kiro") return this.#resolveKiro(paneId, { serverId, agent, format, own, cwds, pane, panes: snapshot?.panes ?? [] });
     if (agent === "agy") return this.#resolveAgy(paneId, { serverId, agent, format });
-    return this.#resolveCodex(paneId, { serverId, agent, format, own, cwds });
+    return this.#resolveCodex(paneId, { serverId, agent, format, own, cwds, pane });
   }
 
   // Kiro writes its transcript under a directory named for the workspace it ran
@@ -403,19 +403,25 @@ export class ConversationService {
     return { paneId, serverId, agent, format, store, session, path: written ? session : null, key: found.key };
   }
 
-  async #resolveCodex(paneId, { serverId, agent, format, own, cwds }) {
+  async #resolveCodex(paneId, { serverId, agent, format, own, cwds, pane }) {
     const store = this.#store(serverId);
     if (!store) throw this.#noStore();
     const session = own && typeof own.value === "string" && own.value.length <= 4096
       ? { kind: own.kind, value: own.value } : null;
     const thread = session && (session.kind === undefined || session.kind === "id") && THREAD_ID.test(session.value) ? session.value : null;
+    // the thread name the pane's own Codex titles it with (not the spinner
+    // frames around it, so the lookup is kept while Codex works)
+    const title = typeof pane?.terminal_title_stripped === "string" ? pane.terminal_title_stripped : pane?.terminal_title;
+    const threadName = cwds.map((cwd) => codexTitleThreadName(title, cwd)).find((name) => name !== null) ?? null;
     // per pane: the open files and the screen that may decide it are the pane's own.
     // A screen match is not checked against the process's start: it reads only
     // what follows the screen's last Codex header, so it is what this run shows.
-    const found = await this.#located(`codex\0${serverId}\0${paneId}\0${session?.kind ?? ""}\0${session?.value ?? ""}\0${cwds.join("\0")}`,
+    const found = await this.#located(`codex\0${serverId}\0${paneId}\0${session?.kind ?? ""}\0${session?.value ?? ""}\0${threadName ?? ""}\0${cwds.join("\0")}`,
       async () => locateCodexRollout(store, {
         session,
         cwd: cwds[0] ?? null,
+        cwds,
+        threadName,
         pids: await this.#codexPids(paneId),
         readScreen: () => this.herdr.readPane(paneId, { lines: MATCH_SCREEN_LINES, format: "text", source: "recent-unwrapped" }),
       }));

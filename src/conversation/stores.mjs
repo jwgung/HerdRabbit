@@ -307,6 +307,35 @@ export function localCodexFiles(home) {
       }
       return byName(thread);
     },
+    // The interactive threads begun in one of `cwds` that Codex named `name`
+    // (the name its TUI titles the pane with), by Codex's index; none without
+    // one, or an index with no names.
+    async threadsNamed(cwds, name) {
+      const folders = (Array.isArray(cwds) ? cwds : []).filter((cwd) => typeof cwd === "string" && isAbsolute(cwd)).slice(0, 4);
+      if (folders.length === 0 || typeof name !== "string" || !name || name.length > 1024) return [];
+      const index = await threadIndex();
+      if (index === null) return [];
+      try {
+        const { db, columns } = index;
+        if (!columns.has("cwd") || !columns.has("name")) return [];
+        const where = [`cwd IN (${folders.map(() => "?").join(", ")})`, "name = ?"];
+        if (columns.has("archived")) where.push("archived = 0");
+        if (columns.has("agent_role")) where.push("agent_role IS NULL");
+        if (columns.has("source")) where.push("source IN ('cli', 'vscode')");
+        // more than one tells nothing: a few are enough to see that
+        const rows = db.prepare(`SELECT rollout_path FROM threads WHERE ${where.join(" AND ")} LIMIT 4`).all(...folders, name);
+        const paths = [];
+        for (const row of rows) {
+          const path = typeof row.rollout_path === "string" ? await rollout(row.rollout_path) : null;
+          if (path !== null) paths.push(path);
+        }
+        return paths;
+      } catch {
+        return [];
+      } finally {
+        index.db.close();
+      }
+    },
     // The newest interactive threads begun in `cwd`, by Codex's index.
     async threadsIn(cwd) {
       if (typeof cwd !== "string" || !isAbsolute(cwd)) return [];

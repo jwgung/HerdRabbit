@@ -9,6 +9,7 @@ import { join } from "node:path";
 import {
   CODEX_TRANSCRIPT,
   codexCallFailed,
+  codexTitleThreadName,
   forgetCodexState,
   interactiveRolloutHeader,
   isCodexProcess,
@@ -510,4 +511,63 @@ test("a Codex pane herdr names no session for is matched by its screen among its
   });
   assert.deepEqual(texts((await service.page("w1:p1")).turns), ["go", answer]);
   assert.deepEqual(reads, [{ paneId: "w1:p1", lines: 400, format: "text", source: "recent-unwrapped" }]);
+});
+
+// Codex's TUI titles its own pane "<thread name> | <folder>" (a spinner first
+// while it works). The title comes from the pane itself, so it tells the
+// pane's thread even where herdr's report is missing or names another pane's
+// (Codex 0.157+ runs hooks in a shared daemon: herdrdev/herdr#4649).
+test("reads the thread name a Codex pane's title shows, and nothing from a title that names none", () => {
+  const cwd = "/work/app";
+  assert.equal(codexTitleThreadName("Write about owls | app", cwd), "Write about owls");
+  assert.equal(codexTitleThreadName("⠸ Write about owls | app", cwd), "Write about owls");
+  // a name may hold the separator itself: the folder is the last part
+  assert.equal(codexTitleThreadName("A | B | app", cwd), "A | B");
+  // the folder may be the repository the pane works in, above its folder
+  assert.equal(codexTitleThreadName("Fix the build | work", "/work/app/sub"), "Fix the build");
+  // before the first answer the title names no thread
+  assert.equal(codexTitleThreadName("app", cwd), null);
+  assert.equal(codexTitleThreadName("⠦ | app", cwd), null);
+  assert.equal(codexTitleThreadName("⠙ ⠙ | app", cwd), null);
+  // a title for another folder, or one set by the user, is not Codex's
+  assert.equal(codexTitleThreadName("Write about owls | elsewhere", cwd), null);
+  assert.equal(codexTitleThreadName("", cwd), null);
+  assert.equal(codexTitleThreadName(null, cwd), null);
+  assert.equal(codexTitleThreadName("Write about owls | app", null), null);
+});
+
+test("a Codex pane's thread is the one its title names, before a report herdr may have bound from another pane", async (context) => {
+  let sqlite;
+  try { sqlite = await import("node:sqlite"); } catch { context.skip("node:sqlite is not available"); return; }
+  forgetConversationState();
+  forgetCodexState();
+  const home = await temp(context);
+  const owls = await rolloutIn(home, THREAD, jsonl(meta(), message("user", "owls"), message("assistant", "Owls hunt at night.", "final_answer")));
+  const bears = await rolloutIn(home, OTHER, jsonl(meta({ id: OTHER }), message("user", "bears"), message("assistant", "Bears sleep in winter.", "final_answer")));
+  const twinA = "019da5c2-0000-7000-8000-00000000000a";
+  const twinB = "019da5c2-0000-7000-8000-00000000000b";
+  const first = await rolloutIn(home, twinA, jsonl(meta({ id: twinA }), message("user", "a"), message("assistant", "One.", "final_answer")));
+  const second = await rolloutIn(home, twinB, jsonl(meta({ id: twinB }), message("user", "b"), message("assistant", "Two.", "final_answer")));
+  const db = new sqlite.DatabaseSync(join(home, "state_5.sqlite"));
+  db.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, cwd TEXT, archived INTEGER, agent_role TEXT, source TEXT, name TEXT, updated_at INTEGER)");
+  const insert = db.prepare("INSERT INTO threads VALUES (?, ?, '/work/app', 0, NULL, 'vscode', ?, ?)");
+  insert.run(THREAD, owls, "Write about owls", 1);
+  insert.run(OTHER, bears, "Describe bears", 2);
+  insert.run(twinA, first, "Same name", 3);
+  insert.run(twinB, second, "Same name", 4);
+  db.close();
+  const pane = (id, title, extra = {}) => ({ pane_id: id, agent: "codex", cwd: "/work/app", terminal_title: title, terminal_title_stripped: title, ...extra });
+  const service = codexService(home, [
+    // herdr bound the bears thread here, from the pane that started the daemon
+    pane("w1:p1", "⠸ Write about owls | app", { agent_session: { agent: "codex", kind: "id", value: OTHER } }),
+    pane("w1:p2", "app"),
+    pane("w1:p3", "Same name | app"),
+    pane("w1:p4", "Same name | app", { agent_session: { agent: "codex", kind: "id", value: twinB } }),
+  ]);
+  assert.deepEqual(texts((await service.page("w1:p1")).turns), ["owls", "Owls hunt at night."]);
+  // a Codex with no thread yet: an empty chat, never the folder's last thread
+  assert.equal((await service.page("w1:p2")).history_id, "pending");
+  // two threads of that name: the title decides nothing, and the rest of the lookup does
+  assert.equal((await service.page("w1:p3")).history_id, "pending");
+  assert.deepEqual(texts((await service.page("w1:p4")).turns), ["b", "Two."]);
 });
