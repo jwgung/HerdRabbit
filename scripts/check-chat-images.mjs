@@ -182,6 +182,17 @@ try {
       const size = await control.boundingBox();
       assert.ok(size.width >= 44 && size.height >= 44, `${await control.getAttribute("aria-label")} is ${size.width}x${size.height}`);
     }
+    // a long file name is cut short: the controls and the picture stay on screen
+    const shownName = await name.textContent();
+    await name.evaluate((node) => { node.textContent = "a-long-screenshot-file-name-compare-s1-light-1440.png"; });
+    const width = mobile ? 390 : 1280;
+    for (const control of await viewer.locator(".image-viewer-tools button").all()) {
+      const size = await control.boundingBox();
+      assert.ok(size.x >= 0 && size.x + size.width <= width, `${await control.getAttribute("aria-label")} is on screen at ${size.x}+${size.width}`);
+    }
+    const wide = await viewer.locator(".image-viewer-stage").boundingBox();
+    assert.equal(Math.round(wide.width), width, "the stage is the screen's width");
+    await name.evaluate((node, text) => { node.textContent = text; }, shownName);
     const stage = await viewer.locator(".image-viewer-stage").boundingBox();
     const centre = { x: stage.x + stage.width / 2, y: stage.y + stage.height / 2 };
 

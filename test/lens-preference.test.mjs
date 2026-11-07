@@ -107,7 +107,7 @@ test("a Codex pane has a chat too; other agents do not", () => {
   assert.equal(chatAgent(undefined, undefined), null);
   assert.equal(chatUnavailableText("not_supported_agent"), "Chat is only for Claude Code, Codex, OpenCode, Kiro and Antigravity panes.");
   assert.match(chatUnavailableText("unsupported_opencode_version"), /OpenCode version/u);
-  assert.match(chatUnavailableText("opencode_needs_newer_node"), /Node 22\.5/u);
+  assert.match(chatUnavailableText("opencode_needs_newer_node"), /Node 22\.13/u);
   assert.equal(chatUnavailableText("no_session_id"), "Chat appears once the agent reports its conversation.");
   assert.equal(chatMayBecomeAvailable("not_supported_agent"), false);
 });

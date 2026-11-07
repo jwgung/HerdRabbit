@@ -214,11 +214,9 @@ test("an agy pane is routed to the agy resolver, not refused as unsupported", as
   };
   const service = new ConversationService({ herdr });
   // reaching #resolveAgy (not "not_supported_agent") proves the route is wired;
-  // with no lock the reason is "no_session_id", never "not_supported_agent"
-  await assert.rejects(
-    service.resolve("w1:p1"),
-    (error) => error instanceof ConversationUnavailable && error.reason === "no_session_id",
-  );
+  // with no lock yet (agy takes one with its first message) the chat opens empty
+  const pending = await service.page("w1:p1");
+  assert.deepEqual([pending.turns, pending.cursor, pending.history_id], [[], null, "pending"]);
 });
 
 test("a pane whose agent has no reader is still refused as unsupported", async () => {

@@ -855,6 +855,9 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
       else scroller.scrollTop = savedScrollTop;
       clearInterval(backstop);
       backstop = setInterval(() => loader.refresh(), BACKSTOP_MS);
+      // what it kept while hidden may be another conversation's by now (the
+      // agent restarted, or another page watching it took the change)
+      loader.refresh({ now: true });
       drawActivity();
       keepAtEnd();
     },

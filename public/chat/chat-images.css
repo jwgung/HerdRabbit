@@ -56,6 +56,8 @@
 
 .image-viewer[open] {
   display: grid;
+  /* one column the screen's width: a long file name's nowrap width never widens it */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 

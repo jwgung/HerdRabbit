@@ -336,6 +336,47 @@ test("two Kiro panes in one folder whose sessions cannot be told show neither, n
   assert.equal((await alone.resolve("w1:p1")).session, UUID_A);
 });
 
+test("a session the pane's Kiro names but has not written yet is that session's empty conversation, not the folder's last one", async (context) => {
+  forgetConversationState();
+  const configDir = await mkdtemp(join(tmpdir(), "herdrabbit-kiro-"));
+  const procRoot = await mkdtemp(join(tmpdir(), "herdrabbit-proc-"));
+  context.after(() => Promise.all([rm(configDir, { recursive: true, force: true }), rm(procRoot, { recursive: true, force: true })]));
+  const cwd = "/home/me/project";
+  const hash = kiroWorkspaceHash(cwd);
+  await mkdir(join(configDir, "sessions", hash, `sess_${UUID_A}`), { recursive: true });
+  await writeFile(join(configDir, "sessions", hash, `sess_${UUID_A}`, "messages.jsonl"), jsonl([user("the last conversation")]));
+  // Kiro made the new session's folder at start; messages.jsonl comes with the first message
+  await mkdir(join(configDir, "sessions", hash, `sess_${UUID_B}`), { recursive: true });
+  await fakeProcess(procRoot, 100, { file: await kiroLog(configDir, "new", [UUID_B]) });
+  const herdr = {
+    async snapshot() { return { panes: [{ pane_id: "w1:p1", agent: "kiro", cwd }] }; },
+    async paneProcessInfo() { return { process_info: { foreground_processes: [{ pid: 100, name: "kiro-cli" }] } }; },
+  };
+  const service = new ConversationService({ herdr, localStore: localTranscriptStore({ configDir: "/nonexistent", kiroConfigDir: configDir, procRoot }) });
+  const page = await service.page("w1:p1");
+  assert.deepEqual([page.turns, page.cursor, page.history_id], [[], null, `unwritten-${UUID_B}`]);
+});
+
+test("with nothing naming its session, the folder's newest written before the pane's Kiro started is not its conversation", async (context) => {
+  forgetConversationState();
+  const { configDir, writeSession } = await kiroHome(context);
+  const cwd = "/home/me/project";
+  // last written at 2000 s
+  await writeSession(cwd, UUID_A, jsonl([user("the last conversation")]), 2_000);
+  const service = (startedAt) => new ConversationService({
+    herdr: {
+      async snapshot() { return { panes: [{ pane_id: "w1:p1", agent: "kiro", cwd }] }; },
+      async paneProcessInfo() { return { process_info: { foreground_processes: [{ pid: 4242, name: "kiro-cli" }] } }; },
+    },
+    localStore: localTranscriptStore({ configDir: "/nonexistent", kiroConfigDir: configDir, procRoot: "/nonexistent-proc" }),
+    processStartedAt: async (pids) => (pids.includes(4242) ? startedAt : null),
+  });
+  const pending = await service(3_000_000).page("w1:p1");
+  assert.deepEqual([pending.turns, pending.history_id], [[], "pending"]);
+  // a Kiro that started before the session was last written runs it
+  assert.equal((await service(1_000_000).resolve("w1:p1")).session, UUID_A);
+});
+
 // Kiro writes a Reasoning record of only "..." where its thinking is kept
 // encrypted (reasoningSignature), most often right after the answer. It is no
 // thinking to show, and a part after the answer would fold the answer into the

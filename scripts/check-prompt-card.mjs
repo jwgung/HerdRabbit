@@ -63,7 +63,8 @@ function world() {
     panes: [
       { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1", label: "Claude", agent: "claude", cwd: CWD,
         agent_session: { agent: "claude", kind: "id", value: SESSION }, agent_status: "blocked" },
-      { pane_id: "w1:p2", tab_id: "w1:t1", workspace_id: "w1", label: "Shell", agent: "codex", agent_status: "blocked" },
+      // an agent the chat does not read: its card opens over the terminal
+      { pane_id: "w1:p2", tab_id: "w1:t1", workspace_id: "w1", label: "Shell", agent: "cursor", agent_status: "blocked" },
       { pane_id: "w1:p3", tab_id: "w1:t1", workspace_id: "w1", label: "Datasets", agent: "claude", agent_status: "blocked" },
       // herdr says working while Claude waits on a menu
       { pane_id: "w1:p4", tab_id: "w1:t1", workspace_id: "w1", label: "Quiet", agent: "claude", agent_status: "working" },
@@ -338,10 +339,11 @@ try {
     assert.deepEqual(herdr.sent.filter((item) => item.paneId === "w1:p2"), [{ paneId: "w1:p2", keys: ["esc"] }]);
 
     // A multiple choice: the card starts from the terminal's tick, and adding one more sends only that tick and →.
+    // (the pane names no session yet, so it opens an empty chat: on a phone the card is in it, on a desktop a banner over the terminal)
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p3")}`);
     await page.locator("#lens-switch").waitFor({ state: "visible" });
-    await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "banner");
-    await page.locator(".prompt-banner-open").click();
+    await page.waitForFunction(() => ["banner", "card"].includes(document.querySelector("#prompt-dock")?.dataset.mode));
+    if (await dockMode() === "banner") await page.locator(".prompt-banner-open").click();
     await page.waitForFunction(() => document.querySelectorAll(".prompt-card [data-prompt-toggle]").length === 3);
     const ticks = () => page.locator(".prompt-card [data-prompt-toggle]").evaluateAll((boxes) => boxes.map((box) => box.checked));
     assert.deepEqual(await ticks(), [true, false, false], "the card starts from the terminal's tick");
@@ -356,8 +358,8 @@ try {
     // herdr still says "working" while the approval is on screen: the card appears all the same, and answers.
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p4")}`);
     await page.locator("#lens-switch").waitFor({ state: "visible" });
-    await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "banner");
-    await page.locator(".prompt-banner-open").click();
+    await page.waitForFunction(() => ["banner", "card"].includes(document.querySelector("#prompt-dock")?.dataset.mode));
+    if (await dockMode() === "banner") await page.locator(".prompt-banner-open").click();
     await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "card" || document.querySelector("#prompt-dock")?.dataset.mode === "overlay");
     assert.equal((await herdr.snapshot()).panes.find((pane) => pane.pane_id === "w1:p4").agent_status, "working");
     // answered from the composer: the option's number, then Enter

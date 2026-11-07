@@ -114,13 +114,17 @@ test("409 history_changed for a cursor that no longer names this transcript", as
   }
 });
 
-test("a pane of an agent the chat does not read, or with no session, is conversation_unavailable with a reason", async (context) => {
+test("a pane of an agent the chat does not read is conversation_unavailable with a reason; one with no session yet is an empty conversation", async (context) => {
   const { get } = await fixture(context);
-  for (const [pane, reason] of [["w1:p2", "not_supported_agent"], ["w1:p3", "no_session_id"], ["w9:p9", "pane_not_found"]]) {
+  for (const [pane, reason] of [["w1:p2", "not_supported_agent"], ["w9:p9", "pane_not_found"]]) {
     const response = await get(`/api/panes/${encodeURIComponent(pane)}/conversation`);
     assert.equal(response.status, 404);
     assert.deepEqual((await response.json()).error.details, { reason });
   }
+  // its agent runs, but nothing names its conversation yet: the chat opens empty
+  const pending = await (await get("/api/panes/w1%3Ap3/conversation")).json();
+  assert.deepEqual([pending.turns, pending.cursor, pending.history_id], [[], null, "pending"]);
+  assert.equal((await get("/api/panes/w1%3Ap3/conversation?since=x:1")).status, 409);
   // a session that has written nothing yet is an empty conversation
   const empty = await (await get("/api/panes/w1%3Ap4/conversation")).json();
   assert.deepEqual([empty.turns, empty.cursor, empty.history_id], [[], null, `unwritten-${UNWRITTEN}`]);

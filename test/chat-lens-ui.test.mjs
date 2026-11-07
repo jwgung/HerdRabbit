@@ -87,6 +87,8 @@ test("a dropped chat lets go of its resize observer, and any conversation messag
   assert.doesNotMatch(view, /new ResizeObserver\([^)]*\)\.observe/u, "no observer is left without a handle");
   assert.match(view, /connection\.onConversation\(\(message\) => \{[^}]*chat\.refresh\(\);/su);
   assert.doesNotMatch(view, /message\.type === "conversation-changed"\) chat\.refresh/u);
+  // a chat shown again reads its conversation at once: what it kept may be another conversation's by now
+  assert.match(view, /show\(\) \{\s*if \(visible\) return;[\s\S]*?loader\.refresh\(\{ now: true \}\);[\s\S]*?\n {4}\},\n {4}hide\(\)/u);
 });
 
 test("the key bar is the terminal's: the Chat lens hides it and keeps the composer", async () => {

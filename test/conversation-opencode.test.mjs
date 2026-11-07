@@ -93,10 +93,33 @@ test("finds a pane's session by the id herdr reports, else the newest top-level 
   assert.equal(first.source, "opencode-session");
   assert.deepEqual(texts(first.turns), ["prompt 1", "answer 1"]);
   assert.deepEqual(texts((await conversations.page("w1:p2")).turns), ["prompt 2", "answer 2"]);
-  await assert.rejects(conversations.page("w1:p3"), (error) => error.reason === "no_session_id");
+  // a folder with no session yet (OpenCode records one with the first prompt): an empty chat
+  const pending = await conversations.page("w1:p3");
+  assert.deepEqual([pending.turns, pending.cursor, pending.history_id], [[], null, "pending"]);
   // a reported session OpenCode has not written yet reads as no turns
   const empty = await conversations.page("w1:p4");
   assert.deepEqual([empty.turns, empty.cursor], [[], null]);
+});
+
+test("the folder's newest session last changed before the pane's OpenCode started is not its conversation", async (context) => {
+  const { path, fixture } = await world(context);
+  fixture.session(SESSION, { directory: "/work/app" });
+  fixture.exchange(SESSION, 1);
+  const panes = [{ pane_id: "w1:p1", agent: "opencode", cwd: "/work/app" }];
+  const localStore = localTranscriptStore({ configDir: "/nonexistent/claude", codexHome: "/nonexistent/codex", opencodeDb: path });
+  context.after(() => localStore.opencode.close());
+  const started = (at) => new ConversationService({
+    herdr: { async snapshot() { return { panes }; }, async paneProcessInfo() { return { process_info: { foreground_processes: [{ pid: 4242, name: "opencode" }] } }; } },
+    localStore,
+    processStartedAt: async (pids) => (pids.includes(4242) ? at : null),
+  });
+  // the fixture's clock writes the session on 2026-10-01 09:00
+  const written = Date.UTC(2026, 9, 1, 9, 0, 0);
+  // OpenCode started after the session was last written: a new conversation, not yet recorded
+  const later = await started(written + 60 * 60_000).page("w1:p1");
+  assert.deepEqual([later.turns, later.history_id], [[], "pending"]);
+  // started before it: the session is the one it runs
+  assert.deepEqual(texts((await started(written - 60 * 60_000).page("w1:p1")).turns), ["prompt 1", "answer 1"]);
 });
 
 test("reads text, reasoning, tools, todos, questions, images and compactions as turns", async (context) => {
@@ -257,7 +280,8 @@ test("a database without the V1 columns and without the V2 tables is an unsuppor
 // Every read a store answers, on a session with tool calls.
 async function readAll(store, conversations) {
   assert.deepEqual(await store.locate({ session: SESSION }), { session: SESSION, found: true });
-  assert.deepEqual(await store.locate({ cwd: "/work/app" }), { session: SESSION, found: true });
+  const newest = await store.locate({ cwd: "/work/app" });
+  assert.deepEqual([newest.session, newest.found, typeof newest.updatedMs], [SESSION, true, "number"]);
   const page = await store.page(SESSION);
   assert.equal((await store.toolOutput(SESSION, page.turns[1].parts[0].id)).output, "a");
   assert.equal(typeof (await store.stat(SESSION)).identity, "string");
@@ -690,12 +714,12 @@ test("the folder's newest session is nobody's when another OpenCode pane of that
   await assert.rejects(conversations.page("w1:p1"), (error) => error.reason === "no_session_id");
   await assert.rejects(conversations.page("w1:p2"), (error) => error.reason === "no_session_id");
   assert.deepEqual(texts((await conversations.page("w1:p3")).turns), ["prompt 2", "answer 2"]);
-  // a peer that reported the newest session leaves the idle pane without it; a peer on another session does not
+  // a peer that reported the newest session leaves the idle pane without it (an empty chat); a peer on another session does not
   const claimed = service(path, [
     pane("w1:p1", "/work/app"),
     pane("w1:p2", "/work/app", { agent_session: reportedId(SESSION) }),
   ], context);
-  await assert.rejects(claimed.page("w1:p1"), (error) => error.reason === "no_session_id");
+  assert.deepEqual((await claimed.page("w1:p1")).history_id, "pending");
   const apart = service(path, [
     pane("w1:p1", "/work/app"),
     pane("w1:p2", "/work/app", { agent_session: reportedId(OTHER) }),
@@ -1075,7 +1099,7 @@ test("V2: a pane's session is found by id, else the newest top-level of its fold
   assert.equal(first.source, "opencode-session");
   assert.deepEqual(texts(first.turns), ["prompt 1", "answer 1"]);
   assert.deepEqual(texts((await conversations.page("w1:p2")).turns), ["prompt 2", "answer 2"]);
-  await assert.rejects(conversations.page("w1:p3"), (error) => error.reason === "no_session_id");
+  assert.equal((await conversations.page("w1:p3")).history_id, "pending");
   const empty = await conversations.page("w1:p4");
   assert.deepEqual([empty.turns, empty.cursor], [[], null]);
 });
@@ -1309,7 +1333,8 @@ test("V2: a database migrated past V1 (the V2 tables alone) still reads its sess
     JSON.stringify({ time: { created: time + 1000, completed: time + 1500 }, agent: "build", model: { id: "m", providerID: "p", variant: null },
       content: [{ type: "text", text: "hi there" }], finish: "stop", tokens: { input: 1, output: 1, cache: { read: 0, write: 0 } }, cost: 0 }));
   const store = open(context, { path });
-  assert.deepEqual(await store.locate({ cwd: "/work/app" }), { session: SESSION, found: true });
+  const migrated = await store.locate({ cwd: "/work/app" });
+  assert.deepEqual([migrated.session, migrated.found, migrated.updatedMs], [SESSION, true, time]);
   assert.deepEqual(await store.locate({ session: SESSION }), { session: SESSION, found: true });
   const page = await store.page(SESSION);
   assert.equal(page.source, "opencode-session");
