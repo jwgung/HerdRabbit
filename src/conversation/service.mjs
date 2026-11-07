@@ -12,6 +12,7 @@ import { KIRO_TRANSCRIPT, SESSION_ID as KIRO_SESSION_ID, kiroWorkspaceHash } fro
 import { AGY_TRANSCRIPT, isAgyProcess } from "./agy.mjs";
 import { OPENCODE_SESSION, OPENCODE_SESSION_ID } from "./opencode.mjs";
 import { opencodeRunningVersion } from "./opencode-process.mjs";
+import { processStartedAt as readProcessStart } from "./process-start.mjs";
 import {
   ConversationError,
   ConversationUnavailable,
@@ -30,6 +31,9 @@ const LOCAL = "local";
 // session with no file yet is looked for again sooner.
 const LOCATE_TTL_MS = 5_000;
 const MISSING_LOCATE_TTL_MS = 2_000;
+// A guessed session last written this long before the pane's agent started is
+// an earlier run's: /proc/stat's boot time is in whole seconds.
+const START_TOLERANCE_MS = 2_000;
 // The screen a Codex pane is matched by, as a last resort.
 const MATCH_SCREEN_LINES = 400;
 
@@ -50,10 +54,13 @@ export class ConversationService {
     localStore = localTranscriptStore(),
     now = () => Date.now(),
     runningVersion = opencodeRunningVersion(),
+    // pids -> when the earliest of them started (ms since the epoch), or null
+    processStartedAt = readProcessStart(),
   }) {
     this.herdr = herdr;
     // pids -> the version of the OpenCode program among them, or null
     this.runningVersion = runningVersion;
+    this.processStartedAt = processStartedAt;
     this.localStore = localStore;
     this.now = now;
     this.located = new Map();
@@ -250,7 +257,7 @@ export class ConversationService {
       // a /branch or /resume the hook may still name the session left behind.
       const running = await this.#located(`claude-pid\0${serverId}\0${paneId}\0${reportedSession}`, () => this.#claudeRunningSession(store, paneId));
       const session = running.value ?? reportedSession;
-      if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
+      if (typeof session !== "string" || !SESSION_ID.test(session)) return this.#pending({ paneId, serverId, agent, format, store });
       const found = await this.#located(`claude\0${serverId}\0${session}\0${cwds.join("\0")}`,
         () => locateClaudeTranscript(store, session, cwds));
       return { paneId, serverId, agent, format, store, session, path: found.value, key: found.key };
@@ -284,8 +291,15 @@ export class ConversationService {
     const found = await this.#located(`kiro\0${serverId}\0${reported ?? ""}\0${anywhere}\0${hashes.join("\0")}`,
       () => store.locate({ session: reported, hashes, anywhere }));
     if (found.value === null) {
-      // nothing names the workspace or its session yet: wait for herdr to report the pane
-      throw new ConversationUnavailable(hashes.length === 0 ? "no_session_id" : "transcript_missing");
+      // the session the pane's Kiro names has no messages.jsonl yet (Kiro writes
+      // it with the first message): that session, with no turns
+      if (reported !== null) return { paneId, serverId, agent, format, store: this.#store(serverId), session: reported, path: null, key: found.key };
+      // nothing names it and nothing is written: the chat waits, empty
+      return this.#pending({ paneId, serverId, agent, format, store: this.#store(serverId) });
+    }
+    // the folder's newest, last written before this pane's Kiro started: an earlier run's
+    if (reported === null && await this.#writtenBeforeStart(paneId, found.value.mtimeMs)) {
+      return this.#pending({ paneId, serverId, agent, format, store: this.#store(serverId) });
     }
     const { session, path } = found.value;
     return { paneId, serverId, agent, format, store: this.#store(serverId), session, path, key: found.key };
@@ -329,8 +343,8 @@ export class ConversationService {
     const found = await this.#located(`agy\0${serverId}\0${paneId}\0${pids.join(",")}`,
       () => store.locate({ pids }));
     if (found.value === null) {
-      // agy not running in this pane, or no single lock: nothing to show yet
-      throw new ConversationUnavailable("no_session_id");
+      // agy takes its presence lock with the first message: until then the chat waits, empty
+      return this.#pending({ paneId, serverId, agent, format, store: this.#store(serverId) });
     }
     const { session, path } = found.value;
     return { paneId, serverId, agent, format, store: this.#store(serverId), session, path, key: found.key };
@@ -384,12 +398,17 @@ export class ConversationService {
     const found = await this.#located(`opencode\0${serverId}\0${reported ?? ""}\0${reported ? "" : cwd ?? ""}\0${taken.join(",")}`,
       () => store.locate({ session: reported, cwd: reported ? null : cwd, taken }));
     if (found.value === null) {
-      if (reported === null) throw new ConversationUnavailable("no_session_id");
+      // nothing names the pane's session and the folder has none it could be: the chat waits, empty
+      if (reported === null) return this.#pending({ paneId, serverId, agent, format, store });
       // a session herdr reports that OpenCode has not written yet reads as no turns
       return { paneId, serverId, agent, format, store, session: reported, path: null, key: found.key };
     }
     // a subagent's session whose top-level session is not there: no conversation of the pane's to show
     if (found.value.child) throw new ConversationUnavailable("no_session_id");
+    // the folder's newest, last changed before this pane's OpenCode started: an earlier run's
+    if (reported === null && await this.#writtenBeforeStart(paneId, found.value.updatedMs)) {
+      return this.#pending({ paneId, serverId, agent, format, store });
+    }
     const { session, found: written } = found.value;
     return { paneId, serverId, agent, format, store, session, path: written ? session : null, key: found.key };
   }
@@ -408,9 +427,11 @@ export class ConversationService {
         pids: await this.#codexPids(paneId),
         readScreen: () => this.herdr.readPane(paneId, { lines: MATCH_SCREEN_LINES, format: "text", source: "recent-unwrapped" }),
       }));
-    // nothing names the session and nothing tells which file is the pane's: wait for herdr to report it
+    // nothing names the session and nothing tells which file is the pane's: the chat waits, empty
+    // (a rollout herdr reported by its path that is not there says the session is gone)
     if (found.value === null && thread === null) {
-      throw new ConversationUnavailable(session?.kind === "path" ? "transcript_missing" : "no_session_id");
+      if (session?.kind === "path") throw new ConversationUnavailable("transcript_missing");
+      return this.#pending({ paneId, serverId, agent, format, store });
     }
     // a thread herdr reported that Codex has not written yet reads as no turns
     return { paneId, serverId, agent, format, store, session: thread ?? session?.value ?? "", path: found.value, key: found.key };
@@ -460,6 +481,28 @@ export class ConversationService {
     }
   }
 
+  // A pane whose agent runs but whose conversation nothing names yet, or only
+  // a guess an earlier run left: an empty chat that waits for it. It names no
+  // session, so it never reads as another conversation.
+  #pending({ paneId, serverId, agent, format, store }) {
+    return { paneId, serverId, agent, format, store, session: "", path: null, key: null, pending: true };
+  }
+
+  // Whether `writtenMs`, when a guessed session was last written, is before
+  // this pane's agent process started. False when either cannot be told.
+  async #writtenBeforeStart(paneId, writtenMs) {
+    if (!Number.isFinite(writtenMs) || typeof this.herdr.paneProcessInfo !== "function" || typeof this.processStartedAt !== "function") return false;
+    try {
+      const info = await this.herdr.paneProcessInfo(paneId);
+      const processes = info?.process_info?.foreground_processes ?? info?.foreground_processes ?? [];
+      if (!Array.isArray(processes)) return false;
+      const started = await this.processStartedAt(processes.map((item) => item?.pid));
+      return Number.isFinite(started) && writtenMs < started - START_TOLERANCE_MS;
+    } catch {
+      return false;
+    }
+  }
+
   async #located(key, locate) {
     const now = this.now();
     let entry = this.located.get(key);
@@ -484,13 +527,14 @@ export class ConversationService {
     const target = await this.resolve(paneId);
     if (target.path === null) {
       // the agent writes the file with its first message: until then there is
-      // nothing before, and a cursor into it is another conversation's
+      // nothing before, and a cursor into it is another conversation's. A pane
+      // whose session nothing names yet waits as "pending".
       if (before !== undefined || since !== undefined) throw new HistoryChanged();
       const version = answerVersion(`unwritten\0${target.agent}\0${target.serverId}`, target.session);
       if (versionMatches(ifNoneMatch, version)) return { notModified: true, version };
       return {
         source: target.format.source, turns: [], metadata: { model: null, reasoning_effort: null },
-        cursor: null, history_id: `unwritten-${target.session}`, version,
+        cursor: null, history_id: target.session ? `unwritten-${target.session}` : "pending", version,
       };
     }
     try {

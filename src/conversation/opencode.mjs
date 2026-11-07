@@ -898,7 +898,14 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
       }
       // another pane already shows the newest one: which pane is it is not known
       if (row && Array.isArray(taken) && taken.includes(String(row.id))) return null;
-      return row && OPENCODE_SESSION_ID.test(String(row.id)) ? { session: String(row.id), found: true } : null;
+      if (!row || !OPENCODE_SESSION_ID.test(String(row.id))) return null;
+      // when it last changed, so a pane whose OpenCode started later can tell it is an earlier run's
+      const id = String(row.id);
+      const changed = [
+        db.shape.v1 ? db.statement("session").get(id)?.time_updated : undefined,
+        db.shape.v2 ? db.statement("sessionV2").get(id)?.time_updated : undefined,
+      ].map(Number).filter(Number.isFinite);
+      return { session: id, found: true, updatedMs: changed.length > 0 ? Math.max(...changed) : null };
     },
 
     identity(db, session) {

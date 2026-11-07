@@ -551,7 +551,7 @@ export function localKiroStore(configDir, { procRoot = "/proc" } = {}) {
             best = { session: SESS_DIR.exec(dir)[1], path: found.path, mtimeMs: found.mtimeMs };
           }
         }
-        if (best) return { session: best.session, path: best.path };
+        if (best) return { session: best.session, path: best.path, mtimeMs: best.mtimeMs };
       }
       // A named session not under the pane's folder: Kiro keeps writing under
       // the folder it started in, and a folder renamed since is reported at

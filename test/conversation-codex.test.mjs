@@ -428,8 +428,11 @@ test("serves a Codex pane's conversation by the thread herdr reports, and its to
   // a thread Codex has not written yet is an empty conversation
   const empty = await service.page("w1:p2");
   assert.deepEqual([empty.source, empty.turns, empty.cursor, empty.history_id], ["codex-transcript", [], null, `unwritten-${OTHER}`]);
-  for (const [pane, reason] of [["w1:p3", "no_session_id"], ["w1:p4", "not_supported_agent"], ["w1:p5", "no_session_id"]]) {
-    await assert.rejects(service.page(pane), (error) => error.code === "conversation_unavailable" && error.reason === reason, pane);
+  await assert.rejects(service.page("w1:p4"), (error) => error.code === "conversation_unavailable" && error.reason === "not_supported_agent");
+  // nothing names the pane's thread yet (or only another agent's): an empty chat, never another rollout
+  for (const pane of ["w1:p3", "w1:p5"]) {
+    const pending = await service.page(pane);
+    assert.deepEqual([pending.turns, pending.cursor, pending.history_id], [[], null, "pending"], pane);
   }
 });
 
