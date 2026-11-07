@@ -419,7 +419,9 @@ export class ConversationService {
     const session = own && typeof own.value === "string" && own.value.length <= 4096
       ? { kind: own.kind, value: own.value } : null;
     const thread = session && (session.kind === undefined || session.kind === "id") && THREAD_ID.test(session.value) ? session.value : null;
-    // per pane: the open files and the screen that may decide it are the pane's own
+    // per pane: the open files and the screen that may decide it are the pane's own.
+    // A screen match is not checked against the process's start: it reads only
+    // what follows the screen's last Codex header, so it is what this run shows.
     const found = await this.#located(`codex\0${serverId}\0${paneId}\0${session?.kind ?? ""}\0${session?.value ?? ""}\0${cwds.join("\0")}`,
       async () => locateCodexRollout(store, {
         session,
@@ -491,15 +493,27 @@ export class ConversationService {
   // Whether `writtenMs`, when a guessed session was last written, is before
   // this pane's agent process started. False when either cannot be told.
   async #writtenBeforeStart(paneId, writtenMs) {
-    if (!Number.isFinite(writtenMs) || typeof this.herdr.paneProcessInfo !== "function" || typeof this.processStartedAt !== "function") return false;
+    if (!Number.isFinite(writtenMs) || typeof this.processStartedAt !== "function") return false;
+    const processes = await this.#foregroundProcesses(paneId);
+    if (processes.length === 0) return false;
     try {
-      const info = await this.herdr.paneProcessInfo(paneId);
-      const processes = info?.process_info?.foreground_processes ?? info?.foreground_processes ?? [];
-      if (!Array.isArray(processes)) return false;
       const started = await this.processStartedAt(processes.map((item) => item?.pid));
       return Number.isFinite(started) && writtenMs < started - START_TOLERANCE_MS;
     } catch {
       return false;
+    }
+  }
+
+  // The pane's foreground processes by herdr's process info; none when this
+  // herdr cannot tell or the call fails.
+  async #foregroundProcesses(paneId) {
+    if (typeof this.herdr.paneProcessInfo !== "function") return [];
+    try {
+      const info = await this.herdr.paneProcessInfo(paneId);
+      const processes = info?.process_info?.foreground_processes ?? info?.foreground_processes ?? [];
+      return Array.isArray(processes) ? processes : [];
+    } catch {
+      return [];
     }
   }
 
@@ -534,7 +548,7 @@ export class ConversationService {
       if (versionMatches(ifNoneMatch, version)) return { notModified: true, version };
       return {
         source: target.format.source, turns: [], metadata: { model: null, reasoning_effort: null },
-        cursor: null, history_id: target.session ? `unwritten-${target.session}` : "pending", version,
+        cursor: null, history_id: target.pending ? "pending" : `unwritten-${target.session}`, version,
       };
     }
     try {

@@ -904,7 +904,7 @@ export function opencodeReader({ DatabaseSync, path, maxMessages = MAX_PAGE_MESS
       const changed = [
         db.shape.v1 ? db.statement("session").get(id)?.time_updated : undefined,
         db.shape.v2 ? db.statement("sessionV2").get(id)?.time_updated : undefined,
-      ].map(Number).filter(Number.isFinite);
+      ].filter((value) => value !== null && value !== undefined).map(Number).filter(Number.isFinite);
       return { session: id, found: true, updatedMs: changed.length > 0 ? Math.max(...changed) : null };
     },
 
