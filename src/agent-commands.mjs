@@ -9,6 +9,7 @@
 // version, and kept on disk.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { constants } from "node:fs";
 import { chmod, mkdir, open, readlink, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -220,7 +221,7 @@ export function parseCodexSlashCommands(source) {
 }
 
 // A response body, read no further than `limit` bytes; null past it.
-async function boundedText(response, limit) {
+export async function boundedText(response, limit) {
   const declared = Number(response.headers?.get?.("content-length"));
   if (Number.isFinite(declared) && declared > limit) return null;
   // a body that cannot be read a piece at a time is not read
@@ -320,20 +321,18 @@ export class AgentCommandSource {
 const asBuiltIn = (commands) => Object.freeze(commands.map(({ name, description }) => Object.freeze({ name, description, source: "built-in" })));
 
 async function readKept(file) {
+  let handle;
   try {
-    const handle = await open(file, "r");
-    let text;
-    try {
-      const { size } = await handle.stat();
-      if (size > MAX_KEPT_BYTES) return null;
-      text = await handle.readFile("utf8");
-    } finally {
-      await handle.close();
-    }
-    const list = cleanCommands(JSON.parse(text));
+    // never a link, and a pipe in its place is not waited on
+    handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const info = await handle.stat();
+    if (!info.isFile() || info.size > MAX_KEPT_BYTES) return null;
+    const list = cleanCommands(JSON.parse(await handle.readFile("utf8")));
     return list.length > 0 ? asBuiltIn(list) : null;
   } catch {
     return null;
+  } finally {
+    await handle?.close().catch(() => {});
   }
 }
 

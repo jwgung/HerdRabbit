@@ -11,9 +11,12 @@
 // It exits 1 and names the commands to add and to drop when the list is behind.
 // It needs the network; nothing is changed.
 import { pathToFileURL } from "node:url";
+import { boundedText } from "../src/agent-commands.mjs";
 import { CLAUDE_BUILT_IN_COMMANDS } from "../src/slash-commands.mjs";
 
 const REFERENCE = "https://code.claude.com/docs/en/commands.md";
+// The reference is about 60 KiB; a page far larger than that is not it.
+const MAX_REFERENCE_BYTES = 2 * 1024 * 1024;
 
 // The commands of Claude Code's commands reference (its Markdown form): the
 // first `/name` of each table row, once, less the rows that say it was removed.
@@ -38,7 +41,9 @@ export function commandDrift(recorded, current) {
 async function main() {
   const response = await fetch(REFERENCE, { signal: AbortSignal.timeout(30_000) });
   if (!response.ok) throw new Error(`${REFERENCE} answered ${response.status}`);
-  const drift = commandDrift(CLAUDE_BUILT_IN_COMMANDS.map((command) => command.name), claudeCommandNames(await response.text()));
+  const markdown = await boundedText(response, MAX_REFERENCE_BYTES);
+  if (markdown === null) throw new Error(`${REFERENCE} is larger than ${MAX_REFERENCE_BYTES} bytes`);
+  const drift = commandDrift(CLAUDE_BUILT_IN_COMMANDS.map((command) => command.name), claudeCommandNames(markdown));
   if (drift.missing.length === 0 && drift.extra.length === 0) {
     console.log("Claude Code: the list matches its commands reference");
     return;

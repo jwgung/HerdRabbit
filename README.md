@@ -64,7 +64,7 @@ HerdRabbit's settings live in the plugin's `.env` file: `herdr plugin config-dir
 - [Full guide](docs/guide.md): every feature, settings, security, troubleshooting
 - [What Herdr does from the page](docs/herdr-coverage.md)
 - [Design rules](docs/design.md) and the [shared UI kit](public/ui/README.md)
-- Development: `npm run verify`, and `npm run check:browser` for the browser checks
+- Development: `npm run verify`, `npm run check:browser` for the browser checks, and `npm run check:agent-commands` after a Claude Code update
 
 ## License
 

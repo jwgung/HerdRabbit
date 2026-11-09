@@ -64,7 +64,7 @@ HerdRabbit 설정은 플러그인의 `.env` 파일에 있습니다. `herdr plugi
 - [전체 안내서](docs/guide.ko.md): 모든 기능, 설정, 보안, 문제 해결
 - [Herdr 기능 중 페이지에서 되는 것](docs/herdr-coverage.ko.md)
 - [디자인 규칙](docs/design.md)과 [공용 UI 키트](public/ui/README.md)
-- 개발: `npm run verify`, 브라우저 검사는 `npm run check:browser`
+- 개발: `npm run verify`, 브라우저 검사는 `npm run check:browser`, Claude Code를 올린 뒤에는 `npm run check:agent-commands`
 
 ## 라이선스
 

@@ -243,7 +243,8 @@ function codexToolSummary(name, raw, args) {
   if (/^(send_message|followup_task)$/u.test(name) && typeof args.target === "string") return args.target;
   if (/^request_user_input/u.test(name) && questionTitles(args).length > 0) return questionTitles(args).join(" · ");
   // the shell tool's command is an argv: `bash -lc "<script>"` reads as its script
-  if (Array.isArray(args.command) && commandLine(args.command)) return commandLine(args.command);
+  const argv = Array.isArray(args.command) ? commandText(args.command) : "";
+  if (argv) return argv;
   return [args.cmd, args.command, args.file_path, args.path, args.pattern, args.description, args.url, args.query].find((value) => typeof value === "string");
 }
 
@@ -257,7 +258,7 @@ const SUMMARY_CHARS = 120;
 const SCRIPT_TOOLS = new Set(["exec", "wait"]);
 
 // A command as a row names it: `bash -lc "<script>"` reads as its script.
-function commandLine(command) {
+function commandText(command) {
   if (typeof command === "string") return command;
   if (!Array.isArray(command) || command.length === 0 || !command.every((part) => typeof part === "string")) return "";
   return command.length >= 3 && /^-\w*c$/u.test(command.at(-2)) ? command.at(-1) : command.join(" ");
@@ -268,7 +269,7 @@ function commandLine(command) {
 // MCP tool, a search or an image; null for anything else.
 function scriptStep(item) {
   if (item.type === "CommandExecution") {
-    const command = oneLine(commandLine(item.command));
+    const command = oneLine(commandText(item.command));
     return command ? { kind: "command", text: command } : null;
   }
   if (item.type === "FileChange") {
@@ -323,6 +324,36 @@ function fileChangePatch(changes) {
   return lines.join("\n");
 }
 
+// What a FileChange wrote of how it went.
+const fileChangeOutput = (item) => [string(item.stdout), string(item.stderr)].filter(Boolean).join("\n");
+
+// The row of a step no waiting call took (a command a script started that
+// finished after the script returned, a command the user ran), or null when
+// one of the turn's `rows` already names it or it is not a command or file change.
+function looseStepPart(item, rows) {
+  const id = TOOL_ID.test(string(item.id)) ? string(item.id) : null;
+  if (item.type === "CommandExecution") {
+    const command = oneLine(commandText(item.command));
+    if (!command || rows.some((part) => part.name === "exec" && writtenCommands(part.input ?? "").map(oneLine).includes(command))) return null;
+    const part = { kind: "tool", id, name: "exec_command", summary: command.slice(0, SUMMARY_CHARS), ...toolInputFields(JSON.stringify({ cmd: command }, null, 2)), output: "" };
+    setToolOutput(part, string(item.aggregated_output));
+    if (Number.isInteger(item.exit_code) && item.exit_code !== 0) part.error = true;
+    return part;
+  }
+  if (item.type !== "FileChange") return null;
+  const patch = fileChangePatch(item.changes);
+  const files = patchFiles(patch);
+  const named = (part) => {
+    const own = typeof part.input === "string" ? patchText(part.input) : null;
+    return own !== null && files.every((file) => patchFiles(own).includes(file));
+  };
+  if (files.length === 0 || rows.some(named)) return null;
+  const part = { kind: "tool", id, name: "apply_patch", summary: files.join(", ").slice(0, SUMMARY_CHARS), ...toolInputFields(patch), output: "" };
+  setToolOutput(part, fileChangeOutput(item));
+  if (item.status && item.status !== "completed") part.error = true;
+  return part;
+}
+
 // Splits rollout text into turns, shaped as the Claude parser's: a user turn
 // per prompt; the agent's messages, reasoning summaries and tool calls in one
 // assistant turn; each output folded into the call it answers. The TUI's
@@ -340,36 +371,6 @@ export function parseCodexTurns(text) {
   // a command a script left running, by the session id a later poll names it with
   const sessions = new Map();
   let startedAt = null;
-
-  // A step no waiting call took (a command a script started finishing after
-  // the script returned, a command the user ran): a row of its own, unless a
-  // script of the turn already names it.
-  const looseStep = (item, ts) => {
-    const turn = turns.at(-1)?.role === "assistant" ? turns.at(-1) : null;
-    const rows = turn?.parts.filter((part) => part.kind === "tool") ?? [];
-    const id = TOOL_ID.test(string(item.id)) ? string(item.id) : null;
-    if (item.type === "CommandExecution") {
-      const command = oneLine(commandLine(item.command));
-      if (!command || rows.some((part) => part.name === "exec" && writtenCommands(part.input ?? "").map(oneLine).includes(command))) return;
-      const part = { kind: "tool", id, name: "exec_command", summary: command.slice(0, SUMMARY_CHARS), ...toolInputFields(JSON.stringify({ cmd: command }, null, 2)), output: "" };
-      setToolOutput(part, string(item.aggregated_output));
-      if (Number.isInteger(item.exit_code) && item.exit_code !== 0) part.error = true;
-      assistant(ts).parts.push(part);
-    } else if (item.type === "FileChange") {
-      const patch = fileChangePatch(item.changes);
-      const files = patchFiles(patch);
-      if (files.length === 0) return;
-      const named = (part) => {
-        const own = typeof part.input === "string" ? patchText(part.input) : null;
-        return own !== null && files.every((file) => patchFiles(own).includes(file));
-      };
-      if (rows.some(named)) return;
-      const part = { kind: "tool", id, name: "apply_patch", summary: files.join(", ").slice(0, SUMMARY_CHARS), ...toolInputFields(patch), output: "" };
-      setToolOutput(part, [string(item.stdout), string(item.stderr)].filter(Boolean).join("\n"));
-      if (item.status && item.status !== "completed") part.error = true;
-      assistant(ts).parts.push(part);
-    }
-  };
 
   const assistant = (ts) => {
     let turn = turns.at(-1);
@@ -442,7 +443,9 @@ export function parseCodexTurns(text) {
         const done = record(payload.item);
         const waiting = [...tools.values()].filter((part) => SCRIPT_TOOLS.has(part.name));
         if (waiting.length === 0) {
-          looseStep(done, ts);
+          const turn = turns.at(-1)?.role === "assistant" ? turns.at(-1) : null;
+          const part = looseStepPart(done, turn?.parts.filter((each) => each.kind === "tool") ?? []);
+          if (part) assistant(ts).parts.push(part);
           continue;
         }
         const step = scriptStep(done);
@@ -611,7 +614,7 @@ function codexToolOutputIn(entry, toolId) {
     const done = record(payload.item);
     if (done.id !== toolId) return null;
     if (done.type === "CommandExecution") return string(done.aggregated_output);
-    if (done.type === "FileChange") return [string(done.stdout), string(done.stderr)].filter(Boolean).join("\n");
+    if (done.type === "FileChange") return fileChangeOutput(done);
     return null;
   }
   if (entry.type !== "response_item" || (payload.type !== "function_call_output" && payload.type !== "custom_tool_call_output")) return null;

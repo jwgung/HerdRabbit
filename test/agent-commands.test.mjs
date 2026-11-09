@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentCommandSource, agentExecutable, parseClaudeCommands, parseCodexSlashCommands } from "../src/agent-commands.mjs";
+import { execFileSync } from "node:child_process";
+import { AgentCommandSource, agentExecutable, parseClaudeCommands, parseCodexSlashCommands, runClaudeInitialize } from "../src/agent-commands.mjs";
 const agentVersion = async (...args) => (await agentExecutable(...args))?.version ?? null;
 
 async function temp(context) {
@@ -257,4 +258,54 @@ test("keeps a version's list where only this user can read it, never writing thr
   assert.equal(kept.mode & 0o777, 0o600);
   assert.equal((await stat(cacheDir)).mode & 0o777, 0o700);
   assert.deepEqual(await readdir(cacheDir), ["codex-0.167.0.json"], "no partial file left behind");
+});
+
+test("reads a kept list only from a small regular file, never waiting on what is in its place", async (context) => {
+  const root = await temp(context);
+  const cacheDir = join(root, "cache");
+  await mkdir(cacheDir, { recursive: true });
+  const asked = [];
+  const fetch = async (url) => { asked.push(url); return new Response(CODEX_SOURCE); };
+  // a list far larger than one: looked up again rather than read
+  const padded = [{ name: "stale", description: "x".repeat(200) }, ...Array.from({ length: 2000 }, (_, n) => ({ name: `pad${n}`, description: "y".repeat(150) }))];
+  await writeFile(join(cacheDir, "codex-0.400.0.json"), JSON.stringify(padded));
+  const source = new AgentCommandSource({ cacheDir, fetch });
+  assert.ok(!(await source.builtIn("codex", "0.400.0")).some((command) => command.name === "stale"));
+  assert.equal(asked.length, 1);
+  // a pipe in its place: neither opened to wait on nor read
+  execFileSync("mkfifo", [join(cacheDir, "codex-0.400.1.json")]);
+  const started = Date.now();
+  assert.equal((await source.builtIn("codex", "0.400.1")).length, 7);
+  assert.ok(Date.now() - started < 5000);
+  // a link in its place is not followed
+  await writeFile(join(root, "list.json"), JSON.stringify([{ name: "linked", description: "from elsewhere" }]));
+  await symlink(join(root, "list.json"), join(cacheDir, "codex-0.400.2.json"));
+  assert.ok(!(await source.builtIn("codex", "0.400.2")).some((command) => command.name === "linked"));
+  assert.equal(asked.length, 3);
+});
+
+test("a list that cannot be put in place leaves no partial file behind, and is still answered", async (context) => {
+  const root = await temp(context);
+  const cacheDir = join(root, "cache");
+  // a folder where the list goes: the move into place fails
+  await mkdir(join(cacheDir, "codex-0.500.0.json", "inside"), { recursive: true });
+  const source = new AgentCommandSource({ cacheDir, fetch: async () => new Response(CODEX_SOURCE) });
+  assert.equal((await source.builtIn("codex", "0.500.0")).length, 7);
+  assert.deepEqual(await readdir(cacheDir), ["codex-0.500.0.json"]);
+});
+
+test("stops the asked build and whatever it started once it has answered", { skip: globalThis.process.platform !== "linux" }, async (context) => {
+  const root = await temp(context);
+  const pidFile = join(root, "child.pid");
+  const answer = JSON.stringify({ type: "control_response", response: { request_id: "herdrabbit-commands", response: { commands: [] } } });
+  const fake = join(root, "claude");
+  await writeFile(fake, `#!/bin/sh\nsleep 60 &\necho $! > '${pidFile}'\nprintf '%s\\n' '${answer}'\nwait\n`, { mode: 0o755 });
+  const output = await runClaudeInitialize(fake, [], { timeoutMs: 10_000 });
+  assert.ok(output.includes("herdrabbit-commands"));
+  const child = Number((await readFile(pidFile, "utf8")).trim());
+  let alive = true;
+  for (let tries = 0; tries < 50 && alive; tries += 1) {
+    try { globalThis.process.kill(child, 0); await new Promise((done) => setTimeout(done, 20)); } catch { alive = false; }
+  }
+  assert.equal(alive, false, "the build's own child was left running");
 });

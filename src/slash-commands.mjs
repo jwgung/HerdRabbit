@@ -15,7 +15,8 @@ import { open, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { posix } from "node:path";
 import { agentExecutable } from "./agent-commands.mjs";
-import { COMMAND_NAME, commandLine } from "./command-names.mjs";
+// one line of plain text, cut to a length a list row can show
+import { COMMAND_NAME, commandLine as oneLine } from "./command-names.mjs";
 import { paneAgentName } from "./pane-agent.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 
@@ -463,12 +464,6 @@ export function parseFrontmatter(text) {
     fields[key] = oneLine(value);
   }
   return { fields, body };
-}
-
-// One line of plain text, cut to a length a list row can show (a declaration:
-// the lists above use it as the module loads).
-function oneLine(value, limit) {
-  return commandLine(value, limit);
 }
 
 // A command's name and description from the start of its file: the
