@@ -30,6 +30,7 @@ import { announcementWriter, readAnnouncements } from "./announcement-store.mjs"
 import { announceToHub } from "./link-announce.mjs";
 import { isProtectedPath, localProtectedPaths } from "./protected-paths.mjs";
 import { ConversationService } from "./conversation/service.mjs";
+import { AgentCommandSource } from "./agent-commands.mjs";
 import { SlashCommandCatalog } from "./slash-commands.mjs";
 import { AppUpdater } from "./app-update.mjs";
 import { HerdrUpdater } from "./herdr-update.mjs";
@@ -126,7 +127,7 @@ const herdr = new MultiServerClient({
 const conversations = new ConversationService({ herdr });
 // Panes' `/` commands: this PC's page lists them, and so does a PC that
 // connected to this one, for this PC's own panes. One catalog for both.
-const slashCommands = new SlashCommandCatalog({ guard: protectedPaths });
+const slashCommands = new SlashCommandCatalog({ guard: protectedPaths, agentCommands: new AgentCommandSource({ cacheDir: config.agentCommandsDir }) });
 // Only this machine's panes decide whether a switch here would disturb anything.
 const aiAccounts = new AiAccounts({ directory: config.aiAccountsDir, runningAgents: () => runningAgentsIn(local) });
 // Which agents a new session here can start: looked up on PATH, never run.

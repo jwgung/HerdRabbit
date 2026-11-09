@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 const directory = fileURLToPath(new URL("./", import.meta.url));
 const TAIL_LINES = 40;
 const TIMEOUT_MS = 5 * 60_000;
-export const NOT_BROWSER = new Set(["check-design.mjs", "check-herdr-version.mjs", "check-syntax.mjs"]);
+export const NOT_BROWSER = new Set(["check-agent-commands.mjs", "check-design.mjs", "check-herdr-version.mjs", "check-syntax.mjs"]);
 const LOADS_PLAYWRIGHT = /import\(\s*process\.env\.PLAYWRIGHT_MODULE\b|from\s+["']playwright["']|import\(\s*["']playwright["']\s*\)/u;
 
 export async function discover() {

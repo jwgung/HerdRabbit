@@ -14,6 +14,8 @@ import { constants } from "node:fs";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { posix } from "node:path";
+import { agentExecutable } from "./agent-commands.mjs";
+import { COMMAND_NAME, commandLine } from "./command-names.mjs";
 import { paneAgentName } from "./pane-agent.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 
@@ -42,9 +44,6 @@ const MAX_PROJECT_LEVELS = 8;
 export const MAX_OPENCODE_LEVELS = 32;
 // Folders below an OpenCode skills folder followed at most (`skills/a/b/c/d/SKILL.md`).
 export const MAX_SKILL_DEPTH = 4;
-const MAX_DESCRIPTION_LENGTH = 200;
-// What a typed `/name` can be: no spaces, quotes or slashes.
-const COMMAND_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/u;
 
 // Where a listed command comes from. A connected PC naming anything else
 // is passed on as "other".
@@ -52,61 +51,195 @@ export const COMMAND_SOURCES = Object.freeze(["built-in", "user", "project", "pl
 
 const builtIn = (entries) => Object.freeze(entries.map(([name, description]) => Object.freeze({ name, description, source: "built-in" })));
 
-// Claude Code's own commands, the well-known ones.
+// Claude Code's own commands and the skills it bundles, as its commands
+// reference lists them (code.claude.com/docs/en/commands, read 2026-11-09
+// against Claude Code 2.1.319), the removed ones left out. Some show in Claude
+// Code only where they apply: a plan, a platform or a feature switched on.
 export const CLAUDE_BUILT_IN_COMMANDS = builtIn([
-  ["add-dir", "Add another working directory"],
-  ["agents", "Manage subagents"],
-  ["bug", "Report a bug to Anthropic"],
-  ["clear", "Clear the conversation history"],
-  ["compact", "Compact the conversation, with optional focus instructions"],
-  ["config", "Open the settings"],
-  ["context", "Show what fills the context window"],
-  ["cost", "Show the session's token cost"],
-  ["doctor", "Check the Claude Code installation"],
-  ["exit", "Exit Claude Code"],
-  ["export", "Export the conversation to a file or the clipboard"],
-  ["help", "Show help and the available commands"],
-  ["hooks", "Manage hooks"],
-  ["ide", "Manage IDE integrations"],
-  ["init", "Create a CLAUDE.md for this project"],
-  ["login", "Sign in to an Anthropic account"],
-  ["logout", "Sign out"],
-  ["mcp", "Manage MCP servers"],
-  ["memory", "Edit CLAUDE.md memory files"],
-  ["model", "Choose the model"],
-  ["output-style", "Choose the output style"],
-  ["permissions", "View and change tool permissions"],
-  ["plugin", "Manage plugins"],
-  ["pr-comments", "Show a pull request's comments"],
-  ["release-notes", "Show the release notes"],
-  ["resume", "Resume an earlier conversation"],
-  ["review", "Review a pull request"],
-  ["rewind", "Rewind the conversation and code"],
-  ["security-review", "Review pending changes for security issues"],
-  ["status", "Show version, model, account and connections"],
-  ["statusline", "Set up the status line"],
-  ["terminal-setup", "Set up Shift+Enter for newlines"],
-  ["todos", "Show the current todo items"],
-  ["usage", "Show plan usage limits"],
-  ["vim", "Toggle Vim editing mode"],
+  ["add-dir", "Add a working directory for file access during the current session"],
+  ["advisor", "Turn the advisor tool, which consults a second model, on or off"],
+  ["agents", "Remind how to ask Claude to create or manage subagents"],
+  ["artifact-capabilities", "Load the reference for what a published artifact can use"],
+  ["artifact-diagramming", "Load diagramming guidance for Claude to follow in artifacts"],
+  ["artifacts", "List your artifacts and those shared with you, and attach one to the session"],
+  ["auto-mode-setup", "Draft autoMode.environment entries from your project and recent sessions"],
+  ["autocompact", "Set the auto-compact window"],
+  ["autofix-pr", "Spawn a cloud session that pushes fixes to the current branch's PR"],
+  ["background", "Detach the current session to run as a background agent"],
+  ["batch", "Orchestrate large-scale changes across a codebase in parallel"],
+  ["branch", "Create a branch of the current conversation at this point"],
+  ["btw", "Ask a side question without adding to the conversation"],
+  ["bug", "Report a bug or share your conversation"],
+  ["cd", "Move this session to a new working directory, keeping the conversation"],
+  ["chrome", "Configure Claude in Chrome settings"],
+  ["claude-api", "Load Claude API and Managed Agents reference material for your project's language"],
+  ["claude-in-chrome", "Have Claude carry out a task in your browser"],
+  ["clear", "Start a new conversation with empty context"],
+  ["code-review", "Review the current diff, or a PR, branch or path, for correctness bugs"],
+  ["color", "Set the prompt bar color for the current session"],
+  ["compact", "Free up context by summarizing the conversation so far"],
+  ["config", "Open the Settings interface"],
+  ["context", "Visualize current context usage as a colored grid"],
+  ["copy", "Copy the last assistant response to clipboard"],
+  ["cost", "Show usage (alias of /usage)"],
+  ["dataviz", "Design guidance for charts, graphs, and dashboards"],
+  ["debug", "Enable debug logging for the current session and troubleshoot from its log"],
+  ["deep-research", "Search the web on a question, cross-check sources, and write a cited report"],
+  ["design", "Draft UI mockups, screen flows, landing pages, or posters as artboards"],
+  ["design-login", "Authorize design-system access for /design-sync with your claude.ai account"],
+  ["design-sync", "Upload your repo's React design system to Claude Design"],
+  ["desktop", "Continue the current session in the Claude Code Desktop app"],
+  ["diff", "Review the changes in your working tree, Claude's edits included"],
+  ["doctor", "Diagnose installation, settings, extension, and CLAUDE.md problems"],
+  ["effort", "Set the effort level"],
+  ["exit", "Exit the CLI"],
+  ["export", "Export the current conversation as plain text"],
+  ["fast", "Toggle fast mode on or off"],
+  ["feedback", "Send product feedback about Claude Code"],
+  ["fewer-permission-prompts", "Add an allowlist for your common read-only Bash and MCP tool calls"],
+  ["focus", "Toggle the focus view"],
+  ["fork", "Copy the current conversation into a new background session and keep working here"],
+  ["goal", "Set a goal Claude keeps working toward across turns"],
+  ["heapdump", "Write a JavaScript heap snapshot and a memory breakdown"],
+  ["help", "Show help and available commands"],
+  ["hooks", "View hook configurations"],
+  ["ide", "Manage IDE integrations and show status"],
+  ["import", "Bring configuration from OpenAI Codex, Gemini CLI, or Cursor into Claude Code"],
+  ["init", "Initialize project with a CLAUDE.md guide"],
+  ["insights", "Generate an HTML report analyzing your recent sessions on this machine"],
+  ["install-github-app", "Install the Claude GitHub App for a repository"],
+  ["install-slack-app", "Install the Claude Slack app"],
+  ["keybindings", "Open your keyboard shortcuts file"],
+  ["list-agents", "List the subagents, teammates, and other sessions Claude can message"],
+  ["login", "Sign in to your Anthropic account"],
+  ["logout", "Sign out from your Anthropic account"],
+  ["loop", "Run a prompt repeatedly while the session stays open"],
+  ["mcp", "Manage MCP server connections and OAuth authentication"],
+  ["memory", "Edit CLAUDE.md files, enable or disable auto memory, and view auto memory entries"],
+  ["mobile", "Show QR code to download the Claude mobile app"],
+  ["model", "Switch the AI model and save it as your default for new sessions"],
+  ["output-style", "List output styles or switch to one"],
+  ["passes", "Share a free week of Claude Code with friends"],
+  ["permissions", "Manage allow, ask, and deny rules for tool permissions"],
+  ["plan", "Enter plan mode directly from the prompt"],
+  ["plugin", "Manage Claude Code plugins"],
+  ["plugin-authoring", "Load the reference Claude works from to write a mod"],
+  ["powerup", "Discover Claude Code features through quick interactive lessons"],
+  ["privacy-settings", "View and update your privacy settings"],
+  ["radio", "Open Claude FM lo-fi radio in your browser"],
+  ["rate-limit-options", "Show ways to keep working when a claude.ai usage limit blocks a request"],
+  ["recap", "Generate a one-line summary of the current session on demand"],
+  ["release-notes", "View the changelog in an interactive version picker"],
+  ["reload-plugins", "Reload all active plugins to apply pending changes without restarting"],
+  ["reload-skills", "Re-scan skill and command directories for skills added or changed on disk"],
+  ["remote-control", "Make this session available for Remote Control from claude.ai"],
+  ["remote-env", "Choose the default cloud environment for cloud sessions you start from the CLI"],
+  ["rename", "Rename the current session and show the name on the prompt bar"],
+  ["restart", "Restart Claude Code and resume this session, which applies an installed update"],
+  ["resume", "Resume a conversation by ID or name, or open the session picker"],
+  ["review", "Review the current diff (alias of /code-review)"],
+  ["rewind", "Rewind the conversation and/or code to a previous point"],
+  ["run", "Launch and drive your project's app to see a change working"],
+  ["run-skill-generator", "Teach /run and /verify how to build, launch, and drive your project's app"],
+  ["sandbox", "Toggle sandbox mode"],
+  ["schedule", "Create, update, list, or run cloud scheduled tasks"],
+  ["scroll-speed", "Adjust mouse wheel scroll speed interactively"],
+  ["security-review", "Analyze the changes on your current branch for security vulnerabilities"],
+  ["setup-bedrock", "Configure Amazon Bedrock authentication, region, and model pins"],
+  ["setup-vertex", "Configure Google Cloud's Agent Platform authentication, project, region, and model pins"],
+  ["simplify", "Review the changed code for cleanup opportunities and apply the fixes"],
+  ["skill-doctor", "Show what each of your skills costs in context and how often it gets used"],
+  ["skills", "List available skills"],
+  ["slides", "Make a new presentation as a Claude Slides artifact"],
+  ["stats", "Show usage (alias of /usage)"],
+  ["status", "Show version, model, account, and connectivity"],
+  ["statusline", "Configure Claude Code's status line"],
+  ["stickers", "Order Claude Code stickers"],
+  ["stop", "Stop the background session you're attached to"],
+  ["subtask", "Spawn a forked subagent that inherits the full conversation"],
+  ["tasks", "View and manage background work in the current session"],
+  ["team-onboarding", "Generate a team onboarding guide from your Claude Code usage history"],
+  ["teleport", "Pull a cloud session into this terminal"],
+  ["terminal-setup", "Install a Shift+Enter keybinding for newlines"],
+  ["theme", "Change the color theme"],
+  ["tui", "Set the terminal UI renderer and relaunch into it with your conversation intact"],
+  ["ultrareview", "Run a deep, multi-agent code review in a cloud sandbox"],
+  ["update-config", "Describe a settings change and have Claude make it"],
+  ["upgrade", "Open the upgrade page to switch to a higher plan tier"],
+  ["usage", "Show session cost, plan usage limits, and activity stats"],
+  ["usage-credits", "Configure usage credits, or request them from your admin, when you hit a limit"],
+  ["verify", "Confirm a code change works by building, running, and observing your project's app"],
+  ["voice", "Toggle voice dictation, or enable it in a specific mode"],
+  ["web-setup", "Connect your GitHub account for cloud sessions using your local gh CLI credentials"],
+  ["workflow-authoring", "Load the reference for writing dynamic workflow scripts"],
+  ["workflows", "Open the workflow progress view"],
 ]);
 
-// The Codex CLI's own commands, the well-known ones.
+// The Codex CLI's own commands as its 0.167.0 popup names them
+// (codex-rs/tui/src/slash_command.rs at rust-v0.167.0, recorded 2026-11-09).
+// Left out: /rollout and /test-approval (debug builds only), /debug-m-drop and
+// /debug-m-update ("DO NOT USE"), /app (macOS and Windows only), and aliases.
 export const CODEX_BUILT_IN_COMMANDS = builtIn([
-  ["approvals", "Choose what Codex may do without asking"],
-  ["compact", "Summarize the conversation to free context"],
-  ["diff", "Show the git diff, untracked files included"],
+  ["agents", "Open the agent command center"],
+  ["apps", "Manage apps"],
+  ["approve", "Approve one retry of a recent auto-review denial"],
+  ["archive", "Archive this session"],
+  ["btw", "Start a side conversation in an ephemeral fork"],
+  ["cd", "Change the current working directory"],
+  ["clear", "Clear the terminal and start a new chat"],
+  ["compact", "Summarize conversation to prevent hitting the context limit"],
+  ["config", "Configure Codex preferences"],
+  ["copy", "Copy the last response or part of it"],
+  ["daemon", "Manage the local background server"],
+  ["daybreak", "Turn Daybreak on or off"],
+  ["debug-config", "Show config layers and requirement sources for debugging"],
+  ["delete", "Permanently delete this session"],
+  ["diff", "Show git diff (including untracked files)"],
   ["exit", "Exit Codex"],
-  ["feedback", "Send logs to the Codex maintainers"],
-  ["init", "Create an AGENTS.md for this project"],
-  ["logout", "Sign out of Codex"],
-  ["mcp", "List the configured MCP tools"],
+  ["experimental", "Toggle experimental features"],
+  ["export", "Export the conversation as markdown"],
+  ["feedback", "Send logs to maintainers"],
+  ["fork", "Fork the current chat"],
+  ["goal", "Set or view the goal for a long-running task"],
+  ["hooks", "View and manage lifecycle hooks"],
+  ["ide", "Include current selection, open files, and other context from your IDE"],
+  ["import", "Import setup, this project, and recent chats from Claude Code"],
+  ["init", "Create an AGENTS.md file with instructions for Codex"],
+  ["keymap", "Remap TUI shortcuts"],
+  ["logout", "Log out of Codex"],
+  ["mcp", "List MCP tools; use /mcp verbose or /mcp login <name>"],
+  ["memories", "Configure memory use and generation"],
   ["mention", "Mention a file"],
-  ["model", "Choose the model and reasoning effort"],
-  ["new", "Start a new chat"],
+  ["model", "Choose what model and reasoning effort to use"],
+  ["new", "Start a new chat during a conversation"],
+  ["permissions", "Choose what Codex is allowed to do"],
+  ["pets", "Choose or hide the terminal pet"],
+  ["plan", "Switch to Plan mode"],
+  ["plugins", "Browse plugins"],
+  ["presets", "Run or save reusable prompts and slash commands"],
+  ["ps", "List background terminals"],
+  ["pwd", "Show the current working directory"],
   ["quit", "Exit Codex"],
-  ["review", "Review the current changes"],
-  ["status", "Show the session's settings and token usage"],
+  ["raw", "Toggle raw scrollback mode for copy-friendly terminal selection"],
+  ["recap", "Summarize the current conversation now"],
+  ["rename", "Rename the current thread"],
+  ["resume", "Resume a saved chat"],
+  ["review", "Review my current changes and find issues"],
+  ["setup-default-sandbox", "Set up elevated agent sandbox"],
+  ["side", "Start a side conversation in an ephemeral fork"],
+  ["skills", "Use skills to improve how Codex performs specific tasks"],
+  ["status", "Show current session configuration and token usage"],
+  ["statusline", "Configure which items appear in the status line"],
+  ["stop", "Stop all background terminals"],
+  ["subagents", "Switch between this session's subagents"],
+  ["theme", "Choose a syntax highlighting theme"],
+  ["title", "Configure which items appear in the terminal title"],
+  ["tui", "Choose the TUI mode for the next launch"],
+  ["usage", "View account usage or use a usage limit reset"],
+  ["vim", "Toggle Vim mode for the composer"],
+  ["voice", "Start or stop voice; use /voice settings to choose a voice"],
+  ["warnings", "View retained warnings and diagnostic details"],
+  ["worktree", "Start or continue a conversation in a new worktree"],
 ]);
 
 // OpenCode's own commands as its 1.19.3 TUI names them (each `/name` and alias,
@@ -123,7 +256,7 @@ export const OPENCODE_BUILT_IN_COMMANDS = builtIn([
   ["connect", "Connect provider"],
   ["continue", "Switch session (alias of /sessions)"],
   ["copy", "Copy session transcript"],
-  ["customize-opencode", oneLine(OPENCODE_CUSTOMIZE_SKILL_DESCRIPTION)],
+  ["customize-opencode", commandLine(OPENCODE_CUSTOMIZE_SKILL_DESCRIPTION)],
   ["debug", "View debug info"],
   ["diff", "Open diff viewer"],
   ["editor", "Open editor"],
@@ -162,7 +295,6 @@ export const OPENCODE_BUILT_IN_COMMANDS = builtIn([
   ["warp", "Change the workspace for the session"],
   ["workspaces", "Manage workspaces"],
 ]);
-// The OpenCode server's own commands: a skill of the same name is not one.
 // Kiro CLI's own `/` commands, as its menu lists them (kiro-cli 2.35.1,
 // recorded 2026-11-01). Its skills and file prompts are found on disk.
 export const KIRO_BUILT_IN_COMMANDS = builtIn([
@@ -257,7 +389,31 @@ export const AGY_BUILT_IN_COMMANDS = builtIn([
   ["antigravity-guide", "Provides a comprehensive guide, quick reference, and sitemap for Google Antigravity (AGY), including the Antigravity CLI (agy), Antigravity 2.0, Antigravity IDE, Python SDK,..."],
 ]);
 
+// The OpenCode server's own commands: a skill of the same name is not one.
 const OPENCODE_SERVER_COMMANDS = new Set(["init", "review"]);
+
+// Claude Code's commands only its terminal UI has: a build asked for its
+// commands (src/agent-commands.mjs) leaves these out, so they are added from
+// the list above. The ones 2.1.319's answer left out of that list.
+export const CLAUDE_TUI_ONLY_COMMANDS = new Set([
+  "add-dir", "artifact-capabilities", "artifact-diagramming", "artifacts", "autofix-pr", "background", "branch", "btw",
+  "bug", "cd", "chrome", "claude-in-chrome", "copy", "cost", "design-login", "desktop", "diff", "exit", "export",
+  "feedback", "fork", "help", "hooks", "ide", "install-github-app", "install-slack-app", "keybindings", "login",
+  "logout", "memory", "mobile", "passes", "permissions", "plan", "plugin", "powerup", "privacy-settings", "radio",
+  "rate-limit-options", "release-notes", "remote-control", "remote-env", "restart", "resume", "review", "rewind",
+  "sandbox", "scroll-speed", "setup-bedrock", "setup-vertex", "skills", "slides", "stats", "status", "statusline",
+  "stickers", "stop", "subtask", "tasks", "teleport", "terminal-setup", "theme", "tui", "ultrareview", "upgrade",
+  "voice", "web-setup", "workflows",
+]);
+
+// An agent's own commands as its running version answered them, and for
+// Claude Code those only its terminal UI has, which that answer leaves out.
+function withTerminalOnly(agent, answered) {
+  if (agent !== "claude") return answered;
+  const named = new Set(answered.map((command) => command.name));
+  const terminal = CLAUDE_BUILT_IN_COMMANDS.filter((command) => CLAUDE_TUI_ONLY_COMMANDS.has(command.name) && !named.has(command.name));
+  return [...answered, ...terminal].sort((a, b) => a.name.localeCompare(b.name));
+}
 
 export function builtInCommands(agent) {
   if (agent === "opencode") return OPENCODE_BUILT_IN_COMMANDS;
@@ -304,16 +460,9 @@ export function parseFrontmatter(text) {
     let value;
     if (/^[|>][+-]?\d*$/u.test(raw)) value = continued.filter(Boolean).join(" ");
     else value = unquote([raw, ...continued.filter(Boolean)].join(" ").trim());
-    fields[key] = oneLine(value);
+    fields[key] = commandLine(value);
   }
   return { fields, body };
-}
-
-// One line of plain text, cut to a length a list row can show.
-function oneLine(value, limit = MAX_DESCRIPTION_LENGTH) {
-  // eslint-disable-next-line no-control-regex
-  const flat = String(value ?? "").replace(/[\u0000-\u001f\u007f]+/gu, " ").replace(/\s+/gu, " ").trim();
-  return flat.length > limit ? `${flat.slice(0, limit - 1).trimEnd()}…` : flat;
 }
 
 // A command's name and description from the start of its file: the
@@ -329,7 +478,7 @@ export function commandSummary(text, fallbackName) {
     const first = lines.map((line) => line.trim()).find((line) => line && !/^(```|~~~|<!--)/u.test(line));
     description = first ? first.replace(/^(#+|>|[-*+])\s*/u, "") : "";
   }
-  return { name: fields.name || fallbackName, description: oneLine(description) };
+  return { name: fields.name || fallbackName, description: commandLine(description) };
 }
 
 export function isCommandName(name) {
@@ -353,8 +502,9 @@ export function paneCommandTarget(snapshot, paneId) {
 // description and a known source. Only those three fields are kept. Null
 // when the answer is not a list for `agent`, or holds no command at all.
 // A PC's list is its found commands (MAX_LISTED_COMMANDS at most) and then
-// its agent's own, which must not be cut off the end.
-export const MAX_REMOTE_COMMANDS = MAX_LISTED_COMMANDS + 100;
+// its agent's own, which must not be cut off the end: room for the longest
+// list of an agent's own here, and as much again for a PC whose lists are newer.
+export const MAX_REMOTE_COMMANDS = MAX_LISTED_COMMANDS + 2 * Math.max(...COMMAND_AGENTS.map((agent) => builtInCommands(agent).length));
 
 export function cleanRemoteCommands(answer, agent) {
   if (!answer || typeof answer !== "object" || answer.agent !== agent || !Array.isArray(answer.commands)) return null;
@@ -365,7 +515,7 @@ export function cleanRemoteCommands(answer, agent) {
     seen.add(command.name);
     commands.push({
       name: command.name,
-      description: typeof command.description === "string" ? oneLine(command.description) : "",
+      description: typeof command.description === "string" ? commandLine(command.description) : "",
       source: COMMAND_SOURCES.includes(command.source) ? command.source : "other",
     });
   }
@@ -384,7 +534,10 @@ const nodeFs = { open, readdir, realpath, stat };
 
 // The commands each pane's agent takes, kept a little while per agent and
 // folder. `fs` is the file calls used (open, readdir, realpath, stat), so a
-// test can see what is opened.
+// test can see what is opened. `agentCommands` (an AgentCommandSource) gives
+// an agent's own commands for the version a pane runs, which `executableOf`
+// reads from the pane's processes; without it, or when it has none, the lists
+// kept here are the agent's own.
 export class SlashCommandCatalog {
   constructor({
     env = process.env,
@@ -393,7 +546,11 @@ export class SlashCommandCatalog {
     ttlMs = COMMANDS_CACHE_MS,
     now = () => Date.now(),
     fs = nodeFs,
+    agentCommands = null,
+    executableOf = (agent, processes) => agentExecutable(agent, processes),
   } = {}) {
+    this.agentCommands = agentCommands;
+    this.executableOf = executableOf;
     this.claudeDir = posix.resolve(env.CLAUDE_CONFIG_DIR || posix.join(home, ".claude"));
     this.home = posix.resolve(home);
     this.opencodeDir = posix.resolve(env.XDG_CONFIG_HOME && env.XDG_CONFIG_HOME.startsWith("/") ? posix.join(env.XDG_CONFIG_HOME, "opencode") : posix.join(home, ".config", "opencode"));
@@ -411,20 +568,25 @@ export class SlashCommandCatalog {
   // { agent, commands: [{ name, description, source }] } for a pane on this
   // PC (one on a connected PC asks there: listRemote). An agent not in
   // COMMAND_AGENTS has none.
-  async list({ agent, cwd = null } = {}) {
+  async list({ agent, cwd = null, processes = [] } = {}) {
     const name = agentName(agent);
     if (!COMMAND_AGENTS.includes(name)) return { agent: null, commands: [] };
     const folder = typeof cwd === "string" && cwd.startsWith("/") && cwd.length <= 4096 ? posix.resolve(cwd) : null;
-    const key = JSON.stringify([name, folder]);
+    // the version the pane runs decides the agent's own commands, so the list is kept per version
+    const running = this.agentCommands ? await this.executableOf(name, Array.isArray(processes) ? processes : []).catch(() => null) : null;
+    const version = running?.version ?? null;
+    const key = JSON.stringify([name, folder, version]);
     const at = this.now();
     const cached = this.cache.get(key);
     if (cached && at - cached.at <= this.ttlMs) return cached.answer;
     const answer = (async () => {
       const found = await this.#found(name, folder);
+      const answered = version ? await this.agentCommands.builtIn(name, version, { executable: running.path }).catch(() => null) : null;
+      const own = answered ? withTerminalOnly(name, answered) : builtInCommands(name);
       const seen = new Set();
       const commands = [];
       // The first of a name wins: the project's, the user's, a plugin's, then the agent's own.
-      for (const command of [...found, ...builtInCommands(name)]) {
+      for (const command of [...found, ...own]) {
         if (seen.has(command.name)) continue;
         seen.add(command.name);
         commands.push({ name: command.name, description: command.description, source: command.source });

@@ -24,6 +24,7 @@ import {
   HttpError, conversationCursor, decodePaneId, readJsonBody, requestedVersions, sendEmpty, sendJson,
 } from "./http-basics.mjs";
 import { paneCommandTarget } from "./slash-commands.mjs";
+import { paneForegroundProcesses } from "./pane-agent.mjs";
 
 const LOCAL_SERVER = "local";
 const DEFAULT_OUTPUT_LINES = 200;
@@ -227,7 +228,7 @@ export function createPaneRoutes({
       if (!target) throw new HttpError(404, "pane_not_found", "That pane is gone.");
       const serverId = typeof target.pane.server_id === "string" && target.pane.server_id ? target.pane.server_id : LOCAL_SERVER;
       if (serverId === LOCAL_SERVER && !paneId.includes("!")) {
-        sendJson(response, 200, await slashCommandCatalog.list({ agent: target.agent, cwd: target.cwd }));
+        sendJson(response, 200, await slashCommandCatalog.list({ agent: target.agent, cwd: target.cwd, processes: await paneForegroundProcesses(herdr, paneId) }));
         return;
       }
       sendJson(response, 200, await slashCommandCatalog.listRemote({

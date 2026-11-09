@@ -9,6 +9,7 @@ import { PasswordAuth, createPasswordConfiguration } from "../src/password-auth.
 import { localProtectedPaths } from "../src/protected-paths.mjs";
 import {
   CLAUDE_BUILT_IN_COMMANDS,
+  CLAUDE_TUI_ONLY_COMMANDS,
   CODEX_BUILT_IN_COMMANDS,
   MAX_COMMAND_FILE_BYTES,
   MAX_LISTED_COMMANDS,
@@ -639,4 +640,88 @@ test("Kiro's and Antigravity's own lists match their recorded menus", () => {
       assert.ok(command.description.length > 0 && !command.description.includes("tab for sub-commands"), command.name);
     }
   }
+});
+
+test("Claude Code's and Codex's own lists match the versions they were recorded from", () => {
+  const listed = (list) => new Set(list.map((command) => command.name));
+  // Codex 0.167.0's popup (codex-rs/tui/src/slash_command.rs), less the debug-build
+  // and do-not-use commands and /app, which shows on macOS and Windows only
+  const codex = listed(CODEX_BUILT_IN_COMMANDS);
+  assert.equal(CODEX_BUILT_IN_COMMANDS.length, 60);
+  for (const name of ["permissions", "resume", "fork", "plan", "goal", "side", "skills", "hooks", "subagents", "setup-default-sandbox", "approve", "debug-config"]) {
+    assert.ok(codex.has(name), name);
+  }
+  for (const name of ["approvals", "rollout", "test-approval", "debug-m-drop", "app"]) assert.ok(!codex.has(name), name);
+  // Claude Code's commands reference (code.claude.com/docs/en/commands), read
+  // 2026-11-09 against 2.1.319: its commands and bundled skills, less the removed ones
+  const claude = listed(CLAUDE_BUILT_IN_COMMANDS);
+  assert.equal(CLAUDE_BUILT_IN_COMMANDS.length, 117);
+  for (const name of ["branch", "code-review", "effort", "fork", "goal", "loop", "simplify", "tasks", "usage"]) assert.ok(claude.has(name), name);
+  for (const name of ["pr-comments", "vim", "todos", "ultraplan"]) assert.ok(!claude.has(name), name);
+  for (const list of [CLAUDE_BUILT_IN_COMMANDS, CODEX_BUILT_IN_COMMANDS]) {
+    assert.equal(listed(list).size, list.length);
+    for (const command of list) {
+      assert.match(command.name, /^[a-z][a-z0-9-]*$/u);
+      assert.ok(command.description.length > 0 && command.description.length <= 100, command.name);
+    }
+  }
+});
+
+test("a pane's agent's own commands are its running version's when they can be had, else the list kept here", async (context) => {
+  const { root, home, project } = await tree();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const asked = [];
+  const versions = { 7: "0.170.0", 8: "0.171.0" };
+  const catalog = new SlashCommandCatalog({
+    env: { HOME: home },
+    guard: localProtectedPaths({ env: { HOME: home }, home }),
+    executableOf: async (agent, processes) => {
+      const version = versions[processes[0]?.pid];
+      return version ? { version, path: `/opt/${agent}/${version}` } : null;
+    },
+    agentCommands: {
+      async builtIn(agent, version, { executable }) {
+        asked.push(`${agent}@${version} ${executable}`);
+        return version === "0.170.0" ? [{ name: "brand-new", description: "Only in 0.170.0", source: "built-in" }] : null;
+      },
+    },
+  });
+  const listed = await catalog.list({ agent: "codex", cwd: project, processes: [{ pid: 7 }] });
+  assert.deepEqual(names(listed, "built-in"), ["brand-new"]);
+  assert.deepEqual(names(listed, "user"), ["prompts:fix"], "the user's own are found as before");
+  // a version with nothing to be had, or none told: the list kept here
+  for (const processes of [[{ pid: 8 }], [], undefined]) {
+    const fallback = await catalog.list({ agent: "codex", cwd: project, processes });
+    assert.deepEqual(names(fallback, "built-in"), CODEX_BUILT_IN_COMMANDS.map((command) => command.name));
+  }
+  assert.deepEqual(asked, ["codex@0.170.0 /opt/codex/0.170.0", "codex@0.171.0 /opt/codex/0.171.0"]);
+});
+
+test("a Claude Code pane's own commands are what its build answers, with the ones only its terminal UI has", async (context) => {
+  const { root, home } = await tree();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const catalog = new SlashCommandCatalog({
+    env: { HOME: home },
+    guard: localProtectedPaths({ env: { HOME: home }, home }),
+    executableOf: async () => ({ version: "2.1.400", path: "/opt/claude/2.1.400" }),
+    agentCommands: {
+      async builtIn() {
+        return [
+          { name: "compact", description: "Compact, as 2.1.400 says it", source: "built-in" },
+          { name: "brand-new", description: "Only in 2.1.400", source: "built-in" },
+        ];
+      },
+    },
+  });
+  const built = (await catalog.list({ agent: "claude", processes: [{ pid: 9 }] })).commands.filter((command) => command.source === "built-in");
+  const byName = Object.fromEntries(built.map((command) => [command.name, command.description]));
+  assert.equal(byName.compact, "Compact, as 2.1.400 says it");
+  assert.equal(byName["brand-new"], "Only in 2.1.400");
+  // the build's answer leaves out its terminal UI's own: those come from the list kept here
+  for (const name of CLAUDE_TUI_ONLY_COMMANDS) assert.ok(name in byName, name);
+  // what the build did not name, and is not the terminal UI's, is not its
+  assert.ok(!("simplify" in byName));
+  assert.equal(built.length, 2 + CLAUDE_TUI_ONLY_COMMANDS.size);
+  assert.ok(["resume", "exit", "help", "rewind", "permissions"].every((name) => CLAUDE_TUI_ONLY_COMMANDS.has(name)));
+  assert.ok(!CLAUDE_TUI_ONLY_COMMANDS.has("compact"));
 });

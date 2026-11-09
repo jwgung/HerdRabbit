@@ -286,6 +286,8 @@ export function readConfig(environment = process.env) {
     extraAllowedHosts: parseAllowedHosts(environment.HERDR_WEB_ALLOWED_HOSTS),
     filesDir: defaultFilesDirectory(environment),
     updateDir: defaultUpdateDirectory(environment),
+    // The agents' own `/` commands per version (src/agent-commands.mjs): public, regenerable.
+    agentCommandsDir: join(environment.XDG_DATA_HOME || join(homedir(), ".local", "share"), "herdrabbit", "agent-commands"),
     commandTimeoutMs: 5_000,
     maxBodyBytes: 16 * 1024,
     maxTransferBytes: parseMaxTransferBytes(environment.HERDR_WEB_MAX_TRANSFER_MB),

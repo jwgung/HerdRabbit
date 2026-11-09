@@ -149,8 +149,13 @@ export function toolVerb(part) {
   // Codex's patch is its input whole; the server sums it up by the files it touches
   if (name === "apply_patch") return String(part.input ?? "").trimStart().startsWith("*** Begin Patch") ? "Edited" : null;
   // Codex's code-mode exec is a script: one that applies a patch is summed up the
-  // same way (a script it could not read a patch from keeps the tool's name)
-  if (name === "exec" && /tools\.apply_patch\(/u.test(String(part.input ?? ""))) return "Edited";
+  // same way, and one that only runs commands or only edits files reads as the
+  // parser read what it did (`action`); any other keeps the tool's name
+  if (name === "exec") {
+    if (part.action === "edit" || /tools\.apply_patch\(/u.test(String(part.input ?? ""))) return "Edited";
+    if (part.action === "command") return "Ran";
+    return null;
+  }
   const verb = VERB_OF[name];
   if (verb === undefined) return null;
   const input = parseToolInput(part.input ?? "");

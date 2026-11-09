@@ -23,7 +23,7 @@ import {
   transcriptPage,
   transcriptToolOutput,
   versionMatches, remember } from "./pages.mjs";
-import { paneAgentName } from "../pane-agent.mjs";
+import { paneAgentName, paneForegroundProcesses } from "../pane-agent.mjs";
 import { localTranscriptStore } from "./stores.mjs";
 
 const LOCAL = "local";
@@ -308,7 +308,7 @@ export class ConversationService {
   // The one session the pane's foreground processes run Kiro on, by the log
   // Kiro holds open; null when none or more than one says.
   async #kiroRunningSession(store, paneId) {
-    const processes = await this.#foregroundProcesses(paneId);
+    const processes = await paneForegroundProcesses(this.herdr, paneId);
     if (processes.length === 0) return null;
     try {
       const sessions = await store.sessionsOfPids(processes.map((item) => item?.pid));
@@ -350,7 +350,7 @@ export class ConversationService {
 
   // The pane's foreground agy process ids, by herdr's process info.
   async #agyPids(paneId) {
-    return (await this.#foregroundProcesses(paneId))
+    return (await paneForegroundProcesses(this.herdr, paneId))
       .filter((item) => Number.isSafeInteger(item?.pid) && isAgyProcess(item)).map((item) => item.pid);
   }
 
@@ -439,7 +439,7 @@ export class ConversationService {
   // process info; null when this herdr or this system cannot tell.
   async #runningOpencodeVersion(paneId) {
     if (typeof this.runningVersion !== "function") return null;
-    const processes = await this.#foregroundProcesses(paneId);
+    const processes = await paneForegroundProcesses(this.herdr, paneId);
     if (processes.length === 0) return null;
     try {
       return await this.runningVersion(processes.map((item) => item?.pid));
@@ -453,7 +453,7 @@ export class ConversationService {
   // report decides).
   async #claudeRunningSession(store, paneId) {
     if (typeof store.sessionsOfPids !== "function") return null;
-    const processes = await this.#foregroundProcesses(paneId);
+    const processes = await paneForegroundProcesses(this.herdr, paneId);
     if (processes.length === 0) return null;
     try {
       const sessions = await store.sessionsOfPids(processes.map((item) => item?.pid));
@@ -466,7 +466,7 @@ export class ConversationService {
   // The pids of the pane's Codex processes, by herdr's process info; none
   // when this herdr cannot tell.
   async #codexPids(paneId) {
-    return (await this.#foregroundProcesses(paneId))
+    return (await paneForegroundProcesses(this.herdr, paneId))
       .filter((item) => Number.isSafeInteger(item?.pid) && isCodexProcess(item.argv)).map((item) => item.pid);
   }
 
@@ -481,26 +481,13 @@ export class ConversationService {
   // this pane's agent process started. False when either cannot be told.
   async #writtenBeforeStart(paneId, writtenMs) {
     if (!Number.isFinite(writtenMs) || typeof this.processStartedAt !== "function") return false;
-    const processes = await this.#foregroundProcesses(paneId);
+    const processes = await paneForegroundProcesses(this.herdr, paneId);
     if (processes.length === 0) return false;
     try {
       const started = await this.processStartedAt(processes.map((item) => item?.pid));
       return Number.isFinite(started) && writtenMs < started - START_TOLERANCE_MS;
     } catch {
       return false;
-    }
-  }
-
-  // The pane's foreground processes by herdr's process info; none when this
-  // herdr cannot tell or the call fails.
-  async #foregroundProcesses(paneId) {
-    if (typeof this.herdr.paneProcessInfo !== "function") return [];
-    try {
-      const info = await this.herdr.paneProcessInfo(paneId);
-      const processes = info?.process_info?.foreground_processes ?? info?.foreground_processes ?? [];
-      return Array.isArray(processes) ? processes : [];
-    } catch {
-      return [];
     }
   }
 

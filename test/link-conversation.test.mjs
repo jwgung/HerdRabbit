@@ -308,7 +308,7 @@ test("A's composer lists a connected PC's pane's / commands as B builds them", a
   const answer = await (await get(pane("/commands"))).json();
   assert.deepEqual(answer, { agent: "claude", commands: [{ name: "desk-skill", description: "On the desk", source: "user" }], remote: true });
   // B decided the agent and folder from its own snapshot, for its own pane id
-  assert.deepEqual(desk.commandsAsked, [{ agent: "claude", cwd: "/work/desk" }]);
+  assert.deepEqual(desk.commandsAsked, [{ agent: "claude", cwd: "/work/desk", processes: [] }]);
   // a pane with no agent there asks nothing
   const shell = await (await get(`/api/panes/${encodeURIComponent("link_1!hs_ZGVmYXVsdA~w1:p2")}/commands`)).json();
   assert.deepEqual(shell, { agent: null, commands: [] });
