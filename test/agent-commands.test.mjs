@@ -273,11 +273,19 @@ test("reads a kept list only from a small regular file, never waiting on what is
   const source = new AgentCommandSource({ cacheDir, fetch });
   assert.ok(!(await source.builtIn("codex", "0.400.0")).some((command) => command.name === "stale"));
   assert.equal(asked.length, 1);
-  // a pipe in its place: neither opened to wait on nor read
-  execFileSync("mkfifo", [join(cacheDir, "codex-0.400.1.json")]);
+  // a pipe in its place: neither opened to wait on nor read. Should an open
+  // wait on it after all, a writer comes by after a while to let it go, so a
+  // regression fails here at once rather than holding the run open.
+  const fifo = join(cacheDir, "codex-0.400.1.json");
+  execFileSync("mkfifo", [fifo]);
+  const unstick = setTimeout(async () => {
+    try { await (await open(fifo, constants.O_WRONLY | constants.O_NONBLOCK)).close(); } catch { /* nobody waits on it */ }
+  }, 3000);
   const started = Date.now();
-  assert.equal((await source.builtIn("codex", "0.400.1")).length, 7);
-  assert.ok(Date.now() - started < 5000);
+  const listed = await source.builtIn("codex", "0.400.1");
+  clearTimeout(unstick);
+  assert.ok(Date.now() - started < 3000, "an open waited on the pipe");
+  assert.equal(listed.length, 7);
   // a link in its place is not followed
   await writeFile(join(root, "list.json"), JSON.stringify([{ name: "linked", description: "from elsewhere" }]));
   await symlink(join(root, "list.json"), join(cacheDir, "codex-0.400.2.json"));

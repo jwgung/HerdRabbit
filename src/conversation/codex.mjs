@@ -252,6 +252,9 @@ const PHASES = new Set(["commentary", "final_answer"]);
 
 // A row's summary is cut to this many characters (public/chat/work-blocks.js reads it so).
 const SUMMARY_CHARS = 120;
+// How Codex names an item_completed step (`exec-<uuid>`): a loose step's row is
+// looked up by this id, which its record holds as `"id"` rather than `"call_id"`.
+const STEP_ID_PREFIX = "exec-";
 
 // Codex's code-mode tools: `exec` runs a script the model writes, `wait` waits
 // on one still running. What the script did is recorded apart from the call.
@@ -630,7 +633,7 @@ export const CODEX_TRANSCRIPT = Object.freeze({
   // the session's first turn context sits near the file's start
   headBytes: 64 * 1024,
   // a call's output names it by call_id; a step no call took, by its own id
-  toolNeedle: (toolId) => Buffer.from(toolId.startsWith("exec-") ? `"id":${JSON.stringify(toolId)}` : `"call_id":${JSON.stringify(toolId)}`),
+  toolNeedle: (toolId) => Buffer.from(toolId.startsWith(STEP_ID_PREFIX) ? `"id":${JSON.stringify(toolId)}` : `"call_id":${JSON.stringify(toolId)}`),
   toolOutputIn: codexToolOutputIn,
 });
 
