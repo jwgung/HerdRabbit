@@ -112,7 +112,9 @@ try {
     assert.equal(await popup.getAttribute("aria-label"), "Commands");
     assert.equal(await input.getAttribute("aria-expanded"), "true");
     const all = await names();
-    for (const name of ["/alpha", "/build", "/compact", "/model"]) assert.ok(all.includes(name), `${name} is listed: ${all}`);
+    // the bare `/` list is the first MAX_SLASH_MATCHES names; Claude Code alone has more
+    assert.ok(all.length <= 50, `the list is cut to 50: ${all.length}`);
+    for (const name of ["/alpha", "/build", "/compact"]) assert.ok(all.includes(name), `${name} is listed: ${all}`);
     const row = (name) => popup.locator(".composer-command").filter({ has: page.locator(".composer-command-name", { hasText: new RegExp(`^${name}$`, "u") }) });
     assert.equal(await row("/alpha").locator(".composer-command-source").textContent(), "user");
     assert.equal(await row("/build").locator(".composer-command-source").textContent(), "project");
@@ -162,13 +164,13 @@ try {
       window.escapesSeen = 0;
       document.addEventListener("keydown", (event) => { if (event.key === "Escape") window.escapesSeen += 1; });
     });
-    await page.keyboard.type("/mod");
+    await page.keyboard.type("/mode");
     await startsWith(["/model"]);
     await page.keyboard.press("Escape");
     await closed();
     assert.equal(await page.evaluate(() => window.escapesSeen), 0, "the page's Escape did not run");
-    assert.equal(await input.inputValue(), "/mod");
-    await page.keyboard.type("e");
+    assert.equal(await input.inputValue(), "/mode");
+    await page.keyboard.type("l");
     await page.waitForTimeout(400);
     assert.equal(await popup.isHidden(), true, "a dismissed command stays without a list");
     assert.deepEqual(herdr.sent, [], "Escape sent nothing");
@@ -194,7 +196,7 @@ try {
     await reset();
 
     // a list dismissed with Escape in one pane does not hold in the next
-    await page.keyboard.type("/mo");
+    await page.keyboard.type("/mode");
     await startsWith(["/model"]);
     await page.keyboard.press("Escape");
     await closed();
@@ -209,8 +211,8 @@ try {
     await page.keyboard.press("Enter");
     assert.equal(await input.inputValue(), "/prompts:fix ");
     await reset();
-    await page.keyboard.type("/appr");
-    await startsWith(["/approvals"]);
+    await page.keyboard.type("/perm");
+    await startsWith(["/permissions"]);
     await reset();
 
     // an OpenCode pane offers OpenCode's commands and the project's
