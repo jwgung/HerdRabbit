@@ -235,21 +235,22 @@ function codexToolSummary(name, raw, args) {
   if (patch !== null && patchFiles(patch).length > 0) return patchFiles(patch).join(", ");
   // a code-mode script that runs commands written out in it: those commands (what it
   // ran is also recorded apart, but not for a script still running when its call returns)
-  if (name === "exec" && typeof raw === "string" && writtenCommands(raw).length > 0) return writtenCommands(raw).join("; ");
+  const written = name === "exec" && typeof raw === "string" ? writtenCommands(raw) : [];
+  if (written.length > 0) return written.join("; ");
   if (name === "sleep" && Number.isFinite(args.duration_ms)) return `${Math.round(args.duration_ms / 1000)}s`;
   // Codex's subagents: the one started, or the one a message goes to
   if (name === "spawn_agent" && typeof args.task_name === "string") return args.task_name;
   if (/^(send_message|followup_task)$/u.test(name) && typeof args.target === "string") return args.target;
   if (/^request_user_input/u.test(name) && questionTitles(args).length > 0) return questionTitles(args).join(" · ");
   // the shell tool's command is an argv: `bash -lc "<script>"` reads as its script
-  if (Array.isArray(args.command) && args.command.every((part) => typeof part === "string") && args.command.length > 0) {
-    const argv = args.command;
-    return argv.length >= 3 && /^-\w*c$/u.test(argv.at(-2)) ? argv.at(-1) : argv.join(" ");
-  }
+  if (Array.isArray(args.command) && commandLine(args.command)) return commandLine(args.command);
   return [args.cmd, args.command, args.file_path, args.path, args.pattern, args.description, args.url, args.query].find((value) => typeof value === "string");
 }
 
 const PHASES = new Set(["commentary", "final_answer"]);
+
+// A row's summary is cut to this many characters (public/chat/work-blocks.js reads it so).
+const SUMMARY_CHARS = 120;
 
 // Codex's code-mode tools: `exec` runs a script the model writes, `wait` waits
 // on one still running. What the script did is recorded apart from the call.
@@ -350,7 +351,7 @@ export function parseCodexTurns(text) {
     if (item.type === "CommandExecution") {
       const command = oneLine(commandLine(item.command));
       if (!command || rows.some((part) => part.name === "exec" && writtenCommands(part.input ?? "").map(oneLine).includes(command))) return;
-      const part = { kind: "tool", id, name: "exec_command", summary: command.slice(0, 120), ...toolInputFields(JSON.stringify({ cmd: command }, null, 2)), output: "" };
+      const part = { kind: "tool", id, name: "exec_command", summary: command.slice(0, SUMMARY_CHARS), ...toolInputFields(JSON.stringify({ cmd: command }, null, 2)), output: "" };
       setToolOutput(part, string(item.aggregated_output));
       if (Number.isInteger(item.exit_code) && item.exit_code !== 0) part.error = true;
       assistant(ts).parts.push(part);
@@ -363,7 +364,7 @@ export function parseCodexTurns(text) {
         return own !== null && files.every((file) => patchFiles(own).includes(file));
       };
       if (rows.some(named)) return;
-      const part = { kind: "tool", id, name: "apply_patch", summary: files.join(", ").slice(0, 120), ...toolInputFields(patch), output: "" };
+      const part = { kind: "tool", id, name: "apply_patch", summary: files.join(", ").slice(0, SUMMARY_CHARS), ...toolInputFields(patch), output: "" };
       setToolOutput(part, [string(item.stdout), string(item.stderr)].filter(Boolean).join("\n"));
       if (item.status && item.status !== "completed") part.error = true;
       assistant(ts).parts.push(part);
@@ -449,7 +450,7 @@ export function parseCodexTurns(text) {
           const taken = steps.get(waiting[0]);
           if (taken) {
             taken.push(step);
-            waiting[0].summary = taken.map((each) => each.text).join("; ").slice(0, 120);
+            waiting[0].summary = taken.map((each) => each.text).join("; ").slice(0, SUMMARY_CHARS);
             const action = scriptAction(taken.map((each) => each.kind));
             if (action) waiting[0].action = action;
             else delete waiting[0].action;
@@ -488,7 +489,7 @@ export function parseCodexTurns(text) {
         kind: "tool",
         id: TOOL_ID.test(callId) ? callId : null,
         name,
-        summary: (string(codexToolSummary(name, raw, args)).replace(/\s+/gu, " ").trim() || name).slice(0, 120),
+        summary: (oneLine(string(codexToolSummary(name, raw, args))) || name).slice(0, SUMMARY_CHARS),
         ...toolInputFields(inputText),
         output: "",
       };
@@ -500,7 +501,7 @@ export function parseCodexTurns(text) {
         const polled = /\btools\.write_stdin\(\s*\{\s*(?:session_id|"session_id")\s*:\s*(\d+)/u.exec(raw);
         if (part.summary === name && polled && sessions.has(polled[1])) part.summary = sessions.get(polled[1]);
         // what it calls, when nothing else names it
-        if (part.summary === name && calls.length > 0) part.summary = calls.join(", ").slice(0, 120);
+        if (part.summary === name && calls.length > 0) part.summary = calls.join(", ").slice(0, SUMMARY_CHARS);
         if (calls.length > 0 && calls.every((call) => call === "exec_command" || call === "write_stdin") && part.summary !== calls.join(", ")) part.action = "command";
         else if (patchText(raw) !== null && calls.every((call) => call === "apply_patch")) part.action = "edit";
       }

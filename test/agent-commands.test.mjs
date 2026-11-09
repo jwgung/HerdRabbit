@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentCommandSource, agentExecutable, agentVersion, parseClaudeCommands, parseCodexSlashCommands } from "../src/agent-commands.mjs";
+import { AgentCommandSource, agentExecutable, parseClaudeCommands, parseCodexSlashCommands } from "../src/agent-commands.mjs";
+const agentVersion = async (...args) => (await agentExecutable(...args))?.version ?? null;
 
 async function temp(context) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), "herdrabbit-agent-commands-")));
@@ -189,4 +190,43 @@ test("names the executable to ask: its path, or the process's own link to it onc
   assert.deepEqual(await agentExecutable("claude", [{ pid: 20 }], { procRoot }), { version: "2.1.319", path: installed });
   assert.deepEqual(await agentExecutable("claude", [{ pid: 21 }], { procRoot }), { version: "2.1.312", path: join(procRoot, "21", "exe") });
   assert.equal(await agentExecutable("claude", [{ pid: 22 }], { procRoot }), null);
+});
+
+test("holds every source to command names a typed /name can be, and one-line descriptions", async (context) => {
+  const root = await temp(context);
+  const cacheDir = join(root, "cache");
+  await mkdir(cacheDir, { recursive: true });
+  // a kept file someone else wrote: only what a list here could be is taken from it
+  await writeFile(join(cacheDir, "codex-0.200.0.json"), JSON.stringify([
+    { name: "model", description: "Pick\none\u0007" },
+    { name: "bad\nname", description: "x" },
+    { name: "a b", description: "x" },
+    { name: "model", description: "twice" },
+    { name: 3 },
+  ]));
+  const source = new AgentCommandSource({ cacheDir, fetch: async () => { throw new Error("not asked"); } });
+  assert.deepEqual(await source.builtIn("codex", "0.200.0"), [{ name: "model", description: "Pick one", source: "built-in" }]);
+  // a release source naming a command no /name can be
+  const odd = CODEX_SOURCE.replace('#[strum(to_string = "approve")]', '#[strum(to_string = "ap prove")]');
+  assert.ok(!parseCodexSlashCommands(odd).some((command) => command.name.includes(" ")));
+});
+
+test("refuses a release source larger than any slash_command.rs, without reading it whole", async (context) => {
+  const root = await temp(context);
+  let read = 0;
+  const huge = new ReadableStream({
+    pull(controller) {
+      read += 1;
+      if (read > 100) controller.close();
+      else controller.enqueue(new Uint8Array(64 * 1024));
+    },
+  });
+  const source = new AgentCommandSource({ cacheDir: join(root, "cache"), fetch: async () => new Response(huge) });
+  assert.equal(await source.builtIn("codex", "0.300.0"), null);
+  assert.ok(read < 20, `read ${read} chunks`);
+  const declared = new AgentCommandSource({
+    cacheDir: join(root, "cache"),
+    fetch: async () => new Response("x", { headers: { "content-length": String(10 * 1024 * 1024) } }),
+  });
+  assert.equal(await declared.builtIn("codex", "0.300.1"), null);
 });

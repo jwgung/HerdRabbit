@@ -9,7 +9,8 @@ import { LINK_PROTOCOL } from "./link-protocol.mjs";
 import { directoryFingerprint, fileAccessError, listDirectory, openFile } from "./file-browser.mjs";
 import { validateTransferName } from "./file-store.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
-import { SlashCommandCatalog, paneCommandTarget, paneProcesses } from "./slash-commands.mjs";
+import { SlashCommandCatalog, paneCommandTarget } from "./slash-commands.mjs";
+import { paneForegroundProcesses } from "./pane-agent.mjs";
 import { agentCommand } from "./agent-launch.mjs";
 import { existingFolder, isFolder } from "./project-folder.mjs";
 import { CONFIG_BODY_BYTES, herdrSettingsRoute } from "./herdr-settings.mjs";
@@ -300,7 +301,7 @@ export function linkRoutes({
       const paneId = decodePaneId(commandsMatch[1]);
       const target = paneId.includes("!") ? null : paneCommandTarget(await client.snapshot(), paneId);
       if (!target) throw new HttpError(404, "pane_not_found", "That pane is gone.");
-      const answer = await commandCatalog.list({ agent: target.agent, cwd: target.cwd, processes: await paneProcesses(client, paneId) });
+      const answer = await commandCatalog.list({ agent: target.agent, cwd: target.cwd, processes: await paneForegroundProcesses(client, paneId) });
       sendJson(response, 200, {
         agent: answer.agent,
         commands: answer.commands.map(({ name, description, source }) => ({ name, description, source })),

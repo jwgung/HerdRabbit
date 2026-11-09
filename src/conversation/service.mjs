@@ -23,7 +23,7 @@ import {
   transcriptPage,
   transcriptToolOutput,
   versionMatches, remember } from "./pages.mjs";
-import { paneAgentName } from "../pane-agent.mjs";
+import { paneAgentName, paneForegroundProcesses } from "../pane-agent.mjs";
 import { localTranscriptStore } from "./stores.mjs";
 
 const LOCAL = "local";
@@ -494,14 +494,7 @@ export class ConversationService {
   // The pane's foreground processes by herdr's process info; none when this
   // herdr cannot tell or the call fails.
   async #foregroundProcesses(paneId) {
-    if (typeof this.herdr.paneProcessInfo !== "function") return [];
-    try {
-      const info = await this.herdr.paneProcessInfo(paneId);
-      const processes = info?.process_info?.foreground_processes ?? info?.foreground_processes ?? [];
-      return Array.isArray(processes) ? processes : [];
-    } catch {
-      return [];
-    }
+    return paneForegroundProcesses(this.herdr, paneId);
   }
 
   async #located(key, locate) {

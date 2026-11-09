@@ -8,7 +8,8 @@
 // enum of its TUI, so that file is read from the release's tag, once per
 // version, and kept on disk.
 import { spawn } from "node:child_process";
-import { mkdir, readFile, readlink, realpath, rename, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { chmod, mkdir, readFile, readlink, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -20,41 +21,46 @@ const EXECUTABLES = {
 const MAX_PIDS = 32;
 // A version whose source could not be had is asked for again after this.
 const RETRY_MS = 60 * 60 * 1000;
+// Codex's slash_command.rs is about 15 KiB; nothing past this is read.
 const MAX_SOURCE_BYTES = 512 * 1024;
+const FETCH_TIMEOUT_MS = 15_000;
+// Claude Code's answer to initialize is about 100 KiB (its skills' long descriptions included).
+const MAX_CLAUDE_OUTPUT_BYTES = 4 * 1024 * 1024;
+const CLAUDE_TIMEOUT_MS = 20_000;
+// What a typed `/name` can be, as src/slash-commands.mjs holds it.
+const COMMAND_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/u;
+const MAX_DESCRIPTION = 200;
+const MAX_COMMANDS = 500;
 
-// The version of `agent` among a pane's foreground processes ({ pid }), by the
-// path its executable is installed at; null when none of them tells.
-export async function agentVersion(agent, processes, options = {}) {
-  return (await agentExecutable(agent, processes, options))?.version ?? null;
+// The real path behind a /proc/<pid>/exe link, and what to run it by: the
+// file itself, or the link when an update removed the file while it runs
+// (the link then reads as its old path with " (deleted)" after it).
+async function executableBehind(link) {
+  try {
+    const target = await realpath(link);
+    return { target, path: target };
+  } catch {
+    try {
+      return { target: (await readlink(link)).replace(/ \(deleted\)$/u, ""), path: link };
+    } catch {
+      return null;
+    }
+  }
 }
 
 // { version, path } of `agent`'s executable among a pane's foreground
-// processes: `path` runs that very build, the process's own link to it when
-// an update removed the file while it runs. Null when none of them tells.
+// processes ({ pid }), by the path it is installed at: `path` runs that very
+// build. Null when none of them tells. A shim or symlink named `codex` says
+// nothing of the version, so the real file is what is read.
 export async function agentExecutable(agent, processes, { procRoot = "/proc" } = {}) {
   const pattern = EXECUTABLES[agent];
   if (!pattern || !Array.isArray(processes)) return null;
   for (const item of processes.slice(0, MAX_PIDS)) {
     const pid = item?.pid;
     if (!Number.isSafeInteger(pid) || pid <= 1) continue;
-    const link = join(procRoot, String(pid), "exe");
-    let target;
-    let path;
-    try {
-      // the real file: a shim or symlink named `codex` says nothing of the version
-      target = await realpath(link);
-      path = target;
-    } catch {
-      // one updated away while it runs is only its link, " (deleted)" after its old path
-      try {
-        target = (await readlink(link)).replace(/ \(deleted\)$/u, "");
-        path = link;
-      } catch {
-        continue;
-      }
-    }
-    const version = pattern.exec(target)?.[1];
-    if (version && VERSION.test(version)) return { version, path };
+    const found = await executableBehind(join(procRoot, String(pid), "exe"));
+    const version = found ? pattern.exec(found.target)?.[1] : undefined;
+    if (version && VERSION.test(version)) return { version, path: found.path };
   }
   return null;
 }
@@ -69,17 +75,32 @@ const CLAUDE_REQUEST_ID = "herdrabbit-commands";
 export const CLAUDE_ARGS = Object.freeze(["-p", "--setting-sources", "", "--strict-mcp-config", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]);
 // Commands Claude Code lists but never shows: internal ones, and these hidden in 2.1.319.
 const CLAUDE_HIDDEN = new Set(["workflow-launch-exec", "extra-usage", "design-consent", "design-revoke"]);
-const COMMAND_NAME = /^[a-z0-9][a-z0-9:-]{0,99}$/u;
-const MAX_DESCRIPTION = 200;
 
-const shortLine = (text) => {
-  const flat = oneLine(text);
+// A description on one line, without control characters, cut to what a list row shows.
+function shortLine(text) {
+  // eslint-disable-next-line no-control-regex
+  const flat = String(text ?? "").replace(/[\u0000-\u001f\u007f]+/gu, " ").replace(/\s+/gu, " ").trim();
   return flat.length > MAX_DESCRIPTION ? `${flat.slice(0, MAX_DESCRIPTION - 1).trimEnd()}…` : flat;
-};
-const oneLine = (text) => String(text).replace(/\s+/gu, " ").trim();
+}
+
+// What any source of an agent's commands (a build's answer, a release's
+// source, the file kept on disk) is held to: names a typed `/name` can be,
+// each once, one-line descriptions, MAX_COMMANDS at most.
+export function cleanCommands(items) {
+  const commands = [];
+  const seen = new Set();
+  for (const item of Array.isArray(items) ? items : []) {
+    const name = item?.name;
+    if (typeof name !== "string" || !COMMAND_NAME.test(name) || seen.has(name)) continue;
+    seen.add(name);
+    commands.push({ name, description: shortLine(typeof item.description === "string" ? item.description : "") });
+    if (commands.length >= MAX_COMMANDS) break;
+  }
+  return commands;
+}
 
 // [{ name, description }] of Claude Code's own commands, from what it wrote
-// for the initialize request: the built-in ones, each once, less the hidden.
+// for the initialize request: the built-in ones, less the hidden.
 export function parseClaudeCommands(output) {
   for (const line of String(output).split("\n")) {
     let entry;
@@ -87,14 +108,8 @@ export function parseClaudeCommands(output) {
     if (entry?.type !== "control_response" || entry.response?.request_id !== CLAUDE_REQUEST_ID) continue;
     const listed = entry.response?.response?.commands;
     if (!Array.isArray(listed)) return [];
-    const commands = [];
-    for (const command of listed) {
-      const name = command?.name;
-      if (typeof name !== "string" || !COMMAND_NAME.test(name) || command.builtin === false || CLAUDE_HIDDEN.has(name)) continue;
-      if (commands.some((other) => other.name === name)) continue;
-      commands.push({ name, description: shortLine(typeof command.description === "string" ? command.description : "") });
-    }
-    return commands;
+    return cleanCommands(listed.filter((command) => command?.builtin !== false && !CLAUDE_HIDDEN.has(command?.name)
+      && !String(command?.name).startsWith("_")));
   }
   return [];
 }
@@ -102,7 +117,7 @@ export function parseClaudeCommands(output) {
 // Runs `executable` with `args`, hands it the initialize request and gives
 // back what it wrote up to its answer, or throws. Never waits long, never
 // leaves it running.
-export function runClaudeInitialize(executable, args, { timeoutMs = 20_000 } = {}) {
+export function runClaudeInitialize(executable, args, { timeoutMs = CLAUDE_TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"], env: process.env });
     let output = "";
@@ -117,7 +132,7 @@ export function runClaudeInitialize(executable, args, { timeoutMs = 20_000 } = {
     child.on("close", () => finish(null));
     child.stdout.on("data", (chunk) => {
       output += chunk;
-      if (output.length > MAX_SOURCE_BYTES * 8) finish(new Error("Claude Code answered too much"));
+      if (output.length > MAX_CLAUDE_OUTPUT_BYTES) finish(new Error("Claude Code answered too much"));
       else if (output.includes(`"request_id":"${CLAUDE_REQUEST_ID}"`) && output.endsWith("\n")) finish(null);
     });
     child.stdin.on("error", () => {});
@@ -152,12 +167,19 @@ export function parseCodexSlashCommands(source) {
     variants.push({ variant, name: named ?? kebab(variant) });
     named = null;
   }
+  // A match's arms: each `SlashCommand::A | SlashCommand::B => …` and what
+  // follows it up to the next arm, read one pattern after the other.
   const arms = (fn) => {
-    const block = new RegExp(`fn ${fn}\\(self\\)[^{]*\\{\\s*match self \\{([\\s\\S]*?)\\n\\s{8}\\}`, "u").exec(text)?.[1] ?? "";
+    const start = text.indexOf(`fn ${fn}(self)`);
     const found = new Map();
-    for (const arm of block.matchAll(/((?:SlashCommand::\w+\s*\|?\s*)+)=>\s*(\{[\s\S]*?\}|[^\n]+?),?\s*$/gmu)) {
-      for (const each of arm[1].matchAll(/SlashCommand::(\w+)/gu)) found.set(each[1], arm[2]);
-    }
+    if (start === -1) return found;
+    const end = text.indexOf("\n    }", start);
+    const block = text.slice(start, end === -1 ? undefined : end);
+    const heads = [...block.matchAll(/((?:SlashCommand::\w+[ \t\r\n|]*)+)=>/gu)];
+    heads.forEach((head, index) => {
+      const after = block.slice(head.index + head[0].length, heads[index + 1]?.index ?? block.length);
+      for (const each of head[1].matchAll(/SlashCommand::(\w+)/gu)) found.set(each[1], after);
+    });
     return found;
   };
   const descriptions = arms("description");
@@ -177,22 +199,49 @@ export function parseCodexSlashCommands(source) {
     if (description === undefined || /^DO NOT USE$/iu.test(description) || hiddenOnLinux(visibility.get(variant))) continue;
     commands.push({ name, description: sentence(description.replace(/\\(["\\])/gu, "$1")) });
   }
-  return commands;
+  return cleanCommands(commands);
 }
 
+// A response body, read no further than `limit` bytes; null past it.
+async function boundedText(response, limit) {
+  const declared = Number(response.headers?.get?.("content-length"));
+  if (Number.isFinite(declared) && declared > limit) return null;
+  if (!response.body?.getReader) {
+    const text = await response.text();
+    return text.length <= limit ? text : null;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+// How each agent's commands are had: a list (empty when they could not be),
+// or null when there is nothing to ask yet, which is no failure.
 const SOURCES = {
   codex: {
     // the popup's enum, from the tag the release was built from
-    async load(version, _executable, { fetch }) {
+    async load({ version, fetch }) {
       const url = `https://raw.githubusercontent.com/openai/codex/rust-v${version}/codex-rs/tui/src/slash_command.rs`;
-      const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-      const text = response?.ok ? await response.text() : "";
-      return text.length <= MAX_SOURCE_BYTES ? parseCodexSlashCommands(text) : [];
+      const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      const text = response?.ok ? await boundedText(response, MAX_SOURCE_BYTES) : null;
+      return text === null ? [] : parseCodexSlashCommands(text);
     },
   },
   claude: {
-    needsExecutable: true,
-    async load(version, executable, { runClaude }) {
+    // the pane's own build, asked once a pane shows where it runs
+    async load({ executable, runClaude }) {
+      if (typeof executable !== "string" || !executable.startsWith("/")) return null;
       return parseClaudeCommands(await runClaude(executable, [...CLAUDE_ARGS]));
     },
   },
@@ -235,11 +284,11 @@ export class AgentCommandSource {
       this.known.set(key, kept);
       return kept;
     }
-    // nothing to ask yet: not a failure, asked once a pane shows where it runs
-    if (source.needsExecutable && (typeof executable !== "string" || !executable.startsWith("/"))) return null;
     let commands = null;
     try {
-      commands = builtIn(await source.load(version, executable, this.deps));
+      const listed = await source.load({ version, executable, ...this.deps });
+      if (listed === null) return null;
+      commands = builtIn(listed);
     } catch {
       commands = null;
     }
@@ -257,19 +306,25 @@ const builtIn = (commands) => Object.freeze(commands.map(({ name, description })
 
 async function readKept(file) {
   try {
-    const list = JSON.parse(await readFile(file, "utf8"));
-    if (!Array.isArray(list) || list.length === 0) return null;
-    if (!list.every((item) => typeof item?.name === "string" && typeof item?.description === "string")) return null;
-    return builtIn(list);
+    const list = cleanCommands(JSON.parse(await readFile(file, "utf8")));
+    return list.length > 0 ? builtIn(list) : null;
   } catch {
     return null;
   }
 }
 
-// Written whole, then moved into place: a reader never sees half a file.
+// Written whole under a fresh name, then moved into place: a reader never sees
+// half a file, and nothing already there (a link, say) is written through.
 async function keep(file, commands) {
-  await mkdir(join(file, ".."), { recursive: true, mode: 0o700 });
-  const partial = `${file}.${process.pid}.tmp`;
-  await writeFile(partial, JSON.stringify(commands.map(({ name, description }) => ({ name, description }))), { mode: 0o600 });
-  await rename(partial, file);
+  const folder = join(file, "..");
+  await mkdir(folder, { recursive: true, mode: 0o700 });
+  await chmod(folder, 0o700);
+  const partial = `${file}.${randomBytes(8).toString("hex")}.tmp`;
+  try {
+    await writeFile(partial, JSON.stringify(commands.map(({ name, description }) => ({ name, description }))), { mode: 0o600, flag: "wx" });
+    await rename(partial, file);
+  } catch (error) {
+    await rm(partial, { force: true });
+    throw error;
+  }
 }

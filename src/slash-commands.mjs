@@ -497,19 +497,6 @@ export function isCommandName(name) {
 // The agent and folder of a pane as `snapshot` reports them, or null for a
 // pane it does not list: what a pane's command list is built for. A
 // connected PC answers this from its own snapshot, never from what it is asked.
-// The pane's foreground processes, as herdr reports them ({ pid, … }): what
-// the version of its agent is read from. None when this herdr cannot tell.
-export async function paneProcesses(client, paneId) {
-  if (typeof client?.paneProcessInfo !== "function") return [];
-  try {
-    const info = await client.paneProcessInfo(paneId);
-    const processes = info?.process_info?.foreground_processes ?? info?.foreground_processes ?? [];
-    return Array.isArray(processes) ? processes : [];
-  } catch {
-    return [];
-  }
-}
-
 export function paneCommandTarget(snapshot, paneId) {
   const pane = (snapshot?.panes ?? []).find((candidate) => candidate?.pane_id === paneId);
   if (!pane) return null;
