@@ -50,6 +50,7 @@ async function main() {
   }
   console.error("Claude Code: the list in src/slash-commands.mjs is behind its commands reference");
   if (drift.missing.length > 0) console.error(`  add:  ${drift.missing.join(", ")}`);
+  if (drift.missing.length > 0) console.error("  (one only Claude Code's terminal UI has goes in CLAUDE_TUI_ONLY_COMMANDS too)");
   if (drift.extra.length > 0) console.error(`  drop: ${drift.extra.join(", ")}`);
   process.exit(1);
 }

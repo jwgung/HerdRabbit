@@ -15,8 +15,7 @@ import { open, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { posix } from "node:path";
 import { agentExecutable } from "./agent-commands.mjs";
-// one line of plain text, cut to a length a list row can show
-import { COMMAND_NAME, commandLine as oneLine } from "./command-names.mjs";
+import { COMMAND_NAME, commandLine } from "./command-names.mjs";
 import { paneAgentName } from "./pane-agent.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 
@@ -257,7 +256,7 @@ export const OPENCODE_BUILT_IN_COMMANDS = builtIn([
   ["connect", "Connect provider"],
   ["continue", "Switch session (alias of /sessions)"],
   ["copy", "Copy session transcript"],
-  ["customize-opencode", oneLine(OPENCODE_CUSTOMIZE_SKILL_DESCRIPTION)],
+  ["customize-opencode", commandLine(OPENCODE_CUSTOMIZE_SKILL_DESCRIPTION)],
   ["debug", "View debug info"],
   ["diff", "Open diff viewer"],
   ["editor", "Open editor"],
@@ -461,7 +460,7 @@ export function parseFrontmatter(text) {
     let value;
     if (/^[|>][+-]?\d*$/u.test(raw)) value = continued.filter(Boolean).join(" ");
     else value = unquote([raw, ...continued.filter(Boolean)].join(" ").trim());
-    fields[key] = oneLine(value);
+    fields[key] = commandLine(value);
   }
   return { fields, body };
 }
@@ -479,7 +478,7 @@ export function commandSummary(text, fallbackName) {
     const first = lines.map((line) => line.trim()).find((line) => line && !/^(```|~~~|<!--)/u.test(line));
     description = first ? first.replace(/^(#+|>|[-*+])\s*/u, "") : "";
   }
-  return { name: fields.name || fallbackName, description: oneLine(description) };
+  return { name: fields.name || fallbackName, description: commandLine(description) };
 }
 
 export function isCommandName(name) {
@@ -516,7 +515,7 @@ export function cleanRemoteCommands(answer, agent) {
     seen.add(command.name);
     commands.push({
       name: command.name,
-      description: typeof command.description === "string" ? oneLine(command.description) : "",
+      description: typeof command.description === "string" ? commandLine(command.description) : "",
       source: COMMAND_SOURCES.includes(command.source) ? command.source : "other",
     });
   }

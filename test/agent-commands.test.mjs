@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -260,7 +261,7 @@ test("keeps a version's list where only this user can read it, never writing thr
   assert.deepEqual(await readdir(cacheDir), ["codex-0.167.0.json"], "no partial file left behind");
 });
 
-test("reads a kept list only from a small regular file, never waiting on what is in its place", async (context) => {
+test("reads a kept list only from a small regular file, never waiting on what is in its place", { timeout: 15_000 }, async (context) => {
   const root = await temp(context);
   const cacheDir = join(root, "cache");
   await mkdir(cacheDir, { recursive: true });
@@ -282,6 +283,16 @@ test("reads a kept list only from a small regular file, never waiting on what is
   await symlink(join(root, "list.json"), join(cacheDir, "codex-0.400.2.json"));
   assert.ok(!(await source.builtIn("codex", "0.400.2")).some((command) => command.name === "linked"));
   assert.equal(asked.length, 3);
+  // a pipe that already holds a list is still no kept file: not read
+  const pipe = join(cacheDir, "codex-0.400.3.json");
+  execFileSync("mkfifo", [pipe]);
+  const reader = await open(pipe, constants.O_RDONLY | constants.O_NONBLOCK);
+  context.after(() => reader.close());
+  const writer = await open(pipe, constants.O_WRONLY | constants.O_NONBLOCK);
+  await writer.write(JSON.stringify([{ name: "piped", description: "through a pipe" }]));
+  await writer.close();
+  assert.ok(!(await source.builtIn("codex", "0.400.3")).some((command) => command.name === "piped"));
+  assert.equal(asked.length, 4);
 });
 
 test("a list that cannot be put in place leaves no partial file behind, and is still answered", async (context) => {
