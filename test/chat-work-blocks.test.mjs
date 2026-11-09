@@ -104,6 +104,11 @@ test("Codex's commands and patches read as verbs too", () => {
   assert.equal(toolVerb(script('await tools.apply_patch("*** Begin Patch\\n*** Update File: src/a.ts\\n*** End Patch")', "src/a.ts")), "Edited");
   assert.equal(toolVerb(script('await tools.exec_command({cmd: "ls"})', "exec")), null, "a script with no patch keeps its name");
   assert.equal(toolVerb(script('// tools.apply_patch( is only quoted here', "exec")), null, "no files read from it: no edit");
+  // a script that only runs commands, or only edits files, reads as the parser says
+  assert.equal(toolVerb({ ...script('await tools.exec_command({cmd: "git status"})', "git status"), action: "command" }), "Ran");
+  assert.equal(toolVerb({ ...script("const patch = x; await tools.apply_patch(patch)", "/w/a.ts"), action: "edit" }), "Edited");
+  assert.equal(toolVerb(script('await tools.exec_command({cmd: "git status"})', "git status")), null,
+    "without the parser's word the script keeps its name");
   assert.equal(commandText(["bash", "-lc", "make"]), "make");
   assert.equal(commandText(["ls", "-la"]), "ls -la");
   assert.equal(commandText([1]), undefined);

@@ -416,7 +416,7 @@ test("a connected PC lists its pane's / commands itself, for the agent and folde
   await settled(herdr);
   assert.deepEqual(await herdr.paneCommands(`${LINK_ID}!${PANE}`), { agent: "claude", commands: [{ name: "ship", description: "Ship it", source: "project" }] });
   // asked with the pane's id there, and only the PC's own view of it
-  assert.deepEqual(slashCommands.asked, [{ agent: "claude", cwd: "/work/desk" }]);
+  assert.deepEqual(slashCommands.asked, [{ agent: "claude", cwd: "/work/desk", processes: [] }]);
   const listed = await hubCatalog().listRemote({ agent: "claude", key: `${LINK_ID}!${PANE}`, ask: () => herdr.paneCommands(`${LINK_ID}!${PANE}`) });
   assert.deepEqual(listed, { agent: "claude", commands: [{ name: "ship", description: "Ship it", source: "project" }], remote: true });
 });
@@ -433,7 +433,7 @@ test("a connected PC's OpenCode pane lists its / commands there too; when the PC
   const ask = () => herdr.paneCommands(`${LINK_ID}!${PANE}`);
   assert.deepEqual(await ask(), { agent: "opencode", commands: [{ name: "deploy", description: "Ship the build", source: "project" }] });
   // asked for the agent and folder the PC's own snapshot gives the pane
-  assert.deepEqual(slashCommands.asked, [{ agent: "opencode", cwd: "/work/oc" }]);
+  assert.deepEqual(slashCommands.asked, [{ agent: "opencode", cwd: "/work/oc", processes: [] }]);
   const listed = await hubCatalog().listRemote({ agent: "opencode", key: `${LINK_ID}!${PANE}`, ask });
   assert.deepEqual(listed, { agent: "opencode", commands: [{ name: "deploy", description: "Ship the build", source: "project" }], remote: true });
   // a PC that fails, or (from before OpenCode) answers for no agent: OpenCode's own

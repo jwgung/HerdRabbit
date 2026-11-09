@@ -151,6 +151,8 @@ export function toolVerb(part) {
   // Codex's code-mode exec is a script: one that applies a patch is summed up the
   // same way (a script it could not read a patch from keeps the tool's name)
   if (name === "exec" && /tools\.apply_patch\(/u.test(String(part.input ?? ""))) return "Edited";
+  // one that only runs commands, or only edits files, as the parser read what it did
+  if (name === "exec") return part.action === "command" ? "Ran" : part.action === "edit" ? "Edited" : null;
   const verb = VERB_OF[name];
   if (verb === undefined) return null;
   const input = parseToolInput(part.input ?? "");

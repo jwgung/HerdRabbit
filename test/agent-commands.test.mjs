@@ -1,0 +1,192 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { AgentCommandSource, agentExecutable, agentVersion, parseClaudeCommands, parseCodexSlashCommands } from "../src/agent-commands.mjs";
+
+async function temp(context) {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "herdrabbit-agent-commands-")));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  return directory;
+}
+
+// The shape of codex-rs/tui/src/slash_command.rs.
+const CODEX_SOURCE = `
+pub enum SlashCommand {
+    // DO NOT ALPHA-SORT! Enum order is presentation order in the popup.
+    Model,
+    #[strum(serialize = "setup-default-sandbox")]
+    ElevateSandbox,
+    #[strum(to_string = "approve")]
+    AutoReview,
+    Ide,
+    Copy,
+    App,
+    Quit,
+    Exit,
+    Rollout,
+    // Debugging commands.
+    #[strum(serialize = "debug-m-drop")]
+    MemoryDrop,
+}
+
+impl SlashCommand {
+    /// User-visible description shown in the popup.
+    pub fn description(self) -> &'static str {
+        match self {
+            SlashCommand::Model => "choose what model and reasoning effort to use",
+            SlashCommand::ElevateSandbox => "set up elevated agent sandbox",
+            SlashCommand::AutoReview => "approve one retry of a recent auto-review denial",
+            SlashCommand::Ide => {
+                "include current selection, open files, and other context from your IDE"
+            }
+            SlashCommand::Copy => "copy the last response or part of it",
+            SlashCommand::App => "continue this session in the Desktop app",
+            SlashCommand::Quit | SlashCommand::Exit => "exit Codex",
+            SlashCommand::Rollout => "print the rollout file path",
+            SlashCommand::MemoryDrop => "DO NOT USE",
+        }
+    }
+
+    fn is_visible(self) -> bool {
+        match self {
+            SlashCommand::Copy => !cfg!(target_os = "android"),
+            SlashCommand::App => cfg!(any(target_os = "macos", target_os = "windows")),
+            SlashCommand::Rollout => cfg!(debug_assertions),
+            _ => true,
+        }
+    }
+}
+`;
+
+test("reads Codex's popup from its source: order, names, descriptions, and what a Linux build hides", () => {
+  assert.deepEqual(parseCodexSlashCommands(CODEX_SOURCE), [
+    { name: "model", description: "Choose what model and reasoning effort to use" },
+    { name: "setup-default-sandbox", description: "Set up elevated agent sandbox" },
+    { name: "approve", description: "Approve one retry of a recent auto-review denial" },
+    { name: "ide", description: "Include current selection, open files, and other context from your IDE" },
+    { name: "copy", description: "Copy the last response or part of it" },
+    { name: "quit", description: "Exit Codex" },
+    { name: "exit", description: "Exit Codex" },
+  ]);
+  assert.deepEqual(parseCodexSlashCommands("not rust"), []);
+});
+
+// A process whose executable is `target`, under a fake /proc.
+async function process(procRoot, pid, target) {
+  await mkdir(join(procRoot, String(pid)), { recursive: true });
+  await mkdir(join(target, ".."), { recursive: true });
+  await writeFile(target, "");
+  await symlink(target, join(procRoot, String(pid), "exe"));
+}
+
+test("reads the version of the agent a pane runs from where its executable is installed", async (context) => {
+  const root = await temp(context);
+  const procRoot = join(root, "proc");
+  await process(procRoot, 10, join(root, "codex", "packages", "standalone", "releases", "0.167.0-x86_64-unknown-linux-musl", "bin", "codex"));
+  await process(procRoot, 11, join(root, "claude", "versions", "2.1.319"));
+  await process(procRoot, 12, join(root, "usr", "bin", "bash"));
+  const pids = (...list) => list.map((pid) => ({ pid }));
+  assert.equal(await agentVersion("codex", pids(12, 10), { procRoot }), "0.167.0");
+  assert.equal(await agentVersion("claude", pids(11), { procRoot }), "2.1.319");
+  assert.equal(await agentVersion("codex", pids(12), { procRoot }), null, "a shell is no Codex");
+  assert.equal(await agentVersion("claude", pids(10), { procRoot }), null, "Codex is no Claude");
+  assert.equal(await agentVersion("codex", pids(99, -1), { procRoot }), null, "a process gone or no pid");
+  assert.equal(await agentVersion("kiro", pids(10), { procRoot }), null);
+  // an agent updated while it runs: its executable is gone, its link says so
+  await mkdir(join(procRoot, "13"), { recursive: true });
+  await symlink(join(root, "claude", "versions", "2.1.312 (deleted)"), join(procRoot, "13", "exe"));
+  assert.equal(await agentVersion("claude", pids(13), { procRoot }), "2.1.312");
+});
+
+test("fetches a Codex version's commands once, keeps them on disk, and says nothing when it cannot", async (context) => {
+  const root = await temp(context);
+  const cacheDir = join(root, "cache");
+  const asked = [];
+  let answer = { ok: true, status: 200, text: async () => CODEX_SOURCE };
+  const fetch = async (url) => { asked.push(url); return answer; };
+  const source = new AgentCommandSource({ cacheDir, fetch });
+  const commands = await source.builtIn("codex", "0.167.0");
+  assert.deepEqual(commands.map((command) => command.name), ["model", "setup-default-sandbox", "approve", "ide", "copy", "quit", "exit"]);
+  assert.ok(commands.every((command) => command.source === "built-in"));
+  assert.deepEqual(asked, ["https://raw.githubusercontent.com/openai/codex/rust-v0.167.0/codex-rs/tui/src/slash_command.rs"]);
+  await source.builtIn("codex", "0.167.0");
+  assert.equal(asked.length, 1, "kept in memory");
+  // a server started later reads what was kept, without asking again
+  const later = new AgentCommandSource({ cacheDir, fetch });
+  assert.deepEqual(await later.builtIn("codex", "0.167.0"), commands);
+  assert.equal(asked.length, 1);
+  assert.deepEqual(await readdir(cacheDir), ["codex-0.167.0.json"]);
+
+  // a version the source cannot be had for: nothing, and not asked again for a while
+  answer = { ok: false, status: 404, text: async () => "" };
+  let now = 0;
+  const failing = new AgentCommandSource({ cacheDir, fetch, now: () => now });
+  assert.equal(await failing.builtIn("codex", "0.168.0"), null);
+  assert.equal(await failing.builtIn("codex", "0.168.0"), null);
+  assert.equal(asked.length, 2);
+  now = 2 * 60 * 60 * 1000;
+  answer = { ok: true, status: 200, text: async () => CODEX_SOURCE };
+  assert.equal((await failing.builtIn("codex", "0.168.0")).length, 7, "asked again after a while");
+
+  // no version, an agent it has no source for, a version that is not one
+  assert.equal(await source.builtIn("codex", null), null);
+  assert.equal(await source.builtIn("kiro", "2.35.1"), null);
+  assert.equal(await source.builtIn("codex", "../../etc"), null);
+  assert.equal(asked.length, 3);
+});
+
+// What Claude Code answers an initialize request with, among its other lines.
+const claudeAnswer = (commands) => [
+  JSON.stringify({ type: "system", subtype: "ui_invalidate" }),
+  "not json",
+  JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: "herdrabbit-commands", response: { commands, claude_code_version: "2.1.400" } } }),
+].join("\n");
+
+test("reads Claude Code's own commands from its initialize answer, less the hidden and the user's", () => {
+  const command = (name, description, extra = {}) => ({ name, description, argumentHint: "", builtin: true, ...extra });
+  assert.deepEqual(parseClaudeCommands(claudeAnswer([
+    command("compact", "Free up context by summarizing the conversation so far"),
+    command("brand-new", `Only in a later version\n\twith  a long tail ${"x".repeat(300)}`),
+    command("__remote-workflow", "internal"),
+    command("extra-usage", "Renamed to /usage-credits"),
+    command("my-skill", "Mine (user)", { builtin: false }),
+    command("Bad Name", "not a command name"),
+    command("compact", "twice"),
+  ])), [
+    { name: "compact", description: "Free up context by summarizing the conversation so far" },
+    { name: "brand-new", description: `Only in a later version with a long tail ${"x".repeat(158)}…` },
+  ]);
+  assert.deepEqual(parseClaudeCommands("nothing it said"), []);
+});
+
+test("asks the pane's own Claude Code build for its commands, without its settings, hooks or MCP servers", async (context) => {
+  const root = await temp(context);
+  const runs = [];
+  const source = new AgentCommandSource({
+    cacheDir: join(root, "cache"),
+    runClaude: async (executable, args) => { runs.push([executable, args]); return claudeAnswer([{ name: "compact", description: "Compact", builtin: true }]); },
+  });
+  assert.equal(await source.builtIn("claude", "2.1.400"), null, "with no executable to ask, nothing");
+  const commands = await source.builtIn("claude", "2.1.400", { executable: "/opt/claude/versions/2.1.400" });
+  assert.deepEqual(commands, [{ name: "compact", description: "Compact", source: "built-in" }]);
+  assert.deepEqual(runs, [["/opt/claude/versions/2.1.400", [
+    "-p", "--setting-sources", "", "--strict-mcp-config", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+  ]]]);
+  await new AgentCommandSource({ cacheDir: join(root, "cache"), runClaude: async () => { throw new Error("asked again"); } })
+    .builtIn("claude", "2.1.400", { executable: "/x" })
+    .then((kept) => assert.deepEqual(kept, commands));
+});
+
+test("names the executable to ask: its path, or the process's own link to it once it was updated away", async (context) => {
+  const root = await temp(context);
+  const procRoot = join(root, "proc");
+  const installed = join(root, "claude", "versions", "2.1.319");
+  await process(procRoot, 20, installed);
+  await mkdir(join(procRoot, "21"), { recursive: true });
+  await symlink(join(root, "claude", "versions", "2.1.312 (deleted)"), join(procRoot, "21", "exe"));
+  assert.deepEqual(await agentExecutable("claude", [{ pid: 20 }], { procRoot }), { version: "2.1.319", path: installed });
+  assert.deepEqual(await agentExecutable("claude", [{ pid: 21 }], { procRoot }), { version: "2.1.312", path: join(procRoot, "21", "exe") });
+  assert.equal(await agentExecutable("claude", [{ pid: 22 }], { procRoot }), null);
+});

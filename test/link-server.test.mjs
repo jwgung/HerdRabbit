@@ -78,14 +78,14 @@ test("lists a pane's / commands for the agent and folder this PC's own snapshot 
   // what the hub might add to the request is not what decides
   const answer = await (await fetch(`${url(PANE)}?agent=codex&cwd=/etc`, { headers: asHub })).json();
   assert.deepEqual(answer, { agent: "claude", commands: [{ name: "ship", description: "Ship it", source: "project" }] });
-  assert.deepEqual(slashCommands.asked, [{ agent: "claude", cwd: "/work/app" }]);
+  assert.deepEqual(slashCommands.asked, [{ agent: "claude", cwd: "/work/app", processes: [] }]);
   // an agent herdr reports beside the pane counts too
   await fetch(url("hs_x~w1:p2"), { headers: asHub });
-  assert.deepEqual(slashCommands.asked.at(-1), { agent: "codex", cwd: "/tmp" });
+  assert.deepEqual(slashCommands.asked.at(-1), { agent: "codex", cwd: "/tmp", processes: [] });
   // an OpenCode pane the same way
   agentOf = "opencode";
   await fetch(url("hs_x~w1:p2"), { headers: asHub });
-  assert.deepEqual(slashCommands.asked.at(-1), { agent: "opencode", cwd: "/tmp" });
+  assert.deepEqual(slashCommands.asked.at(-1), { agent: "opencode", cwd: "/tmp", processes: [] });
   agentOf = "codex";
   // a pane this PC does not list, or one it reaches through another, is not answered
   assert.equal((await fetch(url("hs_x~w1:gone"), { headers: asHub })).status, 404);

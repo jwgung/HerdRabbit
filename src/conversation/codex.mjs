@@ -221,10 +221,25 @@ function imageParts(entry) {
   });
 }
 
+// The commands a code-mode script writes out for tools.exec_command, the key
+// quoted or not; a command held in a variable is not one of them.
+function writtenCommands(script) {
+  return [...script.matchAll(/\btools\.exec_command\(\s*\{\s*(?:cmd|"cmd")\s*:\s*("(?:[^"\\]|\\.)*")/gu)].flatMap((match) => {
+    try { return [JSON.parse(match[1])]; } catch { return []; }
+  });
+}
+
 // The one-line summary a collapsed tool row shows.
 function codexToolSummary(name, raw, args) {
   const patch = typeof raw === "string" ? patchText(raw) : null;
   if (patch !== null && patchFiles(patch).length > 0) return patchFiles(patch).join(", ");
+  // a code-mode script that runs commands written out in it: those commands (what it
+  // ran is also recorded apart, but not for a script still running when its call returns)
+  if (name === "exec" && typeof raw === "string" && writtenCommands(raw).length > 0) return writtenCommands(raw).join("; ");
+  if (name === "sleep" && Number.isFinite(args.duration_ms)) return `${Math.round(args.duration_ms / 1000)}s`;
+  // Codex's subagents: the one started, or the one a message goes to
+  if (name === "spawn_agent" && typeof args.task_name === "string") return args.task_name;
+  if (/^(send_message|followup_task)$/u.test(name) && typeof args.target === "string") return args.target;
   if (/^request_user_input/u.test(name) && questionTitles(args).length > 0) return questionTitles(args).join(" · ");
   // the shell tool's command is an argv: `bash -lc "<script>"` reads as its script
   if (Array.isArray(args.command) && args.command.every((part) => typeof part === "string") && args.command.length > 0) {
@@ -236,6 +251,77 @@ function codexToolSummary(name, raw, args) {
 
 const PHASES = new Set(["commentary", "final_answer"]);
 
+// Codex's code-mode tools: `exec` runs a script the model writes, `wait` waits
+// on one still running. What the script did is recorded apart from the call.
+const SCRIPT_TOOLS = new Set(["exec", "wait"]);
+
+// A command as a row names it: `bash -lc "<script>"` reads as its script.
+function commandLine(command) {
+  if (typeof command === "string") return command;
+  if (!Array.isArray(command) || command.length === 0 || !command.every((part) => typeof part === "string")) return "";
+  return command.length >= 3 && /^-\w*c$/u.test(command.at(-2)) ? command.at(-1) : command.join(" ");
+}
+
+// What an `item_completed` event says a script did: { kind, text }, the kind
+// "command" for a command it ran, "edit" for files it changed, "other" for an
+// MCP tool, a search or an image; null for anything else.
+function scriptStep(item) {
+  if (item.type === "CommandExecution") {
+    const command = oneLine(commandLine(item.command));
+    return command ? { kind: "command", text: command } : null;
+  }
+  if (item.type === "FileChange") {
+    const files = patchFiles(fileChangePatch(item.changes));
+    return files.length > 0 ? { kind: "edit", text: files.join(", ") } : null;
+  }
+  const other = (text) => text ? { kind: "other", text } : null;
+  if (item.type === "McpToolCall") return other(oneLine(string(item.tool)));
+  if (item.type === "ImageView" && string(item.path)) return other(`View ${string(item.path).replace(/^file:\/\//u, "")}`);
+  if (item.type === "Extension" && item.kind === "web.search" && oneLine(string(item.query))) return other(`Search ${oneLine(string(item.query))}`);
+  if (item.type === "Extension" && item.kind === "image_gen.generation") {
+    const prompt = oneLine(string(item.revisedPrompt).split("\n")[0]);
+    return other(prompt ? `Generate image: ${prompt}` : "Generate image");
+  }
+  return null;
+}
+
+// The tools a code-mode script calls, each once, in the order it first calls them.
+function scriptCalls(script) {
+  return [...new Set([...script.matchAll(/\btools\.(\w+)\(/gu)].map((match) => match[1]))];
+}
+
+// What a script's steps make of it: "command" when all ran commands, "edit"
+// when all changed files, else none.
+function scriptAction(kinds) {
+  if (kinds.length === 0) return undefined;
+  if (kinds.every((kind) => kind === "command")) return "command";
+  if (kinds.every((kind) => kind === "edit")) return "edit";
+  return undefined;
+}
+
+const oneLine = (text) => text.replace(/\s+/gu, " ").trim();
+
+// A FileChange's changes as one patch, in apply_patch's form, so it reads as
+// the patch calls do: `{ path: { type: add|update|delete, content | unified_diff } }`.
+function fileChangePatch(changes) {
+  const lines = ["*** Begin Patch"];
+  for (const [path, raw] of Object.entries(record(changes))) {
+    const change = record(raw);
+    if (change.type === "add") {
+      lines.push(`*** Add File: ${path}`, ...string(change.content).replace(/\n$/u, "").split("\n").map((line) => `+${line}`));
+    } else if (change.type === "delete") {
+      lines.push(`*** Delete File: ${path}`);
+    } else {
+      lines.push(`*** Update File: ${path}`);
+      if (typeof change.move_path === "string" && change.move_path) lines.push(`*** Move to: ${change.move_path}`);
+      const diff = string(change.unified_diff).replace(/\n$/u, "");
+      if (diff) lines.push(...diff.split("\n"));
+    }
+  }
+  lines.push("*** End Patch");
+  return lines.join("\n");
+}
+
 // Splits rollout text into turns, shaped as the Claude parser's: a user turn
 // per prompt; the agent's messages, reasoning summaries and tool calls in one
 // assistant turn; each output folded into the call it answers. The TUI's
@@ -246,7 +332,43 @@ export function parseCodexTurns(text) {
   const tools = new Map();
   // the last few messages, for the copy of each that the other record kind writes
   const messages = [];
+  // script calls -> the steps Codex recorded them taking, while their summary is still theirs to name
+  const steps = new WeakMap();
+  // a script still running after its call returned, by the cell id a wait names it with
+  const cells = new Map();
+  // a command a script left running, by the session id a later poll names it with
+  const sessions = new Map();
   let startedAt = null;
+
+  // A step no waiting call took (a command a script started finishing after
+  // the script returned, a command the user ran): a row of its own, unless a
+  // script of the turn already names it.
+  const looseStep = (item, ts) => {
+    const turn = turns.at(-1)?.role === "assistant" ? turns.at(-1) : null;
+    const rows = turn?.parts.filter((part) => part.kind === "tool") ?? [];
+    const id = TOOL_ID.test(string(item.id)) ? string(item.id) : null;
+    if (item.type === "CommandExecution") {
+      const command = oneLine(commandLine(item.command));
+      if (!command || rows.some((part) => part.name === "exec" && writtenCommands(part.input ?? "").map(oneLine).includes(command))) return;
+      const part = { kind: "tool", id, name: "exec_command", summary: command.slice(0, 120), ...toolInputFields(JSON.stringify({ cmd: command }, null, 2)), output: "" };
+      setToolOutput(part, string(item.aggregated_output));
+      if (Number.isInteger(item.exit_code) && item.exit_code !== 0) part.error = true;
+      assistant(ts).parts.push(part);
+    } else if (item.type === "FileChange") {
+      const patch = fileChangePatch(item.changes);
+      const files = patchFiles(patch);
+      if (files.length === 0) return;
+      const named = (part) => {
+        const own = typeof part.input === "string" ? patchText(part.input) : null;
+        return own !== null && files.every((file) => patchFiles(own).includes(file));
+      };
+      if (rows.some(named)) return;
+      const part = { kind: "tool", id, name: "apply_patch", summary: files.join(", ").slice(0, 120), ...toolInputFields(patch), output: "" };
+      setToolOutput(part, [string(item.stdout), string(item.stderr)].filter(Boolean).join("\n"));
+      if (item.status && item.status !== "completed") part.error = true;
+      assistant(ts).parts.push(part);
+    }
+  };
 
   const assistant = (ts) => {
     let turn = turns.at(-1);
@@ -297,6 +419,7 @@ export function parseCodexTurns(text) {
     if (entry.type === "compacted") {
       turns.push({ role: "user", ts: ts || null, parts: [{ kind: "compact", text: string(payload.message) }] });
       tools.clear();
+      cells.clear();
       continue;
     }
 
@@ -312,6 +435,26 @@ export function parseCodexTurns(text) {
       }
       if (payload.type === "agent_message") {
         message("assistant", contentText(payload.message), "event", ts, PHASES.has(payload.phase) ? payload.phase : undefined);
+      }
+      // Codex 0.150 and later: a step a code-mode script took, named on the one script call waiting
+      if (payload.type === "item_completed") {
+        const done = record(payload.item);
+        const waiting = [...tools.values()].filter((part) => SCRIPT_TOOLS.has(part.name));
+        if (waiting.length === 0) {
+          looseStep(done, ts);
+          continue;
+        }
+        const step = scriptStep(done);
+        if (step && waiting.length === 1) {
+          const taken = steps.get(waiting[0]);
+          if (taken) {
+            taken.push(step);
+            waiting[0].summary = taken.map((each) => each.text).join("; ").slice(0, 120);
+            const action = scriptAction(taken.map((each) => each.kind));
+            if (action) waiting[0].action = action;
+            else delete waiting[0].action;
+          }
+        }
       }
       continue;
     }
@@ -351,6 +494,21 @@ export function parseCodexTurns(text) {
       };
       assistant(ts).parts.push(part);
       if (callId) tools.set(callId, part);
+      if (name === "exec" && typeof raw === "string") {
+        const calls = scriptCalls(raw);
+        // a poll of a command still running reads as that command
+        const polled = /\btools\.write_stdin\(\s*\{\s*(?:session_id|"session_id")\s*:\s*(\d+)/u.exec(raw);
+        if (part.summary === name && polled && sessions.has(polled[1])) part.summary = sessions.get(polled[1]);
+        // what it calls, when nothing else names it
+        if (part.summary === name && calls.length > 0) part.summary = calls.join(", ").slice(0, 120);
+        if (calls.length > 0 && calls.every((call) => call === "exec_command" || call === "write_stdin") && part.summary !== calls.join(", ")) part.action = "command";
+        else if (patchText(raw) !== null && calls.every((call) => call === "apply_patch")) part.action = "edit";
+      }
+      // a wait reads as the script it waits on
+      const cell = name === "wait" && typeof args.cell_id === "string" ? cells.get(args.cell_id) : undefined;
+      if (cell && cell.summary !== cell.name) part.summary = cell.summary;
+      // what a script did names it, unless its patch already names the files it edits
+      if (SCRIPT_TOOLS.has(name) && !(typeof raw === "string" && patchText(raw) !== null)) steps.set(part, []);
     } else if (payload.type === "function_call_output" || payload.type === "custom_tool_call_output") {
       const callId = string(payload.call_id);
       const tool = tools.get(callId);
@@ -359,6 +517,17 @@ export function parseCodexTurns(text) {
       const output = outputOf(payload);
       setToolOutput(tool, output);
       if (codexCallFailed(output)) tool.error = true;
+      const running = SCRIPT_TOOLS.has(tool.name) ? /^Script running with cell ID (\S+)/mu.exec(output.slice(0, 2000)) : null;
+      if (running) {
+        cells.set(running[1], tool.name === "wait" && cells.has(running[1]) ? cells.get(running[1]) : tool);
+        if (cells.size > 64) cells.delete(cells.keys().next().value);
+      }
+      // a command left running answers with the session a later poll names
+      const session = tool.action === "command" ? /\\?"session_id\\?"\s*:\s*(\d+)/u.exec(output.slice(0, 4000)) : null;
+      if (session && tool.summary !== tool.name) {
+        sessions.set(session[1], tool.summary);
+        if (sessions.size > 64) sessions.delete(sessions.keys().next().value);
+      }
       const turn = turns.at(-1);
       if (turn?.role === "assistant" && ts) turn.end_ts = ts;
     }
@@ -436,6 +605,14 @@ export function codexTurnStarts(bytes) {
 
 function codexToolOutputIn(entry, toolId) {
   const payload = record(entry.payload);
+  // a command or file change no call took is its own row, by the id Codex recorded it under
+  if (entry.type === "event_msg" && payload.type === "item_completed") {
+    const done = record(payload.item);
+    if (done.id !== toolId) return null;
+    if (done.type === "CommandExecution") return string(done.aggregated_output);
+    if (done.type === "FileChange") return [string(done.stdout), string(done.stderr)].filter(Boolean).join("\n");
+    return null;
+  }
   if (entry.type !== "response_item" || (payload.type !== "function_call_output" && payload.type !== "custom_tool_call_output")) return null;
   return payload.call_id === toolId ? outputOf(payload) : null;
 }
@@ -448,7 +625,8 @@ export const CODEX_TRANSCRIPT = Object.freeze({
   metadata: parseCodexMetadata,
   // the session's first turn context sits near the file's start
   headBytes: 64 * 1024,
-  toolNeedle: (toolId) => Buffer.from(`"call_id":${JSON.stringify(toolId)}`),
+  // a call's output names it by call_id; a step no call took, by its own id
+  toolNeedle: (toolId) => Buffer.from(toolId.startsWith("exec-") ? `"id":${JSON.stringify(toolId)}` : `"call_id":${JSON.stringify(toolId)}`),
   toolOutputIn: codexToolOutputIn,
 });
 

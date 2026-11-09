@@ -17,7 +17,8 @@
     "check:ui": "node scripts/check-ui-library.mjs",
     "check:browser": "node scripts/run-browser-checks.mjs",
     "build:xterm": "node scripts/build-xterm.mjs",
-    "check:xterm": "node scripts/build-xterm.mjs --check"
+    "check:xterm": "node scripts/build-xterm.mjs --check",
+    "check:agent-commands": "node scripts/check-agent-commands.mjs"
   },
   "engines": {
     "node": ">=22"

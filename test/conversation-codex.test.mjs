@@ -136,6 +136,166 @@ test("folds tool calls and their outputs into the agent's turn, the final answer
   assert.ok(!JSON.stringify(turns).includes("not a chat message"));
 });
 
+// Codex 0.150 and later: the model calls one code-mode `exec` script, and what
+// the script did is recorded apart, as `item_completed` events.
+test("names what a code-mode exec script ran, from what Codex recorded it running", () => {
+  const exec = (callId, input) => item({ type: "custom_tool_call", call_id: callId, name: "exec", input });
+  const done = (callId) => item({ type: "custom_tool_call_output", call_id: callId, output: [{ type: "input_text", text: "Script completed\nOutput:\n" }] });
+  const ran = (command) => event({ type: "item_completed", item: { type: "CommandExecution", id: "exec-1", command, status: "completed", exit_code: 0 } });
+  const mcp = (tool) => event({ type: "item_completed", item: { type: "McpToolCall", id: "exec-2", server: "codex_apps", tool, status: "completed" } });
+  const turns = parseCodexTranscript(jsonl(
+    message("user", "Check"),
+    exec("call_one", 'const r = await tools.exec_command({cmd:"git status"}); text(r.output);'),
+    ran(["/bin/bash", "-lc", "git status"]),
+    done("call_one"),
+    exec("call_two", "await tools.exec_command({cmd: a}); await tools.exec_command({cmd: b});"),
+    ran(["/bin/bash", "-lc", "npm test"]),
+    ran(["git", "diff"]),
+    done("call_two"),
+    exec("call_mcp", "await tools.notion_create_comment({})"),
+    mcp("notion.notion-create-comment"),
+    done("call_mcp"),
+    exec("call_patch", 'await tools.apply_patch("*** Begin Patch\\n*** Update File: src/a.ts\\n*** End Patch")'),
+    ran(["/bin/bash", "-lc", "npm test"]),
+    done("call_patch"),
+    // nothing pending: a command the user ran is a row of its own
+    ran(["/bin/bash", "-lc", "whoami"]),
+  ));
+  assert.deepEqual(turns[1].parts.map((part) => [part.name, part.summary]), [
+    ["exec", "git status"],
+    ["exec", "npm test; git diff"],
+    ["exec", "notion.notion-create-comment"],
+    ["exec", "src/a.ts"],
+    ["exec_command", "whoami"],
+  ]);
+});
+
+test("a script still running when its call returns is named by the command it was written to run", () => {
+  const turns = parseCodexTranscript(jsonl(
+    item({ type: "custom_tool_call", call_id: "call_long", name: "exec", input: 'const r = await tools.exec_command({cmd:"npm test",yield_time_ms:1000}); text(r.output);' }),
+    item({ type: "custom_tool_call_output", call_id: "call_long", output: "Script running with cell ID g2:1" }),
+    item({ type: "custom_tool_call", call_id: "call_var", name: "exec", input: "await tools.exec_command({cmd: command})" }),
+    // Codex writes the key quoted as often as not
+    item({ type: "custom_tool_call", call_id: "call_json", name: "exec", input: 'await tools.exec_command({"cmd":"pnpm lint","yield_time_ms":30000})' }),
+  ));
+  assert.deepEqual(turns[0].parts.map((part) => part.summary), ["npm test", "exec_command", "pnpm lint"]);
+});
+
+test("a wait on a running script is named by that script", () => {
+  const turns = parseCodexTranscript(jsonl(
+    item({ type: "custom_tool_call", call_id: "call_long", name: "exec", input: 'await tools.exec_command({cmd:"npm test"})' }),
+    item({ type: "custom_tool_call_output", call_id: "call_long", output: [{ type: "input_text", text: "Script running with cell ID g2:7\nWall time 1.0 seconds" }] }),
+    item({ type: "custom_tool_call", call_id: "call_wait", name: "wait", input: JSON.stringify({ cell_id: "g2:7", yield_time_ms: 30000 }) }),
+    item({ type: "custom_tool_call_output", call_id: "call_wait", output: "Script completed\nOutput:\nok" }),
+    item({ type: "custom_tool_call", call_id: "call_lost", name: "wait", input: JSON.stringify({ cell_id: "g9:9" }) }),
+  ));
+  assert.deepEqual(turns[0].parts.map((part) => part.summary), ["npm test", "npm test", "wait"]);
+});
+
+test("a command or file change no waiting call took is a row of its own, unless a script of the turn names it", () => {
+  const done = (payload) => event({ type: "item_completed", item: payload });
+  const turns = parseCodexTranscript(jsonl(
+    message("user", "Build"),
+    item({ type: "custom_tool_call", call_id: "call_build", name: "exec", input: 'await tools.exec_command({"cmd":"pnpm build","yield_time_ms":1000})' }),
+    item({ type: "custom_tool_call_output", call_id: "call_build", output: "Script completed\nProcess running with session ID 81418" }),
+    // the build the script started finishes after it returned: it is that script's row already
+    done({ type: "CommandExecution", command: ["/bin/bash", "-lc", "pnpm build"], aggregated_output: "built", exit_code: 0 }),
+    done({ type: "CommandExecution", id: "exec-9", command: ["/bin/bash", "-lc", "make check"], aggregated_output: "1 failed", exit_code: 2 }),
+    done({ type: "FileChange", id: "exec-10", status: "completed", changes: {
+      "/w/src/a.ts": { type: "update", unified_diff: "@@ -1 +1 @@\n-x\n+y\n" },
+      "/w/src/new.ts": { type: "add", content: "one\ntwo\n" },
+      "/w/src/old.ts": { type: "delete" },
+    } }),
+  ));
+  const parts = turns[1].parts;
+  assert.deepEqual(parts.map((part) => [part.name, part.summary]), [
+    ["exec", "pnpm build"],
+    ["exec_command", "make check"],
+    ["apply_patch", "/w/src/a.ts, /w/src/new.ts, /w/src/old.ts"],
+  ]);
+  assert.equal(parts[1].id, "exec-9");
+  assert.deepEqual(JSON.parse(parts[1].input), { cmd: "make check" });
+  assert.equal(parts[1].output, "1 failed");
+  assert.equal(parts[1].error, true);
+  assert.equal(parts[2].input, [
+    "*** Begin Patch",
+    "*** Update File: /w/src/a.ts", "@@ -1 +1 @@", "-x", "+y",
+    "*** Add File: /w/src/new.ts", "+one", "+two",
+    "*** Delete File: /w/src/old.ts",
+    "*** End Patch",
+  ].join("\n"));
+  assert.equal(parts[2].error, undefined);
+});
+
+test("names what else a script did, and Codex's own agent and sleep tools", () => {
+  const exec = (callId) => item({ type: "custom_tool_call", call_id: callId, name: "exec", input: "await tools.anything({})" });
+  const done = (payload) => event({ type: "item_completed", item: payload });
+  const call = (callId, name, args) => item({ type: "function_call", call_id: callId, name, arguments: JSON.stringify(args) });
+  const turns = parseCodexTranscript(jsonl(
+    exec("call_search"),
+    done({ type: "Extension", kind: "web.search", query: "thin-edge software_update" }),
+    item({ type: "custom_tool_call_output", call_id: "call_search", output: "Script completed" }),
+    exec("call_view"),
+    done({ type: "ImageView", path: "file:///tmp/home.png" }),
+    item({ type: "custom_tool_call_output", call_id: "call_view", output: "Script completed" }),
+    exec("call_image"),
+    done({ type: "Extension", kind: "image_gen.generation", revisedPrompt: "an icon", result: "iVBORw0KGgo" }),
+    item({ type: "custom_tool_call_output", call_id: "call_image", output: "Script completed" }),
+    item({ type: "custom_tool_call", call_id: "call_sleep", name: "sleep", input: JSON.stringify({ duration_ms: 30000 }) }),
+    call("call_spawn", "spawn_agent", { task_name: "ota_api_470", message: "gAAAAAB-encrypted" }),
+    call("call_send", "send_message", { target: "/root/ota_api_470", message: "gAAAAAB-encrypted" }),
+  ));
+  assert.deepEqual(turns[0].parts.map((part) => part.summary), [
+    "Search thin-edge software_update",
+    "View /tmp/home.png",
+    "Generate image: an icon",
+    "30s",
+    "ota_api_470",
+    "/root/ota_api_470",
+  ]);
+  assert.ok(!JSON.stringify(turns).includes("iVBORw0KGgo"));
+});
+
+test("says whether a script only ran commands or only edited files, and names polls and other tools", () => {
+  const exec = (callId, input) => item({ type: "custom_tool_call", call_id: callId, name: "exec", input });
+  const out = (callId, output) => item({ type: "custom_tool_call_output", call_id: callId, output });
+  const done = (payload) => event({ type: "item_completed", item: payload });
+  const patch = "*** Begin Patch\\n*** Update File: /w/a.ts\\n@@\\n-x\\n+y\\n*** End Patch\\n";
+  const turns = parseCodexTranscript(jsonl(
+    exec("call_run", 'const r = await tools.exec_command({"cmd":"pnpm build","yield_time_ms":1000}); text(JSON.stringify(r));'),
+    out("call_run", 'Script completed\nOutput:\n{"session_id":81418,"output":"building"}'),
+    exec("call_poll", "const r = await tools.write_stdin({session_id:81418,chars:\"\"}); text(r);"),
+    out("call_poll", "Script completed"),
+    // a patch held in a variable: the files come from what Codex recorded it changing
+    exec("call_edit", `const patch = "${patch}"; text(await tools.apply_patch(patch));`),
+    done({ type: "FileChange", changes: { "/w/a.ts": { type: "update", unified_diff: "@@ -1 +1 @@\n-x\n+y\n" } }, status: "completed" }),
+    out("call_edit", "Script completed"),
+    exec("call_both", "const old = (await tools.exec_command({cmd: c})).output; await tools.apply_patch(p);"),
+    done({ type: "CommandExecution", command: ["cat", "a"] }),
+    done({ type: "FileChange", changes: { "/w/b.ts": { type: "add", content: "x" } } }),
+    out("call_both", "Script completed"),
+    exec("call_web", "const r = await tools.web__run({open: []}); const t = await tools.clock__curr_time({}); text(r);"),
+  ));
+  assert.deepEqual(turns[0].parts.map((part) => [part.summary, part.action]), [
+    ["pnpm build", "command"],
+    ["pnpm build", "command"],
+    ["/w/a.ts", "edit"],
+    ["cat a; /w/b.ts", undefined],
+    ["web__run, clock__curr_time", undefined],
+  ]);
+});
+
+test("an exec script's commands are named only when one call is waiting", () => {
+  const exec = (callId) => item({ type: "custom_tool_call", call_id: callId, name: "exec", input: "await tools.exec_command({cmd: x})" });
+  const turns = parseCodexTranscript(jsonl(
+    exec("call_a"),
+    exec("call_b"),
+    event({ type: "item_completed", item: { type: "CommandExecution", command: ["ls"] } }),
+  ));
+  // nothing names either call but the tool its script calls
+  assert.deepEqual(turns[0].parts.map((part) => part.summary), ["exec_command", "exec_command"]);
+});
+
 test("reads a failure from what Codex recorded, judging a completed script as a whole", () => {
   assert.equal(codexCallFailed("Chunk ID: 1\nWall time: 0.0 seconds\nProcess exited with code 1\nOutput:\n"), true);
   assert.equal(codexCallFailed("Process exited with code 0\nOutput:\nok"), false);
@@ -257,6 +417,17 @@ test("finds a tool's whole output by its call id", async (context) => {
   const store = localTranscriptStore({ configDir: join(home, "claude"), codexHome: home });
   assert.deepEqual(await transcriptToolOutput(CODEX_TRANSCRIPT, store, path, "call_big"), { output: big, size: big.length });
   assert.equal(await transcriptToolOutput(CODEX_TRANSCRIPT, store, path, "call_none"), null);
+});
+
+test("finds the whole output of a command no call took by the id Codex recorded it under", async (context) => {
+  forgetConversationState();
+  const home = await temp(context);
+  const big = "z".repeat(50_000);
+  const path = await rolloutIn(home, THREAD, jsonl(meta(), ...task(1),
+    event({ type: "item_completed", item: { type: "CommandExecution", id: "exec-big", command: ["make"], aggregated_output: big, exit_code: 0 } }),
+    ...task(2)));
+  const store = localTranscriptStore({ configDir: join(home, "claude"), codexHome: home });
+  assert.deepEqual(await transcriptToolOutput(CODEX_TRANSCRIPT, store, path, "exec-big"), { output: big, size: big.length });
 });
 
 // ---------------------------------------------------------------------------
