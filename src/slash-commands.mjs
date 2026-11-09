@@ -15,6 +15,7 @@ import { open, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { posix } from "node:path";
 import { agentExecutable } from "./agent-commands.mjs";
+import { COMMAND_NAME, commandLine } from "./command-names.mjs";
 import { paneAgentName } from "./pane-agent.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 
@@ -43,9 +44,6 @@ const MAX_PROJECT_LEVELS = 8;
 export const MAX_OPENCODE_LEVELS = 32;
 // Folders below an OpenCode skills folder followed at most (`skills/a/b/c/d/SKILL.md`).
 export const MAX_SKILL_DEPTH = 4;
-const MAX_DESCRIPTION_LENGTH = 200;
-// What a typed `/name` can be: no spaces, quotes or slashes.
-const COMMAND_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/u;
 
 // Where a listed command comes from. A connected PC naming anything else
 // is passed on as "other".
@@ -297,7 +295,6 @@ export const OPENCODE_BUILT_IN_COMMANDS = builtIn([
   ["warp", "Change the workspace for the session"],
   ["workspaces", "Manage workspaces"],
 ]);
-// The OpenCode server's own commands: a skill of the same name is not one.
 // Kiro CLI's own `/` commands, as its menu lists them (kiro-cli 2.35.1,
 // recorded 2026-11-01). Its skills and file prompts are found on disk.
 export const KIRO_BUILT_IN_COMMANDS = builtIn([
@@ -392,6 +389,7 @@ export const AGY_BUILT_IN_COMMANDS = builtIn([
   ["antigravity-guide", "Provides a comprehensive guide, quick reference, and sitemap for Google Antigravity (AGY), including the Antigravity CLI (agy), Antigravity 2.0, Antigravity IDE, Python SDK,..."],
 ]);
 
+// The OpenCode server's own commands: a skill of the same name is not one.
 const OPENCODE_SERVER_COMMANDS = new Set(["init", "review"]);
 
 // Claude Code's commands only its terminal UI has: a build asked for its
@@ -467,11 +465,10 @@ export function parseFrontmatter(text) {
   return { fields, body };
 }
 
-// One line of plain text, cut to a length a list row can show.
-function oneLine(value, limit = MAX_DESCRIPTION_LENGTH) {
-  // eslint-disable-next-line no-control-regex
-  const flat = String(value ?? "").replace(/[\u0000-\u001f\u007f]+/gu, " ").replace(/\s+/gu, " ").trim();
-  return flat.length > limit ? `${flat.slice(0, limit - 1).trimEnd()}…` : flat;
+// One line of plain text, cut to a length a list row can show (a declaration:
+// the lists above use it as the module loads).
+function oneLine(value, limit) {
+  return commandLine(value, limit);
 }
 
 // A command's name and description from the start of its file: the
@@ -544,7 +541,7 @@ const nodeFs = { open, readdir, realpath, stat };
 // The commands each pane's agent takes, kept a little while per agent and
 // folder. `fs` is the file calls used (open, readdir, realpath, stat), so a
 // test can see what is opened. `agentCommands` (an AgentCommandSource) gives
-// an agent's own commands for the version a pane runs, which `versionOf`
+// an agent's own commands for the version a pane runs, which `executableOf`
 // reads from the pane's processes; without it, or when it has none, the lists
 // kept here are the agent's own.
 export class SlashCommandCatalog {

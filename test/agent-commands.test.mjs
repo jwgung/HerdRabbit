@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentCommandSource, agentExecutable, parseClaudeCommands, parseCodexSlashCommands } from "../src/agent-commands.mjs";
@@ -105,8 +105,8 @@ test("fetches a Codex version's commands once, keeps them on disk, and says noth
   const root = await temp(context);
   const cacheDir = join(root, "cache");
   const asked = [];
-  let answer = { ok: true, status: 200, text: async () => CODEX_SOURCE };
-  const fetch = async (url) => { asked.push(url); return answer; };
+  let answer = () => new Response(CODEX_SOURCE);
+  const fetch = async (url) => { asked.push(url); return answer(); };
   const source = new AgentCommandSource({ cacheDir, fetch });
   const commands = await source.builtIn("codex", "0.167.0");
   assert.deepEqual(commands.map((command) => command.name), ["model", "setup-default-sandbox", "approve", "ide", "copy", "quit", "exit"]);
@@ -121,14 +121,14 @@ test("fetches a Codex version's commands once, keeps them on disk, and says noth
   assert.deepEqual(await readdir(cacheDir), ["codex-0.167.0.json"]);
 
   // a version the source cannot be had for: nothing, and not asked again for a while
-  answer = { ok: false, status: 404, text: async () => "" };
+  answer = () => new Response("", { status: 404 });
   let now = 0;
   const failing = new AgentCommandSource({ cacheDir, fetch, now: () => now });
   assert.equal(await failing.builtIn("codex", "0.168.0"), null);
   assert.equal(await failing.builtIn("codex", "0.168.0"), null);
   assert.equal(asked.length, 2);
   now = 2 * 60 * 60 * 1000;
-  answer = { ok: true, status: 200, text: async () => CODEX_SOURCE };
+  answer = () => new Response(CODEX_SOURCE);
   assert.equal((await failing.builtIn("codex", "0.168.0")).length, 7, "asked again after a while");
 
   // no version, an agent it has no source for, a version that is not one
@@ -208,7 +208,7 @@ test("holds every source to command names a typed /name can be, and one-line des
   assert.deepEqual(await source.builtIn("codex", "0.200.0"), [{ name: "model", description: "Pick one", source: "built-in" }]);
   // a release source naming a command no /name can be
   const odd = CODEX_SOURCE.replace('#[strum(to_string = "approve")]', '#[strum(to_string = "ap prove")]');
-  assert.ok(!parseCodexSlashCommands(odd).some((command) => command.name.includes(" ")));
+  assert.deepEqual(parseCodexSlashCommands(odd).map((command) => command.name), ["model", "setup-default-sandbox", "ide", "copy", "quit", "exit"]);
 });
 
 test("refuses a release source larger than any slash_command.rs, without reading it whole", async (context) => {
@@ -224,9 +224,37 @@ test("refuses a release source larger than any slash_command.rs, without reading
   const source = new AgentCommandSource({ cacheDir: join(root, "cache"), fetch: async () => new Response(huge) });
   assert.equal(await source.builtIn("codex", "0.300.0"), null);
   assert.ok(read < 20, `read ${read} chunks`);
+  // a source that would read well, said to be far larger than one: refused for what it says
   const declared = new AgentCommandSource({
     cacheDir: join(root, "cache"),
-    fetch: async () => new Response("x", { headers: { "content-length": String(10 * 1024 * 1024) } }),
+    fetch: async () => new Response(CODEX_SOURCE, { headers: { "content-length": String(10 * 1024 * 1024) } }),
   });
   assert.equal(await declared.builtIn("codex", "0.300.1"), null);
+  // and one that cannot be read a piece at a time is not read at all
+  const whole = new AgentCommandSource({
+    cacheDir: join(root, "cache"),
+    fetch: async () => ({ ok: true, headers: new Headers(), body: null, text: async () => CODEX_SOURCE }),
+  });
+  assert.equal(await whole.builtIn("codex", "0.300.2"), null);
+  // the same source, as a release serves it, reads
+  const served = new AgentCommandSource({ cacheDir: join(root, "cache"), fetch: async () => new Response(CODEX_SOURCE) });
+  assert.equal((await served.builtIn("codex", "0.300.3")).length, 7);
+});
+
+test("keeps a version's list where only this user can read it, never writing through what is already there", async (context) => {
+  const root = await temp(context);
+  const cacheDir = join(root, "cache");
+  await mkdir(cacheDir, { recursive: true, mode: 0o755 });
+  // something put in the list's place, pointing elsewhere: replaced, not written through
+  const elsewhere = join(root, "elsewhere.json");
+  await writeFile(elsewhere, "untouched");
+  await symlink(elsewhere, join(cacheDir, "codex-0.167.0.json"));
+  const source = new AgentCommandSource({ cacheDir, fetch: async () => new Response(CODEX_SOURCE) });
+  assert.equal((await source.builtIn("codex", "0.167.0")).length, 7);
+  assert.equal(await readFile(elsewhere, "utf8"), "untouched");
+  const kept = await lstat(join(cacheDir, "codex-0.167.0.json"));
+  assert.ok(kept.isFile());
+  assert.equal(kept.mode & 0o777, 0o600);
+  assert.equal((await stat(cacheDir)).mode & 0o777, 0o700);
+  assert.deepEqual(await readdir(cacheDir), ["codex-0.167.0.json"], "no partial file left behind");
 });

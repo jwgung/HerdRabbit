@@ -285,6 +285,19 @@ test("says whether a script only ran commands or only edited files, and names po
   ]);
 });
 
+test("a script's row is named in one line of at most 120 characters", () => {
+  const long = `npm run build -- ${"--flag ".repeat(40)}`;
+  const turns = parseCodexTranscript(jsonl(
+    item({ type: "custom_tool_call", call_id: "call_long", name: "exec", input: "await tools.anything({})" }),
+    event({ type: "item_completed", item: { type: "CommandExecution", command: ["/bin/bash", "-lc", long] } }),
+    event({ type: "item_completed", item: { type: "CommandExecution", command: ["/bin/bash", "-lc", "git\n status"] } }),
+  ));
+  const summary = turns[0].parts[0].summary;
+  assert.equal(summary.length, 120);
+  assert.ok(summary.startsWith("npm run build -- --flag --flag"));
+  assert.ok(!summary.includes("\n"));
+});
+
 test("an exec script's commands are named only when one call is waiting", () => {
   const exec = (callId) => item({ type: "custom_tool_call", call_id: callId, name: "exec", input: "await tools.exec_command({cmd: x})" });
   const turns = parseCodexTranscript(jsonl(

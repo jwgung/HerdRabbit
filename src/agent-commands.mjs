@@ -9,9 +9,10 @@
 // version, and kept on disk.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, readFile, readlink, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, open, readlink, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { COMMAND_NAME, commandLine } from "./command-names.mjs";
 
 const VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/u;
 const EXECUTABLES = {
@@ -25,11 +26,10 @@ const RETRY_MS = 60 * 60 * 1000;
 const MAX_SOURCE_BYTES = 512 * 1024;
 const FETCH_TIMEOUT_MS = 15_000;
 // Claude Code's answer to initialize is about 100 KiB (its skills' long descriptions included).
-const MAX_CLAUDE_OUTPUT_BYTES = 4 * 1024 * 1024;
+const MAX_CLAUDE_OUTPUT_CHARS = 4 * 1024 * 1024;
+// A kept list is a few KiB; a file larger than this is not one.
+const MAX_KEPT_BYTES = 256 * 1024;
 const CLAUDE_TIMEOUT_MS = 20_000;
-// What a typed `/name` can be, as src/slash-commands.mjs holds it.
-const COMMAND_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/u;
-const MAX_DESCRIPTION = 200;
 const MAX_COMMANDS = 500;
 
 // The real path behind a /proc/<pid>/exe link, and what to run it by: the
@@ -76,13 +76,6 @@ export const CLAUDE_ARGS = Object.freeze(["-p", "--setting-sources", "", "--stri
 // Commands Claude Code lists but never shows: internal ones, and these hidden in 2.1.319.
 const CLAUDE_HIDDEN = new Set(["workflow-launch-exec", "extra-usage", "design-consent", "design-revoke"]);
 
-// A description on one line, without control characters, cut to what a list row shows.
-function shortLine(text) {
-  // eslint-disable-next-line no-control-regex
-  const flat = String(text ?? "").replace(/[\u0000-\u001f\u007f]+/gu, " ").replace(/\s+/gu, " ").trim();
-  return flat.length > MAX_DESCRIPTION ? `${flat.slice(0, MAX_DESCRIPTION - 1).trimEnd()}…` : flat;
-}
-
 // What any source of an agent's commands (a build's answer, a release's
 // source, the file kept on disk) is held to: names a typed `/name` can be,
 // each once, one-line descriptions, MAX_COMMANDS at most.
@@ -93,7 +86,7 @@ export function cleanCommands(items) {
     const name = item?.name;
     if (typeof name !== "string" || !COMMAND_NAME.test(name) || seen.has(name)) continue;
     seen.add(name);
-    commands.push({ name, description: shortLine(typeof item.description === "string" ? item.description : "") });
+    commands.push({ name, description: commandLine(typeof item.description === "string" ? item.description : "") });
     if (commands.length >= MAX_COMMANDS) break;
   }
   return commands;
@@ -119,21 +112,30 @@ export function parseClaudeCommands(output) {
 // leaves it running.
 export function runClaudeInitialize(executable, args, { timeoutMs = CLAUDE_TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"], env: process.env });
+    // its own process group, so whatever it starts goes with it
+    const child = spawn(executable, args, { cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"], env: process.env, detached: true });
+    const needle = `"request_id":"${CLAUDE_REQUEST_ID}"`;
     let output = "";
+    let done = false;
     const finish = (error) => {
+      if (done) return;
+      done = true;
       clearTimeout(timer);
-      child.kill("SIGKILL");
+      try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); }
       if (error) reject(error);
       else resolve(output);
     };
     const timer = setTimeout(() => finish(new Error("Claude Code did not answer")), timeoutMs);
     child.on("error", finish);
     child.on("close", () => finish(null));
+    let answered = false;
     child.stdout.on("data", (chunk) => {
+      const before = output.length;
       output += chunk;
-      if (output.length > MAX_CLAUDE_OUTPUT_BYTES) finish(new Error("Claude Code answered too much"));
-      else if (output.includes(`"request_id":"${CLAUDE_REQUEST_ID}"`) && output.endsWith("\n")) finish(null);
+      if (output.length > MAX_CLAUDE_OUTPUT_CHARS) return finish(new Error("Claude Code answered too much"));
+      // only what came in now, and the few characters before it the id may straddle
+      answered ||= output.slice(Math.max(0, before - needle.length)).includes(needle);
+      if (answered && output.endsWith("\n")) finish(null);
     });
     child.stdin.on("error", () => {});
     child.stdin.end(`${JSON.stringify({ type: "control_request", request_id: CLAUDE_REQUEST_ID, request: { subtype: "initialize" } })}\n`);
@@ -167,19 +169,34 @@ export function parseCodexSlashCommands(source) {
     variants.push({ variant, name: named ?? kebab(variant) });
     named = null;
   }
-  // A match's arms: each `SlashCommand::A | SlashCommand::B => …` and what
-  // follows it up to the next arm, read one pattern after the other.
+  // A match's arms: each `SlashCommand::A | SlashCommand::B => …` and the
+  // lines that follow it up to the next arm, read a line at a time (heads may
+  // wrap onto lines of their own before the `=>`).
   const arms = (fn) => {
-    const start = text.indexOf(`fn ${fn}(self)`);
     const found = new Map();
+    const start = text.indexOf(`fn ${fn}(self)`);
     if (start === -1) return found;
     const end = text.indexOf("\n    }", start);
-    const block = text.slice(start, end === -1 ? undefined : end);
-    const heads = [...block.matchAll(/((?:SlashCommand::\w+[ \t\r\n|]*)+)=>/gu)];
-    heads.forEach((head, index) => {
-      const after = block.slice(head.index + head[0].length, heads[index + 1]?.index ?? block.length);
-      for (const each of head[1].matchAll(/SlashCommand::(\w+)/gu)) found.set(each[1], after);
-    });
+    let pending = [];
+    let current = [];
+    for (const line of text.slice(start, end === -1 ? undefined : end).split("\n")) {
+      const arrow = line.indexOf("=>");
+      const head = arrow === -1 ? line : line.slice(0, arrow);
+      const names = [...head.matchAll(/SlashCommand::(\w+)/gu)].map((match) => match[1]);
+      // a head holds the variants and `|` between them, nothing else
+      const onlyHeads = names.length > 0 && head.replace(/SlashCommand::\w+/gu, "").replace(/[\s|]/gu, "") === "";
+      if (onlyHeads && arrow === -1) {
+        pending.push(...names);
+        continue;
+      }
+      if (onlyHeads) {
+        current = [...pending, ...names];
+        pending = [];
+        for (const name of current) found.set(name, line.slice(arrow + 2));
+        continue;
+      }
+      for (const name of current) found.set(name, `${found.get(name)}\n${line}`);
+    }
     return found;
   };
   const descriptions = arms("description");
@@ -206,10 +223,8 @@ export function parseCodexSlashCommands(source) {
 async function boundedText(response, limit) {
   const declared = Number(response.headers?.get?.("content-length"));
   if (Number.isFinite(declared) && declared > limit) return null;
-  if (!response.body?.getReader) {
-    const text = await response.text();
-    return text.length <= limit ? text : null;
-  }
+  // a body that cannot be read a piece at a time is not read
+  if (!response.body?.getReader) return null;
   const reader = response.body.getReader();
   const chunks = [];
   let size = 0;
@@ -288,7 +303,7 @@ export class AgentCommandSource {
     try {
       const listed = await source.load({ version, executable, ...this.deps });
       if (listed === null) return null;
-      commands = builtIn(listed);
+      commands = asBuiltIn(listed);
     } catch {
       commands = null;
     }
@@ -302,12 +317,21 @@ export class AgentCommandSource {
   }
 }
 
-const builtIn = (commands) => Object.freeze(commands.map(({ name, description }) => Object.freeze({ name, description, source: "built-in" })));
+const asBuiltIn = (commands) => Object.freeze(commands.map(({ name, description }) => Object.freeze({ name, description, source: "built-in" })));
 
 async function readKept(file) {
   try {
-    const list = cleanCommands(JSON.parse(await readFile(file, "utf8")));
-    return list.length > 0 ? builtIn(list) : null;
+    const handle = await open(file, "r");
+    let text;
+    try {
+      const { size } = await handle.stat();
+      if (size > MAX_KEPT_BYTES) return null;
+      text = await handle.readFile("utf8");
+    } finally {
+      await handle.close();
+    }
+    const list = cleanCommands(JSON.parse(text));
+    return list.length > 0 ? asBuiltIn(list) : null;
   } catch {
     return null;
   }
