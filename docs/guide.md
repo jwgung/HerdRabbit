@@ -481,14 +481,14 @@ Over the Chat view the same shortcut and magnifier open **Find in conversation**
 | --- | --- |
 | Send input in a mouse-oriented environment | `Enter` |
 | Insert a newline in a mouse-oriented environment | `Shift+Enter` or `Ctrl+Enter` |
-| Insert a newline from the on-screen keyboard of a touch device | `Enter` |
+| Insert a newline from the on-screen keyboard of a touch device | `Enter` (in **Auto**, until a physical keyboard is seen on the page; see below) |
 | Send input in a touch-oriented environment | Arrow send button, or `Ctrl+Enter` / `Cmd+Enter` |
 | Send from a physical keyboard on a touch device | `Enter`, once a letter or digit has been typed on it (see below) |
 | Insert a newline from a physical keyboard on a touch device | `Shift+Enter` |
 | Recall previous sent input | `↑` |
 | Recall later input or restore the current draft | `↓` |
 
-On a touch device **Edit keys** (⚙ Settings → Terminal & keys) has an **Enter in the message box** choice of three, kept in this browser: **Auto** (the default) inserts a newline until a physical keyboard is seen on the page and sends from then on; **New line** always inserts a newline, as before; **Send** always sends, as on a desktop. A browser does not say whether a keyboard is plugged in, so Auto takes a letter or digit key reporting its physical key code as the sign: on-screen keyboards leave that code empty or report key code 229, and an input method's composing keys (Korean, Japanese, ...) are not counted. The sign lasts until the page is reloaded, so a keyboard unplugged later never leaves the on-screen keyboard without a newline. In every mode `Shift+Enter` is a newline, and an `Enter` that confirms an input method's composition never sends. The choice is not shown in a mouse-oriented environment, where `Enter` always sends.
+On a touch device **Edit keys** (⚙ Settings → Terminal & keys) has an **Enter in the message box** choice of three, kept in this browser: **Auto** (the default) inserts a newline until a physical keyboard is seen on the page and sends from then on; **New line** always inserts a newline, as before; **Send** always sends, as on a desktop. A browser does not say whether a keyboard is plugged in, so Auto takes a letter or digit key reporting its physical key code as the sign: on-screen keyboards leave that code empty or report key code 229, and an input method's composing keys (Korean, Japanese, ...) are not counted. The sign lasts until the page is reloaded: a keyboard unplugged after it was seen leaves `Enter` sending from the on-screen keyboard too, until you reload the page or choose **New line**. In every mode `Shift+Enter` is a newline, and an `Enter` that confirms an input method's composition never sends. The choice is not shown in a mouse-oriented environment, where `Enter` always sends.
 
 What a touch device is, is decided from the browser's touch information, not the device's name: a primary pointer that is coarse and cannot hover, any coarse pointer when no pointer can hover, or touch points on a screen at most 1024px wide (so a narrow window on an ordinary PC, or a touchscreen laptop with a mouse, is not taken for one).
 
