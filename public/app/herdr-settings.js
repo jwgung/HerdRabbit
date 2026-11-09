@@ -1,7 +1,7 @@
-import { integrationIcon } from "./agent-icons.js?v=1.4.45";
-import { createElement } from "./dom.js?v=1.4.45";
-import { pluginMachines } from "./plugin-model.js?v=1.4.45";
-import { herdrUpdateLine, integrationAction, integrationConfirmText, integrationStateText } from "./herdr-settings-model.js?v=1.4.45";
+import { integrationIcon } from "./agent-icons.js?v=1.4.46";
+import { createElement } from "./dom.js?v=1.4.46";
+import { pluginMachines } from "./plugin-model.js?v=1.4.46";
+import { herdrUpdateLine, integrationAction, integrationConfirmText, integrationStateText } from "./herdr-settings-model.js?v=1.4.46";
 
 // Settings → Herdr: Herdr's own settings on one machine at a time. The server
 // runs Herdr's commands and writes config.toml (src/herdr-settings.mjs); this

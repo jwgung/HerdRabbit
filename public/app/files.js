@@ -4,11 +4,11 @@ import {
   paneServerId,
   sortUploads,
   uploadSummary,
-} from "../ui-model.js?v=1.4.45";
-import { MAX_TEXT_PREVIEW_BYTES, looksLikeText, previewFor } from "../file-preview.js?v=1.4.45";
-import { zoomablePicture, zoomableText } from "./viewer-zoom.js?v=1.4.45";
-import { createImageViewer } from "../chat/image-viewer.js?v=1.4.45";
-import { ticketUrl } from "../chat/chat-images.js?v=1.4.45";
+} from "../ui-model.js?v=1.4.46";
+import { MAX_TEXT_PREVIEW_BYTES, looksLikeText, previewFor } from "../file-preview.js?v=1.4.46";
+import { zoomablePicture, zoomableText } from "./viewer-zoom.js?v=1.4.46";
+import { createImageViewer } from "../chat/image-viewer.js?v=1.4.46";
+import { ticketUrl } from "../chat/chat-images.js?v=1.4.46";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -17,10 +17,10 @@ import {
   writeFileServer,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "../browse-preference.js?v=1.4.45";
-import { createSpeechButton, speechSupported } from "../speech-recognition.js?v=1.4.45";
-import { array, createElement } from "./dom.js?v=1.4.45";
-import { browseUrl, createFolderTree, isOpenableFolder } from "./folder-tree.js?v=1.4.45";
+} from "../browse-preference.js?v=1.4.46";
+import { createSpeechButton, speechSupported } from "../speech-recognition.js?v=1.4.46";
+import { array, createElement } from "./dom.js?v=1.4.46";
+import { browseUrl, createFolderTree, isOpenableFolder } from "./folder-tree.js?v=1.4.46";
 
 // Files in and out of a machine: uploads, downloads and the uploads dialog,
 // the file viewer, voice input, and the Files tab around its tree

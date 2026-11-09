@@ -2,11 +2,11 @@
 // grid (every pane a live terminal in its own cell) and the phone's small map
 // of the same layout. Herdr's `pane layout` gives each pane a rect in cells;
 // both views place a pane at its share of the tab's area, whatever the count.
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.4.45";
-import { terminalConnection } from "./terminal-connection.js?v=1.4.45";
-import { MOUSE_DRAG_SLOP, dropPreview, dropSide } from "./sidebar-drag.js?v=1.4.45";
-import { adjustedGridFont, normalizedGridFont } from "./terminal-preference.js?v=1.4.45";
-import { CHAT_CELL_TOO_SMALL, cellLens, chatCellRoomy } from "./lens-preference.js?v=1.4.45";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.4.46";
+import { terminalConnection } from "./terminal-connection.js?v=1.4.46";
+import { MOUSE_DRAG_SLOP, dropPreview, dropSide } from "./sidebar-drag.js?v=1.4.46";
+import { adjustedGridFont, normalizedGridFont } from "./terminal-preference.js?v=1.4.46";
+import { CHAT_CELL_TOO_SMALL, cellLens, chatCellRoomy } from "./lens-preference.js?v=1.4.46";
 
 // A cell smaller than this (in Herdr's cells, or for a cell that sizes its
 // pane, in its own at the terminal font) is too small to read: it shows the
