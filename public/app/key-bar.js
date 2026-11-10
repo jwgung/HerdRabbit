@@ -67,6 +67,7 @@ export function createKeyBar({
     syncComposerExpanded();
     resizeTerminalInput();
     speechStop();
+    syncSendButton();
   }
 
   // A number alone in the composer answers the shown card: the option it
@@ -121,6 +122,9 @@ export function createKeyBar({
         await sendKeys(["enter"], paneId);
       }
       delivered = true;
+      sentHoldUntil = Date.now() + SENT_HOLD_MS;
+      window.clearTimeout(sentHoldTimer);
+      sentHoldTimer = window.setTimeout(syncSendButton, SENT_HOLD_MS);
       // Only the pane's own box: the message may have been sent from another pane's draft.
       if (getDraftPaneId() === paneId || !paneId) clearComposer();
       setFeedback("");
@@ -131,9 +135,9 @@ export function createKeyBar({
     } finally {
       if (paneId) releaseComposerDraft(paneId, { sent: delivered, text, secret });
       composerSending = false;
-      // On a desktop the composer gets focus back after a click on Send, so
-      // the button stays Send and a second click cannot stop what was just
-      // sent. A touch screen keeps its keyboard down (focusComposer no-ops).
+      // On a desktop the composer gets focus back after a click on Send, to
+      // type the next message. A touch screen keeps its keyboard down
+      // (focusComposer no-ops).
       focusComposer();
       syncSendButton();
     }
@@ -183,6 +187,7 @@ export function createKeyBar({
         elements.terminalInput.setSelectionRange(next.value.length, next.value.length);
         syncComposerExpanded({ fresh: true });
         resizeTerminalInput();
+        syncSendButton();
       }
       return;
     }
@@ -222,6 +227,8 @@ export function createKeyBar({
       scheduleTerminalInputResize();
     }
     if (state.inputHistoryCursor !== null) resetInputHistoryNavigation();
+    // Empty is Stop while the agent works, text is Send.
+    syncSendButton();
     scheduleComposerDraftSave();
   });
 
@@ -294,18 +301,23 @@ export function createKeyBar({
   }
 
   // Send doubles as Stop: the key bar's Esc for the Chat lens, which has no key
-  // bar. While the selected Claude or Codex pane works and the composer is not
-  // focused, the button shows Stop; typing in the composer makes it Send again,
-  // so a draft can still go out (the agent queues it). Esc interrupts without
-  // losing the conversation: no confirmation.
+  // bar. While the selected pane's agent (one with Stop) works and the composer is
+  // empty, the button shows Stop, focused or not; typing in the composer makes
+  // it Send again, so a draft can still go out (the agent queues it). Esc
+  // interrupts without losing the conversation: no confirmation.
   const STOP_BUSY_MS = 1_000;
+  // How long Send stays Send after a message went out, while the agent starts
+  // on it: a double click on Send never stops what it just sent.
+  const SENT_HOLD_MS = 1_500;
+  let sentHoldUntil = 0;
+  let sentHoldTimer = null;
   // Panes whose Stop is still sending: busy is per pane, so a slow Esc to one
   // does not hold another pane's Stop, and never holds Send.
   const stoppingPanes = new Set();
   // A message on its way: Send waits for it.
   let composerSending = false;
-  // The mode a press started in, kept until its click: pressing the button moves
-  // focus out of the composer, which must not turn a press on Send into Stop.
+  // The mode a press started in, kept until its click: the agent's status
+  // changing under the press must not turn a press on Send into Stop.
   let pressedSendMode = null;
   let pressedSendModeTimer = null;
 
@@ -316,23 +328,13 @@ export function createKeyBar({
       showsStop({ lens: chatLens.lens, agent: stopTarget.agent, status: stopTarget.status });
   }
 
-  // Whether the composer is where the person is: in it, or on Send having
-  // tabbed there from it (a keyboard press on Send means sending the draft).
-  // Send focused by a pointer press is not: that press chose its mode already.
-  let sendFocusedByPointer = false;
-  function composerFocused() {
-    const active = document.activeElement;
-    if (active === elements.sendButton) return !sendFocusedByPointer;
-    return active === elements.terminalInput && !getComposerKeyboardDismissed();
-  }
-
   function sendButtonMode() {
     const stopTarget = getStopTarget();
     // A message on its way keeps the button Send (and busy): a second press
     // then can never stop the work it is starting.
     if (composerSending || stopTarget.paneId !== state.selectedPaneId) return "send";
     return sendButtonModeFor({ lens: chatLens.lens, agent: stopTarget.agent, status: stopTarget.status,
-      composerFocused: composerFocused() });
+      draft: elements.terminalInput.value, justSent: Date.now() < sentHoldUntil });
   }
 
   function syncSendButton() {
@@ -391,21 +393,17 @@ export function createKeyBar({
     }
   }
 
-  // The press decides: at pointerdown, before focus leaves the composer, a press
-  // is Send if the composer is focused and Stop if not (while the agent works).
+  // The press decides: at pointerdown, a press is Stop if the button shows Stop
+  // then (the agent works and the composer is empty) and Send if not.
   elements.sendButton.addEventListener("pointerdown", () => {
-    // The mode is what the button shows as it is pressed (Send when tabbed to
-    // from the composer); the pointer's own focus counts only after.
+    // The mode is what the button shows as it is pressed.
     const mode = sendButtonMode();
-    sendFocusedByPointer = true;
     if (elements.sendButton.disabled) return;
     window.clearTimeout(pressedSendModeTimer);
     pressedSendMode = mode;
     syncSendButton();
   });
   elements.sendButton.addEventListener("pointercancel", releasePressedSendMode);
-  elements.sendButton.addEventListener("focus", () => syncSendButton());
-  elements.sendButton.addEventListener("blur", () => { sendFocusedByPointer = false; syncSendButton(); });
   // A press let go off the button has no click: its mode goes a moment later.
   window.addEventListener("pointerup", () => {
     if (pressedSendMode === null) return;
@@ -426,7 +424,6 @@ export function createKeyBar({
     pressedSendMode = null;
     syncSendButton();
   });
-  elements.terminalInput.addEventListener("blur", () => syncSendButton());
   // A tap on a still-focused composer brings the phone keyboard back.
   elements.terminalInput.addEventListener("pointerdown", () => {
     if (!getComposerKeyboardDismissed()) return;

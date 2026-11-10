@@ -59,11 +59,13 @@ test("Esc in the composer stops only when Stop shows and nothing else answers Es
   assert.equal(composerEscapeStops({ ...esc, key: "Enter" }), false);
 });
 
-test("Send turns into Stop only out of the composer, in the Chat lens of a working agent", () => {
+test("Send turns into Stop only with an empty composer, in the Chat lens of a working agent", () => {
   const working = { lens: "chat", agent: "claude", status: "working" };
-  assert.equal(sendButtonMode(working), "stop", "composer not focused");
+  assert.equal(sendButtonMode(working), "stop", "empty composer");
+  assert.equal(sendButtonMode({ ...working, draft: "  \n" }), "stop", "blank is empty");
   assert.equal(sendButtonMode({ ...working, agent: "codex" }), "stop");
-  assert.equal(sendButtonMode({ ...working, composerFocused: true }), "send", "typing gets Send");
+  assert.equal(sendButtonMode({ ...working, draft: "next step" }), "send", "typing gets Send");
+  assert.equal(sendButtonMode({ ...working, justSent: true }), "send", "a message just sent keeps Send");
   assert.equal(sendButtonMode({ ...working, lens: "terminal" }), "send", "the terminal has its key bar");
   for (const status of ["idle", "done", "blocked", null]) {
     assert.equal(sendButtonMode({ ...working, status }), "send", String(status));

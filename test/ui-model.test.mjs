@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   agentStatus,
+  cellShortcutDirection,
   paneAgentKind,
   agentStatusIcon,
   agentStatusLabel,
@@ -944,4 +945,18 @@ test("names a PC's Herdr version, and says when it is too old", async () => {
   assert.equal(herdrVersionText({ herdr_version: "0.8.2", herdr_supported: false, herdr_min_version: "0.9.0" }),
     "0.8.2 (update to 0.9.0 or newer)");
   assert.equal(herdrVersionText(null), "Unknown");
+});
+
+test("Alt and an arrow alone is the cell shortcut, never with another modifier or mid-composition", () => {
+  assert.equal(cellShortcutDirection({ key: "ArrowLeft", altKey: true }), "left");
+  assert.equal(cellShortcutDirection({ key: "ArrowRight", altKey: true }), "right");
+  assert.equal(cellShortcutDirection({ key: "ArrowUp", altKey: true }), "up");
+  assert.equal(cellShortcutDirection({ key: "ArrowDown", altKey: true }), "down");
+  assert.equal(cellShortcutDirection({ key: "ArrowLeft" }), null, "no Alt");
+  for (const modifier of ["ctrlKey", "metaKey", "shiftKey", "isComposing"]) {
+    assert.equal(cellShortcutDirection({ key: "ArrowLeft", altKey: true, [modifier]: true }), null, modifier);
+  }
+  assert.equal(cellShortcutDirection({ key: "Tab", altKey: true }), null);
+  assert.equal(cellShortcutDirection({ key: "toString", altKey: true }), null, "only its own keys");
+  assert.equal(cellShortcutDirection(), null);
 });

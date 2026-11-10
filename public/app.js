@@ -25,6 +25,7 @@ import {
   paneServerId,
   loginMethodPresentation,
   preferredLoginMethod,
+  cellShortcutDirection,
   paneShortcutTarget,
   sidebarPresentation,
   serverConnectionState,
@@ -1319,11 +1320,44 @@ function activatePaneShortcut(event) {
   // within the view split, between its tiles.
   if ((shownGridTabId && paneTabId(targetPaneId) === shownGridTabId) ||
       (viewGrid.shown && viewTiles(viewSplit.tree).includes(targetPaneId))) {
-    selectPane(targetPaneId, { fromGrid: true });
-    shownGrid()?.focus(targetPaneId);
+    focusCell(shownGrid(), targetPaneId);
     return true;
   }
   targetButton.click();
+  return true;
+}
+
+// Selects `paneId`'s cell of `grid` and gives it the typing: its terminal in
+// Terminal, the composer in Chat (the cell's terminal is hidden there).
+function focusCell(grid, paneId) {
+  selectPane(paneId, { fromGrid: true });
+  if (grid.lensOf(paneId) === "chat") focusComposer();
+  else grid.focus(paneId);
+}
+
+// A text field that keeps Alt+arrow for itself: any but the composer and a
+// cell's terminal (find, rename, a card's answer).
+function keepsAltArrow(element) {
+  return element instanceof HTMLElement && (element.isContentEditable || element.matches("input, textarea, select")) &&
+    element !== elements.terminalInput && !element.closest(".pane-grid-cell .xterm");
+}
+
+// Alt+arrow moves between the cells of the grid or split view on screen, to
+// the one that way as they are laid out. Taken before xterm sees it, so it
+// works from a Terminal cell too (a shell's Alt+arrow word moves give way
+// while a split is shown); with no split on screen the key stays the
+// browser's (Back and Forward), and so it does while the selected pane has
+// no cell on screen. Other text fields keep it (keepsAltArrow).
+function activateCellShortcut(event) {
+  const direction = cellShortcutDirection(event);
+  if (!direction || !state.authenticated || document.querySelector("dialog[open]")) return false;
+  const grid = shownGrid();
+  if (!grid || !state.selectedPaneId || grid.lensOf(state.selectedPaneId) === null) return false;
+  if (keepsAltArrow(document.activeElement)) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  const target = grid.neighbor(state.selectedPaneId, direction);
+  if (target) focusCell(grid, target);
   return true;
 }
 
@@ -1354,6 +1388,7 @@ function activateGridFontReset(event) {
 }
 
 document.addEventListener("keydown", activateGridFontReset, { capture: true });
+document.addEventListener("keydown", activateCellShortcut, { capture: true });
 
 document.addEventListener("keydown", (event) => {
   if (activateLensShortcut(event)) return;

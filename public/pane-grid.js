@@ -96,6 +96,50 @@ export function gridCells(layout, paneIds) {
   return { zoomedPaneId, area, cells };
 }
 
+// Fractions closer than this are the same edge.
+const DIRECTION_EPSILON = 1e-6;
+
+// The cell next to `fromPaneId`'s toward `direction` ("left", "right", "up",
+// "down"), for Alt+arrow between the cells on screen. `cells` are
+// { paneId, box } with box fractions as gridCells gives them. A cell lies that
+// way when it starts at or past the near edge; of those, one sharing some of
+// the row (or column) wins over one that does not, then the nearest, then
+// the one sharing the most, then the one whose middle is closest. No wrap:
+// null at the edge.
+export function cellInDirection(cells, fromPaneId, direction) {
+  const from = cells.find((cell) => cell.paneId === fromPaneId)?.box;
+  if (!from) return null;
+  const horizontal = direction === "left" || direction === "right";
+  if (!horizontal && direction !== "up" && direction !== "down") return null;
+  const span = (box) => horizontal
+    ? { start: box.top, end: box.top + box.height }
+    : { start: box.left, end: box.left + box.width };
+  const reach = span(from);
+  const middle = (reach.start + reach.end) / 2;
+  let best = null;
+  for (const { paneId, box } of cells) {
+    if (paneId === fromPaneId || !box) continue;
+    const gap = direction === "right" ? box.left - (from.left + from.width)
+      : direction === "left" ? from.left - (box.left + box.width)
+        : direction === "down" ? box.top - (from.top + from.height)
+          : from.top - (box.top + box.height);
+    if (gap < -DIRECTION_EPSILON) continue;
+    const other = span(box);
+    const overlap = Math.min(reach.end, other.end) - Math.max(reach.start, other.start);
+    const score = [overlap > DIRECTION_EPSILON ? 0 : 1, Math.max(0, gap), -overlap, Math.abs((other.start + other.end) / 2 - middle)];
+    if (!best || scoresBefore(score, best.score)) best = { paneId, score };
+  }
+  return best?.paneId ?? null;
+}
+
+// Whether `score` ranks ahead of `than`, compared item by item.
+function scoresBefore(score, than) {
+  for (let index = 0; index < score.length; index += 1) {
+    if (Math.abs(score[index] - than[index]) > DIRECTION_EPSILON) return score[index] < than[index];
+  }
+  return false;
+}
+
 // A cell dragged by its header onto another cell: within this share of the
 // other's width (or height) of an edge it goes next to that cell on that side;
 // the middle (the rest, about 40% each way) swaps the two.
@@ -203,6 +247,9 @@ const LAYOUT_EASING = "cubic-bezier(0.2, 0, 0, 1)";
 // A cell's header buttons: a press on them neither picks the cell up nor
 // moves the typing.
 const HEADER_CONTROLS = ".pane-grid-menu-slot, .pane-grid-expand, .pane-grid-lens";
+// What in a Chat cell answers a click itself, so the click leaves focus there.
+// (The conversation's scroll box is focusable only to scroll by keyboard.)
+const CHAT_OWN_CONTROLS = "a, button, input, textarea, select, summary, label, [contenteditable], [tabindex]:not([tabindex='-1']):not(.pane-grid-cell):not(.chat-scroll)";
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -253,7 +300,8 @@ function icon(path, { box = "0 0 24 24", className = null } = {}) {
 // could not be read (the cells share an even grid and attach).
 // `menuFor(pane, zoomed)` builds a cell's ⋯ menu; `onSelect(paneId)` hears a
 // cell focused, `onExpand(paneId)` the cell opened alone, `onUnzoom(paneId)`
-// the zoom undone.
+// the zoom undone, `onChatPress(paneId)` a click in a Chat cell that was not
+// on one of its controls nor a text selection (the composer takes the typing).
 // `manualFont` is the text size the user chose for a grid without `fit` (null:
 // the largest that fits the stage); `onFontChange(manualFont)` hears it change.
 // A grid with `fit` reads at `fontSize`, which a pinch on a cell changes
@@ -270,7 +318,7 @@ function icon(path, { box = "0 0 24 24", className = null } = {}) {
 export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, onSelect, onExpand, onUnzoom = () => {},
   onAuthenticationRequired = () => {}, terminalOptions = {}, mode = "herdr",
   onRearrange = null, canRearrange = () => true, manualFont = null, onFontChange = () => {}, fit = false,
-  onLens = () => {}, onCellLens = () => {} }) {
+  onLens = () => {}, onCellLens = () => {}, onChatPress = () => {} }) {
   const view = mode === "view";
   // Whether the cells size their panes to themselves: a view split's tiles
   // always do (they have no layout of Herdr's to keep).
@@ -803,9 +851,16 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       if (cell.attached && cell.lens === "terminal") cell.terminal.focus();
     });
     // A press on a Terminal cell leaves the typing in its terminal; a Chat
-    // cell's terminal is hidden, so the typing goes to the composer instead.
+    // cell's terminal is hidden, so the typing goes to the composer instead,
+    // unless the click was on something of the chat's own (a button, a link,
+    // the prompt card's field) or ended a text selection, which stays to copy.
     node.addEventListener("click", (event) => {
       if (event.target.closest(HEADER_CONTROLS)) return;
+      if (cell.lens === "chat") {
+        if (event.target.closest(CHAT_OWN_CONTROLS) || !(window.getSelection()?.isCollapsed ?? true)) return;
+        onChatPress(paneId);
+        return;
+      }
       if (cell.attached && cell.lens === "terminal" && !event.target.closest(".pane-grid-terminal")) cell.terminal.focus();
     });
     header.addEventListener("dblclick", (event) => {
@@ -928,6 +983,12 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
         paneId: cell.paneId, lens: cell.lens, roomy: cell.chatRoomy, host: cell.chat, dockSlot: cell.dockSlot,
         agent: cell.pane?.chatAgent ?? null, status: cell.pane?.status ?? null,
       }));
+    },
+    // The cell on screen next to `paneId`'s toward `direction` (see
+    // cellInDirection), or null.
+    neighbor(paneId, direction) {
+      if (root.hidden || root.classList.contains("is-waiting")) return null;
+      return cellInDirection(visibleCells().map((cell) => ({ paneId: cell.paneId, box: cell.box })), paneId, direction);
     },
     // The lens `paneId`'s cell shows, or null when it has no cell on screen.
     lensOf(paneId) {

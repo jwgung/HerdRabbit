@@ -187,6 +187,7 @@ export function createPaneViews(deps) {
     onUnzoom: (paneId) => void paneGridAction(paneId, "zoom", { mode: "toggle" }),
     onLens: (paneId, lens) => deps.chatLens?.setCellLens(paneId, lens),
     onCellLens: () => syncCellChats(),
+    onChatPress: () => focusComposer(),
     onRearrange: (drop) => void rearrangeGridPanes(drop),
     canRearrange: () => !state.mutationBusy,
     onAuthenticationRequired: () => showLogin(),
@@ -221,6 +222,7 @@ export function createPaneViews(deps) {
     onRearrange: (drop) => rearrangeViewTiles(drop),
     onLens: (paneId, lens) => deps.chatLens?.setCellLens(paneId, lens),
     onCellLens: () => syncCellChats(),
+    onChatPress: () => focusComposer(),
     onAuthenticationRequired: () => showLogin(),
     terminalOptions: {
       isLinkablePath: isLinkableTerminalPath,

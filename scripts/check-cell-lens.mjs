@@ -268,6 +268,10 @@ try {
     await page.locator("#terminal-find").waitFor({ state: "hidden" });
     await cell("w1:p1").locator(".pane-grid-label").click();
     await page.waitForFunction(() => document.querySelector(".terminal-panel").dataset.lens === "chat");
+    // The click gave the composer the typing, and from the composer Ctrl+F
+    // stays the browser's, as for a pane alone: from out of it, the chat's.
+    await page.waitForFunction(() => document.activeElement?.id === "terminal-input");
+    await page.evaluate(() => document.activeElement?.blur());
     await page.locator("body").press("Control+f");
     await page.locator("#chat-find").waitFor({ state: "visible" });
     await page.keyboard.press("Escape");
@@ -300,6 +304,62 @@ try {
     const card = await cell("w1:p2").locator(".prompt-card").boundingBox();
     const betaBox = await cell("w1:p2").boundingBox();
     assert.ok(card.y + card.height <= betaBox.y + betaBox.height && card.y > betaBox.y + betaBox.height / 3, "the card sits at the bottom of the cell");
+
+    // Alt+arrow moves to the cell that way (alpha and beta on top, gamma and
+    // delta below): a Chat cell gives the typing to the composer, a Terminal
+    // cell to its terminal, and from inside a terminal the key never reaches it.
+    const focusedCell = () => page.evaluate(() => document.querySelector(".pane-grid:not([hidden]) .pane-grid-cell.is-focused")?.dataset.paneId);
+    const activeIs = () => page.evaluate(() => document.activeElement?.id === "terminal-input" ? "composer"
+      : document.activeElement?.closest(".pane-grid-cell .xterm") ? `terminal ${document.activeElement.closest(".pane-grid-cell").dataset.paneId}` : "elsewhere");
+    const moveTo = async (key, paneId, typing) => {
+      await page.keyboard.press(`Alt+${key}`);
+      await page.waitForFunction((id) => document.querySelector(".pane-grid:not([hidden]) .pane-grid-cell.is-focused")?.dataset.paneId === id, paneId);
+      assert.equal(await activeIs(), typing, `Alt+${key} to ${paneId}`);
+      assert.equal(await pressedRow(paneId), "true", "the sidebar follows");
+    };
+    const pressedRow = (paneId) => page.evaluate((id) => document.querySelector(`.pane-button[data-pane-id="${id}"]`)?.getAttribute("aria-pressed")
+      ?? document.querySelector('.split-session-button[data-tab-id="w1:t1"]')?.getAttribute("aria-pressed"), paneId);
+    assert.equal(await focusedCell(), "w1:p1");
+    const urlBefore = page.url();
+    await moveTo("ArrowRight", "w1:p2", "composer");
+    await moveTo("ArrowDown", "w1:p4", "composer");
+    await moveTo("ArrowLeft", "w1:p3", "terminal w1:p3");
+    const framesAtTerminal = frames.length;
+    await moveTo("ArrowUp", "w1:p1", "composer");
+    assert.deepEqual(frames.slice(framesAtTerminal).filter((frame) => JSON.stringify(frame).includes("1;3")), [],
+      "Alt+arrow did not go to gamma's terminal");
+    // At the edge nothing moves, and the browser does not go Back.
+    await page.keyboard.press("Alt+ArrowUp");
+    await page.keyboard.press("Alt+ArrowLeft");
+    await page.waitForTimeout(200);
+    assert.equal(await focusedCell(), "w1:p1");
+    assert.equal(page.url(), urlBefore, "Alt+Left in a split is not the browser's Back");
+    // The chat's find field keeps Alt+arrow for itself.
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.locator("body").press("Control+f");
+    await page.locator("#chat-find-input").waitFor({ state: "visible" });
+    await page.locator("#chat-find-input").focus();
+    await page.keyboard.press("Alt+ArrowRight");
+    await page.waitForTimeout(200);
+    assert.equal(await focusedCell(), "w1:p1", "Alt+arrow in the find field moved the cell");
+    await page.keyboard.press("Escape");
+
+    // A click in a Chat cell's conversation gives the typing to the composer;
+    // a drag that selects text keeps the selection to copy.
+    await page.evaluate(() => document.activeElement?.blur());
+    await cell("w1:p4").locator(".chat-scroll").click({ position: { x: 20, y: 20 } });
+    await page.waitForFunction(() => document.activeElement?.id === "terminal-input");
+    assert.equal(await focusedCell(), "w1:p4");
+    await page.evaluate(() => document.activeElement?.blur());
+    // the newest answer, on screen at the end of the conversation
+    const words = await cell("w1:p4").locator(".chat-turn-agent p").last().boundingBox();
+    await page.mouse.move(words.x + 4, words.y + words.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(words.x + Math.min(words.width - 4, 160), words.y + words.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    assert.ok(await page.evaluate(() => (window.getSelection()?.toString() ?? "").length > 0), "the drag selected text");
+    assert.notEqual(await activeIs(), "composer", "a selection is not taken away by the composer");
 
     if (shots) {
       for (const theme of ["dark", "light"]) {
