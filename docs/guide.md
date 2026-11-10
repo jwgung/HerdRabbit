@@ -520,7 +520,7 @@ Every shortcut the page itself answers. Keys typed in an attached terminal go to
 | Composer, `@` or `/` list | `↑` `↓`, `Enter` or `Tab`, `Esc` | Move, pick, close |
 | Terminal | `Ctrl+Enter` | Line feed (`Ctrl+J`): a new line in Claude Code and Codex |
 | Terminal | `Ctrl+C` with text selected, `Ctrl+V` | Copy the selection, paste |
-| Grid | `Ctrl`/`Cmd`+wheel, `Ctrl`/`Cmd`+`0` | Grid text size, back to the size that fits |
+| Grid | `Ctrl`/`Cmd`+wheel, `Ctrl`/`Cmd`+`0` | With **Fit panes to this window** off: the grid's text size, back to the size that fits. With it on, the wheel sizes the terminal font as for a pane alone |
 | Pane alone | `Ctrl`/`Cmd`+wheel | Terminal text size |
 | Grid | `Esc` while carrying a cell | Put it back |
 | Grid | `Enter` or `Space` on a focused cell | Select it; a Terminal cell's terminal takes the typing |

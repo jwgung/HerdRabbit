@@ -96,6 +96,9 @@ export function gridCells(layout, paneIds) {
   return { zoomedPaneId, area, cells };
 }
 
+// Fractions closer than this are the same edge.
+const DIRECTION_EPSILON = 1e-6;
+
 // The cell next to `fromPaneId`'s toward `direction` ("left", "right", "up",
 // "down"), for Alt+arrow between the cells on screen. `cells` are
 // { paneId, box } with box fractions as gridCells gives them. A cell lies that
@@ -128,9 +131,6 @@ export function cellInDirection(cells, fromPaneId, direction) {
   }
   return best?.paneId ?? null;
 }
-
-// Fractions closer than this are the same edge.
-const DIRECTION_EPSILON = 1e-6;
 
 // Whether `score` ranks ahead of `than`, compared item by item.
 function scoresBefore(score, than) {
