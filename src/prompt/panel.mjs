@@ -23,6 +23,9 @@ import { KEY, finishPrompt } from "./screen.mjs";
 // 0.167.0, Kiro CLI 2.35.1, Antigravity 1.5.2 and OpenCode 2.2.6).
 export const PANEL_AGENTS = Object.freeze(["claude", "codex", "kiro", "agy", "opencode"]);
 
+// Claude's links (OSC 8) are no text. CSI_RE is screen.mjs's ANSI_RE with its
+// parameters and final byte captured: a style (`m`) is told from any other
+// sequence, and its parameters are read (styled()).
 const OSC_RE = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/gu;
 const CSI_RE = /\u001b\[([0-?]*)[ -/]*([@-~])/gu;
 // A rule across the pane: a field's short underline (Antigravity's search box) is none.
@@ -33,11 +36,16 @@ const ESC_HINT_RE = /(?:^|·|\s{2}|:)\s*esc(?:ape)?\s+(?:to\s+)?(?:cancel|close|
 // Antigravity's hint lines that name no Esc (its /tasks)
 const KEYBOARD_HINT_RE = /^Keyboard:\s+\S/u;
 // What a hint line's key does that no card button does.
-const HARMFUL_RE = /\b(?:kill|delete|remove|uninstall|log ?out|sign ?out|reset|purchase|buy)\b/iu;
+// Nor what ends the agent itself (`ctrl+c to quit`): Esc closes the panel.
+const HARMFUL_RE = /\b(?:kill|delete|remove|uninstall|log ?out|sign ?out|reset|purchase|buy|quit|exit|interrupt|stop|suspend)\b/iu;
+// Keys a card never sends whatever a hint calls them: they stop, end or
+// suspend the program in the pane.
+const NEVER_KEYS = new Set(["ctrl+c", "ctrl+d", "ctrl+z", "ctrl+\\"]);
 // OpenCode's dialog title row: its title, then its keys at the right edge.
 const OPENCODE_TITLE_RE = /^(\s*)(\S(?:.*\S)?)\s{2,}(esc(?:\/enter)?)\s*$/u;
-// Lines of a panel the card shows at most.
+// Lines of a panel the card shows at most, and characters.
 const MAX_BODY_LINES = 80;
+const MAX_BODY_CHARS = 12_000;
 
 const strip = (text) => String(text ?? "").replace(OSC_RE, "").replace(CSI_RE, "");
 const plainLines = (screen) => strip(screen).split(/\r?\n/u).map((line) => line.trimEnd());
@@ -162,7 +170,7 @@ function hintKeys(hint) {
     const match = /^(\S+)\s+(?:to\s+)?(.+)$/u.exec(part.trim());
     if (!match) continue;
     const keys = keysOf(match[1]);
-    if (!keys || HARMFUL_RE.test(match[2])) continue;
+    if (!keys || HARMFUL_RE.test(match[2]) || keys.some((item) => NEVER_KEYS.has(item.key))) continue;
     for (const item of keys) found.push({ ...item, description: sentence(match[2].trim()) });
   }
   return finishKeys(found);
@@ -282,7 +290,7 @@ function finishPanel(agent, { name, title, question = null, tabs = null, body, k
     panel: true, responder: "panel-keys", menuLabels: options.map((option) => option.label), selectedIndex: 0,
     checkedOptionIndices: [], customMenuIndex: null, optionSteps,
   }, { name, tabs: tabs?.map((tab) => tab.label) ?? null });
-  return { ...parsed, title, question, body: body?.slice(0, 12_000) ?? null, panelName: name, ...(tabs ? { tabs } : {}) };
+  return { ...parsed, title, question, body: body?.slice(0, MAX_BODY_CHARS) ?? null, panelName: name, ...(tabs ? { tabs } : {}) };
 }
 
 const threeLabels = (line) => line.trim().split(/\s{2,}/u).length >= 3;

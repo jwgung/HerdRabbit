@@ -1,7 +1,9 @@
 // A pane's prompt card: read off its screen (any status for Claude, Codex, Kiro
 // and OpenCode panes, whose readers insist on the menu itself being on screen;
-// the generic fallback, the only card an Antigravity (agy) pane gets, only
-// while herdr reports the agent blocked), answered by keys sent to the pane,
+// the generic fallback, the only prompt card an Antigravity (agy) pane gets,
+// only while herdr reports the agent blocked), or the panel card for a panel
+// the agent's own `/` command opened (panel.mjs: any status, agy's panes
+// too), answered by keys sent to the pane,
 // and announced to the pages that watch the pane when it appears, changes or
 // goes. An OpenCode pane has a card only while it runs a version its reader was
 // checked against (SUPPORTED_OPENCODE_TUI).
@@ -24,8 +26,8 @@ import { claudeQuestionContext, fillClaudeCard, parseClaudePrompt } from "./clau
 import { parseCodexPrompt } from "./codex.mjs";
 import { parseFallbackPrompt } from "./fallback.mjs";
 import { parseKiroPrompt } from "./kiro.mjs";
-import { PANEL_AGENTS, panelShown, parsePanel } from "./panel.mjs";
 import { SUPPORTED_OPENCODE_TUI, fillOpencodeCard, opencodeDialogOpen, parseOpencodePrompt } from "./opencode.mjs";
+import { PANEL_AGENTS, panelShown, parsePanel } from "./panel.mjs";
 import { InvalidAnswer, answerSteps, moveKeysOf, publicCard, verifiesCursor } from "./screen.mjs";
 
 // The screen's bottom: enough for a long approval panel.
@@ -216,7 +218,8 @@ export class PromptService {
   // A pane may show a panel its agent's own `/` command opened, no prompt
   // reader's: its card is the panel card, whatever herdr says (it calls most
   // panels idle, Claude's /mcp blocked). A blocked pane showing none gets the
-  // fallback, as before.
+  // fallback, as before, unless it shows an OpenCode dialog that is no panel
+  // (a picker): its keys go to the dialog, so no card at all.
   async #readScreen(paneId, agent, snapshot = null, fresh = false) {
     const reader = readerName(agent);
     const panels = panelName(agent);

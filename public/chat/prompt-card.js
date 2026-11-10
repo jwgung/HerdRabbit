@@ -1,8 +1,9 @@
-// A pane's prompt card: what a blocked agent asks (a tool approval, a
-// question, a menu) with a button per answer. The server reads it off the
-// pane's screen (src/prompt/) and pushes it over the terminal socket while
-// the selected pane is a Claude or Codex pane or is blocked; a button posts the answer, and the server
-// sends the keys. The card sits at the bottom of the Chat lens, over the
+// A pane's prompt card: what an agent asks (a tool approval, a question, a
+// menu) with a button per answer, or a panel its own `/` command opened with
+// a button per key. The server reads it off the pane's screen (src/prompt/)
+// and pushes it over the terminal socket while the selected pane is one of
+// the agents in public/agents.js with `card`, or is blocked; a button posts
+// the answer, and the server sends the keys. The card sits at the bottom of the Chat lens, over the
 // composer. Over the Terminal lens a banner says the agent is asking: it
 // switches to the Chat lens, or, for a pane without one, opens the same card
 // over the bottom of the terminal.
@@ -16,7 +17,8 @@ import { agentNamesWith } from "../agents.js?v=1.4.47";
 // After an answer, the card is looked for once more this much later.
 const RECHECK_AFTER_ANSWER_MS = 1_500;
 
-// The agents whose panes the server reads with their own reader (public/agents.js).
+// The agents whose panes the server reads whatever their status: by a reader
+// of their own, or for their panels (public/agents.js).
 const READ_AGENTS = Object.freeze(agentNamesWith("card"));
 
 // Such a pane is asked for its card whatever herdr says

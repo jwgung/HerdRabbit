@@ -163,6 +163,12 @@ test("OpenCode: a dialog with no search is a panel; a picker is not", () => {
   assert.equal(read.body, "No MCP servers");
 });
 
+test("no button for a key that ends the agent, whatever its hint calls it; Esc stays", () => {
+  const screen = (hint) => `${"─".repeat(60)}\n  Tasks\n  › one\n  two\n\n  ${hint}\n`;
+  assert.deepEqual(labels(parsePanel(screen("ctrl+c to dismiss · q to quit · enter open · esc back"), { agent: "codex" })), ["↑", "↓", "Enter", "Esc"]);
+  assert.deepEqual(labels(parsePanel(screen("^D to view · ctrl+z to hide · esc to close"), { agent: "kiro" })), ["↑", "↓", "Esc"]);
+});
+
 test("no panel: an idle prompt, a working line, a blank screen", () => {
   const idle = "❯ /usage\n  ⎿  Usage dialog dismissed\n────────\n❯ \n────────\n  ⏵⏵ auto mode on (shift+tab to cycle)\n";
   assert.equal(parsePanel(idle, { agent: "claude" }), null);
