@@ -247,3 +247,13 @@ test("an answer is summed up as the words chosen", () => {
   assert.equal(answerSummary(menu, { action: "chat" }), "Chat about this");
   assert.equal(answerSummary(menu, { option: 9 }), "");
 });
+
+test("a panel card takes no numbers: the composer types into the panel, and the banner says a panel is open", () => {
+  const panel = { id: "0123456789ab", agent: "claude", kind: "panel", panel: true, title: "Usage", panelName: "Settings",
+    tabs: [{ label: "Status", selected: false }, { label: "Usage", selected: true }],
+    options: [{ label: "←", description: "Previous tab" }, { label: "→", description: "Next tab" }, { label: "Esc", description: "Close" }],
+    customOptionIndex: null };
+  assert.equal(numberedChoice(panel, "1"), null);
+  assert.equal(composerPlaceholder(panel), "Typing goes to the open panel");
+  assert.equal(bannerText(panel), "Claude has a panel open: Usage");
+});

@@ -1,8 +1,9 @@
-// A pane's prompt card: what a blocked agent asks (a tool approval, a
-// question, a menu) with a button per answer. The server reads it off the
-// pane's screen (src/prompt/) and pushes it over the terminal socket while
-// the selected pane is a Claude or Codex pane or is blocked; a button posts the answer, and the server
-// sends the keys. The card sits at the bottom of the Chat lens, over the
+// A pane's prompt card: what an agent asks (a tool approval, a question, a
+// menu) with a button per answer, or a panel its own `/` command opened with
+// a button per key. The server reads it off the pane's screen (src/prompt/)
+// and pushes it over the terminal socket while the selected pane is one of
+// the agents in public/agents.js with `card`, or is blocked; a button posts
+// the answer, and the server sends the keys. The card sits at the bottom of the Chat lens, over the
 // composer. Over the Terminal lens a banner says the agent is asking: it
 // switches to the Chat lens, or, for a pane without one, opens the same card
 // over the bottom of the terminal.
@@ -16,7 +17,8 @@ import { agentNamesWith } from "../agents.js?v=1.4.47";
 // After an answer, the card is looked for once more this much later.
 const RECHECK_AFTER_ANSWER_MS = 1_500;
 
-// The agents whose panes the server reads with their own reader (public/agents.js).
+// The agents whose panes the server reads whatever their status: by a reader
+// of their own, or for their panels (public/agents.js).
 const READ_AGENTS = Object.freeze(agentNamesWith("card"));
 
 // Such a pane is asked for its card whatever herdr says
@@ -45,7 +47,8 @@ export function answerBody(card, choice) {
 // button), or null: only a card answered with one button, and only a number
 // that names one of its buttons.
 export function numberedChoice(card, text) {
-  if (!card || card.multiSelect) return null;
+  // a panel's keys have no numbers: what is typed goes to the panel
+  if (!card || card.multiSelect || card.panel) return null;
   const match = /^\s*(\d{1,2})\s*$/u.exec(String(text ?? ""));
   if (!match) return null;
   const index = Number(match[1]) - 1;
@@ -55,6 +58,7 @@ export function numberedChoice(card, text) {
 
 // What the composer says while such a card waits: the numbers that answer it.
 export function composerPlaceholder(card) {
+  if (card?.panel) return "Typing goes to the open panel";
   if (!card || card.multiSelect) return "";
   const numbers = card.options.map((_, index) => index).filter((index) => index !== card.customOptionIndex);
   if (numbers.length === 0) return "";
@@ -124,6 +128,7 @@ export function contextVisible(card, conversation) {
 
 export function bannerText(card) {
   if (!card) return "";
+  if (card.panel) return `${agentLabel(card.agent)} has a panel open: ${card.title}`;
   return card.fallback ? "This pane is waiting for input" : `${agentLabel(card.agent)} is asking: ${card.title}`;
 }
 
@@ -144,7 +149,47 @@ function element(document, tag, { className, text, attrs } = {}) {
   return node;
 }
 
+// A panel an agent's own `/` command opened (src/prompt/panel.mjs): its
+// tabs, its text as the terminal shows it, and a button per key it takes.
+// A key goes as it is; the card stays while the panel does.
+function renderPanel(document, card, view) {
+  const section = element(document, "section", { className: "prompt-card is-panel",
+    attrs: { role: "region", "aria-label": `${agentLabel(card.agent)} panel`, "aria-busy": String(view.pending), "data-card-id": card.id } });
+  const header = element(document, "header", { className: "prompt-card-header" });
+  const named = card.panelName ? ` · ${card.panelName}` : "";
+  header.append(element(document, "p", { className: "prompt-card-status", text: `${agentLabel(card.agent)}${named} · panel open` }),
+    element(document, "h2", { text: card.title }));
+  if (view.overlay) {
+    header.append(element(document, "button", { className: "prompt-card-close", text: "Close",
+      attrs: { type: "button", "data-prompt-action": "collapse", title: "Back to the banner" } }));
+  }
+  section.append(header);
+  if (Array.isArray(card.tabs) && card.tabs.length > 0) {
+    const tabs = element(document, "ul", { className: "prompt-panel-tabs", attrs: { "aria-label": "Tabs" } });
+    for (const tab of card.tabs) {
+      tabs.append(element(document, "li", { className: tab.selected ? "is-selected" : "", text: tab.label,
+        attrs: tab.selected ? { "aria-current": "true" } : {} }));
+    }
+    section.append(tabs);
+  }
+  if (card.question) section.append(element(document, "p", { className: "prompt-card-question", text: card.question }));
+  if (card.body) section.append(element(document, "pre", { className: "prompt-panel-screen", text: card.body, attrs: { tabindex: "0" } }));
+  const keys = element(document, "div", { className: "prompt-panel-keys", attrs: { role: "group", "aria-label": "Keys" } });
+  for (const [index, option] of card.options.entries()) {
+    const button = element(document, "button", { className: `prompt-panel-key${option.label === "Esc" ? " is-close" : ""}`,
+      attrs: { type: "button", "data-prompt-option": String(index), title: option.description ? `${option.label}: ${option.description}` : option.label } });
+    button.disabled = view.pending;
+    button.append(element(document, "kbd", { text: option.label }));
+    if (option.description) button.append(element(document, "span", { text: option.description }));
+    keys.append(button);
+  }
+  section.append(keys);
+  if (view.error) section.append(element(document, "p", { className: "prompt-card-error", text: view.error, attrs: { role: "alert" } }));
+  return section;
+}
+
 function renderCard(document, card, view) {
+  if (card.panel) return renderPanel(document, card, view);
   const section = element(document, "section", { className: `prompt-card${card.fallback ? " is-fallback" : ""}`,
     attrs: { role: "region", "aria-label": card.fallback ? "Waiting for input" : `${agentLabel(card.agent)} is asking`, "aria-busy": String(view.pending), "data-card-id": card.id } });
   const header = element(document, "header", { className: "prompt-card-header" });
@@ -342,7 +387,9 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     }
     let context = false;
     try { context = mode !== "hidden" && mode !== "banner" && contextVisible(card, paneId === null ? "" : conversation(paneId)); } catch { context = Boolean(card?.context); }
-    const key = mode === "hidden" ? null : `${mode}|${card.id}|${view.pending}|${view.error}|${[...view.selected].join(",")}|${mode === "banner" ? "" : view.custom}|${context ? card.context : ""}|${view.preview}`;
+    // a panel's words change under the same id (another tab, figures that tick)
+    const words = card?.panel ? JSON.stringify([card.title, card.body, card.tabs, card.options, card.question]) : "";
+    const key = mode === "hidden" ? null : `${mode}|${card.id}|${words}|${view.pending}|${view.error}|${[...view.selected].join(",")}|${mode === "banner" ? "" : view.custom}|${context ? card.context : ""}|${view.preview}`;
     if (key === drawn) return;
     // the typed answer keeps its focus and caret across a redraw
     const focused = dock.contains(document.activeElement) ? document.activeElement : null;
@@ -356,7 +403,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
       const open = element(document, "button", { className: "prompt-banner-open", attrs: { type: "button", "data-prompt-action": "open" } });
       open.append(element(document, "span", { className: "prompt-banner-dot", attrs: { "aria-hidden": "true" } }),
         element(document, "span", { className: "prompt-banner-text", text: bannerText(card) }),
-        element(document, "span", { className: "prompt-banner-action", text: "Answer" }));
+        element(document, "span", { className: "prompt-banner-action", text: card.panel ? "Open" : "Answer" }));
       const close = element(document, "button", { className: "prompt-banner-close", text: "×",
         attrs: { type: "button", "data-prompt-action": "dismiss", "aria-label": "Dismiss", title: "Dismiss" } });
       banner.append(open, close);
@@ -398,6 +445,13 @@ export function createPromptDock({ document = globalThis.document, dock, connect
       const result = await postJson(`/api/panes/${encodeURIComponent(id)}/prompt/answer`, answerBody(answered, choice));
       if (answering === token && id === paneId) {
         answering = null;
+        if (answered.panel) {
+          // a panel's key: no answer for the chat to show; the push brings the panel as it is now
+          view.pending = false;
+          render();
+          void refresh();
+          return;
+        }
         if (result?.stays || (card && card.id !== answered.id)) {
           // the next prompt is already here, or the menu is still up changed
           // (Kiro's Change scope): the card stays, ready to answer, and a
@@ -425,7 +479,8 @@ export function createPromptDock({ document = globalThis.document, dock, connect
       // the card changed while the answer was out: its controls start again from it
       if (card && cardVersion(card) !== cardVersion(answered)) view.selected = initialSelection(card);
       if (error?.code === "prompt_changed" || error?.status === 409) {
-        view.error = "The prompt changed. Check it and answer again.";
+        // a panel that closed or turned into another is simply looked at again
+        view.error = answered.panel ? null : "The prompt changed. Check it and answer again.";
         render();
         await refresh();
         return;

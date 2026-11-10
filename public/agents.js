@@ -9,8 +9,9 @@
 //   marks    the program names (prefixes) that wear this agent's mark
 //   chat     the server reads its conversation, so the Chat lens is offered
 //   card     its pane is asked for a prompt card whatever herdr says it is doing
-//            (any other agent only while blocked; agy has no reader of its own,
-//            so the server answers it only with the fallback card while blocked)
+//            (any other agent only while blocked; agy has no reader of its own:
+//            its prompt cards are the fallback while blocked, and its `/`
+//            panels are panel cards whatever its status)
 //   slash    its `/` commands are listed in the composer
 //   stop     Chat offers a Stop button: Esc interrupts it (one Esc for Kiro
 //            CLI 2.35.1 and Antigravity CLI 1.4.10 too, checked 2026-10-30)
