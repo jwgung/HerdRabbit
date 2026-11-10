@@ -1,9 +1,9 @@
-import { createElement } from "./dom.js?v=1.4.48";
-import { idOf } from "./snapshot.js?v=1.4.48";
-import { sessionChoiceLabel, sessionChoiceParts } from "../agents.js?v=1.4.48";
-import { createAgentPicker } from "./agent-picker.js?v=1.4.48";
-import { createFolderField, workspaceFolder } from "./folder-field.js?v=1.4.48";
-import { createWorkspace } from "./project-dialog.js?v=1.4.48";
+import { createElement } from "./dom.js?v=1.4.49";
+import { idOf } from "./snapshot.js?v=1.4.49";
+import { sessionChoiceLabel, sessionChoiceParts } from "../agents.js?v=1.4.49";
+import { createAgentPicker } from "./agent-picker.js?v=1.4.49";
+import { createFolderField, workspaceFolder } from "./folder-field.js?v=1.4.49";
+import { createWorkspace } from "./project-dialog.js?v=1.4.49";
 
 // The "New tab" dialog. The + at the top of the sidebar opens it on the
 // workspace on show (the first machine's first workspace when nothing is),

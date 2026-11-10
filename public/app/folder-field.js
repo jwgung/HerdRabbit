@@ -1,5 +1,5 @@
-import { parentDirectory } from "../ui-model.js?v=1.4.48";
-import { attachPathCompletion, browseUrl, createFolderTree } from "./folder-tree.js?v=1.4.48";
+import { parentDirectory } from "../ui-model.js?v=1.4.49";
+import { attachPathCompletion, browseUrl, createFolderTree } from "./folder-tree.js?v=1.4.49";
 
 const IDLE_POLL_MS = 50;
 
