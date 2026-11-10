@@ -994,6 +994,8 @@ export function aiUsageLevel(usedPercent) {
   return usedPercent >= 80 ? "high" : "normal";
 }
 
+// Two units ("1h 12m", "4d 3h"), finer than the session list's "N h ago":
+// how long until a limit resets is worth the minutes.
 function spanText(ms) {
   const minutes = Math.max(1, Math.round(ms / 60_000));
   if (minutes < 60) return `${minutes}m`;
@@ -1019,7 +1021,8 @@ export function aiUsageCheckedText(checkedAt, { now = Date.now() } = {}) {
   return age < 60_000 ? "Checked just now" : `Checked ${spanText(age)} ago`;
 }
 
-// The CLI that answers for usage, as the dialog names it.
+// The CLI that answers for usage, as the dialog names it: display words that
+// mirror what src/ai-usage.mjs runs, not its exact arguments.
 export function aiUsageSource(cli) {
   return { claude: "claude /usage", codex: "codex app-server", agy: "agy /usage", kiro: "kiro-cli /usage" }[cli] ?? null;
 }

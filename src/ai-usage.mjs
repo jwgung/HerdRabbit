@@ -30,6 +30,9 @@ const meter = (label, usedPercent, { resetsAt = null, resetsText = null, detail 
 
 const round1 = (value) => Math.round(value * 10) / 10;
 
+// A cursor move becomes a space, not nothing: Kiro lays its panel out by
+// moving the cursor, and words either side of a move would otherwise run
+// together.
 export function stripAnsi(text) {
   return String(text)
     .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/gu, "")
@@ -171,6 +174,10 @@ export function readCodexUsage({ cwd, env, timeoutMs = RUN_TIMEOUT_MS }) {
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
       buffer += chunk;
+      if (buffer.length > 1024 * 1024) {
+        finish(new Error("Codex answered with more than expected"));
+        return;
+      }
       let newline;
       while ((newline = buffer.indexOf("\n")) >= 0) {
         const line = buffer.slice(0, newline);
@@ -206,6 +213,11 @@ export function readCodexUsage({ cwd, env, timeoutMs = RUN_TIMEOUT_MS }) {
 // closed as soon as its panel shows, or when it does not.
 const KIRO_READY = /ask a question or describe a task/u;
 const KIRO_PANEL = /Credits \([\d.,]+ of [\d.,]+ covered in plan\)/u;
+const KIRO_SIZE = Object.freeze({ cols: 120, rows: 40 });
+// The rest of the panel's line comes in the same or the next write.
+const KIRO_PANEL_TAIL_MS = 200;
+// Its startup screen is about 120 KB; anything far past that is not a panel coming.
+const KIRO_MAX_OUTPUT = 1024 * 1024;
 
 export function readKiroUsage({ spawnPty, cwd, env = {}, timeoutMs = RUN_TIMEOUT_MS, settleMs = 400 }) {
   if (!spawnPty) return Promise.reject(new AiUsageError("Kiro's usage needs a terminal, and this PC cannot open one (node-pty is unavailable)"));
@@ -220,6 +232,7 @@ export function readKiroUsage({ spawnPty, cwd, env = {}, timeoutMs = RUN_TIMEOUT
       if (settled) return;
       settled = true;
       for (const timer of timers) clearTimeout(timer);
+      // either may throw once Kiro has already closed
       try {
         term?.write("\x1b");
       } catch {}
@@ -238,10 +251,13 @@ export function readKiroUsage({ spawnPty, cwd, env = {}, timeoutMs = RUN_TIMEOUT
         args: ["chat", "--trust-workspace"],
         cwd,
         env,
-        cols: 120,
-        rows: 40,
+        ...KIRO_SIZE,
         onData: (data) => {
           output += data;
+          if (output.length > KIRO_MAX_OUTPUT) {
+            finish(new AiUsageError("Kiro said too much without showing its usage"));
+            return;
+          }
           if (typedAt < 0 && KIRO_READY.test(stripAnsi(output))) {
             typedAt = output.length;
             later(settleMs, () => {
@@ -249,8 +265,7 @@ export function readKiroUsage({ spawnPty, cwd, env = {}, timeoutMs = RUN_TIMEOUT
               later(settleMs, () => term.write("\r"));
             });
           } else if (typedAt >= 0 && KIRO_PANEL.test(stripAnsi(output.slice(typedAt)))) {
-            // the rest of the panel's line comes in the same or the next write
-            later(Math.min(settleMs, 200), () => {
+            later(Math.min(settleMs, KIRO_PANEL_TAIL_MS), () => {
               try {
                 finish(null, parseKiroUsage(output.slice(typedAt)));
               } catch (error) {
@@ -336,10 +351,8 @@ export class AiUsage {
         if ((this.generation.get(cli) ?? 0) === generation) this.cache.set(cli, result);
         return result;
       } catch (error) {
-        const label = LABELS[cli] ?? cli;
-        throw error instanceof AiUsageError && error.message.includes(label.split(" ")[0])
-          ? error
-          : new AiUsageError(`Could not read ${label} usage: ${error.message}`);
+        // a reader's own refusal already says which CLI; anything else gets it
+        throw error instanceof AiUsageError ? error : new AiUsageError(`Could not read ${LABELS[cli] ?? cli} usage: ${error.message}`);
       } finally {
         if (this.reading.get(cli) === task) this.reading.delete(cli);
       }
