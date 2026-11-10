@@ -125,3 +125,18 @@ test("switching accounts forgets the usage read for the one before", async () =>
   await usage.read("claude");
   assert.equal(reads, 2);
 });
+
+test("a read under way when the account switches is not kept for the new account", async () => {
+  let release;
+  let reads = 0;
+  const usage = new AiUsage({ readers: { claude: () => { reads += 1; return reads === 1
+    ? new Promise((resolve) => { release = resolve; })
+    : Promise.resolve({ meters: [{ label: "Session", usedPercent: 5, resetsAt: null, resetsText: null, detail: null }], notes: [] }); } } });
+  const old = usage.read("claude");
+  await new Promise((resolve) => setImmediate(resolve));
+  usage.forget("claude");
+  release({ meters: [{ label: "Session", usedPercent: 90, resetsAt: null, resetsText: null, detail: null }], notes: [] });
+  assert.equal((await old).meters[0].usedPercent, 90);
+  assert.equal((await usage.read("claude")).meters[0].usedPercent, 5, "the old account's answer was kept");
+  assert.equal(reads, 2);
+});

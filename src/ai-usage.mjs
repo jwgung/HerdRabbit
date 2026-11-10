@@ -302,6 +302,9 @@ export class AiUsage {
     this.cacheMs = cacheMs;
     this.cache = new Map();
     this.reading = new Map();
+    // Bumped by forget(): a read that started before a switch keeps its answer
+    // to whoever asked, but does not keep it for the account signed in since.
+    this.generation = new Map();
   }
 
   // The CLIs run in a directory of their own, so anything one leaves behind
@@ -315,6 +318,8 @@ export class AiUsage {
   // Another account is signed in now; what was read was the old one's.
   forget(cli) {
     this.cache.delete(cli);
+    this.reading.delete(cli);
+    this.generation.set(cli, (this.generation.get(cli) ?? 0) + 1);
   }
 
   async read(cli, { refresh = false } = {}) {
@@ -323,11 +328,12 @@ export class AiUsage {
     const kept = this.cache.get(cli);
     if (!refresh && kept && this.now() - kept.checkedAt < this.cacheMs) return kept;
     if (this.reading.has(cli)) return this.reading.get(cli);
+    const generation = this.generation.get(cli) ?? 0;
     const task = (async () => {
       try {
         const usage = await reader({ cwd: await this.#cwd(), env: this.env });
         const result = { cli, method: "cli", checkedAt: this.now(), meters: usage.meters, notes: usage.notes };
-        this.cache.set(cli, result);
+        if ((this.generation.get(cli) ?? 0) === generation) this.cache.set(cli, result);
         return result;
       } catch (error) {
         const label = LABELS[cli] ?? cli;
@@ -335,7 +341,7 @@ export class AiUsage {
           ? error
           : new AiUsageError(`Could not read ${label} usage: ${error.message}`);
       } finally {
-        this.reading.delete(cli);
+        if (this.reading.get(cli) === task) this.reading.delete(cli);
       }
     })();
     this.reading.set(cli, task);

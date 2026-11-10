@@ -289,14 +289,19 @@ export function createAiAccounts({
     const key = aiUsageKey(cli);
     const known = aiUsage.get(key);
     if (known?.state === "loading" || (known && !refresh)) return;
-    aiUsage.set(key, { state: "loading", usage: known?.usage ?? null, error: null });
+    const asking = { state: "loading", usage: known?.usage ?? null, error: null };
+    aiUsage.set(key, asking);
     redrawAiUsage(key, cli);
+    let answer;
     try {
       const usage = await api(`/api/ai-accounts/usage?server=${encodeURIComponent(server.id)}&cli=${encodeURIComponent(cli.id)}${refresh ? "&refresh=1" : ""}`);
-      aiUsage.set(key, { state: "ready", usage, error: null });
+      answer = { state: "ready", usage, error: null };
     } catch (error) {
-      aiUsage.set(key, { state: "error", usage: null, error: error.message || `Could not read ${cli.label} usage.` });
+      answer = { state: "error", usage: null, error: error.message || `Could not read ${cli.label} usage.` };
     }
+    // A switch while this was asked dropped it: the answer is the old account's.
+    if (aiUsage.get(key) !== asking) return;
+    aiUsage.set(key, answer);
     redrawAiUsage(key, cli);
   }
 
