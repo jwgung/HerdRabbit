@@ -32,6 +32,10 @@ const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 // Listing runs `herdr plugin list` there, and starting a change lists too.
 const PLUGIN_READ_TIMEOUT_MS = 20_000;
 const PLUGIN_WRITE_TIMEOUT_MS = 40_000;
+// Usage starts the CLI there and waits on it (src/ai-usage.mjs RUN_TIMEOUT_MS), and a little longer.
+const AI_USAGE_TIMEOUT_MS = 50_000;
+// What an older PC, without the route, answers.
+const USAGE_CODES = new Set(["not_found"]);
 // A worktree change waits on Git there (src/herdr-client.mjs WORKTREE_TIMEOUT_MS), and a little longer.
 const WORKTREE_WRITE_TIMEOUT_MS = 65_000;
 // Evening a layout out is a few resizes in a row on that PC.
@@ -945,6 +949,17 @@ export class LinkClient {
     });
     return {
       list: () => this.#request("/api/link/ai-accounts", { accountErrors: true }),
+      // A CLI is started there to answer, so this waits longer than a read.
+      readUsage: async (cli, { refresh = false } = {}) => {
+        try {
+          return await this.#request(`/api/link/ai-accounts/usage?cli=${encodeURIComponent(String(cli))}${refresh ? "&refresh=1" : ""}`,
+            { timeoutMs: AI_USAGE_TIMEOUT_MS, accountErrors: true, codes: USAGE_CODES });
+        } catch (error) {
+          // a PC from before usage has no such route
+          if (error.code === "not_found") throw tooOld(this.address, "reading AI usage");
+          throw error;
+        }
+      },
       saveCurrent: (cli) => post("/current", { cli }),
       startLogin: (cli) => post("/logins", { cli }),
       finishLogin: (cli, loginId) => post(`/logins/${encodeURIComponent(loginId)}/finish`, { cli }),

@@ -31,7 +31,7 @@ export function sendEmpty(response, status) {
 // decides whether it is one it issued.
 export function aiAccountRoute(prefix) {
   const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  return new RegExp(`^${escaped}(?:/(current|switch|remove|logins)|/logins/([^/]+)/(finish|cancel))?$`, "u");
+  return new RegExp(`^${escaped}(?:/(current|switch|remove|logins|usage)|/logins/([^/]+)/(finish|cancel))?$`, "u");
 }
 
 export function decodePaneId(value) {

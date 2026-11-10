@@ -564,6 +564,10 @@ export function linkRoutes({
         sendJson(response, 200, await aiAccounts.list());
         return true;
       }
+      if (method === "GET" && action === "usage") {
+        sendJson(response, 200, await aiAccounts.readUsage(url.searchParams.get("cli"), { refresh: url.searchParams.get("refresh") === "1" }));
+        return true;
+      }
       if (method !== "POST" || (!action && !loginId)) throw new HttpError(405, "method_not_allowed", "Method not allowed");
       const body = await readJsonBody(request, maxBodyBytes);
       let result;

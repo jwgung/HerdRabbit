@@ -145,3 +145,34 @@ test("a switch with agents running answers with the panes and waits for confirma
   assert.ok(!seen.join("\n").includes(SECRET));
 });
 
+
+test("usage is read for one CLI, refreshed on request, and only from this site", async (t) => {
+  const asked = [];
+  const { AiAccounts } = await import("../src/ai-accounts.mjs");
+  const { AiUsage, AiUsageError } = await import("../src/ai-usage.mjs");
+  const usage = new AiUsage({ readers: {
+    claude: async () => { asked.push("claude"); return { meters: [{ label: "Session", usedPercent: 16, resetsAt: null, resetsText: "10:50am", detail: null }], notes: [] }; },
+    kiro: async () => { throw new AiUsageError("Kiro did not show its usage"); },
+  } });
+  const accounts = new AiAccounts({ directory: "/nonexistent", usage });
+  const base = await listen(t, { herdr: fakeHerdr(), aiAccounts: accounts });
+  const { request } = client(base);
+  const read = await request("/api/ai-accounts/usage?cli=claude", { method: "GET", headers: {} });
+  assert.equal(read.status, 200);
+  assert.equal(read.body.server, "local");
+  assert.equal(read.body.cli, "claude");
+  assert.deepEqual(read.body.meters.map((meter) => [meter.label, meter.usedPercent]), [["Session", 16]]);
+  await request("/api/ai-accounts/usage?cli=claude", { method: "GET", headers: {} });
+  assert.equal(asked.length, 1, "a second look within the minute reuses the first answer");
+  await request("/api/ai-accounts/usage?cli=claude&refresh=1", { method: "GET", headers: {} });
+  assert.equal(asked.length, 2, "Refresh asks the CLI again");
+  // Reading starts a CLI, so another site may not make it.
+  const fromElsewhere = await request("/api/ai-accounts/usage?cli=claude", { method: "GET", headers: { origin: "https://example.com" } });
+  assert.equal(fromElsewhere.status, 403);
+  const failed = await request("/api/ai-accounts/usage?cli=kiro", { method: "GET", headers: {} });
+  assert.equal(failed.status, 409);
+  assert.equal(failed.body.error.code, "usage_unavailable");
+  assert.equal(failed.body.error.message, "Kiro did not show its usage");
+  const unknown = await request("/api/ai-accounts/usage?cli=nope", { method: "GET", headers: {} });
+  assert.equal(unknown.status, 400);
+});

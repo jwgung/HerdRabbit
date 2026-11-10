@@ -2790,6 +2790,83 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .ai-account-add:not(:disabled):hover { background: var(--hover-surface); color: var(--text); }
 
+/* Usage of the account in use, right under its row: a meter per limit the CLI
+   reports, how long until each starts again, and which CLI said so. */
+.ai-usage {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2-5) var(--space-3) var(--space-3);
+  border-top: 1px solid var(--line);
+  background: var(--hover-surface);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.ai-usage-head { display: flex; align-items: center; gap: var(--space-2); min-height: 28px; font-size: var(--font-sm); }
+
+.ai-usage-checked { margin-left: auto; color: var(--muted); font-size: var(--font-xs); }
+
+.ai-usage-refresh {
+  min-height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+
+.ai-usage-head strong + .ai-usage-refresh { margin-left: auto; }
+
+.ai-usage-refresh:not(:disabled):hover { background: var(--hover-surface); }
+
+.ai-usage-meter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-0-5) var(--space-2);
+  font-size: var(--font-sm);
+}
+
+.ai-usage-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ai-usage-percent { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.ai-usage-meter[data-level="full"] .ai-usage-percent { color: var(--danger); }
+
+.ai-usage-bar {
+  grid-column: 1 / -1;
+  display: block;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.ai-usage-fill { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--accent); }
+
+.ai-usage-meter[data-level="high"] .ai-usage-fill { background: var(--warning); }
+
+.ai-usage-meter[data-level="full"] .ai-usage-fill { background: var(--danger); }
+
+.ai-usage-meter small { grid-column: 1 / -1; color: var(--muted); font-size: var(--font-xs); }
+
+.ai-usage-wait { margin: 0; color: var(--muted); font-size: var(--font-sm); }
+
+.ai-usage-bar.is-waiting { opacity: 0.6; }
+
+.ai-usage .dialog-feedback { margin: 0; }
+
+.ai-usage-note { margin: 0; color: var(--muted); font-size: var(--font-xs); }
+
+.ai-usage-source {
+  margin: 0;
+  padding-top: var(--space-1-5);
+  border-top: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: var(--font-xs);
+}
+
 .ai-accounts-panel {
   display: grid;
   gap: var(--space-2);
@@ -2816,11 +2893,12 @@ body.sidebar-collapsed :is(.server-body, .herdr-session-body, .workspace-childre
 
 .ai-account-identity strong { font-size: var(--font-lg); }
 
-/* Touch: + Add account is a 44px tall box (the tabs are too, in
-   components.css); a hit area drawn outside it would be clipped by the list's
-   border. */
+/* Touch: + Add account and a usage's Refresh are 44px tall boxes (the tabs
+   are too, in components.css); a hit area drawn outside them would be clipped
+   by the list's border. */
 @media (hover: none) {
-  .ai-account-add { min-height: 44px; }
+  .ai-account-add,
+  .ai-usage-refresh { min-height: 44px; }
 }
 
 /* New tab, New workspace and New worktree: the Agent is a one-row tab strip
