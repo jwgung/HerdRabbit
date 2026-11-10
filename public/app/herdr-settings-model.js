@@ -1,4 +1,4 @@
-import { herdrBlockedText, herdrErrorText, herdrRunSummary } from "../app-update.js?v=1.4.47";
+import { herdrBlockedText, herdrErrorText, herdrRunSummary } from "../app-update.js?v=1.4.48";
 
 // Settings → Herdr without the page: how an integration reads and what its
 // button does. The server says each integration's state as Herdr does
