@@ -4,8 +4,8 @@ import {
   flattenTree,
   formatTransferSize,
   parentDirectory,
-} from "../ui-model.js?v=1.4.46";
-import { createElement, createIcon } from "./dom.js?v=1.4.46";
+} from "../ui-model.js?v=1.4.47";
+import { createElement, createIcon } from "./dom.js?v=1.4.47";
 
 // The Files tab's tree: one machine's folders as rows that open in place, the
 // path field under them with its completion, and ↑. The sidebar's Files tab

@@ -1,5 +1,5 @@
-import { createElement } from "./dom.js?v=1.4.46";
-import { createAgentPicker } from "./agent-picker.js?v=1.4.46";
+import { createElement } from "./dom.js?v=1.4.47";
+import { createAgentPicker } from "./agent-picker.js?v=1.4.47";
 
 // Git worktrees from a workspace's ⋯ menu (Herdr's `herdr worktree`): New
 // worktree… checks a branch out in a new folder of the workspace's repository

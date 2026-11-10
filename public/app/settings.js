@@ -1,14 +1,14 @@
-import { createElement } from "./dom.js?v=1.4.46";
-import { appVersionText, createUpdatePanel, runSummary } from "../app-update.js?v=1.4.46";
-import { writeGridFit } from "../terminal-preference.js?v=1.4.46";
-import { applicationServerKeyBytes, pushButtonPresentation } from "../push-notifications.js?v=1.4.46";
-import { OPEN_PANES_IN, readOpenPanesIn, writeOpenPanesIn } from "../lens-preference.js?v=1.4.46";
-import { CHAT_WIDTHS, readChatWidth, writeChatWidth } from "../chat-width-preference.js?v=1.4.46";
-import { notificationStateText, settingsPageList, settingsPageTitle, updateBadges } from "../settings-pages.js?v=1.4.46";
-import { herdrVersionText } from "../ui-model.js?v=1.4.46";
-import { createPluginsPage } from "./plugins.js?v=1.4.46";
-import { createHerdrSettingsPage } from "./herdr-settings.js?v=1.4.46";
-import { createPcAccess } from "./pc-access.js?v=1.4.46";
+import { createElement } from "./dom.js?v=1.4.47";
+import { appVersionText, createUpdatePanel, runSummary } from "../app-update.js?v=1.4.47";
+import { writeGridFit } from "../terminal-preference.js?v=1.4.47";
+import { applicationServerKeyBytes, pushButtonPresentation } from "../push-notifications.js?v=1.4.47";
+import { OPEN_PANES_IN, readOpenPanesIn, writeOpenPanesIn } from "../lens-preference.js?v=1.4.47";
+import { CHAT_WIDTHS, readChatWidth, writeChatWidth } from "../chat-width-preference.js?v=1.4.47";
+import { notificationStateText, settingsPageList, settingsPageTitle, updateBadges } from "../settings-pages.js?v=1.4.47";
+import { herdrVersionText } from "../ui-model.js?v=1.4.47";
+import { createPluginsPage } from "./plugins.js?v=1.4.47";
+import { createHerdrSettingsPage } from "./herdr-settings.js?v=1.4.47";
+import { createPcAccess } from "./pc-access.js?v=1.4.47";
 
 // What each "Open panes in" choice does, under the choice.
 const OPEN_PANES_IN_HINTS = Object.freeze({
