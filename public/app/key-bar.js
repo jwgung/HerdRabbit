@@ -301,7 +301,7 @@ export function createKeyBar({
   }
 
   // Send doubles as Stop: the key bar's Esc for the Chat lens, which has no key
-  // bar. While the selected Claude or Codex pane works and the composer is
+  // bar. While the selected pane's agent (one with Stop) works and the composer is
   // empty, the button shows Stop, focused or not; typing in the composer makes
   // it Send again, so a draft can still go out (the agent queues it). Esc
   // interrupts without losing the conversation: no confirmation.
@@ -404,8 +404,6 @@ export function createKeyBar({
     syncSendButton();
   });
   elements.sendButton.addEventListener("pointercancel", releasePressedSendMode);
-  elements.sendButton.addEventListener("focus", () => syncSendButton());
-  elements.sendButton.addEventListener("blur", () => syncSendButton());
   // A press let go off the button has no click: its mode goes a moment later.
   window.addEventListener("pointerup", () => {
     if (pressedSendMode === null) return;
@@ -426,7 +424,6 @@ export function createKeyBar({
     pressedSendMode = null;
     syncSendButton();
   });
-  elements.terminalInput.addEventListener("blur", () => syncSendButton());
   // A tap on a still-focused composer brings the phone keyboard back.
   elements.terminalInput.addEventListener("pointerdown", () => {
     if (!getComposerKeyboardDismissed()) return;

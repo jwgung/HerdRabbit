@@ -334,6 +334,15 @@ try {
     await page.waitForTimeout(200);
     assert.equal(await focusedCell(), "w1:p1");
     assert.equal(page.url(), urlBefore, "Alt+Left in a split is not the browser's Back");
+    // The chat's find field keeps Alt+arrow for itself.
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.locator("body").press("Control+f");
+    await page.locator("#chat-find-input").waitFor({ state: "visible" });
+    await page.locator("#chat-find-input").focus();
+    await page.keyboard.press("Alt+ArrowRight");
+    await page.waitForTimeout(200);
+    assert.equal(await focusedCell(), "w1:p1", "Alt+arrow in the find field moved the cell");
+    await page.keyboard.press("Escape");
 
     // A click in a Chat cell's conversation gives the typing to the composer;
     // a drag that selects text keeps the selection to copy.

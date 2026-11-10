@@ -523,7 +523,7 @@ Every shortcut the page itself answers. Keys typed in an attached terminal go to
 | Grid | `Ctrl`/`Cmd`+wheel, `Ctrl`/`Cmd`+`0` | Grid text size, back to the size that fits |
 | Pane alone | `Ctrl`/`Cmd`+wheel | Terminal text size |
 | Grid | `Esc` while carrying a cell | Put it back |
-| Grid | `Enter` or `Space` on a focused cell | Select it and type in its terminal |
+| Grid | `Enter` or `Space` on a focused cell | Select it; a Terminal cell's terminal takes the typing |
 | Image viewer | `←` `→`, `+` `-` `0`, arrows when zoomed, `Esc` | Previous / next image, zoom in / out / fit, pan, close |
 | Menus and sidebar | `Esc` | Close the open menu, then the phone sidebar |
 

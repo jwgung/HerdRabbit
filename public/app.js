@@ -25,6 +25,7 @@ import {
   paneServerId,
   loginMethodPresentation,
   preferredLoginMethod,
+  cellShortcutDirection,
   paneShortcutTarget,
   sidebarPresentation,
   serverConnectionState,
@@ -1330,27 +1331,29 @@ function activatePaneShortcut(event) {
 // Terminal, the composer in Chat (the cell's terminal is hidden there).
 function focusCell(grid, paneId) {
   selectPane(paneId, { fromGrid: true });
-  if (grid?.lensOf(paneId) === "chat") focusComposer();
-  else grid?.focus(paneId);
+  if (grid.lensOf(paneId) === "chat") focusComposer();
+  else grid.focus(paneId);
 }
 
-const CELL_DIRECTIONS = Object.freeze({ ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" });
+// A text field that keeps Alt+arrow for itself: any but the composer and a
+// cell's terminal (find, rename, a card's answer).
+function keepsAltArrow(element) {
+  return element instanceof HTMLElement && (element.isContentEditable || element.matches("input, textarea, select")) &&
+    element !== elements.terminalInput && !element.closest(".pane-grid-cell .xterm");
+}
 
 // Alt+arrow moves between the cells of the grid or split view on screen, to
 // the one that way as they are laid out. Taken before xterm sees it, so it
 // works from a Terminal cell too (a shell's Alt+arrow word moves give way
 // while a split is shown); with no split on screen the key stays the
-// browser's (Back and Forward). Other text fields (find, rename, a card's
-// answer) keep it.
+// browser's (Back and Forward), and so it does while the selected pane has
+// no cell on screen. Other text fields keep it (keepsAltArrow).
 function activateCellShortcut(event) {
-  const direction = CELL_DIRECTIONS[event.key];
-  if (!direction || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.isComposing) return false;
-  if (!state.authenticated || document.querySelector("dialog[open]")) return false;
+  const direction = cellShortcutDirection(event);
+  if (!direction || !state.authenticated || document.querySelector("dialog[open]")) return false;
   const grid = shownGrid();
-  if (!grid || !state.selectedPaneId) return false;
-  const active = document.activeElement;
-  const typing = active instanceof HTMLElement && (active.isContentEditable || active.matches("input, textarea, select"));
-  if (typing && active !== elements.terminalInput && !active.closest(".pane-grid-cell .xterm")) return false;
+  if (!grid || !state.selectedPaneId || grid.lensOf(state.selectedPaneId) === null) return false;
+  if (keepsAltArrow(document.activeElement)) return false;
   event.preventDefault();
   event.stopPropagation();
   const target = grid.neighbor(state.selectedPaneId, direction);

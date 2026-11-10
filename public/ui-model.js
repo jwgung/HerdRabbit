@@ -383,6 +383,15 @@ export function paneShortcutTarget({
   return null;
 }
 
+// The cell Alt+arrow moves to, as a direction ("left", "right", "up",
+// "down"), or null when the key is not that shortcut: an arrow with Alt
+// alone, never mid-composition.
+const CELL_DIRECTIONS = Object.freeze({ ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" });
+export function cellShortcutDirection({ key, altKey = false, ctrlKey = false, metaKey = false, shiftKey = false, isComposing = false } = {}) {
+  if (!altKey || ctrlKey || metaKey || shiftKey || isComposing) return null;
+  return Object.hasOwn(CELL_DIRECTIONS, key) ? CELL_DIRECTIONS[key] : null;
+}
+
 export function nextInputHistory({
   history,
   cursor = null,

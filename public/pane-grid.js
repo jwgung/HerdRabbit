@@ -108,7 +108,6 @@ export function cellInDirection(cells, fromPaneId, direction) {
   if (!from) return null;
   const horizontal = direction === "left" || direction === "right";
   if (!horizontal && direction !== "up" && direction !== "down") return null;
-  const EPSILON = 1e-6;
   const span = (box) => horizontal
     ? { start: box.top, end: box.top + box.height }
     : { start: box.left, end: box.left + box.width };
@@ -121,20 +120,24 @@ export function cellInDirection(cells, fromPaneId, direction) {
       : direction === "left" ? from.left - (box.left + box.width)
         : direction === "down" ? box.top - (from.top + from.height)
           : from.top - (box.top + box.height);
-    if (gap < -EPSILON) continue;
+    if (gap < -DIRECTION_EPSILON) continue;
     const other = span(box);
     const overlap = Math.min(reach.end, other.end) - Math.max(reach.start, other.start);
-    const score = [overlap > EPSILON ? 0 : 1, Math.max(0, gap), -overlap, Math.abs((other.start + other.end) / 2 - middle)];
-    if (!best || before(score, best.score)) best = { paneId, score };
+    const score = [overlap > DIRECTION_EPSILON ? 0 : 1, Math.max(0, gap), -overlap, Math.abs((other.start + other.end) / 2 - middle)];
+    if (!best || scoresBefore(score, best.score)) best = { paneId, score };
   }
   return best?.paneId ?? null;
+}
 
-  function before(score, than) {
-    for (let index = 0; index < score.length; index += 1) {
-      if (Math.abs(score[index] - than[index]) > EPSILON) return score[index] < than[index];
-    }
-    return false;
+// Fractions closer than this are the same edge.
+const DIRECTION_EPSILON = 1e-6;
+
+// Whether `score` ranks ahead of `than`, compared item by item.
+function scoresBefore(score, than) {
+  for (let index = 0; index < score.length; index += 1) {
+    if (Math.abs(score[index] - than[index]) > DIRECTION_EPSILON) return score[index] < than[index];
   }
+  return false;
 }
 
 // A cell dragged by its header onto another cell: within this share of the
@@ -854,7 +857,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     node.addEventListener("click", (event) => {
       if (event.target.closest(HEADER_CONTROLS)) return;
       if (cell.lens === "chat") {
-        if (event.target.closest(CHAT_OWN_CONTROLS) || !(node.ownerDocument.getSelection()?.isCollapsed ?? true)) return;
+        if (event.target.closest(CHAT_OWN_CONTROLS) || !(window.getSelection()?.isCollapsed ?? true)) return;
         onChatPress(paneId);
         return;
       }
