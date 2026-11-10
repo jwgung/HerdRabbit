@@ -1,8 +1,9 @@
 // Browser check of the composer's Send button doubling as Stop, on a desktop
 // and on a phone: while the Claude pane works in the Chat lens, the button is
-// Send as long as the composer is focused (a press sends the draft, never Esc)
-// and Stop once it is not (a press sends the key bar's Esc, "esc", and nothing
-// else, the draft stays and Stop is busy for a moment, never Send). In the
+// Send while the composer has text (a press sends the draft, never Esc) and
+// Stop while it is empty, focused or not (a press sends the key bar's Esc,
+// "esc", and nothing else, and Stop is busy for a moment, never Send). Just
+// after a message goes out it stays Send a moment, then turns Stop. In the
 // Terminal lens and once the agent is idle it stays Send. Esc in the composer
 // stops as well, but not while the `@` file list is open (that Esc only closes
 // the list). A message sent after a Stop that Claude got run together with the
@@ -154,12 +155,15 @@ try {
     assert.deepEqual(texts(), ["hello there"], "Send sent the draft");
     await sentKeys(0);
     await page.waitForFunction(() => document.querySelector("#terminal-input").value === "", null, { timeout: 5_000 });
+    // Just sent, the button stays Send a moment, so a quick second click
+    // cannot stop what was just sent; then the empty composer gets Stop.
+    await looksLike("send");
     if (!mobile) {
-      // A click on Send hands focus back to the composer: the button stays
-      // Send, so a quick second click cannot stop what was just sent.
+      // A click on Send hands focus back to the composer.
       await page.waitForFunction(() => document.activeElement?.id === "terminal-input", null, { timeout: 3_000 });
-      await looksLike("send");
     }
+    await looksLike("stop");
+    if (!mobile) assert.equal(await page.evaluate(() => document.activeElement?.id), "terminal-input", "Stop shows with the composer focused");
 
     // Tab from the composer until the Send button has the focus: the dictate
     // button sits between them where the browser can recognise speech.
@@ -212,20 +216,24 @@ try {
     herdr.slowTextMs = 0;
     await page.waitForFunction(() => document.querySelector("#terminal-input").value === "", null, { timeout: 5_000 });
 
-    // Out of the composer a press sends one Esc, keeps the draft, and is busy for a moment.
+    // Text in the composer is Send, focused or not.
     await input.fill("a draft that stays");
     await blur();
+    await looksLike("send");
+    // An empty composer is Stop, focused or not: a press sends one Esc and is busy for a moment.
+    await input.fill("");
+    await input.focus();
     await looksLike("stop");
     await button.click();
     await sentKeys(1);
-    assert.equal(await input.inputValue(), "a draft that stays", "the draft is untouched");
     assert.equal(await button.isDisabled(), true, "busy right after a press");
     assert.equal(await button.getAttribute("aria-busy"), "true");
-    // Back in the composer the button is Send at once, and never held by Stop.
-    await input.focus();
+    // Typing makes it Send at once, never held by Stop.
+    await input.fill("a draft that stays");
     await looksLike("send");
     assert.equal(await button.isDisabled(), false, "a Stop in flight held Send");
     assert.equal(await button.getAttribute("aria-busy"), null);
+    await input.fill("");
     await blur();
     await ready();
     await looksLike("stop");
@@ -256,7 +264,8 @@ try {
     herdr.failKeys = false;
     assert.deepEqual(texts().filter((text) => !text.startsWith("tabbed and") && text !== "on its way"), ["hello there"], "Stop never sent the draft");
 
-    // Esc in the composer stops too.
+    // Esc in the composer stops too, with a draft in it.
+    await input.fill("a draft that stays");
     await input.focus();
     await page.keyboard.press("Escape");
     await sentKeys(5);
@@ -295,18 +304,13 @@ try {
     await looksLike("stop");
 
     if (mobile) {
-      // The phone keyboard put away with the composer still focused counts
-      // as out of the composer: Stop. A tap back into the composer is Send.
-      await input.focus();
-      await looksLike("send");
-      await page.setViewportSize({ width: 390, height: 480 });
-      await page.waitForTimeout(500);
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.waitForTimeout(500);
-      assert.equal(await page.evaluate(() => document.activeElement?.id), "terminal-input", "the composer kept focus");
-      await looksLike("stop");
+      // A tap into the empty composer keeps Stop; typing turns it Send.
       await input.tap();
+      await looksLike("stop");
+      await page.keyboard.type("x");
       await looksLike("send");
+      await input.fill("");
+      await looksLike("stop");
     }
 
     // Send, Stop at once, send again: Claude Code put the stopped message back

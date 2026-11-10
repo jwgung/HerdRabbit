@@ -1319,11 +1319,42 @@ function activatePaneShortcut(event) {
   // within the view split, between its tiles.
   if ((shownGridTabId && paneTabId(targetPaneId) === shownGridTabId) ||
       (viewGrid.shown && viewTiles(viewSplit.tree).includes(targetPaneId))) {
-    selectPane(targetPaneId, { fromGrid: true });
-    shownGrid()?.focus(targetPaneId);
+    focusCell(shownGrid(), targetPaneId);
     return true;
   }
   targetButton.click();
+  return true;
+}
+
+// Selects `paneId`'s cell of `grid` and gives it the typing: its terminal in
+// Terminal, the composer in Chat (the cell's terminal is hidden there).
+function focusCell(grid, paneId) {
+  selectPane(paneId, { fromGrid: true });
+  if (grid?.lensOf(paneId) === "chat") focusComposer();
+  else grid?.focus(paneId);
+}
+
+const CELL_DIRECTIONS = Object.freeze({ ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" });
+
+// Alt+arrow moves between the cells of the grid or split view on screen, to
+// the one that way as they are laid out. Taken before xterm sees it, so it
+// works from a Terminal cell too (a shell's Alt+arrow word moves give way
+// while a split is shown); with no split on screen the key stays the
+// browser's (Back and Forward). Other text fields (find, rename, a card's
+// answer) keep it.
+function activateCellShortcut(event) {
+  const direction = CELL_DIRECTIONS[event.key];
+  if (!direction || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.isComposing) return false;
+  if (!state.authenticated || document.querySelector("dialog[open]")) return false;
+  const grid = shownGrid();
+  if (!grid || !state.selectedPaneId) return false;
+  const active = document.activeElement;
+  const typing = active instanceof HTMLElement && (active.isContentEditable || active.matches("input, textarea, select"));
+  if (typing && active !== elements.terminalInput && !active.closest(".pane-grid-cell .xterm")) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  const target = grid.neighbor(state.selectedPaneId, direction);
+  if (target) focusCell(grid, target);
   return true;
 }
 
@@ -1354,6 +1385,7 @@ function activateGridFontReset(event) {
 }
 
 document.addEventListener("keydown", activateGridFontReset, { capture: true });
+document.addEventListener("keydown", activateCellShortcut, { capture: true });
 
 document.addEventListener("keydown", (event) => {
   if (activateLensShortcut(event)) return;

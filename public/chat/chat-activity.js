@@ -229,9 +229,12 @@ export function showsStop({ lens, agent, status }) {
 }
 
 // What the composer's Send button does: Stop while Stop shows and the composer
-// is not focused, Send otherwise. Typing in the composer always gets Send.
-export function sendButtonMode({ lens, agent, status, composerFocused = false }) {
-  return !composerFocused && showsStop({ lens, agent, status }) ? "stop" : "send";
+// is empty, Send otherwise, wherever the focus is (a Chat cell picked by
+// keyboard focuses the composer, and Stop must still be a click away). Text in
+// the composer always gets Send, and so does a message just sent (`justSent`),
+// so a quick second click never stops the work it starts.
+export function sendButtonMode({ lens, agent, status, draft = "", justSent = false }) {
+  return !justSent && String(draft ?? "").trim() === "" && showsStop({ lens, agent, status }) ? "stop" : "send";
 }
 
 // Whether Esc in the composer stops the agent, as the Stop button does. Only a

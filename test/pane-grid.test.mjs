@@ -127,3 +127,40 @@ test("a cell that sizes its pane holds the columns and rows its frame has room f
   assert.deepEqual(cellCapacity({ width: 5, height: 5, charWidth: 8, charHeight: 16 }), { cols: 0, rows: 0 });
   assert.deepEqual(cellCapacity({ width: 800, height: 400, charWidth: 0, charHeight: 16 }), { cols: 0, rows: 0 });
 });
+
+test("Alt+arrow finds the cell that way as the cells are laid out, without wrapping", async () => {
+  const { cellInDirection } = await import("../public/pane-grid.js");
+  // p1 on the left, p2 over p3 on the right, p4 a sliver at the far right.
+  const cells = [
+    { paneId: "p1", box: { left: 0, top: 0, width: 0.5, height: 1 } },
+    { paneId: "p2", box: { left: 0.5, top: 0, width: 0.45, height: 0.5 } },
+    { paneId: "p3", box: { left: 0.5, top: 0.5, width: 0.45, height: 0.5 } },
+    { paneId: "p4", box: { left: 0.95, top: 0, width: 0.05, height: 1 } },
+  ];
+  assert.equal(cellInDirection(cells, "p1", "right"), "p2", "a tie in reach goes to the one nearest the middle, then the first");
+  assert.equal(cellInDirection(cells, "p2", "down"), "p3");
+  assert.equal(cellInDirection(cells, "p3", "up"), "p2");
+  assert.equal(cellInDirection(cells, "p3", "left"), "p1");
+  assert.equal(cellInDirection(cells, "p2", "right"), "p4");
+  assert.equal(cellInDirection(cells, "p4", "left"), "p2", "the nearest that shares the most of its column");
+  assert.equal(cellInDirection(cells, "p1", "left"), null, "no wrap at the edge");
+  assert.equal(cellInDirection(cells, "p1", "up"), null);
+  assert.equal(cellInDirection(cells, "p3", "down"), null);
+  assert.equal(cellInDirection(cells, "missing", "right"), null);
+  assert.equal(cellInDirection(cells, "p1", "sideways"), null);
+
+  // Nothing sharing the row: the nearest cell that way still counts.
+  const staggered = [
+    { paneId: "a", box: { left: 0, top: 0, width: 0.5, height: 0.5 } },
+    { paneId: "b", box: { left: 0.5, top: 0.5, width: 0.5, height: 0.5 } },
+  ];
+  assert.equal(cellInDirection(staggered, "a", "right"), "b");
+  // A 2x2 even grid.
+  const even = ["q1", "q2", "q3", "q4"].map((paneId, index) => ({
+    paneId, box: { left: (index % 2) / 2, top: Math.floor(index / 2) / 2, width: 0.5, height: 0.5 },
+  }));
+  assert.equal(cellInDirection(even, "q1", "right"), "q2");
+  assert.equal(cellInDirection(even, "q1", "down"), "q3");
+  assert.equal(cellInDirection(even, "q4", "up"), "q2");
+  assert.equal(cellInDirection(even, "q4", "left"), "q3");
+});
