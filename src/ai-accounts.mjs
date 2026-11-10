@@ -57,12 +57,14 @@ export class AiAccounts {
     env = process.env,
     runningAgents = async () => [],
     now = () => Date.now(),
+    usage = null,
   }) {
     this.directory = directory;
     this.adapters = new Map(adapters.map((adapter) => [adapter.id, adapter]));
     this.env = env;
     this.runningAgents = runningAgents;
     this.now = now;
+    this.usage = usage;
     this.pending = Promise.resolve();
   }
 
@@ -178,6 +180,14 @@ export class AiAccounts {
       if (error.code === "ENOENT") return [];
       throw error;
     }
+  }
+
+  // How much of its limits the signed-in account has used, as the CLI itself
+  // says (ai-usage.mjs). Not serialised with the rest: it only asks the CLI.
+  async readUsage(cli, { refresh = false } = {}) {
+    const adapter = this.#adapter(cli);
+    if (!this.usage) throw new AiAccountError("usage_unsupported", "This machine cannot read usage", { status: 501 });
+    return this.usage.read(adapter.id, { refresh });
   }
 
   list() {
@@ -296,6 +306,7 @@ export class AiAccounts {
         }
         throw new AiAccountError("switch_failed", `Could not switch ${adapter.label} accounts`, { status: 500 });
       }
+      this.usage?.forget(adapter.id);
       return { cli: adapter.id, account: publicAccount(accountId, target, true), changed: true };
     });
   }

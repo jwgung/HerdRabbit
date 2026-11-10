@@ -571,6 +571,17 @@ The dialog has a tab for each CLI, wearing that program's mark and its name, wit
 - **Switch**, in an account's ⋯ menu, changes the account for the whole machine. Settings, MCP servers, conversation history and memory stay as they are, so `claude --continue`, `codex resume`, `agy --continue` or `kiro-cli chat --resume` picks up where the other account stopped. The account being replaced is saved first, which keeps the tokens the CLI rotated while using it. If Herdr shows the CLI running in any pane, the switch lists those panes and waits for confirmation; they keep the old account until restarted, so restart them soon: one that refreshes its sign-in before then can write the old account back. A CLI started outside Herdr is not seen.
 - **Remove**, in the same menu, deletes the saved copy. It does not sign the account out anywhere.
 
+**Usage** sits under the account in use: a bar for each limit its CLI reports, how much is used (amber from 80%, red from 95%), and when each starts again. HerdRabbit asks the CLI itself, so the CLI keeps refreshing its own sign-in and HerdRabbit never reads or writes a token for this:
+
+| CLI | Asked with | Shows |
+|---|---|---|
+| Claude Code | `claude -p /usage --no-session-persistence` | the session and each week, as Claude words the reset; when the sign-in ends |
+| Codex | `codex app-server`, `account/rateLimits/read` | each window (five hours, a week) with its reset; credits left; free limit resets |
+| Antigravity CLI | `agy -p /usage` | each model group's limit (weekly, or daily when it reports one) |
+| Kiro CLI | `kiro-cli chat` in a terminal, then `/usage` | the month's credits and when they reset |
+
+None of these sends anything to a model or leaves a conversation behind. Kiro CLI has no way to print `/usage` -- run without a terminal it takes the words as a prompt -- so it is started in a terminal (node-pty), typed to only once its prompt is drawn, and closed as soon as its panel shows, or after 45 seconds when it does not. The CLIs run in an `ai-usage` directory beside the saved sign-ins (`~/.config/herdr-bridge/ai-usage` by default; beside `HERDR_WEB_AI_ACCOUNTS_DIR` when that is set), and only for the tab being looked at: Claude takes about ten seconds, Kiro about six, the others a second or two. An answer is kept a minute on the machine and for as long as the page is open; **Refresh** asks again, and switching accounts forgets the old one's. When the CLI cannot say, the block says why and offers **Retry**. On a connected PC the CLI runs there; a PC on an older HerdRabbit says to update it.
+
 Each machine keeps its own accounts. On a connected PC the saving, signing in and switching run there, and only whose account is where comes back; no sign-in travels between machines.
 
 Saved sign-ins are stored in `~/.config/herdr-bridge/ai-accounts`, or the directory in `HERDR_WEB_AI_ACCOUNTS_DIR`, as mode-`0600` files inside mode-`0700` directories that only the owning OS user can read.
@@ -861,7 +872,7 @@ Close every tab or installed PWA window and reopen it. If necessary, clear site 
 - Uploads have no size limit by default, but must declare a `Content-Length`. When `HERDR_WEB_MAX_TRANSFER_MB` sets a limit, a larger upload is refused from that header before any of the body is read. An upload may take as long as it keeps sending; it is dropped only after 2 minutes without a byte. The uploads folder has no total size or file-count limit, so disk space is the only bound.
 - Accepting a whole file in one request raises the body-receive timeout to two minutes for every route. The header timeout is unchanged, so slow-header attacks are still cut off, but a slow body is not.
 - VAPID private keys and Push subscription URLs are stored in a mode-`0600` file readable only by the owning OS user.
-- Saved AI CLI sign-ins are copies of the CLI's own credential files, mode `0600` inside mode-`0700` directories, and they are only ever copied between that directory and the CLI's. No API response, error, log line or browser storage carries a token: the account routes answer with an email, a plan and a sign-in expiry. This machine never receives a connected PC's sign-ins. Anyone who can use this HerdRabbit can switch its accounts, which is no more than a terminal pane already allows.
+- Saved AI CLI sign-ins are copies of the CLI's own credential files, mode `0600` inside mode-`0700` directories, and they are only ever copied between that directory and the CLI's. No API response, error, log line or browser storage carries a token: the account routes answer with an email, a plan and a sign-in expiry, and usage with how much of each limit is used, when it resets and credits left. This machine never receives a connected PC's sign-ins. Anyone who can use this HerdRabbit can switch its accounts, which is no more than a terminal pane already allows.
 - A sign-in workspace only ever receives a command naming its empty directory. Its one-time sign-in code is not kept in prompt history, and the workspace is closed when the sign-in is finished or cancelled.
 - Browser storage contains UI preferences and the current-window launch token, not terminal history or the password.
 

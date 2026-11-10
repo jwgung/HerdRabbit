@@ -697,3 +697,19 @@ test("a file whose connection breaks part-way fails on the hub's side with that 
     for await (const chunk of opened.stream) void chunk;
   }, /connection reset/u);
 });
+
+test("a connected PC's usage comes back as it said, its refusal as itself, and an older PC says to update", async () => {
+  const asked = [];
+  let answer = () => new Response(JSON.stringify({ cli: "claude", method: "cli", checkedAt: 1, meters: [], notes: [] }), { status: 200 });
+  const client = peerClient(async (url) => {
+    asked.push(new URL(url).pathname + new URL(url).search);
+    return answer();
+  });
+  const usage = client.aiAccounts();
+  assert.equal((await usage.readUsage("claude", { refresh: true })).cli, "claude");
+  assert.deepEqual(asked, ["/api/link/ai-accounts/usage?cli=claude&refresh=1"]);
+  answer = () => new Response(JSON.stringify({ error: { code: "usage_unavailable", message: "Kiro did not show its usage" } }), { status: 409 });
+  await assert.rejects(usage.readUsage("kiro"), { code: "usage_unavailable", message: "Kiro did not show its usage" });
+  answer = () => new Response(JSON.stringify({ error: { code: "not_found", message: "Not found" } }), { status: 404 });
+  await assert.rejects(usage.readUsage("kiro"), (error) => error.code === "link_unsupported" && /too old for reading AI usage/u.test(error.message));
+});

@@ -7,6 +7,10 @@ import {
   aiAccountsToSave,
   aiLoginSessionId,
   aiRestartHint,
+  aiUsageCheckedText,
+  aiUsageLevel,
+  aiUsageResetText,
+  aiUsageSource,
   isAiLoginWorkspace,
   readAiAccountsTab,
   sortAiAccounts,
@@ -53,6 +57,10 @@ export function createAiAccounts({
   // A list fetched a moment before a sign-in was saved still names it; these are
   // never taken up again from such a list.
   const finishedAiLogins = new Set();
+  // Usage of each signed-in account, by server and CLI: { state, usage, error }.
+  // Kept while the page is open, so switching tabs does not start a CLI again;
+  // the server keeps its own answer a minute too.
+  const aiUsage = new Map();
   const AI_LOGIN_CHECK_MS = 3_000;
   const AI_LOGIN_GIVE_UP_MS = 20 * 60_000;
 
@@ -142,6 +150,9 @@ export function createAiAccounts({
     const showPanel = (id) => {
       aiAccounts.tab = id;
       for (const [panelId, panel] of panels) panel.hidden = panelId !== id;
+      // A CLI is only started for the tab being looked at.
+      const cli = tabs.find((tab) => tab.id === id)?.cli;
+      if (cli?.current) void loadAiUsage(cli);
     };
     const strip = createTabStrip({
       label: "AI CLIs",
@@ -181,7 +192,11 @@ export function createAiAccounts({
     }
     const rows = createElement("ul", { className: "ai-account-rows" });
     // Saved on open, so the live sign-in is only listed apart when saving was not possible.
-    for (const account of sortAiAccounts(aiAccountsListed(cli))) rows.append(aiAccountRow(cli, account));
+    for (const account of sortAiAccounts(aiAccountsListed(cli))) {
+      rows.append(aiAccountRow(cli, account));
+      // How much the account in use has left sits right under it.
+      if (account.active) rows.append(aiUsageItem(cli));
+    }
     if (cli.supported) {
       const add = createElement("li", { className: "ai-account-add-row" });
       add.append(aiButton("+ Add account", () => void aiAccountsAction(() => startAiLogin(cli)), "ai-account-add"));
@@ -193,6 +208,101 @@ export function createAiAccounts({
     // takes the focus itself, so its note can still be reached.
     if (!panel.querySelector("button, summary")) panel.tabIndex = 0;
     return panel;
+  }
+
+  function aiUsageKey(cli) {
+    return `${aiAccounts.server.id}\u0000${cli.id}`;
+  }
+
+  // The usage block under the account in use. It is drawn from aiUsage and
+  // drawn again whenever that changes.
+  function aiUsageItem(cli) {
+    const item = createElement("li", { className: "ai-usage" });
+    item.dataset.usageKey = aiUsageKey(cli);
+    renderAiUsage(item, cli);
+    return item;
+  }
+
+  function aiUsageMeter(meter) {
+    const box = createElement("div", { className: "ai-usage-meter" });
+    box.dataset.level = aiUsageLevel(meter.usedPercent);
+    const used = `${meter.usedPercent}% used`;
+    box.append(createElement("span", { className: "ai-usage-name", text: meter.label }),
+      createElement("span", { className: "ai-usage-percent", text: used }));
+    const bar = createElement("div", { className: "ai-usage-bar" });
+    bar.setAttribute("role", "meter");
+    bar.setAttribute("aria-label", meter.label);
+    bar.setAttribute("aria-valuemin", "0");
+    bar.setAttribute("aria-valuemax", "100");
+    bar.setAttribute("aria-valuenow", String(meter.usedPercent));
+    bar.setAttribute("aria-valuetext", used);
+    const fill = createElement("span", { className: "ai-usage-fill" });
+    fill.style.width = `${Math.min(100, Math.max(0, meter.usedPercent))}%`;
+    bar.append(fill);
+    box.append(bar);
+    const below = [aiUsageResetText(meter), meter.detail].filter(Boolean).join(" · ");
+    if (below) box.append(createElement("small", { text: below }));
+    return box;
+  }
+
+  function renderAiUsage(item, cli) {
+    const entry = aiUsage.get(item.dataset.usageKey);
+    const head = createElement("div", { className: "ai-usage-head" });
+    head.append(createElement("strong", { text: "Usage" }));
+    const parts = [head];
+    if (!entry || entry.state === "loading") {
+      item.setAttribute("aria-busy", "true");
+      parts.push(createElement("p", { className: "ai-usage-wait", text: `Asking ${cli.label}…` }),
+        createElement("span", { className: "ai-usage-bar is-waiting" }));
+    } else {
+      item.removeAttribute("aria-busy");
+      if (entry.usage) head.append(createElement("span", { className: "ai-usage-checked", text: aiUsageCheckedText(entry.usage.checkedAt) }));
+      head.append(aiButton(entry.state === "error" ? "Retry" : "Refresh", () => void loadAiUsage(cli, { refresh: true }), "ai-usage-refresh"));
+      if (entry.state === "error") {
+        const failed = createElement("p", { className: "dialog-feedback", text: entry.error });
+        failed.dataset.error = "true";
+        parts.push(failed);
+      } else {
+        parts.push(...array(entry.usage.meters).map(aiUsageMeter));
+        for (const note of array(entry.usage.notes)) parts.push(createElement("p", { className: "ai-usage-note", text: note }));
+      }
+    }
+    const source = aiUsageSource(cli.id);
+    if (source) {
+      const from = createElement("p", { className: "ai-usage-source", text: "Read by running " });
+      from.append(createElement("code", { text: source }));
+      parts.push(from);
+    }
+    item.replaceChildren(...parts);
+  }
+
+  function redrawAiUsage(key, cli) {
+    for (const item of aiAccountsList.querySelectorAll(".ai-usage")) {
+      if (item.dataset.usageKey === key) renderAiUsage(item, cli);
+    }
+  }
+
+  // Asks the server, which asks the CLI. One question at a time per CLI; an
+  // answer already here is used unless Refresh asked for a new one.
+  async function loadAiUsage(cli, { refresh = false } = {}) {
+    const server = aiAccounts.server;
+    const key = aiUsageKey(cli);
+    const known = aiUsage.get(key);
+    if (known?.state === "loading" || (known && !refresh)) return;
+    const asking = { state: "loading", usage: known?.usage ?? null, error: null };
+    aiUsage.set(key, asking);
+    redrawAiUsage(key, cli);
+    let answer;
+    try {
+      const usage = await api(`/api/ai-accounts/usage?server=${encodeURIComponent(server.id)}&cli=${encodeURIComponent(cli.id)}${refresh ? "&refresh=1" : ""}`);
+      answer = { state: "ready", usage, error: null };
+    } catch (error) {
+      answer = { state: "error", usage: null, error: error.message || `Could not read ${cli.label} usage.` };
+    }
+    // A switch while this was asked dropped it: the answer is the old account's.
+    if (aiUsage.get(key) !== asking) return;
+    aiUsage.set(key, answer);
+    redrawAiUsage(key, cli);
   }
 
   function localStorageOrNull() {
@@ -411,6 +521,8 @@ export function createAiAccounts({
       await switchAiAccount(cli, account, true);
       return;
     }
+    // the usage shown was the previous account's
+    aiUsage.delete(aiUsageKey(cli));
     await loadAiAccounts();
     setAiAccountsFeedback(`Now using ${account.email}. Restart with ${aiRestartHint(cli.id)}.`);
   }

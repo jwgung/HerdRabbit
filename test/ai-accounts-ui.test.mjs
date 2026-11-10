@@ -246,3 +246,21 @@ test("the dialog lists CLIs as ARIA tabs with the program marks", async () => {
   assert.match(app, /agentMark\(tab\.id\)/u);
   assert.match(app, /fetchInstalledAgents|\/api\/agents\?server=/u);
 });
+
+test("usage meters turn amber from 80% and red from 95%", async () => {
+  const { aiUsageLevel } = await import("../public/ui-model.js");
+  assert.deepEqual([0, 79.9, 80, 94.9, 95, 100, null].map(aiUsageLevel), ["normal", "normal", "high", "high", "full", "full", "normal"]);
+});
+
+test("a reset reads as how long until it, or in the CLI's own words", async () => {
+  const { aiUsageResetText, aiUsageCheckedText } = await import("../public/ui-model.js");
+  const now = 1_000_000_000;
+  assert.equal(aiUsageResetText({ resetsAt: now + 72 * 60_000 }, { now }), "Resets in 1h 12m");
+  assert.equal(aiUsageResetText({ resetsAt: now + (4 * 24 + 3) * 3_600_000 }, { now }), "Resets in 4d 3h");
+  assert.equal(aiUsageResetText({ resetsAt: now + 5 * 60_000 }, { now }), "Resets in 5m");
+  assert.equal(aiUsageResetText({ resetsAt: now - 1 }, { now }), "Resetting now");
+  assert.equal(aiUsageResetText({ resetsAt: null, resetsText: "Nov 11, 8am (Asia/Seoul)" }, { now }), "Resets Nov 11, 8am (Asia/Seoul)");
+  assert.equal(aiUsageResetText({ resetsAt: null, resetsText: null }, { now }), null);
+  assert.equal(aiUsageCheckedText(now - 10_000, { now }), "Checked just now");
+  assert.equal(aiUsageCheckedText(now - 2 * 60_000, { now }), "Checked 2m ago");
+});

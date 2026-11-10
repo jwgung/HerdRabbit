@@ -8,7 +8,7 @@ import { PasskeyAuth } from "./passkey-auth.mjs";
 import { loadWebPushService } from "./web-push-service.mjs";
 import { spawn } from "node:child_process";
 import { homedir, hostname } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { readAppVersion } from "./app-version.mjs";
 import { serveLocked } from "./locked-server.mjs";
 import { FileStore } from "./file-store.mjs";
@@ -16,6 +16,7 @@ import { MultiServerClient } from "./multi-server-client.mjs";
 import { countLegacyMachines } from "./legacy-machines.mjs";
 import { PaneAttachments, loadNodePty, nodePtySpawner } from "./pane-attachments.mjs";
 import { AiAccounts, runningAgentsIn } from "./ai-accounts.mjs";
+import { AiUsage, defaultUsageReaders } from "./ai-usage.mjs";
 import { MIN_HERDR_VERSION, herdrVersionSupported, readHerdrVersion } from "./herdr-version.mjs";
 import { ServerProfiles } from "./server-profiles.mjs";
 import { PeerIdentity } from "./peer-identity.mjs";
@@ -129,7 +130,12 @@ const conversations = new ConversationService({ herdr });
 // connected to this one, for this PC's own panes. One catalog for both.
 const slashCommands = new SlashCommandCatalog({ guard: protectedPaths, agentCommands: new AgentCommandSource({ cacheDir: config.agentCommandsDir }) });
 // Only this machine's panes decide whether a switch here would disturb anything.
-const aiAccounts = new AiAccounts({ directory: config.aiAccountsDir, runningAgents: () => runningAgentsIn(local) });
+// Usage asks each CLI, in a directory of its own beside the saved accounts.
+const aiAccounts = new AiAccounts({
+  directory: config.aiAccountsDir,
+  runningAgents: () => runningAgentsIn(local),
+  usage: new AiUsage({ readers: defaultUsageReaders({ pty: () => nodePty }), directory: join(dirname(config.aiAccountsDir), "ai-usage") }),
+});
 // Which agents a new session here can start: looked up on PATH, never run.
 const installedAgents = new InstalledAgents();
 // A folder's earlier agent sessions, from the stores the Chat view reads (one

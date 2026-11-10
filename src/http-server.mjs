@@ -993,6 +993,14 @@ export function createHerdrHttpServer({
           sendJson(response, 200, { ...(await source.list()), server: serverId });
           return;
         }
+        if (method === "GET" && action === "usage") {
+          requireSameOrigin(request);
+          const { serverId, source } = accountsSource(url.searchParams.get("server"));
+          if (typeof source.readUsage !== "function") throw new HttpError(501, "usage_unsupported", "This machine cannot read usage");
+          const usage = await source.readUsage(url.searchParams.get("cli"), { refresh: url.searchParams.get("refresh") === "1" });
+          sendJson(response, 200, { ...usage, server: serverId });
+          return;
+        }
         if (method !== "POST" || (!action && !loginId)) throw new HttpError(405, "method_not_allowed", "Method not allowed");
         requireWriteAuthorization(request, csrfToken);
         const body = await readJsonBody(request, maxBodyBytes);

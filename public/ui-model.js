@@ -987,6 +987,46 @@ export function aiAccountNotice(account, { now = Date.now() } = {}) {
   return expiresAt - now < 7 * DAY_MS ? "Sign in again soon" : null;
 }
 
+// A usage meter's colour: amber from 80% used, red from 95%.
+export function aiUsageLevel(usedPercent) {
+  if (!Number.isFinite(usedPercent)) return "normal";
+  if (usedPercent >= 95) return "full";
+  return usedPercent >= 80 ? "high" : "normal";
+}
+
+// Two units ("1h 12m", "4d 3h"), finer than the session list's "N h ago":
+// how long until a limit resets is worth the minutes.
+function spanText(ms) {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return hours % 24 ? `${days}d ${hours % 24}h` : `${days}d`;
+}
+
+// When a meter starts again: "Resets in 1h 12m" when the CLI gave a time, or
+// its own words when it did not ("Resets Nov 11, 10:50am (Asia/Seoul)").
+export function aiUsageResetText(meter, { now = Date.now() } = {}) {
+  if (Number.isFinite(meter?.resetsAt)) {
+    return meter.resetsAt <= now ? "Resetting now" : `Resets in ${spanText(meter.resetsAt - now)}`;
+  }
+  return typeof meter?.resetsText === "string" && meter.resetsText ? `Resets ${meter.resetsText}` : null;
+}
+
+// How old the numbers are: the CLI was asked at checkedAt.
+export function aiUsageCheckedText(checkedAt, { now = Date.now() } = {}) {
+  if (!Number.isFinite(checkedAt)) return "";
+  const age = now - checkedAt;
+  return age < 60_000 ? "Checked just now" : `Checked ${spanText(age)} ago`;
+}
+
+// The CLI that answers for usage, as the dialog names it: display words that
+// mirror what src/ai-usage.mjs runs, not its exact arguments.
+export function aiUsageSource(cli) {
+  return { claude: "claude /usage", codex: "codex app-server", agy: "agy /usage", kiro: "kiro-cli /usage" }[cli] ?? null;
+}
+
 // Opening the list saves whatever is signed in now, so no account is ever
 // shown as in use but not saved.
 export function aiAccountsToSave(clis = []) {
