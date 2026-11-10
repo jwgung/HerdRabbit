@@ -24,11 +24,14 @@ import { claudeQuestionContext, fillClaudeCard, parseClaudePrompt } from "./clau
 import { parseCodexPrompt } from "./codex.mjs";
 import { parseFallbackPrompt } from "./fallback.mjs";
 import { parseKiroPrompt } from "./kiro.mjs";
+import { PANEL_AGENTS, panelShown, parsePanel } from "./panel.mjs";
 import { SUPPORTED_OPENCODE_TUI, fillOpencodeCard, opencodeDialogOpen, parseOpencodePrompt } from "./opencode.mjs";
 import { InvalidAnswer, answerSteps, moveKeysOf, publicCard, verifiesCursor } from "./screen.mjs";
 
 // The screen's bottom: enough for a long approval panel.
 const SCREEN_LINES = 120;
+// A panel's recent lines: enough for one taller than the pane.
+const PANEL_LINES = 160;
 const KNOWN_STATES = new Set(["idle", "working", "blocked", "done", "unknown"]);
 // Panes one server watches at most (each readable one costs a read a tick).
 const MAX_WATCHED_PANES = 16;
@@ -88,6 +91,13 @@ function screenOf(name) {
 function readerName(agent) {
   const name = agent.claude ? "claude" : agent.name;
   return screenOf(name).read ? name : null;
+}
+
+// The agent whose panels (an agent's own `/` command's, panel.mjs) the pane
+// is read for whatever herdr says, or null.
+function panelName(agent) {
+  const name = agent.claude ? "claude" : agent.name;
+  return PANEL_AGENTS.includes(name) ? name : null;
 }
 
 // Kept referenced: an answer whose keys are still going out holds the process
@@ -203,17 +213,39 @@ export class PromptService {
     return this.herdr.readPane(paneId, { lines: SCREEN_LINES, format, source });
   }
 
+  // A pane may show a panel its agent's own `/` command opened, no prompt
+  // reader's: its card is the panel card, whatever herdr says (it calls most
+  // panels idle, Claude's /mcp blocked). A blocked pane showing none gets the
+  // fallback, as before.
   async #readScreen(paneId, agent, snapshot = null, fresh = false) {
     const reader = readerName(agent);
+    const panels = panelName(agent);
     const blocked = agent.status === "blocked";
-    if (!reader && !blocked) return null;
+    if (!reader && !panels && !blocked) return null;
     if (reader && !(await this.#supported(paneId, reader, snapshot, agent.session, fresh))) return null;
-    const screen = await this.#screen(paneId, reader);
+    const screen = await this.#screen(paneId, reader ?? panels);
     const { read, noCard } = screenOf(reader);
-    if (reader && noCard(screen)) return null;
-    const card = reader ? read(screen) ?? null : null;
-    if (card || !blocked) return card;
+    // an OpenCode dialog: no prompt's card, but maybe a panel's
+    const dialog = Boolean(reader) && noCard(screen);
+    const card = reader && !dialog ? read(screen) ?? null : null;
+    if (card) return card;
+    const panel = panels ? await this.#panel(paneId, panels, screen) : null;
+    if (panel || !blocked || dialog) return panel;
     return parseFallbackPrompt(screen, { agent: reader ?? agent.name });
+  }
+
+  // The panel card the pane shows, or null: read again only when the plain
+  // screen ends with a panel's hint, with its styles (the tab shown is known
+  // only by its colour) and from the recent lines, not the visible screen
+  // alone: a panel taller than the pane (Claude's /usage) has its top, the
+  // tab row, scrolled above it. OpenCode's dialog floats over the visible
+  // screen, read with its styles already.
+  async #panel(paneId, name, screen) {
+    if (!panelShown(screen, name)) return null;
+    const styledScreen = name === "opencode"
+      ? screen
+      : await this.herdr.readPane(paneId, { lines: PANEL_LINES, format: "ansi", source: "recent-unwrapped" });
+    return parsePanel(styledScreen, { agent: name });
   }
 
   // Whether the pane's agent is a version its reader knows: always, for a
@@ -295,7 +327,8 @@ export class PromptService {
     }
     const given = JSON.stringify([body.cardId, body.option ?? null, body.options ?? null, body.text ?? null, body.action ?? null]);
     const last = this.answered.get(paneId);
-    if (last && last.answer === given && Date.now() - last.at < this.answeredMs) throw promptChanged();
+    // a panel's key may go again at once (→ → to the third tab)
+    if (last && !last.panel && last.answer === given && Date.now() - last.at < this.answeredMs) throw promptChanged();
     const held = this.held.get(paneId);
     if (held && held.cardId === body.cardId && Date.now() - held.at < this.answeredMs) throw promptChanged();
     const parsed = await this.read(paneId, null, { fresh: true });
@@ -351,7 +384,9 @@ export class PromptService {
         }
         if (index < steps.length - 1) await delay(this.stepDelayMs);
       }
-      this.answered.set(paneId, { answer: given, at: Date.now() });
+      this.answered.set(paneId, { answer: given, at: Date.now(), panel: Boolean(parsed.panel) });
+      // a panel stays up after its keys: the page keeps its card for the next push
+      if (parsed.panel) stays = true;
       // An option of the card's own (Kiro's s) leaves the menu up but changes
       // it: until the terminal shows the changed card, an answer to this one
       // (another device) would pick a row of the changed menu. The turn is
@@ -479,7 +514,7 @@ export class PromptService {
         const agent = paneAgent(snapshot, entry.paneId);
         if (agent) entry.missing = 0;
         if (agent && agent.status === "blocked") { entry.quiet = 0; reading.push({ entry, agent }); }
-        else if (agent && readerName(agent)) {
+        else if (agent && (readerName(agent) || panelName(agent))) {
           // A Claude, Codex, Kiro or OpenCode pane herdr does not call blocked may still wait
           // on a menu, so it is read too -- but less often while nothing has
           // shown: every tick, then every 2nd, then every 4th, until a card,

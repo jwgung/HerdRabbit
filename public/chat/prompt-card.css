@@ -365,3 +365,105 @@
     min-height: 44px;
   }
 }
+
+/* --- a panel an agent's own `/` command opened --------------------------- */
+/* Its tabs, its text as the terminal draws it (a wide line scrolls sideways:
+   wrapped, a usage bar or a table would no longer line up), and its keys. */
+
+.prompt-card.is-panel {
+  overflow: hidden;
+  border-color: var(--control-line);
+}
+
+.prompt-card.is-panel .prompt-card-status {
+  color: var(--muted);
+}
+
+.prompt-panel-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prompt-panel-tabs li {
+  padding: var(--space-0-5) var(--space-2-5);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  font-size: var(--font-sm);
+}
+
+.prompt-panel-tabs li.is-selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.prompt-panel-screen {
+  flex: 1 1 auto;
+  min-height: 6em;
+  max-height: 34vh;
+  margin: 0;
+  padding: var(--space-2) var(--space-2-5);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--terminal-bg);
+  color: var(--terminal-text);
+  font-family: var(--mono);
+  font-size: 0.8em;
+  line-height: 1.35;
+  white-space: pre;
+}
+
+.prompt-panel-keys {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+}
+
+.prompt-panel-key {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: 0 var(--space-2-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--control-surface);
+  color: var(--control-text);
+  font: inherit;
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.prompt-panel-key:hover:not(:disabled) {
+  border-color: var(--hover-line);
+  background: var(--hover-surface);
+}
+
+.prompt-panel-key:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.prompt-panel-key kbd {
+  min-width: 22px;
+  padding: 0 var(--space-1-5);
+  border: 1px solid var(--control-line);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-xs);
+  font-family: var(--mono);
+  font-size: 0.86em;
+  text-align: center;
+}
+
+.prompt-panel-key.is-close {
+  margin-left: auto;
+}
