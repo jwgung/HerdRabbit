@@ -319,7 +319,8 @@ export function createChatPanel(deps) {
     if (document.querySelector("dialog[open]")) return;
     const active = document.activeElement;
     const typing = inTerminal(active, elements.terminalXterm);
-    const inFind = terminalFindForm.contains(active) || chatFindForm.contains(active);
+    const inFind = terminalFindForm.contains(active) || chatFindForm.contains(active) ||
+      (composerFromChat && active === elements.terminalInput && chatLens.lens === "chat");
     if (!typing && !inFind && active instanceof HTMLElement &&
         (active.isContentEditable || active.matches("input, textarea, select"))) return;
     if (chatLens.lens === "chat") {
@@ -358,9 +359,16 @@ export function createChatPanel(deps) {
 
   // A click on the single chat hands the typing to the composer, as a Chat
   // cell's does (pane-grid.js); focusComposer leaves a phone's keyboard down.
+  // Until something is typed there, the reader is still on the chat: Ctrl+F
+  // finds in the conversation, as it did before the click moved the focus.
+  let composerFromChat = false;
   elements.chatHost.addEventListener("click", (event) => {
-    if (chatLens.lens === "chat" && chatPressTakesComposer(event.target)) focusComposer();
+    if (chatLens.lens !== "chat" || !chatPressTakesComposer(event.target)) return;
+    focusComposer();
+    composerFromChat = document.activeElement === elements.terminalInput;
   });
+  elements.terminalInput.addEventListener("input", () => { composerFromChat = false; });
+  elements.terminalInput.addEventListener("blur", () => { composerFromChat = false; });
 
   function overChat(target) {
     return chatLens.lens === "chat" && target instanceof Node &&
