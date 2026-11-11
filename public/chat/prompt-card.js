@@ -386,6 +386,8 @@ export function createPromptDock({ document = globalThis.document, dock, connect
 
   function render() {
     const mode = dockMode({ card, lens, dismissed: card ? dismissed.has(card.id) : false, expanded });
+    // the plan's file this card can open here, or null
+    const planPath = plannable(card) ? card.planPath : null;
     dock.dataset.mode = mode;
     dock.hidden = mode === "hidden";
     // the card the composer can answer: none while the dock is hidden
@@ -399,7 +401,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     try { context = mode !== "hidden" && mode !== "banner" && contextVisible(card, paneId === null ? "" : conversation(paneId)); } catch { context = Boolean(card?.context); }
     // a panel's words change under the same id (another tab, figures that tick)
     const words = card?.panel ? JSON.stringify([card.title, card.body, card.tabs, card.options, card.question]) : "";
-    const key = mode === "hidden" ? null : `${mode}|${card.id}|${words}|${view.pending}|${view.error}|${[...view.selected].join(",")}|${mode === "banner" ? "" : view.custom}|${context ? card.context : ""}|${view.preview}|${plannable(card) ? card.planPath : ""}`;
+    const key = mode === "hidden" ? null : `${mode}|${card.id}|${words}|${view.pending}|${view.error}|${[...view.selected].join(",")}|${mode === "banner" ? "" : view.custom}|${context ? card.context : ""}|${view.preview}|${planPath ?? ""}`;
     if (key === drawn) return;
     // the typed answer keeps its focus and caret across a redraw
     const focused = dock.contains(document.activeElement) ? document.activeElement : null;
@@ -417,12 +419,12 @@ export function createPromptDock({ document = globalThis.document, dock, connect
       const close = element(document, "button", { className: "prompt-banner-close", text: "×",
         attrs: { type: "button", "data-prompt-action": "dismiss", "aria-label": "Dismiss", title: "Dismiss" } });
       banner.append(open);
-      if (plannable(card)) banner.append(planButton(document, "prompt-banner-plan"));
+      if (planPath) banner.append(planButton(document, "prompt-banner-plan"));
       banner.append(close);
       dock.append(banner);
       return;
     }
-    dock.append(renderCard(document, card, { ...view, overlay: mode === "overlay", context, contextOpen, plan: plannable(card) }));
+    dock.append(renderCard(document, card, { ...view, overlay: mode === "overlay", context, contextOpen, plan: Boolean(planPath) }));
     if (focusKey !== null) {
       const again = focusKey === "custom" ? dock.querySelector("[data-prompt-custom]")
         : dock.querySelector(`[data-prompt-option="${focusKey}"], [data-prompt-toggle="${focusKey}"], [data-prompt-action="${focusKey}"]`);

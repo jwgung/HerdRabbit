@@ -204,7 +204,9 @@ function claudePlanPath(after) {
     text += piece;
   }
   const match = text.match(/^([~/]\S*?\.md)$/u);
-  return match ? match[1] : null;
+  // The screen is the pane's to draw: a path that climbs out of where it
+  // names (a `..` step) is no plan's file.
+  return match && !match[1].split("/").includes("..") ? match[1] : null;
 }
 
 function parseClaudeApproval(screen) {

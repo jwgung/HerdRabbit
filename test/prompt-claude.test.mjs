@@ -162,6 +162,10 @@ ${tail}
   }
   // An absolute path is kept as it is.
   assert.equal(parseClaudePrompt(screen(" ctrl+g to edit in Vim · /home/me/.claude/plans/a.md")).planPath, "/home/me/.claude/plans/a.md");
+  // A path with a ".." step is none: the screen is the pane's to draw.
+  for (const path of ["~/../etc/a.md", "/home/me/.claude/plans/../../secret.md"]) {
+    assert.equal(parseClaudePrompt(screen(` ctrl+g to edit in Vim · ${path}`)).planPath ?? null, null, path);
+  }
   // No path in the hint (an older Claude, or one cut off): no file to open.
   for (const tail of [" ctrl+g to edit in Vim", ""]) {
     const plan = parseClaudePrompt(screen(tail));

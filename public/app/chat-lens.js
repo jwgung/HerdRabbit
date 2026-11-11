@@ -154,7 +154,7 @@ export function createChatPanel(deps) {
     ...extra,
   });
   promptDock = makeDock(elements.promptDock, {
-    showChat: () => (gridShown() && cellsShown.has(state.selectedPaneId) ? showCellCard(state.selectedPaneId) : chatLens.showChat()),
+    showChat: () => showSelectedCard(),
     // the composer says which numbers answer the card
     onCardChange: (card) => {
       elements.terminalInput.placeholder = composerPlaceholder(card);
@@ -187,6 +187,10 @@ export function createChatPanel(deps) {
     }
     selectPane(id, { view: "solo" });
     return chatLens.showChat();
+  }
+  // The selected pane's Answer: as a cell's in a split, else the Chat lens.
+  function showSelectedCard() {
+    return gridShown() && cellsShown.has(state.selectedPaneId) ? showCellCard(state.selectedPaneId) : chatLens.showChat();
   }
   const slotOf = (cell) => (cell.lens === "chat" ? cell.dockSlot : cell.bannerSlot);
   const lensOf = (cell) => (cell.lens === "chat" ? "chat" : "terminal");
