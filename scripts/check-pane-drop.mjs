@@ -750,6 +750,53 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
+  // The header's Even out over a view split: three tiles in a row, a half and
+  // two quarters, take a third each. In this window only: nothing is sent, and
+  // a reload keeps it. Again, it says they are even already.
+  {
+    reset();
+    calls.length = 0;
+    const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 860 }, colorScheme: "dark" });
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const posts = [];
+    page.on("request", (request) => { if (request.method() === "POST" && new URL(request.url()).pathname.startsWith("/api/")) posts.push(new URL(request.url()).pathname); });
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem("herdrbridge-view-split")) return;
+      sessionStorage.setItem("herdrbridge-view-split", JSON.stringify({
+        tree: { dir: "right", first: "w1:p3", second: { dir: "right", first: "w2:p1", second: "w2:p2", ratio: 0.5 }, ratio: 0.5 },
+        shown: true, focus: "w1:p3",
+      }));
+    });
+    await page.goto(`${url}/?pane=${encodeURIComponent("w1:p3")}`);
+    await page.waitForFunction(() => document.querySelectorAll(".pane-grid.is-view .pane-grid-cell .xterm").length === 3);
+    const widths = async () => {
+      await gridSettled(page);
+      return Promise.all(["w1:p3", "w2:p1", "w2:p2"].map(async (id) => (await page.locator(tile(id)).boundingBox()).width));
+    };
+    const [half, quarter] = await widths();
+    assert.ok(half > quarter * 1.8, `a half and two quarters before: ${half} vs ${quarter}`);
+    assert.equal(await page.locator("#split-even").isVisible(), true, "Even out in the header over a view split");
+    await page.locator("#split-even").click();
+    await page.locator("#action-feedback").filter({ hasText: "Layout evened out." }).waitFor();
+    const even = await widths();
+    for (const width of even) assert.ok(Math.abs(width - even[0]) <= 2, `equal thirds: ${even.join(", ")}`);
+    await page.locator("#split-even").click();
+    await page.locator("#action-feedback").filter({ hasText: "The tiles are already even." }).waitFor();
+    await page.reload();
+    await page.waitForFunction(() => document.querySelectorAll(".pane-grid.is-view .pane-grid-cell .xterm").length === 3);
+    const reloaded = await widths();
+    reloaded.forEach((width, index) => assert.ok(Math.abs(width - even[index]) <= 2, `kept on reload: ${reloaded.join(", ")}`));
+    // The pane alone has no Even out.
+    await page.locator(`${tile("w1:p3")} [title="Open alone"]`).click();
+    await page.locator("#view-back").waitFor();
+    assert.equal(await page.locator("#split-even").isVisible(), false, "no Even out over the pane alone");
+    assert.deepEqual(posts, [], "nothing was sent to the server");
+    assert.deepEqual(calls, [], "Herdr was asked nothing");
+    assert.deepEqual(errors, []);
+    await context.close();
+  }
   // A view split across machines: a connected PC's pane beside this PC's.
   {
     reset();

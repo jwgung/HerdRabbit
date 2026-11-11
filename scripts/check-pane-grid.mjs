@@ -1303,6 +1303,14 @@ try {
       await cellOf(page, "w1:p3").locator(".pane-grid-menu > summary").click();
       await page.locator('.pane-grid-cell[data-pane-id="w1:p3"] [data-action="even-layout"]').click();
       await page.locator('#action-feedback[data-error="true"]').filter({ hasText: "not made of splits" }).waitFor();
+      // The header's Even out asks the same for the grid's selected pane.
+      assert.equal(await page.locator("#split-even").isVisible(), true, "Even out in the header over a grid");
+      const selected = await page.evaluate(() => document.querySelector(".pane-grid-cell.is-focused")?.dataset.paneId);
+      const fromHeader = page.waitForRequest((request) => request.method() === "POST" && decodeURIComponent(request.url()).endsWith(`/${selected}/even-layout`));
+      await page.evaluate(() => { document.querySelector("#action-feedback").textContent = ""; });
+      await page.locator("#split-even").click();
+      await fromHeader;
+      await page.locator('#action-feedback[data-error="true"]').filter({ hasText: "not made of splits" }).waitFor();
       assert.deepEqual(errors, []);
       await context.close();
     }

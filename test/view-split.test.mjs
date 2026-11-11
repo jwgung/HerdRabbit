@@ -5,6 +5,7 @@ import {
   MAX_TILES,
   VIEW_SPLIT_STORAGE_KEY,
   addTile,
+  evenTree,
   layoutRects,
   moveTile,
   paneDropKind,
@@ -222,4 +223,50 @@ test("a tile moves next to another on any side, taking half of it", () => {
   for (const tree of [moveTile(full, "a", "f", "down"), swapTiles(full, "a", "f"), moved]) {
     assert.deepEqual(parseTree(JSON.parse(JSON.stringify(tree))), tree);
   }
+});
+
+// The widths (or heights) of the tiles in VIEW_AREA, left to right and top to bottom.
+const sizes = (tree, key = "width") => layoutRects(tree).panes.map(({ rect }) => rect[key]);
+
+test("evening out gives every tile of a row the same width, however it was nested", () => {
+  // a | b, then b split again: a half and two quarters until evened out.
+  const three = addTile(addTile(null, "a", "b", "right"), "b", "c", "right");
+  assert.deepEqual(sizes(three), [120, 60, 60]);
+  assert.deepEqual(sizes(evenTree(three)), [80, 80, 80]);
+  // Nested the other way, (a | b) | c, the row is the same three.
+  const leftNested = addTile(addTile(null, "a", "b", "right"), "a", "c", "left");
+  assert.deepEqual(sizes(evenTree(leftNested)), [80, 80, 80]);
+  // Four and six in a row.
+  const four = ["c", "d"].reduce((tree, id, index) => addTile(tree, ["b", "c"][index], id, "right"), addTile(null, "a", "b", "right"));
+  assert.deepEqual(sizes(evenTree(four)), [60, 60, 60, 60]);
+  const six = ["c", "d", "e", "f"].reduce((tree, id, index) => addTile(tree, ["b", "c", "d", "e"][index], id, "right"), addTile(null, "a", "b", "right"));
+  assert.deepEqual(sizes(evenTree(six)), [40, 40, 40, 40, 40, 40]);
+  // A column the same way, by height.
+  const column = addTile(addTile(null, "a", "b", "down"), "b", "c", "down");
+  assert.deepEqual(sizes(evenTree(column), "height").map(Math.round), [27, 27, 26]);
+});
+
+test("a split the other way inside a row counts as one tile of that row", () => {
+  // a | (b over c): two columns, halves; the column's two tiles share it evenly.
+  const tree = { dir: "right", first: "a", second: { dir: "down", first: "b", second: "c", ratio: 0.7 }, ratio: 0.25 };
+  const evened = layoutRects(evenTree(tree)).panes;
+  assert.deepEqual(evened.map(({ rect }) => rect.width), [120, 120, 120]);
+  assert.deepEqual(evened.slice(1).map(({ rect }) => rect.height), [40, 40]);
+  // a | (b over (c | d)): the inner row of two is evened inside its own box.
+  const deep = { dir: "right", first: "a",
+    second: { dir: "down", first: "b", second: { dir: "right", first: "c", second: "d", ratio: 0.8 }, ratio: 0.5 }, ratio: 0.5 };
+  const cells = layoutRects(evenTree(deep)).panes;
+  assert.deepEqual(cells.slice(2).map(({ rect }) => rect.width), [60, 60]);
+});
+
+test("evening out keeps the tiles where they are and an even tree as it is", () => {
+  const three = addTile(addTile(null, "a", "b", "right"), "b", "c", "right");
+  const evened = evenTree(three);
+  assert.deepEqual(tiles(evened), tiles(three));
+  assert.equal(evenTree(evened), evened, "already even: the same tree");
+  const two = addTile(null, "a", "b", "right");
+  assert.equal(evenTree(two), two);
+  assert.equal(evenTree(null), null);
+  // A reload reads an evened tree back as it was.
+  assert.deepEqual(parseTree(JSON.parse(JSON.stringify(evened))), evened);
 });

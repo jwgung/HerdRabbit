@@ -169,6 +169,7 @@ const elements = {
   gridBack: document.querySelector("#grid-back"),
   viewBack: document.querySelector("#view-back"),
   viewClose: document.querySelector("#view-close"),
+  splitEven: document.querySelector("#split-even"),
   chatHost: document.querySelector("#chat-host"),
   promptDock: document.querySelector("#prompt-dock"),
   lensSwitch: document.querySelector("#lens-switch"),
