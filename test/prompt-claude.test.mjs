@@ -134,6 +134,52 @@ ${tail}
   ]) assert.equal(parseClaudePrompt(screen(tail)), null, tail);
 });
 
+test("a plan's card names the plan's file, as the editor hint shows it, whole or wrapped", () => {
+  const screen = (tail) => `
+ Ready to code?
+
+ Here is Claude's plan:
+ - Add subtract(a, b) to calc.py
+
+ Claude has written up a plan and is ready to execute. Would you like to proceed?
+
+ ❯ 1. Yes, and use auto mode
+   2. Yes, manually approve edits
+   3. Tell Claude what to change
+      shift+tab to approve with this feedback
+
+${tail}
+`;
+  for (const tail of [
+    " ctrl+g to edit in Vim · ~/.claude/plans/noble-shimmying-hammock.md",
+    " ctrl+g to edit in Vim ·\n ~/.claude/plans/noble-shimmying-hammock.md",
+    " ctrl+g to edit in Vim ·\n ~/.claude/plans/noble-shimmying-\n hammock.md",
+    " ctrl+g to edit in Vim · ~/.claude/plans/noble-\nshimmying-hammock.md",
+  ]) {
+    const plan = parseClaudePrompt(screen(tail));
+    assert.equal(plan?.planPath, "~/.claude/plans/noble-shimmying-hammock.md", tail);
+    assert.equal(publicCard(plan).planPath, "~/.claude/plans/noble-shimmying-hammock.md", tail);
+  }
+  // An absolute path is kept as it is.
+  assert.equal(parseClaudePrompt(screen(" ctrl+g to edit in Vim · /home/me/.claude/plans/a.md")).planPath, "/home/me/.claude/plans/a.md");
+  // A path with a ".." step is none: the screen is the pane's to draw.
+  for (const path of ["~/../etc/a.md", "/home/me/.claude/plans/../../secret.md"]) {
+    assert.equal(parseClaudePrompt(screen(` ctrl+g to edit in Vim · ${path}`)).planPath ?? null, null, path);
+  }
+  // No path in the hint (an older Claude, or one cut off): no file to open.
+  for (const tail of [" ctrl+g to edit in Vim", ""]) {
+    const plan = parseClaudePrompt(screen(tail));
+    assert.equal(plan?.kind, "plan", tail);
+    assert.equal(plan.planPath ?? null, null, tail);
+    assert.equal("planPath" in publicCard(plan), false, tail);
+  }
+  // The path is no part of what the card is: the same plan, wrapped otherwise, is the same card.
+  assert.equal(parseClaudePrompt(screen(" ctrl+g to edit in Vim · ~/.claude/plans/a.md")).id,
+    parseClaudePrompt(screen(" ctrl+g to edit in Vim ·\n ~/.claude/plans/a.md")).id);
+  // Another card has none.
+  assert.equal("planPath" in publicCard(parseClaudePrompt(approvalScreen())), false);
+});
+
 test("reads Claude Code 2.1 approvals for a file, an MCP tool, and a label wrapped by a narrow pane", () => {
   const write = parseClaudePrompt(`
 ● Write(hello.txt)

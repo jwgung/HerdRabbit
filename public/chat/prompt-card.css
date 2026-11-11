@@ -110,6 +110,19 @@
   font-size: var(--font-xl);
 }
 
+/* "Open plan" beside the banner's Answer */
+.prompt-banner-plan {
+  flex: 0 0 auto;
+  padding: 0 var(--space-2-5);
+  border-left: 1px solid var(--line) !important;
+  font-size: var(--font-sm);
+  font-weight: 600;
+}
+
+.prompt-banner-plan:hover {
+  background: var(--hover-surface);
+}
+
 /* --- the card ----------------------------------------------------------- */
 
 .prompt-card {
@@ -164,6 +177,7 @@
   overflow-wrap: anywhere;
 }
 
+.prompt-card-plan,
 .prompt-card-close {
   flex: 0 0 auto;
   min-height: 30px;

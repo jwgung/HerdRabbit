@@ -190,6 +190,25 @@ function parseClaudeSubmit(screen) {
   });
 }
 
+// The plan's file under a plan's menu: "ctrl+g to edit in Vim · ~/.claude/plans/….md",
+// the path maybe wrapped onto lines of its own (a narrow pane breaks it
+// anywhere, so the pieces join with nothing between). Null when the hint
+// names none.
+function claudePlanPath(after) {
+  const hint = after.findIndex((line) => /ctrl\+g to edit\b/i.test(cleanLine(line)));
+  if (hint < 0) return null;
+  let text = cleanLine(after[hint]).replace(/^.*?ctrl\+g to edit(?: in \S+)?\s*·?\s*/i, "");
+  for (let index = hint + 1; index < after.length && index <= hint + 4 && !/\.md$/i.test(text); index += 1) {
+    const piece = cleanLine(after[index]);
+    if (!piece) break;
+    text += piece;
+  }
+  const match = text.match(/^([~/]\S*?\.md)$/u);
+  // The screen is the pane's to draw: a path that climbs out of where it
+  // names (a `..` step) is no plan's file.
+  return match && !match[1].split("/").includes("..") ? match[1] : null;
+}
+
 function parseClaudeApproval(screen) {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const planIndex = findLastIndex(lines, (_, index) => /Claude has written up a plan and is ready to execute\. Would you like to proceed\?/i.test(wrapped(lines, index)));
@@ -198,6 +217,7 @@ function parseClaudeApproval(screen) {
     if (!sequentialRows(rows) || rows.length < 3 || rows.filter((row) => row.selected).length !== 1) return null;
     const customIndex = rows.findIndex((row) => /^Tell Claude what to change$/i.test(row.label));
     const bodyStart = Math.max(0, findLastIndex(lines.slice(0, planIndex), (line) => /Ready to code\?/i.test(cleanLine(line))));
+    const planPath = claudePlanPath(lines.slice(planIndex + 1));
     return finishPrompt("claude", {
       kind: "plan", title: "Ready to code?", question: cleanLine(lines[planIndex]),
       body: lines.slice(bodyStart, planIndex).map(cleanLine).filter((line) => !isDivider(line)).join("\n") || null,
@@ -208,6 +228,9 @@ function parseClaudeApproval(screen) {
       checkedOptionIndices: [], customMenuIndex: customIndex >= 0 ? customIndex : null,
       // the feedback goes with the plan's own key
       typedSubmitKey: KEY.backtab,
+      // the plan's file, opened in the viewer; not what the card is (a narrow
+      // pane wraps it otherwise), so not hashed into its id
+      ...(planPath ? { planPath } : {}),
     });
   }
 

@@ -29,7 +29,7 @@ export function createChatPanel(deps) {
     conversationRequest, api, usesTouchInputEnvironment, isLinkableTerminalPath, openTerminalPath, setFeedback,
     showNewestTerminalOutput, scheduleTerminalPark, syncComposerExpanded, resizeTerminalInput, syncSendButton,
     refreshTerminal, refreshAfterSubmission, selectedRecordsFor, viewTicket, renderPaneViews, shownGrid,
-    focusComposer,
+    focusComposer, selectPane, viewFile,
   } = deps;
   let promptDock = null;
   let terminalFind = null;
@@ -116,6 +116,25 @@ export function createChatPanel(deps) {
     },
   });
 
+  // A plan's file, as Claude names it ("~/.claude/plans/….md"): `~` is the
+  // home of the pane's machine, which that machine says, as for a path
+  // pressed in a terminal.
+  async function openPlan(paneId, path) {
+    const server = paneServerId(paneId) || "local";
+    let resolved = path;
+    if (path.startsWith("~/")) {
+      try {
+        const home = (await api(`/api/browse?server=${encodeURIComponent(server)}&path=${encodeURIComponent("~")}`))?.path;
+        if (typeof home !== "string" || !home.startsWith("/")) throw new Error("no home");
+        resolved = `${home === "/" ? "" : home}/${path.slice(2)}`;
+      } catch {
+        setFeedback(`Couldn't open ${path}.`, true);
+        return;
+      }
+    }
+    void viewFile(resolved, resolved.split("/").pop(), server);
+  }
+
   // A blocked pane's prompt card: at the bottom of the Chat lens, and as a
   // banner over the Terminal lens (src/prompt/, public/chat/prompt-card.js).
   // What every prompt card shares: the requests, what an answer refreshes,
@@ -130,10 +149,12 @@ export function createChatPanel(deps) {
       refreshAfterSubmission();
     },
     conversation: (paneId) => chatLens.chatFor(paneId)?.agentText ?? "",
+    // a plan's Markdown in the viewer, from the machine the pane is on
+    openPlan: (paneId, path) => void openPlan(paneId, path),
     ...extra,
   });
   promptDock = makeDock(elements.promptDock, {
-    showChat: () => chatLens.showChat(),
+    showChat: () => showSelectedCard(),
     // the composer says which numbers answer the card
     onCardChange: (card) => {
       elements.terminalInput.placeholder = composerPlaceholder(card);
@@ -145,19 +166,43 @@ export function createChatPanel(deps) {
   elements.terminalPanel.dataset.lens = chatLens.lens;
   document.body.dataset.lens = chatLens.lens;
 
-  // In a split, each Chat cell shows its own pane's prompt card under its
-  // chat. The focused cell's is the selected pane's dock itself, moved into
-  // the cell, so the composer answers the card it shows (numbers, preview);
-  // every other Chat cell has a card of its own, made while it shows its
-  // chat. A Terminal cell's pane says it waits in the cell's header status.
+  // In a split, every cell's pane shows its prompt: a Chat cell as a card
+  // under its chat, a cell showing its terminal (its choice, or too small for
+  // the chat) as a banner under its header, so a pane that waits is never
+  // missed. The focused cell's is the selected pane's dock itself, moved
+  // into the cell, so the composer answers the card it shows (numbers,
+  // preview); every other cell has a dock of its own.
   const cellCards = new Map();
+  // The cells on screen last placed, by pane id.
+  let cellsShown = new Map();
+  // A banner's Answer: the card in the cell's chat when the cell has room for
+  // one, else the pane opened alone (Back to grid or split view returns).
+  function showCellCard(id) {
+    const cell = cellsShown.get(id);
+    if (cell?.lens === "chat") return true;
+    if (cell?.roomy && cell.chatAvailable) {
+      if (state.selectedPaneId !== id) selectPane(id, { fromGrid: true });
+      chatLens.setCellLens(id, "chat");
+      return true;
+    }
+    selectPane(id, { view: "solo" });
+    return chatLens.showChat();
+  }
+  // The selected pane's Answer: as a cell's in a split, else the Chat lens.
+  function showSelectedCard() {
+    return gridShown() && cellsShown.has(state.selectedPaneId) ? showCellCard(state.selectedPaneId) : chatLens.showChat();
+  }
+  const slotOf = (cell) => (cell.lens === "chat" ? cell.dockSlot : cell.bannerSlot);
+  const lensOf = (cell) => (cell.lens === "chat" ? "chat" : "terminal");
   function placePromptCards(cells, paneId) {
-    const focused = cells?.find((cell) => cell.paneId === paneId && cell.lens === "chat") ?? null;
-    const home = focused ? focused.dockSlot : elements.terminalStage;
+    cellsShown = new Map((cells ?? []).map((cell) => [cell.paneId, cell]));
+    const focused = cellsShown.get(paneId) ?? null;
+    const home = focused ? slotOf(focused) : elements.terminalStage;
     if (elements.promptDock.parentElement !== home) home.append(elements.promptDock);
-    const wanted = new Map((cells ?? []).filter((cell) => cell.lens === "chat" && cell.paneId !== paneId).map((cell) => [cell.paneId, cell]));
+    if (focused) promptDock.setLens(lensOf(focused));
+    const wanted = new Map([...cellsShown].filter(([id]) => id !== paneId));
     for (const [id, card] of cellCards) {
-      if (wanted.get(id)?.dockSlot === card.slot) continue;
+      if (wanted.has(id) && slotOf(wanted.get(id)) === card.slot) continue;
       card.dock.dispose();
       card.element.remove();
       cellCards.delete(id);
@@ -169,12 +214,13 @@ export function createChatPanel(deps) {
         element.className = "prompt-dock";
         element.dataset.mode = "hidden";
         element.hidden = true;
-        cell.dockSlot.append(element);
-        const dock = makeDock(element, { showChat: () => true });
-        dock.setLens("chat");
-        card = { dock, element, slot: cell.dockSlot };
+        const slot = slotOf(cell);
+        slot.append(element);
+        const dock = makeDock(element, { showChat: () => showCellCard(id) });
+        card = { dock, element, slot };
         cellCards.set(id, card);
       }
+      card.dock.setLens(lensOf(cell));
       card.dock.select(id, { agent: cell.agent, status: cell.status });
     }
   }

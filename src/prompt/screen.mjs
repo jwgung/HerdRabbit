@@ -147,6 +147,8 @@ export function publicCard(parsed) {
     // the menu has a "Chat about this" row the card offers as its own button
     ...(Number.isInteger(parsed.chatMenuIndex) ? { chat: true } : {}),
     ...(parsed.fallback ? { fallback: true } : {}),
+    // a plan's file (claude.mjs), for the viewer
+    ...(typeof parsed.planPath === "string" ? { planPath: parsed.planPath } : {}),
     // a panel an agent's own `/` command opened (panel.mjs): its name and tabs
     ...(parsed.panel ? { panel: true, panelName: parsed.panelName ?? null,
       tabs: (parsed.tabs ?? []).map((tab) => ({ label: tab.label, selected: tab.selected })) } : {}),

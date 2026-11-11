@@ -5383,6 +5383,56 @@ body.is-pane-rearranging * {
   flex: 1 1 auto;
 }
 
+/* A prompt the pane waits on while its cell shows the terminal: the banner,
+   under the header, over the terminal (and over the hint below, which it
+   stands in for). */
+.pane-grid-banner {
+  position: absolute;
+  top: var(--control-h-md);
+  right: 0;
+  left: 0;
+  z-index: var(--layer-pane-overlay);
+}
+
+.pane-grid-banner > .prompt-dock[data-mode="banner"] {
+  top: var(--space-1-5);
+  left: var(--space-1-5);
+  right: var(--space-1-5);
+  font-size: var(--font-sm);
+}
+
+/* A cell is narrow: the question and Answer take the banner's width, the
+   question wrapping at words rather than ending in "…"; Open plan and the
+   close go on a row under them. */
+.pane-grid-banner .prompt-banner {
+  flex-wrap: wrap;
+}
+
+.pane-grid-banner .prompt-banner-open {
+  flex: 1 1 100%;
+}
+
+.pane-grid-banner .prompt-banner-text {
+  flex: 1 1 auto;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+.pane-grid-banner .prompt-banner-plan {
+  flex: 1 1 auto;
+  border-top: 1px solid var(--line) !important;
+  border-left: 0 !important;
+}
+
+.pane-grid-banner .prompt-banner-plan ~ .prompt-banner-close {
+  border-top: 1px solid var(--line) !important;
+  border-radius: 0 0 var(--radius-control) 0;
+}
+
+.pane-grid-cell:has(> .pane-grid-banner > .prompt-dock:not([hidden])) > .pane-grid-hint {
+  display: none;
+}
+
 /* A chat the cell is too small for: the terminal shows and the cell says why. */
 .pane-grid-hint {
   position: absolute;
