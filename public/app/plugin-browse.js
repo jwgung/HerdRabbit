@@ -1,7 +1,7 @@
-import { createElement } from "./dom.js?v=1.4.52";
+import { createElement } from "./dom.js?v=1.4.53";
 import {
   marketplaceDetails, marketplaceInstalled, marketplaceSummary, marketplaceUrl,
-} from "./plugin-model.js?v=1.4.52";
+} from "./plugin-model.js?v=1.4.53";
 
 const SEARCH_DELAY_MS = 300;
 const PAGE = 50;
