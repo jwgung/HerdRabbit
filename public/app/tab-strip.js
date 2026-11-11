@@ -20,7 +20,7 @@
 // The ‹ and › buttons are for the pointer and are out of the Tab order; they
 // show only on a side that has more tabs past it.
 
-import { createElement } from "./dom.js?v=1.4.49";
+import { createElement } from "./dom.js?v=1.4.50";
 
 export function createTabStrip({ label, tabs, selected, onSelect = () => {} }) {
   const element = createElement("div", { className: "ui-tab-strip" });
