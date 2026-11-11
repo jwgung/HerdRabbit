@@ -406,6 +406,17 @@ function usesTouchInputEnvironment() {
   });
 }
 
+// The special-key bar is for screens without a keyboard of their own: a touch
+// screen or a phone-sized window. A desktop types Esc, Ctrl and the arrows
+// itself, so the terminal gets that room.
+function syncKeyBarShown() {
+  document.body.classList.toggle("shows-key-bar", usesTouchInputEnvironment() || !desktopMedia.matches);
+}
+syncKeyBarShown();
+for (const media of [desktopMedia, primaryTouchMedia, anyCoarsePointerMedia, anyHoverMedia, compactInputMedia]) {
+  media.addEventListener("change", syncKeyBarShown);
+}
+
 function clearSidebarAnimationState() {
   window.clearTimeout(sidebarAnimationTimer);
   document.body.classList.remove("sidebar-animating");
@@ -1092,6 +1103,7 @@ const chatPanel = createChatPanel({
   viewTicket: (...args) => viewTicket(...args),
   renderPaneViews: (...args) => renderPaneViews(...args),
   shownGrid: (...args) => shownGrid(...args),
+  focusComposer: (...args) => focusComposer(...args),
 });
 const { chatLens, syncTerminalFind, applyChatFontSize, overChat, showTerminalView } = chatPanel;
 lateChatLens = chatLens;

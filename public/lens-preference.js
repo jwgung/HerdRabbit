@@ -157,6 +157,19 @@ export function chatMayBecomeAvailable(reason) {
   return reason !== "not_claude" && reason !== "not_supported_agent";
 }
 
+// What in a chat answers a click itself, so the click leaves focus there:
+// controls, links, the prompt card's field, a file path. (The conversation's
+// scroll box is focusable only to scroll by keyboard.)
+const CHAT_OWN_CONTROLS = "a, button, input, textarea, select, summary, label, [contenteditable], [data-path], [data-action], " +
+  "[tabindex]:not([tabindex='-1']):not(.pane-grid-cell):not(.chat-scroll)";
+
+// A click on a chat that hands the typing to the composer: not on one of the
+// chat's own controls, and not the end of a text selection, which stays to be copied.
+export function chatPressTakesComposer(target, selection = globalThis.getSelection?.()) {
+  if (typeof target?.closest !== "function" || target.closest(CHAT_OWN_CONTROLS)) return false;
+  return selection?.isCollapsed ?? true;
+}
+
 // --- a grid cell's lens -------------------------------------------------------
 // In a split (a Herdr grid or this window's view split) every cell shows its
 // own pane in Chat or Terminal, by the same choice kept per pane above. A

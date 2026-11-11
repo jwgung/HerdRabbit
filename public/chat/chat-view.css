@@ -228,11 +228,16 @@
 
 /* --- turns -------------------------------------------------------------- */
 
+/* A long conversation is thousands of turns: one off screen is neither laid
+   out nor painted until it scrolls near, so an answer arriving costs the
+   same however much is above it. Its last drawn height stands in meanwhile. */
 .chat-turn {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-1-5);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 160px;
 }
 
 .chat-turn-user {

@@ -5,6 +5,7 @@ import { createImageViewer } from "../chat/image-viewer.js?v=1.4.49";
 import { createChatFind } from "../chat/chat-find.js?v=1.4.49";
 import { composerPlaceholder, createPromptDock, sharedPromptWatch } from "../chat/prompt-card.js?v=1.4.49";
 import { paneServerId } from "../ui-model.js?v=1.4.49";
+import { chatPressTakesComposer } from "../lens-preference.js?v=1.4.49";
 import {
   chatScale,
   pinchedChatFontSize,
@@ -28,6 +29,7 @@ export function createChatPanel(deps) {
     conversationRequest, api, usesTouchInputEnvironment, isLinkableTerminalPath, openTerminalPath, setFeedback,
     showNewestTerminalOutput, scheduleTerminalPark, syncComposerExpanded, resizeTerminalInput, syncSendButton,
     refreshTerminal, refreshAfterSubmission, selectedRecordsFor, viewTicket, renderPaneViews, shownGrid,
+    focusComposer,
   } = deps;
   let promptDock = null;
   let terminalFind = null;
@@ -86,6 +88,10 @@ export function createChatPanel(deps) {
       // The key bar drives the terminal: the Chat lens hides it, and the
       // terminal fits again once it is back.
       elements.terminalPanel.dataset.lens = lens;
+      // said on <body> too, for the rules outside the panel (the composer, the
+      // sidebar's footer): a body:has() over the panel made every turn added to
+      // the chat restyle the whole page (test/chat-style-cost.test.mjs)
+      document.body.dataset.lens = lens;
       // the composer's text size goes with the lens
       syncComposerExpanded({ defer: true });
       resizeTerminalInput();
@@ -137,6 +143,7 @@ export function createChatPanel(deps) {
   });
   promptDock.setLens(chatLens.lens);
   elements.terminalPanel.dataset.lens = chatLens.lens;
+  document.body.dataset.lens = chatLens.lens;
 
   // In a split, each Chat cell shows its own pane's prompt card under its
   // chat. The focused cell's is the selected pane's dock itself, moved into
@@ -304,6 +311,10 @@ export function createChatPanel(deps) {
     else openTerminalFind();
   });
 
+  // Whether the composer has the focus only because the chat was clicked
+  // (below, at the chat's click): Ctrl+F then still finds in the conversation.
+  let composerFromChat = false;
+
   // Taken before xterm sees it (it would send ^F to the program), and over the
   // Chat lens for the conversation's own find, but never from a text field: the
   // composer, a dialog or the sidebar's fields keep the browser's own find.
@@ -312,7 +323,8 @@ export function createChatPanel(deps) {
     if (document.querySelector("dialog[open]")) return;
     const active = document.activeElement;
     const typing = inTerminal(active, elements.terminalXterm);
-    const inFind = terminalFindForm.contains(active) || chatFindForm.contains(active);
+    const inFind = terminalFindForm.contains(active) || chatFindForm.contains(active) ||
+      (composerFromChat && active === elements.terminalInput && chatLens.lens === "chat");
     if (!typing && !inFind && active instanceof HTMLElement &&
         (active.isContentEditable || active.matches("input, textarea, select"))) return;
     if (chatLens.lens === "chat") {
@@ -348,6 +360,19 @@ export function createChatPanel(deps) {
     if (scroller) scroller.scrollTop = atEnd ? scroller.scrollHeight : share * scroller.scrollHeight;
   }
   applyChatFontSize(chatFontSize, { save: false });
+
+  // A click on the single chat hands the typing to the composer, as a Chat
+  // cell's does (pane-grid.js); focusComposer leaves a phone's keyboard down.
+  // Until something is typed there, the reader is still on the chat: Ctrl+F
+  // finds in the conversation (composerFromChat, declared above), as it did
+  // before the click moved the focus.
+  elements.chatHost.addEventListener("click", (event) => {
+    if (chatLens.lens !== "chat" || !chatPressTakesComposer(event.target)) return;
+    focusComposer();
+    composerFromChat = document.activeElement === elements.terminalInput;
+  });
+  elements.terminalInput.addEventListener("input", () => { composerFromChat = false; });
+  elements.terminalInput.addEventListener("blur", () => { composerFromChat = false; });
 
   function overChat(target) {
     return chatLens.lens === "chat" && target instanceof Node &&

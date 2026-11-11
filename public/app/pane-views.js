@@ -448,6 +448,8 @@ export function createPaneViews(deps) {
     elements.viewBack.hidden = !(viewSplit.tree && desktopMedia.matches && !tilesShown);
     elements.viewClose.hidden = !tilesShown;
     elements.terminalPanel.classList.toggle("is-grid", Boolean(gridTab) || tilesShown);
+    // on <body> too, for the composer's rules (see chat-lens.js on data-lens)
+    document.body.classList.toggle("has-pane-grid", Boolean(gridTab) || tilesShown);
     if (gridTab) paneGrid.show({ panes, layout, selectedPaneId: state.selectedPaneId });
     else if (paneGrid.shown) paneGrid.hide();
     if (tilesShown) {

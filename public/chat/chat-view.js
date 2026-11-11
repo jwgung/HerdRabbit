@@ -683,11 +683,14 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
   }, { passive: true });
 
   // A resized composer or a raised keyboard shrinks the view without a scroll:
-  // a reader at the end stays there.
+  // a reader at the end stays there. So do the turns growing under it: a turn
+  // off screen stands in at a guessed height (content-visibility in
+  // chat-view.css) until it nears the view, and takes its own when it does.
   const resizes = typeof ResizeObserver === "function"
     ? new ResizeObserver(() => { if (visible && stick) scroller.scrollTop = scroller.scrollHeight; })
     : null;
   resizes?.observe(scroller);
+  resizes?.observe(turnsHost);
 
   // A copy that worked shows a check on its button for a moment; one that
   // failed says why in the page's feedback line.

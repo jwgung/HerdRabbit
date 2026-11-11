@@ -125,6 +125,10 @@ try {
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
     await page.locator(".pane-button:visible, #mobile-sidebar-open:visible").first().waitFor({ state: "visible" });
     await page.waitForFunction(() => document.querySelector("#quick-keys button"));
+    // A desktop types its own keys and shows no bar; the bar's workings are
+    // checked there too, with the bar shown as on a touch screen.
+    assert.equal(await bar.isVisible(), mobile, `${mobile ? "a phone" : "a desktop"} ${mobile ? "hides" : "shows"} the key bar`);
+    if (!mobile) await page.evaluate(() => document.body.classList.add("shows-key-bar"));
 
     // The default bar is the old one, with an Edit keys control after it.
     assert.deepEqual(await barLabels(), DEFAULT_LABELS);
@@ -184,6 +188,7 @@ try {
     // Saved, and back after a reload.
     assert.match(await stored("herdrbridge-key-bar"), /ctrl/u);
     await page.reload();
+    if (!mobile) await page.evaluate(() => document.body.classList.add("shows-key-bar"));
     await page.waitForFunction(() => document.querySelector("#quick-keys button"));
     assert.deepEqual(await barLabels(), expected, "the layout survives a reload");
 
@@ -329,6 +334,7 @@ try {
     await openPane("w1:p1");
     await waitDraft("w1:p1", "draft for alpha");
     await page.reload();
+    if (!mobile) await page.evaluate(() => document.body.classList.add("shows-key-bar"));
     await page.waitForFunction(() => document.querySelector("#terminal-input"));
     await page.waitForFunction(() => document.querySelector("#terminal-input").value !== "");
     assert.equal(await input.inputValue(), "draft for alpha", "the draft survives a reload");
@@ -345,6 +351,7 @@ try {
     assert.equal(draftsAfter["w1:p2"], undefined, "the sent pane's draft is gone");
     assert.equal(draftsAfter["w1:p1"].text, "draft for alpha", "the other pane's draft stays");
     await page.reload();
+    if (!mobile) await page.evaluate(() => document.body.classList.add("shows-key-bar"));
     await page.waitForFunction(() => document.querySelector("#terminal-input"));
     await page.waitForTimeout(400);
     assert.equal(await input.inputValue(), "", "a sent draft does not come back");

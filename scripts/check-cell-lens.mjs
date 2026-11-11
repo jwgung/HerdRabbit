@@ -213,6 +213,10 @@ try {
     // Desktop default: every cell in Terminal, the panel's lens is the focused cell's.
     for (const id of ["w1:p1", "w1:p2", "w1:p3", "w1:p4"]) assert.equal(await lensOf(id), "terminal");
     assert.equal(await panelLens(), "terminal");
+    // a desktop has no key bar (it types its own keys); a grid keeps the
+    // bar's place for a touch screen, which is what the rest checks
+    assert.equal(await keyBarShown(), false, "a desktop shows no key bar");
+    await page.evaluate(() => document.body.classList.add("shows-key-bar"));
     assert.equal(await keyBarShown(), true);
 
     // gamma is a shell: no chat, and its button says why.
@@ -245,6 +249,10 @@ try {
     assert.equal(await cell("w1:p1").evaluate((node) => node.classList.contains("is-focused")), true);
     assert.equal(await panelLens(), "chat");
     assert.equal(await keyBarShown(), true, "a Chat cell keeps the key bar in a grid");
+    // ...on a touch screen. A desktop's grid has none, over a Chat cell too.
+    await page.evaluate(() => document.body.classList.remove("shows-key-bar"));
+    assert.equal(await keyBarShown(), false, "a desktop's grid shows the key bar over a Chat cell");
+    await page.evaluate(() => document.body.classList.add("shows-key-bar"));
     for (const id of ["w1:p2", "w1:p3", "w1:p4"]) assert.equal(await cell(id).locator(".chat-pane").count(), 0, `${id} shows no chat`);
 
     // The composer follows the pressed cell: alpha (chat) then gamma (terminal).
