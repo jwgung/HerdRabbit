@@ -144,11 +144,13 @@ export function createSelection(deps) {
     const pane = selectedRecords().pane;
     const bases = [...foldersOf(context?.near ?? []), context?.cwd, pane?.foreground_cwd, pane?.cwd];
     const candidates = pathCandidates(raw, bases);
+    // the folders looked in, for saying so when it is in none of them
+    const tried = [...new Set(bases.filter((base) => typeof base === "string" && base.startsWith("/")))];
     for (const candidate of candidates) {
       const trimmed = trimTrailingSlashes(candidate) || "/";
       if (trimmed === "~") {
         const home = await listing(server, "~");
-        if (home?.path) return { path: home.path, tried: candidates };
+        if (home?.path) return { path: home.path, tried };
         continue;
       }
       const slash = trimmed.lastIndexOf("/");
@@ -157,10 +159,10 @@ export function createSelection(deps) {
       const found = await listing(server, folder, name);
       if (found?.entries?.some((entry) => entry.name === name)) {
         const path = `${found.path === "/" ? "" : found.path}/${name}`;
-        return { path: candidate.endsWith("/") ? `${path}/` : path, tried: candidates };
+        return { path: candidate.endsWith("/") ? `${path}/` : path, tried };
       }
     }
-    return { path: null, tried: candidates };
+    return { path: null, tried };
   }
 
   async function listing(server, folder, prefix = "") {
@@ -184,9 +186,7 @@ export function createSelection(deps) {
     const located = raw.startsWith("/") ? { path: raw, tried: [raw] } : await locatePath(raw, context, server);
     if (superseded()) return;
     if (!located.path) {
-      setFeedback(located.tried.length
-        ? `Couldn't find ${raw}. Looked in ${located.tried.map((path) => path.slice(0, path.length - raw.replace(/^(?:\.\/)+/u, "").length - 1) || "/").join(", ")}.`
-        : `Couldn't find ${raw}.`, true);
+      setFeedback(located.tried.length ? `Couldn't find ${raw}. Looked in ${located.tried.join(", ")}.` : `Couldn't find ${raw}.`, true);
       return;
     }
     const resolved = located.path;

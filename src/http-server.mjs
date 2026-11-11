@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
@@ -26,11 +26,10 @@ import {
 import { terminalOutputWatcher } from "./terminal-output-watch.mjs";
 import { validateTransferName } from "./file-store.mjs";
 import { fileAccessError, listDirectory, openFile, validateBrowsePath, directoryFingerprint, refuseProtected } from "./file-browser.mjs";
-import { realpath } from "node:fs/promises";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 import { MAX_TEXT_PREVIEW_BYTES, inlineTypeFor, isMarkdown } from "../public/file-preview.js";
 import { renderMarkdown } from "./markdown.mjs";
-import { insideRoot, opensAsSite, siteContentSecurityPolicy, siteContentType, siteOf, siteRelativePath } from "./site-preview.mjs";
+import { assertInsideRoot, opensAsSite, siteBase, siteContentSecurityPolicy, siteContentType, siteOf, siteRelativePath } from "./site-preview.mjs";
 import { secretPrompt } from "./secret-prompt.mjs";
 import { agentCommand } from "./agent-launch.mjs";
 import { canResume, resumeCommand } from "./agent-sessions.mjs";
@@ -343,12 +342,8 @@ async function readWholeFile(file) {
 
 async function sendInline(response, { file, type, markdown = false }) {
   if (markdown) {
-    const html = Buffer.from(renderMarkdown(await readWholeFile(file), file.name), "utf8");
     setFramedHeaders(response, type);
-    response.statusCode = 200;
-    response.setHeader("Content-Type", `${type}; charset=utf-8`);
-    response.setHeader("Content-Length", html.length);
-    response.end(html);
+    await sendRenderedMarkdown(response, file);
     return;
   }
   response.setHeader("Content-Type", type);
@@ -367,13 +362,19 @@ async function sendInline(response, { file, type, markdown = false }) {
   // A PDF is not framed at all -- it opens in a tab -- so it needs none of
   // this and gets none of it. See the viewer.
   setFramedHeaders(response, type);
-  response.setHeader("Accept-Ranges", "bytes");
   response.setHeader(
     "Content-Disposition",
     `inline; filename="preview"; filename*=UTF-8''${encodeURIComponent(file.name)}`,
   );
-  // Whether this is a slice was settled when the file was opened -- reading it
-  // back off the file is what keeps the header and the bytes from disagreeing.
+  await streamOpenedFile(response, file);
+}
+
+// An opened file's bytes, whole or the slice a player asked for. Whether it is
+// a slice was settled when the file was opened -- reading it back off the file
+// is what keeps the header and the bytes from disagreeing. A HEAD gets the
+// headers alone.
+async function streamOpenedFile(response, file, { head = false } = {}) {
+  response.setHeader("Accept-Ranges", "bytes");
   if (file.range) {
     response.statusCode = 206;
     response.setHeader("Content-Range", `bytes ${file.range.start}-${file.range.end}/${file.size}`);
@@ -384,7 +385,22 @@ async function sendInline(response, { file, type, markdown = false }) {
     response.setHeader("Content-Length", file.length);
   }
   response.on("close", () => file.stream.destroy());
+  if (head) {
+    file.stream.destroy();
+    response.end();
+    return;
+  }
   await pipeline(file.stream, response);
+}
+
+// A rendered Markdown document; `site` lets its relative pictures and links
+// point at the files beside it (src/markdown.mjs).
+async function sendRenderedMarkdown(response, file, { site = false, head = false } = {}) {
+  const html = Buffer.from(renderMarkdown(await readWholeFile(file), file.name, { site }), "utf8");
+  response.statusCode = 200;
+  response.setHeader("Content-Type", "text/html; charset=utf-8");
+  response.setHeader("Content-Length", html.length);
+  response.end(head ? undefined : html);
 }
 
 // Browsing reads whatever the service account can read, and a stuck NFS mount or
@@ -450,14 +466,19 @@ function downloadTickets({ ttlMs = 30_000, viewTtlMs = 10 * 60_000, max = 32 } =
     },
     // A page and its folder (src/site-preview.mjs): read many times, as the
     // page asks for its styles and pictures, until the clock runs out.
-    issueSite({ root, entry, serverId = LOCAL_SERVER, internet = false }) {
+    // Counted apart from downloads, so pages opened one after another cannot
+    // crowd a download out; the viewer gives each back when it closes.
+    issueSite({ root, entry, serverId = LOCAL_SERVER, internet = false, scripts = false }) {
       sweep();
-      if (tickets.size >= max) {
-        throw new HttpError(429, "too_many_downloads", "Too many downloads are pending.");
+      if ([...tickets.values()].filter((value) => value.site).length >= max) {
+        throw new HttpError(429, "too_many_previews", "Too many pages are open. Close one and try again.");
       }
       const ticket = randomBytes(32).toString("base64url");
-      tickets.set(ticket, { site: true, root, entry, serverId, internet, expiresAt: Date.now() + viewTtlMs });
+      tickets.set(ticket, { site: true, root, entry, serverId, internet, scripts, expiresAt: Date.now() + viewTtlMs });
       return ticket;
+    },
+    revokeSite(ticket) {
+      if (tickets.get(ticket)?.site) tickets.delete(ticket);
     },
     redeem(ticket) {
       sweep();
@@ -856,7 +877,10 @@ export function createHerdrHttpServer({
       if ((method === "GET" || method === "HEAD") && siteMatch) {
         const claim = tickets.redeemSite(siteMatch[1]);
         const relative = siteRelativePath(siteMatch[2]);
-        if (relative === null) throw new HttpError(404, "not_found", "That file is not in this page's folder.");
+        const outside = () => new HttpError(404, "not_found", "That file is not in this page's folder.");
+        if (relative === null) throw outside();
+        const base = siteBase(request.headers.host, isSecureRequest(request), siteMatch[1]);
+        if (!base) throw new HttpError(400, "invalid_host", "Invalid Host header.");
         const from = claim.serverId === LOCAL_SERVER ? null : herdr.fileClient?.(claim.serverId);
         if (claim.serverId !== LOCAL_SERVER && !from) {
           throw new HttpError(404, "unknown_server", "That server is no longer configured.");
@@ -864,37 +888,23 @@ export function createHerdrHttpServer({
         const filePath = `${claim.root === "/" ? "" : claim.root}/${relative || claim.entry}`;
         // A link inside the folder that leads out of it is refused: here for
         // this PC's files, by the PC that has them for a connected PC's.
-        if (!from) {
-          const [real, root] = await Promise.all([realpath(filePath), realpath(claim.root)]).catch(() => [null, null]);
-          if (!real || !insideRoot(real, root)) throw new HttpError(404, "not_found", "That file is not in this page's folder.");
-        }
-        const base = `${isSecureRequest(request) ? "https" : "http"}://${request.headers.host}/api/browse/site/${siteMatch[1]}/`;
-        response.setHeader("Content-Security-Policy", siteContentSecurityPolicy(base, { internet: claim.internet }));
+        if (!from) await assertInsideRoot(filePath, claim.root, { realpath, fail: outside });
+        response.setHeader("Content-Security-Policy", siteContentSecurityPolicy(base, claim));
         // Asked for by a page in an opaque origin: same-origin would refuse
-        // every picture and script it has, and a module or font needs CORS.
+        // every picture it has, and a module or font needs CORS.
         response.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
         response.setHeader("Access-Control-Allow-Origin", "*");
         response.setHeader("X-Frame-Options", "SAMEORIGIN");
-        const markdown = /\.(?:md|markdown)$/iu.test(filePath);
-        const opened = await openBrowsedFile(filePath, from, markdown ? null : request.headers.range ?? null, maxTransferBytes, protectedPaths, from ? claim.root : null);
+        const markdown = isMarkdown(filePath);
+        const opened = await openBrowsedFile(filePath, from, markdown ? null : request.headers.range ?? null,
+          maxTransferBytes, protectedPaths, from ? claim.root : null);
+        const head = method === "HEAD";
         if (markdown) {
-          const html = Buffer.from(renderMarkdown(await readWholeFile(opened.file), opened.file.name, { site: true }), "utf8");
-          response.statusCode = 200;
-          response.setHeader("Content-Type", "text/html; charset=utf-8");
-          response.setHeader("Content-Length", html.length);
-          response.end(method === "HEAD" ? undefined : html);
+          await sendRenderedMarkdown(response, opened.file, { site: true, head });
           return;
         }
         response.setHeader("Content-Type", siteContentType(filePath));
-        response.setHeader("Accept-Ranges", "bytes");
-        if (opened.file.range) {
-          response.statusCode = 206;
-          response.setHeader("Content-Range", `bytes ${opened.file.range.start}-${opened.file.range.end}/${opened.file.size}`);
-        } else response.statusCode = 200;
-        if (opened.file.length !== null && opened.file.length !== undefined) response.setHeader("Content-Length", opened.file.length);
-        response.on("close", () => opened.file.stream.destroy());
-        if (method === "HEAD") { opened.file.stream.destroy(); response.end(); return; }
-        await pipeline(opened.file.stream, response);
+        await streamOpenedFile(response, opened.file, { head });
         return;
       }
 
@@ -1310,6 +1320,14 @@ export function createHerdrHttpServer({
           sendJson(response, 200, { changed, server: serverId });
           return;
         }
+        // The viewer gives a page's ticket back when it closes or redraws it.
+        if (method === "POST" && url.pathname === "/api/browse/tickets/revoke") {
+          requireWriteAuthorization(request, csrfToken);
+          const body = await readJsonBody(request, maxBodyBytes);
+          if (typeof body.ticket === "string") tickets.revokeSite(body.ticket);
+          sendJson(response, 200, { ok: true });
+          return;
+        }
         if (method === "POST" && url.pathname === "/api/browse/tickets") {
           requireWriteAuthorization(request, csrfToken);
           const body = await readJsonBody(request, maxBodyBytes);
@@ -1321,11 +1339,12 @@ export function createHerdrHttpServer({
           // Which door this link opens is decided here, on a request that
           // carried the CSRF token, from the name alone. A file with no viewable
           // type gets no view link at all rather than a downgraded one.
-          // A page with its folder: the ticket stands for the folder.
           if (body.view === true && body.site === true) {
+            // A page with its folder: the ticket stands for the folder, and
+            // carries what this browser's Settings > Files allows it.
             if (!opensAsSite(filePath)) throw new HttpError(415, "not_viewable", "That kind of file cannot be shown here.");
             const { root, entry } = siteOf(filePath);
-            const ticket = tickets.issueSite({ root, entry, serverId, internet: body.internet === true });
+            const ticket = tickets.issueSite({ root, entry, serverId, internet: body.internet === true, scripts: body.scripts === true });
             sendJson(response, 201, { ticket, url: `/api/browse/site/${ticket}/${encodeURIComponent(entry)}` });
             return;
           }

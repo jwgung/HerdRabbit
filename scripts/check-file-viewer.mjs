@@ -1,8 +1,9 @@
 // Browser check of the file viewer showing what the browser can:
-// - an HTML page draws with its own folder's stylesheet, picture and script,
-//   the script runs, and it reaches neither this app's API nor the internet
-//   (Settings > Files > "Internet in HTML previews" is off);
-// - with that setting on, the page's policy lets the internet in;
+// - an HTML page draws with its own folder's stylesheet and picture, and runs
+//   no script until Settings > Files > "Run scripts in HTML previews" is on;
+// - with scripts on, its script runs and reaches neither this app's API, nor
+//   its cookie, nor the internet; with "Internet in HTML previews" on too, the
+//   internet is let in;
 // - Markdown shows the pictures beside it;
 // - a video the browser cannot play says so in the player's place;
 // - in a chat, a bare name written after an absolute path ("the same folder's
@@ -118,46 +119,69 @@ try {
     };
     const close = async () => { await page.locator("#viewer-close").click(); await page.locator("#viewer-dialog").waitFor({ state: "hidden" }); };
 
-    // An HTML page with its folder; Settings > Files says the internet is off.
-    await view("report.html");
     const frame = page.frameLocator("#viewer-dialog iframe");
-    await frame.locator("#ran").filter({ hasText: "script ran" }).waitFor({ timeout: 8000 });
-    await frame.locator("#api").filter({ hasText: /blocked/u }).waitFor();
-    await frame.locator("#net").filter({ hasText: /blocked/u }).waitFor();
-    assert.equal(await frame.locator("#cookie").textContent(), "no cookie", `${where}: the page sees this app's cookie`);
-    const drawn = await frame.locator("body").evaluate(() => ({
-      background: getComputedStyle(document.body).backgroundColor,
-      picture: document.querySelector("#pic").naturalWidth,
-    }));
-    assert.deepEqual(drawn, { background: "rgb(1, 2, 3)", picture: 2 }, `${where}: the page's own stylesheet or picture is missing`);
-    assert.deepEqual(outbound, [], `${where}: the page reached the internet with it off`);
+    const drawnWithFolder = async () => {
+      const drawn = await frame.locator("body").evaluate(() => ({
+        background: getComputedStyle(document.body).backgroundColor,
+        picture: document.querySelector("#pic").naturalWidth,
+      }));
+      assert.deepEqual(drawn, { background: "rgb(1, 2, 3)", picture: 2 }, `${where}: the page's own stylesheet or picture is missing`);
+    };
+    const settingsFiles = async () => {
+      await openSidebar();
+      await page.locator(".settings-button:visible").first().click();
+      await page.locator('#settings-page-list [data-page="files"]').click();
+    };
+    const closeSettings = async () => {
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+    };
+
+    // An HTML page with its folder: styles and pictures, no script.
+    await view("report.html");
+    await frame.locator("h1", { hasText: "Report" }).waitFor({ timeout: 8000 });
+    await drawnWithFolder();
+    await page.waitForTimeout(500);
+    assert.equal(await frame.locator("#ran").textContent(), "script did not run", `${where}: a script ran with scripts off`);
+    assert.deepEqual(outbound, [], `${where}: the page reached the internet`);
     if (shots) await page.screenshot({ path: join(shots, `html-${where}.png`) });
     // Source shows the page as written, Rendered brings it back.
     await page.locator("#viewer-source").click();
     await page.locator(".viewer-text").filter({ hasText: "<script src=\"assets/app.js\">" }).waitFor();
     await page.locator("#viewer-source").click();
-    await frame.locator("#ran").filter({ hasText: "script ran" }).waitFor();
+    await frame.locator("h1", { hasText: "Report" }).waitFor();
     await close();
 
-    // Settings > Files: On lets the internet in, from the next page opened.
-    if (!mobile) {
-      await page.locator(".settings-button:visible").first().click();
-      await page.locator("#settings-page-list [data-page=\"files\"]").click();
-      const choices = page.locator('[data-html-internet]');
-      assert.deepEqual(await choices.evaluateAll((nodes) => nodes.map((n) => [n.dataset.htmlInternet, n.getAttribute("aria-pressed")])),
-        [["off", "true"], ["on", "false"]], "the internet is off until chosen");
-      await page.locator('[data-html-internet="on"]').click();
-      assert.equal(await page.evaluate(() => localStorage.getItem("herdrbridge-html-internet")), "on");
-      if (shots) await page.screenshot({ path: join(shots, `settings-files-${where}.png`) });
-      await page.keyboard.press("Escape");
-      await page.locator("#settings-dialog, .settings-dialog").first().waitFor({ state: "hidden" }).catch(() => {});
-      await view("report.html");
-      await frame.locator("#net").filter({ hasText: "internet reached" }).waitFor({ timeout: 8000 });
-      await frame.locator("#api").filter({ hasText: /blocked/u }).waitFor();
-      assert.equal(outbound.length, 1, "with it on, the page reached the internet");
-      await close();
-      await page.evaluate(() => localStorage.removeItem("herdrbridge-html-internet"));
+    // Settings > Files: both switches start off; scripts on runs the page's script,
+    // which still reaches neither this app nor the internet.
+    await settingsFiles();
+    for (const name of ["scripts", "internet"]) {
+      assert.deepEqual(await page.locator(`[data-html-${name}]`).evaluateAll((nodes) => nodes.map((n) => n.getAttribute("aria-pressed"))),
+        ["true", "false"], `${where}: ${name} is not off until chosen`);
     }
+    await page.locator('[data-html-scripts="on"]').click();
+    assert.equal(await page.evaluate(() => localStorage.getItem("herdrbridge-html-scripts")), "on");
+    if (shots) await page.screenshot({ path: join(shots, `settings-files-${where}.png`) });
+    await closeSettings();
+    await view("report.html");
+    await frame.locator("#ran").filter({ hasText: "script ran" }).waitFor({ timeout: 8000 });
+    await frame.locator("#api").filter({ hasText: /blocked/u }).waitFor();
+    await frame.locator("#net").filter({ hasText: /blocked/u }).waitFor();
+    assert.equal(await frame.locator("#cookie").textContent(), "no cookie", `${where}: the page sees this app's cookie`);
+    await drawnWithFolder();
+    assert.deepEqual(outbound, [], `${where}: the page reached the internet with it off`);
+    await close();
+
+    // Internet on as well: from the next page opened, it is let in.
+    await settingsFiles();
+    await page.locator('[data-html-internet="on"]').click();
+    await closeSettings();
+    await view("report.html");
+    await frame.locator("#net").filter({ hasText: "internet reached" }).waitFor({ timeout: 8000 });
+    await frame.locator("#api").filter({ hasText: /blocked/u }).waitFor();
+    assert.equal(outbound.length, 1, `${where}: with it on, the page reached the internet`);
+    await close();
+    await page.evaluate(() => { localStorage.removeItem("herdrbridge-html-internet"); localStorage.removeItem("herdrbridge-html-scripts"); });
 
     // Markdown shows the picture beside it.
     await view("notes.md");

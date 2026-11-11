@@ -12,7 +12,7 @@
 //      no preview. A file whose bytes disagree with its name renders as
 //      whatever the name promised, and `nosniff` keeps the browser from
 //      looking for a second opinion.
-//   2. Nothing gets to run. Most formats here cannot; the two that can are
+//   2. Nothing runs at this origin. Most formats here cannot; the two that can are
 //      handled by how they are shown rather than by refusing them:
 //        - SVG goes in an `<img>`, which does not execute script in any
 //          browser, and the app's own `script-src 'self'` blocks inline script
@@ -20,7 +20,9 @@
 //          layers were measured, not assumed.
 //        - HTML and PDF are framed, and the response they arrive in carries a
 //          CSP of its own ending in `sandbox`: the document gets an opaque
-//          origin and no script, whoever opens it and however. That is
+//          origin, whoever opens it and however. Opened from Files, HTML and
+//          Markdown come with their folder and run scripts only where this
+//          browser's Settings > Files allows them (src/site-preview.mjs). That is
 //          stronger than the page they sit in, and it is what lets an HTML
 //          report keep its own stylesheet without being able to use it for
 //          anything else.

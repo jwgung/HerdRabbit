@@ -6,7 +6,7 @@ import {
   uploadSummary,
 } from "../ui-model.js?v=1.4.51";
 import { MAX_TEXT_PREVIEW_BYTES, looksLikeText, opensWithFolder, previewFor } from "../file-preview.js?v=1.4.51";
-import { readHtmlInternet } from "../files-preference.js?v=1.4.51";
+import { readHtmlInternet, readHtmlScripts } from "../files-preference.js?v=1.4.51";
 import { zoomablePicture, zoomableText } from "./viewer-zoom.js?v=1.4.51";
 import { createImageViewer } from "../chat/image-viewer.js?v=1.4.51";
 import { ticketUrl } from "../chat/chat-images.js?v=1.4.51";
@@ -114,6 +114,7 @@ export function createFiles({
   document.querySelector("#viewer-close").addEventListener("click", closeViewer);
   viewerDialog.addEventListener("close", () => {
     viewerBody.replaceChildren();
+    releaseSite();
     // A phone's pinch inside the dialog (an image) can leave the whole page
     // zoomed when the dialog closes. Chrome on Android keeps the document
     // viewport zoom as a page-level state, so the only way back is to force the
@@ -159,16 +160,34 @@ export function createFiles({
 
   // A page, or Markdown, shown with its folder: the server hands back the
   // page's own URL, under which its styles, pictures and scripts resolve
-  // (src/site-preview.mjs). Whether it may also use the internet is this
-  // browser's Settings > Files choice, settled as the page is opened.
+  // (src/site-preview.mjs). Whether its scripts run and whether it may use the
+  // internet are this browser's Settings > Files choices, settled as it opens.
+  // Its ticket is given back when the viewer closes or draws something else.
+  let siteTicket = null;
   async function siteUrl(filePath, server) {
-    const internet = readHtmlInternet(browsePathStorage);
+    releaseSite();
     const response = await transferRequest("/api/browse/tickets", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Herdr-CSRF": state.csrfToken },
-      body: JSON.stringify({ path: filePath, server, view: true, site: true, internet }),
+      body: JSON.stringify({
+        path: filePath, server, view: true, site: true,
+        internet: readHtmlInternet(browsePathStorage), scripts: readHtmlScripts(browsePathStorage),
+      }),
     });
-    return (await response.json()).url;
+    const answer = await response.json();
+    siteTicket = answer.ticket;
+    return answer.url;
+  }
+
+  function releaseSite() {
+    if (!siteTicket) return;
+    const ticket = siteTicket;
+    siteTicket = null;
+    void transferRequest("/api/browse/tickets/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Herdr-CSRF": state.csrfToken },
+      body: JSON.stringify({ ticket }),
+    }).catch(() => {});
   }
 
   // The sandbox is on the response: an opaque origin that may run the page's
@@ -254,6 +273,7 @@ export function createFiles({
         } else {
           viewerSource.text ??= await readFileText(viewerSource.path, viewerSource.server);
           viewerBody.replaceChildren(viewerText(viewerSource.text));
+          releaseSite();
           viewerSource.showing = "source";
           viewerSourceButton.textContent = "Rendered";
         }
