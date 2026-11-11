@@ -176,6 +176,8 @@ export function createFiles({
     });
     const answer = await response.json();
     siteTicket = answer.ticket;
+    // closed while it was being asked for: nothing will show it
+    if (!viewerDialog.open) releaseSite();
     return answer.url;
   }
 
@@ -190,11 +192,14 @@ export function createFiles({
     }).catch(() => {});
   }
 
-  // The sandbox is on the response: an opaque origin that may run the page's
-  // own scripts and nothing of this app's.
+  // The response sandboxes the page (an opaque origin, running its own
+  // scripts only when Settings > Files allows it), and so does the frame, so
+  // a link the page follows elsewhere stays sandboxed and is sent no referrer.
   function siteFrame(title, url) {
     const frame = createElement("iframe", { className: "viewer-document" });
     frame.setAttribute("title", title);
+    frame.setAttribute("sandbox", readHtmlScripts(browsePathStorage) ? "allow-scripts" : "");
+    frame.setAttribute("referrerpolicy", "no-referrer");
     frame.src = url;
     return frame;
   }

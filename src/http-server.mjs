@@ -423,8 +423,11 @@ function directoryReadLimiter(maxConcurrent) {
 
 // A download is a plain navigation, so it cannot carry the launch token header
 // the /api/ gate wants. A ticket stands in for that header: minted on an
-// authorised request, short lived, spent once. It also keeps the file path out
-// of every URL, and so out of any proxy log sitting in front of the app.
+// authorised request, short lived, and for a download spent once, which also
+// keeps the file path out of every URL and so out of any proxy log. A view
+// ticket (a player seeking) and a page's ticket (src/site-preview.mjs, whose
+// URLs name the page's files) are read many times until they expire or, for
+// a page, are given back.
 const LOCAL_SERVER = "local";
 const AI_ACCOUNT_ROUTE = aiAccountRoute("/api/ai-accounts");
 // /api/plugins, /api/plugins/marketplace, /api/plugins/install, /api/plugins/link,
@@ -448,7 +451,7 @@ function downloadTickets({ ttlMs = 30_000, viewTtlMs = 10 * 60_000, max = 32 } =
     // comes back cannot be turned into the other thing by editing the URL.
     issue(filePath, serverId = LOCAL_SERVER, inlineType = null, markdown = false) {
       sweep();
-      if (tickets.size >= max) {
+      if ([...tickets.values()].filter((value) => !value.site).length >= max) {
         throw new HttpError(429, "too_many_downloads", "Too many downloads are pending.");
       }
       const ticket = randomBytes(32).toString("base64url");
