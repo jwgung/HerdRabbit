@@ -522,6 +522,13 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
   let fitFrame = null;
   // Below this a pane's text is no longer worth drawing.
   const MIN_CELL_FONT_SIZE = 4;
+  // The room and the most font it last settled for: a change starts again
+  // from that most, rather than growing by the screen's proportions. A row is
+  // a whole number of device pixels tall, so two font steps can draw rows
+  // the same height (16px and 16.5px both 24px): grown by proportion, a
+  // terminal one step down saw no room and stayed there, a strip short of
+  // the board the grid had sized for the larger font.
+  let settledFor = null;
   function fitFont() {
     if (disposed || fitFrame !== null) return;
     fitFrame = requestAnimationFrame(() => {
@@ -532,6 +539,14 @@ export function createAttachedTerminal({ host, connection, xterm, fontSize, onFa
       const style = getComputedStyle(term.element);
       const roomX = host.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
       const roomY = host.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      const room = `${roomX}x${roomY}@${fontSize}`;
+      if (room !== settledFor && term.options.fontSize !== fontSize) {
+        settledFor = room;
+        term.options.fontSize = fontSize;
+        fitFont();
+        return;
+      }
+      settledFor = room;
       const current = term.options.fontSize;
       const scale = Math.min(roomX / screen.offsetWidth, roomY / screen.offsetHeight);
       const next = Math.max(MIN_CELL_FONT_SIZE, Math.min(fontSize, Math.floor(current * scale * 2) / 2));

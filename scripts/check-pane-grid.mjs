@@ -1159,15 +1159,15 @@ try {
       await context.close();
     }
     // A larger window grows the cells' font past the one chosen for a single
-    // pane: the board keeps filling the stage. (1012 tall: the stage this was
-    // written for, before a desktop dropped the key bar. At 1100 now, two
-    // cells keep 16px of width spare -- as they did before at 1188.)
+    // pane: the board keeps filling the stage. At 1100 tall two cells take
+    // 16.5px, whose rows are as tall as 16px's: a terminal that had dropped to
+    // 16px once stayed there, 16px of width short of its cell.
     for (const count of [2, 3, 4]) {
-      const { context, page, errors } = await open(count, { viewport: { width: 1700, height: 1012 } });
+      const { context, page, errors } = await open(count, { viewport: { width: 1700, height: 1100 } });
       const seen = await filled(page, `${count} cells, a large window`);
       const chosen = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--terminal-font-size")));
       assert.ok(parseFloat(seen.cells[0].font) > chosen, `${count} cells, a large window: the font grows past ${chosen}px (${seen.cells[0].font})`);
-      console.log(`  ${count} cells at 1700x1012: board ${seen.board} in stage ${seen.stage}, font ${seen.cells[0].font}`);
+      console.log(`  ${count} cells at 1700x1100: board ${seen.board} in stage ${seen.stage}, font ${seen.cells[0].font}`);
       assert.deepEqual(errors, []);
       await context.close();
     }
