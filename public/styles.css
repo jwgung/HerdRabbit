@@ -4959,6 +4959,17 @@ body.is-sidebar-dragging * {
   display: grid;
 }
 
+/* No key bar on a desktop (app.js syncKeyBarShown): the composer moves up
+   into its row. The panel is named twice so this outranks the lens and grid
+   rows above. */
+body:not(.shows-key-bar) .quick-keys {
+  display: none;
+}
+
+body:not(.shows-key-bar) .terminal-panel.terminal-panel {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
 .terminal-panel.is-grid[data-lens="chat"] > .input-form {
   margin-top: 0;
 }

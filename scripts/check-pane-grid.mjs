@@ -358,8 +358,11 @@ try {
       for (const paneId of ["w1:p1", "w1:p2", "w1:p3"]) {
         assert.equal(ptyOf(paneId).written, "", `${paneId} is typed nothing by its cell`);
       }
-      // The key bar under the grid is the grid it always is, not a row of
-      // buttons shrunk to their text.
+      // A desktop shows no key bar. Shown (a touch screen as wide), the bar
+      // under the grid is the grid it always is, not a row of buttons shrunk
+      // to their text.
+      assert.equal(await page.locator("#quick-keys").evaluate((node) => getComputedStyle(node).display), "none");
+      await page.evaluate(() => document.body.classList.add("shows-key-bar"));
       assert.equal(await page.locator("#quick-keys").evaluate((node) => getComputedStyle(node).display), "grid");
       const keyWidths = await page.locator("#quick-keys button").evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().width)));
       assert.ok(Math.max(...keyWidths) - Math.min(...keyWidths) <= 2, `the keys are as wide as each other: ${keyWidths}`);
@@ -1156,13 +1159,15 @@ try {
       await context.close();
     }
     // A larger window grows the cells' font past the one chosen for a single
-    // pane: the board keeps filling the stage.
+    // pane: the board keeps filling the stage. (1012 tall: the stage this was
+    // written for, before a desktop dropped the key bar. At 1100 now, two
+    // cells keep 16px of width spare -- as they did before at 1188.)
     for (const count of [2, 3, 4]) {
-      const { context, page, errors } = await open(count, { viewport: { width: 1700, height: 1100 } });
+      const { context, page, errors } = await open(count, { viewport: { width: 1700, height: 1012 } });
       const seen = await filled(page, `${count} cells, a large window`);
       const chosen = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--terminal-font-size")));
       assert.ok(parseFloat(seen.cells[0].font) > chosen, `${count} cells, a large window: the font grows past ${chosen}px (${seen.cells[0].font})`);
-      console.log(`  ${count} cells at 1700x1100: board ${seen.board} in stage ${seen.stage}, font ${seen.cells[0].font}`);
+      console.log(`  ${count} cells at 1700x1012: board ${seen.board} in stage ${seen.stage}, font ${seen.cells[0].font}`);
       assert.deepEqual(errors, []);
       await context.close();
     }

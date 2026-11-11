@@ -213,6 +213,10 @@ try {
     // Desktop default: every cell in Terminal, the panel's lens is the focused cell's.
     for (const id of ["w1:p1", "w1:p2", "w1:p3", "w1:p4"]) assert.equal(await lensOf(id), "terminal");
     assert.equal(await panelLens(), "terminal");
+    // a desktop has no key bar (it types its own keys); a grid keeps the
+    // bar's place for a touch screen, which is what the rest checks
+    assert.equal(await keyBarShown(), false, "a desktop shows no key bar");
+    await page.evaluate(() => document.body.classList.add("shows-key-bar"));
     assert.equal(await keyBarShown(), true);
 
     // gamma is a shell: no chat, and its button says why.

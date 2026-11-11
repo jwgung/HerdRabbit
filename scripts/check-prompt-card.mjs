@@ -130,9 +130,10 @@ try {
     await page.locator("#lens-switch").waitFor({ state: "visible" });
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
     if (!mobile) {
-      // Desktop opens in Terminal: the key bar shows, and the banner floats over the terminal.
+      // Desktop opens in Terminal: no key bar (a desktop types its own keys),
+      // and the banner floats over the terminal.
       assert.equal(await lens(), "terminal");
-      assert.equal(await page.locator(".quick-keys").isVisible(), true, "the key bar shows in the Terminal lens");
+      assert.equal(await page.locator(".quick-keys").isVisible(), false, "a desktop shows no key bar");
       await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "banner");
       assert.match(await page.locator(".prompt-banner").textContent(), /Claude is asking: Bash command/u);
       const xtermBefore = await page.locator("#terminal-xterm").boundingBox();
@@ -173,10 +174,11 @@ try {
     };
     await shoot("card");
 
-    // The terminal lens again: the key bar comes back and xterm fits the room it has.
+    // The terminal lens again: the key bar comes back on a phone (a desktop
+    // has none) and xterm fits the room it has.
     await page.locator("#lens-terminal").click();
     await page.waitForTimeout(300);
-    assert.equal(await page.locator(".quick-keys").isVisible(), true);
+    assert.equal(await page.locator(".quick-keys").isVisible(), mobile);
     assert.equal(await dockMode(), "banner");
     await shoot("banner");
     const fits = await page.evaluate(() => {
