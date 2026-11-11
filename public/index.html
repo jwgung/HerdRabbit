@@ -458,6 +458,30 @@
             </div>
           </section>
 
+          <section class="settings-page" data-page="files" aria-labelledby="settings-page-title" hidden>
+            <div class="settings-card">
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <span id="settings-html-scripts-label" class="settings-row-label">Run scripts in HTML previews</span>
+                  <p class="settings-row-hint">Let an HTML file opened from Files run its own scripts, for charts and interactive reports. A script can read the files in the page's folder and its subfolders and send them to any website, so turn this on only for pages you trust. When off, pages still show their styles and pictures.</p>
+                </div>
+                <div class="settings-choices" role="group" aria-labelledby="settings-html-scripts-label">
+                  <button type="button" class="settings-choice" data-html-scripts="off" aria-pressed="true">Off</button>
+                  <button type="button" class="settings-choice" data-html-scripts="on" aria-pressed="false">On</button>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <span id="settings-html-internet-label" class="settings-row-label">Internet in HTML previews</span>
+                  <p class="settings-row-hint">Let an HTML file opened from Files load styles, fonts and images (and scripts, when they run) from the internet, such as a CDN. When off, it loads only files from its own folder.</p>
+                </div>
+                <div class="settings-choices" role="group" aria-labelledby="settings-html-internet-label">
+                  <button type="button" class="settings-choice" data-html-internet="off" aria-pressed="true">Off</button>
+                  <button type="button" class="settings-choice" data-html-internet="on" aria-pressed="false">On</button>
+                </div>
+              </div>
+            </div>
+          </section>
           <section class="settings-page" data-page="notifications" aria-labelledby="settings-page-title" hidden>
             <div class="settings-card">
               <div class="settings-row">

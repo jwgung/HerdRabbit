@@ -5,7 +5,8 @@ import {
   sortUploads,
   uploadSummary,
 } from "../ui-model.js?v=1.4.51";
-import { MAX_TEXT_PREVIEW_BYTES, looksLikeText, previewFor } from "../file-preview.js?v=1.4.51";
+import { MAX_TEXT_PREVIEW_BYTES, looksLikeText, opensWithFolder, previewFor } from "../file-preview.js?v=1.4.51";
+import { readHtmlInternet, readHtmlScripts } from "../files-preference.js?v=1.4.51";
 import { zoomablePicture, zoomableText } from "./viewer-zoom.js?v=1.4.51";
 import { createImageViewer } from "../chat/image-viewer.js?v=1.4.51";
 import { ticketUrl } from "../chat/chat-images.js?v=1.4.51";
@@ -113,6 +114,7 @@ export function createFiles({
   document.querySelector("#viewer-close").addEventListener("click", closeViewer);
   viewerDialog.addEventListener("close", () => {
     viewerBody.replaceChildren();
+    releaseSite();
     // A phone's pinch inside the dialog (an image) can leave the whole page
     // zoomed when the dialog closes. Chrome on Android keeps the document
     // viewport zoom as a page-level state, so the only way back is to force the
@@ -156,6 +158,52 @@ export function createFiles({
     return text;
   }
 
+  // A page, or Markdown, shown with its folder: the server hands back the
+  // page's own URL, under which its styles, pictures and scripts resolve
+  // (src/site-preview.mjs). Whether its scripts run and whether it may use the
+  // internet are this browser's Settings > Files choices, settled as it opens.
+  // Its ticket is given back when the viewer closes or draws something else.
+  let siteTicket = null;
+  async function siteUrl(filePath, server) {
+    releaseSite();
+    const response = await transferRequest("/api/browse/tickets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Herdr-CSRF": state.csrfToken },
+      body: JSON.stringify({
+        path: filePath, server, view: true, site: true,
+        internet: readHtmlInternet(browsePathStorage), scripts: readHtmlScripts(browsePathStorage),
+      }),
+    });
+    const answer = await response.json();
+    siteTicket = answer.ticket;
+    // closed while it was being asked for: nothing will show it
+    if (!viewerDialog.open) releaseSite();
+    return answer.url;
+  }
+
+  function releaseSite() {
+    if (!siteTicket) return;
+    const ticket = siteTicket;
+    siteTicket = null;
+    void transferRequest("/api/browse/tickets/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Herdr-CSRF": state.csrfToken },
+      body: JSON.stringify({ ticket }),
+    }).catch(() => {});
+  }
+
+  // The response sandboxes the page (an opaque origin, running its own
+  // scripts only when Settings > Files allows it), and so does the frame, so
+  // a link the page follows elsewhere stays sandboxed and is sent no referrer.
+  function siteFrame(title, url) {
+    const frame = createElement("iframe", { className: "viewer-document" });
+    frame.setAttribute("title", title);
+    frame.setAttribute("sandbox", readHtmlScripts(browsePathStorage) ? "allow-scripts" : "");
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    frame.src = url;
+    return frame;
+  }
+
   function viewerText(text) {
     return zoomableText(createElement("pre", { className: "viewer-text", text }));
   }
@@ -181,7 +229,16 @@ export function createFiles({
       element.controls = true;
       element.preload = "metadata";
     }
-    element.addEventListener("error", () => setViewerFeedback("This file could not be shown here.", true));
+    // The browser is the judge of what it can play: a format it cannot gets
+    // a note in the picture's or player's place, with the download beside it.
+    element.addEventListener("error", () => {
+      const note = createElement("div", { className: "viewer-unsupported" });
+      note.append(
+        createElement("strong", { text: `This browser can't ${kind === "image" ? "show" : "play"} ${name}` }),
+        createElement("span", { text: "Download it to open it in another program." }),
+      );
+      (element.closest(".viewer-zoom") ?? element).replaceWith(note);
+    });
     element.src = `/api/browse/download/${ticket}`;
     return kind === "image" ? zoomablePicture(element) : element;
   }
@@ -221,6 +278,7 @@ export function createFiles({
         } else {
           viewerSource.text ??= await readFileText(viewerSource.path, viewerSource.server);
           viewerBody.replaceChildren(viewerText(viewerSource.text));
+          releaseSite();
           viewerSource.showing = "source";
           viewerSourceButton.textContent = "Rendered";
         }
@@ -271,9 +329,11 @@ export function createFiles({
     setViewerFeedback("Opening…");
     viewerDialog.showModal();
     try {
+      const site = preview.kind === "document" && opensWithFolder(name);
       const element = preview.kind === "text"
         ? viewerText(await readFileText(filePath, server, preview.probe))
-        : viewerMedia(preview.kind, preview.type, name, await viewTicket(filePath, server, true));
+        : site ? siteFrame(name, await siteUrl(filePath, server))
+          : viewerMedia(preview.kind, preview.type, name, await viewTicket(filePath, server, true));
       viewerBody.replaceChildren(element);
       // Markup is worth both readings, and which one is wanted is not ours to
       // guess: the drawing is the default, the source is one press away.
@@ -283,8 +343,9 @@ export function createFiles({
           server,
           showing: "rendered",
           text: null,
-          rendered: async () =>
-            viewerMedia(preview.kind, preview.type, name, await viewTicket(filePath, server, true)),
+          rendered: async () => site
+            ? siteFrame(name, await siteUrl(filePath, server))
+            : viewerMedia(preview.kind, preview.type, name, await viewTicket(filePath, server, true)),
         };
         viewerSourceButton.hidden = false;
       }

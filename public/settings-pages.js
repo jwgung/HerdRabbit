@@ -4,6 +4,8 @@ export const SETTINGS_PAGES = Object.freeze([
   { id: "appearance", title: "Appearance" },
   { id: "chat", title: "Chat" },
   { id: "terminal", title: "Terminal & keys" },
+  // What Files shows and how: today, whether an HTML page may use the internet.
+  { id: "files", title: "Files" },
   { id: "notifications", title: "Notifications" },
   // Sign-in belongs to the HerdRabbit the browser talks to: only with it on.
   { id: "security", title: "Security" },

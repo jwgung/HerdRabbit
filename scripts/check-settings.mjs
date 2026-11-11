@@ -40,7 +40,7 @@ await once(server, "listening");
 const url = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ args: ["--no-sandbox"] });
 const PUSH_KEY = "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U";
-const ALL_PAGES = ["Appearance", "Chat", "Terminal & keys", "Notifications", "Security", "PCs", "Plugins", "Herdr", "About"];
+const ALL_PAGES = ["Appearance", "Chat", "Terminal & keys", "Files", "Notifications", "Security", "PCs", "Plugins", "Herdr", "About"];
 
 try {
   for (const mobile of [false, true]) {

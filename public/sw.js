@@ -124,6 +124,7 @@ const APP_SHELL = [
   "/lens-preference.js?v=1.4.51",
   "/chat-width-preference.js?v=1.4.51",
   "/settings-pages.js?v=1.4.51",
+  "/files-preference.js?v=1.4.51",
   "/chat/markdown.js?v=1.4.51",
   "/chat/code-highlight.js?v=1.4.51",
   "/chat/diff.js?v=1.4.51",

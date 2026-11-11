@@ -10,9 +10,9 @@ import {
 
 test("lists the settings pages in order", () => {
   assert.deepEqual(SETTINGS_PAGES.map((page) => page.id),
-    ["appearance", "chat", "terminal", "notifications", "security", "pcs", "plugins", "herdr", "about"]);
+    ["appearance", "chat", "terminal", "files", "notifications", "security", "pcs", "plugins", "herdr", "about"]);
   assert.deepEqual(SETTINGS_PAGES.map((page) => page.title),
-    ["Appearance", "Chat", "Terminal & keys", "Notifications", "Security", "PCs", "Plugins", "Herdr", "About"]);
+    ["Appearance", "Chat", "Terminal & keys", "Files", "Notifications", "Security", "PCs", "Plugins", "Herdr", "About"]);
   assert.equal(settingsPageTitle("pcs"), "PCs");
   assert.equal(settingsPageTitle("nowhere"), null);
 });
@@ -20,10 +20,10 @@ test("lists the settings pages in order", () => {
 test("Security shows only with sign-in on, PCs only where Connect PC is", () => {
   const ids = (options) => settingsPageList(options).map((page) => page.id);
   assert.deepEqual(ids({ security: true, pcs: true, plugins: true, herdr: true }), SETTINGS_PAGES.map((page) => page.id));
-  assert.deepEqual(ids({ security: true, pcs: true }), ["appearance", "chat", "terminal", "notifications", "security", "pcs", "about"]);
-  assert.deepEqual(ids({ security: false, pcs: true }), ["appearance", "chat", "terminal", "notifications", "pcs", "about"]);
-  assert.deepEqual(ids({ security: true, pcs: false }), ["appearance", "chat", "terminal", "notifications", "security", "about"]);
-  assert.deepEqual(ids({}), ["appearance", "chat", "terminal", "notifications", "about"]);
+  assert.deepEqual(ids({ security: true, pcs: true }), ["appearance", "chat", "terminal", "files", "notifications", "security", "pcs", "about"]);
+  assert.deepEqual(ids({ security: false, pcs: true }), ["appearance", "chat", "terminal", "files", "notifications", "pcs", "about"]);
+  assert.deepEqual(ids({ security: true, pcs: false }), ["appearance", "chat", "terminal", "files", "notifications", "security", "about"]);
+  assert.deepEqual(ids({}), ["appearance", "chat", "terminal", "files", "notifications", "about"]);
 });
 
 test("Plugins shows only with sign-in on, where this HerdRabbit can manage them", () => {

@@ -174,3 +174,38 @@ export function findPaths(text, isLinkable = namesPath, { extendRun = null, clos
   }
   return links.sort((a, b) => a.start - b.start);
 }
+
+// Where a path written in a chat or a terminal may be, most likely first. An
+// absolute path is where it says; `~` is the home of the machine that opens
+// it. A relative one -- a bare name included -- was written against some
+// folder the writer had in mind: one an absolute path just before it named
+// ("the same folder's b.png"), the folder the agent works in, or the shell's.
+// `bases` are those folders in that order; repeats and non-absolute ones go.
+export function pathCandidates(raw, bases = []) {
+  const path = String(raw ?? "").trim();
+  if (!path) return [];
+  if (path.startsWith("/") || path === "~" || path.startsWith("~/")) return [path];
+  const relative = path.replace(/^(?:\.\/)+/u, "");
+  const seen = new Set();
+  const candidates = [];
+  for (const base of bases) {
+    if (typeof base !== "string" || !base.startsWith("/")) continue;
+    const candidate = `${trimTrailingSlashes(base) || ""}/${relative}`;
+    if (!seen.has(candidate)) { seen.add(candidate); candidates.push(candidate); }
+  }
+  return candidates;
+}
+
+// The folders absolute paths in `paths` name: a file's folder, or a path
+// ending in a slash itself. Nearest (last) first.
+export function foldersOf(paths = []) {
+  const folders = [];
+  for (const raw of [...paths].reverse()) {
+    if (typeof raw !== "string" || !raw.startsWith("/")) continue;
+    const folder = raw.endsWith("/") ? trimTrailingSlashes(raw) : raw.slice(0, raw.lastIndexOf("/"));
+    const value = folder || "/";
+    if (!folders.includes(value)) folders.push(value);
+  }
+  return folders;
+}
+

@@ -391,7 +391,7 @@ test("reads the model, effort and context of the newest turn", () => {
     event({ type: "token_count", info: { last_token_usage: { total_tokens: 1200 }, model_context_window: 272_000 } }),
     { type: "turn_context", payload: { model: "gpt-test", collaboration_mode: { settings: { reasoning_effort: "xhigh" } } } },
   ));
-  assert.deepEqual(metadata, { model: "gpt-test", reasoning_effort: "xhigh", context: { used: 1200, window: 272_000 } });
+  assert.deepEqual(metadata, { cwd: "/work/app", model: "gpt-test", reasoning_effort: "xhigh", context: { used: 1200, window: 272_000 } });
 });
 
 // ---------------------------------------------------------------------------
@@ -406,7 +406,7 @@ test("pages back through a long rollout by its tasks, without gaps or overlaps, 
   const newest = await transcriptPage(CODEX_TRANSCRIPT, store, path);
   assert.equal(newest.source, "codex-transcript");
   assert.equal(newest.turns.length, MAX_PAGE_PROMPTS * 2);
-  assert.deepEqual(newest.metadata, { model: "gpt-test", reasoning_effort: "high" });
+  assert.deepEqual(newest.metadata, { cwd: "/work/app", model: "gpt-test", reasoning_effort: "high" });
   assert.equal(texts(newest.turns)[0], `prompt ${count - MAX_PAGE_PROMPTS}`);
   const older = await transcriptPage(CODEX_TRANSCRIPT, store, path, { before: newest.cursor });
   assert.deepEqual(texts(older.turns), Array.from({ length: count - MAX_PAGE_PROMPTS }, (_, n) => [`prompt ${n}`, `answer ${n}`]).flat());

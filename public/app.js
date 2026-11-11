@@ -935,6 +935,7 @@ const {
   get promptDock() { return promptDock; },
   get terminalFind() { return terminalFind; },
   get browseState() { return browseState; },
+  setFeedback: (...args) => setFeedback(...args),
 });
 
 const terminalStream = terminalConnection({

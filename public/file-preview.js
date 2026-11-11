@@ -12,7 +12,7 @@
 //      no preview. A file whose bytes disagree with its name renders as
 //      whatever the name promised, and `nosniff` keeps the browser from
 //      looking for a second opinion.
-//   2. Nothing gets to run. Most formats here cannot; the two that can are
+//   2. Nothing runs at this origin. Most formats here cannot; the two that can are
 //      handled by how they are shown rather than by refusing them:
 //        - SVG goes in an `<img>`, which does not execute script in any
 //          browser, and the app's own `script-src 'self'` blocks inline script
@@ -20,7 +20,9 @@
 //          layers were measured, not assumed.
 //        - HTML and PDF are framed, and the response they arrive in carries a
 //          CSP of its own ending in `sandbox`: the document gets an opaque
-//          origin and no script, whoever opens it and however. That is
+//          origin, whoever opens it and however. Opened from Files, HTML and
+//          Markdown come with their folder and run scripts only where this
+//          browser's Settings > Files allows them (src/site-preview.mjs). That is
 //          stronger than the page they sit in, and it is what lets an HTML
 //          report keep its own stylesheet without being able to use it for
 //          anything else.
@@ -39,12 +41,26 @@ const INLINE = new Map(Object.entries({
   bmp: ["image", "image/bmp"],
   ico: ["image", "image/x-icon"],
   svg: ["image", "image/svg+xml"],
+  // Shown where the browser can (Safari draws HEIC and TIFF, Chrome does not);
+  // elsewhere the viewer says so and offers the download.
+  heic: ["image", "image/heic"],
+  heif: ["image", "image/heif"],
+  tif: ["image", "image/tiff"],
+  tiff: ["image", "image/tiff"],
+  jxl: ["image", "image/jxl"],
 
   mp4: ["video", "video/mp4"],
   m4v: ["video", "video/mp4"],
   webm: ["video", "video/webm"],
   ogv: ["video", "video/ogg"],
   mov: ["video", "video/quicktime"],
+  // Matroska plays in Chrome, Edge and Firefox when its codecs are theirs.
+  mkv: ["video", "video/x-matroska"],
+  "3gp": ["video", "video/3gpp"],
+  // No browser plays these; the viewer says so and offers the download.
+  avi: ["video", "video/x-msvideo"],
+  wmv: ["video", "video/x-ms-wmv"],
+  flv: ["video", "video/x-flv"],
 
   mp3: ["audio", "audio/mpeg"],
   m4a: ["audio", "audio/mp4"],
@@ -54,6 +70,8 @@ const INLINE = new Map(Object.entries({
   opus: ["audio", "audio/ogg"],
   oga: ["audio", "audio/ogg"],
   ogg: ["audio", "audio/ogg"],
+  aif: ["audio", "audio/aiff"],
+  aiff: ["audio", "audio/aiff"],
 
   // The browser's own viewer draws this one, in its own process. It cannot
   // reach this origin from there -- but it has to be framed to be seen, and
@@ -81,6 +99,13 @@ const DOCUMENT_TYPES = new Map(Object.entries({ html: "text/html", htm: "text/ht
 // the viewer's other button still shows the characters it was written as.
 const MARKDOWN = new Set(["md", "markdown"]);
 
+// Pages and Markdown open with their folder, so what they point at beside
+// them shows too (src/site-preview.mjs).
+export function opensWithFolder(name) {
+  const extension = extensionOf(name);
+  return extension === "html" || extension === "htm" || MARKDOWN.has(extension);
+}
+
 export function isMarkdown(name) {
   return MARKDOWN.has(extensionOf(name));
 }
@@ -105,7 +130,7 @@ const BINARY = new Set([
   "db", "sqlite", "sqlite3", "iso", "img", "dmg", "deb", "rpm", "msi", "pkg",
   "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "hwp", "hwpx", "pages", "key", "numbers",
   "psd", "ai", "sketch", "fig", "xcf", "ttf", "otf", "woff", "woff2", "eot",
-  "mkv", "avi", "wmv", "flv", "heic", "heif", "tif", "tiff", "raw", "cr2", "nef", "dng", "wma", "aiff",
+  "raw", "cr2", "nef", "dng", "wma",
   "pdb", "pt", "pth", "onnx", "safetensors", "gguf", "npy", "npz", "pkl", "parquet",
 ]);
 

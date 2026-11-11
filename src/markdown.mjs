@@ -14,8 +14,9 @@
 // and embedded markup is shown as the characters it is made of.
 //
 // The frame this lands in is the other half. Its response policy ends in
-// `sandbox` -- an opaque origin with no script -- so nothing here is the only
-// thing standing between a document and this app's session.
+// `sandbox` -- an opaque origin, with no script unless Settings > Files allows
+// it (src/site-preview.mjs) -- so nothing here is the only thing standing
+// between a document and this app's session.
 
 import { Marked } from "marked";
 
@@ -39,30 +40,50 @@ function safeUrl(raw) {
   return /^https?:\/\/[^\s<>"]+$/iu.test(value) ? value : null;
 }
 
-const renderer = {
-  link({ href, title, tokens }) {
-    const label = this.parser.parseInline(tokens);
-    const url = safeUrl(href);
-    if (!url) return label;
-    const named = title ? ` title="${escapeHtml(title)}"` : "";
-    return `<a href="${escapeHtml(url)}"${named} target="_blank" rel="noopener noreferrer">${label}</a>`;
-  },
-  image({ href, text, title }) {
-    const url = safeUrl(href);
-    // A relative path would resolve against this app and be refused by the
-    // frame's policy, which shows as a broken icon and no explanation. The
-    // text that named it is more use than that.
-    if (!url) return escapeHtml(text || String(href ?? ""));
-    const named = title ? ` title="${escapeHtml(title)}"` : "";
-    return `<img src="${escapeHtml(url)}" alt="${escapeHtml(text ?? "")}"${named} />`;
-  },
-  html({ text }) {
-    return escapeHtml(text);
-  },
-};
+// A document opened with its folder (src/site-preview.mjs) may also point at
+// a file beside it: a relative path, with no scheme, no leading slash and no
+// `//`, resolves under the folder's own URL and nowhere else.
+function relativeUrl(raw) {
+  const value = String(raw ?? "").trim();
+  return value && !/^[a-z][a-z0-9+.-]*:|^[/\\]|[\s<>"]/iu.test(value) ? value : null;
+}
 
-const markdown = new Marked({ gfm: true, breaks: false, async: false });
-markdown.use({ renderer });
+// The renderer for a document; `site` is set for one shown with its folder,
+// whose relative pictures and links point at the files beside it.
+function rendererFor({ site }) {
+  return {
+    link({ href, title, tokens }) {
+      const label = this.parser.parseInline(tokens);
+      const named = title ? ` title="${escapeHtml(title)}"` : "";
+      const near = site ? relativeUrl(href) : null;
+      if (near) return `<a href="${escapeHtml(near)}"${named}>${label}</a>`;
+      const url = safeUrl(href);
+      if (!url) return label;
+      return `<a href="${escapeHtml(url)}"${named} target="_blank" rel="noopener noreferrer">${label}</a>`;
+    },
+    image({ href, text, title }) {
+      const url = safeUrl(href) ?? (site ? relativeUrl(href) : null);
+      // Without its folder a relative path would resolve against this app and
+      // be refused by the frame's policy, which shows as a broken icon and no
+      // explanation. The text that named it is more use than that.
+      if (!url) return escapeHtml(text || String(href ?? ""));
+      const named = title ? ` title="${escapeHtml(title)}"` : "";
+      return `<img src="${escapeHtml(url)}" alt="${escapeHtml(text ?? "")}"${named} />`;
+    },
+    html({ text }) {
+      return escapeHtml(text);
+    },
+  };
+}
+
+function parserFor(options) {
+  const parser = new Marked({ gfm: true, breaks: false, async: false });
+  parser.use({ renderer: rendererFor(options) });
+  return parser;
+}
+
+const markdown = parserFor({ site: false });
+const siteMarkdown = parserFor({ site: true });
 
 export function renderInline(source) {
   return markdown.parseInline(String(source));
@@ -104,7 +125,9 @@ th { background: #f3f7f5; }
   th { background: #161e24; }
 }`;
 
-export function renderMarkdown(source, title = "") {
+// `site`: the document is shown with its folder, so a relative picture or
+// link points at a file beside it rather than at this app.
+export function renderMarkdown(source, title = "", { site = false } = {}) {
   return [
     "<!doctype html>",
     '<html lang="en"><head><meta charset="utf-8" />',
@@ -112,7 +135,7 @@ export function renderMarkdown(source, title = "") {
     `<title>${escapeHtml(title)}</title>`,
     `<style>${STYLE}</style>`,
     "</head><body>",
-    markdown.parse(String(source)),
+    (site ? siteMarkdown : markdown).parse(String(source)),
     "</body></html>",
   ].join("\n");
 }
