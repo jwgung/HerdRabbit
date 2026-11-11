@@ -4722,6 +4722,24 @@ body.is-resizing-sidebar {
 
 /* Markup draws itself at whatever size it likes, so the frame is the one that
    decides how much room that gets. */
+
+/* What the browser could not play or draw: said where it would have been,
+   with the dialog's Download beside it. */
+.viewer-unsupported {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-1-5);
+  min-height: 200px;
+  padding: var(--space-4);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-control);
+  color: var(--muted);
+  text-align: center;
+}
+
+.viewer-unsupported strong { color: var(--text); font-size: var(--font-lg); }
+
 .viewer-document {
   width: 100%;
   height: var(--viewer-content-height);

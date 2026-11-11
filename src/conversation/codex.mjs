@@ -575,6 +575,8 @@ export function parseCodexMetadata(text) {
       continue;
     }
     if (entry.type !== "turn_context" && entry.type !== "session_meta") continue;
+    // where the agent works now: a relative path it writes is most likely there
+    if (typeof payload.cwd === "string" && payload.cwd.startsWith("/")) metadata.cwd = payload.cwd;
     const settings = record(record(payload.collaboration_mode).settings);
     const model = label(payload.model) ?? label(settings.model);
     const effort = "effort" in payload ? payload.effort

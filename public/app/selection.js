@@ -14,7 +14,7 @@ import {
 } from "../ui-model.js?v=1.4.51";
 import { chatAgent } from "../lens-preference.js?v=1.4.51";
 import { previewFor } from "../file-preview.js?v=1.4.51";
-import { isFileName, isFolderPath, trimTrailingSlashes } from "../path-links.js?v=1.4.51";
+import { foldersOf, isFileName, isFolderPath, pathCandidates, trimTrailingSlashes } from "../path-links.js?v=1.4.51";
 import { writePanePreference } from "../pane-preference.js?v=1.4.51";
 import { createElement } from "./dom.js?v=1.4.51";
 import { idOf } from "./snapshot.js?v=1.4.51";
@@ -39,7 +39,7 @@ export function createSelection(deps) {
     resetInputHistoryNavigation, syncComposerDraft, syncAttachAvailability, clearKeyModifiers, syncSendButton,
     agentMark, viewFile, revealInFiles, refreshBrowseFolder, showTerminalView, syncTerminalFind,
     closeMobileSidebar, renameIsOpen, renderNavigation, setConnection, pruneViewSplit, renderPaneViews,
-    renderTerminalStatus,
+    renderTerminalStatus, setFeedback = () => {},
   } = deps;
 
   function renderPaneHeading(pane, tab, workspace) {
@@ -97,13 +97,13 @@ export function createSelection(deps) {
   // So does a folder written out in full (`/home/me/proj`, `./build`): it opens
   // in the Files tab.
   //
-  // Relative names are resolved against the pane's own directory, because that is
-  // what the agent writing them meant. `~` is not resolved: that home belongs to
-  // the machine the pane runs on, and guessing it would open the wrong file or
-  // none. A path that cannot be resolved is left as plain text rather than
-  // offered as a link that fails when pressed.
+  // A relative name needs a folder to be found in: with none (a pane whose
+  // directory is unknown) it is left as plain text rather than offered as a
+  // link that fails when pressed. `~` is resolved by the machine that opens
+  // it. Where a link then points is decided when it is pressed (locatePath).
   function resolveTerminalPath(raw) {
     if (raw.startsWith("/")) return raw;
+    if (raw === "~" || raw.startsWith("~/")) return raw;
     if (raw.startsWith("~")) return null;
     const pane = selectedRecords().pane;
     const base = pane?.foreground_cwd || pane?.cwd;
@@ -135,21 +135,69 @@ export function createSelection(deps) {
     }
   }
 
-  async function openTerminalPath(raw) {
-    const resolved = resolveTerminalPath(raw);
-    if (!resolved) return;
+  // Where a pressed path is: the first of its candidates (path-links.js
+  // pathCandidates) that is there on `server`, asked of the machine that has
+  // it by listing its folder for that name. `context` is what a chat knows
+  // about the writing: absolute paths before it (`near`) and the folder the
+  // agent works in (`cwd`). Null when none is there.
+  async function locatePath(raw, context, server) {
+    const pane = selectedRecords().pane;
+    const bases = [...foldersOf(context?.near ?? []), context?.cwd, pane?.foreground_cwd, pane?.cwd];
+    const candidates = pathCandidates(raw, bases);
+    for (const candidate of candidates) {
+      const trimmed = trimTrailingSlashes(candidate) || "/";
+      if (trimmed === "~") {
+        const home = await listing(server, "~");
+        if (home?.path) return { path: home.path, tried: candidates };
+        continue;
+      }
+      const slash = trimmed.lastIndexOf("/");
+      const folder = slash <= 0 ? (trimmed.startsWith("~") ? "~" : "/") : trimmed.slice(0, slash);
+      const name = trimmed.slice(slash + 1);
+      const found = await listing(server, folder, name);
+      if (found?.entries?.some((entry) => entry.name === name)) {
+        const path = `${found.path === "/" ? "" : found.path}/${name}`;
+        return { path: candidate.endsWith("/") ? `${path}/` : path, tried: candidates };
+      }
+    }
+    return { path: null, tried: candidates };
+  }
+
+  async function listing(server, folder, prefix = "") {
+    try {
+      const response = await transferRequest(`/api/browse?server=${encodeURIComponent(server)}&path=${encodeURIComponent(folder)}${prefix ? `&prefix=${encodeURIComponent(prefix)}` : ""}`);
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async function openTerminalPath(raw, context = {}) {
+    if (!resolveTerminalPath(raw)) return;
+    const server = paneServerId(state.selectedPaneId) || "local";
+    // Anything picked meanwhile -- a folder, a machine, another link, another
+    // pane -- wins over this one, while it is looked for or asked about.
+    const generation = ++deps.revealGeneration;
+    const paneId = state.selectedPaneId;
+    const superseded = () => generation !== deps.revealGeneration || paneId !== state.selectedPaneId;
+    // An absolute path is where it says, as before; the rest is looked for.
+    const located = raw.startsWith("/") ? { path: raw, tried: [raw] } : await locatePath(raw, context, server);
+    if (superseded()) return;
+    if (!located.path) {
+      setFeedback(located.tried.length
+        ? `Couldn't find ${raw}. Looked in ${located.tried.map((path) => path.slice(0, path.length - raw.replace(/^(?:\.\/)+/u, "").length - 1) || "/").join(", ")}.`
+        : `Couldn't find ${raw}.`, true);
+      return;
+    }
+    const resolved = located.path;
     // a closing slash says "folder"; the name is the last one before it
     const trimmed = trimTrailingSlashes(resolved) || "/";
     const name = trimmed.split("/").pop();
-    const server = paneServerId(state.selectedPaneId) || "local";
     // A folder may well be called `docs.md`: one written out in full is asked
-    // about before the viewer is opened on it. Anything picked meanwhile -- a
-    // folder, a machine, another link, another pane -- wins over this one.
-    const generation = ++deps.revealGeneration;
-    const paneId = state.selectedPaneId;
+    // about before the viewer is opened on it.
     const viewable = trimmed === resolved && hasPreview(name)
       && !(isFolderPath(raw) && await listsAsFolder(server, trimmed));
-    if (generation !== deps.revealGeneration || paneId !== state.selectedPaneId) return;
+    if (superseded()) return;
     if (viewable) void viewFile(resolved, name, server);
     else void revealInFiles(trimmed, name, server);
   }

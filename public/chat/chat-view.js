@@ -706,7 +706,12 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
     const path = target?.closest("[data-path]");
     if (path && root.contains(path)) {
       event.preventDefault();
-      onOpenPath(path.dataset.path);
+      // The paths written before this one in the same turn, and the folder
+      // the agent works in: where a relative one most likely points.
+      const turn = path.closest(".chat-turn");
+      const before = turn ? [...turn.querySelectorAll("[data-path]")] : [];
+      const earlier = before.slice(0, Math.max(0, before.indexOf(path))).map((node) => node.dataset.path);
+      onOpenPath(path.dataset.path, { near: earlier, cwd: loader.history.metadata?.cwd ?? null });
       return;
     }
     const action = target?.closest("[data-action]");

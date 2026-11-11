@@ -39,16 +39,29 @@ function safeUrl(raw) {
   return /^https?:\/\/[^\s<>"]+$/iu.test(value) ? value : null;
 }
 
+// A document opened with its folder (src/site-preview.mjs) may also point at
+// a file beside it: a relative path, with no scheme, no leading slash and no
+// `//`, resolves under the folder's own URL and nowhere else.
+function relativeUrl(raw) {
+  const value = String(raw ?? "").trim();
+  return value && !/^[a-z][a-z0-9+.-]*:|^[/\\]|[\s<>"]/iu.test(value) ? value : null;
+}
+
+// Set while one document renders: whether relative paths are allowed in it.
+let relative = false;
+
 const renderer = {
   link({ href, title, tokens }) {
     const label = this.parser.parseInline(tokens);
+    const near = relative ? relativeUrl(href) : null;
+    if (near) return `<a href="${escapeHtml(near)}"${title ? ` title="${escapeHtml(title)}"` : ""}>${label}</a>`;
     const url = safeUrl(href);
     if (!url) return label;
     const named = title ? ` title="${escapeHtml(title)}"` : "";
     return `<a href="${escapeHtml(url)}"${named} target="_blank" rel="noopener noreferrer">${label}</a>`;
   },
   image({ href, text, title }) {
-    const url = safeUrl(href);
+    const url = safeUrl(href) ?? (relative ? relativeUrl(href) : null);
     // A relative path would resolve against this app and be refused by the
     // frame's policy, which shows as a broken icon and no explanation. The
     // text that named it is more use than that.
@@ -104,7 +117,18 @@ th { background: #f3f7f5; }
   th { background: #161e24; }
 }`;
 
-export function renderMarkdown(source, title = "") {
+// `site`: the document is shown with its folder, so a relative picture or
+// link points at a file beside it rather than at this app.
+export function renderMarkdown(source, title = "", { site = false } = {}) {
+  relative = site;
+  try {
+    return renderDocument(source, title);
+  } finally {
+    relative = false;
+  }
+}
+
+function renderDocument(source, title) {
   return [
     "<!doctype html>",
     '<html lang="en"><head><meta charset="utf-8" />',

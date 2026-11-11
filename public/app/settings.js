@@ -4,6 +4,7 @@ import { writeGridFit } from "../terminal-preference.js?v=1.4.51";
 import { applicationServerKeyBytes, pushButtonPresentation } from "../push-notifications.js?v=1.4.51";
 import { OPEN_PANES_IN, readOpenPanesIn, writeOpenPanesIn } from "../lens-preference.js?v=1.4.51";
 import { CHAT_WIDTHS, readChatWidth, writeChatWidth } from "../chat-width-preference.js?v=1.4.51";
+import { readHtmlInternet, writeHtmlInternet } from "../files-preference.js?v=1.4.51";
 import { notificationStateText, settingsPageList, settingsPageTitle, updateBadges } from "../settings-pages.js?v=1.4.51";
 import { herdrVersionText } from "../ui-model.js?v=1.4.51";
 import { createPluginsPage } from "./plugins.js?v=1.4.51";
@@ -169,6 +170,15 @@ export function createSettings(deps) {
     });
   }
 
+  // Files
+  const htmlInternetChoices = dialog.querySelectorAll("[data-html-internet]");
+  for (const button of htmlInternetChoices) {
+    button.addEventListener("click", () => {
+      writeHtmlInternet(panePreferenceStorage, button.dataset.htmlInternet === "on");
+      syncSettings();
+    });
+  }
+
   // Terminal & keys
   document.querySelector("#settings-edit-keys").addEventListener("click", () => openKeyBarDialog());
   const gridFitRow = document.querySelector("#settings-grid-fit-row");
@@ -285,6 +295,7 @@ export function createSettings(deps) {
     openInHint.textContent = OPEN_PANES_IN_HINTS[openIn];
     const width = document.documentElement.dataset.chatWidth;
     pressOnly(widthChoices, "data-chat-width", CHAT_WIDTHS.includes(width) ? width : "default");
+    pressOnly(htmlInternetChoices, "data-html-internet", readHtmlInternet(panePreferenceStorage) ? "on" : "off");
 
     gridFitRow.hidden = !desktopMedia.matches;
     pressOnly(gridFitChoices, "data-grid-fit", deps.paneGrid.fit ? "on" : "off");

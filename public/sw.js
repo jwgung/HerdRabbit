@@ -1,4 +1,4 @@
-const CACHE_NAME = "herd-rabbit-v1.4.51";
+const CACHE_NAME = "herd-rabbit-v1.4.50";
 const NAVIGATION_CACHE = "herdr-notification-navigation-v1";
 
 async function saveNotificationTarget(target) {
@@ -124,6 +124,7 @@ const APP_SHELL = [
   "/lens-preference.js?v=1.4.51",
   "/chat-width-preference.js?v=1.4.51",
   "/settings-pages.js?v=1.4.51",
+  "/files-preference.js?v=1.4.51",
   "/chat/markdown.js?v=1.4.51",
   "/chat/code-highlight.js?v=1.4.51",
   "/chat/diff.js?v=1.4.51",

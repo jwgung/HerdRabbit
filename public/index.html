@@ -458,6 +458,20 @@
             </div>
           </section>
 
+          <section class="settings-page" data-page="files" aria-labelledby="settings-page-title" hidden>
+            <div class="settings-card">
+              <div class="settings-row">
+                <div class="settings-row-copy">
+                  <span id="settings-html-internet-label" class="settings-row-label">Internet in HTML previews</span>
+                  <p class="settings-row-hint">Let an HTML file opened from Files load scripts, styles, fonts and images from the internet, such as a CDN. When off, it loads only files from its own folder. When on, a page could send what it reads from its folder to a website.</p>
+                </div>
+                <div class="settings-choices" role="group" aria-labelledby="settings-html-internet-label">
+                  <button type="button" class="settings-choice" data-html-internet="off" aria-pressed="true">Off</button>
+                  <button type="button" class="settings-choice" data-html-internet="on" aria-pressed="false">On</button>
+                </div>
+              </div>
+            </div>
+          </section>
           <section class="settings-page" data-page="notifications" aria-labelledby="settings-page-title" hidden>
             <div class="settings-card">
               <div class="settings-row">

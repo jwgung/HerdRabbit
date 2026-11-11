@@ -26,9 +26,11 @@ import {
 import { terminalOutputWatcher } from "./terminal-output-watch.mjs";
 import { validateTransferName } from "./file-store.mjs";
 import { fileAccessError, listDirectory, openFile, validateBrowsePath, directoryFingerprint, refuseProtected } from "./file-browser.mjs";
+import { realpath } from "node:fs/promises";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 import { MAX_TEXT_PREVIEW_BYTES, inlineTypeFor, isMarkdown } from "../public/file-preview.js";
 import { renderMarkdown } from "./markdown.mjs";
+import { insideRoot, opensAsSite, siteContentSecurityPolicy, siteContentType, siteOf, siteRelativePath } from "./site-preview.mjs";
 import { secretPrompt } from "./secret-prompt.mjs";
 import { agentCommand } from "./agent-launch.mjs";
 import { canResume, resumeCommand } from "./agent-sessions.mjs";
@@ -103,6 +105,7 @@ const STATIC_FILES = new Map([
   ["/lens-preference.js", { path: `${PUBLIC_DIR}/lens-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat-width-preference.js", { path: `${PUBLIC_DIR}/chat-width-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/settings-pages.js", { path: `${PUBLIC_DIR}/settings-pages.js`, type: "text/javascript; charset=utf-8" }],
+  ["/files-preference.js", { path: `${PUBLIC_DIR}/files-preference.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/markdown.js", { path: `${PUBLIC_DIR}/chat/markdown.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/code-highlight.js", { path: `${PUBLIC_DIR}/chat/code-highlight.js`, type: "text/javascript; charset=utf-8" }],
   ["/chat/diff.js", { path: `${PUBLIC_DIR}/chat/diff.js`, type: "text/javascript; charset=utf-8" }],
@@ -445,11 +448,28 @@ function downloadTickets({ ttlMs = 30_000, viewTtlMs = 10 * 60_000, max = 32 } =
       });
       return ticket;
     },
+    // A page and its folder (src/site-preview.mjs): read many times, as the
+    // page asks for its styles and pictures, until the clock runs out.
+    issueSite({ root, entry, serverId = LOCAL_SERVER, internet = false }) {
+      sweep();
+      if (tickets.size >= max) {
+        throw new HttpError(429, "too_many_downloads", "Too many downloads are pending.");
+      }
+      const ticket = randomBytes(32).toString("base64url");
+      tickets.set(ticket, { site: true, root, entry, serverId, internet, expiresAt: Date.now() + viewTtlMs });
+      return ticket;
+    },
     redeem(ticket) {
       sweep();
       const found = tickets.get(ticket);
-      if (!found) throw new HttpError(404, "ticket_expired", "This download link has expired.");
+      if (!found || found.site) throw new HttpError(404, "ticket_expired", "This download link has expired.");
       if (!found.inlineType) tickets.delete(ticket);
+      return found;
+    },
+    redeemSite(ticket) {
+      sweep();
+      const found = tickets.get(ticket);
+      if (!found || !found.site) throw new HttpError(404, "ticket_expired", "This preview has expired. Open the file again.");
       return found;
     },
   };
@@ -826,6 +846,55 @@ export function createHerdrHttpServer({
         await sendInline(response, {
           file: opened.file, type: claim.inlineType, markdown: claim.markdown,
         });
+        return;
+      }
+
+      // A page shown with its own folder (src/site-preview.mjs). Ahead of the
+      // gate like a download: the frame's requests come from an opaque origin
+      // and carry no cookie, and the ticket stands for exactly one folder.
+      const siteMatch = url.pathname.match(/^\/api\/browse\/site\/([A-Za-z0-9_-]{16,86})\/(.*)$/u);
+      if ((method === "GET" || method === "HEAD") && siteMatch) {
+        const claim = tickets.redeemSite(siteMatch[1]);
+        const relative = siteRelativePath(siteMatch[2]);
+        if (relative === null) throw new HttpError(404, "not_found", "That file is not in this page's folder.");
+        const from = claim.serverId === LOCAL_SERVER ? null : herdr.fileClient?.(claim.serverId);
+        if (claim.serverId !== LOCAL_SERVER && !from) {
+          throw new HttpError(404, "unknown_server", "That server is no longer configured.");
+        }
+        const filePath = `${claim.root === "/" ? "" : claim.root}/${relative || claim.entry}`;
+        // A link inside the folder that leads out of it is refused here; a
+        // connected PC checks its own protected paths when it opens the file.
+        if (!from) {
+          const [real, root] = await Promise.all([realpath(filePath), realpath(claim.root)]).catch(() => [null, null]);
+          if (!real || !insideRoot(real, root)) throw new HttpError(404, "not_found", "That file is not in this page's folder.");
+        }
+        const base = `${isSecureRequest(request) ? "https" : "http"}://${request.headers.host}/api/browse/site/${siteMatch[1]}/`;
+        response.setHeader("Content-Security-Policy", siteContentSecurityPolicy(base, { internet: claim.internet }));
+        // Asked for by a page in an opaque origin: same-origin would refuse
+        // every picture and script it has, and a module or font needs CORS.
+        response.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+        response.setHeader("Access-Control-Allow-Origin", "*");
+        response.setHeader("X-Frame-Options", "SAMEORIGIN");
+        const markdown = /\.(?:md|markdown)$/iu.test(filePath);
+        const opened = await openBrowsedFile(filePath, from, markdown ? null : request.headers.range ?? null, maxTransferBytes, protectedPaths);
+        if (markdown) {
+          const html = Buffer.from(renderMarkdown(await readWholeFile(opened.file), opened.file.name, { site: true }), "utf8");
+          response.statusCode = 200;
+          response.setHeader("Content-Type", "text/html; charset=utf-8");
+          response.setHeader("Content-Length", html.length);
+          response.end(method === "HEAD" ? undefined : html);
+          return;
+        }
+        response.setHeader("Content-Type", siteContentType(filePath));
+        response.setHeader("Accept-Ranges", "bytes");
+        if (opened.file.range) {
+          response.statusCode = 206;
+          response.setHeader("Content-Range", `bytes ${opened.file.range.start}-${opened.file.range.end}/${opened.file.size}`);
+        } else response.statusCode = 200;
+        if (opened.file.length !== null && opened.file.length !== undefined) response.setHeader("Content-Length", opened.file.length);
+        response.on("close", () => opened.file.stream.destroy());
+        if (method === "HEAD") { opened.file.stream.destroy(); response.end(); return; }
+        await pipeline(opened.file.stream, response);
         return;
       }
 
@@ -1252,6 +1321,14 @@ export function createHerdrHttpServer({
           // Which door this link opens is decided here, on a request that
           // carried the CSRF token, from the name alone. A file with no viewable
           // type gets no view link at all rather than a downgraded one.
+          // A page with its folder: the ticket stands for the folder.
+          if (body.view === true && body.site === true) {
+            if (!opensAsSite(filePath)) throw new HttpError(415, "not_viewable", "That kind of file cannot be shown here.");
+            const { root, entry } = siteOf(filePath);
+            const ticket = tickets.issueSite({ root, entry, serverId, internet: body.internet === true });
+            sendJson(response, 201, { ticket, url: `/api/browse/site/${ticket}/${encodeURIComponent(entry)}` });
+            return;
+          }
           const inlineType = body.view === true ? inlineTypeFor(filePath) : null;
           if (body.view === true && !inlineType) {
             throw new HttpError(415, "not_viewable", "That kind of file cannot be shown here.");

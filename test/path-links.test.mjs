@@ -92,3 +92,18 @@ test("long and hostile input stays fast", () => {
     assert.ok(Date.now() - started < 2_000, `${text.slice(0, 20)}… took ${Date.now() - started}ms`);
   }
 });
+
+test("a written path is looked for where its writer most likely meant it", async () => {
+  const { foldersOf, pathCandidates } = await import("../public/path-links.js");
+  // an absolute path, or one from home, is where it says
+  assert.deepEqual(pathCandidates("/a/b.png", ["/x"]), ["/a/b.png"]);
+  assert.deepEqual(pathCandidates("~/notes/a.md", ["/x"]), ["~/notes/a.md"]);
+  // "the same folder's b.png": the folder named just before, then the agent's, then the shell's
+  const near = foldersOf(["/tmp/mock/1-a.png", "/tmp/out/2-b.png"]);
+  assert.deepEqual(near, ["/tmp/out", "/tmp/mock"]);
+  assert.deepEqual(pathCandidates("3-c.png", [...near, "/repo/.wt", "/repo", "/repo"]),
+    ["/tmp/out/3-c.png", "/tmp/mock/3-c.png", "/repo/.wt/3-c.png", "/repo/3-c.png"]);
+  assert.deepEqual(pathCandidates("./docs/a.md", ["/repo/", null, "relative"]), ["/repo/docs/a.md"]);
+  assert.deepEqual(foldersOf(["/srv/site/", "notes.md"]), ["/srv/site"]);
+  assert.deepEqual(pathCandidates("", ["/x"]), []);
+});

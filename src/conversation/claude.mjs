@@ -440,6 +440,8 @@ export function parseClaudeMetadata(text) {
       continue;
     }
     if (entry.type !== "assistant") continue;
+    // where the agent works now: a relative path it writes is most likely there
+    if (typeof entry.cwd === "string" && entry.cwd.startsWith("/")) metadata.cwd = entry.cwd;
     const message = record(entry.message);
     const model = label(message.model);
     if (model) metadata.model = model;

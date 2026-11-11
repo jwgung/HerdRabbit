@@ -5,7 +5,8 @@ import {
   sortUploads,
   uploadSummary,
 } from "../ui-model.js?v=1.4.51";
-import { MAX_TEXT_PREVIEW_BYTES, looksLikeText, previewFor } from "../file-preview.js?v=1.4.51";
+import { MAX_TEXT_PREVIEW_BYTES, looksLikeText, opensWithFolder, previewFor } from "../file-preview.js?v=1.4.51";
+import { readHtmlInternet } from "../files-preference.js?v=1.4.51";
 import { zoomablePicture, zoomableText } from "./viewer-zoom.js?v=1.4.51";
 import { createImageViewer } from "../chat/image-viewer.js?v=1.4.51";
 import { ticketUrl } from "../chat/chat-images.js?v=1.4.51";
@@ -156,6 +157,29 @@ export function createFiles({
     return text;
   }
 
+  // A page, or Markdown, shown with its folder: the server hands back the
+  // page's own URL, under which its styles, pictures and scripts resolve
+  // (src/site-preview.mjs). Whether it may also use the internet is this
+  // browser's Settings > Files choice, settled as the page is opened.
+  async function siteUrl(filePath, server) {
+    const internet = readHtmlInternet(browsePathStorage);
+    const response = await transferRequest("/api/browse/tickets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Herdr-CSRF": state.csrfToken },
+      body: JSON.stringify({ path: filePath, server, view: true, site: true, internet }),
+    });
+    return (await response.json()).url;
+  }
+
+  // The sandbox is on the response: an opaque origin that may run the page's
+  // own scripts and nothing of this app's.
+  function siteFrame(title, url) {
+    const frame = createElement("iframe", { className: "viewer-document" });
+    frame.setAttribute("title", title);
+    frame.src = url;
+    return frame;
+  }
+
   function viewerText(text) {
     return zoomableText(createElement("pre", { className: "viewer-text", text }));
   }
@@ -181,7 +205,16 @@ export function createFiles({
       element.controls = true;
       element.preload = "metadata";
     }
-    element.addEventListener("error", () => setViewerFeedback("This file could not be shown here.", true));
+    // The browser is the judge of what it can play: a format it cannot gets
+    // a note in the picture's or player's place, with the download beside it.
+    element.addEventListener("error", () => {
+      const note = createElement("div", { className: "viewer-unsupported" });
+      note.append(
+        createElement("strong", { text: `This browser can't ${kind === "image" ? "show" : "play"} ${name}` }),
+        createElement("span", { text: "Download it to open it in another program." }),
+      );
+      (element.closest(".viewer-zoom") ?? element).replaceWith(note);
+    });
     element.src = `/api/browse/download/${ticket}`;
     return kind === "image" ? zoomablePicture(element) : element;
   }
@@ -271,9 +304,11 @@ export function createFiles({
     setViewerFeedback("Opening…");
     viewerDialog.showModal();
     try {
+      const site = preview.kind === "document" && opensWithFolder(name);
       const element = preview.kind === "text"
         ? viewerText(await readFileText(filePath, server, preview.probe))
-        : viewerMedia(preview.kind, preview.type, name, await viewTicket(filePath, server, true));
+        : site ? siteFrame(name, await siteUrl(filePath, server))
+          : viewerMedia(preview.kind, preview.type, name, await viewTicket(filePath, server, true));
       viewerBody.replaceChildren(element);
       // Markup is worth both readings, and which one is wanted is not ours to
       // guess: the drawing is the default, the source is one press away.
@@ -283,8 +318,9 @@ export function createFiles({
           server,
           showing: "rendered",
           text: null,
-          rendered: async () =>
-            viewerMedia(preview.kind, preview.type, name, await viewTicket(filePath, server, true)),
+          rendered: async () => site
+            ? siteFrame(name, await siteUrl(filePath, server))
+            : viewerMedia(preview.kind, preview.type, name, await viewTicket(filePath, server, true)),
         };
         viewerSourceButton.hidden = false;
       }
