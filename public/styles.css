@@ -4960,13 +4960,15 @@ body.is-sidebar-dragging * {
 }
 
 /* No key bar on a desktop (app.js syncKeyBarShown): the composer moves up
-   into its row. The panel is named twice so this outranks the lens and grid
-   rows above. */
-body:not(.shows-key-bar) .quick-keys {
+   into its row. Each selector names the rule above it outranks: the bar a
+   grid keeps over a Chat cell, and the grid's and the lens's rows. */
+body:not(.shows-key-bar) .terminal-panel .quick-keys,
+body:not(.shows-key-bar) .terminal-panel.is-grid[data-lens="chat"] .quick-keys {
   display: none;
 }
 
-body:not(.shows-key-bar) .terminal-panel.terminal-panel {
+body:not(.shows-key-bar) .terminal-panel,
+body:not(.shows-key-bar) .terminal-panel.is-grid {
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 

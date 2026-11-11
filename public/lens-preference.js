@@ -157,11 +157,6 @@ export function chatMayBecomeAvailable(reason) {
   return reason !== "not_claude" && reason !== "not_supported_agent";
 }
 
-// --- a grid cell's lens -------------------------------------------------------
-// In a split (a Herdr grid or this window's view split) every cell shows its
-// own pane in Chat or Terminal, by the same choice kept per pane above. A
-// cell smaller than this has no room to read a conversation: it shows the
-// terminal, and the pane opened alone shows its chat.
 // What in a chat answers a click itself, so the click leaves focus there:
 // controls, links, the prompt card's field, a file path. (The conversation's
 // scroll box is focusable only to scroll by keyboard.)
@@ -175,6 +170,11 @@ export function chatPressTakesComposer(target, selection = globalThis.getSelecti
   return selection?.isCollapsed ?? true;
 }
 
+// --- a grid cell's lens -------------------------------------------------------
+// In a split (a Herdr grid or this window's view split) every cell shows its
+// own pane in Chat or Terminal, by the same choice kept per pane above. A
+// cell smaller than this has no room to read a conversation: it shows the
+// terminal, and the pane opened alone shows its chat.
 export const CHAT_CELL_MIN_WIDTH = 320;
 export const CHAT_CELL_MIN_HEIGHT = 220;
 export const CHAT_CELL_TOO_SMALL = "Too small for the chat. Open alone";

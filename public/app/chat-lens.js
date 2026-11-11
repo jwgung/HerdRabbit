@@ -311,6 +311,10 @@ export function createChatPanel(deps) {
     else openTerminalFind();
   });
 
+  // Whether the composer has the focus only because the chat was clicked
+  // (below, at the chat's click): Ctrl+F then still finds in the conversation.
+  let composerFromChat = false;
+
   // Taken before xterm sees it (it would send ^F to the program), and over the
   // Chat lens for the conversation's own find, but never from a text field: the
   // composer, a dialog or the sidebar's fields keep the browser's own find.
@@ -360,8 +364,8 @@ export function createChatPanel(deps) {
   // A click on the single chat hands the typing to the composer, as a Chat
   // cell's does (pane-grid.js); focusComposer leaves a phone's keyboard down.
   // Until something is typed there, the reader is still on the chat: Ctrl+F
-  // finds in the conversation, as it did before the click moved the focus.
-  let composerFromChat = false;
+  // finds in the conversation (composerFromChat, declared above), as it did
+  // before the click moved the focus.
   elements.chatHost.addEventListener("click", (event) => {
     if (chatLens.lens !== "chat" || !chatPressTakesComposer(event.target)) return;
     focusComposer();
