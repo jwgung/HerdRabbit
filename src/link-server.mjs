@@ -7,6 +7,8 @@ import { ConversationUnavailable } from "./conversation/pages.mjs";
 import { createdProject, validation } from "./herdr-client.mjs";
 import { LINK_PROTOCOL } from "./link-protocol.mjs";
 import { directoryFingerprint, fileAccessError, listDirectory, openFile } from "./file-browser.mjs";
+import { insideRoot } from "./site-preview.mjs";
+import { realpath } from "node:fs/promises";
 import { validateTransferName } from "./file-store.mjs";
 import { defaultProtectedPaths } from "./protected-paths.mjs";
 import { SlashCommandCatalog, paneCommandTarget } from "./slash-commands.mjs";
@@ -419,6 +421,12 @@ export function linkRoutes({
     }
 
     if (url.pathname === "/api/link/browse/file" && method === "GET") {
+      // Asked for a page's file: it must really be inside that page's folder.
+      const root = url.searchParams.get("root");
+      if (root !== null) {
+        const [real, base] = await Promise.all([realpath(String(url.searchParams.get("path"))), realpath(root)]).catch(() => [null, null]);
+        if (!real || !insideRoot(real, base)) throw new HttpError(404, "not_found", "That file is not in this page's folder.");
+      }
       const file = await browsing(() => openFile(url.searchParams.get("path"), {
         rangeHeader: request.headers.range ?? null,
         maxBytes: maxTransferBytes,

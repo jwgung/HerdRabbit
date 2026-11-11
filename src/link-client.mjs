@@ -730,9 +730,12 @@ export class LinkClient {
     return (await this.listDirectory(null)).path;
   }
 
-  async openFile(path, { rangeHeader = null, maxBytes = this.maxTransferBytes } = {}) {
+  // `root`: a page's folder (src/site-preview.mjs). That PC refuses a file
+  // whose real path leaves it, as this one does for its own; a PC from before
+  // that does not know the word, and its own protected paths still hold.
+  async openFile(path, { rangeHeader = null, maxBytes = this.maxTransferBytes, root = null } = {}) {
     const response = await this.#fileRequest(
-      `/api/link/browse/file?path=${encodeURIComponent(path)}`,
+      `/api/link/browse/file?path=${encodeURIComponent(path)}${root ? `&root=${encodeURIComponent(root)}` : ""}`,
       { headers: rangeHeader ? { range: rangeHeader } : {}, stream: true },
     );
     const file = linkedFile(response, path, maxBytes, this.timeouts.fileIdle);

@@ -713,3 +713,24 @@ test("a connected PC's usage comes back as it said, its refusal as itself, and a
   answer = () => new Response(JSON.stringify({ error: { code: "not_found", message: "Not found" } }), { status: 404 });
   await assert.rejects(usage.readUsage("kiro"), (error) => error.code === "link_unsupported" && /too old for reading AI usage/u.test(error.message));
 });
+
+test("a connected PC serves a page's file only from inside that page's folder", async (context) => {
+  const { mkdtemp: makeTemp, writeFile: write, symlink: link, rm: remove } = await import("node:fs/promises");
+  const { tmpdir: temp } = await import("node:os");
+  const { join: joinPath } = await import("node:path");
+  const site = await makeTemp(joinPath(temp(), "herdrabbit-peer-site-"));
+  const outside = await makeTemp(joinPath(temp(), "herdrabbit-peer-out-"));
+  context.after(() => Promise.all([remove(site, { recursive: true, force: true }), remove(outside, { recursive: true, force: true })]));
+  await write(joinPath(site, "page.css"), "body{}");
+  await write(joinPath(outside, "secret.txt"), "secret");
+  await link(joinPath(outside, "secret.txt"), joinPath(site, "leak.txt"));
+  const address = await startPeer(context, { link: linkRoutes({ client: peerHerdr([]), version: HUB_VERSION }) });
+  const client = new LinkClient({ profile: { name: "Dev box", transport: "link", address }, hubVersion: HUB_VERSION, fetchImpl: hubFetch() });
+  const page = await client.openFile(joinPath(site, "page.css"), { root: site });
+  page.stream.destroy();
+  assert.equal(page.name, "page.css");
+  await assert.rejects(() => client.openFile(joinPath(site, "leak.txt"), { root: site }), (error) => error.status === 404 || error.code === "not_found");
+  // without a folder to stay in, a file is opened as before
+  const plain = await client.openFile(joinPath(site, "leak.txt"));
+  plain.stream.destroy();
+});

@@ -500,10 +500,10 @@ async function browseDirectory(value, options, source, guard = defaultProtectedP
   }
 }
 
-async function openBrowsedFile(value, source, rangeHeader = null, maxBytes = Infinity, guard = defaultProtectedPaths()) {
+async function openBrowsedFile(value, source, rangeHeader = null, maxBytes = Infinity, guard = defaultProtectedPaths(), root = null) {
   try {
     const file = source
-      ? await source.openFile(value, { rangeHeader, maxBytes })
+      ? await source.openFile(value, { rangeHeader, maxBytes, ...(root ? { root } : {}) })
       : await openFile(value, { rangeHeader, maxBytes, guard });
     return { file, stream: file.stream };
   } catch (error) {
@@ -862,8 +862,8 @@ export function createHerdrHttpServer({
           throw new HttpError(404, "unknown_server", "That server is no longer configured.");
         }
         const filePath = `${claim.root === "/" ? "" : claim.root}/${relative || claim.entry}`;
-        // A link inside the folder that leads out of it is refused here; a
-        // connected PC checks its own protected paths when it opens the file.
+        // A link inside the folder that leads out of it is refused: here for
+        // this PC's files, by the PC that has them for a connected PC's.
         if (!from) {
           const [real, root] = await Promise.all([realpath(filePath), realpath(claim.root)]).catch(() => [null, null]);
           if (!real || !insideRoot(real, root)) throw new HttpError(404, "not_found", "That file is not in this page's folder.");
@@ -876,7 +876,7 @@ export function createHerdrHttpServer({
         response.setHeader("Access-Control-Allow-Origin", "*");
         response.setHeader("X-Frame-Options", "SAMEORIGIN");
         const markdown = /\.(?:md|markdown)$/iu.test(filePath);
-        const opened = await openBrowsedFile(filePath, from, markdown ? null : request.headers.range ?? null, maxTransferBytes, protectedPaths);
+        const opened = await openBrowsedFile(filePath, from, markdown ? null : request.headers.range ?? null, maxTransferBytes, protectedPaths, from ? claim.root : null);
         if (markdown) {
           const html = Buffer.from(renderMarkdown(await readWholeFile(opened.file), opened.file.name, { site: true }), "utf8");
           response.statusCode = 200;
