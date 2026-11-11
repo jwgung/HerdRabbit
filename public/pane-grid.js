@@ -807,14 +807,17 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     chat.append(dockSlot);
     const hint = element("p", "pane-grid-hint", CHAT_CELL_TOO_SMALL);
     hint.hidden = true;
+    // Over its terminal, under the header: the banner of a prompt the pane
+    // waits on while the cell shows no chat (prompt-card.js).
+    const bannerSlot = element("div", "pane-grid-banner");
     const note = element("p", "pane-grid-note");
     note.hidden = true;
-    node.append(header, body, chat, hint, note);
+    node.append(header, body, chat, hint, note, bannerSlot);
     // Reachable by Tab; focus arriving in the cell (the cell itself, its
     // terminal's textarea) selects it like a press does.
     node.tabIndex = 0;
     node.setAttribute("role", "group");
-    const cell = { paneId, node, header, status, context, label, lensSwitch, chatButton, terminalButton, expand, body, chat, dockSlot, hint, note,
+    const cell = { paneId, node, header, status, context, label, lensSwitch, chatButton, terminalButton, expand, body, chat, dockSlot, bannerSlot, hint, note,
       menuSlot, menuKey: null, terminal: null, connection: null, attached: false,
       box: null, place: null, zoomed: false, focused: false, roomy: false, font: null, watched: null,
       pane: null, lens: "terminal", chatRoomy: true };
@@ -833,12 +836,17 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       if (drag?.cell === cell && event.pointerId === drag.pointerId) endDrag(false);
     });
     // Any press in the cell makes it the selected pane; a press on its
-    // terminal also leaves the typing there.
+    // terminal also leaves the typing there. Not one on its prompt (the
+    // banner, the card under its chat): selecting would put the selected
+    // pane's own card there in its place, under the press, and the press
+    // would be lost; the prompt's buttons do what they say themselves.
+    const onPrompt = (target) => Boolean(target?.closest?.(".pane-grid-banner, .pane-grid-dock"));
     node.addEventListener("pointerdown", (event) => {
-      if (event.target.closest(".pane-grid-menu-slot, .pane-grid-expand")) return;
+      if (event.target.closest(".pane-grid-menu-slot, .pane-grid-expand") || onPrompt(event.target)) return;
       if (selected !== paneId) onSelect(paneId);
     });
-    node.addEventListener("focusin", () => {
+    node.addEventListener("focusin", (event) => {
+      if (onPrompt(event.target)) return;
       if (selected !== paneId) onSelect(paneId);
     });
     node.addEventListener("keydown", (event) => {
@@ -971,12 +979,14 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       for (const cell of cells.values()) showLens(cell);
       slide(waiting ? null : before, leaving);
     },
-    // Every cell on screen: its pane, its lens, whether it has room for a chat,
-    // the host its chat goes in and the slot for its prompt card.
+    // Every cell on screen: its pane, its lens, whether it has room for a chat
+    // and has one, the host its chat goes in, and the slots for its prompt
+    // card (under its chat) and for its banner (over its terminal).
     lensCells() {
       if (root.hidden || root.classList.contains("is-waiting")) return [];
       return visibleCells().map((cell) => ({
         paneId: cell.paneId, lens: cell.lens, roomy: cell.chatRoomy, host: cell.chat, dockSlot: cell.dockSlot,
+        bannerSlot: cell.bannerSlot, chatAvailable: cell.pane?.chatAvailable === true && cell.pane?.offline !== true,
         agent: cell.pane?.chatAgent ?? null, status: cell.pane?.status ?? null,
       }));
     },

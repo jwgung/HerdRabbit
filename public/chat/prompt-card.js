@@ -188,6 +188,13 @@ function renderPanel(document, card, view) {
   return section;
 }
 
+// "Open plan": a plan's file (its Markdown) in the viewer, larger than any
+// card or cell shows it.
+function planButton(document, className) {
+  return element(document, "button", { className, text: "Open plan",
+    attrs: { type: "button", "data-prompt-action": "plan", title: "Read the plan in the viewer" } });
+}
+
 function renderCard(document, card, view) {
   if (card.panel) return renderPanel(document, card, view);
   const section = element(document, "section", { className: `prompt-card${card.fallback ? " is-fallback" : ""}`,
@@ -196,6 +203,7 @@ function renderCard(document, card, view) {
   // said in words, not only by the card being there
   header.append(element(document, "p", { className: "prompt-card-status", text: "Needs your answer" }),
     element(document, "h2", { text: card.title }));
+  if (view.plan) header.append(planButton(document, "prompt-card-plan"));
   if (view.overlay) {
     header.append(element(document, "button", { className: "prompt-card-close", text: "Close",
       attrs: { type: "button", "data-prompt-action": "collapse", title: "Back to the banner" } }));
@@ -322,9 +330,11 @@ export function sharedPromptWatch(connection) {
 // `onCardChange(card)` hears whenever the card the composer can answer comes,
 // changes or goes (null while the dock is hidden).
 export function createPromptDock({ document = globalThis.document, dock, connection, getJson, postJson,
-  showChat = () => false, onAnswered = () => {}, onCardChange = () => {}, conversation = () => "" }) {
+  showChat = () => false, onAnswered = () => {}, onCardChange = () => {}, conversation = () => "", openPlan = null }) {
   let paneId = null;
   let status = null;
+  // a plan's file can be opened here
+  const plannable = (shown) => typeof openPlan === "function" && typeof shown?.planPath === "string" && shown.planPath !== "";
   let agentName = null;
   let lens = "terminal";
   let watched = null;
@@ -389,7 +399,7 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     try { context = mode !== "hidden" && mode !== "banner" && contextVisible(card, paneId === null ? "" : conversation(paneId)); } catch { context = Boolean(card?.context); }
     // a panel's words change under the same id (another tab, figures that tick)
     const words = card?.panel ? JSON.stringify([card.title, card.body, card.tabs, card.options, card.question]) : "";
-    const key = mode === "hidden" ? null : `${mode}|${card.id}|${words}|${view.pending}|${view.error}|${[...view.selected].join(",")}|${mode === "banner" ? "" : view.custom}|${context ? card.context : ""}|${view.preview}`;
+    const key = mode === "hidden" ? null : `${mode}|${card.id}|${words}|${view.pending}|${view.error}|${[...view.selected].join(",")}|${mode === "banner" ? "" : view.custom}|${context ? card.context : ""}|${view.preview}|${plannable(card) ? card.planPath : ""}`;
     if (key === drawn) return;
     // the typed answer keeps its focus and caret across a redraw
     const focused = dock.contains(document.activeElement) ? document.activeElement : null;
@@ -406,11 +416,13 @@ export function createPromptDock({ document = globalThis.document, dock, connect
         element(document, "span", { className: "prompt-banner-action", text: card.panel ? "Open" : "Answer" }));
       const close = element(document, "button", { className: "prompt-banner-close", text: "×",
         attrs: { type: "button", "data-prompt-action": "dismiss", "aria-label": "Dismiss", title: "Dismiss" } });
-      banner.append(open, close);
+      banner.append(open);
+      if (plannable(card)) banner.append(planButton(document, "prompt-banner-plan"));
+      banner.append(close);
       dock.append(banner);
       return;
     }
-    dock.append(renderCard(document, card, { ...view, overlay: mode === "overlay", context, contextOpen }));
+    dock.append(renderCard(document, card, { ...view, overlay: mode === "overlay", context, contextOpen, plan: plannable(card) }));
     if (focusKey !== null) {
       const again = focusKey === "custom" ? dock.querySelector("[data-prompt-custom]")
         : dock.querySelector(`[data-prompt-option="${focusKey}"], [data-prompt-toggle="${focusKey}"], [data-prompt-action="${focusKey}"]`);
@@ -502,7 +514,9 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     if (option && dock.contains(option)) { void answer({ option: Number(option.dataset.promptOption) }); return; }
     const action = target?.closest("[data-prompt-action]")?.dataset.promptAction;
     if (!action || !card) return;
-    if (action === "open") {
+    if (action === "plan") {
+      if (plannable(card)) openPlan(paneId, card.planPath);
+    } else if (action === "open") {
       if (!showChat()) expanded = true;
       render();
       focusCard();
