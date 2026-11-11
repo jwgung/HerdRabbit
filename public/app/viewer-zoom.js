@@ -12,7 +12,7 @@
 // A picture here is an SVG, which stays in the viewer dialog for its Source
 // button; every other picture opens in the chat's picture viewer
 // (chat/image-viewer.js). This zoom is that one's in miniature, with its limits.
-import { MAX_SCALE, TOGGLE_SCALE as DOUBLE_TAP_SCALE } from "../chat/image-viewer.js?v=1.4.51";
+import { MAX_SCALE, TOGGLE_SCALE as DOUBLE_TAP_SCALE } from "../chat/image-viewer.js?v=1.4.52";
 
 export { MAX_SCALE, DOUBLE_TAP_SCALE };
 export const MIN_SCALE = 1;

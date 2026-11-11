@@ -1,4 +1,4 @@
-import { createElement } from "./dom.js?v=1.4.51";
+import { createElement } from "./dom.js?v=1.4.52";
 
 // Settings → PCs → "Let other PCs connect": this PC's Connect PC port, which
 // other PCs' HerdRabbit pages use to show this PC's sessions. Choose PCs…
