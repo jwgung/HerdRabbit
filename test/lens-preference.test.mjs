@@ -146,3 +146,13 @@ test("Open panes in sets the default lens; a pane's own choice still wins", () =
   // Never a chat the pane does not have.
   assert.equal(chooseLens({ preference: "chat", chatAvailable: false }), "terminal");
 });
+
+test("a click on a chat takes the composer unless it was on the chat's own control or ended a selection", async () => {
+  const { chatPressTakesComposer } = await import("../public/lens-preference.js");
+  const on = (control) => ({ closest: () => (control ? {} : null) });
+  assert.equal(chatPressTakesComposer(on(false), { isCollapsed: true }), true);
+  assert.equal(chatPressTakesComposer(on(true), { isCollapsed: true }), false, "a button, a link or a file path keeps the click");
+  assert.equal(chatPressTakesComposer(on(false), { isCollapsed: false }), false, "a selection stays to be copied");
+  assert.equal(chatPressTakesComposer(on(false), null), true);
+  assert.equal(chatPressTakesComposer(null, { isCollapsed: true }), false);
+});

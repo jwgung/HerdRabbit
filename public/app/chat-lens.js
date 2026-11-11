@@ -5,6 +5,7 @@ import { createImageViewer } from "../chat/image-viewer.js?v=1.4.49";
 import { createChatFind } from "../chat/chat-find.js?v=1.4.49";
 import { composerPlaceholder, createPromptDock, sharedPromptWatch } from "../chat/prompt-card.js?v=1.4.49";
 import { paneServerId } from "../ui-model.js?v=1.4.49";
+import { chatPressTakesComposer } from "../lens-preference.js?v=1.4.49";
 import {
   chatScale,
   pinchedChatFontSize,
@@ -28,6 +29,7 @@ export function createChatPanel(deps) {
     conversationRequest, api, usesTouchInputEnvironment, isLinkableTerminalPath, openTerminalPath, setFeedback,
     showNewestTerminalOutput, scheduleTerminalPark, syncComposerExpanded, resizeTerminalInput, syncSendButton,
     refreshTerminal, refreshAfterSubmission, selectedRecordsFor, viewTicket, renderPaneViews, shownGrid,
+    focusComposer,
   } = deps;
   let promptDock = null;
   let terminalFind = null;
@@ -353,6 +355,12 @@ export function createChatPanel(deps) {
     if (scroller) scroller.scrollTop = atEnd ? scroller.scrollHeight : share * scroller.scrollHeight;
   }
   applyChatFontSize(chatFontSize, { save: false });
+
+  // A click on the single chat hands the typing to the composer, as a Chat
+  // cell's does (pane-grid.js); focusComposer leaves a phone's keyboard down.
+  elements.chatHost.addEventListener("click", (event) => {
+    if (chatLens.lens === "chat" && chatPressTakesComposer(event.target)) focusComposer();
+  });
 
   function overChat(target) {
     return chatLens.lens === "chat" && target instanceof Node &&

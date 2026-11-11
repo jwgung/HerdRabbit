@@ -1092,6 +1092,7 @@ const chatPanel = createChatPanel({
   viewTicket: (...args) => viewTicket(...args),
   renderPaneViews: (...args) => renderPaneViews(...args),
   shownGrid: (...args) => shownGrid(...args),
+  focusComposer: (...args) => focusComposer(...args),
 });
 const { chatLens, syncTerminalFind, applyChatFontSize, overChat, showTerminalView } = chatPanel;
 lateChatLens = chatLens;

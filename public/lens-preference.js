@@ -162,6 +162,19 @@ export function chatMayBecomeAvailable(reason) {
 // own pane in Chat or Terminal, by the same choice kept per pane above. A
 // cell smaller than this has no room to read a conversation: it shows the
 // terminal, and the pane opened alone shows its chat.
+// What in a chat answers a click itself, so the click leaves focus there:
+// controls, links, the prompt card's field, a file path. (The conversation's
+// scroll box is focusable only to scroll by keyboard.)
+const CHAT_OWN_CONTROLS = "a, button, input, textarea, select, summary, label, [contenteditable], [data-path], [data-action], " +
+  "[tabindex]:not([tabindex='-1']):not(.pane-grid-cell):not(.chat-scroll)";
+
+// A click on a chat that hands the typing to the composer: not on one of the
+// chat's own controls, and not the end of a text selection, which stays to be copied.
+export function chatPressTakesComposer(target, selection = globalThis.getSelection?.()) {
+  if (typeof target?.closest !== "function" || target.closest(CHAT_OWN_CONTROLS)) return false;
+  return selection?.isCollapsed ?? true;
+}
+
 export const CHAT_CELL_MIN_WIDTH = 320;
 export const CHAT_CELL_MIN_HEIGHT = 220;
 export const CHAT_CELL_TOO_SMALL = "Too small for the chat. Open alone";

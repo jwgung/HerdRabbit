@@ -196,6 +196,30 @@ try {
       assert.ok(Math.abs(look.buttonMiddle - look.composerMiddle) <= 2,
         `the sidebar footer's buttons are off the composer's row: ${JSON.stringify(look)}`);
     }
+    // A click on the conversation hands the typing to the composer on a
+    // desktop, as a Chat cell's does; not a click on one of its controls, not
+    // one ending a text selection, and never on a phone (its keyboard would
+    // cover the chat).
+    {
+      const focused = () => page.evaluate(() => document.activeElement?.id === "terminal-input");
+      await page.locator("#terminal-input").evaluate((node) => node.blur());
+      const text = page.locator(".chat-turn-agent .markdown").first();
+      await text.click();
+      assert.equal(await focused(), !mobile, `${mobile ? "phone" : "desktop"}: a click on the chat's text ${mobile ? "raised the keyboard" : "left the composer unfocused"}`);
+      if (!mobile) {
+        await page.locator("#terminal-input").evaluate((node) => node.blur());
+        await page.locator(".chat-scroll button:visible").first().click();
+        assert.equal(await focused(), false, "a click on a chat button moved the typing to the composer");
+        await page.locator("#terminal-input").evaluate((node) => node.blur());
+        const box = await text.boundingBox();
+        await page.mouse.move(box.x + 4, box.y + 6);
+        await page.mouse.down();
+        await page.mouse.move(box.x + Math.min(120, box.width - 4), box.y + 6, { steps: 4 });
+        await page.mouse.up();
+        assert.equal(await focused(), false, "ending a text selection moved the typing to the composer");
+        await page.evaluate(() => window.getSelection()?.removeAllRanges());
+      }
+    }
     // One line of the composer is the buttons' 44px whatever the text size:
     // larger letters (up to the chat's 24px) take room from the padding, the
     // buttons stay a 44px square, and only a line too tall for 44px grows it.

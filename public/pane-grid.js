@@ -6,7 +6,7 @@ import { createAttachedTerminal } from "./xterm-terminal.js?v=1.4.49";
 import { terminalConnection } from "./terminal-connection.js?v=1.4.49";
 import { MOUSE_DRAG_SLOP, dropPreview, dropSide } from "./sidebar-drag.js?v=1.4.49";
 import { adjustedGridFont, normalizedGridFont } from "./terminal-preference.js?v=1.4.49";
-import { CHAT_CELL_TOO_SMALL, cellLens, chatCellRoomy } from "./lens-preference.js?v=1.4.49";
+import { CHAT_CELL_TOO_SMALL, cellLens, chatCellRoomy, chatPressTakesComposer } from "./lens-preference.js?v=1.4.49";
 
 // A cell smaller than this (in Herdr's cells, or for a cell that sizes its
 // pane, in its own at the terminal font) is too small to read: it shows the
@@ -247,9 +247,6 @@ const LAYOUT_EASING = "cubic-bezier(0.2, 0, 0, 1)";
 // A cell's header buttons: a press on them neither picks the cell up nor
 // moves the typing.
 const HEADER_CONTROLS = ".pane-grid-menu-slot, .pane-grid-expand, .pane-grid-lens";
-// What in a Chat cell answers a click itself, so the click leaves focus there.
-// (The conversation's scroll box is focusable only to scroll by keyboard.)
-const CHAT_OWN_CONTROLS = "a, button, input, textarea, select, summary, label, [contenteditable], [tabindex]:not([tabindex='-1']):not(.pane-grid-cell):not(.chat-scroll)";
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -857,8 +854,7 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
     node.addEventListener("click", (event) => {
       if (event.target.closest(HEADER_CONTROLS)) return;
       if (cell.lens === "chat") {
-        if (event.target.closest(CHAT_OWN_CONTROLS) || !(window.getSelection()?.isCollapsed ?? true)) return;
-        onChatPress(paneId);
+        if (chatPressTakesComposer(event.target)) onChatPress(paneId);
         return;
       }
       if (cell.attached && cell.lens === "terminal" && !event.target.closest(".pane-grid-terminal")) cell.terminal.focus();
