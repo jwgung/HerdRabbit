@@ -86,6 +86,10 @@ export function createChatPanel(deps) {
       // The key bar drives the terminal: the Chat lens hides it, and the
       // terminal fits again once it is back.
       elements.terminalPanel.dataset.lens = lens;
+      // said on <body> too, for the rules outside the panel (the composer, the
+      // sidebar's footer): a body:has() over the panel made every turn added to
+      // the chat restyle the whole page (test/chat-style-cost.test.mjs)
+      document.body.dataset.lens = lens;
       // the composer's text size goes with the lens
       syncComposerExpanded({ defer: true });
       resizeTerminalInput();
@@ -137,6 +141,7 @@ export function createChatPanel(deps) {
   });
   promptDock.setLens(chatLens.lens);
   elements.terminalPanel.dataset.lens = chatLens.lens;
+  document.body.dataset.lens = chatLens.lens;
 
   // In a split, each Chat cell shows its own pane's prompt card under its
   // chat. The focused cell's is the selected pane's dock itself, moved into

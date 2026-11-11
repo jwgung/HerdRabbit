@@ -2124,7 +2124,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 }
 
 /* The find bar sits where the copy bar would: the copy bar steps below it. */
-.terminal-stage:has(.terminal-find:not([hidden])) .terminal-copy-bar {
+.terminal-stage:has(> .terminal-find:not([hidden])) .terminal-copy-bar {
   top: 54px;
 }
 
@@ -2303,7 +2303,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 }
 
 /* The find bar sits at the top too: the strip steps below it. */
-.terminal-stage:has(.terminal-find:not([hidden])) .terminal-status {
+.terminal-stage:has(> .terminal-find:not([hidden])) .terminal-status {
   top: 54px;
 }
 
@@ -2334,7 +2334,7 @@ body {
   --composer-row-height: max(44px, calc(var(--composer-font-size) * 1.5 + 6px));
 }
 
-body:has(.terminal-panel[data-lens="chat"]) {
+body[data-lens="chat"] {
   --composer-font-size: var(--chat-font-size, var(--terminal-font-size));
   /* The chat's last answer gets as much room above the composer as the panel
      leaves below it; the sidebar's footer grows by the same. */
@@ -4307,7 +4307,7 @@ body.is-resizing-sidebar {
 
   /* The Chat lens's wider gap above the composer (--composer-gap), above the
      footer's buttons too, so they stay on the composer's middle. */
-  body:has(.terminal-panel[data-lens="chat"]) .navigator .navigator-footer {
+  body[data-lens="chat"] .navigator .navigator-footer {
     padding-top: var(--space-4);
   }
 }
@@ -4850,7 +4850,7 @@ body.is-resizing-sidebar {
     --composer-font-size: max(var(--font-input-touch), var(--terminal-font-size));
   }
 
-  body:has(.terminal-panel[data-lens="chat"]) {
+  body[data-lens="chat"] {
     --composer-font-size: max(var(--font-input-touch), var(--chat-font-size, var(--terminal-font-size)));
   }
 }
@@ -4937,7 +4937,7 @@ body.is-sidebar-dragging * {
 }
 
 /* The copy bar steps below the strip that says why the terminal is not live. */
-.terminal-stage:has(.terminal-status:not([hidden])) .terminal-copy-bar {
+.terminal-stage:has(> .terminal-status:not([hidden])) .terminal-copy-bar {
   top: 64px;
 }
 
@@ -4963,7 +4963,7 @@ body.is-sidebar-dragging * {
   margin-top: 0;
 }
 
-body:has(.terminal-panel.is-grid[data-lens="chat"]) {
+body.has-pane-grid[data-lens="chat"] {
   --composer-gap: var(--space-3);
 }
 

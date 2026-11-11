@@ -47,8 +47,8 @@ test("this machine's dot says whether the page is connected, instead of a footer
   // above (wider in the Chat lens) and the pane's padding below, so its line
   // and buttons meet the composer's.
   assert.match(styles, /\.navigator \.navigator-footer \{[^}]*min-height: calc\(var\(--composer-row-height\) \+ var\(--composer-gap, 12px\) \+ 16px \+ 1px\);\s*padding-bottom: 16px;/u);
-  assert.match(styles, /body:has\(\.terminal-panel\[data-lens="chat"\]\) \.navigator \.navigator-footer \{\s*padding-top: 16px;/u);
-  assert.match(styles, /body:has\(\.terminal-panel\[data-lens="chat"\]\) \{[^}]*--composer-gap: 16px;/u);
+  assert.match(styles, /body\[data-lens="chat"\] \.navigator \.navigator-footer \{\s*padding-top: 16px;/u);
+  assert.match(styles, /body\[data-lens="chat"\] \{[^}]*--composer-gap: 16px;/u);
   assert.match(styles, /body \{\s*--composer-font-size: var\(--terminal-font-size\);\s*--composer-row-height: max\(44px, calc\(var\(--composer-font-size\) \* 1\.5 \+ 6px\)\);/u);
 });
 
