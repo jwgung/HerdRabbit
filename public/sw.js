@@ -1,4 +1,4 @@
-const CACHE_NAME = "herd-rabbit-v1.4.50";
+const CACHE_NAME = "herd-rabbit-v1.4.51";
 const NAVIGATION_CACHE = "herdr-notification-navigation-v1";
 
 async function saveNotificationTarget(target) {
