@@ -115,6 +115,27 @@ export function moveTile(tree, paneId, targetPaneId, side) {
   return tiles(next).length === present.length ? next : tree;
 }
 
+// How many tiles side by side `node` makes along `dir`: a node split the same
+// way counts each of its parts, anything else (a tile, or a split the other
+// way) is one.
+const partsAlong = (node, dir) => (!isLeaf(node) && node.dir === dir
+  ? partsAlong(node.first, dir) + partsAlong(node.second, dir) : 1);
+
+// `tree` with every row (or column) of tiles sharing its box evenly, as
+// Herdr's Even out layout does for a tab: nodes split the same way in a row
+// are read as one row (a | (b | c) is three columns of a third each), a split
+// the other way inside it as one of its parts, evened inside its own box. The
+// tiles stay where they are. The same tree when it is already even.
+export function evenTree(tree) {
+  if (tree == null || isLeaf(tree)) return tree;
+  const first = evenTree(tree.first);
+  const second = evenTree(tree.second);
+  const before = partsAlong(tree.first, tree.dir);
+  const ratio = before / (before + partsAlong(tree.second, tree.dir));
+  if (first === tree.first && second === tree.second && Math.abs(ratio - tree.ratio) < 1e-9) return tree;
+  return { ...tree, first, second, ratio };
+}
+
 // Each tile's rect in VIEW_AREA, as Herdr's `pane layout` answers for a tab:
 // { area, panes: [{ pane_id, rect: { x, y, width, height } }] }, whole cells
 // that cover the area exactly. null for no view split.

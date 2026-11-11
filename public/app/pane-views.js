@@ -24,6 +24,7 @@ import { laysOutPanes, paneMoveRequest } from "../sidebar-drag.js?v=1.4.52";
 import { chatAgent } from "../lens-preference.js?v=1.4.52";
 import {
   addTile,
+  evenTree,
   layoutRects,
   moveTile,
   paneDropKind,
@@ -392,6 +393,25 @@ export function createPaneViews(deps) {
   });
   elements.viewClose.addEventListener("click", () => closeViewSplit());
 
+  // The header's Even out: the tiles of this window's view split share their
+  // rows and columns evenly (kept by this window, nothing sent), or the Herdr
+  // grid's panes do, as its ⋯ Even out layout does.
+  function evenOutShown() {
+    if (viewSplitOnScreen()) {
+      const next = evenTree(viewSplit.tree);
+      if (next === viewSplit.tree) {
+        setFeedback("The tiles are already even.");
+        return;
+      }
+      setViewSplit(next, true);
+      renderPaneViews();
+      setFeedback("Layout evened out.");
+      return;
+    }
+    if (gridTabId() && state.selectedPaneId) void evenOutLayout(state.selectedPaneId);
+  }
+  elements.splitEven.addEventListener("click", evenOutShown);
+
   // Which screen a session dropped from the sidebar lands on.
   function paneDropScreen() {
     return viewGrid.shown ? "tiles" : paneGrid.shown ? "grid" : "solo";
@@ -447,6 +467,7 @@ export function createPaneViews(deps) {
     elements.gridBack.hidden = !(splitTabId && desktopMedia.matches && !gridTab);
     elements.viewBack.hidden = !(viewSplit.tree && desktopMedia.matches && !tilesShown);
     elements.viewClose.hidden = !tilesShown;
+    elements.splitEven.hidden = !(gridTab || tilesShown);
     elements.terminalPanel.classList.toggle("is-grid", Boolean(gridTab) || tilesShown);
     // on <body> too, for the composer's rules (see chat-lens.js on data-lens)
     document.body.classList.toggle("has-pane-grid", Boolean(gridTab) || tilesShown);
