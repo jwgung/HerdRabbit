@@ -32,6 +32,17 @@ export function splitTurn(parts) {
   };
 }
 
+// A settled turn: only the tool calls and thinking fold; what the agent said
+// along the way stays in the open, in order, ahead of the final answer.
+export function splitSettledTurn(parts) {
+  const { work, answer } = splitTurn(parts);
+  const said = new Set([...work, ...answer].filter((part) => part.kind === "text"));
+  return {
+    work: work.filter((part) => part.kind !== "text"),
+    answer: parts.filter((part) => said.has(part) || answer.includes(part)),
+  };
+}
+
 // A work block is open while its turn runs, and folded once it settles --
 // unless the work holds the last words the agent said (no answer after them).
 export function workStartsOpen(live, parts) {
