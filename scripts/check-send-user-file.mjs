@@ -107,7 +107,7 @@ try {
     assert.equal(await chat.locator(".chat-files").count(), 1, "only the call that delivered reads as a card");
     assert.equal(await turn.locator(".work-block .chat-files").count(), 0, "the card is not inside the work");
     assert.match(await turn.locator(".work-block-head").textContent(), /^Worked for \d+s\s*· 1 command$/u, "the delivery is not counted as work");
-    assert.equal(await turn.locator(".work-block-head").getAttribute("aria-expanded"), "false");
+    assert.equal(await turn.locator(".work-block-head").getAttribute("aria-expanded"), "true");
     assert.equal(await card.locator(".chat-files-head").textContent(), "Sent you 2 files");
     assert.match(await card.locator(".chat-files-caption strong").textContent(), /while playing/u);
     const order = await turn.evaluate((node) => [...node.children].map((child) => child.className));
@@ -122,7 +122,7 @@ try {
 
     // An input the card cannot read stays an ordinary tool row in the work.
     const odd = chat.locator(".chat-turn-agent").nth(1);
-    await odd.locator(".work-block-head").click();
+    assert.equal(await odd.locator(".work-block-head").getAttribute("aria-expanded"), "true");
     assert.match(await odd.locator(".work-row-name").textContent(), /^SendUserFile$/u);
 
     // The .apk opens in the Files tab, in its folder with its row selected.
