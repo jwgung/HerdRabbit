@@ -141,10 +141,10 @@ try {
     assert.match(await agents.last().locator(".work-block-head").textContent(), /Needs you.*1 command/u);
     const answer = agents.nth((await agents.count()) - 2);
     assert.match(await answer.locator(".markdown strong").first().textContent(), /bold/u);
-    // The work folds under one header; its row says what ran, and the whole output loads.
+    // The work sits under one header, open; its row says what ran, and the whole output loads.
     const block = answer.locator(".work-block");
     assert.match(await block.locator(".work-block-head").textContent(), /Worked for 9s.*1 command/u);
-    await block.locator(".work-block-head").click();
+    assert.equal(await block.locator(".work-block-head").getAttribute("aria-expanded"), "true");
     const rows = await block.locator(".work-row-head").allTextContents();
     assert.ok(rows.some((row) => /Ran\s*git status --short step-28/u.test(row)), `a command row reads "Ran …": ${rows.join(" | ")}`);
     assert.ok(rows.some((row) => /Thinking/u.test(row)), "the reasoning summary is a thinking row");

@@ -309,10 +309,14 @@ try {
     await longPrompt.locator(".chat-bubble-more").click();
     assert.equal((await foldState()).clipped, true, "Show less folds it again");
 
-    // Work is folded under one header, and a row opens to the call and its output.
+    // Work sits under one header, open once the turn has settled; the header folds it and opens it again.
     const block = answer.locator(".work-block");
     assert.match(await block.locator(".work-block-head").textContent(), /Worked for 7s.*1 command/u);
+    assert.equal(await block.locator(".work-block-head").getAttribute("aria-expanded"), "true");
     await block.locator(".work-block-head").click();
+    assert.equal(await block.locator(".work-block-head").getAttribute("aria-expanded"), "false");
+    await block.locator(".work-block-head").click();
+    assert.equal(await block.locator(".work-block-head").getAttribute("aria-expanded"), "true");
     // One row per call, each opening on its own. The subagent's row reads as
     // its description; its tool's name is in the title and the opened detail.
     const task = block.locator(".work-row", { hasText: "Explore the step folder" });
