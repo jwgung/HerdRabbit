@@ -10,7 +10,6 @@ import {
   isLiveWorkTurn,
   isToolNarration,
   splitDeliveredPath,
-  splitSettledTurn,
   splitTurn,
   todoCallSummary,
   todoItems,
@@ -53,12 +52,6 @@ test("a turn splits into its work and the answer after the last action", () => {
   assert.equal(workStartsOpen(true, parts), true);
   assert.equal(workStartsOpen(false, parts), false);
   assert.equal(workStartsOpen(false, [tool("Bash", { command: "ls" }), text("then"), tool("Read", { file_path: "a" })]), true);
-});
-
-test("a settled turn folds only tools and thinking; its narration stays in the open", () => {
-  const parts = [text("Looking."), { kind: "thinking", text: "hmm" }, tool("Bash", { command: "ls" }), text("Found two."), tool("Read", { file_path: "a" }), text("Done.")];
-  assert.deepEqual(splitSettledTurn(parts), { work: [parts[1], parts[2], parts[4]], answer: [parts[0], parts[3], parts[5]] });
-  assert.deepEqual(splitSettledTurn([tool("Bash", { command: "ls" })]), { work: [parts[2]], answer: [] });
 });
 
 test("the work header counts by kind, leaves todos out, and counts failures apart", () => {

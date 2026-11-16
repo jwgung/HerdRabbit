@@ -20,7 +20,6 @@ import {
   isToolNarration,
   parseToolInput,
   splitDeliveredPath,
-  splitSettledTurn,
   splitTurn,
   todoCallSummary,
   todoItems,
@@ -399,7 +398,7 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
 
   function workBlock(turn, key, parts, live) {
     const chosen = blockChoice.get(key);
-    const open = chosen ?? (live || workStartsOpen(live, turn.parts));
+    const open = chosen ?? workStartsOpen(live, turn.parts);
     const block = element(document, "section", { className: `work-block${live ? " is-live" : ""}${live && status === "blocked" ? " is-waiting" : ""}`, attrs: { "data-block": key } });
     const head = element(document, "button", { className: "work-block-head", attrs: { type: "button", "aria-expanded": String(open), "data-action": "toggle-block" } });
     head.append(caret(), element(document, "span", { className: "work-block-title",
@@ -551,7 +550,7 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
       return article;
     }
     const article = element(document, "article", { className: "chat-turn chat-turn-agent" });
-    const { work, answer } = live ? splitTurn(turn.parts) : splitSettledTurn(turn.parts);
+    const { work, answer } = splitTurn(turn.parts);
     if (work.length > 0) article.append(workBlock(turn, key, work, live));
     for (const part of answer) article.append(part.kind === "text" ? markdown(part.text) : fileCard(part));
     const answerText = answer.filter((part) => part.kind === "text").map((part) => part.text).join("\n\n");
