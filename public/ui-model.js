@@ -1,4 +1,4 @@
-import { AGENTS, MARK_PRIORITY } from "./agents.js?v=1.4.54";
+import { AGENTS, MARK_PRIORITY } from "./agents.js?v=1.4.55";
 
 export const HISTORY_PAGE_LINES = 200;
 const AGENT_STATUS_ICONS = Object.freeze({
