@@ -1,11 +1,11 @@
-import { createElement } from "./dom.js?v=1.4.53";
+import { createElement } from "./dom.js?v=1.4.54";
 import {
   parsePluginSource, pluginLogSummary, pluginMachines, pluginOperationText, pluginSourceText, pluginSourceUrl, pluginTarget,
   pluginTargetText, pluginWorkspaces, updateAllConfirmText, updateAllCount, updateAllPlan, updateAllResultText, validPluginRef,
-} from "./plugin-model.js?v=1.4.53";
-import { appVersionText, confirmDetails as appConfirmDetails, runSummary } from "../app-update.js?v=1.4.53";
-import { createPluginBrowse } from "./plugin-browse.js?v=1.4.53";
-import { createFolderField } from "./folder-field.js?v=1.4.53";
+} from "./plugin-model.js?v=1.4.54";
+import { appVersionText, confirmDetails as appConfirmDetails, runSummary } from "../app-update.js?v=1.4.54";
+import { createPluginBrowse } from "./plugin-browse.js?v=1.4.54";
+import { createFolderField } from "./folder-field.js?v=1.4.54";
 
 const POLL_MS = 1_500;
 const GIVE_UP_MS = 15 * 60_000;
