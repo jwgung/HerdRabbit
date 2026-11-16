@@ -15,7 +15,6 @@ import {
   todoItems,
   toolVerb,
   workFailed,
-  workStartsOpen,
   workSummary,
   workTitle,
 } from "../public/chat/work-blocks.js";
@@ -48,10 +47,6 @@ test("a turn splits into its work and the answer after the last action", () => {
   assert.deepEqual(answer, [parts[3]]);
   // words with no action after them are all answer; blank text is neither
   assert.deepEqual(splitTurn([text("only words"), text("  ")]), { work: [], answer: [text("only words")] });
-  // the block opens while the turn runs, and when the last words are inside it
-  assert.equal(workStartsOpen(true, parts), true);
-  assert.equal(workStartsOpen(false, parts), false);
-  assert.equal(workStartsOpen(false, [tool("Bash", { command: "ls" }), text("then"), tool("Read", { file_path: "a" })]), true);
 });
 
 test("the work header counts by kind, leaves todos out, and counts failures apart", () => {
@@ -221,14 +216,12 @@ test("delivered files stay out of the folded work, in their place among the answ
   // sent last, after its words: both are the answer, in order
   let parts = [build, text("Here it is."), delivery];
   assert.deepEqual(splitTurn(parts), { work: [build], answer: [parts[1], delivery] });
-  assert.equal(workStartsOpen(false, parts), false);
   // sent mid-way: out of the work all the same, ahead of the answer
   parts = [delivery, build, text("Done.")];
   assert.deepEqual(splitTurn(parts), { work: [build], answer: [delivery, parts[2]] });
   // only a delivery after the work's last words: those words stay in the work, which opens
   parts = [text("Building."), build, delivery];
   assert.deepEqual(splitTurn(parts), { work: [parts[0], build], answer: [delivery] });
-  assert.equal(workStartsOpen(false, parts), true);
   // one still running is an ordinary tool row in the work
   const running = tool("SendUserFile", { files: [APK] });
   assert.deepEqual(splitTurn([build, running]), { work: [build, running], answer: [] });

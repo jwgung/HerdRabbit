@@ -25,7 +25,6 @@ import {
   todoItems,
   toolVerb,
   workFailed,
-  workStartsOpen,
   workSummary,
   workTitle,
 } from "./work-blocks.js?v=1.4.54";
@@ -398,7 +397,8 @@ function createPaneChat({ paneId, document, fetchJson, isLinkablePath, onOpenPat
 
   function workBlock(turn, key, parts, live) {
     const chosen = blockChoice.get(key);
-    const open = chosen ?? workStartsOpen(live, turn.parts);
+    // open by default, a settled turn too; the header folds it
+    const open = chosen ?? true;
     const block = element(document, "section", { className: `work-block${live ? " is-live" : ""}${live && status === "blocked" ? " is-waiting" : ""}`, attrs: { "data-block": key } });
     const head = element(document, "button", { className: "work-block-head", attrs: { type: "button", "aria-expanded": String(open), "data-action": "toggle-block" } });
     head.append(caret(), element(document, "span", { className: "work-block-title",

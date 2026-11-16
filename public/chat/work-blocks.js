@@ -1,5 +1,5 @@
 // How one agent turn reads in the chat: everything the agent did on the way
-// (tool calls, thinking, the narration between them) folded under one
+// (tool calls, thinking, the narration between them) gathered under one
 // "Worked for 7s · 1 edit" header, and what it said after its last action
 // left in the open as the answer. Also the words a tool row uses ("Ran",
 // "Edited"), a TodoWrite call's list, and the files a SendUserFile call
@@ -30,15 +30,6 @@ export function splitTurn(parts) {
     work: parts.filter((part, index) => !delivered[index] && (part.kind !== "text" || (isProse(part) && index <= lastAction))),
     answer: parts.filter((part, index) => delivered[index] || (isProse(part) && index > lastAction)),
   };
-}
-
-// A work block is open while its turn runs, and folded once it settles --
-// unless the work holds the last words the agent said (no answer after them).
-export function workStartsOpen(live, parts) {
-  if (live) return true;
-  const lastAnswer = splitTurn(parts).answer.filter((part) => part.kind === "text").at(-1);
-  const after = lastAnswer === undefined ? 0 : parts.lastIndexOf(lastAnswer) + 1;
-  return parts.slice(after).some((part) => part.kind === "text" && part.text.trim().length > 0);
 }
 
 const CATEGORY_LABEL = {
