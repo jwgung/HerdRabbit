@@ -269,7 +269,7 @@ test("a phone's notch, rounded corners and gesture bar never cover the app", () 
   // the phone's sidebar drawer keep their content inside the safe area.
   assert.match(page, /name="viewport" content="[^"]*viewport-fit=cover/u);
   assert.match(styles, /\.shell \{[^}]*padding: env\(safe-area-inset-top, 0px\) env\(safe-area-inset-right, 0px\) env\(safe-area-inset-bottom, 0px\) env\(safe-area-inset-left, 0px\);/u);
-  assert.match(styles, /\.navigator \{[^}]*position: fixed;[^}]*padding: env\(safe-area-inset-top, 0px\) 0 env\(safe-area-inset-bottom, 0px\) env\(safe-area-inset-left, 0px\);/u);
+  assert.match(styles, /\.navigator \{[^}]*position: fixed;[^}]*padding: env\(safe-area-inset-top, 0px\) env\(safe-area-inset-right, 0px\) env\(safe-area-inset-bottom, 0px\) env\(safe-area-inset-left, 0px\);/u);
   // On a phone the chat keeps 16px from the screen's sides and bottom.
   assert.match(styles, /\.terminal-panel \{\s*height: 100%;\s*min-height: 0;\s*padding: 12px 16px 16px;/u);
 });

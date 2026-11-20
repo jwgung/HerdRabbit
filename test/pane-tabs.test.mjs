@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decidePaneSwipe, paneTabOrder, swipeTarget } from "../public/app/pane-tabs.js";
+import { EDGE_SWIPE_ZONE, attachPaneSwipe, decidePaneSwipe, paneTabOrder, swipeTarget } from "../public/app/pane-tabs.js";
 
 const panes = (...ids) => ids.map((paneId) => ({ paneId }));
 const rect = (x, y, width, height) => ({ x, y, width, height });
@@ -45,4 +45,32 @@ test("a swipe is a long sideways drag or a quick flick, never a scroll", () => {
   assert.equal(decidePaneSwipe({ dx: -150, dy: 120, vx: -1, width: 400 }), null);
   // thrown back the other way at the end
   assert.equal(decidePaneSwipe({ dx: -60, dy: 0, vx: 0.9, width: 400 }), null);
+});
+
+// attachPaneSwipe on a bare event target: only the touches' coordinates matter.
+function swipeAcross(startX, endX, selected = "a") {
+  const stage = new EventTarget();
+  stage.clientWidth = 400;
+  globalThis.window = { getSelection: () => "" };
+  globalThis.Element ??= class {};
+  const swiped = [];
+  attachPaneSwipe(stage, { paneIds: () => ["a", "b"], selectedPaneId: () => selected, onSwipe: (id) => swiped.push(id) });
+  const fire = (type, touches, changedTouches, timeStamp) => {
+    const event = new Event(type);
+    Object.defineProperty(event, "timeStamp", { value: timeStamp });
+    Object.assign(event, { touches, changedTouches });
+    stage.dispatchEvent(event);
+  };
+  const at = (x) => [{ clientX: x, clientY: 100 }];
+  fire("touchstart", at(startX), at(startX), 0);
+  fire("touchmove", at(endX), at(endX), 100);
+  fire("touchend", [], at(endX), 120);
+  return swiped;
+}
+
+test("a pane swipe that starts in the left-edge zone is left to the sidebar", () => {
+  assert.deepEqual(swipeAcross(300, 100), ["b"]);
+  assert.deepEqual(swipeAcross(EDGE_SWIPE_ZONE + 1, 300, "b"), ["a"]);
+  assert.deepEqual(swipeAcross(EDGE_SWIPE_ZONE, 300, "b"), []);
+  assert.deepEqual(swipeAcross(5, 300, "b"), []);
 });

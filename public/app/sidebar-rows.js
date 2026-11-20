@@ -24,6 +24,9 @@ import { tiles as viewTiles } from "../view-split.js?v=1.4.56";
 // handed in as wrappers, so they may be defined after this is made;
 // `viewGrid` is made further down app.js and is read through a getter on
 // `deps`.
+// The click that follows a dismissing tap arrives within this many milliseconds.
+const SHEET_DISMISS_CLICK_MS = 350;
+
 export function createSidebarRows(deps) {
   const {
     state, panePreferenceStorage, desktopMedia, viewSplit, api,
@@ -58,11 +61,32 @@ export function createSidebarRows(deps) {
     if (escapesOverflow) {
       popover.setAttribute("popover", "auto");
       popover.classList.add("is-floating");
-      popover.addEventListener("toggle", (event) => {
-        // Clicking away closes the popover without telling the details element.
-        if (event.newState === "closed" && details.open) details.open = false;
-      });
     }
+    // Clicking away, or Esc, closes the popover without telling the details element.
+    popover.addEventListener("toggle", (event) => {
+      if (event.newState === "closed" && details.open) details.open = false;
+    });
+    // The tap that dismisses a sheet is followed by a click on whatever lies
+    // under it (a row, a tab). That click is swallowed: the tap only closes.
+    // Only a tap outside the sheet: a tap on one of its items or on Cancel
+    // closes it too, and the next click (a confirm dialog's OK) is the user's.
+    // Esc has no tap, so there is nothing to swallow after it.
+    let tapped = false;
+    const markTap = (event) => { tapped = !(event.target instanceof Node && popover.contains(event.target)); };
+    popover.addEventListener("beforetoggle", (event) => {
+      if (event.newState !== "closed" || !details.open || !tapped) return;
+      const swallow = (click) => { click.stopPropagation(); click.preventDefault(); };
+      document.addEventListener("click", swallow, { capture: true, once: true });
+      setTimeout(() => document.removeEventListener("click", swallow, { capture: true }), SHEET_DISMISS_CLICK_MS);
+    });
+    // On a phone every menu is a bottom sheet in the top layer: above the page
+    // and the sidebar, with its ::backdrop dimming what is behind. The name of
+    // what it acts on is its title, and Cancel is a thumb's reach from the edge.
+    const target = label.replace(/^(?:More actions|Actions) for /u, "");
+    popover.setAttribute("aria-label", target);
+    const title = createElement("div", { className: "sidebar-sheet-title", text: target });
+    title.setAttribute("aria-hidden", "true");
+    popover.append(title);
 
     for (const action of actions) {
       if (action.separator) {
@@ -90,6 +114,35 @@ export function createSidebarRows(deps) {
       popover.append(button);
     }
 
+    const cancel = createElement("button", { className: "sidebar-sheet-cancel", text: "Cancel" });
+    cancel.type = "button";
+    cancel.setAttribute("role", "menuitem");
+    cancel.addEventListener("click", () => {
+      details.open = false;
+      state.openActionMenuId = null;
+    });
+    popover.append(cancel);
+
+    // The popover attribute is only set while the sheet is up, for the menus that
+    // do not already live in the top layer.
+    function showSheet() {
+      if (!popover.isConnected) return;
+      tapped = false;
+      document.addEventListener("pointerdown", markTap, { capture: true });
+      popover.classList.add("is-sheet");
+      popover.style.left = "";
+      popover.style.top = "";
+      if (!escapesOverflow) popover.setAttribute("popover", "auto");
+      popover.showPopover();
+    }
+
+    function hideSheet() {
+      document.removeEventListener("pointerdown", markTap, { capture: true });
+      if (popover.matches(":popover-open")) popover.hidePopover();
+      popover.classList.remove("is-sheet");
+      if (!escapesOverflow) popover.removeAttribute("popover");
+    }
+
     details.addEventListener("toggle", () => {
       if (details.open) {
         state.openActionMenuId = id;
@@ -97,9 +150,11 @@ export function createSidebarRows(deps) {
         for (const other of document.querySelectorAll(".sidebar-action-menu[open]")) {
           if (other !== details) other.open = false;
         }
-        if (escapesOverflow) placeFloatingMenu(popover, summary);
+        if (!desktopMedia.matches) showSheet();
+        else if (escapesOverflow) placeFloatingMenu(popover, summary);
       } else {
-        if (escapesOverflow && popover.matches(":popover-open")) popover.hidePopover();
+        if (popover.classList.contains("is-sheet")) hideSheet();
+        else if (escapesOverflow && popover.matches(":popover-open")) popover.hidePopover();
         if (state.openActionMenuId === id) state.openActionMenuId = null;
       }
     });

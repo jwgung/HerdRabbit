@@ -1,5 +1,6 @@
 import { browserSessionStorage, browserStorage } from "./app/dom.js?v=1.4.56";
 import { enhanceSelects } from "./app/select-popover.js?v=1.4.56";
+import { attachSidebarSwipe } from "./app/sidebar-swipe.js?v=1.4.56";
 import { createSnapshotModel } from "./app/snapshot.js?v=1.4.56";
 import { createNotifications } from "./app/notifications.js?v=1.4.56";
 import { createSettings } from "./app/settings.js?v=1.4.56";
@@ -152,6 +153,7 @@ const elements = {
   sidebarToggle: document.querySelector("#sidebar-toggle"),
   sidebarScrim: document.querySelector("#sidebar-scrim"),
   mobileSidebarOpen: document.querySelector("#mobile-sidebar-open"),
+  sidebarClose: document.querySelector("#sidebar-close"),
   // The key bar's editor lives with the other settings at the foot of the sidebar.
   workspaceList: document.querySelector("#workspace-list"),
   paneContext: document.querySelector("#pane-context"),
@@ -1274,10 +1276,25 @@ elements.navigator.addEventListener("transitionend", (event) => {
   }
 });
 
-elements.mobileSidebarOpen.addEventListener("click", () => {
+function openMobileSidebar() {
+  if (desktopMedia.matches || state.mobileSidebarOpen) return;
   state.mobileSidebarOpen = true;
   syncSidebar();
   elements.sidebarToggle.focus();
+}
+
+elements.mobileSidebarOpen.addEventListener("click", openMobileSidebar);
+
+elements.sidebarClose.addEventListener("click", () => {
+  closeMobileSidebar({ restoreFocus: true });
+});
+
+attachSidebarSwipe({
+  drawer: elements.navigator,
+  isPhone: () => !desktopMedia.matches,
+  isOpen: () => state.mobileSidebarOpen,
+  onOpen: openMobileSidebar,
+  onClose: () => closeMobileSidebar({ restoreFocus: true }),
 });
 
 elements.sidebarScrim.addEventListener("click", () => {
@@ -1413,11 +1430,11 @@ document.addEventListener("keydown", (event) => {
   // An open dialog (the settings screen, a window over it) answers Escape on
   // its own; the sidebar under it stays as it is.
   if (document.querySelector("dialog[open]")) return;
+  // Esc closes the open menu first; the phone sidebar stays until the next one.
+  const menus = document.querySelectorAll(".sidebar-action-menu[open]");
   state.openActionMenuId = null;
-  for (const menu of elements.workspaceList.querySelectorAll(
-    ".sidebar-action-menu[open]",
-  )) menu.open = false;
-  closeMobileSidebar({ restoreFocus: true });
+  for (const menu of menus) menu.open = false;
+  if (menus.length === 0) closeMobileSidebar({ restoreFocus: true });
 });
 
 document.addEventListener("click", (event) => {
