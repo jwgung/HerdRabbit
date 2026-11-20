@@ -262,6 +262,8 @@ const CODEX_FOLDED_KEYS = Object.freeze({ "⇧←": "shift+left", "⌥↑": "alt
 // its footer.
 const CODEX_FOLDED_TAIL_LINES = 8;
 
+// The summary sits above the composer, not at the screen's end, so it is
+// looked for among the last lines rather than with hintEnds.
 function foldedQuestionsAt(shown) {
   for (let at = shown.length - 2; at >= Math.max(0, shown.length - CODEX_FOLDED_TAIL_LINES); at -= 1) {
     const count = CODEX_FOLDED_COUNT_RE.exec(shown[at]);

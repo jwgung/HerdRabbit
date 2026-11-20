@@ -552,3 +552,8 @@ test("the folded questions card sends Codex's own key, for the screen it was rea
   await service.answer("w1:p3", { cardId: card.id, option: 0 });
   assert.deepEqual(herdr.sent.filter((item) => item.paneId === "w1:p3").map((item) => item.keys), [["shift+left"]]);
 });
+
+test("an approval on screen wins over the folded questions summary", () => {
+  const screen = `${collapsedQuestions()}\n${codexApprovalScreen({ cursor: 0 })}`;
+  assert.equal(parseCodexPrompt(screen).kind, "approval");
+});
