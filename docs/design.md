@@ -130,7 +130,7 @@ HerdRabbit 화면을 만들거나 고칠 때 따르는 규칙이다. 값은 `pub
 
 | 역할 | 토큰 |
 |---|---|
-| 바탕 | `--page`, `--surface`, `--surface-raised`, `--control-surface`(입력칸·보조 버튼), `--card-surface`(설정 카드), `--sunken-surface`(설정 페이지 목록, 묶음 선택의 바탕), `--segment-selected`(묶음 선택에서 고른 것, 보이는 설정 페이지), `--navigator-surface`, `--hover-surface`, `--selected-surface`, `--completion-surface`(완료된 접힌 워크스페이스) |
+| 바탕 | `--page`, `--surface`, `--surface-raised`, `--control-surface`(입력칸·보조 버튼), `--card-surface`(설정 카드), `--sunken-surface`(설정 페이지 목록, 묶음 선택의 바탕), `--segment-selected`(묶음 선택에서 고른 것, 보이는 설정 페이지), `--navigator-surface`, `--sheet-surface`(폰의 줄 메뉴 하단 시트, 어둡게 한 화면 위에서 한 단계 밝게), `--hover-surface`, `--selected-surface`, `--completion-surface`(완료된 접힌 워크스페이스) |
 | 글자 | `--text`, `--muted`, `--control-text`, `--workspace-heading`, `--input-text` |
 | 선 | `--line`, `--hover-line`, `--selected-border`, `--control-line`(입력칸·보조 버튼의 테두리, 바탕과 3:1 이상) |
 | 강조·주 동작 | `--accent`, `--accent-hover`, `--accent-ink`(강조 바탕 위 글자) |

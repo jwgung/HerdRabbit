@@ -3890,6 +3890,8 @@ body.sidebar-collapsed .new-tab-open { display: none; }
   overscroll-behavior: contain;
 }
 
+/* The shared menu panel sets its own display, which outranks the popover's
+   default of none: a closed sheet would show at its in-flow spot. */
 .sidebar-action-popover.is-sheet:not(:popover-open) {
   display: none;
 }

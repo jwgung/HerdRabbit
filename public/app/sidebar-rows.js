@@ -68,9 +68,11 @@ export function createSidebarRows(deps) {
     });
     // The tap that dismisses a sheet is followed by a click on whatever lies
     // under it (a row, a tab). That click is swallowed: the tap only closes.
+    // Only a tap outside the sheet: a tap on one of its items or on Cancel
+    // closes it too, and the next click (a confirm dialog's OK) is the user's.
     // Esc has no tap, so there is nothing to swallow after it.
     let tapped = false;
-    const markTap = () => { tapped = true; };
+    const markTap = (event) => { tapped = !(event.target instanceof Node && popover.contains(event.target)); };
     popover.addEventListener("beforetoggle", (event) => {
       if (event.newState !== "closed" || !details.open || !tapped) return;
       const swallow = (click) => { click.stopPropagation(); click.preventDefault(); };
