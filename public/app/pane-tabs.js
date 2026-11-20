@@ -15,6 +15,10 @@ export const FLICK_MIN_DISTANCE = 40;
 // Sideways by at least this much more than up or down: a scroll that drifts is no swipe.
 export const SIDEWAYS_RATIO = 1.5;
 
+// A touch that starts this close to the screen's left edge opens the phone
+// sidebar (app/sidebar-swipe.js), so a pane swipe leaves it alone.
+export const EDGE_SWIPE_ZONE = 24;
+
 // The statuses whose dot a tab shows; an idle or unknown pane shows none.
 const DOT_STATUSES = new Set(["blocked", "working", "done"]);
 
@@ -82,7 +86,7 @@ export function renderPaneTabs(host, { layout, panes, selectedPaneId, onPick, ag
 // Whether `target` sits in something that scrolls sideways and can still go
 // the way the finger pushes it (a code block, a wide table): that drag is its
 // scroll, not a swipe. Looked for up to `stage`.
-function scrollsSideways(target, stage, dx) {
+export function scrollsSideways(target, stage, dx) {
   for (let node = target; node && node !== stage; node = node.parentElement) {
     if (!(node instanceof Element) || node.scrollWidth <= node.clientWidth + 1) continue;
     const overflow = getComputedStyle(node).overflowX;
@@ -95,7 +99,8 @@ function scrollsSideways(target, stage, dx) {
 
 // Swipes across `stage` while `paneIds()` answers the tabs' panes in order (null
 // while no tabs are shown). `skip(target)` answers the touches left alone
-// (the tabs themselves, which scroll, and the prompt card). `onSwipe(paneId)`
+// (the tabs themselves, which scroll, and the prompt card); one that starts in
+// the left-edge zone is left alone too. `onSwipe(paneId)`
 // picks the pane.
 export function attachPaneSwipe(stage, { paneIds, selectedPaneId, skip = () => false, onSwipe }) {
   let touch = null;
@@ -103,6 +108,7 @@ export function attachPaneSwipe(stage, { paneIds, selectedPaneId, skip = () => f
     touch = null;
     if (event.touches.length !== 1 || !paneIds() || skip(event.target)) return;
     const { clientX: x, clientY: y } = event.touches[0];
+    if (x <= EDGE_SWIPE_ZONE) return;
     touch = { target: event.target, x0: x, y0: y, samples: [{ x, t: event.timeStamp }] };
   }, { passive: true });
   stage.addEventListener("touchmove", (event) => {

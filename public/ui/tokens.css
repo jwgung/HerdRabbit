@@ -153,7 +153,8 @@
   --agent-unknown: #748079;
   --status-ok: #1f8a4c;
   --status-attention: #c2610c;
-  --navigator-surface: rgb(248 251 249 / 94%);
+  /* Opaque: the phone sidebar covers the page, which must not show through. */
+  --navigator-surface: #f8fbf9;
   --workspace-heading: #34473e;
   --selected-border: #76a58f;
   --selected-surface: #e0f0e8;

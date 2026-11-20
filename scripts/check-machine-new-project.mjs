@@ -163,7 +163,10 @@ try {
       ["New workspace…", "Details", "AI accounts"], "this machine's menu does not lead with New workspace");
     const button = await local.locator(".sidebar-action-menu > summary").boundingBox();
     const menu = await local.locator(".sidebar-action-popover").boundingBox();
-    assert.ok(Math.abs(menu.y - (button.y + button.height)) < 40 || Math.abs(menu.y + menu.height - button.y) < 40,
+    // On a phone the menu is a sheet at the screen's foot instead.
+    const view = page.viewportSize();
+    const sheet = menu.x === 0 && menu.width === view.width && menu.y + menu.height === view.height;
+    assert.ok(sheet || Math.abs(menu.y - (button.y + button.height)) < 40 || Math.abs(menu.y + menu.height - button.y) < 40,
       `the machine menu is not beside its button: ${JSON.stringify({ button, menu })}`);
     if (mobile) assert.ok((await item.boundingBox()).height >= 44, "New workspace is under 44px");
     if (shots) await page.screenshot({ path: join(shots, `machine-menu-${where}.png`) });

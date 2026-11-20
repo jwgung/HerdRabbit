@@ -200,6 +200,9 @@ try {
     const plusBox = await page.locator("#new-tab-open").boundingBox();
     const logoBox = await page.locator("#sidebar-toggle").boundingBox();
     const sidebarBox = await page.locator("#navigator").boundingBox();
+    // On a phone the sidebar's × stands at the right end, with the + beside it.
+    const closeBox = await page.locator("#sidebar-close").boundingBox();
+    if (closeBox) sidebarBox.width = closeBox.x - sidebarBox.x;
     assert.ok(Math.abs((plusBox.y + plusBox.height / 2) - (logoBox.y + logoBox.height / 2)) < 4 && plusBox.x > logoBox.x + logoBox.width
       && sidebarBox.x + sidebarBox.width - (plusBox.x + plusBox.width) < 24, `${where}: the + is not at the right of the logo row: ${JSON.stringify({ plusBox, logoBox, sidebarBox })}`);
     if (mobile) assert.ok(plusBox.height >= 44 && plusBox.width >= 44, `${where}: the + is under 44px`);
@@ -270,15 +273,19 @@ try {
     await page.locator(".pane-button", { hasText: `Review ${where}` }).first().waitFor({ state: "visible" });
     await closeSidebar();
 
-    // The ⋯ menu's item is a popover beside the ⋯ button, not a sheet at the
-    // foot; it opens the dialog on that workspace. A connected PC's offers that
-    // PC's agents, and only them.
+    // The ⋯ menu's item is a popover beside the ⋯ button on a desktop and a
+    // sheet at the screen's foot on a phone; it opens the dialog on that
+    // workspace. A connected PC's offers that PC's agents, and only them.
     const { summary, item } = await openDialog("Bench");
     const button = await summary.boundingBox();
     const menu = await item.locator("xpath=..").boundingBox();
-    assert.ok(Math.abs(menu.y - (button.y + button.height)) < 40 || Math.abs(menu.y + menu.height - button.y) < 40,
-      `${where}: the menu is not beside its button: ${JSON.stringify({ button, menu })}`);
-    assert.ok(menu.width < (mobile ? 390 : 1280) * 0.9, `${where}: the menu spans the screen like a sheet`);
+    if (mobile) {
+      assert.ok(menu.x === 0 && menu.width === 390 && menu.y + menu.height === 844, `${where}: the menu is not a sheet at the foot: ${JSON.stringify(menu)}`);
+    } else {
+      assert.ok(Math.abs(menu.y - (button.y + button.height)) < 40 || Math.abs(menu.y + menu.height - button.y) < 40,
+        `${where}: the menu is not beside its button: ${JSON.stringify({ button, menu })}`);
+      assert.ok(menu.width < 1280 * 0.9, `${where}: the menu spans the screen like a sheet`);
+    }
     if (mobile) assert.ok((await item.boundingBox()).height >= 44, `${where}: the menu item is under 44px`);
     if (shots) await page.screenshot({ path: join(shots, `menu-${where}.png`) });
     await item.click();

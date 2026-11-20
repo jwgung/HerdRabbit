@@ -343,6 +343,9 @@ After the first successful password login, HerdRabbit offers to register a Passk
 
 Select an agent or pane in the sidebar to show its output. The last selected pane is stored in `localStorage` and restored on reload when it still exists. Browser storage is isolated by origin, so an HTTP LAN URL and a Tailscale HTTPS URL have separate preferences.
 
+
+On a phone (760px wide or less) the sidebar covers the whole screen, opaque. Open it with the rabbit button at the top left of the page, or by swiping right from the screen's left edge (a touch that starts within about 24px of it). Close it with the **×** at the right end of its heading (the **+** sits beside it), by swiping left on the sidebar, with `Esc`, or by picking a pane. Scrolling the list and sideways scrolling inside it work as before. A swipe that starts at the left edge only opens the sidebar; it never also switches the pane of a split tab. A `⋯` menu opens as a sheet from the foot of the screen with the page dimmed behind it: the name of the row, its actions in tall rows and **Cancel**. Tapping outside the sheet, **Cancel** and `Esc` close it, and the actions do what they do on a desktop, where the same menu stays a small popover beside its `⋯`.
+
 Opening a tab whose `✓` marks an unviewed completion marks that completion as viewed and turns the `✓` into `○` in the current browser. A later completion has a new state sequence and shows `✓` again.
 
 ### Agent status notifications
@@ -527,7 +530,7 @@ Every shortcut the page itself answers. Keys typed in an attached terminal go to
 | Grid | `Esc` while carrying a cell | Put it back |
 | Grid | `Enter` or `Space` on a focused cell | Select it; a Terminal cell's terminal takes the typing |
 | Image viewer | `←` `→`, `+` `-` `0`, arrows when zoomed, `Esc` | Previous / next image, zoom in / out / fit, pan, close |
-| Menus and sidebar | `Esc` | Close the open menu, then the phone sidebar |
+| Menus and sidebar | `Esc` | Close the open menu; with none open, the phone sidebar |
 
 ### Files
 

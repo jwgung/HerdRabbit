@@ -227,8 +227,51 @@ try {
     // The menu still opens from a row and the row still selects.
     await page.locator('.session-row:has([data-pane-id="w1:p2"]) .session-action-menu > summary').click();
     assert.ok(await page.locator('.session-row:has([data-pane-id="w1:p2"]) .sidebar-action-item').first().isVisible());
-    await page.keyboard.press("Escape"); // closes the menu, and a phone's sidebar with it
     if (mobile) {
+      // On a phone the menu is a bottom sheet above a dimmed page: the row's name as title,
+      // 52px items, Cancel, in the top layer.
+      const sheet = await page.locator('.session-row:has([data-pane-id="w1:p2"]) .sidebar-action-popover').evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        const item = node.querySelector(".sidebar-action-item").getBoundingClientRect();
+        const cancel = node.querySelector(".sidebar-sheet-cancel").getBoundingClientRect();
+        const at = document.elementFromPoint(box.left + box.width / 2, box.top + 24);
+        return {
+          open: node.matches(":popover-open"), left: box.left, right: box.right, bottom: box.bottom,
+          itemHeight: item.height, cancelHeight: cancel.height, top: node.contains(at),
+          title: node.querySelector(".sidebar-sheet-title").textContent,
+          backdrop: getComputedStyle(node, "::backdrop").backgroundColor,
+        };
+      });
+      assert.ok(sheet.open && sheet.left === 0 && sheet.right === 390 && sheet.bottom === 844, `the menu is a full-width sheet at the screen's foot: ${JSON.stringify(sheet)}`);
+      assert.ok(sheet.itemHeight >= 52 && sheet.cancelHeight >= 52, `52px items: ${sheet.itemHeight}/${sheet.cancelHeight}`);
+      assert.ok(sheet.top, "the sheet draws above the dimmed page, not under it");
+      assert.ok(sheet.title.length > 0 && sheet.backdrop !== "rgba(0, 0, 0, 0)", `title and scrim: ${sheet.title} ${sheet.backdrop}`);
+      // A tap on the dimmed page closes the sheet and does nothing else: the Files tab under it stays unselected.
+      await page.touchscreen.tap(195, 100);
+      await page.waitForTimeout(300);
+      assert.equal(await page.locator(".sidebar-action-menu[open]").count(), 0, "a tap outside closes the sheet");
+      assert.equal(await page.locator("#tab-files").getAttribute("aria-selected"), "false", "the tap outside does not click through");
+      await page.locator('.session-row:has([data-pane-id="w1:p2"]) .session-action-menu > summary').click();
+      await page.locator('.session-row:has([data-pane-id="w1:p2"]) .sidebar-sheet-cancel').click();
+      assert.equal(await page.locator(".sidebar-action-menu[open]").count(), 0, "Cancel closes the sheet");
+      assert.ok(await page.locator("body.sidebar-open").count(), "Cancel leaves the sidebar open");
+      await page.locator('.session-row:has([data-pane-id="w1:p2"]) .session-action-menu > summary').click();
+    }
+    await page.keyboard.press("Escape"); // closes the menu; on a phone the sidebar stays
+    if (mobile) {
+      assert.equal(await page.locator(".sidebar-action-menu[open]").count(), 0, "Esc closes the sheet");
+      assert.ok(await page.locator("body.sidebar-open").count(), "the first Esc leaves the phone sidebar open");
+      const barWidth = await page.locator("#navigator").evaluate((node) => node.getBoundingClientRect().width);
+      assert.equal(barWidth, 390, "the phone sidebar takes the full width");
+      assert.ok(!/rgba\(.*,\s*0?\.\d+\)/u.test(await page.locator("#navigator").evaluate((node) => getComputedStyle(node).backgroundColor)), "the phone sidebar's background is opaque");
+      assert.ok(await page.locator("#sidebar-close").isVisible(), "the sidebar has a close button");
+      await page.locator("#sidebar-close").click();
+      await page.waitForTimeout(600);
+      assert.equal(await page.locator("body.sidebar-open").count(), 0, "× closes the sidebar");
+      await page.locator("#mobile-sidebar-open").click();
+      await page.waitForTimeout(600);
+      await page.keyboard.press("Escape");
+      assert.equal(await page.locator("body.sidebar-open").count(), 0, "a second Esc closes the sidebar");
       await page.locator("#mobile-sidebar-open").click();
       await page.waitForTimeout(600);
     }
@@ -251,7 +294,8 @@ try {
     };
     await shoot("sidebar");
     const openSidebar = async () => {
-      if (!mobile) return;
+      // Esc closes a menu and leaves the phone sidebar as it was.
+      if (!mobile || await page.locator("body.sidebar-open").count()) return;
       await page.locator("#mobile-sidebar-open").click();
       await page.waitForTimeout(600);
     };
