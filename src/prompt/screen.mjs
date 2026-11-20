@@ -147,6 +147,8 @@ export function publicCard(parsed) {
     // the menu has a "Chat about this" row the card offers as its own button
     ...(Number.isInteger(parsed.chatMenuIndex) ? { chat: true } : {}),
     ...(parsed.fallback ? { fallback: true } : {}),
+    // the options that are terminal keys, drawn as a row of keys (fallback.mjs)
+    ...(Array.isArray(parsed.keyOptions) && parsed.keyOptions.length > 0 ? { keyOptions: [...parsed.keyOptions] } : {}),
     // a plan's file (claude.mjs), for the viewer
     ...(typeof parsed.planPath === "string" ? { planPath: parsed.planPath } : {}),
     // a panel an agent's own `/` command opened (panel.mjs): its name and tabs

@@ -620,20 +620,24 @@ test("ordinary output and password prompts are no card", () => {
   assert.equal(parseFallbackPrompt("Running sudo\n[sudo] password for me:"), null);
 });
 
-test("the fallback card offers the screen's own keys and Enter / Esc", () => {
+test("the fallback card offers the screen's own keys and the terminal's, drawn as keys", () => {
   const yesNo = parseFallbackPrompt("Overwrite the config?\nContinue? (y/n)");
   assert.equal(yesNo.fallback, true);
   assert.equal(yesNo.question, "Continue? (y/n)");
-  assert.deepEqual(labels(yesNo), ["Yes (y)", "No (n)", "Enter", "Esc"]);
+  assert.deepEqual(labels(yesNo), ["Yes (y)", "No (n)", "↑", "↓", "←", "→", "Tab", "Space", "Enter", "Esc"]);
   assert.deepEqual(answerSteps(yesNo, { option: 0 }), [{ text: "y" }]);
-  assert.deepEqual(answerSteps(yesNo, { option: 3 }), [{ keys: ["esc"] }]);
+  assert.deepEqual(answerSteps(yesNo, { option: 9 }), [{ keys: ["esc"] }]);
+  assert.deepEqual(answerSteps(yesNo, { option: 7 }), [{ keys: ["space"] }]);
+  // the terminal's keys are a row of keys on the card, not numbered answers
+  assert.deepEqual(publicCard(yesNo).keyOptions, [2, 3, 4, 5, 6, 7, 8, 9]);
 
   const menu = parseFallbackPrompt("Pick a target?\n  1. Staging\n  2. Production\n  3. Cancel\nEnter a number to choose");
-  assert.deepEqual(labels(menu), ["Staging", "Production", "Cancel", "Enter", "Esc"]);
+  assert.deepEqual(labels(menu), ["Staging", "Production", "Cancel", "↑", "↓", "←", "→", "Tab", "Space", "Enter", "Esc"]);
+  assert.deepEqual(publicCard(menu).keyOptions, [3, 4, 5, 6, 7, 8, 9, 10]);
   assert.deepEqual(answerSteps(menu, { option: 1 }), [{ text: "2" }]);
 
   const plain = parseFallbackPrompt("Something happened\nPress any key");
-  assert.deepEqual(labels(plain), ["Enter", "Esc"]);
+  assert.deepEqual(labels(plain), ["↑", "↓", "←", "→", "Tab", "Space", "Enter", "Esc"]);
   assert.equal(publicCard(plain).fallback, true);
   // the id follows the screen, not Claude's ticking working line
   const working = (time) => `✻ Tempering… (${time} · ↓ 10.0k tokens)\nPress any key`;

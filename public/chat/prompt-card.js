@@ -43,6 +43,12 @@ export function answerBody(card, choice) {
   return { cardId: card.id, option: choice.option };
 }
 
+// Whether option `index` is one of a fallback card's terminal keys, drawn as
+// a row of keys rather than a numbered answer.
+function isKeyOption(card, index) {
+  return Array.isArray(card?.keyOptions) && card.keyOptions.includes(index);
+}
+
 // The option a number typed in the composer picks ("2" is the second
 // button), or null: only a card answered with one button, and only a number
 // that names one of its buttons.
@@ -52,7 +58,7 @@ export function numberedChoice(card, text) {
   const match = /^\s*(\d{1,2})\s*$/u.exec(String(text ?? ""));
   if (!match) return null;
   const index = Number(match[1]) - 1;
-  if (index < 0 || index >= card.options.length || index === card.customOptionIndex) return null;
+  if (index < 0 || index >= card.options.length || index === card.customOptionIndex || isKeyOption(card, index)) return null;
   return index;
 }
 
@@ -75,7 +81,7 @@ export function cardKey(card, { key, ctrlKey = false, altKey = false, metaKey = 
 export function composerPlaceholder(card) {
   if (card?.panel) return "Typing goes to the open panel";
   if (!card || card.multiSelect) return "";
-  const numbers = card.options.map((_, index) => index).filter((index) => index !== card.customOptionIndex);
+  const numbers = card.options.map((_, index) => index).filter((index) => index !== card.customOptionIndex && !isKeyOption(card, index));
   if (numbers.length === 0) return "";
   const first = numbers[0] + 1;
   const last = numbers.at(-1) + 1;
@@ -234,7 +240,7 @@ function renderCard(document, card, view) {
   }
   if (card.question && card.question !== card.title) section.append(element(document, "p", { className: "prompt-card-question", text: card.question }));
   if (card.body) section.append(element(document, "pre", { className: `prompt-card-body${card.body.includes("\n") ? "" : " is-line"}`, text: card.body }));
-  const choices = card.options.map((option, index) => ({ option, index })).filter(({ index }) => index !== card.customOptionIndex);
+  const choices = card.options.map((option, index) => ({ option, index })).filter(({ index }) => index !== card.customOptionIndex && !isKeyOption(card, index));
   if (choices.length > 0) {
     const options = element(document, "div", { className: "prompt-card-options",
       attrs: card.multiSelect ? { role: "group", "aria-label": card.question || card.title } : {} });
@@ -261,6 +267,20 @@ function renderCard(document, card, view) {
       }
     }
     section.append(options);
+  }
+  if (Array.isArray(card.keyOptions) && card.keyOptions.length > 0) {
+    // the terminal's own keys, each sent as it is
+    // (drawn as a panel card's keys)
+    const keys = element(document, "div", { className: "prompt-panel-keys", attrs: { role: "group", "aria-label": "Keys" } });
+    for (const index of card.keyOptions) {
+      const label = card.options[index]?.label;
+      if (!label) continue;
+      const button = element(document, "button", { className: "prompt-panel-key", attrs: { type: "button", "data-prompt-option": String(index), title: label } });
+      button.disabled = view.pending;
+      button.append(element(document, "kbd", { text: label }));
+      keys.append(button);
+    }
+    section.append(keys);
   }
   if (card.multiSelect) {
     const submit = element(document, "button", { className: `prompt-card-submit${view.selected.size > 0 ? " primary-button" : " secondary-button"}`,

@@ -155,7 +155,7 @@ test("the fallback card speaks for Codex, but never over its /model list", () =>
   const fallback = parseFallbackPrompt("Working on it\n\nPress any key to review the diff (q to quit)\n", { agent: "codex" });
   assert.equal(fallback.agent, "codex");
   assert.equal(fallback.question, "Press any key to review the diff (q to quit)");
-  assert.deepEqual(labels(fallback), ["Enter", "Esc"]);
+  assert.deepEqual(labels(fallback), ["↑", "↓", "←", "→", "Tab", "Space", "Enter", "Esc"]);
   assert.equal(parseFallbackPrompt("", { agent: "codex" }), null);
   const models = [
     "  >_ OpenAI Codex (v0.160.1)",

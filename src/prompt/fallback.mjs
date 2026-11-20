@@ -1,6 +1,6 @@
 // The last resort, for a pane herdr reports blocked on a screen no agent's
 // reader knows: the screen's last lines with the keys its hint lines name,
-// plus Enter and Esc; a numbered menu that still owns the screen's end is
+// plus the terminal's own keys (TERMINAL_KEY_CHOICES); a numbered menu that still owns the screen's end is
 // answered by its numbers. Never for a password prompt, nor for an agent's
 // own lists whose Enter saves a default (Claude's and Codex's /model).
 //
@@ -29,7 +29,6 @@ const ASKERS = { claude: "Claude", codex: "Codex", opencode: "OpenCode", kiro: "
 
 const ASKED_RE = /\?\s*(?:[([][^)\]]*[)\]])?\s*$/;
 const YES_NO_RE = /[([]\s*y(?:es)?\s*\/\s*n(?:o)?\s*[)\]]\s*[:?]?\s*$/i;
-const ARROWS_RE = /[↑↓]|\barrow keys\b/i;
 const MENU_HINT_RE = /\b(?:select|choose|pick|confirm|navigate|move|esc|cancel)\b|[↑↓↵⏎]|\b(?:enter|type)\s+(?:(?:a|an|the)\s+)?number\b|\b\d\s*[-–]\s*\d\b/i;
 const INPUT_FIELD_RE = /:\s*\S{0,3}$/;
 const HINT_LINE_RE = /^(?:[↵⏎]|(?:Press|Enter|Select|Choose|Pick|Type|Esc|ESC)\b)/;
@@ -38,6 +37,18 @@ const NOT_PROMPT_TEXT_RE = /^(?:[❯›>"'“]|\$ )/;
 // Claude Code's working line, whole: its spinner, time and tokens tick while
 // it waits, and are left out of a fallback card's id.
 const WORKING_LINE_RE = /^[·✢✳✶✻✽*] (\S(?:.*\S)?…) \((?:\d+h )?(?:\d+m )?\d+s · [↑↓] [\d.,]+[kKmM]? tokens( · esc to interrupt)?\)$/u;
+
+// The keys a screen no reader knows may want, whatever its hint says: the
+// card draws them as a row of keys (keyOptions), after its answers.
+const TERMINAL_KEY_CHOICES = Object.freeze([
+  { label: "↑", key: KEY.up }, { label: "↓", key: KEY.down }, { label: "←", key: KEY.left }, { label: "→", key: KEY.right },
+  { label: "Tab", key: KEY.tab }, { label: "Space", key: "space" }, { label: "Enter", key: KEY.enter }, { label: "Esc", key: KEY.escape },
+].map(({ label, key }) => ({ label, steps: keySteps([key]), terminalKey: true })));
+
+// The indices of the choices that are terminal keys.
+function keyOptionsOf(choices) {
+  return choices.flatMap((choice, index) => choice.terminalKey ? [index] : []);
+}
 
 function steadyReader(shown) {
   const working = shown.flatMap((line, at) => WORKING_LINE_RE.test(line) ? [at] : []);
@@ -113,15 +124,14 @@ export function parseFallbackPrompt(screen, { agent = "claude" } = {}) {
     // a row's number is typed alone, as a menu reading keys takes it
     const choices = [
       ...menu.rows.map((row) => ({ label: row.label, steps: [{ text: String(row.number) }] })),
-      { label: "Enter", steps: keySteps([KEY.enter]) },
-      { label: "Esc", steps: keySteps([KEY.escape]) },
+      ...TERMINAL_KEY_CHOICES,
     ];
     const body = withoutLine(above, question);
     return screenCard(lines, shown, steady, finishPrompt(agent, {
       agent, kind: "menu", fallback: true, title: "Waiting for your answer", question: question ?? `${asker} is waiting for your answer.`,
       body,
       options: choices.map(({ label }) => ({ label, description: null })),
-      multiSelect: false, customOptionIndex: null,
+      multiSelect: false, customOptionIndex: null, keyOptions: keyOptionsOf(choices),
     }, {
       responder: "fallback-menu", menuLabels: choices.map(({ label }) => label), selectedIndex: 0,
       checkedOptionIndices: [], customMenuIndex: null, optionSteps: choices.map(({ steps }) => steps),
@@ -132,16 +142,14 @@ export function parseFallbackPrompt(screen, { agent = "claude" } = {}) {
   const question = [...last].reverse().find((line) => ASKED_RE.test(line)) ?? last.at(-1);
   const choices = [
     ...(hints.some((line) => YES_NO_RE.test(line)) ? [{ label: "Yes (y)", steps: [{ text: "y" }] }, { label: "No (n)", steps: [{ text: "n" }] }] : []),
-    ...(hints.some((line) => ARROWS_RE.test(line)) ? [{ label: "↑", steps: keySteps([KEY.up]) }, { label: "↓", steps: keySteps([KEY.down]) }] : []),
-    { label: "Enter", steps: keySteps([KEY.enter]) },
-    { label: "Esc", steps: keySteps([KEY.escape]) },
+    ...TERMINAL_KEY_CHOICES,
   ];
   const body = withoutLine(last, question);
   return screenCard(lines, shown, steady, finishPrompt(agent, {
     agent, kind: "menu", fallback: true, title: "Waiting for input", question: question ?? `${asker} is waiting for input.`,
     body,
     options: choices.map(({ label }) => ({ label, description: null })),
-    multiSelect: false, customOptionIndex: null,
+    multiSelect: false, customOptionIndex: null, keyOptions: keyOptionsOf(choices),
   }, {
     responder: "fallback-keys", menuLabels: choices.map(({ label }) => label), selectedIndex: 0,
     checkedOptionIndices: [], customMenuIndex: null, optionSteps: choices.map(({ steps }) => steps),
