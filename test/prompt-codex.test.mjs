@@ -500,3 +500,60 @@ test("reads a queued question as Codex 0.171 draws it: no header, ⌃] to skip",
 
   assert.equal(parseCodexPrompt("Notes\n\nType your answer\n\nenter submit   ⌃] skip\n"), null);
 });
+
+// Codex 0.171 folds questions it asked when the user goes on typing: above
+// the composer it leaves "? N questions · <time left>" and "⇧← to answer"
+// (rust-v0.171.0 tui/src/bottom_pane/questions.rs, question_collapsed_countdown.snap).
+const collapsedQuestions = (count = "2 questions", countdown = " · 15s", hint = "⇧← to answer") => [
+  "• Explored the repository",
+  "",
+  "• Queued follow-up inputs",
+  `  ? ${count}${countdown}`,
+  `    ${hint}`,
+  "",
+  "› Ask Codex to do anything",
+  "",
+  "  gpt-5.5 high · ~/Git/project",
+].join("\n");
+
+test("questions Codex folded away become a card whose one answer unfolds them", () => {
+  const parsed = parseCodexPrompt(collapsedQuestions());
+  assert.ok(parsed, "a card");
+  const card = publicCard(parsed);
+  assert.equal(card.agent, "codex");
+  assert.match(card.title, /2 questions/u);
+  assert.deepEqual(card.options.map((option) => option.label), ["Answer (⇧←)"]);
+  assert.deepEqual(answerSteps(parsed, { option: 0 }), [{ keys: ["shift+left"] }]);
+  // the countdown ticks, the card stays the same
+  assert.equal(parseCodexPrompt(collapsedQuestions("2 questions", " · 14s")).id, parsed.id);
+  assert.equal(parseCodexPrompt(collapsedQuestions("2 questions", "")).id, parsed.id);
+  // one question, and the other default binding (⌥↑)
+  const one = parseCodexPrompt(collapsedQuestions("1 question", "", "⌥↑ to answer"));
+  assert.match(one.title, /1 question\b/u);
+  assert.deepEqual(answerSteps(one, { option: 0 }), [{ keys: ["alt+up"] }]);
+});
+
+test("a folded question line far above the composer, or with a key it cannot send, is no card", () => {
+  assert.equal(parseCodexPrompt(collapsedQuestions("2 questions", "", "F9 to answer")), null);
+  const scrolledAway = [collapsedQuestions(), ...Array.from({ length: 20 }, (_, at) => `• later output ${at}`), "› ", "  gpt-5.5 high"].join("\n");
+  assert.equal(parseCodexPrompt(scrolledAway), null);
+  // a line in an answer that only looks like it
+  assert.equal(parseCodexPrompt("The doc says:\n  ? 2 questions\nand more text\n› \n  gpt-5.5 high"), null);
+});
+
+test("the folded questions card sends Codex's own key, for the screen it was read from", async () => {
+  const herdr = fakePromptHerdr({
+    panes: [{ pane_id: "w1:p3", agent: "codex", agent_status: "working" }],
+    outputs: { "w1:p3": collapsedQuestions() },
+  });
+  const service = new PromptService({ herdr, stepDelayMs: 1, lookMs: 5, settleMs: 300 });
+  const card = await service.card("w1:p3");
+  assert.equal(card.options[0].label, "Answer (⇧←)");
+  await service.answer("w1:p3", { cardId: card.id, option: 0 });
+  assert.deepEqual(herdr.sent.filter((item) => item.paneId === "w1:p3").map((item) => item.keys), [["shift+left"]]);
+});
+
+test("an approval on screen wins over the folded questions summary", () => {
+  const screen = `${collapsedQuestions()}\n${codexApprovalScreen({ cursor: 0 })}`;
+  assert.equal(parseCodexPrompt(screen).kind, "approval");
+});
