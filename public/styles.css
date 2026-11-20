@@ -5741,18 +5741,32 @@ body.is-pane-rearranging * {
   padding: 0 var(--space-3);
 }
 
-/* A phone's header has room for the pane's name and its lens: the split
-   view's buttons show their icon alone there (their aria-label names them). */
+/* A phone's header keeps the pane's name: its other controls are items of one
+   More menu, a bottom sheet (public/app/header-more.js). A desktop shows them. */
+.header-more,
+.header-more[hidden] {
+  display: none;
+}
+
 @media (max-width: 760px) {
-  :is(.view-back, .view-apply, .view-close) {
-    min-width: var(--control-h-touch);
-    min-height: var(--control-h-touch);
-    justify-content: center;
-    padding: 0;
+  .terminal-heading :is(.grid-back, .lens-switch, .terminal-find-open) {
+    display: none;
   }
 
-  :is(.view-back, .view-apply, .view-close) span {
-    display: none;
+  .header-more:not([hidden]) {
+    display: flex;
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
+  .header-more .sidebar-action-menu > summary {
+    width: var(--control-h-touch);
+    min-width: var(--control-h-touch);
+    height: var(--control-h-touch);
+    flex-basis: var(--control-h-touch);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    color: var(--control-text);
   }
 }
 

@@ -24,6 +24,7 @@ import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
 import { defaultDataPaths, localProtectedPaths } from "../src/protected-paths.mjs";
 import { SlashCommandCatalog } from "../src/slash-commands.mjs";
+import { showLens } from "./header-controls.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const SESSION = "6b8e7d2f-9b4c-4d66-8e3f-7a8b9c0d1e2f";
@@ -205,11 +206,11 @@ try {
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
     await page.waitForFunction(() => document.querySelector("#terminal-xterm .xterm-rows")?.textContent.includes("ready terminal"));
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
-    if ((await page.locator(".terminal-stage").getAttribute("data-lens")) !== "terminal") await page.locator("#lens-terminal").click();
+    if ((await page.locator(".terminal-stage").getAttribute("data-lens")) !== "terminal") await showLens(page, "terminal");
 
     for (const lens of ["terminal", "chat"]) {
       if (lens === "chat") {
-        await page.locator("#lens-chat").click();
+        await showLens(page, "chat");
         await page.waitForFunction(() => document.querySelector(".terminal-stage").dataset.lens === "chat");
       }
       const at = `${where} ${lens}`;
@@ -334,7 +335,7 @@ try {
     // The phone keyboard comes up (the visible height drops) over a tall card:
     // the card stays above it, no taller than 40% of what is left.
     if (mobile) {
-      await page.locator("#lens-terminal").click();
+      await showLens(page, "terminal");
       await page.waitForFunction(() => document.querySelector(".terminal-stage").dataset.lens === "terminal");
       await clear();
       await input.click();

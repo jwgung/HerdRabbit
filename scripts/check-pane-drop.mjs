@@ -27,6 +27,7 @@ import { join } from "node:path";
 import { HerdrCommandError } from "../src/herdr-client.mjs";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { PaneAttachments } from "../src/pane-attachments.mjs";
+import { clickViewControl } from "./header-controls.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const local = { server_id: "local", herdr_session_id: "hs_x" };
@@ -978,7 +979,12 @@ try {
     const tabNames = () => page.locator("#pane-tabs .ui-tab").allTextContents();
     assert.deepEqual((await tabNames()).map((name) => name.trim()), ["Alpha", "Gamma", "Notes"], "a tab per tile, in the split's order");
     assert.equal(await page.locator(".pane-grid.is-view:not([hidden])").count(), 0, "no tiles side by side on a phone");
-    assert.equal(await page.locator("#view-close").isVisible(), true, "Close split view on a phone too");
+    // The header's controls are in the ⋯ menu on a phone.
+    assert.equal(await page.locator("#view-close").isHidden(), true, "the header's button is hidden on a phone");
+    assert.equal(await page.locator("#header-more summary").isVisible(), true, "the ⋯ menu shows");
+    await page.locator("#header-more summary").click();
+    assert.equal(await page.locator('#header-more [data-action="view-close"]').isVisible(), true, "Close split view on a phone too");
+    await page.locator("#header-more .sidebar-sheet-cancel").click();
     assert.equal(await page.locator("#herdr-tab-mark").isVisible(), false);
     await page.locator('#pane-tabs .ui-tab[data-pane-id="w2:p1"]').click();
     await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w2:p1"]')?.getAttribute("aria-pressed") === "true");
@@ -990,7 +996,7 @@ try {
         await page.screenshot({ path: join(shots, `phone-view-tabs-${value}.png`) });
       }
     }
-    await page.locator("#view-close").click();
+    await clickViewControl(page, "view-close");
     await page.locator("#pane-tabs").waitFor({ state: "hidden" });
     assert.deepEqual(errors, []);
     await context.close();

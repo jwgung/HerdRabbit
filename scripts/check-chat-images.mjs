@@ -22,6 +22,7 @@ import { claudeProjectDir } from "../src/conversation/claude.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
 import { defaultDataPaths, localProtectedPaths } from "../src/protected-paths.mjs";
+import { showLens, waitForLensSwitch } from "./header-controls.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 // A plain one-colour PNG of the given size.
@@ -124,9 +125,9 @@ try {
     page.on("request", (request) => { if (!request.url().startsWith(url)) remote.push(request.url()); });
 
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
-    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await waitForLensSwitch(page);
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
-    if (!mobile) await page.locator("#lens-chat").click();
+    if (!mobile) await showLens(page, "chat");
     await page.waitForFunction(() => document.querySelectorAll('.md-image[data-state="shown"]').length === 3, null, { timeout: 10_000 });
     await page.waitForFunction(() => document.querySelectorAll('.md-image[data-state="unavailable"]').length === 2, null, { timeout: 10_000 });
 

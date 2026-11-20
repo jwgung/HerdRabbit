@@ -49,7 +49,7 @@ Herdr 0.9.5(`herdr --help`와 명령 묶음마다의 `--help`)를 기준으로 �
 | `close` | 됨 | |
 | `zoom` | 됨 | |
 | `resize` | 일부 | **Even out layout**만. 없는 것: 나눈 경계 끌기 |
-| `swap`, `move` | 됨 | 줄과 패인 끌어 옮기기, Move out to its own tab |
+| `swap`, `move` | 됨 | 줄과 패인 끌어 옮기기, Move out to its own tab, Apply to Herdr(분할 보기를 분할 탭 하나로) |
 | `rename` | 없음 | 패인 이름 붙이기(탭과 워크스페이스는 이름을 바꿀 수 있음) |
 | `focus`, `neighbor`, `edges` | 필요 없음 | 페이지가 직접 패인 사이를 옮깁니다 |
 | `input` | 없음 | 한 입력을 여러 패인에 함께 보내기 |

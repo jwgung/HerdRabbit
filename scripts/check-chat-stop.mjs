@@ -22,6 +22,7 @@ import { claudeProjectDir } from "../src/conversation/claude.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
 import { defaultDataPaths, localProtectedPaths } from "../src/protected-paths.mjs";
+import { showLens, waitForLensSwitch } from "./header-controls.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const SESSION = "5a7f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
@@ -118,7 +119,7 @@ try {
     };
 
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
-    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await waitForLensSwitch(page);
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
     if (!mobile) {
       // Desktop opens in Terminal: the key bar has Esc there, and the button stays Send.
@@ -126,7 +127,7 @@ try {
       await blur();
       await page.waitForTimeout(500);
       await looksLike("send");
-      await page.locator("#lens-chat").click();
+      await showLens(page, "chat");
     }
     await page.locator('.chat-pane[data-pane-id="w1:p1"] .chat-working').waitFor({ state: "visible" });
     await blur();
@@ -282,13 +283,13 @@ try {
     await input.fill("");
 
     // In the Terminal lens the button stays Send out of the composer; the key bar has Esc there.
-    await page.locator("#lens-terminal").click();
+    await showLens(page, "terminal");
     await blur();
     await looksLike("send");
     await input.focus();
     await page.keyboard.press("Escape");
     await sentKeys(5);
-    await page.locator("#lens-chat").click();
+    await showLens(page, "chat");
     await blur();
     await looksLike("stop");
 

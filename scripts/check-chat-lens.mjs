@@ -13,6 +13,7 @@ import { PaneAttachments } from "../src/pane-attachments.mjs";
 import { claudeProjectDir } from "../src/conversation/claude.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
+import { showLens, waitForLensSwitch } from "./header-controls.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const SESSION = "0d3f6c1e-8a3b-4c55-9d2e-6f7a8b9c0d1e";
@@ -133,12 +134,12 @@ try {
     const scroller = chat.locator(".chat-scroll");
 
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
-    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await waitForLensSwitch(page);
     await shows("ready terminal");
     // A pane never chosen for: Chat on a phone, Terminal on a desktop.
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
     assert.equal(await lens(), mobile ? "chat" : "terminal", "the default lens follows the device");
-    if (!mobile) await page.locator("#lens-chat").click();
+    if (!mobile) await showLens(page, "chat");
     await chat.locator(".chat-turn-agent").first().waitFor({ state: "visible" });
     assert.equal(await lens(), "chat");
     assert.equal(await page.locator("#terminal-xterm").isVisible(), false, "the terminal is hidden under the chat");
@@ -349,14 +350,14 @@ try {
     const ptysBefore = ptys.length;
     const readsBefore = reads.length;
     assert.deepEqual(scrollBottoms, [], "loading the page scrolls nothing");
-    await page.locator("#lens-terminal").click();
+    await showLens(page, "terminal");
     assert.equal(await lens(), "terminal");
     assert.equal(await page.locator("#terminal-xterm").isVisible(), true);
     await expectScrollBottoms(["w1:p1"], "going from the chat to the terminal shows its newest output");
     assert.equal(await chat.isVisible(), false);
     await page.waitForTimeout(300);
     assert.equal(await page.locator("#terminal-input").inputValue(), "draft kept across lenses");
-    await page.locator("#lens-chat").click();
+    await showLens(page, "chat");
     await page.waitForTimeout(300);
     assert.equal(await page.locator("#terminal-input").inputValue(), "draft kept across lenses");
     assert.equal(await scroller.evaluate((node) => node.scrollTop), chatScroll, "the chat keeps its place");
@@ -395,10 +396,10 @@ try {
     await page.setViewportSize({ width: size.width - 120, height: size.height - 160 });
     await page.waitForTimeout(600);
     assert.deepEqual(typesSince(resizesBefore, ["resize"]), [], "a hidden terminal asks for no size");
-    await page.locator("#lens-terminal").click();
+    await showLens(page, "terminal");
     await page.waitForTimeout(600);
     assert.equal(typesSince(resizesBefore, ["resize"]).length, 1, "shown again, it fits once");
-    await page.locator("#lens-chat").click();
+    await showLens(page, "chat");
     await page.setViewportSize(size);
     await page.waitForTimeout(600);
 
@@ -426,7 +427,9 @@ try {
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "true");
     assert.equal(await lens(), "terminal");
     assert.equal(await page.locator("#lens-chat").getAttribute("title"), "Chat is only for Claude Code, Codex, OpenCode, Kiro and Antigravity panes.");
-    await page.locator("#lens-chat").click({ force: true });
+    // A phone's menu leaves Chat out of its list instead.
+    if (mobile) assert.equal(await page.locator('#header-more [data-action="lens-chat"]').count(), 0, "no Chat item for a pane without a chat");
+    else await page.locator("#lens-chat").click({ force: true });
     assert.equal(await lens(), "terminal");
 
     // The last lens is remembered per pane.
@@ -456,7 +459,7 @@ try {
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
     await shows("ready terminal");
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
-    await page.locator("#lens-chat").click();
+    await showLens(page, "chat");
     const parkFrom = frames.length;
     await page.clock.fastForward(4 * 60_000);
     await settle(300);
@@ -465,7 +468,7 @@ try {
     await settle(300);
     assert.deepEqual(typesSince(parkFrom, ["detach"]), ["detach"], "after five minutes in the chat the terminal is let go");
     const returnFrom = frames.length;
-    await page.locator("#lens-terminal").click();
+    await showLens(page, "terminal");
     await page.clock.fastForward(1_000);
     await settle(300);
     assert.deepEqual(typesSince(returnFrom, ["attach"]), ["attach"], "back in Terminal it attaches again");
@@ -473,7 +476,7 @@ try {
 
     // A message the transcript does not take: dimmed at once, a clock after
     // 5 s, gone after a minute.
-    await page.locator("#lens-chat").click();
+    await showLens(page, "chat");
     await page.locator("#terminal-input").fill("waiting for the transcript");
     await page.locator(".send-button").click();
     await settle(300);
@@ -508,7 +511,7 @@ try {
       const otherErrors = [];
       other.on("pageerror", (error) => otherErrors.push(error.message));
       await other.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
-      await other.locator("#lens-switch").waitFor({ state: "visible" });
+      await waitForLensSwitch(other);
       await other.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
       await other.waitForFunction((value) => document.querySelector(".terminal-stage").dataset.lens === value, wanted);
       assert.equal(await other.locator(".terminal-stage").getAttribute("data-lens"), wanted, "Open panes in sets the default lens");

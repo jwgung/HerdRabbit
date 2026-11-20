@@ -429,6 +429,9 @@ export function createPaneViews(deps) {
   });
   // Set when a picker opens, so it takes the focus once drawn.
   let focusPicker = false;
+  // Counts pickers opened and closed: a tab made for one picker that has
+  // since closed (Cancel split, then maybe a new picker) fills nothing.
+  let pickGeneration = 0;
 
   // The pane the picker's tile was split from: its neighbour in the tree.
   function pickAnchor() {
@@ -452,6 +455,7 @@ export function createPaneViews(deps) {
       setFeedback("A split view shows at most 6 panes.", true);
       return;
     }
+    pickGeneration += 1;
     setViewSplit(next, true);
     focusPicker = true;
     selectPane(targetPaneId, { view: "tiles" });
@@ -472,6 +476,7 @@ export function createPaneViews(deps) {
 
   function cancelPick() {
     if (!hasPick()) return;
+    pickGeneration += 1;
     const anchor = pickAnchor();
     const next = removeTile(viewSplit.tree, PICK_TILE);
     if (!next) {
@@ -493,6 +498,7 @@ export function createPaneViews(deps) {
   async function newShellInPick() {
     const workspaceId = pickWorkspaceId();
     if (!workspaceId || state.mutationBusy) return;
+    const generation = pickGeneration;
     state.mutationBusy = true;
     picker.setBusy(true);
     let paneId = null;
@@ -504,13 +510,17 @@ export function createPaneViews(deps) {
       state.mutationBusy = false;
       picker.setBusy(false);
     }
-    if (paneId) fillPickTile(paneId);
+    if (paneId && generation === pickGeneration) fillPickTile(paneId);
     else renderPaneViews();
   }
 
   // The New tab dialog, on the split pane's workspace; the tab it makes fills the tile.
   function newTabInPick() {
-    openNewSession({ workspaceId: pickWorkspaceId(), onCreated: (paneId) => fillPickTile(paneId) });
+    const generation = pickGeneration;
+    openNewSession({
+      workspaceId: pickWorkspaceId(),
+      onCreated: (paneId) => { if (generation === pickGeneration) fillPickTile(paneId); },
+    });
   }
 
   // What the picker offers, with the labels the sidebar gives each tab.
@@ -606,7 +616,12 @@ export function createPaneViews(deps) {
     const focus = now(focusBefore);
     const shown = snapshotRecords().panes.some((item) => idOf(item, "pane_id", "id") === focus) ? focus : anchor;
     if (!refusal) selectPane(shown, { view: "grid" });
-    else void refreshTerminal();
+    else {
+      // The tiles stay, some now under new ids and in one tab: redraw them
+      // and the header (Apply to Herdr may no longer apply).
+      renderPaneViews();
+      void refreshTerminal();
+    }
     // After the selection, which clears the feedback line.
     if (refusal) setFeedback(`Moved ${done} of ${plan.moves.length} panes into one Herdr tab, then Herdr refused: ${refusal}`, true);
     else setFeedback("Applied to Herdr: these panes are one split tab now.");

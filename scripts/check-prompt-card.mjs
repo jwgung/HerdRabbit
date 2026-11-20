@@ -21,6 +21,7 @@ import { claudeProjectDir } from "../src/conversation/claude.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
 import { PromptService } from "../src/prompt/service.mjs";
+import { showLens, waitForLensSwitch } from "./header-controls.mjs";
 import { fakePromptHerdr } from "../test/fixtures/claude-prompt.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
@@ -127,7 +128,7 @@ try {
     const keysSent = () => herdr.sent.filter((item) => item.paneId === "w1:p1").map((item) => item.keys?.join("+") ?? `text:${item.text}`);
 
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
-    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await waitForLensSwitch(page);
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
     if (!mobile) {
       // Desktop opens in Terminal: no key bar (a desktop types its own keys),
@@ -176,7 +177,7 @@ try {
 
     // The terminal lens again: the key bar comes back on a phone (a desktop
     // has none) and xterm fits the room it has.
-    await page.locator("#lens-terminal").click();
+    await showLens(page, "terminal");
     await page.waitForTimeout(300);
     assert.equal(await page.locator(".quick-keys").isVisible(), mobile);
     assert.equal(await dockMode(), "banner");
@@ -191,7 +192,7 @@ try {
     await page.locator(".prompt-banner-close").click();
     assert.equal(await dockMode(), "hidden");
     assert.equal(await page.locator("#terminal-input").getAttribute("placeholder"), "", "a dismissed card is not answered by a number");
-    await page.locator("#lens-chat").click();
+    await showLens(page, "chat");
     await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "card");
 
     // A number typed in the composer names an option: the card marks it, and
@@ -312,20 +313,20 @@ try {
     const composerSize = () => page.locator("#terminal-input").evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
     const onTouch = (size) => (mobile ? Math.max(16, size) : size);
     assert.equal(await composerSize(), onTouch(after), "the composer did not take the chat's size in the Chat lens");
-    await page.locator("#lens-terminal").click();
+    await showLens(page, "terminal");
     await page.waitForFunction(() => document.querySelector(".terminal-panel").dataset.lens === "terminal");
     assert.equal(await composerSize(), onTouch(parseFloat(terminalSize)), "the composer did not take the terminal's size in the Terminal lens");
-    await page.locator("#lens-chat").click();
+    await showLens(page, "chat");
     await page.waitForFunction(() => document.querySelector(".terminal-panel").dataset.lens === "chat");
     assert.equal(await composerSize(), onTouch(after));
     await page.reload();
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
     assert.equal(Number(await page.locator(".terminal-stage").getAttribute("data-chat-font-size")), after, "the size is kept");
-    if (!mobile) await page.locator("#lens-chat").click();
+    if (!mobile) await showLens(page, "chat");
 
     // A pane with no chat: the banner opens the card over the terminal, and its Esc goes to the pane.
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p2")}`);
-    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await waitForLensSwitch(page);
     await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "banner");
     assert.equal(await lens(), "terminal");
     assert.match(await page.locator(".prompt-banner").textContent(), /This pane is waiting for input/u);
@@ -345,7 +346,7 @@ try {
     // A multiple choice: the card starts from the terminal's tick, and adding one more sends only that tick and →.
     // (the pane names no session yet, so it opens an empty chat: on a phone the card is in it, on a desktop a banner over the terminal)
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p3")}`);
-    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await waitForLensSwitch(page);
     await page.waitForFunction(() => ["banner", "card"].includes(document.querySelector("#prompt-dock")?.dataset.mode));
     if (await dockMode() === "banner") await page.locator(".prompt-banner-open").click();
     await page.waitForFunction(() => document.querySelectorAll(".prompt-card [data-prompt-toggle]").length === 3);
@@ -361,7 +362,7 @@ try {
 
     // herdr still says "working" while the approval is on screen: the card appears all the same, and answers.
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p4")}`);
-    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await waitForLensSwitch(page);
     await page.waitForFunction(() => ["banner", "card"].includes(document.querySelector("#prompt-dock")?.dataset.mode));
     if (await dockMode() === "banner") await page.locator(".prompt-banner-open").click();
     await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "card" || document.querySelector("#prompt-dock")?.dataset.mode === "overlay");
@@ -380,7 +381,7 @@ try {
     // A Claude question with its message above it on the terminal only: the
     // card shows it folded over the question, as text, until the chat has it.
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p5")}`);
-    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await waitForLensSwitch(page);
     await page.waitForFunction(() => ["banner", "card"].includes(document.querySelector("#prompt-dock")?.dataset.mode));
     if (await dockMode() === "banner") await page.locator(".prompt-banner-open").click();
     await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "card");
