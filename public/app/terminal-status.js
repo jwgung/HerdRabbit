@@ -1,5 +1,5 @@
-import { createAttachTracker, terminalStatus, terminalStatusParts } from "../terminal-status.js?v=1.4.55";
-import { array } from "./dom.js?v=1.4.55";
+import { createAttachTracker, terminalStatus, terminalStatusParts } from "../terminal-status.js?v=1.4.56";
+import { array } from "./dom.js?v=1.4.56";
 
 // The terminal status strip and its Reconnect button, the phone keyboard, and
 // letting the terminal go after a while in the Chat lens. Nothing here runs

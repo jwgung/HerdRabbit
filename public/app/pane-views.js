@@ -1,5 +1,5 @@
-import { createElement, createIcon, workspaceActionButton } from "./dom.js?v=1.4.55";
-import { idOf } from "./snapshot.js?v=1.4.55";
+import { createElement, createIcon, workspaceActionButton } from "./dom.js?v=1.4.56";
+import { idOf } from "./snapshot.js?v=1.4.56";
 import {
   agentStatus,
   agentStatusIcon,
@@ -14,15 +14,15 @@ import {
   paneServerId,
   paneRowLine,
   paneSubtitle,
-} from "../ui-model.js?v=1.4.55";
-import { createPaneGrid } from "../pane-grid.js?v=1.4.55";
-import { attachPaneSwipe, renderPaneTabs } from "./pane-tabs.js?v=1.4.55";
-import * as xterm from "../vendor/xterm.mjs?v=1.4.55";
-import { writePanePreference } from "../pane-preference.js?v=1.4.55";
-import { writeExpandedSplitTabIds } from "../workspace-preference.js?v=1.4.55";
-import { readGridFit, readGridFont, writeGridFont } from "../terminal-preference.js?v=1.4.55";
-import { laysOutPanes, paneMoveRequest } from "../sidebar-drag.js?v=1.4.55";
-import { chatAgent } from "../lens-preference.js?v=1.4.55";
+} from "../ui-model.js?v=1.4.56";
+import { createPaneGrid } from "../pane-grid.js?v=1.4.56";
+import { attachPaneSwipe, renderPaneTabs } from "./pane-tabs.js?v=1.4.56";
+import * as xterm from "../vendor/xterm.mjs?v=1.4.56";
+import { writePanePreference } from "../pane-preference.js?v=1.4.56";
+import { writeExpandedSplitTabIds } from "../workspace-preference.js?v=1.4.56";
+import { readGridFit, readGridFont, writeGridFont } from "../terminal-preference.js?v=1.4.56";
+import { laysOutPanes, paneMoveRequest } from "../sidebar-drag.js?v=1.4.56";
+import { chatAgent } from "../lens-preference.js?v=1.4.56";
 import {
   addTile,
   evenTree,
@@ -34,7 +34,7 @@ import {
   swapTiles,
   tiles as viewTiles,
   writeViewSplit,
-} from "../view-split.js?v=1.4.55";
+} from "../view-split.js?v=1.4.56";
 
 // Split tabs and this window's own view split: the Herdr grid on a wide
 // screen, the pane tabs on a phone, the view split's tiles, a session dropped
