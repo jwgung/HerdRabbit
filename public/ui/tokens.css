@@ -54,6 +54,8 @@
   --text: #e7edf2;
   --surface: #090c0f;
   --surface-raised: #151b21;
+  /* A bottom sheet over the dimmed page: a step lighter, so it stands apart. */
+  --sheet-surface: #1b232b;
   --line: #26313a;
   --muted: #8d9aa5;
   --accent: #99ffe4;
@@ -129,6 +131,7 @@
   --text: #17221d;
   --surface: #ffffff;
   --surface-raised: #e8f0ec;
+  --sheet-surface: var(--surface);
   --line: #cad8d1;
   --muted: #62736b;
   --accent: #167454;
