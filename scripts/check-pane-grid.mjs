@@ -9,10 +9,10 @@
 // says the user meant it, and the cells take the font their board fits, not
 // the terminal font size chosen for one pane (the user adjusts the grid's own
 // text size with Ctrl+wheel, and Ctrl+0 resets it). On a
-// phone there is no grid: the selected pane shows with a map of the tab above
-// it, a pane the layout does not have yet is still counted and tappable, and
-// a tap on the map switches pane. A connected PC's split tab is one row too,
-// but opens a pane alone: no grid, no map. Behind a password, a grid is not redrawn while
+// phone there is no grid: the selected pane shows with its tab's panes as
+// tabs above it, a pane the layout does not have yet is still a tab (last),
+// and a tap on a tab switches pane. A connected PC's split tab is one row too,
+// but opens a pane alone: no grid, no tabs. Behind a password, a grid is not redrawn while
 // nothing changed, finds in the focused cell's terminal, completes a notification for its
 // pane once that pane's cell is on screen (not zoomed out), and its cells
 // reconnect after a hidden page or a sign-out and sign-in. A cell carried by
@@ -32,7 +32,7 @@
 // Runs on a desktop and a phone against an in-process fake herdr.
 //
 // PANE_GRID_SHOTS=<folder> keeps pictures of the grid, the zoomed grid, the
-// phone's map and a cell carried over a swap and over an edge, in both themes.
+// phone's tabs and a cell carried over a swap and over an edge, in both themes.
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { join } from "node:path";
@@ -311,7 +311,7 @@ try {
       await page.locator("#terminal-xterm .xterm").waitFor({ state: "visible" });
       assert.equal(await grid.isVisible(), false, "a pane of a split tab opens alone");
       await page.locator("#grid-back").waitFor({ state: "visible" });
-      assert.equal(await page.locator("#pane-map").isVisible(), false, "no map on a wide screen");
+      assert.equal(await page.locator("#pane-tabs").isVisible(), false, "no pane tabs on a wide screen");
 
       // The tab's one row opens the grid, cells placed as Herdr has them.
       const heading = splitRow("w1:t1");
@@ -555,43 +555,41 @@ try {
       assert.equal(await page.locator("#grid-back").isVisible(), false, "no Back to grid for a connected PC's tab");
       assert.ok(layoutReads.slice(readsBefore).every((id) => !id.startsWith("laptop!")), "no layout is asked of a connected PC");
     } else {
-      // A phone shows the pane alone with the map of its tab above it.
-      const map = page.locator("#pane-map");
-      await map.waitFor({ state: "visible" });
+      // A phone shows the pane alone with its tab's panes as tabs above it,
+      // in Herdr's layout order, the one the layout lacks last.
+      const tabs = page.locator("#pane-tabs");
+      const tab = (paneId) => page.locator(`#pane-tabs .ui-tab[data-pane-id="${paneId}"]`);
+      await tabs.waitFor({ state: "visible" });
       assert.equal(await grid.isVisible(), false, "no grid on a phone");
-      await page.waitForFunction(() => document.querySelectorAll(".pane-map-cell").length === 5);
-      // p8 is not in Herdr's layout yet: it has a box beside the map and is counted.
-      assert.equal(await page.locator('.pane-map-extra .pane-map-cell[data-pane-id="w1:p8"]').count(), 1);
-      assert.equal(await page.locator('.pane-map-cell[data-pane-id="w1:p1"]').getAttribute("aria-pressed"), "true");
-      assert.equal(await page.locator('.pane-map-cell[data-pane-id="w1:p3"]').getAttribute("data-status"), "blocked");
-      assert.match(await page.locator(".pane-map-count").textContent(), /^1 \/ 5$/u);
-      const mapBox = await page.locator(".pane-map-board").boundingBox();
-      const left = await page.locator('.pane-map-cell[data-pane-id="w1:p1"]').boundingBox();
-      assert.ok(Math.abs(left.width - mapBox.width / 2) <= 2, "the map keeps Herdr's proportions");
+      await page.waitForFunction(() => document.querySelectorAll("#pane-tabs .ui-tab").length === 5);
+      const order = await page.locator("#pane-tabs .ui-tab").evaluateAll((tabs) => tabs.map((item) => item.dataset.paneId));
+      assert.equal(order.at(-1), "w1:p8", "a pane the layout lacks comes last");
+      assert.equal(await tab("w1:p1").getAttribute("aria-selected"), "true");
+      assert.equal(await tab("w1:p3").getAttribute("data-status"), "blocked");
+      assert.equal(await tab("w1:p3").locator(".pane-tab-dot.state-blocked").count(), 1, "a waiting pane's tab has a dot");
       await page.locator("#terminal-xterm .xterm").waitFor({ state: "visible" });
-      await shoot("map");
-      // A tap on the box of the pane the layout lacks selects it.
-      await page.locator('.pane-map-cell[data-pane-id="w1:p8"]').tap();
+      await shoot("pane-tabs");
+      // A tap on the tab of the pane the layout lacks selects it.
+      await tab("w1:p8").tap();
       await page.locator("#pane-title").filter({ hasText: /epsilon/u }).waitFor();
-      await page.waitForFunction(() => document.querySelector(".pane-map-count")?.textContent === "5 / 5");
-      // A tap on the map switches pane.
-      await page.locator('.pane-map-cell[data-pane-id="w1:p3"]').tap();
+      await page.waitForFunction(() => document.querySelector('#pane-tabs .ui-tab[data-pane-id="w1:p8"]')?.getAttribute("aria-selected") === "true");
+      // A tap on a tab switches pane.
+      await tab("w1:p3").tap();
       await page.locator("#pane-title").filter({ hasText: /gamma/u }).waitFor();
-      await page.waitForFunction(() => document.querySelector('.pane-map-cell[data-pane-id="w1:p3"]')?.getAttribute("aria-pressed") === "true");
-      assert.match(await page.locator(".pane-map-count").textContent(), /^3 \/ 5$/u);
-      // The tab's row in the sidebar keeps a phone on its pane and the map.
+      await page.waitForFunction(() => document.querySelector('#pane-tabs .ui-tab[data-pane-id="w1:p3"]')?.getAttribute("aria-selected") === "true");
+      // The tab's row in the sidebar keeps a phone on its pane and the tabs.
       await page.locator("#mobile-sidebar-open").click();
       await page.waitForTimeout(400);
       await splitRow("w1:t1").click();
       await page.waitForTimeout(400);
       assert.equal(await grid.isVisible(), false);
-      assert.equal(await map.isVisible(), true);
+      assert.equal(await tabs.isVisible(), true);
       await page.locator("#pane-title").filter({ hasText: /gamma/u }).waitFor();
-      // A one-pane tab has no map.
+      // A one-pane tab has no tabs.
       await page.locator("#mobile-sidebar-open").click();
       await page.waitForTimeout(400);
       await page.locator('.pane-button[data-pane-id="w1:p9"]').click();
-      await map.waitFor({ state: "hidden" });
+      await tabs.waitFor({ state: "hidden" });
       // Nor has a connected PC's split tab.
       await page.locator("#mobile-sidebar-open").click();
       await page.waitForTimeout(400);
@@ -599,7 +597,7 @@ try {
       await page.locator('.pane-button[data-pane-id="laptop!w1:p2"]').click();
       await page.locator("#pane-title").filter({ hasText: /two/u }).waitFor();
       await page.waitForTimeout(400);
-      assert.equal(await map.isVisible(), false, "no map for a connected PC's tab");
+      assert.equal(await tabs.isVisible(), false, "no pane tabs for a connected PC's tab");
     }
     assert.deepEqual(errors, [], "no script errors");
     await context.close();

@@ -10,7 +10,7 @@
 // one tree step in, as tall and as far apart as other rows, with no guide
 // line, each with its own ⋯ (Split right, Split down, Zoom, Move out to its
 // own tab, Close pane) lined up with every other ⋯; a pane there opens
-// alone; the row opens the grid on a desktop and the pane with the map on a
+// alone; the row opens the grid on a desktop and the pane with its tabs on a
 // phone, stays highlighted while one of its panes is selected, and its ⋯ menu
 // renames, separates and closes the whole tab. A folded sidebar's rail
 // lists the tabs even with the Files tab chosen, and keeps the footer's
@@ -404,7 +404,7 @@ try {
     await page.locator('.pane-button[data-pane-id="w1:p9"]').click();
     await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w1:p9"]')?.getAttribute("aria-pressed") === "true");
     assert.equal(await page.locator(".terminal-panel.is-grid").count(), 0, "a pane of the list opens alone");
-    if (mobile) await page.locator("#pane-map").waitFor({ state: "visible" });
+    if (mobile) await page.locator("#pane-tabs").waitFor({ state: "visible" });
     await openSidebar();
     split = await splitState();
     assert.equal(split["w1:t8"].pressed, "true", "the row is highlighted for its selected pane");
@@ -419,12 +419,12 @@ try {
     assert.deepEqual([split["w1:t8"].expanded, split["w1:t8"].shown, split["w1:t8"].pressed], ["false", false, "true"]);
     await shoot("split-closed");
 
-    // The row: the grid on a desktop, the pane last selected there with the map on a phone.
+    // The row: the grid on a desktop, the pane last selected there with its tabs on a phone.
     await page.locator('.split-session-button[data-tab-id="w1:t8"]').click();
     if (mobile) {
-      await page.locator("#pane-map").waitFor({ state: "visible" });
+      await page.locator("#pane-tabs").waitFor({ state: "visible" });
       assert.equal(await page.locator(".terminal-panel.is-grid").count(), 0, "no grid on a phone");
-      assert.equal(await page.locator('.pane-map-cell[data-pane-id="w1:p9"]').getAttribute("aria-pressed"), "true");
+      assert.equal(await page.locator('#pane-tabs .ui-tab[data-pane-id="w1:p9"]').getAttribute("aria-selected"), "true");
     } else {
       await page.locator(".terminal-panel.is-grid").waitFor();
       await page.locator('.pane-grid-cell[data-pane-id="w1:p9"].is-focused').waitFor();

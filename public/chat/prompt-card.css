@@ -25,8 +25,8 @@
 .prompt-dock[data-mode="banner"] {
   position: absolute;
   z-index: var(--layer-pane-overlay);
-  /* Below the phone pane map, which it would otherwise cover. */
-  top: calc(8px + var(--pane-map-clearance, 0px));
+  /* Below the phone's pane tabs, which it would otherwise cover. */
+  top: calc(8px + var(--pane-tabs-clearance, 0px));
   left: 8px;
   right: 8px;
   align-items: center;

@@ -55,6 +55,28 @@ function absent(error) {
   return error?.code === "ENOENT" || error?.code === "ENOTDIR";
 }
 
+// A Claude background job's state (`<configDir>/jobs/<short>/state.json`):
+// its session, and what it says it is doing (`state`, as written), or null
+// when there is no such job or the file names no session of that short id.
+export async function readBackgroundJob(configDir, short) {
+  if (typeof short !== "string" || !JOB_SHORT_ID.test(short)) return null;
+  const path = join(configDir, "jobs", short, "state.json");
+  let text;
+  try {
+    const info = await stat(path);
+    if (!info.isFile() || info.size > MAX_JOB_STATE_BYTES) return null;
+    text = await readFile(path, "utf8");
+  } catch (error) {
+    if (absent(error)) return null;
+    throw error;
+  }
+  let state;
+  try { state = JSON.parse(text); } catch { return null; }
+  const session = state?.sessionId;
+  if (typeof session !== "string" || !SESSION_ID.test(session) || !session.startsWith(short)) return null;
+  return { session, state: typeof state.state === "string" ? state.state : null };
+}
+
 async function isFile(path, statFile = stat) {
   try { return (await statFile(path)).isFile(); } catch (error) { if (absent(error)) return false; throw error; }
 }
@@ -127,20 +149,7 @@ export function localTranscriptStore({ configDir = defaultClaudeConfigDir(), cod
       return [...ids];
     },
     async backgroundJobSession(short) {
-      if (typeof short !== "string" || !JOB_SHORT_ID.test(short)) return null;
-      const path = join(configDir, "jobs", short, "state.json");
-      let text;
-      try {
-        const info = await stat(path);
-        if (!info.isFile() || info.size > MAX_JOB_STATE_BYTES) return null;
-        text = await readFile(path, "utf8");
-      } catch (error) {
-        if (absent(error)) return null;
-        throw error;
-      }
-      let session;
-      try { session = JSON.parse(text)?.sessionId; } catch { return null; }
-      return typeof session === "string" && SESSION_ID.test(session) && session.startsWith(short) ? session : null;
+      return (await readBackgroundJob(configDir, short))?.session ?? null;
     },
     // The sessions in one Claude project directory (claudeProjectDir), each
     // `<uuid>.jsonl`, newest first: [{ session, path, size, mtimeMs }].

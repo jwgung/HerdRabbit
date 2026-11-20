@@ -332,11 +332,13 @@ try {
     await page.locator(".prompt-banner-open").click();
     assert.equal(await dockMode(), "overlay");
     assert.equal(await lens(), "terminal");
-    assert.deepEqual(await page.locator(".prompt-card-option-label").allTextContents(), ["Yes (y)", "No (n)", "Enter", "Esc"]);
+    assert.deepEqual(await page.locator(".prompt-card-option-label").allTextContents(), ["Yes (y)", "No (n)"]);
+    // the terminal's keys are a row of keys after the answers
+    assert.deepEqual(await page.locator(".prompt-card .prompt-panel-key kbd").allTextContents(), ["↑", "↓", "←", "→", "Tab", "Space", "Enter", "Esc"]);
     await page.locator(".prompt-card-close").click();
     assert.equal(await dockMode(), "banner");
     await page.locator(".prompt-banner-open").click();
-    await page.locator('.prompt-card [data-prompt-option="3"]').click();
+    await page.locator('.prompt-card [data-prompt-option="9"]').click();
     await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "hidden" || document.querySelector(".prompt-card-error"));
     assert.deepEqual(herdr.sent.filter((item) => item.paneId === "w1:p2"), [{ paneId: "w1:p2", keys: ["esc"] }]);
 

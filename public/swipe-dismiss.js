@@ -16,7 +16,7 @@ export const DRAG_CLICK_WINDOW = 400;
 const LEAVE_BACKSTOP = 400;
 // Release speed is measured over the last stretch of the drag only, so a
 // pause before letting go reads as slow.
-const VELOCITY_WINDOW_MS = 100;
+export const VELOCITY_WINDOW_MS = 100;
 // How far past the screen's top edge an upward-thrown alert travels, so its
 // shadow is gone too.
 const OFFSCREEN_MARGIN = 24;

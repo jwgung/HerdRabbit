@@ -5,16 +5,15 @@
 import { createElement } from "./dom.js?v=1.4.55";
 import { createTabStrip } from "./tab-strip.js?v=1.4.55";
 import { gridCells } from "../pane-grid.js?v=1.4.55";
+import { FLICK_SPEED, VELOCITY_WINDOW_MS } from "../swipe-dismiss.js?v=1.4.55";
 
 // A swipe this share of the stage's width picks the next pane, or a shorter
-// flick this fast (pixels per millisecond) that still goes FLICK_MIN_DISTANCE.
+// flick as fast as one that dismisses an alert (swipe-dismiss.js) that still
+// goes FLICK_MIN_DISTANCE: further than an alert's, as text scrolls under it.
 export const SWIPE_FRACTION = 0.25;
-export const FLICK_SPEED = 0.5;
 export const FLICK_MIN_DISTANCE = 40;
 // Sideways by at least this much more than up or down: a scroll that drifts is no swipe.
 export const SIDEWAYS_RATIO = 1.5;
-// Speed is read over the last stretch only, so a pause before letting go reads as slow.
-const VELOCITY_WINDOW_MS = 100;
 
 // The statuses whose dot a tab shows; an idle or unknown pane shows none.
 const DOT_STATUSES = new Set(["blocked", "working", "done"]);

@@ -1993,7 +1993,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 /* The find bar, over the terminal's top right corner; on a phone, across it. */
 .terminal-find {
   position: absolute;
-  top: calc(8px + var(--pane-map-clearance, 0px));
+  top: calc(8px + var(--pane-tabs-clearance, 0px));
   right: 8px;
   z-index: calc(var(--layer-pane-chrome) + 2);
   width: min(420px, calc(100% - 16px));
@@ -5528,13 +5528,13 @@ body.is-pane-rearranging * {
 
 /* The phone's tabs of a split tab (public/app/pane-tabs.js): one tab per
    pane, its agent's mark and name, a dot for a pane asking, working or done. */
-.pane-map {
+.pane-tabs-host {
   flex: 0 0 auto;
   min-width: 0;
   margin-bottom: var(--space-2);
 }
 
-.pane-map[hidden] {
+.pane-tabs-host[hidden] {
   display: none;
 }
 

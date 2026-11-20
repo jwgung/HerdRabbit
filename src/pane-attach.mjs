@@ -2,10 +2,9 @@
 // pane only the attach client (`claude attach <short id>`), which herdr does
 // not recognise as an agent. This names such a pane as Claude on the job's
 // session, in the snapshot itself, so the page treats it like any Claude pane.
-import { readFile, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
-import { JOB_SHORT_ID, SESSION_ID } from "./conversation/claude.mjs";
-import { defaultClaudeConfigDir } from "./conversation/stores.mjs";
+import { basename } from "node:path";
+import { JOB_SHORT_ID } from "./conversation/claude.mjs";
+import { defaultClaudeConfigDir, readBackgroundJob } from "./conversation/stores.mjs";
 import { paneAgentName, paneForegroundProcesses } from "./pane-agent.mjs";
 
 export const ATTACH_SOURCE = "herdrabbit:attach";
@@ -14,7 +13,6 @@ export const ATTACH_SOURCE = "herdrabbit:attach";
 const PROCESS_TTL_MS = 10_000;
 // How long the first look at a pane may hold a snapshot.
 const FIRST_LOOK_MS = 1_500;
-const MAX_JOB_STATE_BYTES = 256 * 1024;
 const MAX_CACHED_PANES = 512;
 // herdr's own agent states; a job state outside them leaves the status alone.
 const STATUSES = new Set(["working", "idle", "blocked", "done"]);
@@ -30,13 +28,8 @@ export function attachedJobShort(processInfo) {
 
 async function jobState(configDir, short) {
   try {
-    const path = join(configDir, "jobs", short, "state.json");
-    const info = await stat(path);
-    if (!info.isFile() || info.size > MAX_JOB_STATE_BYTES) return null;
-    const state = JSON.parse(await readFile(path, "utf8"));
-    const session = state?.sessionId;
-    if (typeof session !== "string" || !SESSION_ID.test(session) || !session.startsWith(short)) return null;
-    return { session, status: typeof state.state === "string" && STATUSES.has(state.state) ? state.state : null };
+    const job = await readBackgroundJob(configDir, short);
+    return job && { session: job.session, status: STATUSES.has(job.state) ? job.state : null };
   } catch {
     return null;
   }

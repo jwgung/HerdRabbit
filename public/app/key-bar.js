@@ -3,7 +3,7 @@ import { inputKeyAction, insertNewlineAtSelection, nextInputHistory, paneKeepsIn
 import { chatAgent } from "../lens-preference.js?v=1.4.55";
 import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop, stopFollowUp, stopPresses } from "../chat/chat-activity.js?v=1.4.55";
 import { keyBarItemKey, keyBarItemLabel } from "../key-bar-preference.js?v=1.4.55";
-import { cardKey, numberedChoice } from "../chat/prompt-card.js?v=1.4.55";
+import { numberedChoice } from "../chat/prompt-card.js?v=1.4.55";
 
 // The composer's sending side and the key bar: the form's submit, the
 // composer's keys (history, Enter, Esc to stop), Send doubling as Stop, the key
@@ -84,9 +84,10 @@ export function createKeyBar({
     getPromptDock?.()?.preview(composerChoice());
   }
 
-  // A key pressed on the page, not in a text box, while the shown card waits:
-  // it goes to the card's pane (cardKey), so Enter answers without a click.
-  // A dialog, the find bar or the attached terminal keeps its own keys.
+  // A key pressed on the page, not in a text box, while a fallback card
+  // waits: the card answers it as a press of the button it names
+  // (cardKeyOption), so Enter answers without a click. A dialog, the find bar
+  // or the attached terminal keeps its own keys.
   document.addEventListener("keydown", (event) => {
     if (event.defaultPrevented || event.repeat) return;
     const dock = getPromptDock?.();
@@ -94,13 +95,10 @@ export function createKeyBar({
     if (document.querySelector("dialog[open]") || getChatFind()?.open) return;
     const target = event.target instanceof Element ? event.target : null;
     const typingTarget = Boolean(target?.closest("input, textarea, select, button, a[href], summary, [contenteditable], [role=textbox], .xterm, .terminal-xterm"));
-    const key = cardKey(dock.card, {
+    if (dock.pressKey({
       key: event.key, ctrlKey: event.ctrlKey, altKey: event.altKey, metaKey: event.metaKey,
-      isComposing: event.isComposing, typingTarget,
-    });
-    if (!key) return;
-    event.preventDefault();
-    void sendKeys([key], state.selectedPaneId).then(refreshAfterSubmission).catch((error) => setFeedback(error.message, true));
+      isComposing: event.isComposing, keyCode: event.keyCode, typingTarget,
+    })) event.preventDefault();
   });
 
   elements.terminalInput.addEventListener("input", syncComposerChoice);

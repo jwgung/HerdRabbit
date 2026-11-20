@@ -62,20 +62,22 @@ export function numberedChoice(card, text) {
   return index;
 }
 
-// The pane key (a key name for sendKeys) that a key pressed on the page sends
-// while a card for the pane the composer sends to is shown, or null. Only
-// where typing would otherwise go nowhere: not in a text box, nor on a button
-// or link (whose own Enter and Space press it), nor with a modifier held.
-// Enter, Esc and the arrows go to the pane as they are, and on a fallback or
-// panel card a digit, y or n too, the way the terminal would take them, so a
-// screen no button covers can still be answered from the keyboard.
-const CARD_KEYS = Object.freeze({ Enter: "enter", Escape: "esc", ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" });
-export function cardKey(card, { key, ctrlKey = false, altKey = false, metaKey = false, isComposing = false, typingTarget = false } = {}) {
-  if (!card || typingTarget || isComposing || ctrlKey || altKey || metaKey) return null;
-  if (Object.hasOwn(CARD_KEYS, key)) return CARD_KEYS[key];
-  // a typed character only for the screens whose own keys are shown as is
-  if ((card.fallback || card.panel) && /^(?:[0-9]|[yYnN])$/u.test(key ?? "")) return key;
-  return null;
+// The option of a fallback card that a key pressed on the page answers, or
+// null. Only where typing would otherwise go nowhere: not in a text box, nor
+// on a button or link (whose own Enter and Space press it), nor with a
+// modifier held or mid-composition. Enter, Esc and the arrows are its key
+// buttons, a digit the menu row it names, y or n its Yes (y) or No (n). It is
+// answered as a click on that button is: for the card on screen, checked
+// against the pane's screen first, so a key never lands on a newer prompt.
+// A card a reader knows is answered from its buttons and the composer only.
+const KEY_LABELS = Object.freeze({ Enter: "Enter", Escape: "Esc", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→", y: "Yes (y)", n: "No (n)" });
+export function cardKeyOption(card, { key, ctrlKey = false, altKey = false, metaKey = false, isComposing = false, keyCode = 0, typingTarget = false } = {}) {
+  if (!card?.fallback || typingTarget || isComposing || keyCode === 229 || ctrlKey || altKey || metaKey) return null;
+  if (/^[1-9]$/u.test(key ?? "")) return numberedChoice(card, key);
+  const label = KEY_LABELS[String(key ?? "").length === 1 ? key.toLowerCase() : key];
+  if (!label) return null;
+  const index = card.options.findIndex((option) => option.label === label);
+  return index < 0 ? null : index;
 }
 
 // What the composer says while such a card waits: the numbers that answer it.
@@ -647,6 +649,13 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     },
     choose(index) {
       if (!card || view.pending || numberedChoice(card, String(index + 1)) !== index) return false;
+      void answer({ option: index });
+      return true;
+    },
+    // A key pressed on the page (cardKeyOption), answered as its button is.
+    pressKey(keyEvent) {
+      const index = view.pending ? null : cardKeyOption(card, keyEvent);
+      if (index === null) return false;
       void answer({ option: index });
       return true;
     },
