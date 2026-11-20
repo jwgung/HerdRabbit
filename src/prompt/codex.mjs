@@ -248,6 +248,44 @@ function parseCodexApproval(screen) {
   });
 }
 
+// Questions Codex folded away when the user went on typing: above the
+// composer it leaves "? 2 questions · 15s" and "⇧← to answer" (0.171,
+// bottom_pane/questions.rs). The card's one answer is that key, which
+// unfolds them; the unfolded question is then a card of its own. The time
+// left ticks every second and is left out of the card, so its id holds.
+const CODEX_FOLDED_COUNT_RE = /^\?\s+(\d+) questions?(?:\s+·\s+.*)?$/u;
+const CODEX_FOLDED_HINT_RE = /^(\S+) to answer$/u;
+// The keys its hint can name, as herdr takes them: the defaults of
+// edit_queued_message (keymap.rs). Any other binding gets no card.
+const CODEX_FOLDED_KEYS = Object.freeze({ "⇧←": "shift+left", "⌥↑": "alt+up" });
+// How near the screen's end the summary sits: under it only the composer and
+// its footer.
+const CODEX_FOLDED_TAIL_LINES = 8;
+
+function foldedQuestionsAt(shown) {
+  for (let at = shown.length - 2; at >= Math.max(0, shown.length - CODEX_FOLDED_TAIL_LINES); at -= 1) {
+    const count = CODEX_FOLDED_COUNT_RE.exec(shown[at]);
+    const hint = count && CODEX_FOLDED_HINT_RE.exec(shown[at + 1] ?? "");
+    if (hint) return { at, count: Number(count[1]), binding: hint[1] };
+  }
+  return null;
+}
+
+function parseCodexFoldedQuestions(screen) {
+  const folded = foldedQuestionsAt(visibleLines(screen));
+  const key = folded && CODEX_FOLDED_KEYS[folded.binding];
+  if (!key || folded.count < 1) return null;
+  const many = folded.count === 1 ? "1 question" : `${folded.count} questions`;
+  const label = `Answer (${folded.binding})`;
+  return finishPrompt("codex", {
+    kind: "menu", title: `Codex has ${many} waiting`, question: `Codex asked ${many} and folded ${folded.count === 1 ? "it" : "them"} away while you went on.`,
+    body: null, options: [{ label, description: null }], multiSelect: false, customOptionIndex: null,
+  }, {
+    responder: "codex-folded-questions", menuLabels: [label], selectedIndex: 0, checkedOptionIndices: [], customMenuIndex: null,
+    optionSteps: [[{ keys: [key] }]],
+  });
+}
+
 // Whether the prompt still owns the end of the screen: an answered menu
 // above later output is no card.
 function promptTailIsActive(prompt, screen) {
@@ -259,6 +297,7 @@ function promptTailIsActive(prompt, screen) {
     // the queue keeps a status line or two under its hint
     case "codex-async-question": return shown.slice(-4).some((line) => CODEX_ASYNC_ASK_HINT_RE.test(line)) || hintEnds(shown, CODEX_ASYNC_ASK_HINT_RE);
     case "codex-approval": return hintEnds(shown, CODEX_APPROVAL_TAIL_RE);
+    case "codex-folded-questions": return foldedQuestionsAt(shown) !== null;
     default: return false;
   }
 }
@@ -267,7 +306,7 @@ function promptTailIsActive(prompt, screen) {
 export function parseCodexPrompt(screen) {
   const text = String(screen ?? "");
   if (secretPrompt(text) !== null) return null;
-  const candidates = [parseCodexContinueMenu(text), parseCodexQuestion(text), parseCodexElicitation(text), parseCodexAsyncQuestion(text), parseCodexApproval(text)];
+  const candidates = [parseCodexContinueMenu(text), parseCodexQuestion(text), parseCodexElicitation(text), parseCodexAsyncQuestion(text), parseCodexApproval(text), parseCodexFoldedQuestions(text)];
   return candidates.find((candidate) => candidate !== null && promptTailIsActive(candidate, text)) ?? null;
 }
 
