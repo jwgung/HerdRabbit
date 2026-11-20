@@ -3,13 +3,19 @@ import assert from "node:assert/strict";
 import { gridCells } from "../public/pane-grid.js";
 import {
   MAX_TILES,
+  PICK_TILE,
   VIEW_SPLIT_STORAGE_KEY,
+  addPickTile,
   addTile,
+  applyToHerdrPlan,
   evenTree,
+  evensHerdrTabAfter,
+  fillPick,
   layoutRects,
   moveTile,
   paneDropKind,
   parseTree,
+  pickChoices,
   prune,
   readViewSplit,
   removeTile,
@@ -18,6 +24,9 @@ import {
   tiles,
   writeViewSplit,
 } from "../public/view-split.js";
+
+// The widths (or heights) of the tiles in VIEW_AREA, left to right and top to bottom.
+const sizes = (tree, key = "width") => layoutRects(tree).panes.map(({ rect }) => rect[key]);
 
 test("a drop on the pane alone starts a view split of two tiles on that side", () => {
   assert.deepEqual(addTile(null, "a", "b", "right"), { dir: "right", first: "a", second: "b", ratio: 0.5 });
@@ -134,57 +143,155 @@ const snapshot = {
     { pane_id: "w2:p1", tab_id: "w2:t1", ...local }, { pane_id: "laptop!w1:p1", tab_id: "laptop!w1:t1", ...laptop },
   ],
 };
-const allowed = { paneMoveAllowed: () => true };
 
-test("the same project merges in Herdr; another project is a view split on the pane alone only", () => {
-  assert.equal(paneDropKind(snapshot, { tabId: "w1:t2", targetPaneId: "w1:p1" }, { screen: "solo", ...allowed }), "move");
-  assert.equal(paneDropKind(snapshot, { tabId: "w1:t2", targetPaneId: "w1:p1" }, { screen: "grid", ...allowed }), "move");
-  assert.equal(paneDropKind(snapshot, { tabId: "w1:t2", targetPaneId: "w1:p1" }, { screen: "solo" }), null, "Herdr refuses: no drop");
-  assert.equal(paneDropKind(snapshot, { tabId: "w2:t1", targetPaneId: "w1:p1" }, { screen: "solo", ...allowed }), "view");
-  assert.equal(paneDropKind(snapshot, { tabId: "w2:t1", targetPaneId: "w1:p1" }, { screen: "grid", ...allowed }), null);
-});
-
-test("on a view split anything not a tile yet becomes one, its own project too", () => {
-  const tileIds = ["w1:p1", "w2:p1"];
-  assert.equal(paneDropKind(snapshot, { tabId: "w1:t2", targetPaneId: "w1:p1" }, { screen: "tiles", tileIds, ...allowed }), "view");
-  assert.equal(paneDropKind(snapshot, { tabId: "w2:t1", targetPaneId: "w1:p1" }, { screen: "tiles", tileIds, ...allowed }), null, "already a tile");
-  assert.equal(paneDropKind(snapshot, { tabId: "w1:t2", targetPaneId: "w1:p3" }, { screen: "tiles", tileIds, ...allowed }), null, "not on a tile");
-  const full = ["w1:p1", "a", "b", "c", "d", "e"];
-  assert.equal(paneDropKind(snapshot, { tabId: "w1:t2", targetPaneId: "w1:p1" }, { screen: "tiles", tileIds: full, ...allowed }), null);
-});
-
-test("a split session or the pane's own is no drop", () => {
-  assert.equal(paneDropKind(snapshot, { tabId: "w1:t3", targetPaneId: "w2:p1" }, { screen: "solo", ...allowed }), null);
-  assert.equal(paneDropKind(snapshot, { tabId: "w1:t1", targetPaneId: "w1:p1" }, { screen: "solo", ...allowed }), null);
-});
-
-test("a view split may hold panes of different machines; Herdr's merge never crosses one", () => {
-  // Alone: another machine's pane is another project, so a tile beside it.
-  assert.equal(paneDropKind(snapshot, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen: "solo", ...allowed }), "view");
-  assert.equal(paneDropKind(snapshot, { tabId: "w2:t1", targetPaneId: "laptop!w1:p1" }, { screen: "solo", ...allowed }), "view");
-  // Herdr being unable to merge is no reason against a tile.
-  assert.equal(paneDropKind(snapshot, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen: "solo" }), "view");
-  // A grid is Herdr's: no view tile, no merge.
-  assert.equal(paneDropKind(snapshot, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen: "grid", ...allowed }), null);
-  // On a view split any machine's session joins, whatever it can lay out.
-  const tileIds = ["w1:p1", "w2:p1"];
-  assert.equal(paneDropKind(snapshot, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen: "tiles", tileIds, ...allowed }), "view");
-  assert.equal(paneDropKind(snapshot, { tabId: "w1:t2", targetPaneId: "laptop!w1:p1" }, { screen: "tiles", tileIds: ["laptop!w1:p1", "w2:p1"], ...allowed }), "view");
+test("any tab dropped on another pane is a tile of this window's split view, never a Herdr move", () => {
+  // The same workspace, another workspace, another machine: all a view tile, on any screen.
+  for (const screen of ["solo", "grid"]) {
+    assert.equal(paneDropKind(snapshot, { tabId: "w1:t2", targetPaneId: "w1:p1" }, { screen }), "view", `${screen}: same workspace`);
+    assert.equal(paneDropKind(snapshot, { tabId: "w2:t1", targetPaneId: "w1:p1" }, { screen }), "view", `${screen}: another workspace`);
+    assert.equal(paneDropKind(snapshot, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen }), "view", `${screen}: another machine`);
+  }
   const older = { ...snapshot, servers: [{ id: "laptop", pane_layout: false }] };
-  assert.equal(paneDropKind(older, { tabId: "laptop!w1:t1", targetPaneId: "w1:p1" }, { screen: "tiles", tileIds, ...allowed }), "view",
-    "a tile is this window's, so a PC that cannot lay out its panes still gives one");
+  assert.equal(paneDropKind(older, { tabId: "w1:t2", targetPaneId: "laptop!w1:p1" }, { screen: "solo" }), "view",
+    "a PC that cannot lay out its panes still gives a tile");
 });
 
-test("a connected PC that lays out its panes merges a drop there, never with another machine's", () => {
-  const laptopPanes = {
-    ...snapshot,
-    servers: [{ id: "local", pane_layout: true }, { id: "laptop", pane_layout: true }],
-    tabs: [...snapshot.tabs, { tab_id: "laptop!w1:t2", workspace_id: "laptop!w1", ...laptop }],
-    panes: [...snapshot.panes, { pane_id: "laptop!w1:p2", tab_id: "laptop!w1:t2", ...laptop }],
+test("on a view split anything not a tile yet becomes one beside a tile", () => {
+  const tileIds = ["w1:p1", "w2:p1"];
+  assert.equal(paneDropKind(snapshot, { tabId: "w1:t2", targetPaneId: "w1:p1" }, { screen: "tiles", tileIds }), "view");
+  assert.equal(paneDropKind(snapshot, { tabId: "laptop!w1:t1", targetPaneId: "w2:p1" }, { screen: "tiles", tileIds }), "view");
+  assert.equal(paneDropKind(snapshot, { tabId: "w2:t1", targetPaneId: "w1:p1" }, { screen: "tiles", tileIds }), null, "already a tile");
+  assert.equal(paneDropKind(snapshot, { tabId: "w1:t2", targetPaneId: "w1:p3" }, { screen: "tiles", tileIds }), null, "not on a tile");
+  const full = ["w1:p1", "a", "b", "c", "d", "e"];
+  assert.equal(paneDropKind(snapshot, { tabId: "w1:t2", targetPaneId: "w1:p1" }, { screen: "tiles", tileIds: full }), null, "full");
+});
+
+test("a tab dropped on its own pane splits it, alone or as a tile; a split tab is no drop", () => {
+  assert.equal(paneDropKind(snapshot, { tabId: "w1:t1", targetPaneId: "w1:p1" }, { screen: "solo" }), "self");
+  assert.equal(paneDropKind(snapshot, { tabId: "w1:t1", targetPaneId: "w1:p1" }, { screen: "tiles", tileIds: ["w1:p1", "w2:p1"] }), "self");
+  assert.equal(paneDropKind(snapshot, { tabId: "w1:t1", targetPaneId: "w1:p1" }, { screen: "tiles", tileIds: ["w1:p1", "a", "b", "c", "d", "e"] }), null, "full");
+  assert.equal(paneDropKind(snapshot, { tabId: "w1:t3", targetPaneId: "w2:p1" }, { screen: "solo" }), null, "a split tab");
+  assert.equal(paneDropKind(snapshot, { tabId: "w1:t3", targetPaneId: "w1:p3" }, { screen: "solo" }), null, "its own pane, of a split tab");
+});
+
+test("a drop on its own pane opens a picker tile on that edge, which a pane fills or Cancel takes out", () => {
+  assert.deepEqual(addPickTile(null, "a", "left"), { dir: "right", first: PICK_TILE, second: "a", ratio: 0.5 });
+  assert.deepEqual(addPickTile(null, "a", "down"), { dir: "down", first: "a", second: PICK_TILE, ratio: 0.5 });
+  // On a tile of three in a row: the picker is a fourth, and the row is evened.
+  const row = evenTree(addTile(addTile(null, "a", "b", "right"), "b", "c", "right"));
+  const picking = addPickTile(row, "c", "right");
+  assert.deepEqual(tiles(picking), ["a", "b", "c", PICK_TILE]);
+  assert.deepEqual(sizes(picking), [60, 60, 60, 60]);
+  // A second picker replaces the first.
+  assert.deepEqual(tiles(addPickTile(picking, "a", "up")), [PICK_TILE, "a", "b", "c"]);
+  // Filled: the pane takes the picker's place.
+  assert.deepEqual(tiles(fillPick(picking, "d")), ["a", "b", "c", "d"]);
+  assert.equal(fillPick(picking, "a"), picking, "a tile already");
+  assert.equal(fillPick(row, "d"), row, "no picker");
+  // Cancel split: the picker goes, the rest evens.
+  assert.deepEqual(sizes(evenTree(removeTile(picking, PICK_TILE))), [80, 80, 80]);
+  assert.equal(removeTile(addPickTile(null, "a", "left"), PICK_TILE), null, "the pane alone again");
+  // Full: no room for a picker.
+  const six = ["c", "d", "e", "f"].reduce((tree, id, index) => addTile(tree, ["b", "c", "d", "e"][index], id, "right"), addTile(null, "a", "b", "right"));
+  assert.equal(addPickTile(six, "a", "left"), six);
+});
+
+test("adding or removing a tile evens the split view (evenTree after each change)", () => {
+  const added = evenTree(addTile(evenTree(addTile(null, "a", "b", "right")), "b", "c", "right"));
+  assert.deepEqual(sizes(added), [80, 80, 80]);
+  assert.deepEqual(sizes(evenTree(removeTile(added, "a"))), [120, 120]);
+  const column = evenTree(addTile(added, "c", "d", "down"));
+  assert.deepEqual(sizes(column), [80, 80, 80, 80]);
+  assert.deepEqual(sizes(column, "height"), [80, 80, 40, 40]);
+});
+
+// A workspace of four single-pane tabs, one split tab, and another workspace.
+const herdrSnapshot = {
+  workspaces: [{ workspace_id: "w1", ...local }, { workspace_id: "w2", ...local }, { workspace_id: "laptop!w1", ...laptop }],
+  tabs: ["t1", "t2", "t3", "t4", "t5"].map((id) => ({ tab_id: `w1:${id}`, workspace_id: "w1", ...local }))
+    .concat([{ tab_id: "w2:t1", workspace_id: "w2", ...local }, { tab_id: "laptop!w1:t1", workspace_id: "laptop!w1", ...laptop },
+      { tab_id: "w1:t9", workspace_id: "w1", ...local, herdr_session_id: "hs_other" }]),
+  panes: ["1", "2", "3", "4"].map((n) => ({ pane_id: `w1:p${n}`, tab_id: `w1:t${n}`, ...local }))
+    .concat([{ pane_id: "w1:p5", tab_id: "w1:t5", ...local }, { pane_id: "w1:p6", tab_id: "w1:t5", ...local },
+      { pane_id: "w2:p1", tab_id: "w2:t1", ...local }, { pane_id: "laptop!w1:p1", tab_id: "laptop!w1:t1", ...laptop },
+      { pane_id: "w1:p9", tab_id: "w1:t9", ...local, herdr_session_id: "hs_other" }]),
+};
+
+test("Apply to Herdr is offered only for tiles of one workspace, session and machine, each alone in its tab", () => {
+  const two = addTile(null, "w1:p1", "w1:p2", "right");
+  assert.deepEqual(applyToHerdrPlan(herdrSnapshot, two), { anchor: "w1:p1", moves: [{ paneId: "w1:p2", targetPaneId: "w1:p1", side: "right" }] });
+  assert.equal(applyToHerdrPlan(herdrSnapshot, addTile(null, "w1:p1", "w2:p1", "right")), null, "another workspace");
+  assert.equal(applyToHerdrPlan(herdrSnapshot, addTile(null, "w1:p1", "laptop!w1:p1", "right")), null, "another machine");
+  assert.equal(applyToHerdrPlan(herdrSnapshot, addTile(null, "w1:p1", "w1:p9", "right")), null, "another Herdr session");
+  assert.equal(applyToHerdrPlan(herdrSnapshot, addTile(null, "w1:p1", "w1:p5", "right")), null, "a pane of a split tab");
+  assert.equal(applyToHerdrPlan(herdrSnapshot, addPickTile(null, "w1:p1", "right")), null, "a picker waiting");
+  assert.equal(applyToHerdrPlan(herdrSnapshot, addTile(null, "w1:p1", "w1:gone", "right")), null, "a pane not listed (machine away)");
+  assert.equal(applyToHerdrPlan(herdrSnapshot, null), null);
+  // A connected PC applies only when it lays out its panes from here.
+  const laptopTwo = {
+    ...herdrSnapshot, servers: [{ id: "laptop", pane_layout: true }],
+    tabs: [...herdrSnapshot.tabs, { tab_id: "laptop!w1:t2", workspace_id: "laptop!w1", ...laptop }],
+    panes: [...herdrSnapshot.panes, { pane_id: "laptop!w1:p2", tab_id: "laptop!w1:t2", ...laptop }],
   };
-  assert.equal(paneDropKind(laptopPanes, { tabId: "laptop!w1:t2", targetPaneId: "laptop!w1:p1" }, { screen: "solo", ...allowed }), "move");
-  const older = { ...laptopPanes, servers: [{ id: "laptop", pane_layout: false }] };
-  assert.equal(paneDropKind(older, { tabId: "laptop!w1:t2", targetPaneId: "laptop!w1:p1" }, { screen: "solo", ...allowed }), null);
+  const remote = addTile(null, "laptop!w1:p1", "laptop!w1:p2", "down");
+  assert.ok(applyToHerdrPlan(laptopTwo, remote));
+  assert.equal(applyToHerdrPlan({ ...laptopTwo, servers: [] }, remote), null);
+});
+
+// Replays a plan the way Herdr splits a pane: the target's leaf becomes a
+// node of the target and the moved pane, right of or under it.
+function herdrReplay(plan) {
+  let tree = plan.anchor;
+  for (const { paneId, targetPaneId, side } of plan.moves) {
+    const split = (node) => (typeof node === "string"
+      ? (node === targetPaneId ? { dir: side, first: node, second: paneId } : node)
+      : { ...node, first: split(node.first), second: split(node.second) });
+    tree = split(tree);
+  }
+  const shape = (node) => (typeof node === "string" ? node : { dir: node.dir, first: shape(node.first), second: shape(node.second) });
+  return shape(tree);
+}
+const shapeOf = (node) => (typeof node === "string" ? node : { dir: node.dir, first: shapeOf(node.first), second: shapeOf(node.second) });
+
+test("the apply plan rebuilds the view split's arrangement with Herdr's right and down splits", () => {
+  const trees = [
+    // a | (b over c)
+    addTile(addTile(null, "w1:p1", "w1:p2", "right"), "w1:p2", "w1:p3", "down"),
+    // (a | b) over c, built from a drop on the left and on top
+    addTile(addTile(null, "w1:p2", "w1:p1", "left"), "w1:p2", "w1:p3", "down"),
+    // ((a | b) over (c | d))
+    { dir: "down", ratio: 0.5,
+      first: { dir: "right", first: "w1:p1", second: "w1:p2", ratio: 0.5 },
+      second: { dir: "right", first: "w1:p3", second: "w1:p4", ratio: 0.5 } },
+    // (a | b) | c, nested to the left
+    { dir: "right", ratio: 0.5, first: { dir: "right", first: "w1:p3", second: "w1:p1", ratio: 0.5 }, second: "w1:p2" },
+  ];
+  for (const tree of trees) {
+    const plan = applyToHerdrPlan(herdrSnapshot, tree);
+    assert.equal(plan.anchor, tiles(tree)[0]);
+    assert.equal(plan.moves.length, tiles(tree).length - 1);
+    for (const move of plan.moves) assert.ok(move.side === "right" || move.side === "down");
+    assert.deepEqual(herdrReplay(plan), shapeOf(tree));
+  }
+});
+
+test("the picker groups the tabs by this workspace, other workspaces and other machines", () => {
+  const groups = pickChoices(herdrSnapshot, { anchorPaneId: "w1:p1", tileIds: ["w1:p1", PICK_TILE, "w1:p2"] });
+  assert.deepEqual(groups.here.map((choice) => choice.paneId), ["w1:p3", "w1:p4", "w1:p5"], "tiles left out");
+  assert.deepEqual(groups.here.find((choice) => choice.tabId === "w1:t5"), { tabId: "w1:t5", paneId: "w1:p5", paneCount: 2 });
+  assert.deepEqual(groups.workspaces.map((choice) => choice.paneId), ["w2:p1", "w1:p9"], "another workspace or Herdr session");
+  assert.deepEqual(groups.machines.map((choice) => choice.paneId), ["laptop!w1:p1"]);
+  // A split tab offers the pane asked for, else the first that is no tile.
+  const preferred = pickChoices(herdrSnapshot, { anchorPaneId: "w1:p1", preferredPane: (tabId) => (tabId === "w1:t5" ? "w1:p6" : null) });
+  assert.equal(preferred.here.find((choice) => choice.tabId === "w1:t5").paneId, "w1:p6");
+  const partly = pickChoices(herdrSnapshot, { anchorPaneId: "w1:p1", tileIds: ["w1:p5"] });
+  assert.equal(partly.here.find((choice) => choice.tabId === "w1:t5").paneId, "w1:p6");
+});
+
+test("HerdRabbit evens a Herdr split tab only after changing it itself", () => {
+  for (const action of ["split", "close", "move-out", "apply"]) assert.equal(evensHerdrTabAfter(action, 3), true, action);
+  assert.equal(evensHerdrTabAfter("close", 1), false, "one pane left is no split");
+  for (const action of ["swap", "relocate", "zoom", "resize", "snapshot"]) assert.equal(evensHerdrTabAfter(action, 3), false, action);
 });
 
 test("two tiles trade places and nothing else moves", () => {
@@ -225,8 +332,6 @@ test("a tile moves next to another on any side, taking half of it", () => {
   }
 });
 
-// The widths (or heights) of the tiles in VIEW_AREA, left to right and top to bottom.
-const sizes = (tree, key = "width") => layoutRects(tree).panes.map(({ rect }) => rect[key]);
 
 test("evening out gives every tile of a row the same width, however it was nested", () => {
   // a | b, then b split again: a half and two quarters until evened out.
@@ -269,4 +374,13 @@ test("evening out keeps the tiles where they are and an even tree as it is", () 
   assert.equal(evenTree(null), null);
   // A reload reads an evened tree back as it was.
   assert.deepEqual(parseTree(JSON.parse(JSON.stringify(evened))), evened);
+});
+
+test("a picker waiting in a tile is not kept for a reload", () => {
+  const store = new Map();
+  const storage = { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => store.set(key, value), removeItem: (key) => store.delete(key) };
+  writeViewSplit(storage, { tree: addPickTile(addTile(null, "a", "b", "right"), "b", "down"), shown: true, focus: "b" });
+  assert.deepEqual(tiles(readViewSplit(storage).tree), ["a", "b"]);
+  writeViewSplit(storage, { tree: addPickTile(null, "a", "right"), shown: true, focus: "a" });
+  assert.equal(store.has(VIEW_SPLIT_STORAGE_KEY), false);
 });

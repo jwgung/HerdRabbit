@@ -171,7 +171,8 @@ const elements = {
   gridBack: document.querySelector("#grid-back"),
   viewBack: document.querySelector("#view-back"),
   viewClose: document.querySelector("#view-close"),
-  splitEven: document.querySelector("#split-even"),
+  viewApply: document.querySelector("#view-apply"),
+  herdrTabMark: document.querySelector("#herdr-tab-mark"),
   chatHost: document.querySelector("#chat-host"),
   promptDock: document.querySelector("#prompt-dock"),
   lensSwitch: document.querySelector("#lens-switch"),
@@ -1048,6 +1049,9 @@ const {
   sidebarActionMenu: (...args) => sidebarActionMenu(...args),
   paneButton: (...args) => paneButton(...args),
   agentMark: (...args) => agentMark(...args),
+  // The split view's picker makes tabs as the sidebar's New tab does.
+  createSession: (...args) => createSession(...args),
+  openNewSession: (...args) => openNewSession(...args),
   // Made below (lateChatLens); read once the page draws a grid.
   get chatLens() { return lateChatLens; },
 });

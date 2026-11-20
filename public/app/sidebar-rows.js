@@ -212,11 +212,10 @@ export function createSidebarRows(deps) {
     );
     state.collapsedWorkspaceIds.delete(workspaceId);
     writeCollapsedWorkspaceIds(panePreferenceStorage, state.collapsedWorkspaceIds);
-    adoptMutationSnapshot(
-      state.snapshot,
-      payload.paneId || (newPane ? idOf(newPane, "pane_id", "id") : null),
-    );
+    const paneId = payload.paneId || (newPane ? idOf(newPane, "pane_id", "id") : null);
+    adoptMutationSnapshot(state.snapshot, paneId);
     closeMobileSidebar();
+    return paneId;
   }
 
   async function closeSession(tab, label, button) {
@@ -513,11 +512,12 @@ export function createSidebarRows(deps) {
     button.append(status);
 
     // A row opens its pane alone, even in a split tab: the split session's own row opens the grid.
-    // A pane that is a tile of this window's view split is focused there instead.
+    // A pane that is a tile of this window's view split is focused there
+    // instead (on a phone, its tab of the split view).
     button.addEventListener("click", () => {
-      if (desktopMedia.matches && viewTiles(viewSplit.tree).includes(paneId)) {
+      if (viewTiles(viewSplit.tree).includes(paneId)) {
         selectPane(paneId, { view: "tiles" });
-        deps.viewGrid.focus(paneId, { terminal: false });
+        if (desktopMedia.matches) deps.viewGrid.focus(paneId, { terminal: false });
       } else selectPane(paneId, { view: "solo" });
       closeMobileSidebar();
       focusComposer();

@@ -84,6 +84,8 @@ export function createSessionDialog({
   const submit = form.querySelector('button[type="submit"]');
   // Where the tab goes: { serverId, workspaceId }, NEW_WORKSPACE for a new one.
   let target = null;
+  // Who hears the pane of the tab this dialog makes (open's onCreated).
+  let created = null;
   // A late answer for a machine chosen (or a dialog opened) since is dropped.
   let generation = 0;
   // While the agent list is still being asked for, its choices stay off.
@@ -282,8 +284,11 @@ export function createSessionDialog({
 
   // From the + (no workspace: the one on show) or a workspace's ⋯ menu (that
   // workspace).
-  function open({ workspaceId = null } = {}) {
+  // `onCreated(paneId)` hears the pane of the tab made (the split view's
+  // picker puts it in its tile); a dialog closed without one never calls it.
+  function open({ workspaceId = null, onCreated = null } = {}) {
     if (state.mutationBusy) return;
+    created = onCreated;
     form.reset();
     target = newTabPlace(snapshotRecords(), { workspaceId, selectedPaneId: state.selectedPaneId });
     fillMachines();
@@ -320,6 +325,7 @@ export function createSessionDialog({
   dialog.addEventListener("close", () => {
     generation += 1;
     target = null;
+    created = null;
     window.clearTimeout(folderTimer);
     form.reset();
     fillSessions([]);
@@ -351,6 +357,7 @@ export function createSessionDialog({
       void refreshSnapshot();
     }
     closeMobileSidebar();
+    return paneId;
   }
 
   form.addEventListener("submit", async (event) => {
@@ -374,14 +381,17 @@ export function createSessionDialog({
     say(making() ? (agent ? "Creating workspace and starting the agent…" : "Creating workspace…")
       : resume ? "Resuming conversation…" : agent ? "Opening tab and starting the agent…" : "Opening tab…");
     try {
-      if (making()) await makeWorkspace({ agent, label });
+      let paneId = null;
+      if (making()) paneId = await makeWorkspace({ agent, label });
       else {
-        await createSession(target.workspaceId, {
+        paneId = await createSession(target.workspaceId, {
           ...(agent ? { agent } : {}), ...(resume ? { resume } : {}), ...(label ? { label } : {}), ...(chosenFolder ? { folder: chosenFolder, ...(folder.asOpened() ? { folderAsOpened: true } : {}) } : {}),
         });
       }
       lastAgent = agent;
+      const hear = created;
       dialog.close();
+      if (paneId) hear?.(paneId);
     } catch (error) {
       if (making() && error.code === "project_pane_missing") {
         dialog.close();
