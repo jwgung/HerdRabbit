@@ -5741,6 +5741,21 @@ body.is-pane-rearranging * {
   padding: 0 var(--space-3);
 }
 
+/* A phone's header has room for the pane's name and its lens: the split
+   view's buttons show their icon alone there (their aria-label names them). */
+@media (max-width: 760px) {
+  :is(.view-back, .view-apply, .view-close) {
+    min-width: var(--control-h-touch);
+    min-height: var(--control-h-touch);
+    justify-content: center;
+    padding: 0;
+  }
+
+  :is(.view-back, .view-apply, .view-close) span {
+    display: none;
+  }
+}
+
 /* The phone's tabs of a split tab (public/app/pane-tabs.js): one tab per
    pane, its agent's mark and name, a dot for a pane asking, working or done. */
 .pane-tabs-host {

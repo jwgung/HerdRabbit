@@ -112,7 +112,8 @@ export function createPaneViews(deps) {
     return { lens, chatAvailable, chatTitle, chatAgent: reads };
   }
 
-  // What a cell or a map box says of each pane of `tabId`.
+  // What a cell or a map box says of each pane of `tabId`: its header names
+  // its workspace too, as a split view's tile does.
   function splitTabPanes(tabId, { withChat = true } = {}) {
     return panesOfTab(tabId).map((pane) => {
       const paneId = idOf(pane, "pane_id", "id");
@@ -121,6 +122,7 @@ export function createPaneViews(deps) {
       return {
         paneId,
         label: paneDisplayTitle("", pane, "Terminal", agent),
+        context: displayRecordLabel(selectedRecordsFor(paneId).workspace, "Workspace"),
         kind: paneAgentKind(pane, agent),
         status,
         statusIcon: agentStatusIcon(status),
