@@ -165,7 +165,7 @@ const elements = {
   terminalStatusCountdown: document.querySelector("#terminal-status-countdown"),
   terminalReconnect: document.querySelector("#terminal-reconnect"),
   terminalStage: document.querySelector(".terminal-stage"),
-  paneMap: document.querySelector("#pane-map"),
+  paneTabs: document.querySelector("#pane-tabs"),
   gridBack: document.querySelector("#grid-back"),
   viewBack: document.querySelector("#view-back"),
   viewClose: document.querySelector("#view-close"),
@@ -989,7 +989,7 @@ const attachedTerminal = createAttachedTerminal({
   onViewMoved: () => terminalFind?.forgetPlace(),
 });
 
-// --- Split tabs: the grid (wide screens) and the pane map (phones) ---------
+// --- Split tabs: the grid (wide screens) and the pane tabs (phones) --------
 
 // The split tab whose grid is on screen, and what renderPaneViews last
 // answered: set by pane-views.js, read here as well.
@@ -1431,7 +1431,7 @@ document.addEventListener("click", (event) => {
 desktopMedia.addEventListener("change", () => {
   state.mobileSidebarOpen = false;
   syncSidebar();
-  // The grid is for wide screens; a phone shows one pane and the map. Drawn
+  // The grid is for wide screens; a phone shows one pane and its tabs. Drawn
   // here too: refreshTerminal does nothing while the page is hidden.
   if (state.authenticated) renderPaneViews();
   void refreshTerminal();

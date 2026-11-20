@@ -89,7 +89,7 @@ test("a blocked Kiro approval is answered through the service, the cursor checke
 test("a blocked Kiro pane whose screen is no Kiro menu still gets the fallback card", () => {
   const fallback = parseFallbackPrompt("Waiting\n\nContinue? (y/n)\n", { agent: "kiro" });
   assert.equal(fallback.agent, "kiro");
-  assert.deepEqual(labels(fallback), ["Yes (y)", "No (n)", "Enter", "Esc"]);
+  assert.deepEqual(labels(fallback), ["Yes (y)", "No (n)", "↑", "↓", "←", "→", "Tab", "Space", "Enter", "Esc"]);
 });
 
 // Recorded screens (test/fixtures/kiro-prompt.mjs): what a phone-width pane

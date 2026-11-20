@@ -84,6 +84,23 @@ export function createKeyBar({
     getPromptDock?.()?.preview(composerChoice());
   }
 
+  // A key pressed on the page, not in a text box, while a fallback card
+  // waits: the card answers it as a press of the button it names
+  // (cardKeyOption), so Enter answers without a click. A dialog, the find bar
+  // or the attached terminal keeps its own keys.
+  document.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented || event.repeat) return;
+    const dock = getPromptDock?.();
+    if (!dock || dock.mode === "hidden" || !state.selectedPaneId || dock.paneId !== state.selectedPaneId) return;
+    if (document.querySelector("dialog[open]") || getChatFind()?.open) return;
+    const target = event.target instanceof Element ? event.target : null;
+    const typingTarget = Boolean(target?.closest("input, textarea, select, button, a[href], summary, [contenteditable], [role=textbox], .xterm, .terminal-xterm"));
+    if (dock.pressKey({
+      key: event.key, ctrlKey: event.ctrlKey, altKey: event.altKey, metaKey: event.metaKey,
+      isComposing: event.isComposing, keyCode: event.keyCode, typingTarget,
+    })) event.preventDefault();
+  });
+
   elements.terminalInput.addEventListener("input", syncComposerChoice);
   elements.terminalInput.addEventListener("promptcardchange", syncComposerChoice);
 

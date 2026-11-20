@@ -15,7 +15,8 @@ import {
   paneRowLine,
   paneSubtitle,
 } from "../ui-model.js?v=1.4.55";
-import { createPaneGrid, renderPaneMap } from "../pane-grid.js?v=1.4.55";
+import { createPaneGrid } from "../pane-grid.js?v=1.4.55";
+import { attachPaneSwipe, renderPaneTabs } from "./pane-tabs.js?v=1.4.55";
 import * as xterm from "../vendor/xterm.mjs?v=1.4.55";
 import { writePanePreference } from "../pane-preference.js?v=1.4.55";
 import { writeExpandedSplitTabIds } from "../workspace-preference.js?v=1.4.55";
@@ -36,7 +37,7 @@ import {
 } from "../view-split.js?v=1.4.55";
 
 // Split tabs and this window's own view split: the Herdr grid on a wide
-// screen, the pane map on a phone, the view split's tiles, a session dropped
+// screen, the pane tabs on a phone, the view split's tiles, a session dropped
 // on a pane, the selection of a pane, a split session's rows in the sidebar
 // and the pane actions (split, zoom, even out, move out, close, rearrange).
 // Nothing here runs until createPaneViews is called; app.js calls it where
@@ -60,7 +61,7 @@ export function createPaneViews(deps) {
     isLinkableTerminalPath, openTerminalPath, sidebarActionMenu, paneButton, agentMark,
   } = deps;
 
-  // --- Split tabs: the grid (wide screens) and the pane map (phones) ---------
+  // --- Split tabs: the grid (wide screens) and the pane tabs (phones) --------
 
   const GRID_ICON = ["M4 4h7v7H4z", "M13 4h7v7h-7z", "M4 13h7v7H4z", "M13 13h7v7h-7z"];
 
@@ -94,7 +95,7 @@ export function createPaneViews(deps) {
   }
 
   // A cell's lens: the one its pane opens in alone, whether it has a chat and
-  // what its Chat button says, and the agent the chat reads. A phone's map has
+  // what its Chat button says, and the agent the chat reads. A phone's tabs have
   // no cells to show a chat in.
   function cellLensFields(paneId, pane, agent, { withChat = true } = {}) {
     if (!withChat || !deps.chatLens) return {};
@@ -112,6 +113,7 @@ export function createPaneViews(deps) {
       return {
         paneId,
         label: paneDisplayTitle("", pane, "Terminal", agent),
+        kind: paneAgentKind(pane, agent),
         status,
         statusIcon: agentStatusIcon(status),
         statusText: agentStatusLabel(status),
@@ -434,10 +436,18 @@ export function createPaneViews(deps) {
     else if (kind === "view") addViewTile(drop);
   }
 
-  // What the phone's map last drew.
-  let paneMapKey = "";
+  // What the phone's tabs last drew, and their panes in order (null while
+  // none are shown), which a swipe across the stage goes through.
+  let paneTabsKey = "";
+  let paneTabIds = null;
+  attachPaneSwipe(elements.terminalStage, {
+    paneIds: () => paneTabIds,
+    selectedPaneId: () => state.selectedPaneId,
+    skip: (target) => Boolean(target.closest?.("#pane-tabs, .prompt-dock, .terminal-find, .chat-find")),
+    onSwipe: (paneId) => selectPane(paneId),
+  });
 
-  // Draws the grid (a Herdr tab's or this window's view split), the map and
+  // Draws the grid (a Herdr tab's or this window's view split), the tabs and
   // the Back to grid and Back to split view controls for the selected pane, and
   // answers what is shown as a grid: the tab's id, "view" for the view split,
   // null for one pane alone.
@@ -445,25 +455,29 @@ export function createPaneViews(deps) {
     const tilesShown = viewSplitOnScreen();
     const splitTabId = tilesShown ? null : selectedSplitTabId();
     const gridTab = tilesShown ? null : gridTabId();
-    const showMap = Boolean(splitTabId) && !desktopMedia.matches;
+    const showTabs = Boolean(splitTabId) && !desktopMedia.matches;
     // Read only for a grid or a map on screen: a pane shown alone needs none.
-    const layout = gridTab || showMap ? paneLayoutFor(splitTabId) : undefined;
+    const layout = gridTab || showTabs ? paneLayoutFor(splitTabId) : undefined;
     const panes = splitTabId ? splitTabPanes(splitTabId, { withChat: Boolean(gridTab) }) : [];
-    elements.paneMap.hidden = !showMap;
-    if (showMap) {
+    elements.paneTabs.hidden = !showTabs;
+    if (showTabs) {
       const key = JSON.stringify([state.selectedPaneId, layout, panes]);
-      if (key !== paneMapKey) {
-        paneMapKey = key;
-        renderPaneMap(elements.paneMap, {
+      if (key !== paneTabsKey) {
+        paneTabsKey = key;
+        paneTabIds = renderPaneTabs(elements.paneTabs, {
           layout,
           panes,
           selectedPaneId: state.selectedPaneId,
           onPick: (paneId) => selectPane(paneId),
+          agentMark,
         });
       }
-    } else paneMapKey = "";
-    // The find bar lies over the terminal's top corner: below the map, not on it.
-    elements.terminalStage.style.setProperty("--pane-map-clearance", showMap ? `${elements.paneMap.offsetHeight + 8}px` : "0px");
+    } else {
+      paneTabsKey = "";
+      paneTabIds = null;
+    }
+    // The find bar lies over the terminal's top corner: below the tabs, not on them.
+    elements.terminalStage.style.setProperty("--pane-tabs-clearance", showTabs ? `${elements.paneTabs.offsetHeight + 8}px` : "0px");
     elements.gridBack.hidden = !(splitTabId && desktopMedia.matches && !gridTab);
     elements.viewBack.hidden = !(viewSplit.tree && desktopMedia.matches && !tilesShown);
     elements.viewClose.hidden = !tilesShown;
@@ -548,7 +562,7 @@ export function createPaneViews(deps) {
   }
 
   // A split session's row: the grid on a wide screen; on a phone, which has no
-  // grid, its focus pane alone with the pane map over it. An older connected
+  // grid, its focus pane alone with the pane tabs over it. An older connected
   // PC's split tab has no grid here, so it opens that pane alone too.
   function openSplitSession(tabId) {
     const tabPanes = panesOfTab(tabId);

@@ -1993,7 +1993,7 @@ body.sidebar-collapsed .split-session-button .pane-status {
 /* The find bar, over the terminal's top right corner; on a phone, across it. */
 .terminal-find {
   position: absolute;
-  top: calc(8px + var(--pane-map-clearance, 0px));
+  top: calc(8px + var(--pane-tabs-clearance, 0px));
   right: 8px;
   z-index: calc(var(--layer-pane-chrome) + 2);
   width: min(420px, calc(100% - 16px));
@@ -5526,82 +5526,37 @@ body.is-pane-rearranging * {
   stroke-width: 1.6;
 }
 
-/* The phone's map: one box per pane where Herdr has it, coloured by status. */
-.pane-map {
+/* The phone's tabs of a split tab (public/app/pane-tabs.js): one tab per
+   pane, its agent's mark and name, a dot for a pane asking, working or done. */
+.pane-tabs-host {
   flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  min-width: 0;
   margin-bottom: var(--space-2);
 }
 
-.pane-map[hidden] {
+.pane-tabs-host[hidden] {
   display: none;
 }
 
-.pane-map-board {
-  position: relative;
-  height: 56px;
-  flex: 0 0 auto;
+.pane-tabs .ui-tab > .agent-icon {
+  width: 16px;
+  height: 16px;
 }
 
-.pane-map-cell {
-  position: absolute;
-  box-sizing: border-box;
-  min-height: 0;
-  margin: 0;
-  padding: 0;
-  min-width: 6px;
-  border: 2px solid transparent;
-  border-radius: var(--radius-xs);
-  background: var(--line);
-  background-clip: padding-box;
-  cursor: pointer;
+.pane-tabs .ui-tab-name {
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.pane-map-cell[data-status="working"] { background-color: color-mix(in srgb, var(--working) 55%, var(--line)); }
-.pane-map-cell[data-status="blocked"] { background-color: var(--status-attention); }
-.pane-map-cell[data-status="done"] { background-color: color-mix(in srgb, var(--done) 55%, var(--line)); }
-
-.pane-map-cell[aria-pressed="true"] {
-  z-index: var(--layer-raised);
-  box-shadow: 0 0 0 2px var(--accent);
+/* The strip's arrows are drawn in a dialog's colour; here they sit on the page. */
+.pane-tabs .ui-tab-strip-arrow {
+  background: var(--page);
 }
 
-/* Panes the layout does not have yet, until it is read again. */
-.pane-map-extra {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  max-height: 56px;
-}
-
-.pane-map-extra .pane-map-cell {
-  position: static;
-  width: 24px;
-  height: 24px;
-}
-
-.pane-map-caption {
-  min-width: 0;
-  display: grid;
-  gap: var(--space-0-5);
-  font-size: var(--font-sm);
-}
-
-.pane-map-count {
-  font-family: var(--mono);
-}
-
-.pane-map-state {
-  color: var(--muted);
-}
-
-.pane-map-state.state-working { color: var(--working); }
-.pane-map-state.state-blocked { color: var(--status-attention); }
-.pane-map-state.state-done { color: var(--done); }
+.pane-tab-dot.state-blocked { background: var(--status-attention); }
+.pane-tab-dot.state-working { background: var(--working); }
+.pane-tab-dot.state-done { background: var(--done); }
 
 /* Touch, after every size above: a session row and each text box take a
    44px tap, and a text box under 16px would make the browser zoom in on it. */

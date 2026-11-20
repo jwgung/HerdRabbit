@@ -43,6 +43,12 @@ export function answerBody(card, choice) {
   return { cardId: card.id, option: choice.option };
 }
 
+// Whether option `index` is one of a fallback card's terminal keys, drawn as
+// a row of keys rather than a numbered answer.
+function isKeyOption(card, index) {
+  return Array.isArray(card?.keyOptions) && card.keyOptions.includes(index);
+}
+
 // The option a number typed in the composer picks ("2" is the second
 // button), or null: only a card answered with one button, and only a number
 // that names one of its buttons.
@@ -52,15 +58,33 @@ export function numberedChoice(card, text) {
   const match = /^\s*(\d{1,2})\s*$/u.exec(String(text ?? ""));
   if (!match) return null;
   const index = Number(match[1]) - 1;
-  if (index < 0 || index >= card.options.length || index === card.customOptionIndex) return null;
+  if (index < 0 || index >= card.options.length || index === card.customOptionIndex || isKeyOption(card, index)) return null;
   return index;
+}
+
+// The option of a fallback card that a key pressed on the page answers, or
+// null. Only where typing would otherwise go nowhere: not in a text box, nor
+// on a button or link (whose own Enter and Space press it), nor with a
+// modifier held or mid-composition. Enter, Esc and the arrows are its key
+// buttons, a digit the menu row it names, y or n its Yes (y) or No (n). It is
+// answered as a click on that button is: for the card on screen, checked
+// against the pane's screen first, so a key never lands on a newer prompt.
+// A card a reader knows is answered from its buttons and the composer only.
+const KEY_LABELS = Object.freeze({ Enter: "Enter", Escape: "Esc", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→", y: "Yes (y)", n: "No (n)" });
+export function cardKeyOption(card, { key, ctrlKey = false, altKey = false, metaKey = false, isComposing = false, keyCode = 0, typingTarget = false } = {}) {
+  if (!card?.fallback || typingTarget || isComposing || keyCode === 229 || ctrlKey || altKey || metaKey) return null;
+  if (/^[1-9]$/u.test(key ?? "")) return numberedChoice(card, key);
+  const label = KEY_LABELS[String(key ?? "").length === 1 ? key.toLowerCase() : key];
+  if (!label) return null;
+  const index = card.options.findIndex((option) => option.label === label);
+  return index < 0 ? null : index;
 }
 
 // What the composer says while such a card waits: the numbers that answer it.
 export function composerPlaceholder(card) {
   if (card?.panel) return "Typing goes to the open panel";
   if (!card || card.multiSelect) return "";
-  const numbers = card.options.map((_, index) => index).filter((index) => index !== card.customOptionIndex);
+  const numbers = card.options.map((_, index) => index).filter((index) => index !== card.customOptionIndex && !isKeyOption(card, index));
   if (numbers.length === 0) return "";
   const first = numbers[0] + 1;
   const last = numbers.at(-1) + 1;
@@ -219,7 +243,7 @@ function renderCard(document, card, view) {
   }
   if (card.question && card.question !== card.title) section.append(element(document, "p", { className: "prompt-card-question", text: card.question }));
   if (card.body) section.append(element(document, "pre", { className: `prompt-card-body${card.body.includes("\n") ? "" : " is-line"}`, text: card.body }));
-  const choices = card.options.map((option, index) => ({ option, index })).filter(({ index }) => index !== card.customOptionIndex);
+  const choices = card.options.map((option, index) => ({ option, index })).filter(({ index }) => index !== card.customOptionIndex && !isKeyOption(card, index));
   if (choices.length > 0) {
     const options = element(document, "div", { className: "prompt-card-options",
       attrs: card.multiSelect ? { role: "group", "aria-label": card.question || card.title } : {} });
@@ -246,6 +270,20 @@ function renderCard(document, card, view) {
       }
     }
     section.append(options);
+  }
+  if (Array.isArray(card.keyOptions) && card.keyOptions.length > 0) {
+    // the terminal's own keys, each sent as it is
+    // (drawn as a panel card's keys)
+    const keys = element(document, "div", { className: "prompt-panel-keys", attrs: { role: "group", "aria-label": "Keys" } });
+    for (const index of card.keyOptions) {
+      const label = card.options[index]?.label;
+      if (!label) continue;
+      const button = element(document, "button", { className: "prompt-panel-key", attrs: { type: "button", "data-prompt-option": String(index), title: label } });
+      button.disabled = view.pending;
+      button.append(element(document, "kbd", { text: label }));
+      keys.append(button);
+    }
+    section.append(keys);
   }
   if (card.multiSelect) {
     const submit = element(document, "button", { className: `prompt-card-submit${view.selected.size > 0 ? " primary-button" : " secondary-button"}`,
@@ -611,6 +649,13 @@ export function createPromptDock({ document = globalThis.document, dock, connect
     },
     choose(index) {
       if (!card || view.pending || numberedChoice(card, String(index + 1)) !== index) return false;
+      void answer({ option: index });
+      return true;
+    },
+    // A key pressed on the page (cardKeyOption), answered as its button is.
+    pressKey(keyEvent) {
+      const index = view.pending ? null : cardKeyOption(card, keyEvent);
+      if (index === null) return false;
       void answer({ option: index });
       return true;
     },
