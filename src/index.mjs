@@ -1,4 +1,5 @@
 import { formerLeafRefusal, hostPort, legacyLeafWarning, readConfig } from "./config.mjs";
+import { AttachedClaudePanes } from "./pane-attach.mjs";
 import { allowedRequestHosts } from "./allowed-hosts.mjs";
 import { AgentNotificationMonitor } from "./agent-notifications.mjs";
 import { HerdrBridgeClient } from "./herdr-bridge-client.mjs";
@@ -83,6 +84,7 @@ const passkeys = new PasskeyAuth({ auth });
 const local = new HerdrBridgeClient({
   binary: config.herdrBin,
   timeoutMs: config.commandTimeoutMs,
+  attachedPanes: new AttachedClaudePanes(),
 });
 const push = await loadWebPushService(config.pushFile);
 // PCs connected with Connect PC. A file this version cannot read is left as it

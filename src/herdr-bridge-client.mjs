@@ -148,8 +148,9 @@ export class HerdrBridgeClient {
     binary = "herdr",
     timeoutMs = 5_000,
     runner,
+    attachedPanes = null,
   } = {}) {
-    this.clientOptions = { binary, timeoutMs };
+    this.clientOptions = { binary, timeoutMs, attachedPanes };
     if (runner) this.clientOptions.runner = runner;
     this.rootClient = new HerdrClient(this.clientOptions);
     this.runningSessionNames = new Set(["default"]);

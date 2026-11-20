@@ -56,6 +56,21 @@ export function numberedChoice(card, text) {
   return index;
 }
 
+// The pane key (a key name for sendKeys) a key pressed on the page sends while a card for the pane the
+// composer sends to is shown, or null. Only where typing would otherwise go
+// nowhere: not in a text box, nor on a button or link (whose own Enter and
+// Space press it), nor with a modifier held. Enter, Esc, the arrows, a digit
+// and y or n go to the pane as they are, the way the terminal would take
+// them, so a screen no button covers can still be answered from the keyboard.
+const CARD_KEYS = Object.freeze({ Enter: "enter", Escape: "esc", ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" });
+export function cardKey(card, { key, ctrlKey = false, altKey = false, metaKey = false, isComposing = false, typingTarget = false } = {}) {
+  if (!card || typingTarget || isComposing || ctrlKey || altKey || metaKey) return null;
+  if (Object.hasOwn(CARD_KEYS, key)) return CARD_KEYS[key];
+  // a typed character only for the screens whose own keys are shown as is
+  if ((card.fallback || card.panel) && /^(?:[0-9]|[yYnN])$/u.test(key ?? "")) return key;
+  return null;
+}
+
 // What the composer says while such a card waits: the numbers that answer it.
 export function composerPlaceholder(card) {
   if (card?.panel) return "Typing goes to the open panel";

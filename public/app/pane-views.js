@@ -15,7 +15,8 @@ import {
   paneRowLine,
   paneSubtitle,
 } from "../ui-model.js?v=1.4.55";
-import { createPaneGrid, renderPaneMap } from "../pane-grid.js?v=1.4.55";
+import { createPaneGrid } from "../pane-grid.js?v=1.4.55";
+import { attachPaneSwipe, renderPaneTabs } from "./pane-tabs.js?v=1.4.55";
 import * as xterm from "../vendor/xterm.mjs?v=1.4.55";
 import { writePanePreference } from "../pane-preference.js?v=1.4.55";
 import { writeExpandedSplitTabIds } from "../workspace-preference.js?v=1.4.55";
@@ -112,6 +113,7 @@ export function createPaneViews(deps) {
       return {
         paneId,
         label: paneDisplayTitle("", pane, "Terminal", agent),
+        kind: paneAgentKind(pane, agent),
         status,
         statusIcon: agentStatusIcon(status),
         statusText: agentStatusLabel(status),
@@ -434,8 +436,16 @@ export function createPaneViews(deps) {
     else if (kind === "view") addViewTile(drop);
   }
 
-  // What the phone's map last drew.
+  // What the phone's tabs last drew, and their panes in order (null while
+  // none are shown), which a swipe across the stage goes through.
   let paneMapKey = "";
+  let paneTabIds = null;
+  attachPaneSwipe(elements.terminalStage, {
+    paneIds: () => paneTabIds,
+    selectedPaneId: () => state.selectedPaneId,
+    skip: (target) => Boolean(target.closest?.("#pane-map, .prompt-dock, .terminal-find, .chat-find")),
+    onSwipe: (paneId) => selectPane(paneId),
+  });
 
   // Draws the grid (a Herdr tab's or this window's view split), the map and
   // the Back to grid and Back to split view controls for the selected pane, and
@@ -454,14 +464,18 @@ export function createPaneViews(deps) {
       const key = JSON.stringify([state.selectedPaneId, layout, panes]);
       if (key !== paneMapKey) {
         paneMapKey = key;
-        renderPaneMap(elements.paneMap, {
+        paneTabIds = renderPaneTabs(elements.paneMap, {
           layout,
           panes,
           selectedPaneId: state.selectedPaneId,
           onPick: (paneId) => selectPane(paneId),
+          agentMark,
         });
       }
-    } else paneMapKey = "";
+    } else {
+      paneMapKey = "";
+      paneTabIds = null;
+    }
     // The find bar lies over the terminal's top corner: below the map, not on it.
     elements.terminalStage.style.setProperty("--pane-map-clearance", showMap ? `${elements.paneMap.offsetHeight + 8}px` : "0px");
     elements.gridBack.hidden = !(splitTabId && desktopMedia.matches && !gridTab);

@@ -68,6 +68,7 @@ const APP_SHELL = [
   "/app/agent-icons.js?v=1.4.55",
   "/app/ai-accounts.js?v=1.4.55",
   "/app/tab-strip.js?v=1.4.55",
+  "/app/pane-tabs.js?v=1.4.55",
   "/app/settings.js?v=1.4.55",
   "/app/plugins.js?v=1.4.55",
   "/app/plugin-model.js?v=1.4.55",

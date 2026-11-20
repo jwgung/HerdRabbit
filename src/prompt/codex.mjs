@@ -1,8 +1,9 @@
 // Codex's interactive prompts read off its pane's screen: an approval (run a
-// command, apply a patch, trust a folder), a question from plan mode or from
-// its queue of follow-up questions, and its "Press enter to continue" menus
-// (an update offer). Each becomes a card with the keys that answer each
-// option (screen.mjs).
+// command, apply a patch, network access, an MCP tool, trust a folder), a
+// question from plan mode, from an MCP server's form or from its queue of
+// follow-up questions, its "Press enter to continue" menus (an update offer)
+// and the few list popups that ask a decision ("Implement this plan?"). Each
+// becomes a card with the keys that answer each option (screen.mjs).
 //
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- server/prompt.ts, its Codex
@@ -27,17 +28,27 @@ import {
   wrapped,
 } from "./screen.mjs";
 
-// plan mode's questions; the last of several submits them all
-const CODEX_ASK_HINT_RE = /tab to add notes.*enter to submit (?:answer|all).*esc to interrupt/i;
+// plan mode's questions; the last of several submits them all. A free-form
+// question has no "tab to add notes".
+const CODEX_ASK_HINT_RE = /enter to submit (?:answer|all).*esc to interrupt/i;
+const CODEX_ASK_PROGRESS_RE = /^Question (\d+)\/(\d+)/;
+const CODEX_ASK_FREE_RE = /^[›>]?\s*Type your answer\b/;
 // a question from Codex's queue (request_user_input_async), open
-const CODEX_ASYNC_ASK_HINT_RE = /(?:enter|return).*submit.*(?:ctrl\s*\+\s*\]|skip)/i;
-const CODEX_CONTINUE_HINT_RE = /press\s+enter\s+to\s+continue/i;
+const CODEX_ASYNC_ASK_HINT_RE = /(?:enter|return).*submit.*(?:ctrl\s*\+\s*\]|⌃\]|skip)/i;
+// a form field an MCP server asks (its choice fields: Enter picks the row under the cursor)
+const CODEX_ELICIT_HINT_RE = /enter to submit(?: answer| all)?.*esc to cancel/i;
+const CODEX_ELICIT_PROGRESS_RE = /^Field (\d+)\/(\d+)/;
+const CODEX_CONTINUE_HINT_RE = /press\s+enter\s+to\s+continue|enter continue\s*·\s*esc skip/i;
 const CODEX_QUEUE_HEADER_RE = /^(?:•\s*)?Queued follow-up inputs$/;
 const CODEX_QUEUE_POSITION_RE = /^(\d+) of (\d+)$/;
+// The list popups that ask a decision are named here: Codex's other lists
+// (/model, /permissions) save a setting with Enter and stay no card.
 const CODEX_APPROVAL_HEADER_RE =
-  /(?:Would you like to (?:run|make|apply|continue|grant)|Allow Codex to|Approve (?:this )?(?:app )?tool call|Do you trust the contents|Trust this folder\?|Enable full access)/i;
+  /(?:Would you like to (?:run|make|apply|continue|grant)|Allow Codex to|Approve (?:this )?(?:app )?tool call|Do you trust the contents|Trust this folder\?|Enable full access|Implement this plan\?|Hooks need review|Submit with unanswered questions\?|Do you want to approve network access|^\s*(?:•\s*)?[^\n]{1,100} needs your approval\.\s*$)/i;
+const CODEX_POPUP_FOOTER_RE = /enter (?:select|confirm)\s*·\s*esc (?:back|skip)/i;
 // what ends an approval still open: its hint, or its last row with the cursor moved onto it
-const CODEX_APPROVAL_TAIL_RE = /press enter to confirm|esc to cancel|enter continue.*esc back|^(?:[›>❯]\s*)?\d+\.\s+(?:No|Reject|Cancel|Deny)\b/i;
+const CODEX_APPROVAL_TAIL_RE = new RegExp(
+  `press enter to confirm|esc to cancel|enter continue.*esc back|${CODEX_POPUP_FOOTER_RE.source}|^(?:[›>❯]\\s*)?\\d+\\.\\s+(?:No|Reject|Cancel|Deny)\\b`, "i");
 // Codex's /model lists: a row that opens the next list takes Enter, one that
 // picks saves a default with Enter (`s` keeps it to the session)
 const CODEX_MODEL_FOOTER_RE = /^enter (?:select|default|apply)\s*·\s*(?:s session\s*·\s*)?esc back$/i;
@@ -63,32 +74,85 @@ function parseCodexContinueMenu(screen) {
 }
 
 // A plan-mode question: numbered options with their descriptions in a second
-// column, then "None of the above", whose notes (Tab) take a typed answer.
+// column, then "None of the above", whose notes (Tab) take a typed answer. A
+// question without that row (a multi-question form's) takes no typed answer;
+// a free-form one has only its answer line, typed straight in.
 function parseCodexQuestion(screen) {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const hintIndex = findLastIndex(lines, (_, index) => CODEX_ASK_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
   const rows = menuRows(lines, Math.max(0, hintIndex - 48), hintIndex);
+  const progressIn = (from, to) => lines.slice(Math.max(0, from), to)
+    .map(cleanLine).map((line) => line.match(CODEX_ASK_PROGRESS_RE)).findLast(Boolean) ?? null;
+  const titleOf = (progress) => progress && progress[2] !== "1" ? `Question ${progress[1]} of ${progress[2]}` : "Question";
+  if (rows.length === 0) {
+    // free form: the "Question N/M" line, the question, then the empty answer line
+    const answerLine = findLastIndex(lines.slice(0, hintIndex), (line) => CODEX_ASK_FREE_RE.test(cleanLine(line)));
+    if (answerLine < 0) return null;
+    const progressLine = findLastIndex(lines.slice(Math.max(0, answerLine - 14), answerLine), (line) => CODEX_ASK_PROGRESS_RE.test(cleanLine(line)));
+    if (progressLine < 0) return null;
+    const from = Math.max(0, answerLine - 14) + progressLine;
+    const question = normalizeText(lines.slice(from + 1, answerLine).map(cleanLine).filter((line) => line && !isDivider(line)).join(" "));
+    if (!question) return null;
+    return finishPrompt("codex", {
+      kind: "question", title: titleOf(progressIn(from, from + 1)), question, body: null, options: [],
+      multiSelect: false, customOptionIndex: 0,
+    }, {
+      responder: "codex-question", menuLabels: [], selectedIndex: 0, checkedOptionIndices: [], customMenuIndex: 0,
+    });
+  }
   if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== 1) return null;
   const customIndex = rows.findIndex((row) => /^None of the above\b/i.test(row.label));
-  if (customIndex !== rows.length - 1 || customIndex < 1) return null;
+  if (customIndex >= 0 && (customIndex !== rows.length - 1 || customIndex < 1)) return null;
+  const progress = progressIn(rows[0].lineIndex - 6, rows[0].lineIndex);
+  // without the "None of the above" row the form's own "Question N/M" line is what says this is Codex's
+  if (customIndex < 0 && !progress) return null;
   const question = nearestQuestion(lines, rows[0].lineIndex);
   if (!question) return null;
-  const options = rows.slice(0, customIndex).map((row) => {
+  const optionRows = customIndex < 0 ? rows : rows.slice(0, customIndex);
+  const options = optionRows.map((row) => {
     const [label, ...description] = row.label.split(/\s{2,}/);
     return { label, description: description.length ? description.join(" ") : null };
   });
-  const progress = lines.slice(Math.max(0, rows[0].lineIndex - 6), rows[0].lineIndex)
-    .map(cleanLine).map((line) => line.match(/^Question (\d+)\/(\d+)/)).find(Boolean);
-  const title = progress && progress[2] !== "1" ? `Question ${progress[1]} of ${progress[2]}` : "Question";
   return finishPrompt("codex", {
-    kind: "question", title, question, body: null, options,
-    multiSelect: false, customOptionIndex: options.length,
+    kind: "question", title: titleOf(progress), question, body: null, options,
+    multiSelect: false, customOptionIndex: customIndex < 0 ? null : options.length,
   }, {
     responder: "codex-question", menuLabels: rows.map((row) => row.label),
-    selectedIndex: rows.findIndex((row) => row.selected), checkedOptionIndices: [], customMenuIndex: customIndex,
+    selectedIndex: rows.findIndex((row) => row.selected), checkedOptionIndices: [], customMenuIndex: customIndex < 0 ? null : customIndex,
     // the answer goes into the row's notes, which Tab opens
     typedOpenKeys: [KEY.tab],
+  });
+}
+
+// A form an MCP server asks, one field at a time ("Field 1/2"): its choice
+// fields (a boolean, an enum, an allow/cancel) are numbered rows whose Enter
+// picks the one under the cursor and goes on to the next field. A text field
+// has no rows and is left to the terminal.
+function parseCodexElicitation(screen) {
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
+  const hintIndex = findLastIndex(lines, (_, index) => CODEX_ELICIT_HINT_RE.test(wrapped(lines, index)));
+  if (hintIndex < 0) return null;
+  const rows = menuRows(lines, Math.max(0, hintIndex - 48), hintIndex);
+  if (!sequentialRows(rows) || rows.length < 2 || rows.filter((row) => row.selected).length !== 1) return null;
+  const from = Math.max(0, rows[0].lineIndex - 24);
+  const progressLine = findLastIndex(lines.slice(from, rows[0].lineIndex), (line) => CODEX_ELICIT_PROGRESS_RE.test(cleanLine(line)));
+  if (progressLine < 0) return null;
+  const progress = cleanLine(lines[from + progressLine]).match(CODEX_ELICIT_PROGRESS_RE);
+  const text = lines.slice(from + progressLine + 1, rows[0].lineIndex).map(cleanLine).filter((line) => line && !isDivider(line));
+  // the server's name line is context, not the question
+  const question = text.find((line) => !/^Server:/i.test(line));
+  if (!question) return null;
+  const options = rows.map((row) => {
+    const [label, ...description] = row.label.split(/\s{2,}/);
+    return { label, description: description.length ? description.join(" ") : null };
+  });
+  return finishPrompt("codex", {
+    kind: "question", title: progress[2] !== "1" ? `Field ${progress[1]} of ${progress[2]}` : "Question", question,
+    body: text.length > 1 ? text.join("\n") : null, options, multiSelect: false, customOptionIndex: null,
+  }, {
+    responder: "codex-elicitation", menuLabels: rows.map((row) => row.label),
+    selectedIndex: rows.findIndex((row) => row.selected), checkedOptionIndices: [], customMenuIndex: null,
   });
 }
 
@@ -100,8 +164,11 @@ function parseCodexAsyncQuestion(screen) {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const hintIndex = findLastIndex(lines, (_, index) => CODEX_ASYNC_ASK_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
-  const header = findLastIndex(lines.slice(Math.max(0, hintIndex - 48), hintIndex), (line) => CODEX_QUEUE_HEADER_RE.test(cleanLine(line)));
-  const top = header < 0 ? Math.max(0, hintIndex - 48) : Math.max(0, hintIndex - 48) + header + 1;
+  const floor = Math.max(0, hintIndex - 48);
+  const header = findLastIndex(lines.slice(floor, hintIndex), (line) => CODEX_QUEUE_HEADER_RE.test(cleanLine(line)));
+  // Codex 0.171 draws no header: the "1 of 2" line opens the question
+  const positionLine = header >= 0 ? -1 : findLastIndex(lines.slice(floor, hintIndex), (line) => CODEX_QUEUE_POSITION_RE.test(cleanLine(line)));
+  const top = header >= 0 ? floor + header + 1 : positionLine >= 0 ? floor + positionLine : floor;
   // without the header the rows are read from well above: a message sent before can be there too
   const rows = menuRows(lines, top, hintIndex);
   const text = (from, to) => lines.slice(from, to).map(cleanLine).filter((line) => line && !isDivider(line));
@@ -117,7 +184,7 @@ function parseCodexAsyncQuestion(screen) {
   let selectedIndex;
   if (rows.length === 0) {
     // free form: the answer line sits right above the hint
-    if (header < 0) return null;
+    if (header < 0 && positionLine < 0) return null;
     const answerLine = findLastIndex(lines.slice(0, hintIndex), (line) => Boolean(cleanLine(line)) && !isDivider(line));
     if (answerLine < top) return null;
     question = normalizeText(questionLines(answerLine).join(" ")) || null;
@@ -130,7 +197,7 @@ function parseCodexAsyncQuestion(screen) {
     if (header < 0 && !/^Other\b/i.test(rows.at(-1).label)) return null;
     // a wrapped option continues on the lines under it: these rows carry no descriptions
     const labels = rows.map((row, index) => normalizeText([row.label, ...text(row.lineIndex + 1, rows[index + 1]?.lineIndex ?? hintIndex)].join(" ")));
-    question = header < 0 ? nearestQuestion(lines, rows[0].lineIndex) : normalizeText(questionLines(rows[0].lineIndex).join(" ")) || null;
+    question = header < 0 && positionLine < 0 ? nearestQuestion(lines, rows[0].lineIndex) : normalizeText(questionLines(rows[0].lineIndex).join(" ")) || null;
     options = labels.slice(0, -1).map((label) => ({ label, description: null }));
     menuLabels = labels;
     selectedIndex = rows.findIndex((row) => row.selected);
@@ -160,10 +227,20 @@ function parseCodexApproval(screen) {
   const split = header.match(/^(.*?\?)\s+(.+)$/);
   const heading = split ? split[1] : header;
   const body = [split?.[2] ?? "", ...lines.slice(headerIndex + 1, rows[0].lineIndex).map(cleanLine)].filter(Boolean).join("\n");
-  const reject = rows.findIndex((row) => /^(?:No|Reject|Cancel|Deny)\b/i.test(row.label));
+  // Esc is the row that says "(esc)". Where it is not named, Esc on a popup, or
+  // beside a "Cancel" row (an MCP request's, whose "No" continues), is not
+  // the refusal the row is: those are moved to and picked.
+  const named = rows.findIndex((row) => /\(esc\)\s*$/i.test(row.label));
+  const escapes = !visibleLines(screen).slice(-3).some((line) => CODEX_POPUP_FOOTER_RE.test(line))
+    && !rows.some((row) => /^Cancel\b/i.test(row.label));
+  const reject = named >= 0 ? named : escapes ? rows.findIndex((row) => /^(?:No|Reject|Deny)\b/i.test(row.label)) : -1;
   return finishPrompt("codex", {
     kind: "approval", title: heading, question: heading, body: body || null,
-    options: rows.map((row) => ({ label: row.label, description: null })), multiSelect: false, customOptionIndex: null,
+    options: rows.map((row) => {
+      // a popup's rows carry their description in a second column
+      const [label, ...description] = row.label.split(/\s{2,}/);
+      return { label, description: description.length ? description.join(" ") : null };
+    }), multiSelect: false, customOptionIndex: null,
   }, {
     responder: "codex-approval", menuLabels: rows.map((row) => row.label),
     selectedIndex: rows.findIndex((row) => row.selected), checkedOptionIndices: [], customMenuIndex: null,
@@ -178,6 +255,7 @@ function promptTailIsActive(prompt, screen) {
   switch (prompt.responder) {
     case "codex-menu": return hintEnds(shown, CODEX_CONTINUE_HINT_RE);
     case "codex-question": return hintEnds(shown, CODEX_ASK_HINT_RE);
+    case "codex-elicitation": return hintEnds(shown, CODEX_ELICIT_HINT_RE);
     // the queue keeps a status line or two under its hint
     case "codex-async-question": return shown.slice(-4).some((line) => CODEX_ASYNC_ASK_HINT_RE.test(line)) || hintEnds(shown, CODEX_ASYNC_ASK_HINT_RE);
     case "codex-approval": return hintEnds(shown, CODEX_APPROVAL_TAIL_RE);
@@ -189,7 +267,7 @@ function promptTailIsActive(prompt, screen) {
 export function parseCodexPrompt(screen) {
   const text = String(screen ?? "");
   if (secretPrompt(text) !== null) return null;
-  const candidates = [parseCodexContinueMenu(text), parseCodexQuestion(text), parseCodexAsyncQuestion(text), parseCodexApproval(text)];
+  const candidates = [parseCodexContinueMenu(text), parseCodexQuestion(text), parseCodexElicitation(text), parseCodexAsyncQuestion(text), parseCodexApproval(text)];
   return candidates.find((candidate) => candidate !== null && promptTailIsActive(candidate, text)) ?? null;
 }
 

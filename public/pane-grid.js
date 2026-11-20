@@ -36,14 +36,6 @@ export function cellCapacity({ width, height, charWidth, charHeight, dpr = 1 }) 
 // pane one size at the end rather than one per frame.
 export const FIT_RESIZE_DELAY_MS = 250;
 
-// A terminal cell is about twice as tall as it is wide, so a tab's shape on
-// screen is its columns times this over its rows; the phone's map keeps that
-// shape within these bounds so a very wide or tall tab stays tappable.
-const CELL_ASPECT = 0.5;
-const MAP_RATIO_MIN = 0.75;
-const MAP_RATIO_MAX = 3;
-const MAP_RATIO_FALLBACK = 4 / 3;
-
 // Herdr answers with its own ids (`wM:p1`); the page's are scoped by session
 // (`hs_…~wM:p1`). The part after the last `~` is the same in both.
 const localId = (id) => String(id ?? "").split("~").pop();
@@ -1087,48 +1079,4 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       if (view) root.remove();
     },
   };
-}
-
-// The phone's map of a split tab: one small box per pane where Herdr has it,
-// coloured by its status, the selected one ringed. A tap picks a pane. A pane
-// the layout does not have yet (one just split off) gets a box beside the map
-// until the layout is read again.
-export function renderPaneMap(host, { layout, panes, selectedPaneId, onPick }) {
-  const placed = gridCells(layout, panes.map((pane) => pane.paneId));
-  const info = new Map(panes.map((pane) => [pane.paneId, pane]));
-  const map = element("div", "pane-map-board");
-  const ratio = placed.area ? (placed.area.width * CELL_ASPECT) / placed.area.height : MAP_RATIO_FALLBACK;
-  map.style.aspectRatio = String(Math.min(MAP_RATIO_MAX, Math.max(MAP_RATIO_MIN, ratio)));
-  const mapBox = (paneId) => {
-    const pane = info.get(paneId);
-    const box = element("button", "pane-map-cell");
-    box.type = "button";
-    box.dataset.paneId = paneId;
-    box.dataset.status = pane.status;
-    box.setAttribute("aria-pressed", String(paneId === selectedPaneId));
-    box.setAttribute("aria-label", `${pane.label}, ${pane.statusText}`);
-    box.title = `${pane.label} · ${pane.statusText}`;
-    box.addEventListener("click", () => onPick(paneId));
-    return box;
-  };
-  for (const place of placed.cells) {
-    const box = mapBox(place.paneId);
-    box.style.left = `${place.left * 100}%`;
-    box.style.top = `${place.top * 100}%`;
-    box.style.width = `${place.width * 100}%`;
-    box.style.height = `${place.height * 100}%`;
-    map.append(box);
-  }
-  const shown = new Set(placed.cells.map((place) => place.paneId));
-  const unplaced = panes.filter((pane) => !shown.has(pane.paneId));
-  const extra = element("div", "pane-map-extra");
-  extra.append(...unplaced.map((pane) => mapBox(pane.paneId)));
-  const index = panes.findIndex((pane) => pane.paneId === selectedPaneId);
-  const current = info.get(selectedPaneId);
-  const caption = element("div", "pane-map-caption");
-  caption.append(
-    element("strong", "pane-map-count", `${index + 1} / ${panes.length}`),
-    element("span", `pane-map-state state-${current?.status ?? "unknown"}`, current ? current.statusText : ""),
-  );
-  host.replaceChildren(...[map, unplaced.length > 0 ? extra : null, caption].filter(Boolean));
 }

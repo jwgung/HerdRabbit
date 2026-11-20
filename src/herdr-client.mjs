@@ -477,6 +477,9 @@ export class HerdrClient {
     inputSettleMs = INPUT_SETTLE_MS,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     now = () => Date.now(),
+    // Names the panes that only run a Claude background-job attach client
+    // (src/pane-attach.mjs); kept by the caller so its cache outlives a client.
+    attachedPanes = null,
   } = {}) {
     this.binary = binary;
     this.imageSettleMs = imageSettleMs;
@@ -492,6 +495,7 @@ export class HerdrClient {
     // A Herdr reached through a socket given here rather than one `session
     // list` names: every command goes to that socket, and it is the one session.
     this.socketPath = socketPath;
+    this.attachedPanes = attachedPanes;
   }
 
   async #run(args, { json = true, timeoutMs = this.timeoutMs } = {}) {
@@ -520,6 +524,7 @@ export class HerdrClient {
     const result = await this.#run(["api", "snapshot"]);
     const snapshot = result?.snapshot ?? result;
     await this.#addWorktreeBranches(snapshot);
+    await this.attachedPanes?.enrich(snapshot, this);
     return snapshot;
   }
 
