@@ -62,12 +62,13 @@ export function numberedChoice(card, text) {
   return index;
 }
 
-// The pane key (a key name for sendKeys) a key pressed on the page sends while a card for the pane the
-// composer sends to is shown, or null. Only where typing would otherwise go
-// nowhere: not in a text box, nor on a button or link (whose own Enter and
-// Space press it), nor with a modifier held. Enter, Esc, the arrows, a digit
-// and y or n go to the pane as they are, the way the terminal would take
-// them, so a screen no button covers can still be answered from the keyboard.
+// The pane key (a key name for sendKeys) that a key pressed on the page sends
+// while a card for the pane the composer sends to is shown, or null. Only
+// where typing would otherwise go nowhere: not in a text box, nor on a button
+// or link (whose own Enter and Space press it), nor with a modifier held.
+// Enter, Esc and the arrows go to the pane as they are, and on a fallback or
+// panel card a digit, y or n too, the way the terminal would take them, so a
+// screen no button covers can still be answered from the keyboard.
 const CARD_KEYS = Object.freeze({ Enter: "enter", Escape: "esc", ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" });
 export function cardKey(card, { key, ctrlKey = false, altKey = false, metaKey = false, isComposing = false, typingTarget = false } = {}) {
   if (!card || typingTarget || isComposing || ctrlKey || altKey || metaKey) return null;
