@@ -3896,6 +3896,15 @@ body.sidebar-collapsed .new-tab-open { display: none; }
   display: none;
 }
 
+/* A phone shows a menu only as its sheet. The details opens a moment before
+   its toggle event makes it one; until then it would flash as the desktop's
+   dropdown beside its button. */
+@media (max-width: 760px) {
+  .sidebar-action-menu[open] > .sidebar-action-popover:not(.is-sheet) {
+    display: none;
+  }
+}
+
 .sidebar-action-popover.is-sheet::backdrop {
   background: var(--scrim);
 }

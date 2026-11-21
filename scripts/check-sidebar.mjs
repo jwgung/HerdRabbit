@@ -225,7 +225,17 @@ try {
     assert.deepEqual([seen.remote.icons, seen.remote.role, seen.remote.dot], [1, null, seen.remote.offline]);
 
     // The menu still opens from a row and the row still selects.
-    await page.locator('.session-row:has([data-pane-id="w1:p2"]) .session-action-menu > summary').click();
+    const rowMenu = page.locator('.session-row:has([data-pane-id="w1:p2"]) .session-action-menu > summary');
+    if (mobile) {
+      // The tap and a look in the same task, before the details' toggle event:
+      // a phone's menu shows only as its sheet, never for a moment as a dropdown.
+      const shown = await rowMenu.evaluate((summary) => {
+        summary.click();
+        return getComputedStyle(summary.parentElement.querySelector(".sidebar-action-popover")).display;
+      });
+      assert.equal(shown, "none", "the menu flashes as a dropdown before it is a sheet");
+      await page.locator('.session-row:has([data-pane-id="w1:p2"]) .sidebar-action-item').first().waitFor({ state: "visible" });
+    } else await rowMenu.click();
     assert.ok(await page.locator('.session-row:has([data-pane-id="w1:p2"]) .sidebar-action-item').first().isVisible());
     if (mobile) {
       // On a phone the menu is a bottom sheet above a dimmed page: the row's name as title,
