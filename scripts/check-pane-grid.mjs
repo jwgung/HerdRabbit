@@ -402,8 +402,19 @@ try {
         await cell(paneId).locator(".pane-grid-menu > summary").click();
         await page.locator(`.pane-grid-cell[data-pane-id="${paneId}"] [data-action="${action}"]`).click();
       };
+      // A split HerdRabbit makes is evened out after it. The layout here is
+      // drawn by hand to test small cells, so this fake answers "already even".
+      const evenedAfter = [];
+      await page.route("**/api/panes/*/even-layout", (route) => {
+        evenedAfter.push(decodeURIComponent(new URL(route.request().url()).pathname.split("/")[3]));
+        return route.fulfill({ status: 200, json: { changed: false, even: true } });
+      });
       await menu("w1:p2", "split-right");
       await cell("w1:p5").waitFor();
+      await page.waitForFunction(() => document.querySelector('.pane-grid-cell[data-pane-id="w1:p5"]'));
+      const evenedBy = Date.now() + 3000;
+      while (evenedAfter.length === 0 && Date.now() < evenedBy) await page.waitForTimeout(50);
+      assert.deepEqual(evenedAfter, ["w1:p5"], "a split right is evened out after it");
       await page.waitForFunction(() => document.querySelector('.pane-grid-cell[data-pane-id="w1:p5"]')?.classList.contains("is-focused"));
       assert.equal(await page.locator(".pane-grid-cell").count(), 5);
       await cellShows("w1:p5", "pane w1:p5");
@@ -1301,14 +1312,10 @@ try {
       await cellOf(page, "w1:p3").locator(".pane-grid-menu > summary").click();
       await page.locator('.pane-grid-cell[data-pane-id="w1:p3"] [data-action="even-layout"]').click();
       await page.locator('#action-feedback[data-error="true"]').filter({ hasText: "not made of splits" }).waitFor();
-      // The header's Even out asks the same for the grid's selected pane.
-      assert.equal(await page.locator("#split-even").isVisible(), true, "Even out in the header over a grid");
-      const selected = await page.evaluate(() => document.querySelector(".pane-grid-cell.is-focused")?.dataset.paneId);
-      const fromHeader = page.waitForRequest((request) => request.method() === "POST" && decodeURIComponent(request.url()).endsWith(`/${selected}/even-layout`));
-      await page.evaluate(() => { document.querySelector("#action-feedback").textContent = ""; });
-      await page.locator("#split-even").click();
-      await fromHeader;
-      await page.locator('#action-feedback[data-error="true"]').filter({ hasText: "not made of splits" }).waitFor();
+      // No Even out in the header: ⋯ Even out layout is the one way to ask, and
+      // HerdRabbit's own changes even the tab by themselves.
+      assert.equal(await page.locator("#split-even").count(), 0, "no Even out button in the header");
+      assert.equal(await page.locator("#herdr-tab-mark").isVisible(), true, "a Herdr split tab wears the Herdr mark");
       assert.deepEqual(errors, []);
       await context.close();
     }
@@ -1776,7 +1783,17 @@ try {
     renameOnMove = "w1:p60";
     await paneMenu("w1:p2", "move-out");
     await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w1:p60"]')?.getAttribute("aria-pressed") === "true");
-    assert.deepEqual(requests.at(-1), ["move-out", "w1:p2", {}]);
+    // HerdRabbit's own changes to a split tab are evened out after them.
+    const changed = () => requests.filter((item) => item[0] !== "even-layout").at(-1);
+    // Asked of any pane of the tab: Herdr evens the whole tab.
+    const evenedAfter = async (...tabPaneIds) => {
+      const by = Date.now() + 3000;
+      while (requests.at(-1)?.[0] !== "even-layout" && Date.now() < by) await page.waitForTimeout(50);
+      assert.equal(requests.at(-1)?.[0], "even-layout", "evened out after");
+      assert.ok(tabPaneIds.includes(requests.at(-1)[1]), `asked of a pane of the tab: ${requests.at(-1)[1]}`);
+    };
+    assert.deepEqual(changed(), ["move-out", "w1:p2", {}]);
+    await evenedAfter("w1:p1");
     assert.deepEqual(movedOut, ["w1:p2"]);
     assert.equal(await page.locator('.tab-group[data-tab-id="w1:t40"]:not([data-split]) .pane-button[data-pane-id="w1:p60"]').count(), 1, "its own tab row");
     assert.equal(await page.locator('.workspace-group[data-workspace-id="w1"] .tab-group[data-tab-id="w1:t40"]').count(), 1, "in the same workspace");
@@ -1786,11 +1803,13 @@ try {
     // A done pane that is not the session's last closes at once, said meant.
     await paneMenu("w1:p4", "close");
     await page.locator(row("w1:p4")).waitFor({ state: "detached" });
-    assert.deepEqual(requests.at(-1), ["close", "w1:p4", { confirmed: true }]);
+    assert.deepEqual(changed(), ["close", "w1:p4", { confirmed: true }]);
+    await evenedAfter("w1:p1", "w1:p3");
     // Split and zoom ask what the grid's ⋯ asks.
     await paneMenu("w1:p1", "split-right");
     await page.locator(row("w1:p5")).waitFor();
-    assert.deepEqual(requests.at(-1), ["split", "w1:p1", { direction: "right" }]);
+    assert.deepEqual(changed(), ["split", "w1:p1", { direction: "right" }]);
+    await evenedAfter("w1:p5");
     await paneMenu("w1:p1", "zoom");
     await page.waitForTimeout(300);
     assert.deepEqual(requests.at(-1), ["zoom", "w1:p1", { mode: "toggle" }]);

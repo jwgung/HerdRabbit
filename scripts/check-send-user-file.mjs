@@ -16,6 +16,7 @@ import { PaneAttachments } from "../src/pane-attachments.mjs";
 import { claudeProjectDir } from "../src/conversation/claude.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
+import { showLens, waitForLensSwitch } from "./header-controls.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const SESSION = "5a1d2c3e-4b5f-4a6b-8c7d-9e0f1a2b3c4d";
@@ -94,11 +95,11 @@ try {
     const openChat = async () => {
       if (mobile) await page.evaluate(() => document.querySelector("#sidebar-scrim")?.click());
       await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
-      if (await page.locator(".terminal-stage").getAttribute("data-lens") !== "chat") await page.locator("#lens-chat").click();
+      if (await page.locator(".terminal-stage").getAttribute("data-lens") !== "chat") await showLens(page, "chat");
       await chat.locator(".chat-files").first().waitFor({ state: "visible" });
     };
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
-    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await waitForLensSwitch(page);
     await openChat();
 
     // One card, beside the answer and not in the folded work.

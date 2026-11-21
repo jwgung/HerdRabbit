@@ -21,6 +21,7 @@ import { PaneAttachments } from "../src/pane-attachments.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
 import { PromptService } from "../src/prompt/service.mjs";
+import { waitForLensSwitch } from "./header-controls.mjs";
 import { opencodeDb } from "../test/fixtures/opencode-db.mjs";
 import { fakeOpencodeHerdr } from "../test/fixtures/opencode-prompt.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
@@ -100,7 +101,7 @@ try {
     const waitDock = (mode) => page.waitForFunction((want) => document.querySelector("#prompt-dock")?.dataset.mode === want, mode, { timeout: 5_000 });
 
     await page.goto(`${url}/?pane=${encodeURIComponent(PANE)}`);
-    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await waitForLensSwitch(page);
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
     if (!mobile) {
       // Desktop opens in Terminal: the banner says OpenCode is asking, and opens the chat.

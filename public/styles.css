@@ -5637,6 +5637,139 @@ body.is-pane-rearranging * {
   stroke-width: 1.6;
 }
 
+/* A Herdr split tab's header says it is Herdr's (every device sees it); this
+   window's own split view says nothing. */
+.herdr-tab-mark {
+  flex: 0 0 auto;
+  align-self: center;
+  font-size: var(--font-xs);
+}
+
+.herdr-tab-mark[hidden] {
+  display: none;
+}
+
+/* The view split's "What goes here?" picker (public/app/tile-picker.js), in
+   the place of the tile a tab dropped on its own pane opened: a card like a
+   tile's, its focus ring the accent, its choices a scrolling list. */
+.pane-grid-slot {
+  position: absolute;
+  box-sizing: border-box;
+  border: calc(var(--space-1-5) / 2) solid transparent;
+  background-clip: padding-box;
+}
+
+.tile-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  overflow: hidden;
+  border-radius: calc(var(--radius-control) * 11 / 8);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.tile-picker-heading {
+  margin: 0;
+  font-size: var(--font-md);
+}
+
+.tile-picker-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-sm);
+}
+
+.tile-picker-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.tile-picker-group {
+  margin: var(--space-2) 0 var(--space-1);
+  color: var(--muted);
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+
+.tile-picker-items {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tile-picker-choice {
+  min-height: var(--control-h-touch);
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  border-color: var(--line);
+}
+
+.tile-picker-choice:focus-visible {
+  border-color: var(--accent);
+}
+
+.tile-picker-context {
+  max-width: 14rem;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--font-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tile-picker-glyph {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--font-sm);
+  text-align: center;
+}
+
+.tile-picker-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.tile-picker-cancel {
+  min-height: var(--control-h-touch);
+  padding: 0 var(--space-3);
+}
+
+/* A phone's header keeps the pane's name: its other controls are items of one
+   More menu, a bottom sheet (public/app/header-more.js). A desktop shows them. */
+.header-more,
+.header-more[hidden] {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .terminal-heading :is(.grid-back, .lens-switch, .terminal-find-open) {
+    display: none;
+  }
+
+  .header-more:not([hidden]) {
+    display: flex;
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
+  .header-more .sidebar-action-menu > summary {
+    width: var(--control-h-touch);
+    min-width: var(--control-h-touch);
+    height: var(--control-h-touch);
+    flex-basis: var(--control-h-touch);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    color: var(--control-text);
+  }
+}
+
 /* The phone's tabs of a split tab (public/app/pane-tabs.js): one tab per
    pane, its agent's mark and name, a dot for a pane asking, working or done. */
 .pane-tabs-host {

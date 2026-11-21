@@ -18,6 +18,7 @@ import { PaneAttachments } from "../src/pane-attachments.mjs";
 import { claudeProjectDir } from "../src/conversation/claude.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
+import { openFind, showLens, waitForLensSwitch } from "./header-controls.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const SESSION = "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e";
@@ -123,14 +124,14 @@ try {
       .filter((turn) => /Answer 65|Answer 55|find the needle|A needle/u.test(turn.textContent)).map((turn) => turn.outerHTML));
 
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
-    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await waitForLensSwitch(page);
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
-    if (!mobile) await page.locator("#lens-chat").click();
+    if (!mobile) await showLens(page, "chat");
     await page.locator(".chat-turn-agent").first().waitFor({ state: "visible" });
     await page.waitForFunction(() => document.querySelector(".chat-turns")?.textContent.includes("Answer 69"));
     const untouched = await turnHtml();
     assert.equal(untouched.length, 4);
-    await button.waitFor({ state: "visible" });
+    await button.waitFor({ state: mobile ? "attached" : "visible" });
     assert.match(await button.getAttribute("title"), /Find in conversation/u);
 
     if (!mobile) {
@@ -140,7 +141,7 @@ try {
       await bar.waitFor({ state: "visible" });
       assert.equal(await page.evaluate(() => document.activeElement?.id), "chat-find-input");
     } else {
-      await button.click();
+      await openFind(page);
       await bar.waitFor({ state: "visible" });
     }
     assert.equal(await button.getAttribute("aria-expanded"), "true");
@@ -219,15 +220,15 @@ try {
     }
 
     // Switching to the Terminal lens closes the chat's bar; there the button is the terminal's find.
-    await button.click();
+    await openFind(page);
     await bar.waitFor({ state: "visible" });
     await input.fill("needle");
     await page.waitForFunction(() => /^\d\/6$/u.test(document.querySelector("#chat-find-count").textContent));
-    await page.locator("#lens-terminal").click();
+    await showLens(page, "terminal");
     await bar.waitFor({ state: "hidden" });
     assert.equal(await page.locator(".chat-find-mark").count(), 0);
     await page.waitForFunction(() => document.querySelector("#terminal-find-open").title.startsWith("Find in terminal"));
-    await button.click();
+    await openFind(page);
     await page.locator("#terminal-find").waitFor({ state: "visible" });
     assert.equal(await bar.isHidden(), true);
     assert.equal(await page.evaluate(() => document.activeElement?.id), "terminal-find-input");

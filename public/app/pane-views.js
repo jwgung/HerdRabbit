@@ -21,14 +21,21 @@ import * as xterm from "../vendor/xterm.mjs?v=1.4.56";
 import { writePanePreference } from "../pane-preference.js?v=1.4.56";
 import { writeExpandedSplitTabIds } from "../workspace-preference.js?v=1.4.56";
 import { readGridFit, readGridFont, writeGridFont } from "../terminal-preference.js?v=1.4.56";
-import { laysOutPanes, paneMoveRequest } from "../sidebar-drag.js?v=1.4.56";
+import { laysOutPanes } from "../sidebar-drag.js?v=1.4.56";
+import { createTilePicker } from "./tile-picker.js?v=1.4.56";
 import { chatAgent } from "../lens-preference.js?v=1.4.56";
 import {
+  PICK_TILE,
+  addPickTile,
   addTile,
+  applyToHerdrPlan,
   evenTree,
+  evensHerdrTabAfter,
+  fillPick,
   layoutRects,
   moveTile,
   paneDropKind,
+  pickChoices,
   prune as pruneViewTiles,
   removeTile,
   swapTiles,
@@ -59,6 +66,7 @@ export function createPaneViews(deps) {
     renderNavigation, renderPaneHeading, showTerminalMessage, resetInputHistoryNavigation, syncComposerDraft,
     focusComposer, closeMobileSidebar, setFeedback, showLogin, syncSettings, applyTerminalFontSize,
     isLinkableTerminalPath, openTerminalPath, sidebarActionMenu, paneButton, agentMark,
+    createSession, openNewSession,
   } = deps;
 
   // --- Split tabs: the grid (wide screens) and the pane tabs (phones) --------
@@ -104,7 +112,8 @@ export function createPaneViews(deps) {
     return { lens, chatAvailable, chatTitle, chatAgent: reads };
   }
 
-  // What a cell or a map box says of each pane of `tabId`.
+  // What a cell or a map box says of each pane of `tabId`: its header names
+  // its workspace too, as a split view's tile does.
   function splitTabPanes(tabId, { withChat = true } = {}) {
     return panesOfTab(tabId).map((pane) => {
       const paneId = idOf(pane, "pane_id", "id");
@@ -113,6 +122,7 @@ export function createPaneViews(deps) {
       return {
         paneId,
         label: paneDisplayTitle("", pane, "Terminal", agent),
+        context: displayRecordLabel(selectedRecordsFor(paneId).workspace, "Workspace"),
         kind: paneAgentKind(pane, agent),
         status,
         statusIcon: agentStatusIcon(status),
@@ -255,10 +265,13 @@ export function createPaneViews(deps) {
 
   // Keeps `tree` (null: no view split) and whether it is on screen, here and in
   // this window's session storage.
+  // The tiles always share their rows and columns evenly: a tile added, taken
+  // out or moved evens them out, so there is nothing to even by hand.
   function setViewSplit(tree, shown = viewSplit.shown) {
+    tree = evenTree(tree);
     viewSplit.tree = tree;
     viewSplit.shown = Boolean(tree) && shown;
-    const ids = viewTiles(tree);
+    const ids = viewTiles(tree).filter((id) => id !== PICK_TILE);
     if (!ids.includes(viewSplit.focus)) viewSplit.focus = ids[0] ?? null;
     writeViewSplit(viewSplitStorage, viewSplit);
   }
@@ -269,13 +282,19 @@ export function createPaneViews(deps) {
     return viewSplit.shown && desktopMedia.matches && viewTiles(viewSplit.tree).includes(state.selectedPaneId);
   }
 
+  // A phone shows the view split as it shows a Herdr split tab: one tile at
+  // a time, with a tab per tile and a swipe to the next.
+  function viewSplitAsTabs() {
+    return viewSplit.shown && !desktopMedia.matches && viewTiles(viewSplit.tree).includes(state.selectedPaneId);
+  }
+
   // What each tile says of its pane: as a grid cell, with its project, and the
   // machine's name too when the split mixes machines. A pane of a machine that
   // is away may be missing from the snapshot: its tile stays, offline, and
   // reconnects when the machine is back.
-  function viewTilePanes() {
+  function viewTilePanes({ withChat = true } = {}) {
     const { panes, servers } = snapshotRecords();
-    const ids = viewTiles(viewSplit.tree);
+    const ids = viewTiles(viewSplit.tree).filter((id) => id !== PICK_TILE);
     const machines = new Set(ids.map((paneId) => paneServerId(paneId) || "local"));
     const machineName = (paneId) => {
       const id = paneServerId(paneId) || "local";
@@ -293,7 +312,7 @@ export function createPaneViews(deps) {
         return [{
           paneId, label: "Terminal", context: withMachine(paneId, ""), offline,
           status: "unknown", statusIcon: agentStatusIcon("unknown"), statusText: "Machine offline",
-          ...cellLensFields(paneId, null, null),
+          ...cellLensFields(paneId, null, null, { withChat }),
         }];
       }
       const agent = agentForPane(paneId);
@@ -304,10 +323,11 @@ export function createPaneViews(deps) {
         label: paneDisplayTitle(displayTabLabel(records.tab), pane, "Terminal", agent),
         context: withMachine(paneId, displayRecordLabel(records.workspace, "Workspace")),
         offline,
+        kind: paneAgentKind(pane, agent),
         status,
         statusIcon: agentStatusIcon(status),
         statusText: offline ? "Machine offline" : agentStatusLabel(status),
-        ...cellLensFields(paneId, pane, agent),
+        ...cellLensFields(paneId, pane, agent, { withChat }),
       }];
     });
   }
@@ -331,7 +351,7 @@ export function createPaneViews(deps) {
     const before = viewTiles(viewSplit.tree);
     const next = removeTile(viewSplit.tree, paneId);
     if (!next) {
-      const remaining = before.find((id) => id !== paneId) ?? state.selectedPaneId;
+      const remaining = before.find((id) => id !== paneId && id !== PICK_TILE) ?? paneId;
       closeViewSplit(remaining);
       return;
     }
@@ -375,7 +395,7 @@ export function createPaneViews(deps) {
   function pruneViewSplit(listed) {
     if (!viewSplit.tree || listed.length === 0) return;
     const { panes, servers } = snapshotRecords();
-    const paneIds = [...listed, ...viewTiles(viewSplit.tree).filter((id) => holdsRemotePane(id, panes, servers))];
+    const paneIds = [...listed, PICK_TILE, ...viewTiles(viewSplit.tree).filter((id) => holdsRemotePane(id, panes, servers))];
     const before = viewTiles(viewSplit.tree);
     const next = pruneViewTiles(viewSplit.tree, paneIds);
     const after = viewTiles(next);
@@ -395,24 +415,232 @@ export function createPaneViews(deps) {
   });
   elements.viewClose.addEventListener("click", () => closeViewSplit());
 
-  // The header's Even out: the tiles of this window's view split share their
-  // rows and columns evenly (kept by this window, nothing sent), or the Herdr
-  // grid's panes do, as its ⋯ Even out layout does.
-  function evenOutShown() {
-    if (viewSplitOnScreen()) {
-      const next = evenTree(viewSplit.tree);
-      if (next === viewSplit.tree) {
-        setFeedback("The tiles are already even.");
-        return;
-      }
-      setViewSplit(next, true);
-      renderPaneViews();
-      setFeedback("Layout evened out.");
+  // --- A tab dropped on its own pane: the "What goes here?" picker ----------
+  // The new tile is PICK_TILE in the tree; the picker is drawn in its place.
+  // Picking a tab fills it, New shell here and New tab… make a tab in the
+  // split pane's workspace and fill it with that, Cancel split takes it out.
+
+  const picker = createTilePicker({
+    onPick: (paneId) => fillPickTile(paneId),
+    onNewShell: () => void newShellInPick(),
+    onNewTab: () => newTabInPick(),
+    onCancel: () => cancelPick(),
+    agentMark,
+  });
+  // Set when a picker opens, so it takes the focus once drawn.
+  let focusPicker = false;
+  // Counts pickers opened and closed: a tab made for one picker that has
+  // since closed (Cancel split, then maybe a new picker) fills nothing.
+  let pickGeneration = 0;
+
+  // The pane the picker's tile was split from: its neighbour in the tree.
+  function pickAnchor() {
+    const find = (node) => {
+      if (node == null || typeof node === "string") return null;
+      if (node.first === PICK_TILE) return viewTiles(node.second)[0];
+      if (node.second === PICK_TILE) return viewTiles(node.first).at(-1);
+      return find(node.first) ?? find(node.second);
+    };
+    return find(viewSplit.tree) ?? viewTiles(viewSplit.tree).find((id) => id !== PICK_TILE) ?? null;
+  }
+
+  function hasPick() {
+    return viewTiles(viewSplit.tree).includes(PICK_TILE);
+  }
+
+  function openPick({ targetPaneId, side }) {
+    const base = viewTiles(viewSplit.tree).includes(targetPaneId) ? viewSplit.tree : null;
+    const next = addPickTile(base, targetPaneId, side);
+    if (!next || next === base) {
+      setFeedback("A split view shows at most 6 panes.", true);
       return;
     }
-    if (gridTabId() && state.selectedPaneId) void evenOutLayout(state.selectedPaneId);
+    pickGeneration += 1;
+    setViewSplit(next, true);
+    focusPicker = true;
+    selectPane(targetPaneId, { view: "tiles" });
   }
-  elements.splitEven.addEventListener("click", evenOutShown);
+
+  // `paneId` takes the picker's place and is selected there.
+  function fillPickTile(paneId) {
+    if (!hasPick() || !paneId) return;
+    const next = fillPick(viewSplit.tree, paneId);
+    if (next === viewSplit.tree) {
+      setFeedback("This pane is in the split view already.", true);
+      return;
+    }
+    setViewSplit(next, true);
+    viewSplit.focus = paneId;
+    selectPane(paneId, { view: "tiles" });
+  }
+
+  function cancelPick() {
+    if (!hasPick()) return;
+    pickGeneration += 1;
+    const anchor = pickAnchor();
+    const next = removeTile(viewSplit.tree, PICK_TILE);
+    if (!next) {
+      closeViewSplit(anchor);
+      return;
+    }
+    setViewSplit(next, true);
+    if (anchor) selectPane(anchor, { view: "tiles" });
+    else renderPaneViews();
+  }
+
+  // The workspace the picker makes a tab in: the split pane's.
+  function pickWorkspaceId() {
+    const anchor = snapshotRecords().panes.find((item) => idOf(item, "pane_id", "id") === pickAnchor());
+    return idOf(anchor, "workspace_id", "workspaceId") ?? selectedRecordsFor(pickAnchor()).workspace?.workspace_id ?? null;
+  }
+
+  // A shell tab in the split pane's workspace, shown in the picker's tile.
+  async function newShellInPick() {
+    const workspaceId = pickWorkspaceId();
+    if (!workspaceId || state.mutationBusy) return;
+    const generation = pickGeneration;
+    state.mutationBusy = true;
+    picker.setBusy(true);
+    let paneId = null;
+    try {
+      paneId = await createSession(workspaceId, {});
+    } catch (error) {
+      setFeedback(error.message, true);
+    } finally {
+      state.mutationBusy = false;
+      picker.setBusy(false);
+    }
+    if (paneId && generation === pickGeneration) fillPickTile(paneId);
+    else renderPaneViews();
+  }
+
+  // The New tab dialog, on the split pane's workspace; the tab it makes fills the tile.
+  function newTabInPick() {
+    const generation = pickGeneration;
+    openNewSession({
+      workspaceId: pickWorkspaceId(),
+      onCreated: (paneId) => { if (generation === pickGeneration) fillPickTile(paneId); },
+    });
+  }
+
+  // What the picker offers, with the labels the sidebar gives each tab.
+  function drawPicker(box) {
+    const anchorId = pickAnchor();
+    const { panes, servers, tabs } = snapshotRecords();
+    const machineName = (id) => servers.find((item) => item?.id === id)?.name || (id === "local" ? "This PC" : id);
+    const describe = (choice, withMachine) => {
+      const pane = panes.find((item) => idOf(item, "pane_id", "id") === choice.paneId);
+      const agent = agentForPane(choice.paneId);
+      const records = selectedRecordsFor(choice.paneId);
+      const tab = tabs.find((item) => idOf(item, "tab_id", "id") === choice.tabId) ?? records.tab;
+      const where = displayRecordLabel(records.workspace, "Workspace");
+      const context = [withMachine ? machineName(pane?.server_id ?? "local") : null, where,
+        choice.paneCount > 1 ? `${choice.paneCount} panes` : null].filter(Boolean).join(" \u00b7 ");
+      return { paneId: choice.paneId, label: paneDisplayTitle(displayTabLabel(tab), pane, "Terminal", agent), context, kind: paneAgentKind(pane, agent) };
+    };
+    const groups = pickChoices(state.snapshot, {
+      anchorPaneId: anchorId,
+      tileIds: viewTiles(viewSplit.tree),
+      preferredPane: (tabId, paneIds) => splitTabFocusPaneId(tabId, paneIds),
+    });
+    const anchorPane = panes.find((item) => idOf(item, "pane_id", "id") === anchorId);
+    const anchorRecords = selectedRecordsFor(anchorId);
+    picker.render({
+      anchorLabel: paneDisplayTitle(displayTabLabel(anchorRecords.tab), anchorPane, "Terminal", agentForPane(anchorId)),
+      workspaceLabel: displayRecordLabel(anchorRecords.workspace, "Workspace"),
+      groups: {
+        here: groups.here.map((choice) => describe(choice, false)),
+        workspaces: groups.workspaces.map((choice) => describe(choice, false)),
+        machines: groups.machines.map((choice) => describe(choice, true)),
+      },
+      canCreate: Boolean(pickWorkspaceId()),
+    });
+    viewGrid.setSlot(picker.element, box);
+    if (focusPicker) {
+      focusPicker = false;
+      picker.focus();
+    }
+  }
+
+  // --- Apply to Herdr: the view split becomes a Herdr split tab ------------
+
+  // Whether the view split on screen can be applied (applyToHerdrPlan).
+  function applyPlan() {
+    return applyToHerdrPlan(state.snapshot, viewSplit.tree);
+  }
+
+  // Moves every other tile's pane into the first tile's tab, one after
+  // another, as applyToHerdrPlan lays them out; Herdr names each moved pane
+  // anew, and what the page keeps under its old id (the view split's tile
+  // too) follows it. Done, the tab is evened out, shown as its grid, and the
+  // view split is over. A refusal stops the rest: what moved stays moved,
+  // and the feedback line says so.
+  async function applyToHerdr() {
+    const plan = applyPlan();
+    if (!plan || state.mutationBusy) return;
+    const focusBefore = viewSplit.focus ?? plan.anchor;
+    state.mutationBusy = true;
+    setFeedback("");
+    const renamed = new Map();
+    const now = (id) => renamed.get(id) ?? id;
+    let done = 0;
+    let refusal = "";
+    try {
+      for (const move of plan.moves) {
+        const from = now(move.paneId);
+        try {
+          const result = await paneCalls.move(from, { targetPaneId: now(move.targetPaneId), side: move.side });
+          const to = typeof result?.pane_id === "string" ? result.pane_id : from;
+          if (to !== from) {
+            renamed.set(move.paneId, to);
+            followMovedPaneState([{ from, to }]);
+            if (state.selectedPaneId === from) state.selectedPaneId = to;
+          }
+          done += 1;
+        } catch (error) {
+          refusal = error.message;
+          break;
+        }
+      }
+    } finally {
+      state.mutationBusy = false;
+    }
+    const anchor = plan.anchor;
+    const tabId = paneTabId(anchor);
+    if (!refusal) {
+      setViewSplit(null, false);
+      if (tabId) state.paneViews.set(tabId, "grid");
+    }
+    await refreshAfterPaneChange();
+    if (!refusal) await evenAfterOwnChange(anchor, "apply");
+    const focus = now(focusBefore);
+    const shown = snapshotRecords().panes.some((item) => idOf(item, "pane_id", "id") === focus) ? focus : anchor;
+    if (!refusal) selectPane(shown, { view: "grid" });
+    else {
+      // The tiles stay, some now under new ids and in one tab: redraw them
+      // and the header (Apply to Herdr may no longer apply).
+      renderPaneViews();
+      void refreshTerminal();
+    }
+    // After the selection, which clears the feedback line.
+    if (refusal) setFeedback(`Moved ${done} of ${plan.moves.length} panes into one Herdr tab, then Herdr refused: ${refusal}`, true);
+    else setFeedback("Applied to Herdr: these panes are one split tab now.");
+  }
+  elements.viewApply.addEventListener("click", () => void applyToHerdr());
+
+  // A Herdr split tab HerdRabbit has just changed itself (evensHerdrTabAfter)
+  // is evened out, as a view split is; a size the user gave it in Herdr is
+  // left alone otherwise. Quiet: the change it follows says what happened.
+  async function evenAfterOwnChange(paneId, action) {
+    const tabId = paneTabId(paneId);
+    const tabPanes = tabId ? panesOfTab(tabId) : [];
+    if (!evensHerdrTabAfter(action, tabPanes.length) || !canLayOut(tabPanes[0])) return;
+    try {
+      await paneCalls.evenLayout(paneId);
+    } catch { /* the change itself went through; an uneven tab is no failure */ }
+    forgetPaneLayout();
+    renderPaneViews();
+  }
 
   // Which screen a session dropped from the sidebar lands on.
   function paneDropScreen() {
@@ -420,20 +648,17 @@ export function createPaneViews(deps) {
   }
 
   function paneDropKindFor(tabId, targetPaneId, screen = paneDropScreen()) {
-    return paneDropKind(state.snapshot, { tabId, targetPaneId }, {
-      screen,
-      tileIds: viewTiles(viewSplit.tree),
-      paneMoveAllowed: () => Boolean(paneMoveRequest(state.snapshot, { tabId, targetPaneId, side: "right" })),
-    });
+    return paneDropKind(state.snapshot, { tabId, targetPaneId }, { screen, tileIds: viewTiles(viewSplit.tree) });
   }
 
-  // A session dropped on a pane's edge: Herdr's own merge for a session of the
-  // pane's project, this window's view split for another project's (or any on
-  // a view split).
+  // A session dropped on a pane's edge is a tile of this window's view split
+  // beside it, whatever its workspace or machine: Herdr hears nothing (Apply
+  // to Herdr is how it does). Dropped on its own pane, that pane splits there
+  // and the new half asks what goes in it.
   function dropOnPane(drop) {
     const kind = paneDropKindFor(drop.tabId, drop.targetPaneId);
-    if (kind === "move") void movePaneIntoSplit(paneMoveRequest(state.snapshot, drop));
-    else if (kind === "view") addViewTile(drop);
+    if (kind === "view") addViewTile(drop);
+    else if (kind === "self") openPick(drop);
   }
 
   // What the phone's tabs last drew, and their panes in order (null while
@@ -453,12 +678,15 @@ export function createPaneViews(deps) {
   // null for one pane alone.
   function renderPaneViews() {
     const tilesShown = viewSplitOnScreen();
-    const splitTabId = tilesShown ? null : selectedSplitTabId();
-    const gridTab = tilesShown ? null : gridTabId();
-    const showTabs = Boolean(splitTabId) && !desktopMedia.matches;
+    const tileTabs = viewSplitAsTabs();
+    const splitTabId = tilesShown || tileTabs ? null : selectedSplitTabId();
+    const gridTab = tilesShown || tileTabs ? null : gridTabId();
+    const showTabs = tileTabs || (Boolean(splitTabId) && !desktopMedia.matches);
     // Read only for a grid or a map on screen: a pane shown alone needs none.
-    const layout = gridTab || showTabs ? paneLayoutFor(splitTabId) : undefined;
-    const panes = splitTabId ? splitTabPanes(splitTabId, { withChat: Boolean(gridTab) }) : [];
+    const layout = tileTabs ? layoutRects(viewSplit.tree)
+      : gridTab || showTabs ? paneLayoutFor(splitTabId) : undefined;
+    const panes = tileTabs ? viewTilePanes({ withChat: false })
+      : splitTabId ? splitTabPanes(splitTabId, { withChat: Boolean(gridTab) }) : [];
     elements.paneTabs.hidden = !showTabs;
     if (showTabs) {
       const key = JSON.stringify([state.selectedPaneId, layout, panes]);
@@ -479,9 +707,13 @@ export function createPaneViews(deps) {
     // The find bar lies over the terminal's top corner: below the tabs, not on them.
     elements.terminalStage.style.setProperty("--pane-tabs-clearance", showTabs ? `${elements.paneTabs.offsetHeight + 8}px` : "0px");
     elements.gridBack.hidden = !(splitTabId && desktopMedia.matches && !gridTab);
-    elements.viewBack.hidden = !(viewSplit.tree && desktopMedia.matches && !tilesShown);
-    elements.viewClose.hidden = !tilesShown;
-    elements.splitEven.hidden = !(gridTab || tilesShown);
+    const viewOnScreen = tilesShown || tileTabs;
+    elements.viewBack.hidden = !(viewSplit.tree && !viewOnScreen);
+    elements.viewClose.hidden = !viewOnScreen;
+    // Hidden, not greyed, when the tiles cannot be one Herdr tab.
+    elements.viewApply.hidden = !(viewOnScreen && applyPlan());
+    // A Herdr split tab says it is Herdr's: every device sees it, unlike the view split.
+    elements.herdrTabMark.hidden = !(gridTab || (showTabs && !tileTabs));
     elements.terminalPanel.classList.toggle("is-grid", Boolean(gridTab) || tilesShown);
     // on <body> too, for the composer's rules (see chat-lens.js on data-lens)
     document.body.classList.toggle("has-pane-grid", Boolean(gridTab) || tilesShown);
@@ -492,7 +724,14 @@ export function createPaneViews(deps) {
         viewSplit.focus = state.selectedPaneId;
         writeViewSplit(viewSplitStorage, viewSplit);
       }
-      viewGrid.show({ panes: viewTilePanes(), layout: layoutRects(viewSplit.tree), selectedPaneId: state.selectedPaneId });
+      const rects = layoutRects(viewSplit.tree);
+      viewGrid.show({ panes: viewTilePanes(), layout: rects, selectedPaneId: state.selectedPaneId });
+      const pick = rects.panes.find((item) => item.pane_id === PICK_TILE);
+      if (pick) {
+        const { area } = rects;
+        drawPicker({ left: pick.rect.x / area.width, top: pick.rect.y / area.height,
+          width: pick.rect.width / area.width, height: pick.rect.height / area.height });
+      } else viewGrid.setSlot(null);
     } else if (viewGrid.shown) viewGrid.hide();
     setShownGridTabId(gridTab);
     // A notification left waiting on a zoomed-out cell is done once a layout
@@ -761,6 +1000,8 @@ export function createPaneViews(deps) {
     }
     if (fromTabId && left <= 1) state.paneViews.delete(fromTabId);
     await refreshAfterPaneChange();
+    const stayed = fromTabId ? idOf(panesOfTab(fromTabId)[0], "pane_id", "id") : null;
+    if (stayed) await evenAfterOwnChange(stayed, "move-out");
     void refreshTerminal();
     if (refusal) setFeedback(refusal, true);
   }
@@ -852,6 +1093,8 @@ export function createPaneViews(deps) {
     }
     await refreshAfterPaneChange();
     const added = typeof result?.pane_id === "string" ? result.pane_id : null;
+    if (result && action === "split" && added) await evenAfterOwnChange(added, "split");
+    else if (result && action === "close" && neighbour) await evenAfterOwnChange(neighbour, "close");
     if (action === "split" && added && snapshotRecords().panes.some((item) => idOf(item, "pane_id", "id") === added)) {
       selectPane(added, { fromGrid: getShownGridTabId() !== null });
     } else void refreshTerminal();
@@ -878,42 +1121,6 @@ export function createPaneViews(deps) {
     forgetPaneLayout();
     await getSnapshotSettled();
     await refreshSnapshot();
-  }
-
-  // Moves a session's one pane next to another pane, into that pane's tab. The
-  // pane comes back under a new id: what the page keeps under its id follows it,
-  // and it is selected in the grid of the tab it joined. A refusal (Herdr has
-  // no room there) is said in the feedback line, and so is a pane that moved
-  // but could not then be swapped to the left or the top (`placed` false).
-  async function movePaneIntoSplit(request) {
-    if (!request || state.mutationBusy) return;
-    const targetTabId = paneTabId(request.body.targetPaneId);
-    state.mutationBusy = true;
-    setFeedback("");
-    let movedTo = null;
-    let unplaced = null;
-    try {
-      const result = await paneCalls.move(request.paneId, request.body);
-      movedTo = typeof result?.pane_id === "string" ? result.pane_id : null;
-      if (movedTo && movedTo !== request.paneId) {
-        followMovedPaneState([{ from: request.paneId, to: movedTo }]);
-        if (state.selectedPaneId === request.paneId) state.selectedPaneId = movedTo;
-      }
-      if (movedTo && targetTabId) state.paneViews.set(targetTabId, "grid");
-      if (movedTo && result?.placed === false) {
-        unplaced = `Moved, but could not put it on the ${request.body.side === "up" ? "top" : "left"}.`;
-      }
-    } catch (error) {
-      setFeedback(error.message, true);
-    } finally {
-      state.mutationBusy = false;
-    }
-    await refreshAfterPaneChange();
-    if (movedTo && snapshotRecords().panes.some((item) => idOf(item, "pane_id", "id") === movedTo)) {
-      selectPane(movedTo, { view: "grid" });
-    } else void refreshTerminal();
-    // After the selection, which clears the feedback line.
-    if (unplaced) setFeedback(unplaced, true);
   }
 
   // A cell of a Herdr grid dragged onto another of the same tab: the two swap

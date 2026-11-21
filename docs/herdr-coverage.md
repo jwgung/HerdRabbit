@@ -49,7 +49,7 @@ Checked against Herdr 0.9.5 (`herdr --help` and each command group's `--help`). 
 | `close` | Done | |
 | `zoom` | Done | |
 | `resize` | Partly | **Even out layout** only. Missing: dragging a split's divider |
-| `swap`, `move` | Done | Dragging rows and panes, Move out to its own tab |
+| `swap`, `move` | Done | Dragging rows and grid cells, Move out to its own tab, Apply to Herdr (a split view made one split tab) |
 | `rename` | Missing | Naming a pane (tabs and workspaces can be renamed) |
 | `focus`, `neighbor`, `edges` | Not needed | The page moves between panes itself |
 | `input` | Missing | Sending one input to several panes at once |

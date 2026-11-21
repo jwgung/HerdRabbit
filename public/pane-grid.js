@@ -327,6 +327,8 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
   // Herdr grid to find, as before there was a view split.
   if (!view) host.append(root);
   let zoomedPaneId = null;
+  // What setSlot put in a tile's place, if anything.
+  let slot = null;
   unzoom.addEventListener("click", () => { if (zoomedPaneId) onUnzoom(zoomedPaneId); });
 
   // paneId -> { node, status, label, body, note, menuSlot, menuKey, terminal, connection, attached }
@@ -1063,8 +1065,24 @@ export function createPaneGrid({ host, xterm, credentials, fontSize, menuFor, on
       paused = false;
       for (const cell of cells.values()) if (cell.attached) cell.terminal.show(cell.paneId);
     },
+    // Something of the page's own in a tile's place (the view split's "What
+    // goes here?" picker): `node` at `box` (fractions of the board, as a
+    // cell's), or null to take it out. It stays until replaced or the grid hides.
+    setSlot(node, box = null) {
+      if (slot && slot !== node) slot.remove();
+      slot = node;
+      if (!node || !box) return;
+      node.classList.add("pane-grid-slot");
+      node.style.left = `${box.left * 100}%`;
+      node.style.top = `${box.top * 100}%`;
+      node.style.width = `${box.width * 100}%`;
+      node.style.height = `${box.height * 100}%`;
+      if (node.parentElement !== board) board.append(node);
+    },
     // Leaves the grid: every cell lets its pane and its socket go.
     hide() {
+      slot?.remove();
+      slot = null;
       endDrag(false);
       press = null;
       stopSliding();

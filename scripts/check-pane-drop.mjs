@@ -1,21 +1,23 @@
 // Browser check of dropping a tab on a pane, against an in-process fake
-// herdr that keeps its own layout. A tab of one pane of the same workspace
-// dragged from the sidebar onto a grid cell's edge shows the half it would
-// take and joins that pane's tab on that side (each of the four), then is
-// selected in the grid; the middle of a cell is no drop; the pane shown alone
-// is a target too; a gap in the list still reorders; a split tab or one of
-// another machine shows no zones, nor does a connected PC's tab over that
-// PC's own pane, nor another workspace's tab over a Herdr grid; a refusal is
-// said; a pane moved that could not then be swapped to the left is followed
-// all the same and the miss is said; and a narrow screen has no zones at all.
-// Another workspace's tab dropped on the pane alone makes this window's own
-// view split instead (each of the four sides): no move is asked, Herdr is
-// left as it was, the tiles sit where they were dropped, the selected tile
-// takes the typing, a sidebar row of a tile focuses it and another pane opens
+// herdr that keeps its own layout. Any tab of one pane dragged from the
+// sidebar onto a pane's edge (a Herdr grid cell, the pane alone, or a tile)
+// shows the half it would take and becomes a tile of this window's own split
+// view on that side, whatever its workspace or machine: Herdr is never asked
+// to move anything on a drop. The middle of a cell is no drop, a gap in the
+// list still reorders, a split tab shows no zones. Tiles of one workspace,
+// each alone in its tab, show Apply to Herdr (hidden otherwise): a refusal
+// is said and the split view stays; applied, each pane is moved next to its
+// neighbour, the tab is evened out and shown as its grid with the Herdr mark.
+// A tab dropped on its own pane splits it toward that edge and the new half
+// asks "What goes here?" (grouped choices, focus and arrow keys, Escape and
+// Cancel split, a pick fills it, a reload drops it). The selected tile takes
+// the typing, a sidebar row of a tile focuses it and another pane opens
 // alone with Back to split view, ⤢ opens a tile alone, a reload brings the
 // view split back, a vanished pane's tile goes, and ✕ takes tiles out until
-// the last one shows alone. A tile carried by its header swaps with another
-// (its middle) or goes beside it (an edge), nothing sent, kept on reload.
+// the last one shows alone; tiles even out by themselves (no Even out
+// button). A tile carried by its header swaps with another (its middle) or
+// goes beside it (an edge), nothing sent, kept on reload. A narrow screen has
+// no zones, and shows a split view as a tab per tile.
 // PANE_DROP_SHOTS=<folder> keeps pictures taken mid-drag and of the view
 // split (two and three tiles) in both themes.
 import assert from "node:assert/strict";
@@ -25,6 +27,7 @@ import { join } from "node:path";
 import { HerdrCommandError } from "../src/herdr-client.mjs";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { PaneAttachments } from "../src/pane-attachments.mjs";
+import { clickViewControl } from "./header-controls.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const local = { server_id: "local", herdr_session_id: "hs_x" };
@@ -125,6 +128,10 @@ const herdr = {
           .map((pane) => ({ pane_id: pane.pane_id, rect: rects.get(pane.pane_id) ?? { x: 0, y: 0, width: 120, height: 40 } })),
       },
     };
+  },
+  async evenLayout(paneId) {
+    calls.push(["evenLayout", paneId]);
+    return { even: true, changed: true };
   },
   // Herdr's own move: the pane leaves its tab (which closes) and takes the
   // half of the target on `side`, under a new id.
@@ -288,34 +295,40 @@ try {
       await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
     };
 
-    // 1. Each side of a cell: the half it would take lights up, and the drop
-    // asks for that side. The moved pane is selected in the grid of the tab it joined.
-    const sources = { left: "w1:p3", right: "w1:p4", up: "w1:p7", down: "w1:p8" };
-    let cellCount = 2;
-    for (const [side, sourcePane] of Object.entries(sources)) {
+    const viewTileIds = () => page.evaluate(() => [...document.querySelectorAll(".pane-grid.is-view:not([hidden]) .pane-grid-cell")]
+      .map((node) => node.dataset.paneId).sort());
+    const closeView = async () => {
+      await page.locator("#view-close").click();
+      await page.locator(".pane-grid.is-view").waitFor({ state: "hidden" });
+    };
+
+    // 1. A tab of the grid's own workspace dropped on a cell's edge: the half
+    // it would take lights up, and it is a tile of this window's split view
+    // beside that pane. Herdr is asked nothing; the tab stays where it was.
+    for (const side of ["left", "right", "up", "down"]) {
       await gridSettled(page);
-      const source = await box(page, tabRow(sourcePane));
+      const source = await box(page, tabRow("w1:p3"));
       const target = await box(page, cell("w1:p2"));
       const during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone[side]),
         { shot: side === "right" ? () => theme("drop-right") : null });
       assert.ok(during.ghost, `${side}: the row follows the pointer`);
       assert.equal(during.line, false, `${side}: no gap line over a pane`);
-      assert.ok(during.preview, `${side}: the half it would take shows`);
-      assert.equal(during.preview.side, side);
+      assert.equal(during.preview?.side, side, `${side}: the half it would take shows`);
       near(during.preview, half(target, side), `${side} preview`);
-      cellCount += 1;
-      await page.waitForFunction((count) => document.querySelectorAll(".pane-grid-cell").length === count, cellCount);
-      assert.deepEqual(bodies.at(-1), { pane: sourcePane, body: { targetPaneId: "w1:p2", side } });
-      assert.deepEqual(calls.at(-1), ["movePaneSplit", sourcePane, "w1:p2", side]);
-      const moved = herdrState.panes.find((pane) => pane.cwd === `/work/${{ left: "alpha", right: "beta", up: "eta", down: "theta" }[side]}`);
-      await page.waitForFunction((id) => document.querySelector(`.pane-button[data-pane-id="${id}"]`)?.getAttribute("aria-pressed") === "true", moved.pane_id);
-      await page.waitForFunction((id) => document.querySelector(`.pane-grid-cell[data-pane-id="${id}"]`)?.classList.contains("is-focused"), moved.pane_id);
-      assert.equal(await page.locator(tabRow(sourcePane)).count(), 0, `${side}: the tab it came from is gone`);
-      assert.equal(await page.locator(".pane-drop-preview").count(), 0, "the preview leaves with the drag");
+      await page.locator(".pane-grid.is-view").waitFor({ state: "visible" });
+      assert.deepEqual(await viewTileIds(), ["w1:p2", "w1:p3"]);
+      assert.deepEqual(calls, [], `${side}: no Herdr move on a drop`);
+      assert.deepEqual(bodies, []);
+      assert.equal(await page.locator(tabRow("w1:p3")).count(), 1, `${side}: the tab stays`);
+      // p2 is one of a split tab's panes: these tiles cannot be one Herdr tab.
+      assert.equal(await page.locator("#view-apply").isVisible(), false, "no Apply to Herdr for a split tab's pane");
+      assert.equal(await page.locator("#split-even").count(), 0, "no Even out button");
+      await closeView();
+      await page.locator('.split-session-button[data-tab-id="w1:t1"]').click();
+      await page.locator(".pane-grid:not(.is-view)").waitFor({ state: "visible" });
     }
-    // The cells sit where Herdr put the moved panes: left of p2, then right of
-    // what is left of it, and so on.
-    assert.equal(herdrState.panes.filter((pane) => pane.tab_id === "w1:t1").length, 6);
+    // The grid of a Herdr split tab says it is Herdr's.
+    assert.equal(await page.locator("#herdr-tab-mark").isVisible(), true, "the Herdr mark on a Herdr split tab");
 
     // 2. The middle of a cell is no drop.
     let before = calls.length;
@@ -336,94 +349,75 @@ try {
     assert.equal(during.preview, null);
     await page.waitForTimeout(400);
     assert.deepEqual(calls.slice(before), [["moveTab", "w1:t4", 0]], "reordering still works");
+    calls.length = 0;
 
     // 4. A split session shows no zones over a cell.
-    before = calls.length;
     source = await box(page, `${tabRow("w1:p5")} .split-session-button`);
     target = await box(page, cell("w1:p1"));
     during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
     assert.ok(during.ghost);
-    assert.equal(during.preview, null, "a split tab cannot join another");
+    assert.equal(during.preview, null, "a split tab cannot be a tile");
     await page.waitForTimeout(300);
-    assert.equal(calls.length, before);
+    assert.deepEqual(calls, []);
 
-    // 5. Nor does another machine's session.
-    source = await box(page, tabRow("laptop!w1:p1"));
-    during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
-    assert.equal(during.preview, null, "another machine's tab cannot join");
-    await page.waitForTimeout(300);
-    assert.equal(calls.length, before);
+    // 5. Another machine's tab and another workspace's are tiles too.
+    for (const paneId of ["laptop!w1:p1", "w2:p1"]) {
+      source = await box(page, tabRow(paneId));
+      target = await box(page, cell("w1:p1"));
+      during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
+      assert.equal(during.preview?.side, "left", `${paneId}: a zone over the grid`);
+      await page.locator(".pane-grid.is-view").waitFor({ state: "visible" });
+      assert.deepEqual(await viewTileIds(), [paneId, "w1:p1"].sort());
+      assert.equal(await page.locator("#view-apply").isVisible(), false, `${paneId}: no Apply across workspaces or machines`);
+      assert.equal(await page.locator("#herdr-tab-mark").isVisible(), false, "no Herdr mark over a split view");
+      await closeView();
+      await page.locator('.split-session-button[data-tab-id="w1:t1"]').click();
+      await page.locator(".pane-grid:not(.is-view)").waitFor({ state: "visible" });
+    }
+    assert.deepEqual(calls, []);
 
-    // 5b. Nor does another project's session over a Herdr grid: a grid is
-    // Herdr's own tab, and another project would be emptied into it.
-    source = await box(page, tabRow("w2:p1"));
-    target = await box(page, cell("w1:p1"));
-    during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
-    assert.ok(during.ghost);
-    assert.equal(during.preview, null, "another workspace's tab cannot join a grid");
-    await page.waitForTimeout(300);
-    assert.equal(calls.length, before);
-    assert.equal(await page.locator(".pane-grid.is-view:not([hidden])").count(), 0, "no view split over a grid");
-
-    // 6. A refusal is said, and the session stays where it was.
-    refuseNext = true;
-    source = await box(page, tabRow("w1:p9"));
-    target = await box(page, cell("w1:p1"));
-    during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.down));
-    assert.equal(during.preview?.side, "down");
-    await page.locator("#action-feedback").filter({ hasText: "There is no room to split this pane." }).waitFor();
-    assert.deepEqual(calls.at(-1), ["movePaneSplit", "w1:p9", "w1:p1", "down"]);
-    assert.equal(await page.locator(tabRow("w1:p9")).count(), 1);
-
-    // 6b. Moved, but Herdr could not then swap it to the left: the page still
-    // follows the pane under its new id, and says what it could not do.
-    unplaceNext = true;
-    source = await box(page, tabRow("w1:p10"));
-    target = await box(page, cell("w1:p1"));
-    during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
-    assert.equal(during.preview?.side, "left");
-    await page.locator("#action-feedback").filter({ hasText: "Moved, but could not put it on the left." }).waitFor();
-    const kappa = herdrState.panes.find((pane) => pane.cwd === "/work/kappa");
-    assert.notEqual(kappa.pane_id, "w1:p10");
-    await page.waitForFunction((id) => document.querySelector(`.pane-grid-cell[data-pane-id="${id}"]`)?.classList.contains("is-focused"), kappa.pane_id);
-    assert.equal(await page.locator(tabRow("w1:p10")).count(), 0);
-
-    // 7. The pane shown alone is a target too: Lambda, of the same project,
-    // joins p1 on its right, and p1's tab opens as a grid on it. p1 is in
-    // Split work's pane list.
-    await page.locator('.tab-group[data-tab-id="w1:t1"] .split-disclosure').click();
-    await page.locator('.pane-button[data-pane-id="w1:p1"]').click();
-    await page.locator(".pane-grid").waitFor({ state: "hidden" });
+    // 6. Two tabs of one workspace, each alone: Apply to Herdr shows, and a
+    // refusal is said with the split view kept.
+    await page.locator('.pane-button[data-pane-id="w1:p3"]').scrollIntoViewIfNeeded();
+    await page.locator('.pane-button[data-pane-id="w1:p3"]').click();
     await page.locator("#terminal-xterm .xterm").waitFor({ state: "visible" });
-    source = await box(page, tabRow("w1:p11"));
+    source = await box(page, tabRow("w1:p4"));
     target = await box(page, ".terminal-stage");
     during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.right), { shot: () => theme("drop-solo") });
     assert.equal(during.preview?.side, "right");
     near(during.preview, half(target, "right"), "solo preview");
+    await page.locator(".pane-grid.is-view").waitFor({ state: "visible" });
+    assert.deepEqual(calls, [], "the drop moves nothing");
+    // A third of the same workspace under Beta.
+    source = await box(page, tabRow("w1:p7"));
+    target = await box(page, tile("w1:p4"));
+    await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.down));
+    await page.waitForFunction(() => document.querySelectorAll(".pane-grid.is-view .pane-grid-cell").length === 3);
+    await page.locator("#view-apply").waitFor({ state: "visible" });
+    await theme("view-apply");
+    refuseNext = true;
+    await page.locator("#view-apply").click();
+    await page.locator("#action-feedback").filter({ hasText: "There is no room to split this pane." }).waitFor();
+    assert.deepEqual(calls, [["movePaneSplit", "w1:p4", "w1:p3", "right"]]);
+    assert.equal(await page.locator(".pane-grid.is-view").isVisible(), true, "the split view stays after a refusal");
+
+    // 7. Applied: Beta goes right of Alpha, Eta under Beta, the tab is evened
+    // out and shown as its grid, and the split view is over.
+    calls.length = 0;
+    await page.locator("#view-apply").click();
     await page.locator(".pane-grid:not(.is-view)").waitFor({ state: "visible" });
-    assert.deepEqual(bodies.at(-1), { pane: "w1:p11", body: { targetPaneId: "w1:p1", side: "right" } });
-    const lambda = herdrState.panes.find((pane) => pane.cwd === "/work/lambda");
-    await page.waitForFunction((id) => document.querySelector(`.pane-grid-cell[data-pane-id="${id}"]`)?.classList.contains("is-focused"), lambda.pane_id);
-
-    // 8. Dropped on itself: the pane alone is the dragged session's own.
-    await page.locator('.pane-button[data-pane-id="laptop!w1:p1"]').click();
-    await page.locator(".pane-grid").waitFor({ state: "hidden" });
-    before = calls.length;
-    source = await box(page, tabRow("laptop!w1:p1"));
-    target = await box(page, ".terminal-stage");
-    during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
-    assert.equal(during.preview, null, "a pane is not split by itself");
-    await page.waitForTimeout(300);
-    assert.equal(calls.length, before);
-
-    // 9. Nor is a connected PC's pane split from here, even by its own tabs.
-    await page.locator(tabRow("laptop!w1:p2")).scrollIntoViewIfNeeded();
-    source = await box(page, tabRow("laptop!w1:p2"));
-    during = await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.left));
-    assert.ok(during.ghost);
-    assert.equal(during.preview, null, "a connected PC's pane is no target");
-    await page.waitForTimeout(300);
-    assert.equal(calls.length, before);
+    const beta = herdrState.panes.find((pane) => pane.cwd === "/work/beta");
+    assert.deepEqual(calls.filter((call) => call[0] === "movePaneSplit"),
+      [["movePaneSplit", "w1:p4", "w1:p3", "right"], ["movePaneSplit", "w1:p7", beta.pane_id, "down"]],
+      "each pane next to its neighbour, the moved one under its new id");
+    assert.deepEqual(calls.filter((call) => call[0] === "evenLayout").length, 1, "evened out once HerdRabbit changed the tab");
+    assert.equal(herdrState.panes.filter((pane) => pane.tab_id === "w1:t2").length, 3);
+    await page.waitForFunction(() => document.querySelectorAll(".pane-grid:not(.is-view) .pane-grid-cell").length === 3);
+    assert.equal(await page.evaluate(() => sessionStorage.getItem("herdrbridge-view-split")), null, "no split view kept");
+    assert.equal(await page.locator("#view-back").isVisible(), false);
+    assert.equal(await page.locator("#herdr-tab-mark").isVisible(), true);
+    await page.locator("#action-feedback").filter({ hasText: "Applied to Herdr" }).waitFor();
+    await theme("applied");
     assert.deepEqual(errors, []);
     await context.close();
   }
@@ -509,17 +503,73 @@ try {
       await openAlone("w1:p3");
     }
 
-    // 2. The pane's own, or a split session: no zones.
-    for (const row of [tabRow("w1:p3"), `${tabRow("w1:p5")} .split-session-button`]) {
-      const source = await box(page, row);
+    // 2. A split session shows no zones; the pane's own tab does: dropped on
+    // its own pane it splits it there, and the new half asks what goes in it.
+    {
+      const source = await box(page, `${tabRow("w1:p5")} .split-session-button`);
       const stage = await box(page, ".terminal-stage");
       const during = await mouseDrag(page, at(source, 0.3, 0.5), at(stage, ...zone.left));
       assert.ok(during.ghost);
-      assert.equal(during.preview, null, `${row}: no zone`);
+      assert.equal(during.preview, null, "a split session: no zone");
     }
     await page.waitForTimeout(300);
     assert.equal(await page.locator(".pane-grid.is-view:not([hidden])").count(), 0);
-    herdrUntouched("no zones");
+    const picker = page.locator(".pane-grid.is-view .tile-picker");
+    const dropOnOwn = async (side) => {
+      const source = await box(page, tabRow("w1:p3"));
+      const stage = await box(page, ".terminal-stage");
+      const during = await mouseDrag(page, at(source, 0.3, 0.5), at(stage, ...zone[side]));
+      assert.equal(during.preview?.side, side, `own pane ${side}: the half shows`);
+      await picker.waitFor({ state: "visible" });
+    };
+    await dropOnOwn("left");
+    // The picker takes the left half, the pane the right, and the focus is on its first choice.
+    const pickBox = await box(page, ".pane-grid.is-view .tile-picker");
+    const ownBox = await box(page, tile("w1:p3"));
+    assert.ok(pickBox.x < ownBox.x && Math.abs(pickBox.width - ownBox.width) <= 3, "the picker sits on the edge it was dropped on");
+    assert.equal(await picker.getByRole("heading", { name: "What goes here?" }).count(), 1);
+    assert.equal(await picker.evaluate((node) => node.contains(document.activeElement) && document.activeElement.matches("button")), true,
+      "the first choice has the focus");
+    const groups = await picker.locator(".tile-picker-group").allTextContents();
+    assert.deepEqual(groups, ["Platform (this workspace)", "Other workspaces", "Other machines", "New"]);
+    const labels = await picker.locator(".tile-picker-choice strong").allTextContents();
+    assert.ok(labels.includes("Gamma") && labels.includes("Notes") && labels.includes("New shell here") && labels.includes("New tab…"), labels.join(", "));
+    assert.ok(!labels.includes("Alpha"), "the split pane itself is not offered");
+    await shot("view-pick");
+    // The arrow keys walk the choices; Escape cancels the split.
+    await page.keyboard.press("ArrowDown");
+    assert.equal(await picker.evaluate((node) => [...node.querySelectorAll("button")].indexOf(document.activeElement)), 1);
+    await page.keyboard.press("Escape");
+    await picker.waitFor({ state: "detached" });
+    await page.locator("#terminal-xterm .xterm").waitFor({ state: "visible" });
+    assert.equal(await page.locator(".pane-grid.is-view:not([hidden])").count(), 0, "Cancel: the pane alone again");
+    // Cancel split by its button, on a split dropped at the bottom.
+    await dropOnOwn("down");
+    await picker.getByRole("button", { name: "Cancel split" }).click();
+    await picker.waitFor({ state: "detached" });
+    // Picking a tab fills the half.
+    await dropOnOwn("right");
+    await picker.getByRole("button", { name: /^Gamma/u }).click();
+    await tileCount(2);
+    assert.deepEqual(await tileIds(), ["w1:p3", "w2:p1"]);
+    await focusedTile("w2:p1");
+    const gammaBox = await box(page, tile("w2:p1"));
+    const alphaBox = await box(page, tile("w1:p3"));
+    assert.ok(gammaBox.x > alphaBox.x, "Gamma takes the right half");
+    // Its own tile, dropped on again, opens a picker beside it; a reload does not keep the picker.
+    {
+      const source = await box(page, tabRow("w1:p3"));
+      const target = await box(page, tile("w1:p3"));
+      await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.down));
+      await picker.waitFor({ state: "visible" });
+      await page.reload();
+      await tileCount(2);
+      assert.equal(await picker.count(), 0, "a reload drops a waiting picker");
+    }
+    await page.locator("#view-close").click();
+    await page.locator(".pane-grid.is-view").waitFor({ state: "hidden" });
+    await openAlone("w1:p3");
+    herdrUntouched("picker");
 
     // 3. Two tiles, typing goes to the focused one only; a third on a tile's
     // bottom half; a session of the tile's own project is a tile too.
@@ -728,8 +778,9 @@ try {
     const gamma = await tileBox("w2:p1");
     const delta = await tileBox("w2:p2");
     assert.ok(gamma.x < delta.x && Math.abs(gamma.y - delta.y) <= 1 && Math.abs(gamma.height - delta.height) <= 1, "Gamma sits left of Delta");
+    // Three in a row now, a third each: the split evens itself out.
     assert.deepEqual((await stored()).tree,
-      { dir: "right", first: { dir: "right", first: "w2:p1", second: "w2:p2", ratio: 0.5 }, second: "w1:p3", ratio: 0.5 });
+      { dir: "right", first: { dir: "right", first: "w2:p1", second: "w2:p2", ratio: 0.5 }, second: "w1:p3", ratio: 2 / 3 });
     await focusedTile(page, "w2:p1");
     // Typing goes to the carried tile.
     await page.keyboard.type("moved gamma");
@@ -750,9 +801,10 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
-  // The header's Even out over a view split: three tiles in a row, a half and
-  // two quarters, take a third each. In this window only: nothing is sent, and
-  // a reload keeps it. Again, it says they are even already.
+  // No Even out button: the tiles even out by themselves. Three tiles in a
+  // row kept by an older page as a half and two quarters take a third each
+  // once one is taken out and dropped back. In this window only: nothing is
+  // sent, and a reload keeps it.
   {
     reset();
     calls.length = 0;
@@ -777,21 +829,24 @@ try {
     };
     const [half, quarter] = await widths();
     assert.ok(half > quarter * 1.8, `a half and two quarters before: ${half} vs ${quarter}`);
-    assert.equal(await page.locator("#split-even").isVisible(), true, "Even out in the header over a view split");
-    await page.locator("#split-even").click();
-    await page.locator("#action-feedback").filter({ hasText: "Layout evened out." }).waitFor();
+    assert.equal(await page.locator("#split-even").count(), 0, "no Even out button in the header");
+    // ✕ on a quarter: two tiles left, halves.
+    await page.locator(`${tile("w2:p2")} .pane-grid-remove`).click();
+    await page.waitForFunction(() => document.querySelectorAll(".pane-grid.is-view .pane-grid-cell:not(.is-leaving)").length === 2);
+    await gridSettled(page);
+    const halves = await Promise.all(["w1:p3", "w2:p1"].map(async (id) => (await page.locator(tile(id)).boundingBox()).width));
+    assert.ok(Math.abs(halves[0] - halves[1]) <= 2, `halves after a tile left: ${halves.join(", ")}`);
+    // Dropped back on the right of Gamma: thirds.
+    const source = await box(page, tabRow("w2:p2"));
+    const target = await box(page, tile("w2:p1"));
+    await mouseDrag(page, at(source, 0.3, 0.5), at(target, ...zone.right));
+    await page.waitForFunction(() => document.querySelectorAll(".pane-grid.is-view .pane-grid-cell .xterm").length === 3);
     const even = await widths();
     for (const width of even) assert.ok(Math.abs(width - even[0]) <= 2, `equal thirds: ${even.join(", ")}`);
-    await page.locator("#split-even").click();
-    await page.locator("#action-feedback").filter({ hasText: "The tiles are already even." }).waitFor();
     await page.reload();
     await page.waitForFunction(() => document.querySelectorAll(".pane-grid.is-view .pane-grid-cell .xterm").length === 3);
     const reloaded = await widths();
     reloaded.forEach((width, index) => assert.ok(Math.abs(width - even[index]) <= 2, `kept on reload: ${reloaded.join(", ")}`));
-    // The pane alone has no Even out.
-    await page.locator(`${tile("w1:p3")} [title="Open alone"]`).click();
-    await page.locator("#view-back").waitFor();
-    assert.equal(await page.locator("#split-even").isVisible(), false, "no Even out over the pane alone");
     assert.deepEqual(posts, [], "nothing was sent to the server");
     assert.deepEqual(calls, [], "Herdr was asked nothing");
     assert.deepEqual(errors, []);
@@ -903,7 +958,50 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log("Pane drop (tiles swapped and moved by their headers, kept on reload, nothing sent; four sides, middle no-op, pane alone, reorder kept, split/self/connected PC/other project over a grid no zones, refusal said, unplaced swap said; another project on the pane alone a view split (and another machine's session: a two-machine split with the machine named, typing, reload, offline tile and back): four sides, Herdr untouched, typing, sidebar, back, reload, pruned, removed; narrow screen none): passed");
+
+  // A phone: a split view made on a wide screen shows as a Herdr split tab
+  // does on a phone, one tile at a time with a tab per tile and a swipe.
+  {
+    reset();
+    const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, colorScheme: "dark" });
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem("herdrbridge-view-split")) return;
+      sessionStorage.setItem("herdrbridge-view-split", JSON.stringify({
+        tree: { dir: "right", first: "w1:p3", second: { dir: "down", first: "w2:p1", second: "laptop!w1:p1", ratio: 0.5 }, ratio: 0.5 },
+        shown: true, focus: "w1:p3",
+      }));
+    });
+    await page.goto(`${url}/?pane=${encodeURIComponent("w1:p3")}`);
+    await page.locator("#pane-tabs .ui-tab").first().waitFor({ state: "visible" });
+    const tabNames = () => page.locator("#pane-tabs .ui-tab").allTextContents();
+    assert.deepEqual((await tabNames()).map((name) => name.trim()), ["Alpha", "Gamma", "Notes"], "a tab per tile, in the split's order");
+    assert.equal(await page.locator(".pane-grid.is-view:not([hidden])").count(), 0, "no tiles side by side on a phone");
+    // The header's controls are in the ⋯ menu on a phone.
+    assert.equal(await page.locator("#view-close").isHidden(), true, "the header's button is hidden on a phone");
+    assert.equal(await page.locator("#header-more summary").isVisible(), true, "the ⋯ menu shows");
+    await page.locator("#header-more summary").click();
+    assert.equal(await page.locator('#header-more [data-action="view-close"]').isVisible(), true, "Close split view on a phone too");
+    await page.locator("#header-more .sidebar-sheet-cancel").click();
+    assert.equal(await page.locator("#herdr-tab-mark").isVisible(), false);
+    await page.locator('#pane-tabs .ui-tab[data-pane-id="w2:p1"]').click();
+    await page.waitForFunction(() => document.querySelector('.pane-button[data-pane-id="w2:p1"]')?.getAttribute("aria-pressed") === "true");
+    assert.equal(await page.locator("#pane-tabs").isVisible(), true, "the tabs stay on a tile");
+    if (shots) {
+      for (const value of ["dark", "light"]) {
+        await page.evaluate((next) => { document.documentElement.dataset.theme = next; }, value);
+        await page.waitForTimeout(200);
+        await page.screenshot({ path: join(shots, `phone-view-tabs-${value}.png`) });
+      }
+    }
+    await clickViewControl(page, "view-close");
+    await page.locator("#pane-tabs").waitFor({ state: "hidden" });
+    assert.deepEqual(errors, []);
+    await context.close();
+  }
+  console.log("Pane drop (any drop a split-view tile on grid, pane alone or tile, never a Herdr move; middle no-op, reorder kept, split tab no zones; Apply to Herdr only for one workspace, refusal kept, applied as one evened Herdr tab with the Herdr mark; own-pane drop picker: groups, focus, keys, Escape/Cancel, pick, not kept; tiles even out by themselves; typing, sidebar, back, reload, pruned, removed; two-machine split; tiles swapped and moved by their headers; narrow screen no zones; phone tabs for a split view): passed");
 } finally {
   await browser.close();
   await new Promise((resolve) => server.close(resolve));

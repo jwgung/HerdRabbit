@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { PaneAttachments } from "../src/pane-attachments.mjs";
 import { PromptService } from "../src/prompt/service.mjs";
+import { waitForLensSwitch } from "./header-controls.mjs";
 import { fakePromptHerdr } from "../test/fixtures/claude-prompt.mjs";
 import { claudeStatus, claudeUsage } from "../test/fixtures/panel-screens.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
@@ -68,7 +69,7 @@ try {
     page.on("pageerror", (error) => errors.push(error.message));
     const dockMode = () => page.locator("#prompt-dock").getAttribute("data-mode");
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
-    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await waitForLensSwitch(page);
     if (!mobile) {
       await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "banner");
       assert.equal(await page.locator(".prompt-banner-text").textContent(), "Claude has a panel open: Usage");

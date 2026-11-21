@@ -17,6 +17,7 @@ import { PaneAttachments } from "../src/pane-attachments.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
 import { PromptService } from "../src/prompt/service.mjs";
+import { showLens, waitForLensSwitch } from "./header-controls.mjs";
 import { fakePromptHerdr } from "../test/fixtures/claude-prompt.mjs";
 import { opencodeDb } from "../test/fixtures/opencode-db.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
@@ -126,10 +127,10 @@ try {
     const chat = page.locator('.chat-pane[data-pane-id="w1:p1"]');
 
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
-    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await waitForLensSwitch(page);
     // An OpenCode pane has a chat.
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
-    if (!mobile) await page.locator("#lens-chat").click();
+    if (!mobile) await showLens(page, "chat");
     await page.waitForFunction(() => document.querySelector(".terminal-stage")?.dataset.lens === "chat");
     assert.equal(await lens(), "chat");
     await chat.locator(".chat-turn-agent").first().waitFor({ state: "visible" });

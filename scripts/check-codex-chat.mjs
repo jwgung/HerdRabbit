@@ -16,6 +16,7 @@ import { PaneAttachments } from "../src/pane-attachments.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
 import { PromptService } from "../src/prompt/service.mjs";
+import { showLens, waitForLensSwitch } from "./header-controls.mjs";
 import { fakePromptHerdr } from "../test/fixtures/claude-prompt.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
@@ -115,7 +116,7 @@ try {
     const keysSent = () => herdr.sent.filter((item) => item.paneId === "w1:p1").map((item) => item.keys?.join("+") ?? `text:${item.text}`);
 
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p1")}`);
-    await page.locator("#lens-switch").waitFor({ state: "visible" });
+    await waitForLensSwitch(page);
     // A Codex pane has a chat.
     await page.waitForFunction(() => document.querySelector("#lens-chat").getAttribute("aria-disabled") === "false");
     assert.equal(await page.locator("#lens-chat").getAttribute("title"), `Show the conversation (Ctrl+J)`);
@@ -123,7 +124,7 @@ try {
       // Over the terminal, the banner names Codex.
       await page.waitForFunction(() => document.querySelector("#prompt-dock")?.dataset.mode === "banner");
       assert.match(await page.locator(".prompt-banner").textContent(), /Codex is asking: Would you like to run the following command\?/u);
-      await page.locator("#lens-chat").click();
+      await showLens(page, "chat");
     }
     assert.equal(await lens(), "chat");
     await chat.locator(".chat-turn-agent").first().waitFor({ state: "visible" });

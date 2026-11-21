@@ -6,6 +6,7 @@ import { createNotifications } from "./app/notifications.js?v=1.4.56";
 import { createSettings } from "./app/settings.js?v=1.4.56";
 import { createComposer } from "./app/composer.js?v=1.4.56";
 import { createSidebarRows } from "./app/sidebar-rows.js?v=1.4.56";
+import { createHeaderMore } from "./app/header-more.js?v=1.4.56";
 import { createAccountDialogs } from "./app/account-dialogs.js?v=1.4.56";
 import { createAiAccounts } from "./app/ai-accounts.js?v=1.4.56";
 import { createNavigation } from "./app/navigation.js?v=1.4.56";
@@ -171,7 +172,8 @@ const elements = {
   gridBack: document.querySelector("#grid-back"),
   viewBack: document.querySelector("#view-back"),
   viewClose: document.querySelector("#view-close"),
-  splitEven: document.querySelector("#split-even"),
+  viewApply: document.querySelector("#view-apply"),
+  herdrTabMark: document.querySelector("#herdr-tab-mark"),
   chatHost: document.querySelector("#chat-host"),
   promptDock: document.querySelector("#prompt-dock"),
   lensSwitch: document.querySelector("#lens-switch"),
@@ -780,6 +782,23 @@ const {
   removeWorktree: (...args) => worktreeDialogs.remove(...args),
 });
 
+// A phone's header shows its controls in one More menu (public/app/header-more.js).
+createHeaderMore({
+  slot: document.querySelector("#header-more"),
+  title: elements.paneTitle,
+  sidebarActionMenu,
+  controls: {
+    gridBack: elements.gridBack,
+    viewBack: elements.viewBack,
+    viewApply: elements.viewApply,
+    viewClose: elements.viewClose,
+    lensSwitch: elements.lensSwitch,
+    lensChat: elements.lensChat,
+    lensTerminal: elements.lensTerminal,
+    findButton: document.querySelector("#terminal-find-open"),
+  },
+});
+
 const { showServerDetails, showSessions, showPasskeys, forgetComposerDrafts } = createAccountDialogs({
   state,
   api: (...args) => api(...args),
@@ -1048,6 +1067,9 @@ const {
   sidebarActionMenu: (...args) => sidebarActionMenu(...args),
   paneButton: (...args) => paneButton(...args),
   agentMark: (...args) => agentMark(...args),
+  // The split view's picker makes tabs as the sidebar's New tab does.
+  createSession: (...args) => createSession(...args),
+  openNewSession: (...args) => openNewSession(...args),
   // Made below (lateChatLens); read once the page draws a grid.
   get chatLens() { return lateChatLens; },
 });

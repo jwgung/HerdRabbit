@@ -200,7 +200,9 @@ export function readViewSplit(storage) {
   }
 }
 
-export function writeViewSplit(storage, { tree, shown, focus = null }) {
+// A picker waiting in a tile is not kept: a reload shows the split without it.
+export function writeViewSplit(storage, { tree: shownTree, shown, focus = null }) {
+  const tree = tiles(shownTree).includes(PICK_TILE) ? removeTile(shownTree, PICK_TILE) : shownTree;
   try {
     if (!tree) storage?.removeItem(VIEW_SPLIT_STORAGE_KEY);
     else storage?.setItem(VIEW_SPLIT_STORAGE_KEY, JSON.stringify({ tree, shown: Boolean(shown), focus }));
@@ -209,39 +211,127 @@ export function writeViewSplit(storage, { tree, shown, focus = null }) {
 
 const idOf = (record, key) => (typeof record?.[key] === "string" ? record[key] : null);
 
+// The tile a drop of a tab on its own pane opens: it holds the "What goes
+// here?" picker until a pane fills it or the split is cancelled. It is a leaf
+// like any other for the layout; it is never a pane, so it is never kept.
+export const PICK_TILE = "herdrabbit:pick";
+
+// `tree` with the picker's tile (if any) filled by `paneId`. Unchanged when
+// there is no picker tile or the pane is a tile already.
+export function fillPick(tree, paneId) {
+  const present = tiles(tree);
+  if (!present.includes(PICK_TILE) || typeof paneId !== "string" || !paneId || present.includes(paneId)) return tree;
+  const fill = (node) => (isLeaf(node) ? (node === PICK_TILE ? paneId : node)
+    : { ...node, first: fill(node.first), second: fill(node.second) });
+  return fill(tree);
+}
+
+// `tree` with a picker tile on `side` of `targetPaneId` (the pane alone when
+// there is no tree), evened. One picker at a time: an earlier one goes first.
+export function addPickTile(tree, targetPaneId, side) {
+  const base = tiles(tree).includes(PICK_TILE) ? removeTile(tree, PICK_TILE) : tree;
+  const next = addTile(base, targetPaneId, PICK_TILE, side);
+  return next === base ? tree : evenTree(next);
+}
+
 // What a session `tabId` dropped on `targetPaneId` does, given what the screen
 // shows: `screen` is "solo" (one pane alone), "grid" (a Herdr split tab as a
-// grid) or "tiles" (this window's view split, whose panes are `tileIds`).
-// Answers "move" (Herdr's own merge into the target's tab: same project),
-// "view" (a tile of this window's view split: another project, or anything
-// dropped on a view split) or null (no drop). Only a session of one pane is
-// dropped, never on its own pane.
-// "move" is Herdr's, and Herdr is one per machine: both panes on one machine
-// that lays its panes out from here (this one, or a connected PC that says it
-// can). "view" is this window's alone: each tile opens its own terminal on its
-// pane's own machine, so tiles may come from different machines, and whether a
-// machine lays out Herdr's split tabs from here is no concern of a tile.
-// `paneMoveAllowed` says whether Herdr may merge the two.
-export function paneDropKind(snapshot, { tabId, targetPaneId }, { screen, tileIds = [], paneMoveAllowed = () => false }) {
+// grid) or "tiles" (this window's view split, whose tiles are `tileIds`).
+// Answers "view" (a new tile of this window's view split beside the target),
+// "self" (the tab's own pane: split there, with a picker in the new half) or
+// null (no drop). Never Herdr's own merge: a drop changes this window alone,
+// whatever workspace or machine either pane is of, and "Apply to Herdr"
+// (applyToHerdrPlan) is how a view split becomes a Herdr tab. Only a session
+// of one pane is dropped; one already a tile is not added twice.
+export function paneDropKind(snapshot, { tabId, targetPaneId }, { screen, tileIds = [] }) {
   const tabs = Array.isArray(snapshot?.tabs) ? snapshot.tabs : [];
   const panes = Array.isArray(snapshot?.panes) ? snapshot.panes : [];
   const moving = panes.filter((item) => idOf(item, "tab_id") === tabId);
   const target = panes.find((item) => idOf(item, "pane_id") === targetPaneId);
-  if (moving.length !== 1 || !target || idOf(target, "tab_id") === tabId) return null;
-  const machine = (record) => record?.server_id ?? "local";
-  const tab = tabs.find((item) => idOf(item, "tab_id") === tabId);
-  const targetTab = tabs.find((item) => idOf(item, "tab_id") === idOf(target, "tab_id"));
-  if (!tab || !targetTab) return null;
+  if (moving.length !== 1 || !target || !tabs.some((item) => idOf(item, "tab_id") === tabId)) return null;
   const paneId = idOf(moving[0], "pane_id");
-  if (screen === "tiles") {
-    if (!tileIds.includes(targetPaneId) || tileIds.includes(paneId) || tileIds.length >= MAX_TILES) return null;
-    return "view";
+  const onTiles = screen === "tiles";
+  if (onTiles && !tileIds.includes(targetPaneId)) return null;
+  // The picker tile is one of the tiles: a full view has no room for it either.
+  const count = onTiles ? tileIds.filter((id) => id !== PICK_TILE).length : 1;
+  if (count >= MAX_TILES) return null;
+  if (paneId === targetPaneId) return screen === "grid" ? null : "self";
+  if (onTiles && tileIds.includes(paneId)) return null;
+  return "view";
+}
+
+const machineOf = (record) => record?.server_id ?? "local";
+
+// What "Apply to Herdr" does with `tree`, or null when it may not: every tile
+// a pane of one workspace of one Herdr session on one machine that lays out
+// its panes from here (laysOutPanes), each alone in its own tab, and no
+// picker waiting. Herdr then makes them one split tab: the first tile stays
+// where it is (`anchor`) and each `move` carries one other tile's pane next
+// to a pane already there ({ paneId, targetPaneId, side }), in order. Herdr
+// splits one pane in two, so the tree is rebuilt from its root down: a node's
+// second part goes to the right of (or under) the first tile of its first
+// part, which stands for that whole part until it is split in turn. Herdr
+// gives each moved pane a new id; the moves name the old ones.
+export function applyToHerdrPlan(snapshot, tree) {
+  const ids = tiles(tree);
+  if (ids.length < 2 || ids.includes(PICK_TILE)) return null;
+  const tabs = Array.isArray(snapshot?.tabs) ? snapshot.tabs : [];
+  const panes = Array.isArray(snapshot?.panes) ? snapshot.panes : [];
+  const records = ids.map((paneId) => panes.find((item) => idOf(item, "pane_id") === paneId));
+  if (records.some((pane) => !pane)) return null;
+  const tabOf = records.map((pane) => tabs.find((item) => idOf(item, "tab_id") === idOf(pane, "tab_id")));
+  if (tabOf.some((tab) => !tab)) return null;
+  if (tabOf.some((tab) => panes.filter((item) => idOf(item, "tab_id") === idOf(tab, "tab_id")).length !== 1)) return null;
+  const one = (values) => new Set(values).size === 1;
+  if (!one(tabOf.map((tab) => idOf(tab, "workspace_id"))) ||
+      !one(tabOf.map((tab) => tab.herdr_session_id ?? null)) ||
+      !one([...tabOf, ...records].map(machineOf)) ||
+      !laysOutPanes(snapshot, tabOf[0])) return null;
+  const moves = [];
+  const build = (node) => {
+    if (isLeaf(node)) return;
+    const targetPaneId = tiles(node.first)[0];
+    moves.push({ paneId: tiles(node.second)[0], targetPaneId, side: node.dir });
+    build(node.first);
+    build(node.second);
+  };
+  build(tree);
+  return { anchor: ids[0], moves };
+}
+
+// The tabs the picker offers for its tile, grouped the way the user thinks
+// of them: `here` (the workspace of `anchorPaneId`, the pane the tile was
+// split from), `workspaces` (the other workspaces of its machine) and
+// `machines` (every other machine's). Each is { tabId, paneId, paneCount }:
+// a split tab offers one of its panes (`preferredPane(tabId, paneIds)`, else
+// its first) that is not a tile yet; a tab whose panes all are is left out.
+export function pickChoices(snapshot, { anchorPaneId, tileIds = [], preferredPane = () => null }) {
+  const tabs = Array.isArray(snapshot?.tabs) ? snapshot.tabs : [];
+  const panes = Array.isArray(snapshot?.panes) ? snapshot.panes : [];
+  const anchor = panes.find((item) => idOf(item, "pane_id") === anchorPaneId);
+  const anchorTab = tabs.find((item) => idOf(item, "tab_id") === idOf(anchor, "tab_id"));
+  const groups = { here: [], workspaces: [], machines: [] };
+  for (const tab of tabs) {
+    const tabId = idOf(tab, "tab_id");
+    const paneIds = panes.filter((item) => idOf(item, "tab_id") === tabId).map((item) => idOf(item, "pane_id"));
+    const free = paneIds.filter((id) => id && !tileIds.includes(id));
+    if (free.length === 0) continue;
+    const preferred = preferredPane(tabId, paneIds);
+    const paneId = free.includes(preferred) ? preferred : free[0];
+    const choice = { tabId, paneId, paneCount: paneIds.length };
+    if (anchorTab && machineOf(tab) !== machineOf(anchorTab)) groups.machines.push(choice);
+    else if (anchorTab && idOf(tab, "workspace_id") === idOf(anchorTab, "workspace_id") &&
+      (tab.herdr_session_id ?? null) === (anchorTab.herdr_session_id ?? null)) groups.here.push(choice);
+    else groups.workspaces.push(choice);
   }
-  const sameProject = idOf(tab, "workspace_id") === idOf(targetTab, "workspace_id") &&
-    (tab.herdr_session_id ?? null) === (targetTab.herdr_session_id ?? null);
-  if (sameProject) {
-    const oneMachine = new Set([tab, targetTab, moving[0], target].map(machine)).size === 1;
-    return oneMachine && laysOutPanes(snapshot, tab) && paneMoveAllowed() ? "move" : null;
-  }
-  return screen === "solo" ? "view" : null;
+  return groups;
+}
+
+// Whether HerdRabbit evens out a Herdr split tab after changing it itself:
+// after a split, a close, a pane moved out or a view split applied. Never
+// after Herdr's own resize, which the user made, nor after a cell dragged
+// somewhere else in the grid, which keeps the sizes the user chose.
+export const HERDR_EVENED_AFTER = new Set(["split", "close", "move-out", "apply"]);
+export function evensHerdrTabAfter(action, panesLeft) {
+  return HERDR_EVENED_AFTER.has(action) && panesLeft >= 2;
 }

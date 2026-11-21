@@ -20,6 +20,7 @@ import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { claudeProjectDir } from "../src/conversation/claude.mjs";
 import { ConversationService } from "../src/conversation/service.mjs";
 import { localTranscriptStore } from "../src/conversation/stores.mjs";
+import { showLens } from "./header-controls.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const site = await mkdtemp(join(tmpdir(), "herdrabbit-viewer-"));
@@ -202,7 +203,7 @@ try {
     // folder, though the shell is elsewhere.
     await page.goto(`${url}/?pane=${encodeURIComponent("w1:p2")}`);
     await page.waitForFunction(() => document.querySelector("#lens-chat")?.getAttribute("aria-disabled") === "false");
-    if (!mobile) await page.locator("#lens-chat").click();
+    if (!mobile) await showLens(page, "chat");
     const link = page.locator('.chat-turns [data-path="notes.md"]').first();
     await link.waitFor();
     await link.click();

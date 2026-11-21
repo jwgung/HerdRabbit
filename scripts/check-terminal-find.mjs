@@ -12,6 +12,7 @@ import { once } from "node:events";
 import { join } from "node:path";
 import { createHerdrHttpServer } from "../src/http-server.mjs";
 import { PaneAttachments } from "../src/pane-attachments.mjs";
+import { openFind } from "./header-controls.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const snapshot = JSON.parse(await readFile(new URL("../test/fixtures/fake-state.template.json", import.meta.url), "utf8")).snapshot;
@@ -86,7 +87,7 @@ try {
     const bar = page.locator("#terminal-find");
     const count = page.locator("#terminal-find-count");
     const button = page.locator("#terminal-find-open");
-    await button.waitFor({ state: "visible" });
+    await button.waitFor({ state: mobile ? "attached" : "visible" });
     assert.equal(await button.getAttribute("aria-disabled"), "false");
 
     if (!mobile) {
@@ -97,7 +98,7 @@ try {
       assert.equal(await page.evaluate(() => document.activeElement?.id), "terminal-find-input");
       assert.equal(ptys.at(-1).written.includes("\x06"), false, "^F stayed out of the terminal");
     } else {
-      await button.click();
+      await openFind(page);
       await bar.waitFor({ state: "visible" });
       assert.equal(await button.getAttribute("aria-expanded"), "true");
     }
@@ -176,7 +177,9 @@ try {
     assert.match(await button.getAttribute("title"), /copy of its screen/u);
     const before = finds.length;
     // aria-disabled keeps it focusable and its tooltip; Playwright would wait for it to enable.
-    await button.click({ force: true });
+    // A phone's menu leaves Find out of its list instead.
+    if (mobile) assert.equal(await page.locator('#header-more [data-action="find"]').count(), 0, "no Find item for a mirrored pane");
+    else await button.click({ force: true });
     if (!mobile) {
       await page.locator("#terminal-xterm .xterm").click();
       await page.keyboard.press("Control+f");
