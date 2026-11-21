@@ -983,6 +983,8 @@ try {
     assert.equal(await page.locator("#view-close").isHidden(), true, "the header's button is hidden on a phone");
     assert.equal(await page.locator("#header-more summary").isVisible(), true, "the ⋯ menu shows");
     await page.locator("#header-more summary").click();
+    // The menu shows once it is a sheet, a moment after the tap.
+    await page.locator('#header-more [data-action="view-close"]').waitFor({ state: "visible", timeout: 5_000 });
     assert.equal(await page.locator('#header-more [data-action="view-close"]').isVisible(), true, "Close split view on a phone too");
     await page.locator("#header-more .sidebar-sheet-cancel").click();
     assert.equal(await page.locator("#herdr-tab-mark").isVisible(), false);
