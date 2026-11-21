@@ -242,6 +242,34 @@ test("a blocked pane no reader knows gets the fallback card, answered with its k
   assert.deepEqual(herdr.sent, [{ paneId: "w1:p3", text: "y" }, { paneId: "w1:p3", keys: ["esc"] }]);
 });
 
+test("a blocked Claude pane showing its own input box gets no fallback card", async (context) => {
+  const idleBox = [
+    "  ⎿  Interrupted · What should Claude do instead?",
+    "",
+    "● Shall I merge PR #368, or will you?",
+    "",
+    "✻ Churned for 5s · done 9:53 AM",
+    "──────────────────────────────────────── my-session ─",
+    "❯ merge it",
+    "────────────────────────────────────────────────────",
+    "  ⏵⏵ auto mode on · ← 4 agents · PR #368",
+  ].join("\n");
+  const unknown = "Some screen Claude's reader does not know\nPress any key";
+  const menuUnderRule = ["Pick one", "────────────────", "❯ 1. Keep going", "  2. Stop", "────────────────", "Enter to select"].join("\n");
+  const herdr = fakePromptHerdr({
+    panes: [
+      { pane_id: "w1:c1", agent: "claude", agent_status: "blocked" },
+      { pane_id: "w1:c2", agent: "claude", agent_status: "blocked" },
+      { pane_id: "w1:c3", agent: "claude", agent_status: "blocked" },
+    ],
+    outputs: { "w1:c1": idleBox, "w1:c2": unknown, "w1:c3": menuUnderRule },
+  });
+  const { get } = await fixture(context, { herdr });
+  assert.equal((await get("w1:c1")).body.card, null);
+  assert.equal((await get("w1:c2")).body.card.fallback, true, "a screen with no input box still gets the fallback");
+  assert.equal((await get("w1:c3")).body.card.fallback, true, "a menu row under a rule is no input box");
+});
+
 test("a password prompt is no card, not even a fallback one", async (context) => {
   const { get, answer, herdr } = await fixture(context);
   assert.equal((await get("w1:p4")).body.card, null);
