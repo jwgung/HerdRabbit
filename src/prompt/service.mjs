@@ -25,10 +25,11 @@ import { HttpError } from "../http-basics.mjs";
 import { claudeQuestionContext, fillClaudeCard, parseClaudePrompt } from "./claude.mjs";
 import { parseCodexPrompt } from "./codex.mjs";
 import { parseFallbackPrompt } from "./fallback.mjs";
+import { claudeInputBox } from "./claude-input.mjs";
 import { parseKiroPrompt } from "./kiro.mjs";
 import { SUPPORTED_OPENCODE_TUI, fillOpencodeCard, opencodeDialogOpen, parseOpencodePrompt } from "./opencode.mjs";
 import { PANEL_AGENTS, panelShown, parsePanel } from "./panel.mjs";
-import { InvalidAnswer, answerSteps, moveKeysOf, publicCard, verifiesCursor } from "./screen.mjs";
+import { InvalidAnswer, NUMBERED_OPTION_RE, answerSteps, moveKeysOf, publicCard, verifiesCursor } from "./screen.mjs";
 
 // The screen's bottom: enough for a long approval panel.
 const SCREEN_LINES = 120;
@@ -234,6 +235,12 @@ export class PromptService {
     if (card) return card;
     const panel = panels ? await this.#panel(paneId, panels, screen) : null;
     if (panel || !blocked || dialog) return panel;
+    // Claude's own input box at the screen's end: Claude waits for a message,
+    // not an answer, whatever herdr calls it (an "Interrupted · What should
+    // Claude do instead?" left above the box reads as blocked to herdr).
+    // A menu row ("❯ 1. Yes") right under a rule is no input box.
+    const box = reader === "claude" ? claudeInputBox(screen) : null;
+    if (box && !NUMBERED_OPTION_RE.test(box.text.split("\n")[0])) return null;
     return parseFallbackPrompt(screen, { agent: reader ?? agent.name });
   }
 
