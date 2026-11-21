@@ -3,7 +3,7 @@
 // grouped as this workspace, other workspaces and other machines, then New
 // shell here, New tab… and Cancel split. Every choice is a button: Tab and
 // the arrow keys move between them, Escape cancels the split.
-import { createElement } from "./dom.js?v=1.4.57";
+import { createElement } from "./dom.js?v=1.4.58";
 
 let pickers = 0;
 

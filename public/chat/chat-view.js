@@ -6,10 +6,10 @@
 // Adapted from herdr-web-ui (MIT, Copyright (c) 2026 devswha),
 // https://github.com/devswha/herdr-web-ui -- src/components/ChatView.tsx and
 // ChatView.css, rewritten as plain DOM code without React.
-import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.4.57";
-import { highlightCodeBlocks } from "./code-highlight.js?v=1.4.57";
-import { copyMenu } from "./copy-menu.js?v=1.4.57";
-import { lineDiff } from "./diff.js?v=1.4.57";
+import { COPY_ICONS, renderMarkdown } from "./markdown.js?v=1.4.58";
+import { highlightCodeBlocks } from "./code-highlight.js?v=1.4.58";
+import { copyMenu } from "./copy-menu.js?v=1.4.58";
+import { lineDiff } from "./diff.js?v=1.4.58";
 import {
   deliveredFiles,
   formatWorkDuration,
@@ -27,10 +27,10 @@ import {
   workFailed,
   workSummary,
   workTitle,
-} from "./work-blocks.js?v=1.4.57";
-import { paneRenames } from "../pane-rename.js?v=1.4.57";
-import { ConversationLoader } from "./conversation-refresh.js?v=1.4.57";
-import { OPTIMISTIC_MS, PENDING_CLOCK_ICON, answerRecord, foldsUserMessage, pendingMessage, pendingShowsClock, settleAnswers, settlePending, showsWorking, workingSince as turnBegan, workingText } from "./chat-activity.js?v=1.4.57";
+} from "./work-blocks.js?v=1.4.58";
+import { paneRenames } from "../pane-rename.js?v=1.4.58";
+import { ConversationLoader } from "./conversation-refresh.js?v=1.4.58";
+import { OPTIMISTIC_MS, PENDING_CLOCK_ICON, answerRecord, foldsUserMessage, pendingMessage, pendingShowsClock, settleAnswers, settlePending, showsWorking, workingSince as turnBegan, workingText } from "./chat-activity.js?v=1.4.58";
 import {
   chatMayBecomeAvailable,
   chatReadBusy,
@@ -39,7 +39,7 @@ import {
   readOpenPanesIn,
   readPaneLens,
   writePaneLens,
-} from "../lens-preference.js?v=1.4.57";
+} from "../lens-preference.js?v=1.4.58";
 
 // Scrolling this close to the top reads the page before it.
 const LOAD_OLDER_PX = 400;
