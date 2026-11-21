@@ -1,6 +1,6 @@
-import { createElement, createIcon, placeFloatingMenu, workspaceActionButton } from "./dom.js?v=1.4.56";
-import { agentMark } from "./agent-icons.js?v=1.4.56";
-import { idOf } from "./snapshot.js?v=1.4.56";
+import { createElement, createIcon, placeFloatingMenu, workspaceActionButton } from "./dom.js?v=1.4.57";
+import { agentMark } from "./agent-icons.js?v=1.4.57";
+import { idOf } from "./snapshot.js?v=1.4.57";
 import {
   agentStatusIcon,
   agentStatusLabel,
@@ -10,9 +10,9 @@ import {
   paneDisplayTitle,
   paneRowLine,
   paneSubtitle,
-} from "../ui-model.js?v=1.4.56";
-import { writeCollapsedGroupIds, writeCollapsedWorkspaceIds } from "../workspace-preference.js?v=1.4.56";
-import { tiles as viewTiles } from "../view-split.js?v=1.4.56";
+} from "../ui-model.js?v=1.4.57";
+import { writeCollapsedGroupIds, writeCollapsedWorkspaceIds } from "../workspace-preference.js?v=1.4.57";
+import { tiles as viewTiles } from "../view-split.js?v=1.4.57";
 
 // The sidebar's rows and what they open: the ⋯ action menus (also used by
 // AI accounts and Files), a project's heading with its collapse

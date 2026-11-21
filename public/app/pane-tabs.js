@@ -2,10 +2,10 @@
 // name and a dot for a status worth seeing), in the order Herdr lays the
 // panes out, read left to right and top to bottom. A tap on a tab, or a
 // sideways swipe across the pane's Chat or Terminal, picks a pane.
-import { createElement } from "./dom.js?v=1.4.56";
-import { createTabStrip } from "./tab-strip.js?v=1.4.56";
-import { gridCells } from "../pane-grid.js?v=1.4.56";
-import { FLICK_SPEED, VELOCITY_WINDOW_MS } from "../swipe-dismiss.js?v=1.4.56";
+import { createElement } from "./dom.js?v=1.4.57";
+import { createTabStrip } from "./tab-strip.js?v=1.4.57";
+import { gridCells } from "../pane-grid.js?v=1.4.57";
+import { FLICK_SPEED, VELOCITY_WINDOW_MS } from "../swipe-dismiss.js?v=1.4.57";
 
 // A swipe this share of the stage's width picks the next pane, or a shorter
 // flick as fast as one that dismisses an alert (swipe-dismiss.js) that still
