@@ -392,7 +392,12 @@ export function parseClaudeTurns(text) {
           const thinking = typeof b.thinking === "string" ? b.thinking : typeof b.text === "string" ? b.text : "";
           // with `thinkingDisplay: "updates"` a thinking block carries the
           // progress update Claude shows the user, not its reasoning
-          if (thinking.trim().length > 0) turn.parts.push({ kind: updates ? "text" : "thinking", text: updates ? thinking.trim() : thinking });
+          if (updates) {
+            const update = thinking.trim();
+            if (update.length > 0) turn.parts.push({ kind: "text", text: update });
+          } else if (thinking.length > 0) {
+            turn.parts.push({ kind: "thinking", text: thinking });
+          }
         } else if (b.type === "tool_use" && typeof b.name === "string") {
           const input = record(b.input);
           const inputText = JSON.stringify(input, null, 2);

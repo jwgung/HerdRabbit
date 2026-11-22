@@ -2,10 +2,9 @@
 // pane only the attach client (`claude attach <short id>`), which herdr does
 // not recognise as an agent. This names such a pane as Claude on the job's
 // session, in the snapshot itself, so the page treats it like any Claude pane.
-import { open, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { JOB_SHORT_ID, claudeProjectDir } from "./conversation/claude.mjs";
-import { defaultClaudeConfigDir, readBackgroundJob } from "./conversation/stores.mjs";
+import { JOB_SHORT_ID, claudeProjectDir, readTail } from "./conversation/claude.mjs";
+import { defaultClaudeConfigDir, localTranscriptStore, readBackgroundJob } from "./conversation/stores.mjs";
 import { paneAgentName, paneForegroundProcesses } from "./pane-agent.mjs";
 
 export const ATTACH_SOURCE = "herdrabbit:attach";
@@ -33,37 +32,23 @@ export function attachedJobShort(processInfo) {
   return basename(exe) === "claude" || VERSIONED_CLAUDE.test(exe) ? short : null;
 }
 
-// Whether the transcript at `path` has a user or assistant entry on the main
-// thread stamped after `since` (ms): the agent went on past the state it last
-// wrote. A tool waiting on permission writes nothing more, so that wait still
-// counts. Only the file's tail is read.
-export async function answeredSince(path, since) {
-  let file;
-  try {
-    file = await open(path, "r");
-    const { size } = await file.stat();
-    const start = Math.max(0, size - TRANSCRIPT_TAIL_BYTES);
-    const buffer = Buffer.alloc(size - start);
-    await file.read(buffer, 0, buffer.length, start);
-    let text = buffer.toString("utf8");
-    if (start > 0) text = text.slice(text.indexOf("\n") + 1);
-    for (const line of text.split("\n").reverse()) {
-      if (!line.includes('"type":"user"') && !line.includes('"type":"assistant"')) continue;
-      let entry;
-      try { entry = JSON.parse(line); } catch { continue; }
-      if ((entry?.type !== "user" && entry?.type !== "assistant") || entry.isSidechain === true) continue;
-      const at = Date.parse(entry.timestamp);
-      if (Number.isFinite(at)) return at > since;
-    }
-    return false;
-  } catch {
-    return false;
-  } finally {
-    await file?.close().catch(() => {});
+// Whether `text` (a transcript's tail) has a user or assistant entry on the
+// main thread stamped after `since` (ms): the agent went on past the state it
+// last wrote. A tool waiting on permission writes nothing more, so during that
+// wait the "blocked" stands.
+export function wentOnSince(text, since) {
+  for (const line of text.split("\n").reverse()) {
+    if (!line.includes('"type":"user"') && !line.includes('"type":"assistant"')) continue;
+    let entry;
+    try { entry = JSON.parse(line); } catch { continue; }
+    if ((entry?.type !== "user" && entry?.type !== "assistant") || entry.isSidechain === true) continue;
+    const at = Date.parse(entry.timestamp);
+    if (Number.isFinite(at)) return at > since;
   }
+  return false;
 }
 
-async function jobState(configDir, short, answered) {
+async function jobState(configDir, short, wentOn) {
   try {
     const job = await readBackgroundJob(configDir, short);
     if (!job) return null;
@@ -71,7 +56,7 @@ async function jobState(configDir, short, answered) {
     const since = Date.parse(job.updatedAt ?? "");
     if (SETTLED_STATES.has(status) && job.cwd && Number.isFinite(since)) {
       const path = join(configDir, "projects", claudeProjectDir(job.cwd), `${job.session}.jsonl`);
-      if (await answered(path, since)) status = "working";
+      if (await wentOn(path, since)) status = "working";
     }
     return { session: job.session, status };
   } catch {
@@ -85,6 +70,7 @@ export class AttachedClaudePanes {
 
   constructor({ configDir = defaultClaudeConfigDir(), now = () => Date.now() } = {}) {
     this.configDir = configDir;
+    this.store = localTranscriptStore({ configDir });
     this.now = now;
   }
 
@@ -96,7 +82,7 @@ export class AttachedClaudePanes {
     const shorts = await Promise.all(candidates.map((pane) => this.#short(herdr, pane)));
     await Promise.all(candidates.map(async (pane, index) => {
       if (!shorts[index]) return;
-      const job = await jobState(this.configDir, shorts[index], (path, since) => this.#answered(path, since));
+      const job = await jobState(this.configDir, shorts[index], (path, since) => this.#wentOn(path, since));
       if (!job) return;
       pane.agent = "claude";
       pane.agent_session = { agent: "claude", kind: "id", source: ATTACH_SOURCE, value: job.session };
@@ -105,17 +91,22 @@ export class AttachedClaudePanes {
     return snapshot;
   }
 
-  // answeredSince, asked again only when the transcript or the state changed
-  async #answered(path, since) {
-    let info;
-    try { info = await stat(path); } catch { return false; }
-    const key = `${info.size}:${info.mtimeMs}:${since}`;
-    const known = this.#transcripts.get(path);
-    if (known?.key === key) return known.answered;
-    const answered = await answeredSince(path, since);
-    if (this.#transcripts.size >= MAX_CACHED_PANES) this.#transcripts.clear();
-    this.#transcripts.set(path, { key, answered });
-    return answered;
+  // wentOnSince over the transcript's tail, read again only when the
+  // transcript or the state changed
+  async #wentOn(path, since) {
+    try {
+      const info = await this.store.stat(path);
+      if (!info) return false;
+      const key = `${info.identity}:${info.size}:${info.mtimeMs}:${since}`;
+      const known = this.#transcripts.get(path);
+      if (known?.key === key) return known.wentOn;
+      const wentOn = wentOnSince(await readTail(this.store, path, info, TRANSCRIPT_TAIL_BYTES), since);
+      if (this.#transcripts.size >= MAX_CACHED_PANES) this.#transcripts.clear();
+      this.#transcripts.set(path, { key, wentOn });
+      return wentOn;
+    } catch {
+      return false;
+    }
   }
 
   #forget(candidates, herdr) {

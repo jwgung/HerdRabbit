@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -135,5 +135,16 @@ test("a job waiting on a tool's permission stays blocked", async () => {
 test("a blocked job without a transcript stays blocked", async () => {
   const dir = await config({ state: "blocked", sessionId: SESSION, cwd: "/work/repo", updatedAt: "2026-11-22T07:13:49.070Z" });
   assert.equal(await statusOf(dir), "blocked");
+  await rm(dir, { recursive: true });
+});
+
+test("the transcript is read again once it grows", async () => {
+  const dir = await jobWithTranscript([prompt]);
+  const herdr = fakeHerdr({ "w1:p1": attach([VERSIONED, "attach", SHORT]) });
+  const enricher = new AttachedClaudePanes({ configDir: dir });
+  const look = async () => { const snapshot = { panes: [pane("w1:p1")] }; await enricher.enrich(snapshot, herdr); return snapshot.panes[0].agent_status; };
+  assert.equal(await look(), "blocked");
+  await appendFile(join(dir, "projects", "-work-repo", `${SESSION}.jsonl`), `${JSON.stringify({ type: "assistant", timestamp: "2026-11-22T07:13:53.345Z", message: { role: "assistant", content: [] } })}\n`);
+  assert.equal(await look(), "working");
   await rm(dir, { recursive: true });
 });
