@@ -86,3 +86,54 @@ test("a herdr that cannot tell leaves panes alone", async () => {
   await new AttachedClaudePanes({ configDir: "/nonexistent" }).enrich(snapshot, {});
   assert.equal(snapshot.panes[0].agent, undefined);
 });
+
+// The job writes "blocked" when a turn ends on a question and leaves it there
+// after the user answers, until the next turn ends.
+async function jobWithTranscript(entries, state = "blocked") {
+  const dir = await config({ state, sessionId: SESSION, cwd: "/work/repo", updatedAt: "2026-11-22T07:13:49.070Z" });
+  await mkdir(join(dir, "projects", "-work-repo"), { recursive: true });
+  await writeFile(join(dir, "projects", "-work-repo", `${SESSION}.jsonl`), entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+  return dir;
+}
+
+async function statusOf(dir) {
+  const herdr = fakeHerdr({ "w1:p1": attach([VERSIONED, "attach", SHORT]) });
+  const snapshot = { panes: [pane("w1:p1")] };
+  await new AttachedClaudePanes({ configDir: dir }).enrich(snapshot, herdr);
+  return snapshot.panes[0].agent_status;
+}
+
+const prompt = { type: "user", timestamp: "2026-11-22T07:13:49.044Z", message: { role: "user", content: "ㄱㄱ" } };
+
+test("a blocked job whose transcript went on past it is working", async () => {
+  const dir = await jobWithTranscript([
+    prompt,
+    { type: "assistant", timestamp: "2026-11-22T07:13:53.345Z", message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Bash", input: {} }] } },
+    { type: "user", timestamp: "2026-11-22T07:14:14.708Z", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] } },
+  ]);
+  assert.equal(await statusOf(dir), "working");
+  await rm(dir, { recursive: true });
+});
+
+test("a done job the user has written to since is working", async () => {
+  const dir = await jobWithTranscript([{ ...prompt, timestamp: "2026-11-22T07:20:00.000Z" }], "done");
+  assert.equal(await statusOf(dir), "working");
+  await rm(dir, { recursive: true });
+});
+
+test("a job waiting on a tool's permission stays blocked", async () => {
+  const dir = await jobWithTranscript([
+    { type: "assistant", timestamp: "2026-11-22T07:13:48.000Z", message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Bash", input: {} }] } },
+    // a subagent's entries and other records do not count
+    { type: "assistant", isSidechain: true, timestamp: "2026-11-22T07:15:00.000Z", message: { role: "assistant", content: [] } },
+    { type: "system", timestamp: "2026-11-22T07:15:00.000Z" },
+  ]);
+  assert.equal(await statusOf(dir), "blocked");
+  await rm(dir, { recursive: true });
+});
+
+test("a blocked job without a transcript stays blocked", async () => {
+  const dir = await config({ state: "blocked", sessionId: SESSION, cwd: "/work/repo", updatedAt: "2026-11-22T07:13:49.070Z" });
+  assert.equal(await statusOf(dir), "blocked");
+  await rm(dir, { recursive: true });
+});

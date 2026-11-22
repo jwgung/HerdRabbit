@@ -2,8 +2,9 @@
 // pane only the attach client (`claude attach <short id>`), which herdr does
 // not recognise as an agent. This names such a pane as Claude on the job's
 // session, in the snapshot itself, so the page treats it like any Claude pane.
-import { basename } from "node:path";
-import { JOB_SHORT_ID } from "./conversation/claude.mjs";
+import { open, stat } from "node:fs/promises";
+import { basename, join } from "node:path";
+import { JOB_SHORT_ID, claudeProjectDir } from "./conversation/claude.mjs";
 import { defaultClaudeConfigDir, readBackgroundJob } from "./conversation/stores.mjs";
 import { paneAgentName, paneForegroundProcesses } from "./pane-agent.mjs";
 
@@ -16,6 +17,12 @@ const FIRST_LOOK_MS = 1_500;
 const MAX_CACHED_PANES = 512;
 // herdr's own agent states; a job state outside them leaves the status alone.
 const STATUSES = new Set(["working", "idle", "blocked", "done"]);
+// The job writes its state when a turn ends, not when the user answers it: a
+// "blocked" or "done" can stand for minutes while the next turn runs. Such a
+// state is believed until the transcript holds a turn entry written after it.
+const SETTLED_STATES = new Set(["blocked", "done"]);
+// How much of the transcript's end is looked at for that entry.
+const TRANSCRIPT_TAIL_BYTES = 256 * 1024;
 const VERSIONED_CLAUDE = /\/claude\/versions\/\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u;
 
 // The job's short id when this process is a Claude attach client, else null.
@@ -26,10 +33,47 @@ export function attachedJobShort(processInfo) {
   return basename(exe) === "claude" || VERSIONED_CLAUDE.test(exe) ? short : null;
 }
 
-async function jobState(configDir, short) {
+// Whether the transcript at `path` has a user or assistant entry on the main
+// thread stamped after `since` (ms): the agent went on past the state it last
+// wrote. A tool waiting on permission writes nothing more, so that wait still
+// counts. Only the file's tail is read.
+export async function answeredSince(path, since) {
+  let file;
+  try {
+    file = await open(path, "r");
+    const { size } = await file.stat();
+    const start = Math.max(0, size - TRANSCRIPT_TAIL_BYTES);
+    const buffer = Buffer.alloc(size - start);
+    await file.read(buffer, 0, buffer.length, start);
+    let text = buffer.toString("utf8");
+    if (start > 0) text = text.slice(text.indexOf("\n") + 1);
+    for (const line of text.split("\n").reverse()) {
+      if (!line.includes('"type":"user"') && !line.includes('"type":"assistant"')) continue;
+      let entry;
+      try { entry = JSON.parse(line); } catch { continue; }
+      if ((entry?.type !== "user" && entry?.type !== "assistant") || entry.isSidechain === true) continue;
+      const at = Date.parse(entry.timestamp);
+      if (Number.isFinite(at)) return at > since;
+    }
+    return false;
+  } catch {
+    return false;
+  } finally {
+    await file?.close().catch(() => {});
+  }
+}
+
+async function jobState(configDir, short, answered) {
   try {
     const job = await readBackgroundJob(configDir, short);
-    return job && { session: job.session, status: STATUSES.has(job.state) ? job.state : null };
+    if (!job) return null;
+    let status = STATUSES.has(job.state) ? job.state : null;
+    const since = Date.parse(job.updatedAt ?? "");
+    if (SETTLED_STATES.has(status) && job.cwd && Number.isFinite(since)) {
+      const path = join(configDir, "projects", claudeProjectDir(job.cwd), `${job.session}.jsonl`);
+      if (await answered(path, since)) status = "working";
+    }
+    return { session: job.session, status };
   } catch {
     return null;
   }
@@ -37,6 +81,7 @@ async function jobState(configDir, short) {
 
 export class AttachedClaudePanes {
   #cache = new Map();
+  #transcripts = new Map();
 
   constructor({ configDir = defaultClaudeConfigDir(), now = () => Date.now() } = {}) {
     this.configDir = configDir;
@@ -51,13 +96,26 @@ export class AttachedClaudePanes {
     const shorts = await Promise.all(candidates.map((pane) => this.#short(herdr, pane)));
     await Promise.all(candidates.map(async (pane, index) => {
       if (!shorts[index]) return;
-      const job = await jobState(this.configDir, shorts[index]);
+      const job = await jobState(this.configDir, shorts[index], (path, since) => this.#answered(path, since));
       if (!job) return;
       pane.agent = "claude";
       pane.agent_session = { agent: "claude", kind: "id", source: ATTACH_SOURCE, value: job.session };
       if (job.status && (!pane.agent_status || pane.agent_status === "unknown")) pane.agent_status = job.status;
     }));
     return snapshot;
+  }
+
+  // answeredSince, asked again only when the transcript or the state changed
+  async #answered(path, since) {
+    let info;
+    try { info = await stat(path); } catch { return false; }
+    const key = `${info.size}:${info.mtimeMs}:${since}`;
+    const known = this.#transcripts.get(path);
+    if (known?.key === key) return known.answered;
+    const answered = await answeredSince(path, since);
+    if (this.#transcripts.size >= MAX_CACHED_PANES) this.#transcripts.clear();
+    this.#transcripts.set(path, { key, answered });
+    return answered;
   }
 
   #forget(candidates, herdr) {

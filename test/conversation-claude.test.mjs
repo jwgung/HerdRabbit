@@ -68,6 +68,22 @@ test("parses user, merged assistant and tool turns, with tool results folded in"
   ]);
 });
 
+test("a thinking block shown as an update is what the agent said", () => {
+  // Claude Code 2.1.329 with `thinkingDisplay: "updates"` writes its progress
+  // updates as thinking; the empty ones carry only a signature
+  const thinking = (text) => ({ type: "assistant", thinkingDisplay: "updates", message: { role: "assistant", content: [{ type: "thinking", thinking: text, signature: "x" }] } });
+  const turns = parseClaudeTranscript(jsonl([
+    user("ㄱㄱ"),
+    thinking(""),
+    thinking("빈 DB가 필요해서, 백업한 뒤 비우고 찍겠습니다.\n\n"),
+    { type: "assistant", message: { role: "assistant", content: [{ type: "thinking", thinking: "plain reasoning" }] } },
+  ]));
+  assert.deepEqual(turns[1].parts, [
+    { kind: "text", text: "빈 DB가 필요해서, 백업한 뒤 비우고 찍겠습니다." },
+    { kind: "thinking", text: "plain reasoning" },
+  ]);
+});
+
 test("skips malformed and torn lines, sidechains and bookkeeping", () => {
   const turns = parseClaudeTranscript([
     "not json", "[1,2]", "null",

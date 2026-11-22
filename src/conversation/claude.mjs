@@ -383,13 +383,16 @@ export function parseClaudeTurns(text) {
       const stop = record(entry.message).stop_reason;
       atWork = stop === "tool_use" || (stop == null && content.some((block) => record(block).type === "tool_use"));
       if (ts) turn.end_ts = ts;
+      const updates = entry.thinkingDisplay === "updates";
       for (const block of content) {
         const b = record(block);
         if (b.type === "text" && typeof b.text === "string" && b.text.length > 0) {
           turn.parts.push({ kind: "text", text: b.text });
         } else if (b.type === "thinking") {
           const thinking = typeof b.thinking === "string" ? b.thinking : typeof b.text === "string" ? b.text : "";
-          if (thinking.length > 0) turn.parts.push({ kind: "thinking", text: thinking });
+          // with `thinkingDisplay: "updates"` a thinking block carries the
+          // progress update Claude shows the user, not its reasoning
+          if (thinking.trim().length > 0) turn.parts.push({ kind: updates ? "text" : "thinking", text: updates ? thinking.trim() : thinking });
         } else if (b.type === "tool_use" && typeof b.name === "string") {
           const input = record(b.input);
           const inputText = JSON.stringify(input, null, 2);
