@@ -1,8 +1,8 @@
 // Swiping the phone sidebar open and shut: a drag that starts at the screen's
 // left edge and goes right opens it, a drag to the left on the open sidebar
 // closes it. Decided on release, as the pane swipe is (app/pane-tabs.js).
-import { FLICK_SPEED, VELOCITY_WINDOW_MS } from "../swipe-dismiss.js?v=1.4.59";
-import { EDGE_SWIPE_ZONE, SIDEWAYS_RATIO, scrollsSideways } from "./pane-tabs.js?v=1.4.59";
+import { FLICK_SPEED, VELOCITY_WINDOW_MS } from "../swipe-dismiss.js?v=1.4.60";
+import { EDGE_SWIPE_ZONE, SIDEWAYS_RATIO, scrollsSideways } from "./pane-tabs.js?v=1.4.60";
 
 // The sidebar covers the screen, so a swipe that clearly means it is short.
 export const SIDEBAR_SWIPE_DISTANCE = 48;

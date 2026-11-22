@@ -1,5 +1,5 @@
-import { createElement, createIcon, workspaceActionButton } from "./dom.js?v=1.4.59";
-import { idOf } from "./snapshot.js?v=1.4.59";
+import { createElement, createIcon, workspaceActionButton } from "./dom.js?v=1.4.60";
+import { idOf } from "./snapshot.js?v=1.4.60";
 import {
   agentStatus,
   agentStatusIcon,
@@ -14,16 +14,16 @@ import {
   paneServerId,
   paneRowLine,
   paneSubtitle,
-} from "../ui-model.js?v=1.4.59";
-import { createPaneGrid } from "../pane-grid.js?v=1.4.59";
-import { attachPaneSwipe, renderPaneTabs } from "./pane-tabs.js?v=1.4.59";
-import * as xterm from "../vendor/xterm.mjs?v=1.4.59";
-import { writePanePreference } from "../pane-preference.js?v=1.4.59";
-import { writeExpandedSplitTabIds } from "../workspace-preference.js?v=1.4.59";
-import { readGridFit, readGridFont, writeGridFont } from "../terminal-preference.js?v=1.4.59";
-import { laysOutPanes } from "../sidebar-drag.js?v=1.4.59";
-import { createTilePicker } from "./tile-picker.js?v=1.4.59";
-import { chatAgent } from "../lens-preference.js?v=1.4.59";
+} from "../ui-model.js?v=1.4.60";
+import { createPaneGrid } from "../pane-grid.js?v=1.4.60";
+import { attachPaneSwipe, renderPaneTabs } from "./pane-tabs.js?v=1.4.60";
+import * as xterm from "../vendor/xterm.mjs?v=1.4.60";
+import { writePanePreference } from "../pane-preference.js?v=1.4.60";
+import { writeExpandedSplitTabIds } from "../workspace-preference.js?v=1.4.60";
+import { readGridFit, readGridFont, writeGridFont } from "../terminal-preference.js?v=1.4.60";
+import { laysOutPanes } from "../sidebar-drag.js?v=1.4.60";
+import { createTilePicker } from "./tile-picker.js?v=1.4.60";
+import { chatAgent } from "../lens-preference.js?v=1.4.60";
 import {
   PICK_TILE,
   addPickTile,
@@ -41,7 +41,7 @@ import {
   swapTiles,
   tiles as viewTiles,
   writeViewSplit,
-} from "../view-split.js?v=1.4.59";
+} from "../view-split.js?v=1.4.60";
 
 // Split tabs and this window's own view split: the Herdr grid on a wide
 // screen, the pane tabs on a phone, the view split's tiles, a session dropped
