@@ -56,7 +56,8 @@ function absent(error) {
 }
 
 // A Claude background job's state (`<configDir>/jobs/<short>/state.json`):
-// its session, and what it says it is doing (`state`, as written), or null
+// its session, what it says it is doing (`state`, as written), when it last
+// said so (`updatedAt`) and its folder (`cwd`), or null
 // when there is no such job or the file names no session of that short id.
 export async function readBackgroundJob(configDir, short) {
   if (typeof short !== "string" || !JOB_SHORT_ID.test(short)) return null;
@@ -74,7 +75,12 @@ export async function readBackgroundJob(configDir, short) {
   try { state = JSON.parse(text); } catch { return null; }
   const session = state?.sessionId;
   if (typeof session !== "string" || !SESSION_ID.test(session) || !session.startsWith(short)) return null;
-  return { session, state: typeof state.state === "string" ? state.state : null };
+  return {
+    session,
+    state: typeof state.state === "string" ? state.state : null,
+    updatedAt: typeof state.updatedAt === "string" ? state.updatedAt : null,
+    cwd: typeof state.cwd === "string" ? state.cwd : null,
+  };
 }
 
 async function isFile(path, statFile = stat) {
