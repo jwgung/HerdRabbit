@@ -288,6 +288,32 @@ test("follows a background job the session opened, by the job's state file", asy
   assert.equal(await locateClaudeTranscript(store, SESSION, ["/w/app"]), background);
 });
 
+test("follows a background job past a /clear, to the session its state resumes", async (context) => {
+  const configDir = join(await temp(context), "claude-config");
+  const projects = join(configDir, "projects");
+  const store = localTranscriptStore({ configDir });
+  const job = "c802cce8-aba6-4132-b5b6-73e4462a3906";
+  const cleared = "71ac5810-cc11-4e4f-880c-4e43ab674b8c";
+  await mkdir(join(projects, "-w-app"), { recursive: true });
+  const started = join(projects, "-w-app", `${SESSION}.jsonl`);
+  const notice = { type: "system", subtype: "local_command", content: '<local-command-stdout>Opening "x ⑂", running in the background (c802cce8)</local-command-stdout>' };
+  await writeFile(started, jsonl([notice]));
+  await writeFile(join(projects, "-w-app", `${job}.jsonl`), jsonl([user("before clear")]));
+  await mkdir(join(configDir, "jobs", "c802cce8"), { recursive: true });
+  // after /clear the job keeps its own id but writes on in the resumed session
+  await writeFile(join(configDir, "jobs", "c802cce8", "state.json"), JSON.stringify({ sessionId: job, resumeSessionId: cleared }));
+  const after = join(projects, "-w-app", `${cleared}.jsonl`);
+  await writeFile(after, jsonl([user("after clear")]));
+  assert.equal(await store.backgroundJobSession("c802cce8"), cleared);
+  assert.equal(await locateClaudeTranscript(store, SESSION, ["/w/app"]), after);
+  // a resumed id that is no session id leaves the job's own
+  await writeFile(join(configDir, "jobs", "c802cce8", "state.json"), JSON.stringify({ sessionId: job, resumeSessionId: "../../etc" }));
+  assert.equal(await store.backgroundJobSession("c802cce8"), job);
+  // the job's own id still has to be that job's
+  await writeFile(join(configDir, "jobs", "c802cce8", "state.json"), JSON.stringify({ sessionId: SESSION, resumeSessionId: cleared }));
+  assert.equal(await store.backgroundJobSession("c802cce8"), null);
+});
+
 test("the scan fallback looks into a few projects at once and stops after a hit", async (context) => {
   const configDir = join(await temp(context), "claude-config");
   const projects = join(configDir, "projects");

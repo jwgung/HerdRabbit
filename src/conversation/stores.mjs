@@ -56,9 +56,11 @@ function absent(error) {
 }
 
 // A Claude background job's state (`<configDir>/jobs/<short>/state.json`):
-// its session, what it says it is doing (`state`, as written), when it last
-// said so (`updatedAt`) and its folder (`cwd`), or null
+// the session it writes now, what it says it is doing (`state`, as written),
+// when it last said so (`updatedAt`) and its folder (`cwd`), or null
 // when there is no such job or the file names no session of that short id.
+// After a /clear the job keeps its own `sessionId` and writes on in
+// `resumeSessionId`, so that one, when it is a session id, is the session.
 export async function readBackgroundJob(configDir, short) {
   if (typeof short !== "string" || !JOB_SHORT_ID.test(short)) return null;
   const path = join(configDir, "jobs", short, "state.json");
@@ -73,8 +75,10 @@ export async function readBackgroundJob(configDir, short) {
   }
   let state;
   try { state = JSON.parse(text); } catch { return null; }
-  const session = state?.sessionId;
-  if (typeof session !== "string" || !SESSION_ID.test(session) || !session.startsWith(short)) return null;
+  const own = state?.sessionId;
+  if (typeof own !== "string" || !SESSION_ID.test(own) || !own.startsWith(short)) return null;
+  const resumed = state.resumeSessionId;
+  const session = typeof resumed === "string" && SESSION_ID.test(resumed) ? resumed : own;
   return {
     session,
     state: typeof state.state === "string" ? state.state : null,
