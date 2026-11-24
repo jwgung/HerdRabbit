@@ -12,8 +12,8 @@
 // as an HTML string builder. HTML blocks (markdownHtml.ts) are left out: an
 // agent's text keeps them as text.
 
-import { findPaths, isFileName, isQuotablePath, namesPath } from "../path-links.js?v=1.4.60";
-import { previewFor } from "../file-preview.js?v=1.4.60";
+import { findPaths, isFileName, isQuotablePath, namesPath } from "../path-links.js?v=1.4.61";
+import { previewFor } from "../file-preview.js?v=1.4.61";
 
 // ---------------------------------------------------------------------------
 // Escaping and addresses.

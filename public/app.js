@@ -1,27 +1,27 @@
-import { browserSessionStorage, browserStorage } from "./app/dom.js?v=1.4.60";
-import { enhanceSelects } from "./app/select-popover.js?v=1.4.60";
-import { attachSidebarSwipe } from "./app/sidebar-swipe.js?v=1.4.60";
-import { createSnapshotModel } from "./app/snapshot.js?v=1.4.60";
-import { createNotifications } from "./app/notifications.js?v=1.4.60";
-import { createSettings } from "./app/settings.js?v=1.4.60";
-import { createComposer } from "./app/composer.js?v=1.4.60";
-import { createSidebarRows } from "./app/sidebar-rows.js?v=1.4.60";
-import { createHeaderMore } from "./app/header-more.js?v=1.4.60";
-import { createAccountDialogs } from "./app/account-dialogs.js?v=1.4.60";
-import { createAiAccounts } from "./app/ai-accounts.js?v=1.4.60";
-import { createNavigation } from "./app/navigation.js?v=1.4.60";
-import { createSelection } from "./app/selection.js?v=1.4.60";
-import { createPaneViews } from "./app/pane-views.js?v=1.4.60";
-import { createTerminalStatus } from "./app/terminal-status.js?v=1.4.60";
-import { createChatPanel, inTerminal } from "./app/chat-lens.js?v=1.4.60";
-import { createKeyBar } from "./app/key-bar.js?v=1.4.60";
-import { createKeyBarEditor } from "./app/key-bar-editor.js?v=1.4.60";
-import { createProjectDialog } from "./app/project-dialog.js?v=1.4.60";
-import { createSessionDialog } from "./app/session-dialog.js?v=1.4.60";
-import { createWorktreeDialogs } from "./app/worktree-dialogs.js?v=1.4.60";
-import { createFiles } from "./app/files.js?v=1.4.60";
-import { createConnectPc } from "./app/connect-pc.js?v=1.4.60";
-import { createApiClient, paneApi } from "./api-client.js?v=1.4.60";
+import { browserSessionStorage, browserStorage } from "./app/dom.js?v=1.4.61";
+import { enhanceSelects } from "./app/select-popover.js?v=1.4.61";
+import { attachSidebarSwipe } from "./app/sidebar-swipe.js?v=1.4.61";
+import { createSnapshotModel } from "./app/snapshot.js?v=1.4.61";
+import { createNotifications } from "./app/notifications.js?v=1.4.61";
+import { createSettings } from "./app/settings.js?v=1.4.61";
+import { createComposer } from "./app/composer.js?v=1.4.61";
+import { createSidebarRows } from "./app/sidebar-rows.js?v=1.4.61";
+import { createHeaderMore } from "./app/header-more.js?v=1.4.61";
+import { createAccountDialogs } from "./app/account-dialogs.js?v=1.4.61";
+import { createAiAccounts } from "./app/ai-accounts.js?v=1.4.61";
+import { createNavigation } from "./app/navigation.js?v=1.4.61";
+import { createSelection } from "./app/selection.js?v=1.4.61";
+import { createPaneViews } from "./app/pane-views.js?v=1.4.61";
+import { createTerminalStatus } from "./app/terminal-status.js?v=1.4.61";
+import { createChatPanel, inTerminal } from "./app/chat-lens.js?v=1.4.61";
+import { createKeyBar } from "./app/key-bar.js?v=1.4.61";
+import { createKeyBarEditor } from "./app/key-bar-editor.js?v=1.4.61";
+import { createProjectDialog } from "./app/project-dialog.js?v=1.4.61";
+import { createSessionDialog } from "./app/session-dialog.js?v=1.4.61";
+import { createWorktreeDialogs } from "./app/worktree-dialogs.js?v=1.4.61";
+import { createFiles } from "./app/files.js?v=1.4.61";
+import { createConnectPc } from "./app/connect-pc.js?v=1.4.61";
+import { createApiClient, paneApi } from "./api-client.js?v=1.4.61";
 import {
   detectTouchInput,
   paneServerId,
@@ -31,64 +31,64 @@ import {
   paneShortcutTarget,
   sidebarPresentation,
   serverConnectionState,
-} from "./ui-model.js?v=1.4.60";
+} from "./ui-model.js?v=1.4.61";
 import {
   readFileServer,
   readNavigatorTab,
-} from "./browse-preference.js?v=1.4.60";
-import { terminalConnection } from "./terminal-connection.js?v=1.4.60";
-import { createAttachedTerminal } from "./xterm-terminal.js?v=1.4.60";
+} from "./browse-preference.js?v=1.4.61";
+import { terminalConnection } from "./terminal-connection.js?v=1.4.61";
+import { createAttachedTerminal } from "./xterm-terminal.js?v=1.4.61";
 import {
   adjustedChatFontSize,
-} from "./chat-font-preference.js?v=1.4.60";
-import { chatAgent } from "./lens-preference.js?v=1.4.60";
-import * as xterm from "./vendor/xterm.mjs?v=1.4.60";
+} from "./chat-font-preference.js?v=1.4.61";
+import { chatAgent } from "./lens-preference.js?v=1.4.61";
+import * as xterm from "./vendor/xterm.mjs?v=1.4.61";
 import {
   readPanePreference,
-} from "./pane-preference.js?v=1.4.60";
+} from "./pane-preference.js?v=1.4.61";
 import {
   readCollapsedGroupIds,
   readCollapsedWorkspaceIds,
   readExpandedSplitTabIds,
-} from "./workspace-preference.js?v=1.4.60";
+} from "./workspace-preference.js?v=1.4.61";
 import {
   adjustedTerminalFontSize,
   readTerminalFontSize,
   writeTerminalFontSize,
-} from "./terminal-preference.js?v=1.4.60";
+} from "./terminal-preference.js?v=1.4.61";
 import {
   readAcknowledgedCompletions,
-} from "./completion-preference.js?v=1.4.60";
+} from "./completion-preference.js?v=1.4.61";
 import {
   looksLikePhysicalKey,
   readEnterKeyMode,
-} from "./enter-key-preference.js?v=1.4.60";
+} from "./enter-key-preference.js?v=1.4.61";
 import {
   attachSidebarDrag,
   movedTabSnapshot,
   movedWorkspaceSnapshot,
   tabMoveRequest,
   workspaceMoveRequest,
-} from "./sidebar-drag.js?v=1.4.60";
+} from "./sidebar-drag.js?v=1.4.61";
 import {
   readViewSplit,
   tiles as viewTiles,
-} from "./view-split.js?v=1.4.60";
+} from "./view-split.js?v=1.4.61";
 import {
   readInputHistories,
-} from "./input-history-preference.js?v=1.4.60";
-import { atFilesSource } from "./composer-at-files.js?v=1.4.60";
-import { createComposerPopup } from "./composer-popup.js?v=1.4.60";
-import { slashCommandsSource } from "./composer-slash.js?v=1.4.60";
-import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.4.60";
+} from "./input-history-preference.js?v=1.4.61";
+import { atFilesSource } from "./composer-at-files.js?v=1.4.61";
+import { createComposerPopup } from "./composer-popup.js?v=1.4.61";
+import { slashCommandsSource } from "./composer-slash.js?v=1.4.61";
+import { createComposerDrafts, draftScreenIsSecret, draftScreenShowsPrompt } from "./composer-draft-preference.js?v=1.4.61";
 import {
   readKeyBarItems,
-} from "./key-bar-preference.js?v=1.4.60";
+} from "./key-bar-preference.js?v=1.4.61";
 import {
   clearLaunchToken,
   readLaunchToken,
   writeLaunchToken,
-} from "./launch-session.js?v=1.4.60";
+} from "./launch-session.js?v=1.4.61";
 
 let modifierPaneId = null;
 // The selected pane's agent and status, for the Chat lens's Stop button.
