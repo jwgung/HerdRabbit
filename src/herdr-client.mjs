@@ -280,8 +280,10 @@ export function mapMovedIds(result, scope) {
 }
 
 // `herdr pane move` arguments that lift a pane into a new tab of a project.
+// Herdr 0.9.5 rejects `--label=<name>`; the name is the next argument, taken
+// as it is even when it starts with "--".
 function paneMoveArgs(paneId, workspaceId, label) {
-  return ["pane", "move", paneId, "--new-tab", "--workspace", workspaceId, ...(label ? [`--label=${label}`] : []), "--no-focus"];
+  return ["pane", "move", paneId, "--new-tab", "--workspace", workspaceId, ...(label ? ["--label", label] : []), "--no-focus"];
 }
 
 // The pane and tab Herdr made from a pane move, as { paneId, tabId }.
