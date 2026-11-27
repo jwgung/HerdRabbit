@@ -1,5 +1,5 @@
-import { createElement, createIcon, workspaceActionButton } from "./dom.js?v=1.4.61";
-import { idOf } from "./snapshot.js?v=1.4.61";
+import { createElement, createIcon, workspaceActionButton } from "./dom.js?v=1.4.62";
+import { idOf } from "./snapshot.js?v=1.4.62";
 import {
   agentStatus,
   agentStatusIcon,
@@ -14,16 +14,16 @@ import {
   paneServerId,
   paneRowLine,
   paneSubtitle,
-} from "../ui-model.js?v=1.4.61";
-import { createPaneGrid } from "../pane-grid.js?v=1.4.61";
-import { attachPaneSwipe, renderPaneTabs } from "./pane-tabs.js?v=1.4.61";
-import * as xterm from "../vendor/xterm.mjs?v=1.4.61";
-import { writePanePreference } from "../pane-preference.js?v=1.4.61";
-import { writeExpandedSplitTabIds } from "../workspace-preference.js?v=1.4.61";
-import { readGridFit, readGridFont, writeGridFont } from "../terminal-preference.js?v=1.4.61";
-import { laysOutPanes, followMovedPane } from "../sidebar-drag.js?v=1.4.61";
-import { createTilePicker } from "./tile-picker.js?v=1.4.61";
-import { chatAgent } from "../lens-preference.js?v=1.4.61";
+} from "../ui-model.js?v=1.4.62";
+import { createPaneGrid } from "../pane-grid.js?v=1.4.62";
+import { attachPaneSwipe, renderPaneTabs } from "./pane-tabs.js?v=1.4.62";
+import * as xterm from "../vendor/xterm.mjs?v=1.4.62";
+import { writePanePreference } from "../pane-preference.js?v=1.4.62";
+import { writeExpandedSplitTabIds } from "../workspace-preference.js?v=1.4.62";
+import { readGridFit, readGridFont, writeGridFont } from "../terminal-preference.js?v=1.4.62";
+import { laysOutPanes, followMovedPane } from "../sidebar-drag.js?v=1.4.62";
+import { createTilePicker } from "./tile-picker.js?v=1.4.62";
+import { chatAgent } from "../lens-preference.js?v=1.4.62";
 import {
   MAX_SPLITS,
   MAX_TILES,
@@ -53,7 +53,7 @@ import {
   tiles as viewTiles,
   writeOpenSplit,
   writeViewSplits,
-} from "../view-split.js?v=1.4.61";
+} from "../view-split.js?v=1.4.62";
 
 // Split tabs and this browser's view splits: the Herdr grid on a wide
 // screen, the pane tabs on a phone, the view split's tiles, a session dropped

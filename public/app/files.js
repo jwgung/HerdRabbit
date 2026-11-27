@@ -4,12 +4,12 @@ import {
   paneServerId,
   sortUploads,
   uploadSummary,
-} from "../ui-model.js?v=1.4.61";
-import { MAX_TEXT_PREVIEW_BYTES, looksLikeText, opensWithFolder, previewFor } from "../file-preview.js?v=1.4.61";
-import { readHtmlInternet, readHtmlScripts } from "../files-preference.js?v=1.4.61";
-import { zoomablePicture, zoomableText } from "./viewer-zoom.js?v=1.4.61";
-import { createImageViewer } from "../chat/image-viewer.js?v=1.4.61";
-import { ticketUrl } from "../chat/chat-images.js?v=1.4.61";
+} from "../ui-model.js?v=1.4.62";
+import { MAX_TEXT_PREVIEW_BYTES, looksLikeText, opensWithFolder, previewFor } from "../file-preview.js?v=1.4.62";
+import { readHtmlInternet, readHtmlScripts } from "../files-preference.js?v=1.4.62";
+import { zoomablePicture, zoomableText } from "./viewer-zoom.js?v=1.4.62";
+import { createImageViewer } from "../chat/image-viewer.js?v=1.4.62";
+import { ticketUrl } from "../chat/chat-images.js?v=1.4.62";
 import {
   clampNavigatorWidth,
   readBrowsePath,
@@ -18,10 +18,10 @@ import {
   writeFileServer,
   writeNavigatorTab,
   writeNavigatorWidth,
-} from "../browse-preference.js?v=1.4.61";
-import { createSpeechButton, speechSupported } from "../speech-recognition.js?v=1.4.61";
-import { array, createElement } from "./dom.js?v=1.4.61";
-import { browseUrl, createFolderTree, isOpenableFolder } from "./folder-tree.js?v=1.4.61";
+} from "../browse-preference.js?v=1.4.62";
+import { createSpeechButton, speechSupported } from "../speech-recognition.js?v=1.4.62";
+import { array, createElement } from "./dom.js?v=1.4.62";
+import { browseUrl, createFolderTree, isOpenableFolder } from "./folder-tree.js?v=1.4.62";
 
 // Files in and out of a machine: uploads, downloads and the uploads dialog,
 // the file viewer, voice input, and the Files tab around its tree

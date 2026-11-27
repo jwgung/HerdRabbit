@@ -1,7 +1,7 @@
-import { createElement } from "./dom.js?v=1.4.61";
-import { idOf } from "./snapshot.js?v=1.4.61";
-import { createAgentPicker } from "./agent-picker.js?v=1.4.61";
-import { createFolderField } from "./folder-field.js?v=1.4.61";
+import { createElement } from "./dom.js?v=1.4.62";
+import { idOf } from "./snapshot.js?v=1.4.62";
+import { createAgentPicker } from "./agent-picker.js?v=1.4.62";
+import { createFolderField } from "./folder-field.js?v=1.4.62";
 
 // A new workspace in a Herdr session (`herdrSessionId`, or the default when
 // null), with a shell or an installed agent started in its first pane, in

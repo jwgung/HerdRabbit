@@ -1,15 +1,15 @@
-import { createElement } from "./dom.js?v=1.4.61";
-import { appVersionText, createUpdatePanel, runSummary } from "../app-update.js?v=1.4.61";
-import { writeGridFit } from "../terminal-preference.js?v=1.4.61";
-import { applicationServerKeyBytes, pushButtonPresentation } from "../push-notifications.js?v=1.4.61";
-import { OPEN_PANES_IN, readOpenPanesIn, writeOpenPanesIn } from "../lens-preference.js?v=1.4.61";
-import { CHAT_WIDTHS, readChatWidth, writeChatWidth } from "../chat-width-preference.js?v=1.4.61";
-import { readHtmlInternet, readHtmlScripts, writeHtmlInternet, writeHtmlScripts } from "../files-preference.js?v=1.4.61";
-import { notificationStateText, settingsPageList, settingsPageTitle, updateBadges } from "../settings-pages.js?v=1.4.61";
-import { herdrVersionText } from "../ui-model.js?v=1.4.61";
-import { createPluginsPage } from "./plugins.js?v=1.4.61";
-import { createHerdrSettingsPage } from "./herdr-settings.js?v=1.4.61";
-import { createPcAccess } from "./pc-access.js?v=1.4.61";
+import { createElement } from "./dom.js?v=1.4.62";
+import { appVersionText, createUpdatePanel, runSummary } from "../app-update.js?v=1.4.62";
+import { writeGridFit } from "../terminal-preference.js?v=1.4.62";
+import { applicationServerKeyBytes, pushButtonPresentation } from "../push-notifications.js?v=1.4.62";
+import { OPEN_PANES_IN, readOpenPanesIn, writeOpenPanesIn } from "../lens-preference.js?v=1.4.62";
+import { CHAT_WIDTHS, readChatWidth, writeChatWidth } from "../chat-width-preference.js?v=1.4.62";
+import { readHtmlInternet, readHtmlScripts, writeHtmlInternet, writeHtmlScripts } from "../files-preference.js?v=1.4.62";
+import { notificationStateText, settingsPageList, settingsPageTitle, updateBadges } from "../settings-pages.js?v=1.4.62";
+import { herdrVersionText } from "../ui-model.js?v=1.4.62";
+import { createPluginsPage } from "./plugins.js?v=1.4.62";
+import { createHerdrSettingsPage } from "./herdr-settings.js?v=1.4.62";
+import { createPcAccess } from "./pc-access.js?v=1.4.62";
 
 // What each "Open panes in" choice does, under the choice.
 const OPEN_PANES_IN_HINTS = Object.freeze({

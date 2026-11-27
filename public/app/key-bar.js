@@ -1,9 +1,9 @@
-import { combinedTerminalKey, keyboardTerminalKey } from "../key-combinations.js?v=1.4.61";
-import { inputKeyAction, insertNewlineAtSelection, nextInputHistory, paneKeepsInputHistory, shouldBrowseInputHistory } from "../ui-model.js?v=1.4.61";
-import { chatAgent } from "../lens-preference.js?v=1.4.61";
-import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop, stopFollowUp, stopPresses } from "../chat/chat-activity.js?v=1.4.61";
-import { keyBarItemKey, keyBarItemLabel } from "../key-bar-preference.js?v=1.4.61";
-import { numberedChoice } from "../chat/prompt-card.js?v=1.4.61";
+import { combinedTerminalKey, keyboardTerminalKey } from "../key-combinations.js?v=1.4.62";
+import { inputKeyAction, insertNewlineAtSelection, nextInputHistory, paneKeepsInputHistory, shouldBrowseInputHistory } from "../ui-model.js?v=1.4.62";
+import { chatAgent } from "../lens-preference.js?v=1.4.62";
+import { composerEscapeStops, sendButtonMode as sendButtonModeFor, showsStop, stopFollowUp, stopPresses } from "../chat/chat-activity.js?v=1.4.62";
+import { keyBarItemKey, keyBarItemLabel } from "../key-bar-preference.js?v=1.4.62";
+import { numberedChoice } from "../chat/prompt-card.js?v=1.4.62";
 
 // The composer's sending side and the key bar: the form's submit, the
 // composer's keys (history, Enter, Esc to stop), Send doubling as Stop, the key
