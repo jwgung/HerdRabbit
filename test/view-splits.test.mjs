@@ -155,4 +155,19 @@ test("the one view split an earlier version kept for the window joins the list",
   const later = memoryStorage();
   later.store.set(VIEW_SPLIT_STORAGE_KEY, JSON.stringify({ tree: two("e", "f"), shown: false, focus: "e" }));
   assert.equal(loadViewSplits(memoryStorage(), later).open.shown, false);
+  // With all eight numbers taken it waits, kept, for one to close.
+  const full = memoryStorage();
+  writeViewSplits(full, Array.from({ length: 8 }, (_, index) => ({ id: index + 1, tree: two(`a${index}`, `b${index}`), focus: `a${index}` })));
+  const waiting = memoryStorage();
+  waiting.store.set(VIEW_SPLIT_STORAGE_KEY, JSON.stringify({ tree: two("g", "h"), shown: true, focus: "g" }));
+  assert.equal(loadViewSplits(full, waiting).open.id, null);
+  assert.equal(waiting.store.has(VIEW_SPLIT_STORAGE_KEY), true, "not dropped");
+  writeViewSplits(full, readViewSplits(full).slice(1));
+  assert.deepEqual(tiles(loadViewSplits(full, waiting).open.tree), ["g", "h"], "joins once a number is free");
+  assert.equal(waiting.store.has(VIEW_SPLIT_STORAGE_KEY), false);
+  // A legacy value that is no split is cleared.
+  const bad = memoryStorage();
+  bad.store.set(VIEW_SPLIT_STORAGE_KEY, JSON.stringify({ tree: "a" }));
+  loadViewSplits(memoryStorage(), bad);
+  assert.equal(bad.store.has(VIEW_SPLIT_STORAGE_KEY), false);
 });

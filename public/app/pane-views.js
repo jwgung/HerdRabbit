@@ -67,10 +67,9 @@ import {
 // `deps`, and so is `snapshotSettled`, which the snapshot refresh reassigns.
 // `viewSplit` is app.js's object, changed in place: the view split this
 // window shows ({ id, tree, shown, focus }). `viewSplits.list` is every view
-// split this browser keeps (view-split.js), the shown one included.
-// The Chat lens is made
-// after this and read through a getter on `deps` (`chatLens`): each cell of a
-// grid shows its own pane in Chat or Terminal.
+// split this browser keeps (view-split.js), the shown one included. The Chat
+// lens is made after this and read through a getter on `deps` (`chatLens`):
+// each cell of a grid shows its own pane in Chat or Terminal.
 export function createPaneViews(deps) {
   const {
     state, elements, desktopMedia, panePreferenceStorage, viewSplit, viewSplitStorage, viewSplits, viewSplitsStorage,
@@ -333,6 +332,7 @@ export function createPaneViews(deps) {
   }
 
   const SPLITS_FULL = `This browser keeps at most ${MAX_SPLITS} split views. Close one first.`;
+  const TILES_FULL = `A split view shows at most ${MAX_TILES} panes.`;
 
   // The split `paneId` is a tile of becomes the one shown, on that tile;
   // false when it is in none. The caller selects the pane with view "tiles".
@@ -506,7 +506,7 @@ export function createPaneViews(deps) {
     const base = split.tree;
     const next = addTile(base, targetPaneId, paneId, side);
     if (!next || next === base) {
-      setFeedback(viewTiles(base).length >= MAX_TILES ? "A split view shows at most 6 panes." : "This pane is in the split view already.", true);
+      setFeedback(viewTiles(base).length >= MAX_TILES ? TILES_FULL : "This pane is in the split view already.", true);
       if (base) {
         adoptSplit(split.id, base, targetPaneId);
         selectPane(targetPaneId, { view: "tiles" });
@@ -594,7 +594,7 @@ export function createPaneViews(deps) {
     const base = split.tree;
     const next = addPickTile(base, targetPaneId, side);
     if (!next || next === base) {
-      setFeedback("A split view shows at most 6 panes.", true);
+      setFeedback(TILES_FULL, true);
       return;
     }
     adoptSplit(split.id, next, targetPaneId);

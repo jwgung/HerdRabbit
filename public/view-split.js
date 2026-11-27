@@ -184,14 +184,15 @@ export function parseTree(value, depth = 0) {
 }
 
 // The one view split an earlier HerdRabbit kept per window, in session
-// storage: { tree, shown, focus }. Read once into the list (loadViewSplits).
+// storage: { tree, shown, focus }. Read into the list by loadViewSplits,
+// which takes the old entry away once it has a number there.
 function readLegacyViewSplit(storage) {
   try {
     const raw = storage?.getItem(VIEW_SPLIT_STORAGE_KEY);
     if (!raw) return null;
-    storage.removeItem(VIEW_SPLIT_STORAGE_KEY);
     const value = JSON.parse(raw);
     const tree = parseTree(value?.tree);
+    if (!tree) storage.removeItem(VIEW_SPLIT_STORAGE_KEY);
     return tree ? { tree, shown: value?.shown !== false, focus: value?.focus } : null;
   } catch {
     return null;
@@ -233,9 +234,9 @@ export function splitWithPane(list, paneId) {
   return list.find((split) => tiles(split.tree).includes(paneId)) ?? null;
 }
 
-// `list` with split `id` set to `tree` (a picker in it is not kept), or taken
-// out when `tree` is null or no split without its picker; its panes leave
-// every other split, and one left with a single tile is gone.
+// `list` with split `id` set to `tree` (a picker in it is not kept). The
+// split is taken out when `tree` is null or only a picker beside one pane.
+// Its panes leave every other split, and one left with a single tile is gone.
 export function putSplit(list, id, tree, focus) {
   if (!validSplitId(id)) return list;
   const kept = tiles(tree).includes(PICK_TILE) ? removeTile(tree, PICK_TILE) : settled(tree);
@@ -327,7 +328,8 @@ function readOpenSplit(storage) {
 
 // The browser's splits (`local`) and the one this window shows (`session`),
 // as { splits, open: { id, tree, shown, focus } }. The view split an earlier
-// version kept for this window joins the list, under the lowest number free.
+// version kept for this window joins the list, under the lowest number free;
+// with all MAX_SPLITS kept it waits in session storage for one to close.
 export function loadViewSplits(local, session) {
   let splits = readViewSplits(local);
   let open = readOpenSplit(session);
@@ -336,6 +338,7 @@ export function loadViewSplits(local, session) {
   if (legacyId) {
     splits = putSplit(splits, legacyId, legacy.tree, legacy.focus);
     writeViewSplits(local, splits);
+    try { session.removeItem(VIEW_SPLIT_STORAGE_KEY); } catch { /* read again next load: its panes then leave this copy */ }
     open = { id: legacyId, shown: legacy.shown };
   }
   const split = open ? splits.find((item) => item.id === open.id) : null;
