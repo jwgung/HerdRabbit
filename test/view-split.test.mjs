@@ -4,7 +4,6 @@ import { gridCells } from "../public/pane-grid.js";
 import {
   MAX_TILES,
   PICK_TILE,
-  VIEW_SPLIT_STORAGE_KEY,
   addPickTile,
   addTile,
   applyToHerdrPlan,
@@ -17,12 +16,11 @@ import {
   parseTree,
   pickChoices,
   prune,
-  readViewSplit,
+  putSplit,
   removeTile,
   renameTiles,
   swapTiles,
   tiles,
-  writeViewSplit,
 } from "../public/view-split.js";
 
 // The widths (or heights) of the tiles in VIEW_AREA, left to right and top to bottom.
@@ -108,24 +106,6 @@ test("only a well-formed tree is read back", () => {
   assert.equal(parseTree({ dir: "right", first: "a", second: "a" }), null);
   assert.equal(parseTree({ dir: "right", first: "a", second: 3 }), null);
   assert.equal(parseTree(null), null);
-});
-
-test("the view split is kept per window and survives bad storage", () => {
-  const store = new Map();
-  const storage = { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => store.set(key, value), removeItem: (key) => store.delete(key) };
-  const tree = addTile(null, "a", "b", "right");
-  writeViewSplit(storage, { tree, shown: true, focus: "b" });
-  assert.deepEqual(readViewSplit(storage), { tree, shown: true, focus: "b" });
-  writeViewSplit(storage, { tree, shown: false, focus: "gone" });
-  assert.deepEqual(readViewSplit(storage), { tree, shown: false, focus: "a" }, "a focus not a tile falls to the first");
-  writeViewSplit(storage, { tree: null, shown: false, focus: null });
-  assert.equal(store.has(VIEW_SPLIT_STORAGE_KEY), false);
-  store.set(VIEW_SPLIT_STORAGE_KEY, "{not json");
-  assert.deepEqual(readViewSplit(storage), { tree: null, shown: false, focus: null });
-  const broken = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); }, removeItem() { throw new Error("blocked"); } };
-  assert.deepEqual(readViewSplit(broken), { tree: null, shown: false, focus: null });
-  assert.doesNotThrow(() => writeViewSplit(broken, { tree, shown: true }));
-  assert.deepEqual(readViewSplit(null), { tree: null, shown: false, focus: null });
 });
 
 const local = { server_id: "local", herdr_session_id: "hs_a" };
@@ -377,10 +357,7 @@ test("evening out keeps the tiles where they are and an even tree as it is", () 
 });
 
 test("a picker waiting in a tile is not kept for a reload", () => {
-  const store = new Map();
-  const storage = { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => store.set(key, value), removeItem: (key) => store.delete(key) };
-  writeViewSplit(storage, { tree: addPickTile(addTile(null, "a", "b", "right"), "b", "down"), shown: true, focus: "b" });
-  assert.deepEqual(tiles(readViewSplit(storage).tree), ["a", "b"]);
-  writeViewSplit(storage, { tree: addPickTile(null, "a", "right"), shown: true, focus: "a" });
-  assert.equal(store.has(VIEW_SPLIT_STORAGE_KEY), false);
+  const list = putSplit([], 1, addPickTile(addTile(null, "a", "b", "right"), "b", "down"), "b");
+  assert.deepEqual(tiles(list[0].tree), ["a", "b"]);
+  assert.deepEqual(putSplit([], 1, addPickTile(null, "a", "right"), "a"), []);
 });

@@ -1,6 +1,7 @@
-// This window's own view split: panes of different projects side by side,
-// kept by the browser alone. Herdr never hears of it, other devices never see
-// it, and nothing moves or closes: it is a layout over pane ids, nothing more.
+// This browser's own view splits: panes of different projects side by side,
+// kept by the browser alone (several, each window showing one; see "Several
+// view splits" below). Herdr never hears of them, other devices never see
+// them, and nothing moves or closes: each is a layout over pane ids, nothing more.
 //
 // The layout is a tree. A leaf is a pane id; a node splits its box in two:
 // { dir: "right" | "down", first, second, ratio }, `first` on the left (or the
@@ -182,31 +183,171 @@ export function parseTree(value, depth = 0) {
   return tree;
 }
 
-// What this window keeps of its view split: the tree, whether it is on screen
-// (false while a pane is open alone, with a way back to it), and the tile last
-// focused (a tile of the tree, else its first).
-export function readViewSplit(storage) {
-  const none = { tree: null, shown: false, focus: null };
+// The one view split an earlier HerdRabbit kept per window, in session
+// storage: { tree, shown, focus }. Read into the list by loadViewSplits,
+// which takes the old entry away once it has a number there; one that is no
+// split at all is taken away here.
+function readLegacyViewSplit(storage) {
+  let tree = null;
+  let value = null;
   try {
     const raw = storage?.getItem(VIEW_SPLIT_STORAGE_KEY);
-    if (!raw) return none;
-    const value = JSON.parse(raw);
-    const tree = parseTree(value?.tree);
-    if (!tree) return none;
-    const focus = tiles(tree).includes(value?.focus) ? value.focus : tiles(tree)[0];
-    return { tree, shown: value?.shown !== false, focus };
+    if (!raw) return null;
+    value = JSON.parse(raw);
+    tree = parseTree(value?.tree);
+  } catch { /* unreadable: taken away below */ }
+  if (tree) return { tree, shown: value?.shown !== false, focus: value?.focus };
+  try { storage?.removeItem(VIEW_SPLIT_STORAGE_KEY); } catch { /* storage blocked: nothing kept to read */ }
+  return null;
+}
+
+// --- Several view splits --------------------------------------------------
+// The browser keeps a list of view splits, each with a number from 1 to
+// MAX_SPLITS that it keeps for as long as it lasts: { id, tree, focus }, in
+// order of number. The list is in local storage, so every window of this
+// browser has it and it outlasts them; which split a window shows, and
+// whether it is on screen, is that window's own, in its session storage.
+// A pane is a tile of one split at most: put in one, it leaves any other.
+
+export const MAX_SPLITS = 8;
+export const VIEW_SPLITS_STORAGE_KEY = "herdrbridge-view-splits";
+export const OPEN_SPLIT_STORAGE_KEY = "herdrbridge-view-split-open";
+// The marks in the sidebar have four colours; 5 to 8 have them again.
+const SPLIT_HUES = 4;
+
+const validSplitId = (id) => Number.isInteger(id) && id >= 1 && id <= MAX_SPLITS;
+const focusIn = (tree, focus) => (tiles(tree).includes(focus) ? focus : tiles(tree)[0] ?? null);
+const byId = (a, b) => a.id - b.id;
+
+// Which of the four colours split `id` wears.
+export function splitHue(id) {
+  return (id - 1) % SPLIT_HUES;
+}
+
+// The lowest number no split has; null when all are used.
+export function nextSplitId(list) {
+  const used = new Set(list.map((split) => split.id));
+  for (let id = 1; id <= MAX_SPLITS; id += 1) if (!used.has(id)) return id;
+  return null;
+}
+
+// The split `paneId` is a tile of, or null.
+export function splitWithPane(list, paneId) {
+  return list.find((split) => tiles(split.tree).includes(paneId)) ?? null;
+}
+
+// `list` with split `id` set to `tree` (a picker in it is not kept). The
+// split is taken out when `tree` is null or only a picker beside one pane.
+// Its panes leave every other split, and one left with a single tile is gone.
+export function putSplit(list, id, tree, focus) {
+  if (!validSplitId(id)) return list;
+  const kept = tiles(tree).includes(PICK_TILE) ? removeTile(tree, PICK_TILE) : settled(tree);
+  const taken = new Set(tiles(kept));
+  const others = list.flatMap((split) => {
+    if (split.id === id) return [];
+    if (!tiles(split.tree).some((leaf) => taken.has(leaf))) return [split];
+    const rest = settled(without(split.tree, (leaf) => taken.has(leaf)));
+    if (rest == null) return [];
+    return [{ ...split, tree: rest, focus: focusIn(rest, split.focus) }];
+  });
+  if (kept == null) return others;
+  return [...others, { id, tree: kept, focus: focusIn(kept, focus) }].sort(byId);
+}
+
+// `list` without the tiles `keep` says no to; a split left with one is gone.
+// The same list when nothing went.
+export function pruneSplits(list, keep) {
+  let changed = false;
+  const next = list.flatMap((split) => {
+    if (tiles(split.tree).every(keep)) return [split];
+    changed = true;
+    const tree = settled(without(split.tree, (leaf) => !keep(leaf)));
+    return tree ? [{ ...split, tree, focus: focusIn(tree, split.focus) }] : [];
+  });
+  return changed ? next : list;
+}
+
+// Every split's tiles (and focus) follow panes Herdr carried under new ids.
+export function renameSplits(list, moves) {
+  if (!Array.isArray(moves) || moves.length === 0) return list;
+  const to = new Map(moves.filter((move) => typeof move?.to === "string").map((move) => [move.from, move.to]));
+  return list.flatMap((split) => {
+    const tree = renameTiles(split.tree, moves);
+    if (tree == null) return [];
+    return [{ ...split, tree, focus: focusIn(tree, to.get(split.focus) ?? split.focus) }];
+  });
+}
+
+// The list read back: numbers in range and once each (the first kept), trees
+// well formed, a pane in one split only (the first keeps it).
+export function parseSplits(value) {
+  if (!Array.isArray(value?.splits)) return [];
+  const list = [];
+  const seen = new Set();
+  for (const item of value.splits) {
+    const tree = parseTree(item?.tree);
+    if (!validSplitId(item?.id) || !tree || list.some((split) => split.id === item.id)) continue;
+    if (tiles(tree).some((paneId) => seen.has(paneId))) continue;
+    for (const paneId of tiles(tree)) seen.add(paneId);
+    list.push({ id: item.id, tree, focus: focusIn(tree, item.focus) });
+  }
+  return list.sort(byId);
+}
+
+export function readViewSplits(storage) {
+  try {
+    const raw = storage?.getItem(VIEW_SPLITS_STORAGE_KEY);
+    return raw ? parseSplits(JSON.parse(raw)) : [];
   } catch {
-    return none;
+    return [];
   }
 }
 
-// A picker waiting in a tile is not kept: a reload shows the split without it.
-export function writeViewSplit(storage, { tree: shownTree, shown, focus = null }) {
-  const tree = tiles(shownTree).includes(PICK_TILE) ? removeTile(shownTree, PICK_TILE) : shownTree;
+export function writeViewSplits(storage, list) {
   try {
-    if (!tree) storage?.removeItem(VIEW_SPLIT_STORAGE_KEY);
-    else storage?.setItem(VIEW_SPLIT_STORAGE_KEY, JSON.stringify({ tree, shown: Boolean(shown), focus }));
-  } catch { /* Storage may be full or blocked: the view split lasts until the page goes. */ }
+    if (list.length === 0) storage?.removeItem(VIEW_SPLITS_STORAGE_KEY);
+    else storage?.setItem(VIEW_SPLITS_STORAGE_KEY, JSON.stringify({ splits: list }));
+  } catch { /* Storage may be full or blocked: the splits last until the page goes. */ }
+}
+
+// Which split this window shows (`id`) and whether it is on screen (false
+// while a pane is open alone, with Back to split view).
+export function writeOpenSplit(storage, { id, tree, shown }) {
+  try {
+    if (!validSplitId(id) || !tree) storage?.removeItem(OPEN_SPLIT_STORAGE_KEY);
+    else storage?.setItem(OPEN_SPLIT_STORAGE_KEY, JSON.stringify({ id, shown: Boolean(shown) }));
+  } catch { /* storage blocked: the open split lasts until the page goes */ }
+}
+
+function readOpenSplit(storage) {
+  try {
+    const value = JSON.parse(storage?.getItem(OPEN_SPLIT_STORAGE_KEY) ?? "null");
+    return validSplitId(value?.id) ? { id: value.id, shown: value.shown !== false } : null;
+  } catch {
+    return null;
+  }
+}
+
+// The browser's splits (`local`) and the one this window shows (`session`),
+// as { splits, open: { id, tree, shown, focus } }. The view split an earlier
+// version kept for this window joins the list, under the lowest number free;
+// with all MAX_SPLITS kept it waits in session storage for one to close.
+export function loadViewSplits(local, session) {
+  let splits = readViewSplits(local);
+  let open = readOpenSplit(session);
+  const legacy = readLegacyViewSplit(session);
+  const legacyId = legacy ? nextSplitId(splits) : null;
+  if (legacyId) {
+    splits = putSplit(splits, legacyId, legacy.tree, legacy.focus);
+    writeViewSplits(local, splits);
+    try { session.removeItem(VIEW_SPLIT_STORAGE_KEY); } catch { /* read again next load: its panes then leave this copy */ }
+    open = { id: legacyId, shown: legacy.shown };
+  }
+  const split = open ? splits.find((item) => item.id === open.id) : null;
+  const shown = split ? { id: split.id, tree: split.tree, shown: open.shown, focus: split.focus }
+    : { id: null, tree: null, shown: false, focus: null };
+  writeOpenSplit(session, shown);
+  return { splits, open: shown };
 }
 
 const idOf = (record, key) => (typeof record?.[key] === "string" ? record[key] : null);

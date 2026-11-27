@@ -317,6 +317,50 @@ body.sidebar-collapsed .pane-status {
 
 .pane-copy strong.pane-title { font-weight: 600; line-height: 1.25; }
 
+/* A row whose pane is a tile of a view split: its name, then the split's mark. */
+.pane-title-line {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.view-split-mark {
+  --split-color: var(--split-1);
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+  height: 16px;
+  padding: 0 var(--space-1-5) 0 var(--space-1);
+  border: 1px solid color-mix(in srgb, var(--split-color) 55%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--split-color) 14%, transparent);
+  color: var(--split-color);
+  font-size: var(--font-2xs);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.view-split-mark.split-hue-1 { --split-color: var(--split-2); }
+.view-split-mark.split-hue-2 { --split-color: var(--split-3); }
+.view-split-mark.split-hue-3 { --split-color: var(--split-4); }
+
+/* The split on screen: its mark filled. */
+.view-split-mark.is-open {
+  border-color: var(--split-color);
+  background: var(--split-color);
+  color: var(--split-ink);
+}
+
+.view-split-mark-icon {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+}
+
 .pane-copy small.pane-cwd {
   font-family: inherit;
   font-size: var(--font-xs);

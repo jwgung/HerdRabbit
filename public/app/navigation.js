@@ -2,7 +2,6 @@ import { clearedTabLabel, displayRecordLabel, displayTabLabel, navigationModel, 
 import { writePanePreference } from "../pane-preference.js?v=1.4.61";
 import { writeAcknowledgedCompletions } from "../completion-preference.js?v=1.4.61";
 import { dropScope, followMovedPane } from "../sidebar-drag.js?v=1.4.61";
-import { renameTiles } from "../view-split.js?v=1.4.61";
 import { renamePaneKeys } from "../pane-rename.js?v=1.4.61";
 import { renamePaneLenses } from "../lens-preference.js?v=1.4.61";
 import { writeInputHistories } from "../input-history-preference.js?v=1.4.61";
@@ -19,9 +18,9 @@ import { idOf } from "./snapshot.js?v=1.4.61";
 // and are read through getters.
 export function createNavigation(deps) {
   const {
-    state, elements, sidebarDrag, panePreferenceStorage, composerDrafts, draftBlocked, draftHeld, viewSplit,
+    state, elements, sidebarDrag, panePreferenceStorage, composerDrafts, draftBlocked, draftHeld,
     api, refreshSnapshot, setFeedback, snapshotRecords, selectedRecords, renderPaneHeading,
-    agentForPane, visibleStatusForPane, adoptMutationSnapshot, saveComposerDraft, setViewSplit,
+    agentForPane, visibleStatusForPane, adoptMutationSnapshot, saveComposerDraft, renameViewSplits,
     showServerDetails, showAiAccounts, openConnectPc, openNewProject, herdrSessionForServer, sidebarActionMenu, renameForm, serverRenameForm, attachGroupCollapse,
     workspaceHeading, paneButton, closeSession, canLayOut, splitSessionName, splitPaneRow,
     splitDisclosureButton, splitSessionButton, evenOutLayout, separateSplitSession,
@@ -444,13 +443,8 @@ export function createNavigation(deps) {
     },
     { rename: (moves) => renamePaneLenses(panePreferenceStorage, moves) },
     { rename: (moves) => deps.chatLens.renamePanes(moves) },
-    {
-      rename(moves) {
-        if (!viewSplit.tree) return;
-        viewSplit.focus = followMovedPane(viewSplit.focus, moves);
-        setViewSplit(renameTiles(viewSplit.tree, moves));
-      },
-    },
+    // Every view split's tiles follow their panes (pane-views.js).
+    { rename: (moves) => renameViewSplits(moves) },
   ];
 
   function followMovedPaneState(moves) {
