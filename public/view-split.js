@@ -207,8 +207,8 @@ function readLegacyViewSplit(storage) {
 // A pane is a tile of one split at most: put in one, it leaves any other.
 
 export const MAX_SPLITS = 8;
-export const VIEW_SPLITS_STORAGE_KEY = "herdrabbit-view-splits";
-export const OPEN_SPLIT_STORAGE_KEY = "herdrabbit-view-split-open";
+export const VIEW_SPLITS_STORAGE_KEY = "herdrbridge-view-splits";
+export const OPEN_SPLIT_STORAGE_KEY = "herdrbridge-view-split-open";
 // The marks in the sidebar have four colours; 5 to 8 have them again.
 const SPLIT_HUES = 4;
 
@@ -221,9 +221,9 @@ export function splitHue(id) {
   return (id - 1) % SPLIT_HUES;
 }
 
-// The lowest number no split has, nor one of `taken`; null when all are used.
-export function nextSplitId(list, taken = []) {
-  const used = new Set([...list.map((split) => split.id), ...taken]);
+// The lowest number no split has; null when all are used.
+export function nextSplitId(list) {
+  const used = new Set(list.map((split) => split.id));
   for (let id = 1; id <= MAX_SPLITS; id += 1) if (!used.has(id)) return id;
   return null;
 }

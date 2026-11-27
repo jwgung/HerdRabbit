@@ -26,6 +26,7 @@ import { createTilePicker } from "./tile-picker.js?v=1.4.61";
 import { chatAgent } from "../lens-preference.js?v=1.4.61";
 import {
   MAX_SPLITS,
+  MAX_TILES,
   PICK_TILE,
   VIEW_SPLITS_STORAGE_KEY,
   addPickTile,
@@ -54,7 +55,7 @@ import {
   writeViewSplits,
 } from "../view-split.js?v=1.4.61";
 
-// Split tabs and this window's own view split: the Herdr grid on a wide
+// Split tabs and this browser's view splits: the Herdr grid on a wide
 // screen, the pane tabs on a phone, the view split's tiles, a session dropped
 // on a pane, the selection of a pane, a split session's rows in the sidebar
 // and the pane actions (split, zoom, even out, move out, close, rearrange).
@@ -65,8 +66,9 @@ import {
 // parts of the page read; they are read and set here through accessors on
 // `deps`, and so is `snapshotSettled`, which the snapshot refresh reassigns.
 // `viewSplit` is app.js's object, changed in place: the view split this
-// window shows ({ id, tree, shown, focus }); `viewSplits.list` is every view
-// split this browser keeps (view-split.js), the shown one included. The Chat lens is made
+// window shows ({ id, tree, shown, focus }). `viewSplits.list` is every view
+// split this browser keeps (view-split.js), the shown one included.
+// The Chat lens is made
 // after this and read through a getter on `deps` (`chatLens`): each cell of a
 // grid shows its own pane in Chat or Terminal.
 export function createPaneViews(deps) {
@@ -226,9 +228,10 @@ export function createPaneViews(deps) {
     },
   });
 
-  // --- This window's own view split (view-split.js) --------------------------
-  // Panes of other projects side by side, for this browser window alone: Herdr
-  // is never asked to move or close anything, other devices never see it.
+  // --- This browser's view splits (view-split.js) ----------------------------
+  // Panes of other projects side by side, kept by this browser and shown one
+  // at a time per window: Herdr is never asked to move or close anything,
+  // other devices never see them.
 
   // The tiles: the Herdr grid's cells in view mode, each its own socket at the
   // pane's own size. ⤢ opens a tile's pane alone (with Back to split view), ✕
@@ -308,9 +311,10 @@ export function createPaneViews(deps) {
   }
 
   // Makes split `id` the one this window shows, on `focus`. A picker waiting
-  // in the split left is dropped: the list never kept it.
+  // in the split left is dropped (the list never kept it), and a tab still
+  // being made for it fills nothing.
   function adoptSplit(id, tree, focus) {
-    if (id !== viewSplit.id && hasPick()) pickGeneration += 1;
+    if (hasPick() && !viewTiles(tree).includes(PICK_TILE)) pickGeneration += 1;
     viewSplit.id = id;
     viewSplit.tree = tree;
     viewSplit.focus = viewTiles(tree).includes(focus) ? focus : viewTiles(tree)[0] ?? null;
@@ -502,7 +506,7 @@ export function createPaneViews(deps) {
     const base = split.tree;
     const next = addTile(base, targetPaneId, paneId, side);
     if (!next || next === base) {
-      setFeedback(viewTiles(base).length >= 6 ? "A split view shows at most 6 panes." : "This pane is in the split view already.", true);
+      setFeedback(viewTiles(base).length >= MAX_TILES ? "A split view shows at most 6 panes." : "This pane is in the split view already.", true);
       if (base) {
         adoptSplit(split.id, base, targetPaneId);
         selectPane(targetPaneId, { view: "tiles" });

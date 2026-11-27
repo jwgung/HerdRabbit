@@ -111,7 +111,7 @@ const tilesAre = async (page, expected, what) => {
     .map((node) => node.dataset.paneId).sort()) === JSON.stringify(wanted), [...expected].sort(), { timeout: 5000 }).catch(() => {});
   assert.deepEqual(await tileIds(page), [...expected].sort(), what);
 };
-const kept = (page) => page.evaluate(() => (JSON.parse(localStorage.getItem("herdrabbit-view-splits") ?? "null")?.splits ?? [])
+const kept = (page) => page.evaluate(() => (JSON.parse(localStorage.getItem("herdrbridge-view-splits") ?? "null")?.splits ?? [])
   .map((split) => [split.id, JSON.stringify(split.tree).match(/w\d:p\d/gu).sort()]));
 const openAlone = async (page, paneId) => {
   await page.locator(row(paneId)).scrollIntoViewIfNeeded();
@@ -206,11 +206,11 @@ try {
   {
     const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 1100 }, colorScheme: "dark" });
     await context.addInitScript(() => {
-      if (localStorage.getItem("herdrabbit-view-splits")) return;
+      if (localStorage.getItem("herdrbridge-view-splits")) return;
       const splits = Array.from({ length: 8 }, (_, index) => ({
         id: index + 1, tree: { dir: "right", first: `w1:p${index + 1}`, second: `w2:p${index + 1}`, ratio: 0.5 }, focus: `w1:p${index + 1}`,
       }));
-      localStorage.setItem("herdrabbit-view-splits", JSON.stringify({ splits }));
+      localStorage.setItem("herdrbridge-view-splits", JSON.stringify({ splits }));
     });
     const page = await context.newPage();
     const errors = [];

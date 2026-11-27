@@ -42,7 +42,6 @@ test("a split takes the lowest number free, up to MAX_SPLITS", () => {
   assert.equal(nextSplitId([]), 1);
   const list = [{ id: 1, tree: two("a", "b"), focus: "a" }, { id: 3, tree: two("c", "d"), focus: "c" }];
   assert.equal(nextSplitId(list), 2);
-  assert.equal(nextSplitId(list, [2]), 4, "a number held elsewhere (this window's picker) is taken");
   const full = Array.from({ length: 8 }, (_, index) => ({ id: index + 1, tree: two(`a${index}`, `b${index}`), focus: `a${index}` }));
   assert.equal(nextSplitId(full), null);
 });
