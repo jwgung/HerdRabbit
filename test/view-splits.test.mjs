@@ -165,9 +165,11 @@ test("the one view split an earlier version kept for the window joins the list",
   writeViewSplits(full, readViewSplits(full).slice(1));
   assert.deepEqual(tiles(loadViewSplits(full, waiting).open.tree), ["g", "h"], "joins once a number is free");
   assert.equal(waiting.store.has(VIEW_SPLIT_STORAGE_KEY), false);
-  // A legacy value that is no split is cleared.
-  const bad = memoryStorage();
-  bad.store.set(VIEW_SPLIT_STORAGE_KEY, JSON.stringify({ tree: "a" }));
-  loadViewSplits(memoryStorage(), bad);
-  assert.equal(bad.store.has(VIEW_SPLIT_STORAGE_KEY), false);
+  // A legacy value that is no split, or no JSON, is cleared.
+  for (const raw of [JSON.stringify({ tree: "a" }), "{not json"]) {
+    const bad = memoryStorage();
+    bad.store.set(VIEW_SPLIT_STORAGE_KEY, raw);
+    loadViewSplits(memoryStorage(), bad);
+    assert.equal(bad.store.has(VIEW_SPLIT_STORAGE_KEY), false, raw);
+  }
 });

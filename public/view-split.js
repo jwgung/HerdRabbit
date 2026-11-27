@@ -185,18 +185,20 @@ export function parseTree(value, depth = 0) {
 
 // The one view split an earlier HerdRabbit kept per window, in session
 // storage: { tree, shown, focus }. Read into the list by loadViewSplits,
-// which takes the old entry away once it has a number there.
+// which takes the old entry away once it has a number there; one that is no
+// split at all is taken away here.
 function readLegacyViewSplit(storage) {
+  let tree = null;
+  let value = null;
   try {
     const raw = storage?.getItem(VIEW_SPLIT_STORAGE_KEY);
     if (!raw) return null;
-    const value = JSON.parse(raw);
-    const tree = parseTree(value?.tree);
-    if (!tree) storage.removeItem(VIEW_SPLIT_STORAGE_KEY);
-    return tree ? { tree, shown: value?.shown !== false, focus: value?.focus } : null;
-  } catch {
-    return null;
-  }
+    value = JSON.parse(raw);
+    tree = parseTree(value?.tree);
+  } catch { /* unreadable: taken away below */ }
+  if (tree) return { tree, shown: value?.shown !== false, focus: value?.focus };
+  try { storage?.removeItem(VIEW_SPLIT_STORAGE_KEY); } catch { /* storage blocked: nothing kept to read */ }
+  return null;
 }
 
 // --- Several view splits --------------------------------------------------
@@ -314,7 +316,7 @@ export function writeOpenSplit(storage, { id, tree, shown }) {
   try {
     if (!validSplitId(id) || !tree) storage?.removeItem(OPEN_SPLIT_STORAGE_KEY);
     else storage?.setItem(OPEN_SPLIT_STORAGE_KEY, JSON.stringify({ id, shown: Boolean(shown) }));
-  } catch { /* as above */ }
+  } catch { /* storage blocked: the open split lasts until the page goes */ }
 }
 
 function readOpenSplit(storage) {
