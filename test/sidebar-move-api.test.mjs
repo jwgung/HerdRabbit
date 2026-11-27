@@ -207,7 +207,9 @@ const namedProjects = {
   panes: namedTabs.map((_, index) => ({ pane_id: `w1:p${index + 1}`, tab_id: `w1:t${index + 1}`, workspace_id: "w1" })),
 };
 
-test("a named one-pane session keeps its name as one --label token; a name Herdr cannot take is left to Herdr", async () => {
+// Herdr 0.9.5 rejects `--label=<name>` ("unknown option"); it takes the name
+// as the next argument, verbatim even when it starts with "--".
+test("a named one-pane session keeps its name as the argument after --label; a name Herdr cannot take is left to Herdr", async () => {
   for (const [index, [label, carried]] of namedTabs.entries()) {
     const fake = recordingRunner((args) => {
       if (args[0] === "api") return { result: { snapshot: namedProjects } };
@@ -218,10 +220,10 @@ test("a named one-pane session keeps its name as one --label token; a name Herdr
     const [move] = fake.calls.filter((args) => args[0] === "pane");
     assert.deepEqual(
       move,
-      ["pane", "move", `w1:p${index + 1}`, "--new-tab", "--workspace", "w2", ...(carried ? [`--label=${carried}`] : []), "--no-focus"],
+      ["pane", "move", `w1:p${index + 1}`, "--new-tab", "--workspace", "w2", ...(carried ? ["--label", carried] : []), "--no-focus"],
       JSON.stringify(label).slice(0, 40),
     );
-    if (carried) assert.equal(move.filter((arg) => arg.startsWith("--label")).length, 1, "one token, spaces and all");
+    if (carried) assert.equal(move[move.indexOf("--label") + 1], carried, "one argument, spaces and all");
   }
 });
 
