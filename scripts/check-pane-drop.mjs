@@ -413,7 +413,7 @@ try {
     assert.deepEqual(calls.filter((call) => call[0] === "evenLayout").length, 1, "evened out once HerdRabbit changed the tab");
     assert.equal(herdrState.panes.filter((pane) => pane.tab_id === "w1:t2").length, 3);
     await page.waitForFunction(() => document.querySelectorAll(".pane-grid:not(.is-view) .pane-grid-cell").length === 3);
-    assert.equal(await page.evaluate(() => sessionStorage.getItem("herdrbridge-view-split")), null, "no split view kept");
+    assert.equal(await page.evaluate(() => localStorage.getItem("herdrabbit-view-splits")), null, "no split view kept");
     assert.equal(await page.locator("#view-back").isVisible(), false);
     assert.equal(await page.locator("#herdr-tab-mark").isVisible(), true);
     await page.locator("#action-feedback").filter({ hasText: "Applied to Herdr" }).waitFor();
@@ -498,7 +498,7 @@ try {
       // Close split view: the pane on screen shows alone, nothing else changes.
       await page.locator("#view-close").click();
       await page.locator(".pane-grid.is-view").waitFor({ state: "hidden" });
-      assert.equal(await page.evaluate(() => sessionStorage.getItem("herdrbridge-view-split")), null);
+      assert.equal(await page.evaluate(() => localStorage.getItem("herdrabbit-view-splits")), null);
       assert.equal(await page.locator("#view-back").isVisible(), false);
       await openAlone("w1:p3");
     }
@@ -691,7 +691,7 @@ try {
     await page.locator("#terminal-xterm .xterm").waitFor({ state: "visible" });
     assert.equal(await page.locator('.pane-button[data-pane-id="w1:p3"]').getAttribute("aria-pressed"), "true", "the last tile shows alone");
     assert.equal(await page.locator("#view-back").isVisible(), false, "no view split is kept");
-    assert.equal(await page.evaluate(() => sessionStorage.getItem("herdrbridge-view-split")), null);
+    assert.equal(await page.evaluate(() => localStorage.getItem("herdrabbit-view-splits")), null);
     assert.equal(await page.locator(tabRow("w2:p1")).count(), 1, "the removed pane is still a tab");
     assert.deepEqual(calls, [], "Herdr was asked nothing");
     assert.deepEqual(moveRequests, []);
@@ -714,7 +714,7 @@ try {
     page.on("request", (request) => { if (request.method() === "POST" && new URL(request.url()).pathname.startsWith("/api/")) posts.push(new URL(request.url()).pathname); });
     // Alpha | (Gamma over Delta), Alpha focused: set once, so a reload reads what the page kept.
     await page.addInitScript(() => {
-      if (sessionStorage.getItem("herdrbridge-view-split")) return;
+      if (sessionStorage.getItem("herdrabbit-view-split-open")) return;
       sessionStorage.setItem("herdrbridge-view-split", JSON.stringify({
         tree: { dir: "right", first: "w1:p3", second: { dir: "down", first: "w2:p1", second: "w2:p2", ratio: 0.5 }, ratio: 0.5 },
         shown: true, focus: "w1:p3",
@@ -743,7 +743,11 @@ try {
       if (release) await page.mouse.up();
       return seen;
     };
-    const stored = () => page.evaluate(() => JSON.parse(sessionStorage.getItem("herdrbridge-view-split")));
+    // The split this window shows, as the browser keeps it.
+    const stored = () => page.evaluate(() => {
+      const { id } = JSON.parse(sessionStorage.getItem("herdrabbit-view-split-open"));
+      return JSON.parse(localStorage.getItem("herdrabbit-view-splits")).splits.find((split) => split.id === id);
+    });
     const close = (a, b, what) => near(a, b, what);
 
     // 1. Its own tile is no drop; Escape cancels.
@@ -815,7 +819,7 @@ try {
     const posts = [];
     page.on("request", (request) => { if (request.method() === "POST" && new URL(request.url()).pathname.startsWith("/api/")) posts.push(new URL(request.url()).pathname); });
     await page.addInitScript(() => {
-      if (sessionStorage.getItem("herdrbridge-view-split")) return;
+      if (sessionStorage.getItem("herdrabbit-view-split-open")) return;
       sessionStorage.setItem("herdrbridge-view-split", JSON.stringify({
         tree: { dir: "right", first: "w1:p3", second: { dir: "right", first: "w2:p1", second: "w2:p2", ratio: 0.5 }, ratio: 0.5 },
         shown: true, focus: "w1:p3",
@@ -968,7 +972,7 @@ try {
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.addInitScript(() => {
-      if (sessionStorage.getItem("herdrbridge-view-split")) return;
+      if (sessionStorage.getItem("herdrabbit-view-split-open")) return;
       sessionStorage.setItem("herdrbridge-view-split", JSON.stringify({
         tree: { dir: "right", first: "w1:p3", second: { dir: "down", first: "w2:p1", second: "laptop!w1:p1", ratio: 0.5 }, ratio: 0.5 },
         shown: true, focus: "w1:p3",

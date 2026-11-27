@@ -65,6 +65,13 @@
   --danger: #ff8080;
   --working: #ffc799;
   --done: #66ddcc;
+  /* The sidebar's view split marks: four hues clear of the status colours
+     (mint and teal, peach and orange, red), used again from split 5. */
+  --split-1: #6cb6ff;
+  --split-2: #c39bff;
+  --split-3: #e98cf5;
+  --split-4: #b5e86b;
+  --split-ink: #0d1117;
   --control-text: #dce4e9;
   --hover-line: #485762;
   --hover-surface: #1c242b;
@@ -141,6 +148,11 @@
   --danger: #b32929;
   --working: #8b500f;
   --done: #0d6c5b;
+  --split-1: #1f5fbf;
+  --split-2: #6f3fc4;
+  --split-3: #a3239f;
+  --split-4: #6b7a00;
+  --split-ink: #ffffff;
   --control-text: #20312a;
   --hover-line: #8ea89b;
   --hover-surface: #ddeae4;

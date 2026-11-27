@@ -21,11 +21,13 @@ import * as xterm from "../vendor/xterm.mjs?v=1.4.61";
 import { writePanePreference } from "../pane-preference.js?v=1.4.61";
 import { writeExpandedSplitTabIds } from "../workspace-preference.js?v=1.4.61";
 import { readGridFit, readGridFont, writeGridFont } from "../terminal-preference.js?v=1.4.61";
-import { laysOutPanes } from "../sidebar-drag.js?v=1.4.61";
+import { laysOutPanes, followMovedPane } from "../sidebar-drag.js?v=1.4.61";
 import { createTilePicker } from "./tile-picker.js?v=1.4.61";
 import { chatAgent } from "../lens-preference.js?v=1.4.61";
 import {
+  MAX_SPLITS,
   PICK_TILE,
+  VIEW_SPLITS_STORAGE_KEY,
   addPickTile,
   addTile,
   applyToHerdrPlan,
@@ -34,13 +36,22 @@ import {
   fillPick,
   layoutRects,
   moveTile,
+  nextSplitId,
   paneDropKind,
   pickChoices,
   prune as pruneViewTiles,
+  pruneSplits,
+  putSplit,
+  readViewSplits,
   removeTile,
+  renameSplits,
+  renameTiles,
+  splitHue,
+  splitWithPane,
   swapTiles,
   tiles as viewTiles,
-  writeViewSplit,
+  writeOpenSplit,
+  writeViewSplits,
 } from "../view-split.js?v=1.4.61";
 
 // Split tabs and this window's own view split: the Herdr grid on a wide
@@ -53,12 +64,14 @@ import {
 // `shownGridTabId` and `shownPaneView` stay app.js's own `let`s, which other
 // parts of the page read; they are read and set here through accessors on
 // `deps`, and so is `snapshotSettled`, which the snapshot refresh reassigns.
-// `viewSplit` is app.js's object, changed in place. The Chat lens is made
+// `viewSplit` is app.js's object, changed in place: the view split this
+// window shows ({ id, tree, shown, focus }); `viewSplits.list` is every view
+// split this browser keeps (view-split.js), the shown one included. The Chat lens is made
 // after this and read through a getter on `deps` (`chatLens`): each cell of a
 // grid shows its own pane in Chat or Terminal.
 export function createPaneViews(deps) {
   const {
-    state, elements, desktopMedia, panePreferenceStorage, viewSplit, viewSplitStorage,
+    state, elements, desktopMedia, panePreferenceStorage, viewSplit, viewSplitStorage, viewSplits, viewSplitsStorage,
     paneCalls, notificationNavigation,
     getShownGridTabId, setShownGridTabId, getShownPaneView, setShownPaneView, getSnapshotSettled,
     snapshotRecords, agentForPane, visibleStatusForPane, acknowledgePaneCompletion, completeNotificationRelay,
@@ -263,18 +276,122 @@ export function createPaneViews(deps) {
     return viewGrid.shown ? viewGrid : paneGrid.shown ? paneGrid : null;
   }
 
-  // Keeps `tree` (null: no view split) and whether it is on screen, here and in
-  // this window's session storage.
-  // The tiles always share their rows and columns evenly: a tile added, taken
-  // out or moved evens them out, so there is nothing to even by hand.
+  // Keeps `tree` (null: no view split) and whether it is on screen, here, in
+  // the browser's list under this split's number and in this window's session
+  // storage. The tiles always share their rows and columns evenly: a tile
+  // added, taken out or moved evens them out, so there is nothing to even by
+  // hand. A change the sidebar's split marks show redraws the sidebar.
   function setViewSplit(tree, shown = viewSplit.shown) {
+    const marksBefore = splitMarksKey();
     tree = evenTree(tree);
     viewSplit.tree = tree;
     viewSplit.shown = Boolean(tree) && shown;
     const ids = viewTiles(tree).filter((id) => id !== PICK_TILE);
     if (!ids.includes(viewSplit.focus)) viewSplit.focus = ids[0] ?? null;
-    writeViewSplit(viewSplitStorage, viewSplit);
+    if (tree && viewSplit.id == null) viewSplit.id = nextSplitId(viewSplits.list);
+    if (viewSplit.id != null) viewSplits.list = putSplit(viewSplits.list, viewSplit.id, tree, viewSplit.focus);
+    if (!tree) viewSplit.id = null;
+    saveViewSplits();
+    if (splitMarksKey() !== marksBefore) renderNavigation();
   }
+
+  function saveViewSplits() {
+    writeViewSplits(viewSplitsStorage, viewSplits.list);
+    writeOpenSplit(viewSplitStorage, viewSplit);
+  }
+
+  // What the sidebar's split marks show: each split's number and tiles, and
+  // which one is on screen.
+  function splitMarksKey() {
+    return JSON.stringify([viewSplits.list.map((split) => [split.id, viewTiles(split.tree)]),
+      viewSplit.id, viewTiles(viewSplit.tree), viewSplit.shown]);
+  }
+
+  // Makes split `id` the one this window shows, on `focus`. A picker waiting
+  // in the split left is dropped: the list never kept it.
+  function adoptSplit(id, tree, focus) {
+    if (id !== viewSplit.id && hasPick()) pickGeneration += 1;
+    viewSplit.id = id;
+    viewSplit.tree = tree;
+    viewSplit.focus = viewTiles(tree).includes(focus) ? focus : viewTiles(tree)[0] ?? null;
+  }
+
+  // The split a session dropped on `targetPaneId` joins: the one shown when
+  // the pane is its tile, else the split the pane is a tile of, else a new one
+  // under the lowest number free ({ id, tree: null }); null when all
+  // MAX_SPLITS are kept.
+  function splitForDrop(targetPaneId) {
+    if (viewTiles(viewSplit.tree).includes(targetPaneId)) return { id: viewSplit.id, tree: viewSplit.tree };
+    const saved = splitWithPane(viewSplits.list, targetPaneId);
+    if (saved) return { id: saved.id, tree: saved.tree };
+    const id = nextSplitId(viewSplits.list);
+    return id ? { id, tree: null } : null;
+  }
+
+  const SPLITS_FULL = `This browser keeps at most ${MAX_SPLITS} split views. Close one first.`;
+
+  // The split `paneId` is a tile of becomes the one shown, on that tile;
+  // false when it is in none. The caller selects the pane with view "tiles".
+  function openViewSplitOf(paneId) {
+    const split = splitWithPane(viewSplits.list, paneId);
+    if (!split) return false;
+    if (split.id !== viewSplit.id) adoptSplit(split.id, split.tree, paneId);
+    return true;
+  }
+
+  // The sidebar's mark for `paneId`: the number and colour of its split, the
+  // names of the split's panes, and whether it is the split on screen; null
+  // for a pane in none.
+  function viewSplitMark(paneId) {
+    const split = viewTiles(viewSplit.tree).includes(paneId) && viewSplit.id != null
+      ? { id: viewSplit.id, tree: viewSplit.tree }
+      : splitWithPane(viewSplits.list, paneId);
+    if (!split) return null;
+    const names = viewTiles(split.tree).filter((id) => id !== PICK_TILE).map(tileName);
+    const open = split.id === viewSplit.id && (viewSplitOnScreen() || viewSplitAsTabs());
+    return { id: split.id, hue: splitHue(split.id), names, open };
+  }
+
+  function tileName(paneId) {
+    const pane = snapshotRecords().panes.find((item) => idOf(item, "pane_id", "id") === paneId);
+    if (!pane) return "Terminal";
+    return paneDisplayTitle(displayTabLabel(selectedRecordsFor(paneId).tab), pane, "Terminal", agentForPane(paneId));
+  }
+
+  // Panes Herdr carried under new ids: every split's tiles follow them.
+  function renameViewSplits(moves) {
+    if (!Array.isArray(moves) || moves.length === 0) return;
+    viewSplits.list = renameSplits(viewSplits.list, moves);
+    if (!viewSplit.tree) {
+      saveViewSplits();
+      return;
+    }
+    viewSplit.focus = followMovedPane(viewSplit.focus, moves);
+    setViewSplit(renameTiles(viewSplit.tree, moves));
+  }
+
+  // Another window of this browser changed the list: this one takes it, and
+  // the split it shows as that window left it (gone, if it closed it). A
+  // picker waiting here keeps this window's split as it is. Each window keeps
+  // its own focus, so two windows on one split do not trade it back and forth.
+  window.addEventListener("storage", (event) => {
+    if (event.storageArea !== viewSplitsStorage || (event.key !== VIEW_SPLITS_STORAGE_KEY && event.key !== null)) return;
+    const wasOnScreen = viewSplitOnScreen() || viewSplitAsTabs();
+    viewSplits.list = readViewSplits(viewSplitsStorage);
+    if (viewSplit.id != null && !hasPick()) {
+      const mine = viewSplits.list.find((split) => split.id === viewSplit.id);
+      if (!mine) adoptSplit(null, null, null);
+      else if (JSON.stringify(mine.tree) !== JSON.stringify(viewSplit.tree)) adoptSplit(mine.id, mine.tree, viewSplit.focus);
+      viewSplit.shown = Boolean(viewSplit.tree) && viewSplit.shown;
+      writeOpenSplit(viewSplitStorage, viewSplit);
+    }
+    // Leaving the tiles for the pane alone needs its terminal: selectPane does that.
+    if (wasOnScreen && !(viewSplitOnScreen() || viewSplitAsTabs()) && state.selectedPaneId) selectPane(state.selectedPaneId);
+    else {
+      renderNavigation();
+      renderPaneViews();
+    }
+  });
 
   // Whether the view split is on screen now: it is, it was not left for a pane
   // alone, the selected pane is one of its tiles, and the screen is wide.
@@ -369,39 +486,55 @@ export function createPaneViews(deps) {
   }
 
   // A session dropped on the pane alone or on a tile becomes a tile beside it,
-  // on the side it was dropped, and is selected there. On the pane alone a view
-  // split this window still keeps is carried on when that pane is one of its
-  // tiles; otherwise the two make a new one.
+  // on the side it was dropped, and is selected there. On the pane alone the
+  // view split that pane is a tile of is carried on (this window's or another
+  // the browser keeps); otherwise the two make a new one, and the splits kept
+  // so far stay as they are. A pane in another split leaves it for this one.
   function addViewTile({ tabId, targetPaneId, side }) {
     const pane = panesOfTab(tabId)[0];
     const paneId = idOf(pane, "pane_id", "id");
     if (!paneId) return;
-    const base = viewTiles(viewSplit.tree).includes(targetPaneId) ? viewSplit.tree : null;
+    const split = splitForDrop(targetPaneId);
+    if (!split) {
+      setFeedback(SPLITS_FULL, true);
+      return;
+    }
+    const base = split.tree;
     const next = addTile(base, targetPaneId, paneId, side);
     if (!next || next === base) {
       setFeedback(viewTiles(base).length >= 6 ? "A split view shows at most 6 panes." : "This pane is in the split view already.", true);
-      if (base) selectPane(targetPaneId, { view: "tiles" });
+      if (base) {
+        adoptSplit(split.id, base, targetPaneId);
+        selectPane(targetPaneId, { view: "tiles" });
+      }
       return;
     }
+    adoptSplit(split.id, next, paneId);
     setViewSplit(next, true);
     viewSplit.focus = paneId;
     selectPane(paneId, { view: "tiles" });
   }
 
-  // Tiles whose panes are gone leave the view; with fewer than two left it is
-  // over. The selected pane, gone with its tile, gives way to another tile.
-  // A tile of a machine that is connecting or away stays even with its pane
-  // missing from the snapshot: the pane comes back with the machine.
+  // Tiles whose panes are gone leave every view split; one with fewer than two
+  // left is over. The selected pane, gone with its tile, gives way to another
+  // tile. A tile of a machine that is connecting or away stays even with its
+  // pane missing from the snapshot: the pane comes back with the machine.
   function pruneViewSplit(listed) {
-    if (!viewSplit.tree || listed.length === 0) return;
+    if (listed.length === 0) return;
     const { panes, servers } = snapshotRecords();
-    const paneIds = [...listed, PICK_TILE, ...viewTiles(viewSplit.tree).filter((id) => holdsRemotePane(id, panes, servers))];
+    const existing = new Set(listed);
+    const keep = (id) => id === PICK_TILE || existing.has(id) || holdsRemotePane(id, panes, servers);
+    const pruned = pruneSplits(viewSplits.list, keep);
+    if (pruned !== viewSplits.list) {
+      viewSplits.list = pruned;
+      saveViewSplits();
+    }
+    if (!viewSplit.tree) return;
     const before = viewTiles(viewSplit.tree);
-    const next = pruneViewTiles(viewSplit.tree, paneIds);
-    const after = viewTiles(next);
-    if (after.length === before.length) return;
-    const selectedGone = before.includes(state.selectedPaneId) && !paneIds.includes(state.selectedPaneId);
-    const survivor = before.find((id) => paneIds.includes(id)) ?? null;
+    if (before.every(keep)) return;
+    const next = pruneViewTiles(viewSplit.tree, before.filter(keep));
+    const selectedGone = before.includes(state.selectedPaneId) && !keep(state.selectedPaneId);
+    const survivor = before.find(keep) ?? null;
     setViewSplit(next);
     if (selectedGone && survivor) {
       state.selectedPaneId = next ? viewSplit.focus : survivor;
@@ -449,12 +582,18 @@ export function createPaneViews(deps) {
   }
 
   function openPick({ targetPaneId, side }) {
-    const base = viewTiles(viewSplit.tree).includes(targetPaneId) ? viewSplit.tree : null;
+    const split = splitForDrop(targetPaneId);
+    if (!split) {
+      setFeedback(SPLITS_FULL, true);
+      return;
+    }
+    const base = split.tree;
     const next = addPickTile(base, targetPaneId, side);
     if (!next || next === base) {
       setFeedback("A split view shows at most 6 panes.", true);
       return;
     }
+    adoptSplit(split.id, next, targetPaneId);
     pickGeneration += 1;
     setViewSplit(next, true);
     focusPicker = true;
@@ -722,7 +861,8 @@ export function createPaneViews(deps) {
     if (tilesShown) {
       if (viewSplit.focus !== state.selectedPaneId) {
         viewSplit.focus = state.selectedPaneId;
-        writeViewSplit(viewSplitStorage, viewSplit);
+        if (viewSplit.id != null) viewSplits.list = putSplit(viewSplits.list, viewSplit.id, viewSplit.tree, viewSplit.focus);
+        saveViewSplits();
       }
       const rects = layoutRects(viewSplit.tree);
       viewGrid.show({ panes: viewTilePanes(), layout: rects, selectedPaneId: state.selectedPaneId });
@@ -1165,7 +1305,8 @@ export function createPaneViews(deps) {
 
   return {
     SEPARATE_ICON, EVEN_ICON,
-    paneTabId, canLayOut, paneLayout, paneGrid, viewGrid, shownGrid, setViewSplit, pruneViewSplit,
+    paneTabId, canLayOut, paneLayout, paneGrid, viewGrid, shownGrid, pruneViewSplit,
+    renameViewSplits, viewSplitMark, openViewSplitOf,
     dropOnPane, paneDropTargets, renderPaneViews, selectPane,
     splitSessionName, splitSessionButton, splitDisclosureButton, splitPaneRow,
     evenOutLayout, separateSplitSession,

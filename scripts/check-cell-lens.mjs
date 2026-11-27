@@ -412,7 +412,7 @@ try {
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.addInitScript(() => {
-      if (sessionStorage.getItem("herdrbridge-view-split")) return;
+      if (sessionStorage.getItem("herdrabbit-view-split-open")) return;
       sessionStorage.setItem("herdrbridge-view-split", JSON.stringify({ tree: { dir: "right", first: "w1:p9", second: "w2:p1", ratio: 0.5 }, shown: true, focus: "w1:p9" }));
       localStorage.setItem("herdrbridge-pane-lens", JSON.stringify({ "w1:p9": "chat" }));
     });

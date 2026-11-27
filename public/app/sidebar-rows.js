@@ -33,7 +33,7 @@ export function createSidebarRows(deps) {
     snapshotRecords, agentForPane, visibleStatusForPane,
     choosePane, renderNavigation, selectedRecords, renderPaneHeading, showTerminalMessage,
     refreshTerminal, refreshSnapshot, setFeedback, closeMobileSidebar, selectPane, focusComposer,
-    openNewSession, openNewWorktree, openWorktree, removeWorktree,
+    openNewSession, openNewWorktree, openWorktree, removeWorktree, viewSplitMark, openViewSplitOf,
   } = deps;
 
   function sidebarActionMenu({
@@ -470,6 +470,22 @@ export function createSidebarRows(deps) {
     return heading;
   }
 
+  // A view split's mark on its panes' rows: its number in its colour, filled
+  // while it is the split on screen (pane-views.js viewSplitMark).
+  const SPLIT_MARK_ICON = ["M4 5h16v14H4z", "M12 5v14"];
+
+  function splitMarkText(mark) {
+    return `Split view ${mark.id}: ${mark.names.join(" + ")}`;
+  }
+
+  function splitMarkElement(mark) {
+    const node = createElement("span", { className: `view-split-mark split-hue-${mark.hue}${mark.open ? " is-open" : ""}` });
+    node.dataset.split = String(mark.id);
+    node.setAttribute("aria-hidden", "true");
+    node.append(createIcon(SPLIT_MARK_ICON, "view-split-mark-icon"), createElement("span", { text: String(mark.id) }));
+    return node;
+  }
+
   function paneButton(pane, tab, workspace, { namesSession = false } = {}) {
     const paneId = idOf(pane, "pane_id", "id");
     const agent = agentForPane(paneId);
@@ -498,7 +514,15 @@ export function createSidebarRows(deps) {
 
     const title = paneDisplayTitle(sessionName, pane, tabLabel || "Terminal", agent);
     const copy = createElement("span", { className: "pane-copy" });
-    copy.append(createElement("strong", { className: "pane-title", text: title }));
+    const strong = createElement("strong", { className: "pane-title", text: title });
+    const mark = viewSplitMark(paneId);
+    if (mark) {
+      const titleLine = createElement("span", { className: "pane-title-line" });
+      titleLine.append(strong, splitMarkElement(mark));
+      copy.append(titleLine);
+      button.title += ` · ${splitMarkText(mark)}`;
+      button.setAttribute("aria-label", `${button.getAttribute("aria-label")}, ${splitMarkText(mark)}`);
+    } else copy.append(strong);
     const line = paneRowLine(currentAgentStatus, paneSubtitle(title, pane));
     if (line) copy.append(createElement("small", line));
     button.append(copy);
@@ -512,10 +536,11 @@ export function createSidebarRows(deps) {
     button.append(status);
 
     // A row opens its pane alone, even in a split tab: the split session's own row opens the grid.
-    // A pane that is a tile of this window's view split is focused there
-    // instead (on a phone, its tab of the split view).
+    // A pane that is a tile of a view split is focused there instead,
+    // opening that split when another is shown (on a phone, its tab of the
+    // split view).
     button.addEventListener("click", () => {
-      if (viewTiles(viewSplit.tree).includes(paneId)) {
+      if (viewTiles(viewSplit.tree).includes(paneId) || openViewSplitOf(paneId)) {
         selectPane(paneId, { view: "tiles" });
         if (desktopMedia.matches) deps.viewGrid.focus(paneId, { terminal: false });
       } else selectPane(paneId, { view: "solo" });

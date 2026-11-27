@@ -133,7 +133,7 @@ try {
   // The planner beside the notes, the notes selected.
   await page.addInitScript(([plan, notes]) => {
     // the page only: not the viewer's sandboxed frame, which has no storage
-    if (window !== window.top || sessionStorage.getItem("herdrbridge-view-split")) return;
+    if (window !== window.top || sessionStorage.getItem("herdrabbit-view-split-open")) return;
     sessionStorage.setItem("herdrbridge-view-split", JSON.stringify({
       tree: { dir: "right", first: plan, second: notes, ratio: 0.5 }, shown: true, focus: notes }));
   }, [PLAN, NOTES]);

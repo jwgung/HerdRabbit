@@ -71,7 +71,7 @@ import {
   workspaceMoveRequest,
 } from "./sidebar-drag.js?v=1.4.61";
 import {
-  readViewSplit,
+  loadViewSplits,
   tiles as viewTiles,
 } from "./view-split.js?v=1.4.61";
 import {
@@ -114,10 +114,15 @@ const notificationPanePreference = new URL(window.location.href).searchParams.ge
 // How long a link to another server's pane waits for that server's panes to load.
 const PENDING_REMOTE_PANE_MS = 20_000;
 const pageOpenedAt = Date.now();
-// This window's own view split (view-split.js), kept for this window alone: a
-// reload opens it again, on the tile last focused, unless a link names a pane.
+// This browser's view splits (view-split.js): the list is kept in local
+// storage for every window, and `viewSplit` is the one this window shows,
+// kept for it alone. A reload opens it again, on the tile last focused,
+// unless a link names a pane. `viewSplits.list` is changed by pane-views.js.
 const viewSplitStorage = browserSessionStorage();
-const viewSplit = readViewSplit(viewSplitStorage);
+const viewSplitsStorage = panePreferenceStorage;
+const loadedViewSplits = loadViewSplits(viewSplitsStorage, viewSplitStorage);
+const viewSplits = { list: loadedViewSplits.splits };
+const viewSplit = loadedViewSplits.open;
 const initialPanePreference =
   typeof notificationPanePreference === "string" &&
   notificationPanePreference.length > 0 &&
@@ -761,6 +766,8 @@ const {
   desktopMedia,
   viewSplit,
   get viewGrid() { return viewGrid; },
+  viewSplitMark: (...args) => viewSplitMark(...args),
+  openViewSplitOf: (...args) => openViewSplitOf(...args),
   api: (...args) => api(...args),
   snapshotRecords: (...args) => snapshotRecords(...args),
   agentForPane: (...args) => agentForPane(...args),
@@ -844,7 +851,6 @@ const {
   composerDrafts,
   draftBlocked,
   draftHeld,
-  viewSplit,
   api: (...args) => api(...args),
   refreshSnapshot: (...args) => refreshSnapshot(...args),
   setFeedback: (...args) => setFeedback(...args),
@@ -855,7 +861,7 @@ const {
   visibleStatusForPane: (...args) => visibleStatusForPane(...args),
   adoptMutationSnapshot: (...args) => adoptMutationSnapshot(...args),
   saveComposerDraft: (...args) => saveComposerDraft(...args),
-  setViewSplit: (...args) => setViewSplit(...args),
+  renameViewSplits: (...args) => renameViewSplits(...args),
   showServerDetails: (...args) => showServerDetails(...args),
   showAiAccounts: (...args) => showAiAccounts(...args),
   openConnectPc: (...args) => openConnectPc(...args),
@@ -1023,7 +1029,8 @@ let lateChatLens = null;
 
 const {
   SEPARATE_ICON, EVEN_ICON,
-  paneTabId, canLayOut, paneGrid, viewGrid, shownGrid, setViewSplit, pruneViewSplit,
+  paneTabId, canLayOut, paneGrid, viewGrid, shownGrid, pruneViewSplit,
+  renameViewSplits, viewSplitMark, openViewSplitOf,
   dropOnPane, paneDropTargets, renderPaneViews, selectPane,
   splitSessionName, splitSessionButton, splitDisclosureButton, splitPaneRow,
   evenOutLayout, separateSplitSession,
@@ -1034,6 +1041,8 @@ const {
   panePreferenceStorage,
   viewSplit,
   viewSplitStorage,
+  viewSplits,
+  viewSplitsStorage,
   paneCalls,
   notificationNavigation,
   getShownGridTabId: () => shownGridTabId,
